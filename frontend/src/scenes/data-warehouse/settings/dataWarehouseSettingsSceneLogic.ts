@@ -51,6 +51,7 @@ export interface dataWarehouseSettingsSceneLogicValues {
     inEditSchemaMode: boolean
     isEditingSavedQuery: boolean
     materializedViews: DatabaseSchemaMaterializedViewTable[]
+    materializedViewsLoading: boolean
     nonMaterializedViews: DatabaseSchemaTable[]
     schemaModalIsOpen: boolean
     schemaUpdates: Record<string, DatabaseSerializedFieldType>
@@ -204,6 +205,7 @@ export interface dataWarehouseSettingsSceneLogicMeta {
             views: DatabaseSchemaViewTable[],
             dataWarehouseSavedQueryMapById: Record<string, DataWarehouseSavedQuery>
         ) => DatabaseSchemaTable[]
+        materializedViewsLoading: (databaseLoading: boolean, dataWarehouseSavedQueriesLoading: boolean) => boolean
         materializedViews: (
             views: DatabaseSchemaViewTable[],
             dataWarehouseSavedQueryMapById: Record<string, DataWarehouseSavedQuery>
@@ -400,6 +402,14 @@ export const dataWarehouseSettingsSceneLogic = kea<dataWarehouseSettingsSceneLog
                         type: 'view',
                     }))
             },
+        ],
+        // `materializedViews` needs both loaders: names come from the database schema, the
+        // materialized flag from the saved queries. Consumers that watch only one report an empty
+        // list while the other is still in flight.
+        materializedViewsLoading: [
+            (s) => [s.databaseLoading, s.dataWarehouseSavedQueriesLoading],
+            (databaseLoading: boolean, dataWarehouseSavedQueriesLoading: boolean): boolean =>
+                databaseLoading || dataWarehouseSavedQueriesLoading,
         ],
         materializedViews: [
             (s) => [s.views, s.dataWarehouseSavedQueryMapById],

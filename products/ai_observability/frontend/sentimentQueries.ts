@@ -327,6 +327,7 @@ async function fetchSentimentEvaluationCandidates(
                         date_from: values.dateFilter.dateFrom,
                         date_to: values.dateFilter.dateTo,
                     },
+                    filterTestAccounts: values.shouldFilterTestAccounts,
                 },
             },
         }
@@ -346,9 +347,16 @@ async function fetchSentimentEvaluationCandidates(
     return candidates
 }
 
+/**
+ * Fetches the content behind an exact list of generations.
+ *
+ * This query takes no project filters. The candidate query applies them, and this query needs
+ * only the keys that query returns. A person property filter is also far more expensive here:
+ * `events` reads person properties from a denormalized column, but `ai_events` resolves them
+ * through a join back to the main cluster, which can exhaust query memory.
+ */
 async function hydrateSentimentGenerations(
     candidates: SentimentEvaluationCandidate[],
-    values: SentimentGenerationsQueryValues,
     refresh?: RefreshType
 ): Promise<Map<string, SentimentGeneration>> {
     const traceIds = uniqueNonEmpty(candidates.map((candidate) => candidate.traceId))
@@ -387,7 +395,6 @@ async function hydrateSentimentGenerations(
                 WHERE event = '$ai_generation'
                   AND trace_id IN ${traceIds}
                   AND toString(uuid) IN ${generationIds}
-                  AND {filters}
                 GROUP BY uuid, trace_id
             ) AS generation
             INNER JOIN (
@@ -412,14 +419,7 @@ async function hydrateSentimentGenerations(
             LIMIT ${generationIds.length}
         `,
         { ...SENTIMENT_QUERY_TAGS, name: 'ai_observability_sentiment_generation_hydration' },
-        {
-            refresh,
-            queryParams: {
-                filters: {
-                    filterTestAccounts: values.shouldFilterTestAccounts,
-                },
-            },
-        }
+        { refresh }
     )
 
     const columnIndexes = buildQueryColumnIndexes(response.columns, SENTIMENT_GENERATION_COLUMNS)
@@ -481,7 +481,7 @@ export async function fetchSentimentGenerationsPage(
             break
         }
 
-        const generationById = await hydrateSentimentGenerations(candidates, values, refresh)
+        const generationById = await hydrateSentimentGenerations(candidates, refresh)
         let consumedCandidates = 0
 
         for (const candidate of candidates) {

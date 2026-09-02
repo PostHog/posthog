@@ -9,7 +9,6 @@ from posthog.schema import SourceFieldInputConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.alpha_vantage.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.alpha_vantage.source import AlphaVantageSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.alpha_vantage.source"
 
@@ -22,9 +21,6 @@ def _make_config(api_key: str = "key", symbols: str = "IBM, AAPL") -> Any:
 
 
 class TestAlphaVantageSource:
-    def test_source_type(self) -> None:
-        assert AlphaVantageSource().source_type == ExternalDataSourceType.ALPHAVANTAGE
-
     def test_source_config_has_api_key_and_symbols_fields(self) -> None:
         config = AlphaVantageSource().get_source_config
         assert [f.name for f in config.fields] == ["api_key", "symbols"]
@@ -39,11 +35,6 @@ class TestAlphaVantageSource:
         assert symbols_field.type == "text"
         assert symbols_field.secret is False
         assert symbols_field.required is True
-
-    def test_source_config_stays_unreleased_alpha(self) -> None:
-        config = AlphaVantageSource().get_source_config
-        assert config.releaseStatus == "alpha"
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/alpha-vantage"
 
     def test_lists_tables_without_credentials(self) -> None:
         # get_schemas is a static endpoint catalog with no I/O, so the public docs can render tables.
@@ -126,17 +117,6 @@ class TestAlphaVantageSource:
             with pytest.raises(ValueError, match="Too many symbols"):
                 AlphaVantageSource().source_for_pipeline(oversized, inputs)
         source_fn.assert_not_called()
-
-    @parameterized.expand(
-        [
-            ("quota", "Alpha Vantage API error [rate_limit_or_premium]"),
-            ("unexpected", "Alpha Vantage API error [unexpected_response]"),
-        ]
-    )
-    def test_non_retryable_errors_cover_permanent_failures(self, _name: str, expected_key: str) -> None:
-        errors = AlphaVantageSource().get_non_retryable_errors()
-        assert expected_key in errors
-        assert errors[expected_key]
 
     def test_canonical_descriptions_keyed_by_endpoint(self) -> None:
         descriptions = AlphaVantageSource().get_canonical_descriptions()

@@ -1,9 +1,14 @@
+import type { BillingType } from '~/types'
+
 import { ThreadMessage } from './maxLogic'
 import {
     appendTicketMetadata,
+    canCreateSupportTicket,
     composeTicketBody,
     formatTicketConfirmationMessage,
+    getTicketPromptData,
     getTicketSummaryData,
+    isTicketCommand,
     isTicketConfirmationMessage,
 } from './ticketUtils'
 
@@ -16,6 +21,17 @@ const DENIAL =
 
 describe('ticketUtils', () => {
     describe('getTicketSummaryData', () => {
+        it('does not treat a near-miss like /tickets as a ticket command', () => {
+            const thread = [
+                human('How do I create an insight?'),
+                ai('You can create an insight by...'),
+                human('/tickets'),
+                ai("/tickets isn't a recognized slash command. You might be looking for /ticket (singular)."),
+            ]
+
+            expect(getTicketSummaryData(thread, false)).toBeNull()
+        })
+
         it('does not treat an eligibility denial as a ticket summary', () => {
             const thread = [
                 human('How do I create an insight?'),
@@ -39,6 +55,19 @@ describe('ticketUtils', () => {
         })
     })
 
+    describe('getTicketPromptData', () => {
+        const prompt = "I'll help you create a support ticket"
+
+        it.each([
+            ['plain command with text', '/ticket sync failed', 'sync failed'],
+            ['leading whitespace still prefills the text', '  /ticket sync failed', 'sync failed'],
+            ['bare command has no prefill', '/ticket', undefined],
+        ])('%s', (_name, content, expectedInitialText) => {
+            const thread = [human(content), ai(prompt)]
+            expect(getTicketPromptData(thread, false)).toEqual({ needed: true, initialText: expectedInitialText })
+        })
+    })
+
     describe('formatTicketConfirmationMessage', () => {
         it('promises the response time the plan covers', () => {
             expect(formatTicketConfirmationMessage('4321', '48 hours')).toBe(
@@ -59,6 +88,70 @@ describe('ticketUtils', () => {
             ['without a response time', null],
         ])('stays detectable as a confirmation %s', (_name, responseTime) => {
             expect(isTicketConfirmationMessage(ai(formatTicketConfirmationMessage('4321', responseTime)))).toBe(true)
+        })
+    })
+
+    describe('canCreateSupportTicket', () => {
+        const billing = (partial: Partial<BillingType>): BillingType => partial as BillingType
+
+        it.each([
+            ['paid subscription', billing({ subscription_level: 'paid' }), false, true],
+            ['custom subscription', billing({ subscription_level: 'custom' }), false, true],
+            [
+                'free with active boost trial',
+                billing({
+                    subscription_level: 'free',
+                    trial: { status: 'active', target: 'boost' } as BillingType['trial'],
+                }),
+                false,
+                true,
+            ],
+            [
+                'free with active scale trial',
+                billing({
+                    subscription_level: 'free',
+                    trial: { status: 'active', target: 'scale' } as BillingType['trial'],
+                }),
+                false,
+                true,
+            ],
+            [
+                'free with active enterprise trial',
+                billing({
+                    subscription_level: 'free',
+                    trial: { status: 'active', target: 'enterprise' } as BillingType['trial'],
+                }),
+                false,
+                true,
+            ],
+            [
+                'free with expired trial',
+                billing({
+                    subscription_level: 'free',
+                    trial: { status: 'expired', target: 'boost' } as BillingType['trial'],
+                }),
+                false,
+                false,
+            ],
+            ['free without trial', billing({ subscription_level: 'free' }), false, false],
+            ['free but organization is new', billing({ subscription_level: 'free' }), true, true],
+            ['billing not loaded, organization not new', null, false, false],
+            ['billing not loaded, organization new', null, true, true],
+        ])('%s', (_name, billingValue, isOrgNew, expected) => {
+            expect(canCreateSupportTicket(billingValue, isOrgNew)).toBe(expected)
+        })
+    })
+
+    describe('isTicketCommand', () => {
+        it.each([
+            ['/ticket', true],
+            ['/ticket my recordings are broken', true],
+            ['  /ticket  ', true],
+            ['/tickets', false],
+            ['/feedback', false],
+            ['tell me about /ticket', false],
+        ])('%s', (content, expected) => {
+            expect(isTicketCommand(content)).toBe(expected)
         })
     })
 

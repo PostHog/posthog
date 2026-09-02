@@ -4,13 +4,16 @@ import { GroupTypeManager } from '~/common/groups/group-type-manager'
 import { HogTransformer } from '~/common/hog-transformations/hog-transformer.interface'
 import { IngestionWarningsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
 import { TeamManager } from '~/common/utils/team-manager'
+import { FlagEvaluationsService } from '~/ingestion/common/flag-evaluations/flag-evaluations-service'
 import { GroupStoreForBatch } from '~/ingestion/common/groups/group-store-for-batch'
 import { WithMergeFoldDecision } from '~/ingestion/common/persons/person-merge-fold'
 import { PersonsStoreForBatch } from '~/ingestion/common/persons/persons-store-for-batch'
 import { createCreateEventStep } from '~/ingestion/common/steps/event-processing/create-event-step'
 import { EmitEventStepOutput, createEmitEventStep } from '~/ingestion/common/steps/event-processing/emit-event-step'
 import { EventPipelineRunnerOptions } from '~/ingestion/common/steps/event-processing/event-pipeline-options'
+import { createForkFlagEvaluationsStep } from '~/ingestion/common/steps/event-processing/fork-flag-evaluations-step'
 import { createHogTransformEventStep } from '~/ingestion/common/steps/event-processing/hog-transform-event-step'
 import { createNormalizeEventStep } from '~/ingestion/common/steps/event-processing/normalize-event-step'
 import { createNormalizeProcessPersonFlagStep } from '~/ingestion/common/steps/event-processing/normalize-process-person-flag-step'
@@ -19,6 +22,11 @@ import { createProcessGroupsStep } from '~/ingestion/common/steps/event-processi
 import { createProcessPersonlessStep } from '~/ingestion/common/steps/event-processing/process-personless-step'
 import { createProcessPersonsStep } from '~/ingestion/common/steps/event-processing/process-persons-step'
 import { createRecordIngestionLagStep } from '~/ingestion/common/steps/record-ingestion-lag'
+import {
+    createRecordEventUsageAfterIngestStep,
+    createRecordEventUsageStep,
+} from '~/ingestion/common/steps/usage-records-steps'
+import { resolveAnalyticsUsageKey } from '~/ingestion/common/usage-records/billable-events'
 import { PipelineBuilder, StartPipelineBuilder } from '~/ingestion/framework/builders/pipeline-builders'
 import { TopHogWrapper, sum, sumOk, sumResult, timer } from '~/ingestion/framework/extensions/tophog'
 import { isDropResult } from '~/ingestion/framework/results'
@@ -29,6 +37,7 @@ import {
     AsyncOutput,
     EVENTS_OUTPUT,
     EventOutput,
+    FlagEvaluationsOutput,
     PersonDistinctIdsOutput,
     PersonMergeEventsOutput,
     PersonsOutput,
@@ -52,17 +61,24 @@ export interface EventSubpipelineInput {
     headers: EventHeaders
     personsStoreForBatch: PersonsStoreForBatch
     groupStoreForBatch: GroupStoreForBatch
+    eventUsageBatch: UsageRecordBatch
 }
 
 export interface EventSubpipelineConfig {
     options: EventPipelineRunnerOptions
     outputs: IngestionOutputs<
-        EventOutput | IngestionWarningsOutput | PersonsOutput | PersonDistinctIdsOutput | PersonMergeEventsOutput
+        | EventOutput
+        | FlagEvaluationsOutput
+        | IngestionWarningsOutput
+        | PersonsOutput
+        | PersonDistinctIdsOutput
+        | PersonMergeEventsOutput
     >
     teamManager: TeamManager
     groupTypeManager: GroupTypeManager
     hogTransformer: HogTransformer
     topHog: TopHogWrapper
+    flagEvaluationsService?: FlagEvaluationsService
 }
 
 // The WithMergeFoldDecision constraint (not a field on EventSubpipelineInput) is deliberate: the
@@ -72,9 +88,9 @@ export function createEventSubpipeline<TInput extends EventSubpipelineInput & Wi
     builder: StartPipelineBuilder<TInput, TContext>,
     config: EventSubpipelineConfig
 ): PipelineBuilder<TInput, EmitEventStepOutput, TContext, AsyncOutput> {
-    const { options, outputs, teamManager, groupTypeManager, hogTransformer, topHog } = config
+    const { options, outputs, teamManager, groupTypeManager, hogTransformer, topHog, flagEvaluationsService } = config
 
-    return builder
+    let pipeline = builder
         .pipe(createNormalizeProcessPersonFlagStep())
         .pipe(
             topHog(createHogTransformEventStep(hogTransformer), [
@@ -150,7 +166,18 @@ export function createEventSubpipeline<TInput extends EventSubpipelineInput & Wi
             ]),
             { retry: { tries: 5, sleepMs: 100, name: 'process_groups' } }
         )
+        .pipe(createRecordEventUsageStep(resolveAnalyticsUsageKey))
         .pipe(createCreateEventStep(EVENTS_OUTPUT, options.EXPERIMENT_EXPOSURE_DUPLICATION_TEAMS))
+
+    // Composed at build time so the disabled fleet default pays no per-event step
+    // overhead. No retry envelope: a retry would queue the produce again. Unlike
+    // emit-event below, this produce is best effort: its ack settles inside the
+    // step and a failure drops the shadow row.
+    if (flagEvaluationsService) {
+        pipeline = pipeline.pipe(createForkFlagEvaluationsStep(outputs, flagEvaluationsService))
+    }
+
+    return pipeline
         .pipe(
             topHog(
                 createEmitEventStep({
@@ -183,5 +210,6 @@ export function createEventSubpipeline<TInput extends EventSubpipelineInput & Wi
             ),
             { retry: { tries: 5, sleepMs: 100, name: 'emit_event' } }
         )
+        .pipe(createRecordEventUsageAfterIngestStep())
         .pipe(createRecordIngestionLagStep())
 }

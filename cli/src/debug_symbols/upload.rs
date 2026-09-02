@@ -45,7 +45,7 @@ pub fn upload(args: &Args) -> Result<()> {
         conflict,
         include_source,
     } = args;
-    let release_args = release;
+    let release_args = release.resolve_info_plist()?;
 
     let directory = directory.canonicalize().map_err(|e| {
         anyhow!(

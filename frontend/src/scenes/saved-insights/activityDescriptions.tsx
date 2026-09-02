@@ -259,6 +259,7 @@ const insightActionsMapping: Record<
     view_count: () => null,
     is_cached: () => null,
     filter_override_context: () => null,
+    resolved_date_range: () => null,
 }
 
 function summarizeQueryChanges(query: InsightQueryNode | HogQLQuery): ChangeMapping {

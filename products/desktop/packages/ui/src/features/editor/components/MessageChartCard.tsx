@@ -131,7 +131,7 @@ function InsightChartCard({
       if (!insight) return null;
       const plan = planReportChart(insight.query);
       if (plan.kind !== "run") return { name: insight.name, data: null };
-      const response = await client.runQuery(plan.source);
+      const response = insight.response ?? (await client.runQuery(plan.source));
       return { name: insight.name, data: shapeReportChartData(response, plan) };
     },
     { staleTime: 5 * 60 * 1000, refetchOnWindowFocus: false, retry: 1 },

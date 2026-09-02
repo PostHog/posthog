@@ -11,7 +11,11 @@ from llm_gateway.auth.authenticators import OAuthAccessTokenAuthenticator
 from llm_gateway.auth.cache import AuthCache, reset_auth_cache
 from llm_gateway.auth.models import AuthenticatedUser
 from llm_gateway.auth.service import AuthService, InvalidProjectScopeError, UnauthorizedProjectScopeError
-from llm_gateway.baseten import BASETEN_DEEPSEEK_PUBLIC_MODEL, BASETEN_GLM53_PUBLIC_MODEL
+from llm_gateway.baseten import (
+    BASETEN_DEEPSEEK_PUBLIC_MODEL,
+    BASETEN_GLM53_FLASH_PUBLIC_MODEL,
+    BASETEN_GLM53_PUBLIC_MODEL,
+)
 from llm_gateway.config import get_settings
 from llm_gateway.dependencies import (
     _extract_end_user_id_from_body,
@@ -23,9 +27,14 @@ from llm_gateway.dependencies import (
     get_request_json,
     resolve_plan_and_quota,
 )
-from llm_gateway.products.config import POSTHOG_CODE_US_APP_ID
+from llm_gateway.products.config import POSTHOG_CODE_US_APP_ID, SIGNALS_DEV_APP_ID
 from llm_gateway.rate_limiting.cost_throttles import SandboxTaskCostThrottle
 from llm_gateway.rate_limiting.throttles import ThrottleContext, ThrottleResult
+from llm_gateway.services.desktop_access_resolver import (
+    DesktopAccessDecision,
+    DesktopAccessReason,
+    DesktopAccessStatus,
+)
 from llm_gateway.services.plan_resolver import PlanInfo
 from llm_gateway.services.quota_resolver import QuotaResourceStatus
 
@@ -471,6 +480,7 @@ class TestBasetenExclusiveModelGateWiring:
         [
             (BASETEN_DEEPSEEK_PUBLIC_MODEL, "posthog-code-deepseek-model", "/posthog_code/v1/messages"),
             (BASETEN_GLM53_PUBLIC_MODEL, "posthog-code-glm-53-model", "/posthog_code/v1/messages"),
+            (BASETEN_GLM53_FLASH_PUBLIC_MODEL, "posthog-code-glm-53-flash-model", "/posthog_code/v1/messages"),
         ],
     )
     @pytest.mark.parametrize("flag_result", [False, None])
@@ -496,7 +506,9 @@ class TestBasetenExclusiveModelGateWiring:
         assert flag.await_args.args[0] == access_flag
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("model", [BASETEN_DEEPSEEK_PUBLIC_MODEL, BASETEN_GLM53_PUBLIC_MODEL])
+    @pytest.mark.parametrize(
+        "model", [BASETEN_DEEPSEEK_PUBLIC_MODEL, BASETEN_GLM53_PUBLIC_MODEL, BASETEN_GLM53_FLASH_PUBLIC_MODEL]
+    )
     async def test_baseten_exclusive_model_allowed_when_flag_enabled(self, model: str) -> None:
         request = _make_request({"model": model, "messages": []}, path="/posthog_code/v1/messages")
         user = _make_user(auth_method="oauth_access_token", user_id=7)
@@ -512,6 +524,7 @@ class TestBasetenExclusiveModelGateWiring:
 
 
 class TestServerCredentialRequirementWiring:
+    # The signals path only accepts the Signals app now, so the marker wiring is pinned with it
     def _oauth_user(self, scopes: list[str]) -> AuthenticatedUser:
         return AuthenticatedUser(
             user_id=7,
@@ -519,7 +532,7 @@ class TestServerCredentialRequirementWiring:
             auth_method="oauth_access_token",
             distinct_id="test-distinct-id-7",
             scopes=scopes,
-            application_id=POSTHOG_CODE_US_APP_ID,
+            application_id=SIGNALS_DEV_APP_ID,
         )
 
     @pytest.mark.asyncio
@@ -559,21 +572,79 @@ class TestDesktopAccessGate:
             application_id=POSTHOG_CODE_US_APP_ID,
         )
 
-    def _request(self, resolver_answer: bool, path: str = "/posthog_code/v1/messages") -> Request:
+    def _request(
+        self,
+        resolver_answer: bool,
+        path: str = "/posthog_code/v1/messages",
+        reason: DesktopAccessReason | None = "startup_plan",
+        unavailable: bool = False,
+    ) -> Request:
         request = _make_request({"model": "claude-sonnet-5", "messages": []}, path=path)
+        status: DesktopAccessStatus
+        if unavailable:
+            status = "unavailable"
+        elif resolver_answer:
+            status = "allowed"
+        else:
+            status = "blocked"
+        decision_reason = reason if status == "blocked" else None
         resolver = MagicMock()
-        resolver.has_access = AsyncMock(return_value=resolver_answer)
+        resolver.resolve_access = AsyncMock(
+            return_value=DesktopAccessDecision(
+                status=status,
+                reason=decision_reason,
+            )
+        )
         request.app.state.desktop_access_resolver = resolver
         return request
 
     @pytest.mark.asyncio
-    async def test_unentitled_user_blocked(self) -> None:
+    @pytest.mark.parametrize("reason", ["startup_plan", "prepaid_credits"])
+    async def test_unentitled_user_blocked_with_backend_reason(self, reason: DesktopAccessReason) -> None:
         get_settings.cache_clear()
         try:
             with pytest.raises(HTTPException) as exc_info:
-                await enforce_product_access(request=self._request(False), user=self._oauth_user())
+                await enforce_product_access(request=self._request(False, reason=reason), user=self._oauth_user())
             assert exc_info.value.status_code == 403
             assert exc_info.value.detail["error"]["code"] == "code_access_required"
+            assert exc_info.value.detail["error"]["reason"] == reason
+        finally:
+            get_settings.cache_clear()
+
+    @pytest.mark.asyncio
+    async def test_legacy_denial_preserves_generic_error_shape(self) -> None:
+        get_settings.cache_clear()
+        try:
+            with pytest.raises(HTTPException) as exc_info:
+                await enforce_product_access(request=self._request(False, reason=None), user=self._oauth_user())
+            assert exc_info.value.status_code == 403
+            assert exc_info.value.detail["error"]["code"] == "code_access_required"
+            assert "reason" not in exc_info.value.detail["error"]
+        finally:
+            get_settings.cache_clear()
+
+    @pytest.mark.asyncio
+    async def test_resolution_failure_returns_retryable_service_error(self) -> None:
+        get_settings.cache_clear()
+        try:
+            request = self._request(False, unavailable=True)
+            with pytest.raises(HTTPException) as exc_info:
+                await enforce_product_access(request=request, user=self._oauth_user())
+            assert exc_info.value.status_code == 503
+            assert exc_info.value.detail["error"]["code"] == "desktop_access_unavailable"
+        finally:
+            get_settings.cache_clear()
+
+    @pytest.mark.asyncio
+    async def test_missing_validated_team_returns_retryable_service_error(self) -> None:
+        get_settings.cache_clear()
+        try:
+            user = self._oauth_user()
+            user.team_id = None
+            with pytest.raises(HTTPException) as exc_info:
+                await enforce_product_access(request=self._request(True), user=user)
+            assert exc_info.value.status_code == 503
+            assert exc_info.value.detail["error"]["code"] == "desktop_access_unavailable"
         finally:
             get_settings.cache_clear()
 
@@ -601,7 +672,7 @@ class TestDesktopAccessGate:
             request = self._request(False)
             user = self._oauth_user()
             assert await enforce_product_access(request=request, user=user) is user
-            request.app.state.desktop_access_resolver.has_access.assert_not_awaited()
+            request.app.state.desktop_access_resolver.resolve_access.assert_not_awaited()
         finally:
             get_settings.cache_clear()
 
@@ -612,7 +683,7 @@ class TestDesktopAccessGate:
             request = self._request(False)
             user = self._oauth_user(["llm_gateway:read", "internal_run:read"])
             assert await enforce_product_access(request=request, user=user) is user
-            request.app.state.desktop_access_resolver.has_access.assert_not_awaited()
+            request.app.state.desktop_access_resolver.resolve_access.assert_not_awaited()
         finally:
             get_settings.cache_clear()
 
@@ -640,7 +711,7 @@ class TestDesktopAccessGate:
                 scopes=["llm_gateway:read"],
             )
             assert await enforce_product_access(request=request, user=user) is user
-            request.app.state.desktop_access_resolver.has_access.assert_not_awaited()
+            request.app.state.desktop_access_resolver.resolve_access.assert_not_awaited()
         finally:
             get_settings.cache_clear()
 

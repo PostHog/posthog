@@ -21,11 +21,15 @@ from posthog.exceptions import generate_exception_response
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.utils import uuid7
-from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
-from posthog.rbac.user_access_control import UserAccessControl, UserAccessControlSerializerMixin
 from posthog.tasks.early_access_feature import POSTHOG_TEAM_ID, send_events_for_early_access_feature_stage_change
 from posthog.utils_cors import cors_response
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.access_control.backend.models.role import Role
+from products.access_control.backend.presentation.access_control import (
+    AccessControlViewSetMixin,
+    UserAccessControlSerializerMixin,
+)
 from products.feature_flags.backend.api.feature_flag import (
     MinimalFeatureFlagSerializer,
     assert_feature_flag_write_scope,
@@ -34,8 +38,6 @@ from products.feature_flags.backend.encrypted_flag_payloads import REDACTED_PAYL
 from products.feature_flags.backend.facade.api import create_flag, update_flag
 from products.feature_flags.backend.facade.filters import set_feature_enrollment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-
-from ee.models.rbac.role import Role
 
 from .models import EarlyAccessFeature
 

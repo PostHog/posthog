@@ -150,12 +150,14 @@ export class ContextMillResourceCache extends SharedBlobCache {
 
     private async refreshInBackground(): Promise<void> {
         const token = randomUUID()
-        if (!(await this.acquireLock(token))) {
-            contextMillCacheEventsTotal.inc({ event: 'lock_contended' })
-            return
-        }
-        contextMillCacheEventsTotal.inc({ event: 'lock_acquired' })
+        let acquired = false
         try {
+            acquired = await this.acquireLock(token)
+            if (!acquired) {
+                contextMillCacheEventsTotal.inc({ event: 'lock_contended' })
+                return
+            }
+            contextMillCacheEventsTotal.inc({ event: 'lock_acquired' })
             const bytes = await this.loadBlob()
             await this.writeCache(bytes)
             contextMillCacheEventsTotal.inc({ event: 'background_success' })
@@ -163,7 +165,9 @@ export class ContextMillResourceCache extends SharedBlobCache {
             contextMillCacheEventsTotal.inc({ event: 'background_error' })
             console.error(`[ContextMillResourceCache:${this.lockKey}] background refresh failed:`, err)
         } finally {
-            await this.releaseLock(token)
+            if (acquired) {
+                await this.releaseLock(token)
+            }
         }
     }
 

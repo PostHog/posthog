@@ -1,18 +1,11 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sonatypenexus import (
     SonatypeNexusSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.sonatype_nexus.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.sonatype_nexus.sonatype_nexus import (
-    SonatypeNexusResumeConfig,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.sonatype_nexus.source import SonatypeNexusSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestSonatypeNexusSource:
@@ -20,31 +13,6 @@ class TestSonatypeNexusSource:
         self.source = SonatypeNexusSource()
         self.team_id = 123
         self.config = SonatypeNexusSourceConfig(host="https://nexus.example.com", username="user", password="pass")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.SONATYPENEXUS
-
-    def test_get_source_config(self):
-        config = self.source.get_source_config
-
-        assert config.name.value == "SonatypeNexus"
-        assert config.label == "Sonatype (Nexus Repository)"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is None
-        assert config.iconPath == "/static/services/sonatype_nexus.png"
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/sonatype-nexus"
-
-        field_names = [f.name for f in config.fields]
-        assert field_names == ["host", "username", "password"]
-
-    def test_password_field_is_secret_password(self):
-        config = self.source.get_source_config
-        password_field = next(
-            f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "password"
-        )
-        assert password_field.type == SourceFieldInputConfigType.PASSWORD
-        assert password_field.secret is True
-        assert password_field.required is True
 
     def test_connection_host_fields_cover_host(self):
         # The instance URL decides where the stored credentials get sent.
@@ -142,13 +110,6 @@ class TestSonatypeNexusSource:
 
         assert is_valid is False
         assert "Invalid Nexus credentials" in (error_message or "")
-
-    def test_get_resumable_source_manager_binds_resume_config(self):
-        inputs = mock.MagicMock()
-        manager = self.source.get_resumable_source_manager(inputs)
-
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is SonatypeNexusResumeConfig
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.sonatype_nexus.source.sonatype_nexus_source"

@@ -1,3 +1,6 @@
+import re
+from typing import Any, Optional
+
 from freezegun import freeze_time
 from posthog.test.base import (
     APIBaseTest,
@@ -11,14 +14,69 @@ from parameterized import parameterized
 
 from posthog.schema import DateRange, WebBotsBreakdown, WebBotsTableQuery
 
+from products.web_analytics.backend.hogql_queries.bot_definitions import BOT_DEFINITIONS
 from products.web_analytics.backend.hogql_queries.web_bots import WebBotsTableQueryRunner
 
 GOOGLEBOT_UA = "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"
 HUMAN_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
 
+# ClickHouse string literals escape with backslashes, so an apostrophe in a bot pattern
+# or label arrives as \' rather than ''. See posthog/hogql/escape_sql.py.
+_STRING = re.compile(r"'(?:[^'\\]|\\.)*'")
+_LITERAL_ARRAY = re.compile(rf"\[{_STRING.pattern}(?:, {_STRING.pattern}){{19,}}\]")
+_IP_GROUP_MATCH = re.compile(r"\bin\(tupleElement\(IPv6CIDRToRange\(")
+_ADJACENT_IP_GROUPS = re.compile(r"/\* bot ip range \*/(?:, /\* bot ip range \*/)+")
+
+# Both the pattern list and each label list run one entry longer than the table, because
+# HogQL appends the empty user agent sentinel. Keying the collapse on that length leaves an
+# unrelated array, such as a property filter holding many values, visible in the snapshot.
+_BOT_ARRAY_LENGTH = len(BOT_DEFINITIONS) + 1
+
+
+def _end_of_call(query: str, call_start: int) -> int:
+    depth = 0
+    for index in range(query.index("(", call_start), len(query)):
+        if query[index] == "(":
+            depth += 1
+        elif query[index] == ")":
+            depth -= 1
+            if depth == 0:
+                return index + 1
+    raise ValueError("unbalanced parentheses in captured query")
+
+
+def _collapse_array(array: re.Match[str]) -> str:
+    length = len(_STRING.findall(array.group(0)))
+    if length != _BOT_ARRAY_LENGTH:
+        return array.group(0)
+    return f"[/* {length} bot literals */]"
+
+
+# The bot gate expands into every query: the user agent patterns and labels from
+# BOT_DEFINITIONS, plus one IPv6 range check per prefix group in BOT_IP_DEFINITIONS,
+# repeated for each column that classifies traffic. Left verbatim they bury the query
+# shape this snapshot exists to protect, and any change to the tables rewrites the
+# snapshot. The tables keep their own coverage in test_bot_definitions.py, and the
+# expression built from them in test_traffic_type_snapshot.ambr.
+def _collapse_bot_tables(query: str) -> str:
+    parts: list[str] = []
+    position = 0
+    while (match := _IP_GROUP_MATCH.search(query, position)) is not None:
+        parts.append(query[position : match.start()])
+        parts.append("/* bot ip range */")
+        position = _end_of_call(query, match.start())
+    parts.append(query[position:])
+    collapsed = _ADJACENT_IP_GROUPS.sub("/* bot ip ranges */", "".join(parts))
+    return _LITERAL_ARRAY.sub(_collapse_array, collapsed)
+
 
 @snapshot_clickhouse_queries
 class TestWebBotsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
+    def assertQueryMatchesSnapshot(
+        self, query: str, params: Optional[dict[str, Any]] = None, replace_all_numbers: bool = False
+    ) -> None:
+        super().assertQueryMatchesSnapshot(_collapse_bot_tables(query), params, replace_all_numbers)
+
     def _create_pageview(self, distinct_id: str, user_agent: str, pathname: str) -> None:
         _create_event(
             team=self.team,

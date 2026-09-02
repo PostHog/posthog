@@ -105,7 +105,7 @@ function emitCanvasGenerationNotification(
 // A "completed" run additionally checks the canvas's build lifecycle before
 // announcing success — the rendered output is the published build's artifact,
 // so task completion alone doesn't mean the canvas is actually ready.
-export function useCanvasGenerationToasts(): void {
+function useCanvasGenerationToasts(): void {
   const tracked = useCanvasGenerationTrackerStore((s) => s.tracked);
   const untrack = useCanvasGenerationTrackerStore((s) => s.untrack);
   // The bus is a container singleton (stable identity); capture in a ref so the

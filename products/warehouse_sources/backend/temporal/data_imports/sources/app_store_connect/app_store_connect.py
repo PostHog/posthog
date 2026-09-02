@@ -16,6 +16,8 @@ import jwt
 import requests
 from structlog.types import FilteringBoundLogger
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_connect.settings import (
     ANALYTICS_GRANULARITY,
     ANALYTICS_MAX_INSTANCES_PER_RUN,
@@ -74,6 +76,75 @@ class AppStoreConnectAuthError(Exception):
 
 class AppStoreConnectUrlError(Exception):
     """A request or pagination URL points somewhere other than the App Store Connect API origin."""
+
+
+class AppStoreConnectPermissionError(Exception):
+    """A 403 from App Store Connect: the key's role can't perform this call. Non-retryable."""
+
+
+# 403 on a report or resource read. The key's role can't read this data, so the fix is a role
+# that can. `AppStoreConnectSource.get_non_retryable_errors` matches on this text to fail fast.
+APP_STORE_CONNECT_READ_FORBIDDEN_ERROR = (
+    "Your App Store Connect API key does not have permission to read this data. Give the key the "
+    "Admin, Finance, or Sales role that can read it, then reconnect."
+)
+
+# 403 on `POST /v1/analyticsReportRequests`. Apple lets only an Admin key create an analytics
+# report request, so a Finance or Sales key reads reports and still loses this create. Named
+# separately so the message points at Admin rather than the read roles the key already holds.
+APP_STORE_CONNECT_ANALYTICS_CREATE_FORBIDDEN_ERROR = (
+    "Your App Store Connect API key cannot start analytics reports. Apple lets only an Admin key "
+    "create an analytics report request. Give the key the Admin role, then reconnect."
+)
+
+# The app's ONGOING analytics report request stopped after a period of inactivity, and the key's
+# role can't create the replacement Apple now needs.
+APP_STORE_CONNECT_ANALYTICS_INACTIVE_ERROR = (
+    "Your App Store Connect analytics report request stopped because of inactivity. Apple needs a "
+    "new request, which only an Admin key can create. Give the key the Admin role, then reconnect."
+)
+
+# A sales or subscription report sync started without a vendor number. `/v1/salesReports` can't be
+# read without one, so every retry fails identically until the user adds it in the source settings.
+# `AppStoreConnectSource.get_non_retryable_errors` matches on this text to fail fast.
+APP_STORE_CONNECT_MISSING_VENDOR_NUMBER_ERROR = (
+    "Syncing App Store Connect sales reports needs your vendor number. "
+    "Add it in the source settings, then run the sync again."
+)
+
+
+@frozen
+class _AppleApiError:
+    code: str | None
+    title: str | None
+    detail: str | None
+
+
+def _parse_apple_error(response: requests.Response) -> _AppleApiError:
+    """Pull the first JSON:API error out of an App Store Connect 4xx body.
+
+    Apple returns ``{"errors": [{"code", "title", "detail", ...}]}``, but an edge or proxy can
+    return non-JSON, so parse defensively and leave fields ``None`` when the body has no usable error.
+    """
+    try:
+        body = response.json()
+    except ValueError:
+        return _AppleApiError(code=None, title=None, detail=None)
+    errors = body.get("errors") if isinstance(body, dict) else None
+    first = errors[0] if isinstance(errors, list) and errors and isinstance(errors[0], dict) else {}
+    return _AppleApiError(
+        code=first.get("code") if isinstance(first.get("code"), str) else None,
+        title=first.get("title") if isinstance(first.get("title"), str) else None,
+        detail=first.get("detail") if isinstance(first.get("detail"), str) else None,
+    )
+
+
+def _apple_error_suffix(error: _AppleApiError, status_code: int) -> str:
+    """Apple's own words appended to a raised message so support sees what Apple actually said."""
+    parts = [part for part in (error.code, error.title, error.detail) if part]
+    if parts:
+        return f"Apple said: {'; '.join(parts)} (HTTP {status_code})"
+    return f"HTTP {status_code}"
 
 
 def _require_api_url(url: str) -> str:
@@ -217,6 +288,21 @@ def _get(
 
     if response.status_code in tolerate:
         return response
+
+    if response.status_code == 403:
+        # A read the key's role can't perform. Carry Apple's own error into the message and a
+        # structured log instead of asserting a role the key may already hold.
+        apple_error = _parse_apple_error(response)
+        logger.error(
+            "App Store Connect read forbidden",
+            url=url,
+            apple_code=apple_error.code,
+            apple_title=apple_error.title,
+            apple_detail=apple_error.detail,
+        )
+        raise AppStoreConnectPermissionError(
+            f"{APP_STORE_CONNECT_READ_FORBIDDEN_ERROR} ({_apple_error_suffix(apple_error, 403)})"
+        )
 
     if not response.ok:
         logger.error(
@@ -705,10 +791,7 @@ def _get_sales_report(
     db_incremental_field_last_value: Any,
 ) -> Iterator[list[dict[str, Any]]]:
     if not vendor_number:
-        raise ValueError(
-            "Syncing App Store Connect sales reports needs your vendor number. "
-            "Add it in the source settings, then run the sync again."
-        )
+        raise ValueError(APP_STORE_CONNECT_MISSING_VENDOR_NUMBER_ERROR)
 
     today = datetime.now(UTC).date()
     end = today - timedelta(days=SALES_REPORT_END_OFFSET_DAYS)
@@ -814,7 +897,9 @@ def _ensure_report_request(
     """
     list_url = f"{BASE_URL}/v1/apps/{app_id}/analyticsReportRequests"
 
-    def _active_request_id() -> str | None:
+    def _active_request_id() -> tuple[str | None, bool]:
+        """Returns ``(active_request_id, saw_stopped)`` — the active request to reuse, and whether an
+        ONGOING request stopped due to inactivity was skipped, so the create 403 can name that cause."""
         body = _get(
             session,
             list_url,
@@ -823,16 +908,18 @@ def _ensure_report_request(
             params={"filter[accessType]": "ONGOING", "limit": MAX_PAGE_SIZE},
         ).json()
         data = body.get("data") if isinstance(body, dict) else None
+        saw_stopped = False
         for resource in data or []:
             if not isinstance(resource, dict) or not resource.get("id"):
                 continue
             attributes = resource.get("attributes")
             if isinstance(attributes, dict) and attributes.get("stoppedDueToInactivity"):
+                saw_stopped = True
                 continue
-            return str(resource["id"])
-        return None
+            return str(resource["id"]), saw_stopped
+        return None, saw_stopped
 
-    existing = _active_request_id()
+    existing, saw_stopped = _active_request_id()
     if existing:
         return existing, False
 
@@ -849,11 +936,30 @@ def _ensure_report_request(
         token_provider=token_provider,
         logger=logger,
         payload=payload,
-        tolerate=(409,),
+        tolerate=(403, 409),
     )
+    if response.status_code == 403:
+        # Apple gates this create on Admin, but a Sales or Finance key reads reports fine, so a bare
+        # read-role message would name a role the key already holds. Tell the operator the create
+        # needs Admin, and say when the trigger was an inactivity-stopped request instead.
+        apple_error = _parse_apple_error(response)
+        logger.error(
+            "App Store Connect analytics report request create forbidden",
+            app_id=app_id,
+            stopped_due_to_inactivity=saw_stopped,
+            apple_code=apple_error.code,
+            apple_title=apple_error.title,
+            apple_detail=apple_error.detail,
+        )
+        message = (
+            APP_STORE_CONNECT_ANALYTICS_INACTIVE_ERROR
+            if saw_stopped
+            else APP_STORE_CONNECT_ANALYTICS_CREATE_FORBIDDEN_ERROR
+        )
+        raise AppStoreConnectPermissionError(f"{message} ({_apple_error_suffix(apple_error, 403)})")
     if response.status_code == 409:
         # A concurrent sync (or a request the accessType filter hid) beat us to it.
-        return _active_request_id(), False
+        return _active_request_id()[0], False
 
     body = response.json()
     data = body.get("data") if isinstance(body, dict) else None

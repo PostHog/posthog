@@ -1,6 +1,8 @@
 import { buildCreatePrReportPrompt } from "@posthog/core/inbox/reportActions";
 import { buildPostHogUrl } from "@posthog/core/settings/posthogUrl";
 import type { TaskCreationInput } from "@posthog/core/task-detail/taskService";
+import type { InboxReportActionSurface } from "@posthog/shared/analytics-events";
+import type { Task } from "@posthog/shared/types";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import {
   type InboxCloudTaskInputContext,
@@ -13,6 +15,10 @@ interface UseCreatePrReportOptions {
   reportId: string;
   reportTitle: string | null;
   cloudRepository: string | null;
+  surface?: InboxReportActionSurface;
+  triageId?: string;
+  /** Fires once the implementation task exists (the chat dock binds to it). */
+  onTaskCreated?: (task: Task) => void;
 }
 
 interface UseCreatePrReportReturn {
@@ -44,6 +50,9 @@ export function useCreatePrReport({
   reportId,
   reportTitle,
   cloudRepository,
+  surface = "detail_pane",
+  triageId,
+  onTaskCreated,
 }: UseCreatePrReportOptions): UseCreatePrReportReturn {
   const { data: teamConfig } = useSignalTeamConfig();
   const baseBranchOverrides = teamConfig?.autostart_base_branches ?? null;
@@ -82,8 +91,6 @@ export function useCreatePrReport({
       return {
         content: prompt,
         taskDescription: prompt,
-        repository: ctx.cloudRepository,
-        githubUserIntegrationId: ctx.githubUserIntegrationId ?? undefined,
         workspaceMode: "cloud",
         executionMode: "auto",
         adapter: ctx.adapter,
@@ -113,6 +120,11 @@ export function useCreatePrReport({
   const { run, isRunning } = useInboxCloudTaskRunner({
     reportId,
     reportTitle,
+    reportAction: {
+      action_type: "create_pr",
+      surface,
+      ...(triageId ? { triage_id: triageId } : {}),
+    },
     cloudRepository,
     loggerScope: "create-pr-report",
     copy: {
@@ -124,10 +136,13 @@ export function useCreatePrReport({
       signedOut: "Sign in to create a PR",
       missingModel:
         "Couldn't resolve a default model. Open the task page once and pick a model, then try again.",
+      existingImplementationTask:
+        "This report already has an implementation task. Open it from the activity section to continue.",
     },
     buildInput,
     analyticsExtras,
     redirectOnSuccess: false,
+    onTaskCreated,
   });
 
   const createPrReport = useCallback(

@@ -114,9 +114,9 @@ export const logsMetricRulesSectionLogic = kea<logsMetricRulesSectionLogicType>(
         deleteRule: async ({ rule }) => {
             try {
                 await logsMetricRulesDestroy(String(values.currentTeamId), rule.id)
-                lemonToast.success('Metric rule deleted')
+                lemonToast.success('Log-based metric deleted')
             } catch (e: any) {
-                lemonToast.error(e?.detail ?? 'Failed to delete metric rule')
+                lemonToast.error(e?.detail ?? 'Failed to delete log-based metric')
             }
             actions.loadRules()
         },
@@ -124,7 +124,7 @@ export const logsMetricRulesSectionLogic = kea<logsMetricRulesSectionLogicType>(
             try {
                 await logsMetricRulesPartialUpdate(String(values.currentTeamId), rule.id, { enabled })
             } catch (e: any) {
-                lemonToast.error(e?.detail ?? 'Failed to update metric rule')
+                lemonToast.error(e?.detail ?? 'Failed to update log-based metric')
             }
             actions.loadRules()
         },

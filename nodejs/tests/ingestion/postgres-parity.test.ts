@@ -21,7 +21,7 @@ import { PluginServerMode, PluginsServerConfig, PropertyUpdateOperation, Timesta
 import { Clickhouse } from '../helpers/clickhouse'
 import { waitForExpect } from '../helpers/expectations'
 import { ensureKafkaTopics } from '../helpers/kafka'
-import { createUserTeamAndOrganization } from '../helpers/sql'
+import { createUserTeamAndOrganization, uniqueTestId } from '../helpers/sql'
 
 jest.mock('~/common/utils/logger')
 
@@ -114,7 +114,7 @@ describe('postgres parity', () => {
         // tables, which is redundant (unique teamId already isolates) and harmful
         // (all 3 CI shards share the same DB, so global truncation corrupts
         // in-flight state in other shards).
-        teamId = Math.floor((Date.now() % 1000000000) + Math.random() * 1000000)
+        teamId = uniqueTestId()
 
         server = new IngestionGeneralServer({
             PLUGIN_SERVER_MODE: PluginServerMode.ingestion_v2,

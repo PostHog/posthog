@@ -6,11 +6,11 @@ from unittest.mock import patch
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 from ee.hogai.tools.execute_sql.direct_connection_suggestions import build_direct_connection_suggestion
-from ee.models import AccessControl
 
 _ACCESS_CONTROL_FLAG = "ee.hogai.tools.execute_sql.direct_connection_suggestions.feature_enabled_or_false"
 

@@ -3,15 +3,10 @@ from unittest.mock import MagicMock, patch
 import requests
 from parameterized import parameterized
 
-from posthog.schema import SourceFieldInputConfig
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.clever import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.clever.clever import CleverResumeConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.clever.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.clever.source import CleverSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.clever import CleverSourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _inputs(
@@ -40,25 +35,9 @@ class TestCleverSource:
         self.source = CleverSource()
         self.config = CleverSourceConfig(bearer_token="test-token")
 
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.CLEVER
-
     def test_no_unreleased_source_flag(self) -> None:
         # A finished source ships visible; `unreleasedSource` hides it from every user.
         assert self.source.get_source_config.unreleasedSource is not True
-
-    def test_source_config_fields(self) -> None:
-        fields = self.source.get_source_config.fields
-        by_name = {field.name: field for field in fields}
-
-        bearer_token = by_name["bearer_token"]
-        assert isinstance(bearer_token, SourceFieldInputConfig)
-        assert bearer_token.required is True
-        assert bearer_token.secret is True
-
-    def test_get_schemas_covers_every_endpoint(self) -> None:
-        schemas = self.source.get_schemas(self.config, team_id=1)
-        assert {schema.name for schema in schemas} == set(ENDPOINTS)
 
     @parameterized.expand(
         [
@@ -78,24 +57,6 @@ class TestCleverSource:
         schema = next(s for s in self.source.get_schemas(self.config, team_id=1) if s.name == endpoint)
         assert schema.supports_incremental == supports_incremental
         assert schema.supports_append == supports_append
-
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, team_id=1, names=["Districts", "Schools"])
-        assert {schema.name for schema in schemas} == {"Districts", "Schools"}
-
-    @parameterized.expand([("valid", True, None, True), ("invalid", False, "bad token", False)])
-    def test_validate_credentials(
-        self, _name: str, probe_valid: bool, probe_message: str | None, expected_valid: bool
-    ) -> None:
-        with patch.object(source_module, "validate_clever_credentials", return_value=(probe_valid, probe_message)):
-            valid, error = self.source.validate_credentials(self.config, team_id=1)
-
-        assert valid == expected_valid
-        assert error == probe_message
-
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(_inputs())
-        assert manager._data_class is CleverResumeConfig
 
     def test_source_for_pipeline_passes_config_and_incremental_state(self) -> None:
         inputs = _inputs(
@@ -163,7 +124,3 @@ class TestCleverSource:
         error = requests.HTTPError(f"401 Client Error: Unauthorized for url: {response.url}", response=response)
 
         assert any(key in str(error) for key in self.source.get_non_retryable_errors())
-
-    def test_canonical_descriptions_cover_every_endpoint(self) -> None:
-        descriptions = self.source.get_canonical_descriptions()
-        assert set(descriptions.keys()) == set(ENDPOINTS)

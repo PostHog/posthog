@@ -198,6 +198,11 @@ const serializeDefinition = ({
 // props are also warned on (see columnMappingWarnings). Warn-only — the user can still proceed.
 const RESERVED_PERSON_PROPERTY_NAMES = new Set(['email', 'name', 'username'])
 
+// What the key column is called on screen. Shared so the field label, the mapping warning and the
+// submit gate name the same thing.
+export const keyColumnLabel = (targetType: CustomPropertyTargetType): string =>
+    targetType === 'group' ? 'group key column' : 'distinct ID column'
+
 // The backend stores column_property_map as a JSON object; the form edits it as an ordered list.
 // Descriptions are stored in a parallel {column: description} object and folded back in per column.
 const parseColumnPropertyMap = (value: unknown, descriptions: unknown): ColumnPropertyMapping[] => {
@@ -241,21 +246,28 @@ export interface customPropertyDefinitionsLogicValues {
     definitionsInitialLoading: boolean
     definitionsLoading: boolean
     editingDefinition: CustomPropertyDefinitionApi | null
+    editingHasWorkflowReference: boolean
     editingReferences: readonly CustomPropertyReferenceApi[]
     filteredDefinitions: CustomPropertyDefinitionApi[]
     hasSyncedWarehouseTables: boolean | null
     hasWarehouseSourceOptions: boolean | null
     isCustomPropertyFormSubmitting: boolean
     isCustomPropertyFormValid: boolean
+    mappableColumns: WarehouseColumn[]
     materializedViews: DataWarehouseSavedQuery[]
     modalVisible: boolean
     newWorkflowUrl: string | null
     newWorkflowUrlLoading: boolean
     personPropertyDefinitions: PropertyDefinition[]
     personPropertyDefinitionsLoading: boolean
+    profileMappingDisabledReason: string | undefined
     profileSourceBinding: ProfileSourceBinding | null
     runsBySourceId: Record<string, CustomPropertySyncRunApi[]>
+    runsCountBySourceId: Record<string, number>
+    runsLoadFailedBySourceId: Record<string, boolean>
     runsLoadingBySourceId: Record<string, boolean>
+    runsOffsetBySourceId: Record<string, number>
+    runsSearchBySourceId: Record<string, string>
     savedQueries: DataWarehouseSavedQuery[]
     savedQueriesLoading: boolean
     searchTerm: string
@@ -347,7 +359,8 @@ export interface customPropertyDefinitionsLogicActions {
         personPropertyDefinitions: PropertyDefinition[]
         payload?: any
     }
-    loadRuns: ({ sourceId }: { sourceId: string }) => {
+    loadRuns: ({ sourceId, offset }: { offset?: number; sourceId: string }) => {
+        offset: number
         sourceId: string
     }
     loadSavedQueries: () => any
@@ -407,6 +420,9 @@ export interface customPropertyDefinitionsLogicActions {
             search?: string
         }
     }
+    mapAllColumns: () => {
+        value: true
+    }
     openCreateModal: (
         targetType?: CustomPropertyTargetType,
         lockTargetType?: boolean
@@ -429,7 +445,19 @@ export interface customPropertyDefinitionsLogicActions {
     runsLoadFailed: ({ sourceId }: { sourceId: string }) => {
         sourceId: string
     }
-    runsLoaded: ({ sourceId, runs }: { runs: CustomPropertySyncRunApi[]; sourceId: string }) => {
+    runsLoaded: ({
+        sourceId,
+        runs,
+        count,
+        offset,
+    }: {
+        count: number
+        offset: number
+        runs: CustomPropertySyncRunApi[]
+        sourceId: string
+    }) => {
+        count: number
+        offset: number
         runs: CustomPropertySyncRunApi[]
         sourceId: string
     }
@@ -448,6 +476,10 @@ export interface customPropertyDefinitionsLogicActions {
     }
     setEditingDefinition: (definition: CustomPropertyDefinitionApi) => {
         definition: CustomPropertyDefinitionApi
+    }
+    setRunsSearch: ({ sourceId, searchTerm }: { searchTerm: string; sourceId: string }) => {
+        searchTerm: string
+        sourceId: string
     }
     setSearchTerm: (searchTerm: string) => {
         searchTerm: string
@@ -504,8 +536,17 @@ export interface customPropertyDefinitionsLogicMeta {
             materializedViews: DataWarehouseSavedQuery[],
             customPropertyForm: CustomPropertyFormValues
         ) => ProfileSourceBinding | null
+        mappableColumns: (
+            selectedTableColumns: WarehouseColumn[],
+            customPropertyForm: CustomPropertyFormValues
+        ) => WarehouseColumn[]
         serializedColumnPropertyMap: (customPropertyForm: CustomPropertyFormValues) => Record<string, string>
         serializedColumnDescriptions: (customPropertyForm: CustomPropertyFormValues) => Record<string, string>
+        profileMappingDisabledReason: (
+            customPropertyForm: CustomPropertyFormValues,
+            editingDefinition: CustomPropertyDefinitionApi | null,
+            serializedColumnPropertyMap: Record<string, string>
+        ) => string | undefined
         columnMappingWarnings: (
             customPropertyForm: CustomPropertyFormValues,
             personPropertyDefinitions: PropertyDefinition[]
@@ -515,6 +556,10 @@ export interface customPropertyDefinitionsLogicMeta {
             searchTerm: string,
             targetTypeFilter: CustomPropertyTargetTypeFilter
         ) => CustomPropertyDefinitionApi[]
+        editingHasWorkflowReference: (
+            definitions: CustomPropertyDefinitionApi[],
+            editingDefinition: CustomPropertyDefinitionApi | null
+        ) => boolean
         editingReferences: (
             definitions: CustomPropertyDefinitionApi[],
             editingDefinition: CustomPropertyDefinitionApi | null
@@ -556,6 +601,10 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         setTargetTypeFilter: (targetTypeFilter: CustomPropertyTargetTypeFilter) => ({ targetTypeFilter }),
         setEditingDefinition: (definition: CustomPropertyDefinitionApi) => ({ definition }),
+        // Fill a mapping row for every column the source exposes that isn't mapped yet. A wide table
+        // is the common case for this feature, and adding twenty rows by hand is the friction it
+        // exists to remove.
+        mapAllColumns: true,
         // Person sources only. triggerSync re-runs the underlying warehouse sync; triggerBackfill
         // starts a full-table backfill. add/removeTriggeringSource drive the per-row double-submit
         // guard, keyed by source so triggering one row never re-enables another's in-flight button.
@@ -565,10 +614,24 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
         removeTriggeringSource: ({ sourceId }: { sourceId: string }) => ({ sourceId }),
         // Run history per source (lazy on row-expand), driven by explicit actions so loading state is
         // tracked per source rather than one shared loader boolean.
-        loadRuns: ({ sourceId }: { sourceId: string }) => ({ sourceId }),
-        runsLoaded: ({ sourceId, runs }: { sourceId: string; runs: CustomPropertySyncRunApi[] }) => ({
+        loadRuns: ({ sourceId, offset }: { sourceId: string; offset?: number }) => ({
+            sourceId,
+            offset: offset ?? 0,
+        }),
+        runsLoaded: ({
             sourceId,
             runs,
+            count,
+            offset,
+        }: {
+            sourceId: string
+            runs: CustomPropertySyncRunApi[]
+            count: number
+            offset: number
+        }) => ({ sourceId, runs, count, offset }),
+        setRunsSearch: ({ sourceId, searchTerm }: { sourceId: string; searchTerm: string }) => ({
+            sourceId,
+            searchTerm,
         }),
         runsLoadFailed: ({ sourceId }: { sourceId: string }) => ({ sourceId }),
         // Poll definitions/runs after a trigger until the source's run settles, so the buttons and
@@ -635,11 +698,37 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
                 removeTriggeringSource: (state, { sourceId }) => state.filter((id) => id !== sourceId),
             },
         ],
-        // Sync/backfill run history per person source, loaded lazily when a row is expanded.
+        // Sync run history per source, loaded lazily when a row is expanded.
         runsBySourceId: [
             {} as Record<string, CustomPropertySyncRunApi[]>,
             {
                 runsLoaded: (state, { sourceId, runs }) => ({ ...state, [sourceId]: runs }),
+            },
+        ],
+        runsCountBySourceId: [
+            {} as Record<string, number>,
+            {
+                runsLoaded: (state, { sourceId, count }) => ({ ...state, [sourceId]: count }),
+            },
+        ],
+        runsOffsetBySourceId: [
+            {} as Record<string, number>,
+            {
+                runsLoaded: (state, { sourceId, offset }) => ({ ...state, [sourceId]: offset }),
+            },
+        ],
+        runsSearchBySourceId: [
+            {} as Record<string, string>,
+            {
+                setRunsSearch: (state, { sourceId, searchTerm }) => ({ ...state, [sourceId]: searchTerm }),
+            },
+        ],
+        runsLoadFailedBySourceId: [
+            {} as Record<string, boolean>,
+            {
+                loadRuns: (state, { sourceId }) => ({ ...state, [sourceId]: false }),
+                runsLoaded: (state, { sourceId }) => ({ ...state, [sourceId]: false }),
+                runsLoadFailed: (state, { sourceId }) => ({ ...state, [sourceId]: true }),
             },
         ],
         // Per-source loading flag so expanding one row's history doesn't spin every expanded row.
@@ -1015,36 +1104,98 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
                 return schemaId ? { field: 'external_data_schema', id: schemaId } : null
             },
         ],
-        // The person-target column mappings as the backend's `column_property_map` object.
+        // Columns a bulk map would add: everything the source exposes except the key column, whose
+        // values identify the person or group rather than describing it, and columns already mapped.
+        mappableColumns: [
+            (s) => [s.selectedTableColumns, s.customPropertyForm],
+            (selectedTableColumns: WarehouseColumn[], form: CustomPropertyFormValues): WarehouseColumn[] => {
+                const keyColumn = form.keyColumn?.trim()
+                const alreadyMapped = new Set(
+                    form.columnMappings.map((mapping) => mapping.column.trim()).filter(Boolean)
+                )
+                return selectedTableColumns.filter(
+                    (column) => column.name !== keyColumn && !alreadyMapped.has(column.name)
+                )
+            },
+        ],
+        // The person-target column mappings as the backend's `column_property_map` object. The key
+        // column is never mapped: its values identify the person/group. Bulk mapping already excludes
+        // the key column, but the key can be changed afterwards, and the map is create-only, so a key
+        // column left in a row here would be written as a property with no way to undo it.
         serializedColumnPropertyMap: [
             (s) => [s.customPropertyForm],
-            (form: CustomPropertyFormValues): Record<string, string> =>
-                Object.fromEntries(
-                    form.columnMappings
-                        .filter((mapping) => mapping.column.trim() && mapping.property.trim())
-                        .map((mapping) => [mapping.column.trim(), mapping.property.trim()])
-                ),
-        ],
-        // The per-mapping descriptions as the backend's `column_descriptions` object ({column:
-        // description}), only for complete mappings that carry a non-empty description.
-        serializedColumnDescriptions: [
-            (s) => [s.customPropertyForm],
-            (form: CustomPropertyFormValues): Record<string, string> =>
-                Object.fromEntries(
+            (form: CustomPropertyFormValues): Record<string, string> => {
+                const keyColumn = form.keyColumn?.trim()
+                return Object.fromEntries(
                     form.columnMappings
                         .filter(
-                            (mapping) => mapping.column.trim() && mapping.property.trim() && mapping.description.trim()
+                            (mapping) =>
+                                mapping.column.trim() && mapping.property.trim() && mapping.column.trim() !== keyColumn
+                        )
+                        .map((mapping) => [mapping.column.trim(), mapping.property.trim()])
+                )
+            },
+        ],
+        // The per-mapping descriptions as the backend's `column_descriptions` object ({column:
+        // description}), only for complete mappings that carry a non-empty description. The key column
+        // is excluded alongside its property, so both stay consistent.
+        serializedColumnDescriptions: [
+            (s) => [s.customPropertyForm],
+            (form: CustomPropertyFormValues): Record<string, string> => {
+                const keyColumn = form.keyColumn?.trim()
+                return Object.fromEntries(
+                    form.columnMappings
+                        .filter(
+                            (mapping) =>
+                                mapping.column.trim() &&
+                                mapping.property.trim() &&
+                                mapping.description.trim() &&
+                                mapping.column.trim() !== keyColumn
                         )
                         .map((mapping) => [mapping.column.trim(), mapping.description.trim()])
-                ),
+                )
+            },
+        ],
+        // Why a new person/group source can't be saved yet, or undefined once it can. The mapping
+        // rows aren't LemonFields, so this gates the submit button rather than showing a per-field
+        // error. It reads the serialized map instead of the rows on screen, because a row on the key
+        // column is dropped from the payload: rows that all sit on the key column would otherwise
+        // post an empty column_property_map, which the backend rejects after the definition itself
+        // is already created.
+        profileMappingDisabledReason: [
+            (s) => [s.customPropertyForm, s.editingDefinition, s.serializedColumnPropertyMap],
+            (
+                form: CustomPropertyFormValues,
+                editingDefinition: CustomPropertyDefinitionApi | null,
+                serializedColumnPropertyMap: Record<string, string>
+            ): string | undefined => {
+                const isProfile = form.targetType === 'person' || form.targetType === 'group'
+                // The column map is create-only on the backend, so an existing source has no
+                // mapping left to gate.
+                if (!isProfile || editingDefinition?.source || Object.keys(serializedColumnPropertyMap).length > 0) {
+                    return undefined
+                }
+                const hasCompleteRow = form.columnMappings.some(
+                    (mapping) => mapping.column.trim() && mapping.property.trim()
+                )
+                return hasCompleteRow
+                    ? `Map a column other than the ${keyColumnLabel(form.targetType)}`
+                    : 'Map at least one column to a property'
+            },
         ],
         // Warn-only collision check per mapping: a chosen person-property name that is `$`-prefixed,
-        // an identity property, or already defined on persons could overwrite existing values.
+        // an identity property, or already defined on persons could overwrite existing values. A row
+        // on the key column is reported here too, because serializedColumnPropertyMap drops it.
         columnMappingWarnings: [
             (s) => [s.customPropertyForm, s.personPropertyDefinitions],
             (form: CustomPropertyFormValues, personPropertyDefinitions: PropertyDefinition[]): (string | null)[] => {
                 const existing = new Set(personPropertyDefinitions.map((definition) => definition.name))
+                const keyColumn = form.keyColumn?.trim()
+                const keyColumnLabelText = keyColumnLabel(form.targetType)
                 return form.columnMappings.map((mapping) => {
+                    if (keyColumn && mapping.column.trim() === keyColumn) {
+                        return `"${keyColumn}" is the ${keyColumnLabelText}, so this mapping isn't saved. Map a different column.`
+                    }
                     const name = mapping.property.trim()
                     if (!name) {
                         return null
@@ -1076,6 +1227,19 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
                 )
             },
         ],
+        editingHasWorkflowReference: [
+            (s) => [s.definitions, s.editingDefinition],
+            (
+                definitions: CustomPropertyDefinitionApi[],
+                editingDefinition: CustomPropertyDefinitionApi | null
+            ): boolean => {
+                if (!editingDefinition) {
+                    return false
+                }
+                const fresh = definitions.find((definition) => definition.id === editingDefinition.id)
+                return fresh?.has_workflow_reference ?? editingDefinition.has_workflow_reference
+            },
+        ],
         editingReferences: [
             (s) => [s.definitions, s.editingDefinition],
             (
@@ -1091,6 +1255,33 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
         ],
     }),
     listeners(({ actions, values, cache }) => ({
+        setRunsSearch: async ({ sourceId }, breakpoint) => {
+            await breakpoint(300)
+            actions.loadRuns({ sourceId, offset: 0 })
+        },
+        mapAllColumns: () => {
+            if (!values.mappableColumns.length) {
+                return
+            }
+            // Rows the user already started are kept, and the columns behind them are excluded from
+            // mappableColumns, so a bulk map never duplicates or discards hand-entered work. A row
+            // counts as started if it holds a column, property, or description, so a property typed
+            // before its column (including one left after a source switch clears columns but keeps
+            // the name) survives. Only fully empty placeholder rows drop out.
+            const started = values.customPropertyForm.columnMappings.filter(
+                (mapping) => mapping.column.trim() || mapping.property.trim() || mapping.description.trim()
+            )
+            actions.setCustomPropertyFormValue('columnMappings', [
+                ...started,
+                ...values.mappableColumns.map((column) => ({
+                    column: column.name,
+                    // Same name on both sides: it is what the per-row picker already seeds, and a
+                    // rename is a decision for the person, not a default worth guessing at.
+                    property: column.name,
+                    description: column.description ?? '',
+                })),
+            ])
+        },
         openCreateModal: ({ targetType }) => {
             actions.resetCustomPropertyForm()
             if (targetType) {
@@ -1121,7 +1312,7 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
                 groupTypeIndex: definition.group_type_index ?? null,
                 sourceMode: definition.source
                     ? 'data_warehouse'
-                    : definition.references?.length
+                    : definition.has_workflow_reference
                       ? 'workflow'
                       : 'manual',
                 savedQuery: definition.source?.saved_query ?? null,
@@ -1260,14 +1451,18 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
                 actions.removeTriggeringSource({ sourceId })
             }
         },
-        loadRuns: async ({ sourceId }) => {
+        loadRuns: async ({ sourceId, offset }) => {
             try {
-                const response = await customPropertySourcesRunsList(String(values.currentProjectId), sourceId)
-                actions.runsLoaded({ sourceId, runs: response.results })
+                const search = values.runsSearchBySourceId[sourceId]?.trim()
+                const response = await customPropertySourcesRunsList(String(values.currentProjectId), sourceId, {
+                    limit: 20,
+                    offset,
+                    ...(search ? { search } : {}),
+                })
+                actions.runsLoaded({ sourceId, runs: response.results, count: response.count, offset })
             } catch (error) {
                 posthog.captureException(error, { scope: 'customPropertyDefinitionsLogic.loadRuns' })
                 actions.runsLoadFailed({ sourceId })
-                lemonToast.error('Failed to load run history')
             }
         },
         pollRunsStatus: ({ sourceId }) => {

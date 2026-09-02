@@ -1,10 +1,11 @@
 # Web analytics precomputation
 
-PostHog web analytics has two parallel precomputation systems. They target the same problem (avoid scanning raw events on every dashboard load) but use different mechanisms and apply to different query shapes.
+PostHog web analytics has two production precomputation systems, plus an experimental third (the dimensional tables).
+They target the same problem (avoid scanning raw events on every dashboard load) but use different mechanisms and apply to different query shapes.
 
 For how these tiers fit into the full serving ladder (fast paths, full join, dispatch order, query_type tags), see [docs/internal/web-analytics-query-serving.md](../../docs/internal/web-analytics-query-serving.md).
 
-## The two systems
+## The systems
 
 ### v2 pre-aggregated tables
 
@@ -16,6 +17,34 @@ DAG-warmed ClickHouse tables (`web_pre_aggregated_stats`, `web_pre_aggregated_bo
 - **Population**: scheduled Dagster jobs in `products/web_analytics/dags/`
 - **Coverage**: stats table queries, web overview (partial)
 - **Adoption** (as of 2026-05): effectively zero — only one team has the modifier on in prod
+
+### Dimensional pre-aggregated tables (experimental)
+
+**Status: experimental, write-only.**
+The precomputation-framework successor to the v2 tables: an experiment in whether v2's fixed-dimension read model can run on the lazy-computation framework (per-team jobs + TTLs) instead of v2's staging-table + partition-swap ETL.
+No read path is merged — the runner never reads these tables today (PR #62437, the read path, is closed).
+
+Two ClickHouse tables carry the same fixed dimension set as v2 (`host`, `device_type`, `pathname`, `browser`, `os`, `viewport`, `referring_domain`, `utm_*`, geoip, …):
+
+- `web_stats_dimensional_preaggregated` — stats (persons / sessions / pageviews states).
+- `web_bounces_dimensional_preaggregated` — bounces (adds bounce / duration / session-count states).
+
+Both are `ReplacingMergeTree` (version column `computed_at`), sharded by `sipHash64(job_id)` on the AUX cluster, partitioned by `toYYYYMMDD(expires_at)`.
+
+- **Owned by**: web analytics team, on the analytics_platform framework.
+- **Population**: the hourly `web_dimensional_precompute` Dagster job (`products/web_analytics/dags/web_dimensional_precompute.py`).
+  For each team on a region-scoped allowlist it drives `ensure_precomputed` over a rolling 90-day window, chunked to one UTC day per INSERT.
+  Every window is a `PreaggregationJob` (Postgres) with a `job_id` and a TTL by age (today 1h, ≤2 days 1 day, older 90 days); re-runs recompute only expired windows.
+  The allowlist defaults per Cloud region (`DEFAULT_ROLLOUT_TEAM_IDS_BY_REGION`) and is overridable via `WEB_DIMENSIONAL_PRECOMPUTE_TEAM_IDS`; an empty list disables the job.
+- **Coverage**: the same stats-breakdown and overview shapes v2 serves — about 45% of user-facing web-analytics reads by shape (stats breakdowns on the stored dimensions, plus overview).
+  Not goals, vitals, frustration metrics, external clicks, or the other engines (Trends / Retention / HogQL).
+  Its differentiator over lazy: arbitrary multi-dimension filters within the fixed set resolve from one table, with no per-filter-combination warming.
+- **Adoption**: none in prod — a write-only pilot for a v2 side-by-side.
+
+Read-cost finding (2026-08): for clean single-generation reads these tables match v2 on rows and bytes (within ±7%) and use far less query memory.
+Because `job_id` is in the `ORDER BY`, recompute generations never collapse, so a read spanning un-deduped generations inflates scan cost roughly linearly with the generation count — that, not the schema, is the historical "not as fast" result.
+Reviving the read path needs precise ready-job filtering plus a way to collapse superseded generations.
+Schema: `posthog/clickhouse/preaggregation/web_*_dimensional_preaggregated_sql.py`; INSERT templates: `products/web_analytics/backend/hogql_queries/web_dimensional_precompute.py`.
 
 ### Lazy computation
 
@@ -290,6 +319,12 @@ Rollout gates, in order:
 Accepted semantic differences vs vanilla trends (the tiles align with the overview tile instead): session-start-hour attribution, HLL uniques, `$pageview + $screen` counted together, sessionless events excluded. The per-query "Allow precompute" opt-out does not reach trend tiles (TrendsQuery deliberately carries no web-analytics fields); the flag is the kill switch.
 
 The Active Hours path is stricter than the trend tiles: it falls back to the live heatmap for teams that track both `$pageview` and `$screen` (the buckets carry no event dimension, and the live heatmap filters exactly to the requested event), for teams aggregating by distinct ID, and for date bounds that are not hour-aligned in UTC (explicit sub-hour ranges, fractional-offset timezones).
+
+### Web Vitals tab timeseries
+
+The Web Vitals tab's timeseries tile sends a `WebVitalsQuery` wrapper whose `source` is a TrendsQuery of four `$web_vitals` percentile series. With the `web-analytics-vitals-precompute` flag (locally evaluated, fails closed) on for the team, dispatch routes it to `WebVitalsQueryRunner`, which merges the per-path quantile states of the `web_vitals_paths_preaggregated` buckets into per-day tab-level percentiles — the same buckets the path-breakdown tile on the same tab keeps warm, so the inner ensure hashes to the sibling tile's job family and both tiles share one set of jobs. With the flag off the kind has no runner branch and `process_query_model` unwraps to the source TrendsQuery, the pre-existing live path.
+
+Servable shapes: the canonical four-series tab query with a shared p75/p90/p99 percentile, day-aligned ranges, and day/week/month intervals (buckets are team-tz daily, so hour interval falls back). p95, compare, breakdowns, formulas, per-series filters, per-series math multipliers, and conversion goals fall back. Only the line-graph display is servable; any other display (total-value, cumulative, and the displays with dedicated runners — calendar heatmap, box plot, slope graph) unwraps to its source TrendsQuery so the source's own dispatch handles it. Accepted semantic difference vs the live path: events with a NULL `$pathname` are absent from the buckets, so they are excluded from the served percentiles.
 
 ## Related code
 

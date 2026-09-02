@@ -2,7 +2,11 @@ import { AgentSideConnection, ndJsonStream } from "@agentclientprotocol/sdk";
 import type { Adapter } from "@posthog/shared";
 import type { ModelInfo } from "../gateway-models";
 import type { SessionLogWriter } from "../session-log-writer";
-import type { PostHogAPIConfig, ProcessSpawnedCallback } from "../types";
+import type {
+  ContextWikiEnv,
+  PostHogAPIConfig,
+  ProcessSpawnedCallback,
+} from "../types";
 import { Logger } from "../utils/logger";
 import {
   createBidirectionalStreams,
@@ -10,6 +14,7 @@ import {
   type StreamPair,
 } from "../utils/streams";
 import { ClaudeAcpAgent } from "./claude/claude-agent";
+import type { MachineClaudeAuth } from "./claude/machine-auth";
 import type { GatewayEnv } from "./claude/session/options";
 import { nativeCodexBinaryPath } from "./codex-app-server/binary-path";
 import { CodexAppServerAgent } from "./codex-app-server/codex-app-server-agent";
@@ -34,6 +39,9 @@ export type AcpConnectionConfig = {
   enricherEnabled?: boolean;
   /** Explicit gateway config for the Claude adapter — prevents global process.env mutation. */
   claudeGatewayEnv?: GatewayEnv;
+  claudeMachineAuth?: MachineClaudeAuth;
+  /** Per-session context wiki mount — prevents global process.env mutation. */
+  contextWiki?: ContextWikiEnv;
 };
 
 export type AcpConnection = {
@@ -119,6 +127,8 @@ function createClaudeConnection(config: AcpConnectionConfig): AcpConnection {
       onStructuredOutput: config.onStructuredOutput,
       posthogApiConfig: resolveEnricherApiConfig(config),
       gatewayEnv: config.claudeGatewayEnv,
+      machineAuth: config.claudeMachineAuth,
+      contextWiki: config.contextWiki,
     });
     return agent;
   }, agentStream);
@@ -225,9 +235,11 @@ function createCodexConnection(config: AcpConnectionConfig): AcpConnection {
         apiBaseUrl: codexOptions.apiBaseUrl,
         apiKey: codexOptions.apiKey,
         codexHome: codexOptions.codexHome,
+        useMachineAuth: codexOptions.useMachineAuth,
         developerInstructions: codexOptions.developerInstructions,
         httpHeaders: codexOptions.httpHeaders,
         configOverrides: codexOptions.configOverrides,
+        contextWiki: config.contextWiki,
       },
       model: codexOptions.model,
       reasoningEffort: codexOptions.reasoningEffort,

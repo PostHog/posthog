@@ -2,24 +2,19 @@ import re
 
 from django import forms
 from django.contrib import admin
-from django.db.models import QuerySet
-from django.http import HttpRequest
 from django.urls import reverse
 from django.utils.html import format_html
-
-from products.skills.backend.models.skills import LLMSkill
 
 from .models import (
     SignalReport,
     SignalReportArtefact,
-    SignalReportCanvasGeneration,
     SignalScoutConfig,
     SignalScoutNote,
     SignalScoutRun,
     SignalScratchpad,
     SignalTeamConfig,
 )
-from .scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
+from .scout_harness.note_targets import InvalidNoteError, validate_note_target
 
 
 class SignalReportArtefactInline(admin.TabularInline):
@@ -85,52 +80,6 @@ class SignalReportAdmin(admin.ModelAdmin):
     )
 
     inlines = [SignalReportArtefactInline]
-
-
-@admin.register(SignalReportCanvasGeneration)
-class SignalReportCanvasGenerationAdmin(admin.ModelAdmin):
-    list_display = (
-        "id",
-        "report_id",
-        "team_id",
-        "status",
-        "validation_status",
-        "review_status",
-        "duration_ms",
-        "created_at",
-    )
-    list_filter = ("status", "validation_status", "review_status", "prompt_version")
-    search_fields = ("id", "report_id", "team_id", "generation_task_id", "generation_run_id")
-    ordering = ("-created_at",)
-    show_full_result_count = False
-    readonly_fields = (
-        "id",
-        "team",
-        "report",
-        "status",
-        "validation_status",
-        "trigger",
-        "prompt_version",
-        "input_fingerprint",
-        "output_source",
-        "output_storage_key",
-        "model_metadata",
-        "error_category",
-        "failure_reason",
-        "duration_ms",
-        "generation_task_id",
-        "generation_run_id",
-        "canvas_id",
-        "started_at",
-        "completed_at",
-        "created_at",
-        "updated_at",
-    )
-
-    def get_queryset(self, request: HttpRequest) -> QuerySet[SignalReportCanvasGeneration]:
-        queryset = super().get_queryset(request)
-        url_name = getattr(request.resolver_match, "url_name", "")
-        return queryset if url_name.endswith("_change") else queryset.defer("output_source")
 
 
 @admin.register(SignalScoutConfig)
@@ -240,20 +189,19 @@ class SignalScoutNoteAdminForm(forms.ModelForm):
         fields = "__all__"
 
     def clean(self) -> dict:
-        # Mirror the API write path (`scout_harness/tools/notes.py`): the run-time list matches
-        # `skill_name` exactly, so a typo'd target saved here would silently steer no one.
+        # Share the API write path's target rule (`scout_harness/tools/notes.py`): the run-time
+        # list matches `skill_name` exactly, so a typo'd target saved here would steer no one.
         cleaned = super().clean() or {}
         skill_name = (cleaned.get("skill_name") or "").strip()
         cleaned["skill_name"] = skill_name
-        if not skill_name:
-            return cleaned
-        if not skill_name.startswith(SIGNALS_SCOUT_SKILL_PREFIX):
-            raise forms.ValidationError(
-                {"skill_name": f"Must be blank (a note for every scout) or start with '{SIGNALS_SCOUT_SKILL_PREFIX}'."}
-            )
         team = cleaned.get("team")
-        if team is not None and not LLMSkill.objects.filter(team=team, name=skill_name, deleted=False).exists():
-            raise forms.ValidationError({"skill_name": "No scout skill with this name exists on the selected team."})
+        if team is None:
+            # The scout-skill lookup needs a team. Django already reports the missing field.
+            return cleaned
+        try:
+            validate_note_target(team_id=team.pk, skill_name=skill_name)
+        except InvalidNoteError as exc:
+            raise forms.ValidationError({"skill_name": str(exc)})
         return cleaned
 
 

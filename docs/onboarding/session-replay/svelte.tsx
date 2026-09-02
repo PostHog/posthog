@@ -1,10 +1,12 @@
 import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
 
-import { getSvelteClientSteps as getSvelteStepsPA } from '../product-analytics/svelte'
+import { getSvelteClientSteps } from '../product-analytics/svelte'
 import { StepDefinition } from '../steps'
-import { createSessionReplayStepsFromPA } from './_snippets/create-session-replay-steps'
+import { sessionReplayFinalStep } from './_snippets/session-replay-final-step'
 
-export const getSvelteSteps = (ctx: OnboardingComponentsContext): StepDefinition[] =>
-    createSessionReplayStepsFromPA(getSvelteStepsPA, ctx)
+export const getSvelteSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => [
+    ...getSvelteClientSteps(ctx),
+    sessionReplayFinalStep(ctx),
+]
 
 export const SvelteInstallation = createInstallation(getSvelteSteps)

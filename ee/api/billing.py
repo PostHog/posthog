@@ -1,5 +1,6 @@
 import json
-from typing import Any, Optional
+from collections.abc import Callable, Sequence
+from typing import Any, Optional, cast
 from zoneinfo import ZoneInfo
 
 from django.http import HttpResponse
@@ -22,8 +23,15 @@ from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization, OrganizationIntegration, Team, User
 from posthog.models.organization import OrganizationMembership
-from posthog.permissions import get_authenticator_scopes, posthog_feature_flag_enabled
+from posthog.permissions import (
+    get_authenticator_scoped_team_ids,
+    get_authenticator_scopes,
+    posthog_feature_flag_enabled,
+)
+from posthog.user_permissions import UserPermissions
 from posthog.utils import get_trusted_client_ip, relative_date_parse
+
+from products.access_control.backend.facade.user_access_control import UserAccessControl, visible_teams_for_user
 
 from ee.billing.billing_manager import BillingManager
 from ee.billing.billing_types import USAGE_TYPE_VALUES
@@ -34,6 +42,9 @@ logger = structlog.get_logger(__name__)
 
 BILLING_SERVICE_JWT_AUD = "posthog:license-key"
 OWNER_ONLY_BILLING_FLAG = "owner-only-billing"
+MEMBER_BILLING_USAGE_SPEND_READ_ACCESS_FLAG = "member-billing-usage-spend-read-access"
+BILLING_LIMIT_TODAYS_USAGE_FLAG = "billing-limit-todays-usage"
+BILLING_LIMIT_TODAYS_USAGE_KEYS = ("posthog_code_credits",)
 
 
 def _owner_only_billing_enabled(user: User, organization: Organization) -> Optional[bool]:
@@ -66,6 +77,92 @@ def user_has_billing_access(user: User, organization: Organization) -> bool:
     return _owner_only_billing_enabled(user, organization) is False
 
 
+def _member_billing_usage_spend_read_access_enabled(user: User, organization: Organization) -> bool:
+    if not user.distinct_id:
+        return False
+
+    try:
+        return (
+            posthog_feature_flag_enabled(
+                MEMBER_BILLING_USAGE_SPEND_READ_ACCESS_FLAG,
+                str(user.distinct_id),
+                organization_id=organization.id,
+            )
+            is True
+        )
+    except Exception as e:
+        capture_exception(e, {"organization_id": organization.id, "flag": MEMBER_BILLING_USAGE_SPEND_READ_ACCESS_FLAG})
+        return False
+
+
+def _billing_limit_todays_usage_enabled(user: User, organization: Organization) -> bool:
+    if not user.distinct_id:
+        return False
+
+    try:
+        return (
+            posthog_feature_flag_enabled(
+                BILLING_LIMIT_TODAYS_USAGE_FLAG,
+                str(user.distinct_id),
+                organization_id=organization.id,
+            )
+            is True
+        )
+    except Exception as e:
+        capture_exception(e, {"organization_id": organization.id, "flag": BILLING_LIMIT_TODAYS_USAGE_FLAG})
+        return False
+
+
+def _todays_usage_value(usage_key: str, usage: dict[str, Any]) -> int:
+    value = usage.get("todays_usage")
+    if value is None:
+        return 0
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValidationError(f"Invalid today's usage value for {usage_key}.")
+    if value < 0:
+        raise ValidationError(f"Invalid today's usage value for {usage_key}.")
+    return value
+
+
+def _todays_usage_by_usage_key(organization: Organization) -> dict[str, int]:
+    usage_summary = organization.usage or {}
+    todays_usage_by_usage_key: dict[str, int] = {}
+
+    for usage_key in BILLING_LIMIT_TODAYS_USAGE_KEYS:
+        usage = usage_summary.get(usage_key)
+        if usage is None:
+            continue
+        if not isinstance(usage, dict):
+            raise ValidationError(f"Invalid current usage summary for {usage_key}.")
+
+        todays_usage = _todays_usage_value(usage_key, usage)
+        if todays_usage:
+            todays_usage_by_usage_key[usage_key] = todays_usage
+
+    return todays_usage_by_usage_key
+
+
+def user_has_billing_usage_spend_read_access(user: User, organization: Organization) -> bool:
+    membership = OrganizationMembership.objects.filter(user=user, organization=organization).only("level").first()
+    if not membership:
+        return False
+
+    if membership.level >= OrganizationMembership.Level.OWNER:
+        return True
+
+    # Only a confirmed disabled flag lets non-owners through. Unknown flag state fails closed to owners.
+    if _owner_only_billing_enabled(user, organization) is not False:
+        return False
+
+    if membership.level >= OrganizationMembership.Level.ADMIN:
+        return True
+
+    if membership.level < OrganizationMembership.Level.MEMBER:
+        return False
+
+    return _member_billing_usage_spend_read_access_enabled(user, organization)
+
+
 def is_token_auth_request(request: Request) -> bool:
     return get_authenticator_scopes(getattr(request, "successful_authenticator", None)) is not None
 
@@ -87,6 +184,27 @@ class HasBillingAccess(permissions.BasePermission):
             return False
 
         return user_has_billing_access(request.user, org)
+
+
+class HasBillingUsageSpendReadAccess(permissions.BasePermission):
+    """
+    Permission for read-only billing usage/spend endpoints. The frontend additionally requires
+    usage-spend-dashboards before honoring the member grant, but that flag is not an authorization
+    input here or in the billing service.
+    """
+
+    message = "You do not have access to billing usage and spend data for this organization."
+
+    def has_permission(self, request: Request, view: Any) -> bool:
+        try:
+            org = view._get_org_required()
+        except Exception:
+            return False
+
+        if not isinstance(request.user, User):
+            return False
+
+        return user_has_billing_usage_spend_read_access(request.user, org)
 
 
 class BillingSerializer(serializers.Serializer):
@@ -163,7 +281,9 @@ class BillingUsageRequestSerializer(serializers.Serializer):
         allow_null=True,
         help_text=(
             "JSON-encoded array of numeric team/project IDs to filter on, "
-            "for example [1,2]. Omit for all teams in the organization."
+            "for example [1,2]. Omit for all projects available to the caller. Full billing-access callers can read "
+            "all organization projects; member read-only callers are limited to visible projects and any project "
+            "scope on their token."
         ),
     )
     breakdowns = serializers.CharField(
@@ -373,6 +493,10 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 body = {}
                 if custom_limits_usd:
                     body["custom_limits_usd"] = custom_limits_usd
+                    if _billing_limit_todays_usage_enabled(cast(User, self.request.user), org):
+                        todays_usage = _todays_usage_by_usage_key(org)
+                        if todays_usage:
+                            body["todays_usage_by_usage_key"] = todays_usage
                 if reset_limit_next_period:
                     body["reset_limit_next_period"] = reset_limit_next_period
 
@@ -752,71 +876,59 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         methods=["GET"],
         detail=False,
         url_path="usage",
-        permission_classes=[permissions.IsAuthenticated, HasBillingAccess],
+        permission_classes=[permissions.IsAuthenticated, HasBillingUsageSpendReadAccess],
         responses={200: BillingTimeSeriesResponseSerializer},
     )
     def usage(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
-        organization = self._get_org_required()
-
-        billing_manager = self.get_billing_manager()
-
-        serializer = BillingUsageRequestSerializer(data=request.GET)
-        serializer.is_valid(raise_exception=True)
-        self._check_requested_team_ids_belong_to_org(organization, serializer.validated_data.get("team_ids"))
-
-        teams_map = self._get_teams_map(organization)
-
-        try:
-            params_to_pass = {k: v for k, v in serializer.validated_data.items() if v is not None}
-            params_to_pass["teams_map"] = teams_map
-            res = billing_manager.get_usage_data(organization, params_to_pass)
-            return Response(res, status=status.HTTP_200_OK)
-        except Exception as e:
-            if len(e.args) > 2:
-                detail_object = e.args[2]
-                if not isinstance(detail_object, dict):
-                    raise
-                return Response(
-                    {
-                        "statusText": e.args[0],
-                        "detail": detail_object.get("error_message", detail_object),
-                        "code": detail_object.get("code"),
-                    },
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            else:
-                raise
+        return self._usage_or_spend_response(request, self.get_billing_manager().get_usage_data)
 
     @extend_schema(parameters=[BillingUsageRequestSerializer])
     @action(
         methods=["GET"],
         detail=False,
         url_path="spend",
-        permission_classes=[permissions.IsAuthenticated, HasBillingAccess],
+        permission_classes=[permissions.IsAuthenticated, HasBillingUsageSpendReadAccess],
         responses={200: BillingTimeSeriesResponseSerializer},
     )
     def spend(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         """Endpoint to fetch spend data (proxy to billing service)."""
+        return self._usage_or_spend_response(request, self.get_billing_manager().get_spend_data)
+
+    def _usage_or_spend_response(
+        self,
+        request: Request,
+        billing_data_getter: Callable[[Organization, dict[str, Any]], Any],
+    ) -> HttpResponse:
         organization = self._get_org_required()
-
-        billing_manager = self.get_billing_manager()
-
         serializer = BillingUsageRequestSerializer(data=request.GET)
         serializer.is_valid(raise_exception=True)
         self._check_requested_team_ids_belong_to_org(organization, serializer.validated_data.get("team_ids"))
 
-        teams_map = self._get_teams_map(organization)
-
         try:
             params_to_pass = {k: v for k, v in serializer.validated_data.items() if v is not None}
+            scoped_team_ids = self._scoped_team_ids_for_usage_spend_request(request, organization, params_to_pass)
+            teams_map = self._get_teams_map(organization, scoped_team_ids)
             params_to_pass["teams_map"] = teams_map
-            res = billing_manager.get_spend_data(organization, params_to_pass)
+
+            if scoped_team_ids is not None:
+                params_to_pass["team_ids"] = json.dumps(scoped_team_ids)
+
+            res = billing_data_getter(organization, params_to_pass)
+            if scoped_team_ids is not None and isinstance(res, dict) and "team_id_options" in res:
+                scoped_team_id_set = set(scoped_team_ids)
+                res["team_id_options"] = [
+                    team_id for team_id in (res.get("team_id_options") or []) if team_id in scoped_team_id_set
+                ]
             return Response(res, status=status.HTTP_200_OK)
         except Exception as e:
             if len(e.args) > 2:
                 detail_object = e.args[2]
                 if not isinstance(detail_object, dict):
                     raise
+                if detail_object.get("code") == "permission_denied":
+                    # billing evaluates the same permission from its own cache, so flag rollout
+                    # windows can still return a downstream permission denial.
+                    raise PermissionDenied(HasBillingUsageSpendReadAccess.message)
                 return Response(
                     {
                         "statusText": e.args[0],
@@ -828,12 +940,61 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             else:
                 raise
 
-    def _get_teams_map(self, organization: Organization) -> dict[int, str]:
+    def _scoped_team_ids_for_usage_spend_request(
+        self, request: Request, organization: Organization, params_to_pass: dict[str, Any]
+    ) -> Optional[Sequence[int]]:
+        if not isinstance(request.user, User) or user_has_billing_access(request.user, organization):
+            return None
+
+        accessible_team_ids = self._team_ids_visible_to_user_in_org(request.user, organization)
+        token_scoped_team_ids = get_authenticator_scoped_team_ids(getattr(request, "successful_authenticator", None))
+        if token_scoped_team_ids is not None:
+            accessible_team_ids = sorted(set(accessible_team_ids).intersection(token_scoped_team_ids))
+
+        if not accessible_team_ids:
+            raise PermissionDenied(HasBillingUsageSpendReadAccess.message)
+
+        requested_team_ids = self._parse_team_ids(params_to_pass.get("team_ids"))
+        if not requested_team_ids:
+            return accessible_team_ids
+
+        scoped_team_ids = sorted(set(requested_team_ids).intersection(accessible_team_ids))
+        if not scoped_team_ids:
+            raise PermissionDenied(HasBillingUsageSpendReadAccess.message)
+
+        return scoped_team_ids
+
+    def _team_ids_visible_to_user_in_org(self, user: User, organization: Organization) -> Sequence[int]:
+        return list(
+            visible_teams_for_user(
+                organization,
+                UserAccessControl(user=user, organization_id=str(organization.id)),
+                UserPermissions(user=user),
+            )
+            .order_by("id")
+            .values_list("id", flat=True)
+        )
+
+    def _parse_team_ids(self, team_ids: Optional[str]) -> Sequence[int]:
+        if not team_ids:
+            return []
+
+        parsed_team_ids = json.loads(team_ids)
+        if not isinstance(parsed_team_ids, list):
+            raise ValidationError({"team_ids": "Value must be a JSON array of numeric team IDs."})
+
+        return [team_id for team_id in parsed_team_ids if isinstance(team_id, int) and not isinstance(team_id, bool)]
+
+    def _get_teams_map(self, organization: Organization, team_ids: Optional[Sequence[int]] = None) -> dict[int, str]:
         """
-        Safely build a mapping of team.id to team.name for the org. Return empty dict on failure.
+        Safely build a mapping of team.id to team.name for the org, optionally limited to team_ids.
+        Return empty dict on failure.
         """
         try:
-            return {team.id: team.name for team in Team.objects.filter(organization=organization)}
+            teams = Team.objects.filter(organization=organization)
+            if team_ids is not None:
+                teams = teams.filter(id__in=team_ids)
+            return {team.id: team.name for team in teams}
         except Exception as e:
             capture_exception(e, {"organization_id": organization.id})
             return {}

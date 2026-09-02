@@ -19,15 +19,17 @@ import threading
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable
 from contextlib import AbstractContextManager, nullcontext
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from types import TracebackType
-from typing import TYPE_CHECKING, Protocol, Self
+from typing import TYPE_CHECKING, Any, Protocol, Self
 
 from django.conf import settings
 
 import structlog
 from pydantic import BaseModel, model_validator
+
+from posthog.dataclasses import frozen
 
 from products.tasks.backend.constants import (
     DEFAULT_SANDBOX_WORKING_DIR,
@@ -39,6 +41,7 @@ from products.tasks.backend.constants import (
 from products.tasks.backend.logic.services.sandbox_config import (
     BURSTABLE_REQUEST_CPU_CORES,
     BURSTABLE_REQUEST_MEMORY_MB,
+    DEV_STACK_CPU_REQUEST_CORES,
     SANDBOX_TTL_SECONDS,
     VM_SANDBOX_CPU_CORES,
 )
@@ -47,12 +50,12 @@ if TYPE_CHECKING:
     from products.tasks.backend.temporal.process_task.utils import McpServerConfig
 
 
-@dataclass
+@frozen
 class AgentServerResult:
     """Result from starting an agent server in a sandbox."""
 
     url: str
-    token: str | None = None
+    token: str | None = field(default=None, repr=False)
 
 
 class SandboxStatus(str, Enum):
@@ -90,8 +93,9 @@ SELF_DRIVING_ORIGIN_PRODUCTS: frozenset[str] = frozenset(
     {
         # Signals report research + repo selection
         "signal_report",
-        # Headless Signals scouts
+        # Headless Signals scouts, and the headless scan that pre-computes scout suggestions
         "signals_scout",
+        "scout_suggestions",
         # ReviewHog's per-chunk review, blind-spot, and validation sandboxes
         "review_hog",
     }
@@ -172,6 +176,7 @@ class SandboxConfig(BaseModel):
     # downgraded one was used instead (e.g. published custom image -> plain base). Human-readable,
     # surfaced in the run log so image downgrades are never silent.
     image_fallback: str | None = None
+    dev_stack_present: bool | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -192,10 +197,21 @@ class SandboxConfig(BaseModel):
         return self.vm_runtime or self.template == SandboxTemplate.VM_BASE
 
     @property
+    def is_dev_stack_image(self) -> bool:
+        if not self.is_vm:
+            return False
+        if self.dev_stack_present is not None:
+            return self.dev_stack_present
+        return self.custom_image_name == DEV_STACK_IMAGE_NAME
+
+    @property
     def effective_cpu_request_cores(self) -> float:
         """CPU floor the provider actually reserves when burstable: the configured request,
-        clamped to the limit."""
-        return min(float(self.cpu_request_cores), float(self.cpu_cores))
+        raised to the dev-stack image floor, clamped to the limit."""
+        floor = float(self.cpu_request_cores)
+        if self.is_dev_stack_image:
+            floor = max(floor, DEV_STACK_CPU_REQUEST_CORES)
+        return min(floor, float(self.cpu_cores))
 
     @property
     def effective_memory_request_mb(self) -> int:
@@ -218,9 +234,13 @@ PUBLIC_SANDBOX_REPOS: frozenset[str] = frozenset({"posthog/hedgebox", "posthog/.
 SENSITIVE_AGENT_RUNTIME_ENV_NAMES: frozenset[str] = frozenset(
     {"POSTHOG_TASK_RUN_EVENT_INGEST_TOKEN", "POSTHOG_TASK_RUN_SESSION_TOKEN"}
 )
+SHELL_ARGUMENT_VALUE_PATTERN = r"'(?:[^']|'\"'\"')*'|\"(?:\\.|[^\"])*\"|\S+"
 SENSITIVE_AGENT_RUNTIME_ENV_PATTERN = re.compile(
     r"(?P<name>" + "|".join(re.escape(name) for name in SENSITIVE_AGENT_RUNTIME_ENV_NAMES) + r")="
-    r"(?P<value>'(?:[^']|'\"'\"')*'|\"(?:\\.|[^\"])*\"|\S+)"
+    rf"(?P<value>{SHELL_ARGUMENT_VALUE_PATTERN})"
+)
+SENSITIVE_AGENT_RUNTIME_ARGUMENT_PATTERN = re.compile(
+    rf"(?P<name>--mcpServers)\s+(?P<value>{SHELL_ARGUMENT_VALUE_PATTERN})"
 )
 
 
@@ -235,7 +255,8 @@ def sandbox_repo_path(repository: str) -> str:
 
 
 def redact_sandbox_command(command: str) -> str:
-    return SENSITIVE_AGENT_RUNTIME_ENV_PATTERN.sub(r"\g<name>=<redacted>", command)
+    redacted = SENSITIVE_AGENT_RUNTIME_ENV_PATTERN.sub(r"\g<name>=<redacted>", command)
+    return SENSITIVE_AGENT_RUNTIME_ARGUMENT_PATTERN.sub(r"\g<name> <redacted>", redacted)
 
 
 def build_agent_runtime_env_prefix(
@@ -255,6 +276,8 @@ def build_agent_runtime_env_prefix(
     event_ingest_url: str | None = None,
     event_ingest_keep_stream_open: bool = False,
     rtk_enabled: bool = True,
+    benjamin_enabled: bool = False,
+    peer_messaging: bool = False,
 ) -> str:
     env_vars = {
         "POSTHOG_CODE_INTERACTION_ORIGIN": interaction_origin,
@@ -275,6 +298,11 @@ def build_agent_runtime_env_prefix(
         # Set explicitly in both states: "0" opts the run out, "1" pins auto-detection on
         # even if a stale env value survives in a resumed sandbox.
         "POSTHOG_RTK": "1" if rtk_enabled else "0",
+        "POSTHOG_BENJAMIN": "1" if benjamin_enabled else "0",
+        # Exposure gate for the peer-messaging tools (PR: agent peer messaging). Set in
+        # both states so a stale "1" in a resumed sandbox can't outlive a flag rollback;
+        # the peers endpoints re-check authorization server-side regardless.
+        "POSTHOG_AGENT_PEER_MESSAGING": "1" if peer_messaging else "0",
     }
     assignments = " ".join(
         f"{name}={shlex.quote(value)}" for name, value in env_vars.items() if value is not None and value != ""
@@ -320,7 +348,7 @@ class SandboxBase(ABC):
     def execute_stream(self, command: str, timeout_seconds: int | None = None) -> ExecutionStream: ...
 
     @abstractmethod
-    def write_file(self, path: str, payload: bytes) -> ExecutionResult: ...
+    def write_file(self, path: str, payload: bytes, timeout_seconds: int | None = None) -> ExecutionResult: ...
 
     def stop_agent_server(self) -> ExecutionResult:
         """Stop the agent server gracefully so it can flush terminal events."""
@@ -427,6 +455,13 @@ class SandboxBase(ABC):
         )
         return result.exit_code == 0
 
+    def agent_server_supports_prewarmed_resume_idle(self) -> bool:
+        result = self.execute(
+            "grep -q prewarmedResumeIdle /scripts/node_modules/.bin/agent-server",
+            timeout_seconds=10,
+        )
+        return result.exit_code == 0
+
     def clone_repository(
         self,
         repository: str,
@@ -488,6 +523,9 @@ class SandboxBase(ABC):
         ...
 
     @abstractmethod
+    def create_preview_connect_credentials(self, port: int, user_metadata: dict[str, Any]) -> AgentServerResult: ...
+
+    @abstractmethod
     def start_agent_server(
         self,
         repository: str | None,
@@ -516,13 +554,18 @@ class SandboxBase(ABC):
         repo_ready_file: str | None = None,
         wait_for_health: bool = True,
         rtk_enabled: bool = True,
-    ) -> None:
+        benjamin_enabled: bool = False,
+        peer_messaging: bool = False,
+    ) -> int | None:
         """Start the agent-server HTTP server in the sandbox.
 
         The sandbox URL and token should be obtained via get_connect_credentials()
         before calling this method.
         """
         ...
+
+    def supports_combined_agent_server_start_and_health(self) -> bool:
+        return False
 
     @abstractmethod
     def wait_for_agent_server_ready(self, allowed_domains: list[str] | None = None) -> None: ...
@@ -548,6 +591,15 @@ class SandboxBase(ABC):
     def read_agent_server_session_init_ms(self) -> int | None:
         return None
 
+    def read_agent_server_boot_phases_ms(self) -> dict[str, int]:
+        return {}
+
+    def read_agent_server_boot_metrics(self) -> tuple[int | None, dict[str, int]]:
+        return None, {}
+
+    def agent_server_health_url(self) -> str:
+        return "http://127.0.0.1:8080/health"
+
     def read_cpu_usage_usec(self) -> int | None:
         return None
 
@@ -565,6 +617,66 @@ class SandboxBase(ABC):
             return int(session_init_ms) if isinstance(session_init_ms, int | float) else None
         except Exception:
             return None
+
+    def _read_health_boot_metrics(self, port: int) -> tuple[int | None, dict[str, int]]:
+        try:
+            result = self.execute(f"curl -s --max-time 5 http://localhost:{port}/health", timeout_seconds=10)
+            payload = json.loads(result.stdout or "{}")
+            session_init_ms = payload.get("sessionInitMs")
+            boot = payload.get("boot", {})
+            raw_phases = boot.get("phasesMs", {}) if isinstance(boot, dict) else {}
+            allowed_phases = {
+                "context_fetch",
+                "acp_initialize",
+                "repository_ready",
+                "session_dependencies",
+                "session_create",
+            }
+            phases = (
+                {
+                    phase: max(0, int(duration))
+                    for phase, duration in raw_phases.items()
+                    if phase in allowed_phases and isinstance(duration, int | float)
+                }
+                if isinstance(raw_phases, dict)
+                else {}
+            )
+            for source, target in (
+                ("totalMs", "server_total"),
+                ("httpReadyMs", "http_ready"),
+                ("launcherToProcessMs", "launcher_to_process"),
+            ):
+                duration = boot.get(source) if isinstance(boot, dict) else None
+                if isinstance(duration, int | float) and not isinstance(duration, bool):
+                    phases[target] = max(0, int(duration))
+            boot_ms = payload.get("bootMs")
+            if "server_total" not in phases and isinstance(boot_ms, int | float) and not isinstance(boot_ms, bool):
+                phases["server_total"] = max(0, int(boot_ms))
+            return int(session_init_ms) if isinstance(session_init_ms, int | float) else None, phases
+        except Exception:
+            return None, {}
+
+    def _read_health_boot_phases_ms(self, port: int) -> dict[str, int]:
+        try:
+            result = self.execute(f"curl -s --max-time 5 http://localhost:{port}/health", timeout_seconds=10)
+            payload = json.loads(result.stdout or "{}")
+            raw_phases = payload.get("boot", {}).get("phasesMs", {})
+            allowed_phases = {
+                "context_fetch",
+                "acp_initialize",
+                "repository_ready",
+                "session_dependencies",
+                "session_create",
+            }
+            if not isinstance(raw_phases, dict):
+                return {}
+            return {
+                phase: max(0, int(duration))
+                for phase, duration in raw_phases.items()
+                if phase in allowed_phases and isinstance(duration, int | float)
+            }
+        except Exception:
+            return {}
 
     def __enter__(self) -> Self:
         return self
@@ -623,7 +735,16 @@ def wait_for_health_check(
     Runs a bash polling loop inside the sandbox so only one round-trip is
     needed regardless of how many attempts are required.
     """
-    health_script = (
+    health_script = build_health_check_command(port, max_attempts, poll_interval)
+    result = execute(health_script, timeout_seconds=health_check_timeout_seconds(max_attempts, poll_interval))
+    if result.exit_code == 0:
+        _logger.info(f"Agent-server health check passed in sandbox {sandbox_id} ({result.stdout.strip()})")
+        return True
+    return False
+
+
+def build_health_check_command(port: int, max_attempts: int = 60, poll_interval: float = 0.5) -> str:
+    return (
         f"for i in $(seq 1 {max_attempts}); do "
         f"  body=$(curl -s http://localhost:{port}/health); "
         "  status=$?; "
@@ -638,11 +759,10 @@ def wait_for_health_check(
         f"done; "
         f"exit 1"
     )
-    result = execute(health_script, timeout_seconds=max(30, int(max_attempts * poll_interval) + 5))
-    if result.exit_code == 0:
-        _logger.info(f"Agent-server health check passed in sandbox {sandbox_id} ({result.stdout.strip()})")
-        return True
-    return False
+
+
+def health_check_timeout_seconds(max_attempts: int = 60, poll_interval: float = 0.5) -> int:
+    return max(30, int(max_attempts * poll_interval) + 5)
 
 
 SandboxClass = type[SandboxBase]
@@ -704,6 +824,12 @@ def _get_modal_evals_sandbox_class() -> SandboxClass:
     return ModalEvalsSandbox
 
 
+def _get_hogland_sandbox_class() -> SandboxClass:
+    from .hogland_sandbox import HoglandSandbox
+
+    return HoglandSandbox
+
+
 def get_sandbox_class() -> SandboxClass:
     provider = getattr(settings, "SANDBOX_PROVIDER", None)
 
@@ -715,6 +841,16 @@ def get_sandbox_class() -> SandboxClass:
 
     if provider and provider.upper() == "MODAL_EVALS":
         return _get_modal_evals_sandbox_class()
+
+    if provider and provider.lower() == "hogland":
+        # Global default only for local development — production routes per run via
+        # get_sandbox_class_for_backend, driven by the tasks-hogland-sandbox flag.
+        if not (settings.DEBUG or settings.TEST):
+            raise RuntimeError(
+                "SANDBOX_PROVIDER=hogland is for local development only. In production the "
+                "hogland backend is selected per run by the tasks-hogland-sandbox feature flag."
+            )
+        return _get_hogland_sandbox_class()
 
     # Default to Modal everywhere
     from .modal_sandbox import ModalSandbox
@@ -733,7 +869,48 @@ def get_sandbox_class_for_backend(backend: str) -> SandboxClass:
         return _get_modal_evals_sandbox_class()
     if backend == "docker":
         return _get_docker_sandbox_class()
+    if backend == "hogland":
+        return _get_hogland_sandbox_class()
     raise RuntimeError(f"Unsupported sandbox backend: {backend}")
+
+
+def get_sandbox_class_for_run_backend(backend: str) -> SandboxClass:
+    """Resolve the provider class for a run whose backend was chosen at context time.
+
+    Only ``"hogland"`` diverts from the process default. Every other value — including
+    the ``"modal"`` default — falls through to ``get_sandbox_class()`` so
+    ``SANDBOX_PROVIDER`` still selects docker / modal-docker / modal-evals in dev, test,
+    and evals. Routing straight to ``get_sandbox_class_for_backend("modal")`` here would
+    force ModalSandbox even under ``SANDBOX_PROVIDER=docker``, breaking local runs.
+    """
+    if backend == "hogland":
+        return _get_hogland_sandbox_class()
+    return get_sandbox_class()
+
+
+# hogland mints `box-<12 hex>` (hogd enforces `^box-[0-9a-f]{12}$`); Modal object ids
+# are `sb-...`. A box restored from a pen keeps a `box-` id, so this covers pens too.
+HOGLAND_SANDBOX_ID_PREFIX = "box-"
+
+
+def get_sandbox_class_for_sandbox_id(sandbox_id: str) -> SandboxClass:
+    """Resolve the provider class for an existing sandbox from its id alone.
+
+    Hogland box ids are `box-...` and Modal object ids `sb-...`, so the prefix is enough
+    to route the ~20 `get_by_id` call sites that hold only a persisted sandbox id (the
+    reaper, cleanup, and snapshot activities have no other backend context). Anything
+    that is not a hogland id falls through to the process-wide provider, preserving the
+    docker/local-dev behavior.
+
+    Getting this prefix wrong fails closed to the wrong provider: a hogland id would
+    resolve to Modal, whose `get_by_id` raises `SandboxNotFoundError`, so cleanup and the
+    reaper would silently skip a real hogbox and leak it. The persisted `sandbox_backend`
+    (see get_task_processing_context) is the authoritative signal for behavioral branches;
+    this prefix is a routing convenience checked against hogland's enforced id shape.
+    """
+    if sandbox_id.startswith(HOGLAND_SANDBOX_ID_PREFIX):
+        return _get_hogland_sandbox_class()
+    return get_sandbox_class()
 
 
 if TYPE_CHECKING:

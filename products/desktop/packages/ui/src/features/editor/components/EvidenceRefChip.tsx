@@ -1,19 +1,42 @@
 import { Popover } from "@base-ui/react/popover";
+import { CheckIcon, CopyIcon } from "@phosphor-icons/react";
+import { isPostHogObjectKind } from "@posthog/core/message-editor/content";
+import { Button } from "@posthog/quill";
 import { getCloudUrlFromRegion } from "@posthog/shared";
-import { type MouseEvent, type ReactNode, useId, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import {
+  type MouseEvent,
+  type ReactNode,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from "react";
 import { useOptionalAuthenticatedClient } from "../../../features/auth/authClient";
 import { useAuthStateValue } from "../../../features/auth/store";
+import { useDraftStore } from "../../../features/message-editor/draftStore";
+import { usePanelLayoutStore } from "../../../features/panels/panelLayoutStore";
+import { useSessionTaskId } from "../../../features/sessions/useSessionTaskId";
 import { useAuthenticatedQuery } from "../../../hooks/useAuthenticatedQuery";
+import { useCopy } from "../../../primitives/useCopy";
 import { openExternalUrl } from "../../../shell/openExternal";
 import {
   type EvidenceLinkTarget,
   evidenceWebPath,
 } from "../../../utils/evidenceLinks";
 import { getObjectKind } from "../../../utils/objectKinds";
+import { ExperimentResultsSummary } from "../../posthog-objects/ExperimentResultsSummary";
+import { buildEvidenceComposerContent } from "../evidenceComposer";
 import {
+  EVIDENCE_PREVIEW_STALE_TIME,
   type EvidenceCardData,
-  fetchEvidencePreview,
+  evidencePreviewQueryKey,
 } from "../evidencePreview";
+import {
+  fetchEvidencePreviewTimed,
+  trackEvidencePreviewShown,
+} from "../evidencePreviewAnalytics";
+import { useEvidencePreviewPrefetch } from "../useEvidencePreviewPrefetch";
 
 /**
  * Inline evidence reference inside an agent message, authored as a
@@ -48,7 +71,7 @@ const SPARK_PAD = 2;
 const SPARK_COLOR = "var(--evidence-spark-color, var(--data-color-1, #1d4aff))";
 
 /** Mini chart of the preview's primary series: a line for time series, columns for categories. */
-function Sparkline({
+export function EvidenceSparkline({
   points,
   render,
 }: {
@@ -145,28 +168,28 @@ function Sparkline({
   );
 }
 
-/**
- * The hover card, presentation only. `preview` is the live lookup result:
- * `undefined` while loading, `null` when there is nothing to show (unknown
- * kind, failed lookup, or no session).
- */
 export function EvidenceHoverCard({
   target,
   children,
   url,
   preview,
+  loadState = preview === undefined ? "loading" : preview ? "ready" : "missing",
   onOpen = openExternalUrl,
+  onExpand,
 }: {
   target: EvidenceLinkTarget;
   children: ReactNode;
   url: string | null;
   preview: EvidenceCardData | null | undefined;
+  loadState?: "loading" | "error" | "missing" | "ready";
   onOpen?: (url: string) => void;
+  onExpand?: (label: string) => void;
 }) {
   const meta = getObjectKind(target.kind);
   const KindIcon = meta.icon;
   const isQuery = target.kind === "hogql";
   const [showQuery, setShowQuery] = useState(false);
+  const { copied, copy } = useCopy();
   return (
     <div className="w-80 p-3.5">
       <div className="flex items-center gap-1.5 text-(--gray-9) text-[10.5px]">
@@ -177,7 +200,15 @@ export function EvidenceHoverCard({
         {/* For a query the source label duplicates the footer's open action. */}
         {!isQuery && <span className="ml-auto shrink-0">{meta.source}</span>}
       </div>
-      {preview === undefined ? (
+      {target.kind === "experiment" && loadState !== "ready" ? (
+        <div className="mt-3">
+          <ExperimentResultsSummary
+            display="compact"
+            loadState={loadState}
+            results={preview?.experimentResults}
+          />
+        </div>
+      ) : loadState === "loading" ? (
         <div className="mt-3 space-y-2" data-testid="evidence-preview-loading">
           <div className="h-4 w-3/5 animate-pulse rounded bg-(--gray-a4)" />
           <div className="h-9 w-full animate-pulse rounded bg-(--gray-a3)" />
@@ -210,15 +241,17 @@ export function EvidenceHoverCard({
           </div>
           {preview.spark && preview.spark.points.length > 1 && (
             <div className="mt-2.5">
-              <Sparkline
+              <EvidenceSparkline
                 points={preview.spark.points}
                 render={preview.spark.render}
               />
             </div>
           )}
-          {preview.detail && (
+          {(preview.status || preview.detail) && (
             <div className="mt-1.5 text-(--gray-10) text-[11.5px] leading-snug">
-              {preview.detail}
+              {[preview.status?.label, preview.detail]
+                .filter(Boolean)
+                .join(" · ")}
             </div>
           )}
           {preview.facts && preview.facts.length > 0 && (
@@ -231,6 +264,15 @@ export function EvidenceHoverCard({
                   {fact}
                 </span>
               ))}
+            </div>
+          )}
+          {target.kind === "experiment" && (
+            <div className="mt-2.5">
+              <ExperimentResultsSummary
+                display="compact"
+                loadState="ready"
+                results={preview.experimentResults}
+              />
             </div>
           )}
         </div>
@@ -252,28 +294,50 @@ export function EvidenceHoverCard({
         </div>
       )}
       <div className="mt-3 flex items-center justify-between gap-3 text-[10.5px]">
-        {isQuery ? (
+        <div className="flex min-w-0 items-center gap-0.5">
+          {isQuery ? (
+            <button
+              type="button"
+              onClick={() => setShowQuery((open) => !open)}
+              className="min-w-0 cursor-pointer truncate border-none bg-transparent p-0 text-left font-mono text-(--gray-8) transition-colors hover:text-(--gray-11)"
+            >
+              {showQuery ? "Hide query" : target.id}
+            </button>
+          ) : (
+            <span className="truncate font-mono text-(--gray-8)">
+              {target.id}
+            </span>
+          )}
           <button
             type="button"
-            onClick={() => setShowQuery((open) => !open)}
-            className="min-w-0 cursor-pointer truncate border-none bg-transparent p-0 text-left font-mono text-(--gray-8) transition-colors hover:text-(--gray-11)"
+            aria-label={copied ? "Reference copied" : "Copy reference"}
+            onClick={() => copy(target.id)}
+            className="inline-flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-[4px] border-none bg-transparent p-0 text-(--gray-9) transition-colors hover:bg-(--gray-a3) hover:text-(--gray-12)"
           >
-            {showQuery ? "Hide query" : target.id}
+            {copied ? <CheckIcon size={11} /> : <CopyIcon size={11} />}
           </button>
-        ) : (
-          <span className="truncate font-mono text-(--gray-8)">
-            {target.id}
-          </span>
-        )}
-        {url && (
-          <button
-            type="button"
-            onClick={() => onOpen(url)}
-            className="shrink-0 cursor-pointer border-none bg-transparent p-0 text-(--gray-10) text-[10.5px] transition-colors hover:text-(--gray-12)"
-          >
-            Open in PostHog ↗
-          </button>
-        )}
+        </div>
+        <div className="flex shrink-0 items-center gap-1">
+          {onExpand && (
+            <Button
+              variant="link"
+              size="xs"
+              onClick={() =>
+                onExpand(
+                  preview?.title ??
+                    (typeof children === "string" ? children : target.id),
+                )
+              }
+            >
+              Ask about this
+            </Button>
+          )}
+          {url && (
+            <Button variant="link-muted" size="xs" onClick={() => onOpen(url)}>
+              Open in PostHog ↗
+            </Button>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -288,17 +352,31 @@ function EvidenceHoverCardLoader({
   target,
   children,
   url,
+  onExpand,
 }: {
   target: EvidenceLinkTarget;
   children: ReactNode;
   url: string | null;
+  onExpand?: (label: string) => void;
 }) {
   const client = useOptionalAuthenticatedClient();
+  const queryClient = useQueryClient();
+  const shownTrackedRef = useRef(false);
+  const kind = target.kind;
+  const id = target.id;
+  useEffect(() => {
+    if (shownTrackedRef.current) return;
+    shownTrackedRef.current = true;
+    const cached =
+      queryClient.getQueryState(evidencePreviewQueryKey({ kind, id }))
+        ?.status === "success";
+    trackEvidencePreviewShown(kind, cached);
+  }, [queryClient, kind, id]);
   const query = useAuthenticatedQuery(
-    ["evidence-preview", target.kind, target.id],
-    (apiClient) => fetchEvidencePreview(apiClient, target),
+    evidencePreviewQueryKey(target),
+    (apiClient) => fetchEvidencePreviewTimed(apiClient, target, "hover"),
     {
-      staleTime: 5 * 60 * 1000,
+      staleTime: EVIDENCE_PREVIEW_STALE_TIME,
       refetchOnWindowFocus: false,
       retry: 1,
       // The card unmounts when the tooltip closes, so without this a preview
@@ -308,12 +386,16 @@ function EvidenceHoverCardLoader({
     },
   );
   // No session means no lookup: show the static card, not an endless skeleton.
-  const preview =
-    !client || query.isError
-      ? null
+  const loadState = !client
+    ? "missing"
+    : query.isError
+      ? "error"
       : query.isFetched
-        ? (query.data ?? null)
-        : undefined;
+        ? query.data
+          ? "ready"
+          : "missing"
+        : "loading";
+  const preview = query.data ?? null;
   // A reference whose cited id has no page (an event name, a flag key) can
   // still link out once the preview resolves the canonical id.
   const resolvedUrl = useEvidenceUrl(
@@ -325,6 +407,8 @@ function EvidenceHoverCardLoader({
       target={target}
       url={url ?? resolvedUrl}
       preview={preview}
+      loadState={loadState}
+      onExpand={onExpand}
     >
       {children}
     </EvidenceHoverCard>
@@ -350,10 +434,45 @@ export function EvidenceRefChip({
   const meta = getObjectKind(target.kind);
   const KindIcon = meta.icon;
   const url = useEvidenceUrl(target.kind, target.id);
+  const taskId = useSessionTaskId();
+  const objectKind = isPostHogObjectKind(target.kind) ? target.kind : null;
   const [open, setOpen] = useState(false);
+  const [triggerElement, setTriggerElement] = useState<HTMLElement | null>(
+    null,
+  );
+  useEvidencePreviewPrefetch(target, triggerElement);
+  const expand =
+    taskId && objectKind
+      ? (label: string) => {
+          const actions = useDraftStore.getState().actions;
+          actions.insertPendingContent(
+            taskId,
+            buildEvidenceComposerContent({
+              kind: objectKind,
+              id: target.id,
+              label: `${meta.kindLabel}: ${label}`,
+              currentDraft: actions.getDraft(taskId),
+            }),
+          );
+          actions.requestFocus(taskId);
+          setOpen(false);
+        }
+      : undefined;
+  const openPostHogObjectTab = usePanelLayoutStore(
+    (state) => state.openPostHogObjectTab,
+  );
 
-  const openInPostHog = (event: MouseEvent<HTMLAnchorElement>) => {
+  const openReference = (event: MouseEvent<HTMLAnchorElement>) => {
     event.preventDefault();
+    if (taskId) {
+      openPostHogObjectTab(taskId, {
+        kind: target.kind,
+        id: target.id,
+        name: typeof children === "string" ? children : target.id,
+      });
+      setOpen(false);
+      return;
+    }
     if (url) openExternalUrl(url);
   };
 
@@ -382,13 +501,15 @@ export function EvidenceRefChip({
         // to PostHog instead of toggling the popover.
         onFocus={() => setOpen(true)}
         render={
-          url ? (
+          url || taskId ? (
             // Keep the truthful role: Enter follows the link (opens the
-            // object in PostHog), it does not act as a popover button.
+            // object's page in the app, or in PostHog outside a session), it
+            // does not act as a popover button.
             // biome-ignore lint/a11y/useSemanticElements: the element already is an <a>; the explicit role restores link semantics the popover trigger's role="button" would override
             <a
-              href={url}
-              onClick={openInPostHog}
+              ref={setTriggerElement}
+              href={url ?? "#"}
+              onClick={openReference}
               // biome-ignore lint/a11y/noRedundantRoles: not redundant — the popover trigger injects role="button" without it
               role="link"
               className={refClass}
@@ -399,7 +520,12 @@ export function EvidenceRefChip({
             // No page to link to: the reference is a real popover trigger
             // (focusable, Enter/Space opens the card), since the card's
             // "Open in PostHog" action is the only route to the object.
-            <span className={`${refClass} cursor-pointer`}>{inner}</span>
+            <span
+              ref={setTriggerElement}
+              className={`${refClass} cursor-pointer`}
+            >
+              {inner}
+            </span>
           )
         }
       />
@@ -413,7 +539,11 @@ export function EvidenceRefChip({
               className="rounded-[6px] border border-(--gray-4) bg-(--gray-2) text-(--gray-12) outline-none"
               style={{ boxShadow: "0 4px 12px rgba(0, 0, 0, 0.25)" }}
             >
-              <EvidenceHoverCardLoader target={target} url={url}>
+              <EvidenceHoverCardLoader
+                target={target}
+                url={url}
+                onExpand={expand}
+              >
                 {children}
               </EvidenceHoverCardLoader>
             </Popover.Popup>

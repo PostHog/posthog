@@ -18,7 +18,7 @@ from posthog.errors import CHQueryErrorNoCommonType
 from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
 from products.endpoints.backend.logic.execution import EndpointExecutionService
 from products.endpoints.backend.tests.conftest import create_endpoint_with_version
-from products.product_analytics.backend.models.insight_variable import InsightVariable
+from products.product_analytics.backend.facade.models import InsightVariable
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 
@@ -1879,7 +1879,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         self.assertIsNone(results[1][0])
 
     def test_inline_insight_cleans_other_sentinel_and_alerts(self):
-        from posthog.hogql_queries.insights.utils.breakdowns import BREAKDOWN_OTHER_STRING_LABEL
+        from posthog.hogql_queries.utils.breakdowns import BREAKDOWN_OTHER_STRING_LABEL
 
         for event_name in [f"event_{i}" for i in range(30)]:
             _create_event(
@@ -2398,6 +2398,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         saved_query = version.saved_query
         saved_query.sync_frequency_interval = None  # migration cleanup nulls this on v2 teams
         saved_query.last_run_at = timezone.now() - timedelta(days=3)
+        saved_query.status = None
         saved_query.save()
         DataModelingJob.objects.create(
             team=self.team,

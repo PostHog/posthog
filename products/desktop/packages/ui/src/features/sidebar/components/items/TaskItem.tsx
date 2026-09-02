@@ -36,6 +36,7 @@ interface TaskItemProps {
   depth?: number;
   taskId: string;
   label: string;
+  subtitle?: React.ReactNode;
   isActive: boolean;
   isSelected?: boolean;
   /** Archive request in flight: show a spinner and suppress hover actions. */
@@ -112,6 +113,7 @@ export function TaskItem({
   depth = 0,
   taskId,
   label,
+  subtitle,
   isActive,
   isSelected = false,
   isArchiving = false,
@@ -222,6 +224,7 @@ export function TaskItem({
       depth={depth}
       icon={icon}
       label={label}
+      subtitle={subtitle}
       isActive={isActive}
       isSelected={isSelected}
       // Lets a drag-selection find the row and the session it stands for.

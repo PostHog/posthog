@@ -114,6 +114,21 @@ PROPOSED_METRIC_DEFINITION: dict = {
     ),
 }
 
+# Proactive-offer arm: a saved insight is the only place the measure is written down, so the
+# agent has to reconstruct the definition from it and then offer to catalog it. No metric is
+# seeded — the catalog is empty for this measure.
+DEFINITION_INSIGHT_NAME = "Active uploaders (weekly)"
+DEFINITION_INSIGHT_DESCRIPTION = "Users who uploaded at least one file in the trailing 7 days."
+DEFINITION_INSIGHT_QUERY: dict = {
+    "kind": "HogQLQuery",
+    "query": (
+        "SELECT count(DISTINCT person_id) AS active_uploaders\n"
+        "FROM events\n"
+        "WHERE event = 'uploaded_file'\n"
+        "  AND timestamp >= now() - INTERVAL 7 DAY"
+    ),
+}
+
 # Listing arm decoys: saved insights whose names a lazy `system.insights ILIKE '%metric%'`
 # search would surface — the trap the listing case must not fall into.
 DECOY_INSIGHT_NAMES = ("Key metrics overview", "Revenue metrics by plan")

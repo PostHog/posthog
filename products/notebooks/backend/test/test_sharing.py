@@ -16,7 +16,7 @@ from products.notebooks.backend.util import (
     filter_notebook_content_for_sharing,
     iter_prosemirror_nodes,
 )
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 
 def _saved_insight_query_node(short_id: str) -> dict[str, Any]:

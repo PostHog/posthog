@@ -1,4 +1,5 @@
 import { inject, injectable } from "inversify";
+import { isAlreadyDisconnectedError } from "../integrations/connectErrors";
 import { GITHUB_CONNECT_CLIENT, type GithubConnectClient } from "./identifiers";
 
 @injectable()
@@ -21,8 +22,13 @@ export class GithubConnectService {
     return true;
   }
 
+  /** A row already removed server-side (uninstalled on GitHub) counts as disconnected. */
   async disconnectInstallation(installationId: string): Promise<void> {
-    await this.client.disconnectGithubUserIntegration(installationId);
+    try {
+      await this.client.disconnectGithubUserIntegration(installationId);
+    } catch (error) {
+      if (!isAlreadyDisconnectedError(error)) throw error;
+    }
   }
 
   isReconnecting(installationId: string): boolean {
@@ -40,7 +46,7 @@ export class GithubConnectService {
     if (this.reconnectingInstallationId !== null) return;
     this.reconnectingInstallationId = installationId;
     try {
-      await this.client.disconnectGithubUserIntegration(installationId);
+      await this.disconnectInstallation(installationId);
       await connect();
     } finally {
       this.reconnectingInstallationId = null;

@@ -22,7 +22,7 @@ from social_core.pipeline.partial import partial
 from social_django.strategy import DjangoStrategy
 from webauthn.helpers import base64url_to_bytes
 
-from posthog.api.email_verification import EmailVerifier, is_email_verification_disabled
+from posthog.api.email_verification import email_verification_code_verifier, is_email_verification_disabled
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.webauthn import (
     WEBAUTHN_SIGNUP_CREDENTIAL_KEY,
@@ -35,7 +35,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import EmailValidationHelper, reject_plus_addressed_email, validate_display_name
 from posthog.helpers.verified_domain_enforcement import resolve_login_organization
 from posthog.models import InviteExpiredException, Organization, OrganizationDomain, OrganizationInvite, Team, User
-from posthog.models.identity_provider_config import IdentityProviderConfig
+from posthog.models.identity_provider_config import ConfigScope, IdentityProviderConfig
 from posthog.models.organization_invite import INVITE_DAYS_VALIDITY
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.permissions import CanCreateOrg
@@ -60,13 +60,7 @@ def _save_session_with_recovery(session: SessionBase) -> None:
 
 def verify_email_or_login(request: Request, user: User) -> None:
     if is_email_available() and not user.is_email_verified and not is_email_verification_disabled(user):
-        next_url = request.data.get("next_url") if request and request.data else None
-
-        # We only want to redirect to a relative url so that we don't redirect away from the current domain
-        if is_relative_url(next_url):
-            EmailVerifier.create_token_and_send_email_verification(user, next_url)
-        else:
-            EmailVerifier.create_token_and_send_email_verification(user)
+        email_verification_code_verifier.send_code(user)
     else:
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
 
@@ -893,12 +887,15 @@ def process_social_domain_jit_provisioning_signup(
         )
         return user
     else:
+        scim_enabled = (
+            domain_instance.identity_provider_configs_for_scope(ConfigScope.SCIM).filter(scim_enabled=True).exists()
+        )
         logger.info(
             f"process_social_domain_jit_provisioning_signup_domain_exists",
             domain=domain,
             is_verified=domain_instance.is_verified,
             jit_provisioning_enabled=domain_instance.jit_provisioning_enabled,
-            scim_enabled=domain_instance.idp_config.scim_enabled,
+            scim_enabled=scim_enabled,
         )
         if domain_instance.is_verified and domain_instance.jit_provisioning_enabled:
             if not user:
@@ -949,7 +946,7 @@ def process_social_domain_jit_provisioning_signup(
                     domain=domain,
                     user=user.email,
                     organization=domain_instance.organization_id,
-                    scim_enabled=domain_instance.idp_config.scim_enabled,
+                    scim_enabled=scim_enabled,
                 )
 
     return user

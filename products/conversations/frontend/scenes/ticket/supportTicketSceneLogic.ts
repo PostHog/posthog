@@ -51,7 +51,9 @@ import {
 import {
     conversationsTicketsNotesDestroy,
     conversationsTicketsNotesPartialUpdate,
+    conversationsTicketsPartialUpdate,
 } from 'products/conversations/frontend/generated/api'
+import type { PatchedTicketUpdateRequestApi } from 'products/conversations/frontend/generated/api.schemas'
 import { getCommentsCreateUrl } from 'products/platform_features/frontend/generated/api'
 import { signalsReportsList } from 'products/signals/frontend/generated/api'
 import type { SignalReportApi } from 'products/signals/frontend/generated/api.schemas'
@@ -1213,13 +1215,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             }
             breakpoint()
 
-            const data: Partial<{
-                status: string
-                priority: string
-                assignee: TicketAssignee
-                tags: string[]
-                snoozed_until: string | null
-            }> = {}
+            const data: PatchedTicketUpdateRequestApi = {}
 
             if (values.status && values.status !== values.ticket?.status) {
                 data.status = values.status
@@ -1231,12 +1227,12 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             data.tags = values.tags
             data.snoozed_until = values.snoozedUntil
 
-            const request = api.conversationsTickets.update(props.id.toString(), data)
+            const request = conversationsTicketsPartialUpdate(String(getCurrentTeamId()), props.id.toString(), data)
             cache.ticketUpdateRequest = request
             try {
                 const ticket = await request
                 breakpoint()
-                actions.setTicket(ticket)
+                actions.setTicket(ticket as Ticket)
                 lemonToast.success('Ticket updated')
                 actions.loadTickets()
                 // tagsModel loads once per session and never refetches, so newly created tags need an explicit reload

@@ -11,6 +11,7 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.settings import TEST
 
 from products.marketing_analytics.backend.hogql_queries.constants import (
+    CAC_COLUMN_SUFFIX,
     ROAS_COLUMN,
     UNIFIED_CONVERSION_GOALS_CTE_ALIAS,
     UNKNOWN_CHANNEL,
@@ -58,6 +59,13 @@ class ConversionGoalsAggregator:
         self.processors = processors
         self.config = config
 
+    def _count_processors(self) -> list[ConversionGoalProcessor]:
+        """Customer goals whose own column holds money, so cost per customer needs a count too.
+
+        A customer goal that already counts (or uniques, for `dau`) is its own denominator.
+        """
+        return [p for p in self.processors if p.goal.counts_as_customer and p.sums_a_property()]
+
     def generate_unified_cte(self, date_range: QueryDateRange, additional_conditions_getter) -> ast.CTE:
         """Generate a single CTE that contains all conversion goals aggregated by campaign/source"""
         if not self.processors:
@@ -92,6 +100,8 @@ class ConversionGoalsAggregator:
         else:
             base_queries = [_build_base_query(p) for p in self.processors]
 
+        count_processors = self._count_processors()
+
         conversion_subqueries = []
         for processor, base_query in zip(self.processors, base_queries):
             # Transform the query to include a column for this specific conversion goal
@@ -124,6 +134,17 @@ class ConversionGoalsAggregator:
                     enhanced_select.append(
                         ast.Alias(
                             alias=self.config.get_conversion_goal_column_name(p.index), expr=ast.Constant(value=0)
+                        )
+                    )
+
+                # Every subquery in the UNION has to carry the same columns, so the count
+                # rides along for all of them, actual for its owner and 0 elsewhere. Same
+                # grouping as the value column, so it counts that goal's conversions.
+                if p in count_processors:
+                    enhanced_select.append(
+                        ast.Alias(
+                            alias=self.config.get_conversion_goal_count_column_name(p.index),
+                            expr=p.get_count_field() if p.index == processor.index else ast.Constant(value=0),
                         )
                     )
 
@@ -196,6 +217,7 @@ class ConversionGoalsAggregator:
             ]
 
         # Add each conversion goal as a summed column
+        count_processors = self._count_processors()
         for processor in self.processors:
             final_select.append(
                 ast.Alias(
@@ -210,6 +232,14 @@ class ConversionGoalsAggregator:
                     ),
                 )
             )
+            if processor in count_processors:
+                count_column = self.config.get_conversion_goal_count_column_name(processor.index)
+                final_select.append(
+                    ast.Alias(
+                        alias=count_column,
+                        expr=ast.Call(name="sum", args=[ast.Field(chain=[subquery_alias, count_column])]),
+                    )
+                )
 
         final_query = ast.SelectQuery(
             select=final_select,
@@ -400,13 +430,19 @@ class ConversionGoalsAggregator:
                 )
                 columns[f"{self.config.cost_per_prefix} {goal_name}"] = cost_per_goal_alias
 
-        # Needs campaign_costs joined, since spend is the denominator. A flagged goal only
-        # contributes if its column holds money — a counting one would render 200 signups against
-        # $100 of spend as "ROAS 2.0".
+        # Both need campaign_costs joined, since spend is the denominator. ROAS also needs the
+        # goal to hold money: a counting goal in its numerator reads 200 signups against $100
+        # as "ROAS 2.0". CAC has no such restriction — a summing goal contributes its count
+        # column instead of its value, so a purchase goal flagged as both still works.
         if include_cost_per:
             revenue_processors = [p for p in self.processors if p.goal.counts_as_revenue and p.sums_a_property()]
             if revenue_processors:
                 columns[ROAS_COLUMN] = self._build_roas_column(revenue_processors)
+
+            customer_processors = [p for p in self.processors if p.goal.counts_as_customer]
+            if customer_processors:
+                cac_alias = f"{self.config.cost_per_prefix} {CAC_COLUMN_SUFFIX}"
+                columns[cac_alias] = self._build_cac_column(customer_processors, cac_alias)
 
         return columns
 
@@ -428,16 +464,41 @@ class ConversionGoalsAggregator:
             ),
         )
 
-    def _sum_conversion_values(self, processors: list[ConversionGoalProcessor]) -> ast.Expr:
-        """Sum the unified-CTE value columns of the given goals into one expression."""
-        fields = [
-            ast.Field(
-                chain=self.config.get_unified_conversion_field_chain(
-                    self.config.get_conversion_goal_column_name(p.index)
-                )
-            )
-            for p in processors
-        ]
+    def _build_cac_column(self, customer_processors: list[ConversionGoalProcessor], alias: str) -> ast.Alias:
+        # Each customer goal contributes its conversion count, which is right only for a
+        # once-per-person moment: a repeatable event overcounts, and `dau` is the closest fit.
+        total_customers = self._sum_conversion_values(customer_processors, prefer_count=True)
+        total_cost = ast.Field(chain=self.config.get_campaign_cost_field_chain(self.config.total_cost_field))
+        return ast.Alias(
+            alias=alias,
+            expr=ast.Call(
+                name="round",
+                args=[
+                    ast.ArithmeticOperation(
+                        left=total_cost,
+                        op=ast.ArithmeticOperationOp.Div,
+                        right=ast.Call(name="nullif", args=[total_customers, ast.Constant(value=0)]),
+                    ),
+                    ast.Constant(value=2),
+                ],
+            ),
+        )
+
+    def _sum_conversion_values(
+        self, processors: list[ConversionGoalProcessor], *, prefer_count: bool = False
+    ) -> ast.Expr:
+        """Sum the unified-CTE columns of the given goals into one expression.
+
+        With `prefer_count`, a goal whose own column holds a summed amount contributes its
+        paired count column instead — the only way a summing goal can answer "how many".
+        """
+
+        def column_for(p: ConversionGoalProcessor) -> str:
+            if prefer_count and p.sums_a_property():
+                return self.config.get_conversion_goal_count_column_name(p.index)
+            return self.config.get_conversion_goal_column_name(p.index)
+
+        fields = [ast.Field(chain=self.config.get_unified_conversion_field_chain(column_for(p))) for p in processors]
         total: ast.Expr = fields[0]
         for field in fields[1:]:
             total = ast.ArithmeticOperation(left=total, op=ast.ArithmeticOperationOp.Add, right=field)

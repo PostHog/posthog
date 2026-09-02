@@ -1,6 +1,8 @@
 import {
+  getPostHogObjectArtifactMetadata,
   groupRunArtifactVersions,
   OUTPUT_ARTIFACT_TYPES,
+  type PostHogObjectArtifactMetadata,
   parseRunArtifacts,
   type RunArtifact,
   type RunArtifactVersions,
@@ -40,6 +42,15 @@ export type ArtifactRow =
       size: number | undefined;
       group: RunArtifactVersions<RunFile>;
     }
+  | {
+      kind: "posthog_object";
+      key: string;
+      artifactId: string;
+      name: string;
+      runId: string;
+      metadata: PostHogObjectArtifactMetadata;
+      uploadedAt: string | undefined;
+    }
   | { kind: "slack"; key: string; url: string };
 
 /**
@@ -49,6 +60,12 @@ export type ArtifactRow =
  */
 export type CommentSource =
   | { kind: "file"; target: CommentTarget; name: string; runId: string | null }
+  | {
+      kind: "posthog_object";
+      target: CommentTarget;
+      name: string;
+      runId: string;
+    }
   | { kind: "canvas"; target: CommentTarget; name: string; url: string | null }
   | { kind: "task"; target: CommentTarget; name: string };
 
@@ -70,6 +87,13 @@ export function commentSources(
     seen.add(commentTargetKey(target));
     if (row.kind === "file") {
       sources.push({ kind: "file", target, name: row.name, runId: row.runId });
+    } else if (row.kind === "posthog_object") {
+      sources.push({
+        kind: "posthog_object",
+        target,
+        name: row.name,
+        runId: row.runId,
+      });
     } else if (row.kind === "canvas") {
       sources.push({ kind: "canvas", target, name: row.name, url: row.url });
     }
@@ -106,7 +130,10 @@ function canvasDashboardId(url: string | null): string | null {
 
 /** Where a row's comments live, or null when the row can't carry any. */
 function targetForRow(row: ArtifactRow): CommentTarget | null {
-  if (row.kind === "file" && row.artifactId) {
+  if (
+    (row.kind === "file" || row.kind === "posthog_object") &&
+    row.artifactId
+  ) {
     return { scope: "task_artifact", itemId: row.artifactId };
   }
   if (row.kind === "canvas" && row.dashboardId) {
@@ -135,6 +162,25 @@ function readRunOutputs(run: TaskRun): RunArtifact[] {
     (run as { artifacts?: unknown }).artifacts,
     OUTPUT_ARTIFACT_TYPES,
   );
+}
+
+function readRunPostHogReferences(run: TaskRun): Array<{
+  artifact: RunArtifact & { id: string; name: string };
+  metadata: PostHogObjectArtifactMetadata;
+}> {
+  return parseRunArtifacts((run as { artifacts?: unknown }).artifacts, [
+    "reference",
+  ]).flatMap((artifact) => {
+    const metadata = getPostHogObjectArtifactMetadata(artifact);
+    return artifact.id && artifact.name && metadata
+      ? [
+          {
+            artifact: { ...artifact, id: artifact.id, name: artifact.name },
+            metadata,
+          },
+        ]
+      : [];
+  });
 }
 
 export function buildRows(
@@ -172,6 +218,14 @@ export function buildRows(
     runs.length > 0 ? runs : task.latest_run ? [task.latest_run] : [];
 
   const files: RunFile[] = [];
+  const postHogReferences = new Map<
+    string,
+    {
+      artifact: RunArtifact & { id: string; name: string };
+      metadata: PostHogObjectArtifactMetadata;
+      runId: string;
+    }
+  >();
   for (const run of allRuns) {
     // Runs added straight from output have no announcing timeline message, so
     // the run's own updated_at is the closest stand-in for the PR's age.
@@ -182,6 +236,29 @@ export function buildRows(
     files.push(
       ...readRunOutputs(run).map((file) => ({ ...file, runId: run.id })),
     );
+    for (const reference of readRunPostHogReferences(run)) {
+      const existing = postHogReferences.get(reference.artifact.id);
+      const sourceMessageIds = [
+        ...new Set([
+          ...(existing?.metadata.source_message_ids ?? []),
+          ...reference.metadata.source_message_ids,
+        ]),
+      ];
+      const newest =
+        existing &&
+        (existing.artifact.uploaded_at ?? "") >=
+          (reference.artifact.uploaded_at ?? "")
+          ? existing
+          : { ...reference, runId: run.id };
+      postHogReferences.set(reference.artifact.id, {
+        ...newest,
+        metadata: {
+          ...newest.metadata,
+          source_message_ids: sourceMessageIds,
+          occurrence_count: sourceMessageIds.length,
+        },
+      });
+    }
   }
   for (const group of groupRunArtifactVersions(files)) {
     if (group.dismissed) continue;
@@ -193,6 +270,19 @@ export function buildRows(
       runId: group.latest.runId,
       size: group.latest.size,
       group,
+    });
+  }
+
+  for (const { artifact, metadata, runId } of postHogReferences.values()) {
+    if (artifact.dismissed_at) continue;
+    rows.push({
+      kind: "posthog_object",
+      key: `posthog-object:${artifact.id}`,
+      artifactId: artifact.id,
+      name: artifact.name,
+      runId,
+      metadata,
+      uploadedAt: artifact.uploaded_at,
     });
   }
 

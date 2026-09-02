@@ -8,8 +8,9 @@ from rest_framework import status
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.user import User
 
+from products.access_control.backend.models.role import Role, RoleMembership
+
 from ee.api.test.base import APILicensedTest
-from ee.models.rbac.role import Role, RoleMembership
 
 
 class TestRoleCrossOrgAuthorization(APILicensedTest):
@@ -249,7 +250,7 @@ class TestRoleMemberVisibilityRestriction(APILicensedTest):
         super().setUp()
         from posthog.constants import AvailableFeature
 
-        from ee.models.rbac.access_control import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},

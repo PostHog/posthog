@@ -13,6 +13,7 @@ from psycopg import sql
 from structlog.types import FilteringBoundLogger
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
+    BinaryColumnReporter,
     QueryTimeoutException,
     restrict_schema_to_columns,
     table_from_iterator,
@@ -28,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     ValidatedRowFilter,
     compute_projected_columns,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.batching import fetch_row_batches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates_psycopg import (
     and_join,
     render_psycopg_row_filter_conditions,
@@ -371,6 +373,8 @@ def iterate_date_windows(
     chunk_size: int,
     arrow_schema: pa.Schema,
     logger: FilteringBoundLogger,
+    byte_bounded: bool = False,
+    fetch_rows: int | None = None,
     initial_window: timedelta | int | float | None = None,
     max_window_multiplier: int = 30,
     min_window_divisor: int = 10,
@@ -378,6 +382,8 @@ def iterate_date_windows(
     is_connection_dropped: Callable[[BaseException], bool] = lambda _e: False,
     clock: Callable[[], float] = time.monotonic,
     sleeper: Callable[[float], None] = time.sleep,
+    primary_keys: Optional[list[str]] = None,
+    binary_reporter: Optional[BinaryColumnReporter] = None,
 ) -> Iterator[pa.Table]:
     """Walk the incremental field in adaptive bounded windows.
 
@@ -442,12 +448,16 @@ def iterate_date_windows(
                     cur.execute(query)
                     columns = [c.name for c in cur.description or []]
                     window_schema = restrict_schema_to_columns(arrow_schema, columns)
-                    while True:
-                        rows = cur.fetchmany(chunk_size)
-                        if not rows:
-                            break
+                    for rows in fetch_row_batches(
+                        cur.fetchmany, max_rows=chunk_size, byte_bounded=byte_bounded, max_page_rows=fetch_rows
+                    ):
                         rows_this_window += len(rows)
-                        yield table_from_iterator((dict(zip(columns, r)) for r in rows), window_schema)
+                        yield table_from_iterator(
+                            (dict(zip(columns, r)) for r in rows),
+                            window_schema,
+                            primary_keys=primary_keys,
+                            binary_reporter=binary_reporter,
+                        )
         except psycopg.errors.QueryCanceled:
             qc_retries += 1
             if qc_retries > WINDOW_MAX_QUERY_CANCELED_RETRIES or window <= min_window:
@@ -594,10 +604,14 @@ def iterate_partitions(
     chunk_size: int,
     arrow_schema: pa.Schema,
     logger: FilteringBoundLogger,
+    byte_bounded: bool = False,
+    fetch_rows: int | None = None,
     incremental_field: Optional[str] = None,
     incremental_field_type: Optional[IncrementalFieldType] = None,
     db_incremental_field_last_value: Any = None,
     clock: Callable[[], float] = time.monotonic,
+    primary_keys: Optional[list[str]] = None,
+    binary_reporter: Optional[BinaryColumnReporter] = None,
 ) -> Iterator[pa.Table]:
     """One query per child partition. Used when partition key is not the incremental
     field or when the field isn't ordered (string/uuid)."""
@@ -632,12 +646,16 @@ def iterate_partitions(
                 cur.execute(query)
                 columns = [c.name for c in cur.description or []]
                 partition_schema = restrict_schema_to_columns(arrow_schema, columns)
-                while True:
-                    rows = cur.fetchmany(chunk_size)
-                    if not rows:
-                        break
+                for rows in fetch_row_batches(
+                    cur.fetchmany, max_rows=chunk_size, byte_bounded=byte_bounded, max_page_rows=fetch_rows
+                ):
                     rows_this_partition += len(rows)
-                    yield table_from_iterator((dict(zip(columns, r)) for r in rows), partition_schema)
+                    yield table_from_iterator(
+                        (dict(zip(columns, r)) for r in rows),
+                        partition_schema,
+                        primary_keys=primary_keys,
+                        binary_reporter=binary_reporter,
+                    )
 
         elapsed = clock() - p_start
         total_rows += rows_this_partition

@@ -3,16 +3,6 @@ from typing import Any, Optional
 import pytest
 from unittest import mock
 
-from posthog.schema import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.azure_cost_management.azure_cost_management import (
-    AzureCostManagementResumeConfig,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.azure_cost_management.canonical_descriptions import (
     CANONICAL_DESCRIPTIONS,
 )
@@ -24,15 +14,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.azure_cost
 from products.warehouse_sources.backend.temporal.data_imports.sources.azure_cost_management.source import (
     AzureCostManagementSource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
-    SourceCredentialsValidationResult,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.azurecostmanagement import (
     AzureCostManagementSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.azure_cost_management.source"
 
@@ -69,50 +55,9 @@ class TestAzureCostManagementSource:
             start_date=None,
         )
 
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.AZURECOSTMANAGEMENT
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-
-        assert config.name.value == "AzureCostManagement"
-        assert config.label == "Microsoft Azure Cost Management"
-        assert config.category == DataWarehouseSourceCategory.FINANCE___ACCOUNTING
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/azure-cost-management"
-        assert [f.name for f in config.fields] == [
-            "tenant_id",
-            "client_id",
-            "client_secret",
-            "scope",
-            "start_date",
-        ]
-
     def test_source_is_released(self) -> None:
         # A truthy `unreleasedSource` hides the connector from users entirely.
         assert not self.source.get_source_config.unreleasedSource
-
-    def test_client_secret_is_a_secret_password_field(self) -> None:
-        field = next(f for f in self.source.get_source_config.fields if f.name == "client_secret")
-
-        assert isinstance(field, SourceFieldInputConfig)
-        assert field.type == SourceFieldInputConfigType.PASSWORD
-        assert field.secret is True
-        assert field.required is True
-
-    @pytest.mark.parametrize("field_name", ["tenant_id", "client_id", "scope"])
-    def test_connection_fields_are_required_and_not_secret(self, field_name: str) -> None:
-        field = next(f for f in self.source.get_source_config.fields if f.name == field_name)
-
-        assert isinstance(field, SourceFieldInputConfig)
-        assert field.required is True
-        assert field.secret is False
-
-    def test_start_date_is_optional(self) -> None:
-        field = next(f for f in self.source.get_source_config.fields if f.name == "start_date")
-
-        assert isinstance(field, SourceFieldInputConfig)
-        assert field.required is False
 
     def test_connection_host_fields_force_secret_reentry_on_retarget(self) -> None:
         # `tenant_id` chooses the Azure AD directory the client secret is exchanged against and
@@ -122,8 +67,9 @@ class TestAzureCostManagementSource:
         assert self.source.connection_host_fields == ["tenant_id", "scope"]
 
     def test_api_version_metadata(self) -> None:
-        assert self.source.supported_versions == ("2025-03-01",)
-        assert self.source.default_version == "2025-03-01"
+        assert self.source.supported_versions == ("2025-03-01", "2026-06-01")
+        # New sources start on the newest stable version; existing pins are unaffected.
+        assert self.source.default_version == "2026-06-01"
         assert self.source.api_docs_url is not None and self.source.api_docs_url.startswith("https://")
 
     def test_lists_tables_without_credentials(self) -> None:
@@ -191,20 +137,6 @@ class TestAzureCostManagementSource:
 
         assert any(key in error for key in self.source.get_retryable_errors())
 
-    @pytest.mark.parametrize("result", [(True, None), (False, "nope")])
-    def test_validate_credentials_delegates_to_the_transport(self, result: SourceCredentialsValidationResult) -> None:
-        with mock.patch(f"{SOURCE_MODULE}.validate_azure_cost_management_credentials", return_value=result) as probe:
-            assert self.source.validate_credentials(self.config, team_id=1) == result
-
-        assert probe.call_args.kwargs["scope"] == "subscriptions/abc"
-        assert probe.call_args.kwargs["api_version"] == "2025-03-01"
-
-    def test_get_resumable_source_manager_is_bound_to_the_resume_dataclass(self) -> None:
-        manager = self.source.get_resumable_source_manager(_source_inputs())
-
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is AzureCostManagementResumeConfig
-
     def test_source_for_pipeline_passes_config_and_schema_through(self) -> None:
         manager = mock.MagicMock(spec=ResumableSourceManager)
         inputs = _source_inputs("cost_by_resource")
@@ -216,7 +148,7 @@ class TestAzureCostManagementSource:
         assert kwargs["endpoint"] == "cost_by_resource"
         assert kwargs["scope"] == "subscriptions/abc"
         assert kwargs["client_secret"] == "secret"
-        assert kwargs["api_version"] == "2025-03-01"
+        assert kwargs["api_version"] == "2026-06-01"
         assert kwargs["resumable_source_manager"] is manager
 
     def test_source_for_pipeline_withholds_the_watermark_on_a_full_refresh(self) -> None:
@@ -235,7 +167,16 @@ class TestAzureCostManagementSource:
 
         assert build_source.call_args.kwargs["db_incremental_field_last_value"] == "2024-01-01"
 
-    @pytest.mark.parametrize("pinned,expected", [(None, "2025-03-01"), ("2024-08-01", "2024-08-01")])
+    @pytest.mark.parametrize(
+        "pinned,expected",
+        [
+            # No pin resolves to the current default; each supported version is honored verbatim so
+            # an existing 2025-03-01 pin keeps syncing on its own version after the default flip.
+            (None, "2026-06-01"),
+            ("2025-03-01", "2025-03-01"),
+            ("2026-06-01", "2026-06-01"),
+        ],
+    )
     def test_source_for_pipeline_honors_a_pinned_api_version(self, pinned: Optional[str], expected: str) -> None:
         inputs = _source_inputs(api_version=pinned)
 

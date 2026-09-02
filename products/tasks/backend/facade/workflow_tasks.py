@@ -4,12 +4,17 @@ The workflows product resolves which workflow is calling and who owns it, then c
 and starts the task through this boundary.
 """
 
+from products.tasks.backend.facade.contracts import WorkflowTaskRateLimits, WorkflowTaskSlackContext
 from products.tasks.backend.logic.services.workflow_tasks import (
     WorkflowTaskConnectorsInvalid,
     WorkflowTaskLimitExceeded,
     WorkflowTaskOriginKeyConflict,
     WorkflowTaskOwnerIneligible,
+    WorkflowTaskRateCapped,
+    WorkflowTaskTeamRateCapped,
+    WorkflowTaskUsageLimited,
     create_workflow_task,
+    resolve_connectors,
 )
 
 __all__ = [
@@ -17,5 +22,11 @@ __all__ = [
     "WorkflowTaskLimitExceeded",
     "WorkflowTaskOriginKeyConflict",
     "WorkflowTaskOwnerIneligible",
+    "WorkflowTaskRateCapped",
+    "WorkflowTaskRateLimits",
+    "WorkflowTaskSlackContext",
+    "WorkflowTaskTeamRateCapped",
+    "WorkflowTaskUsageLimited",
     "create_workflow_task",
+    "resolve_connectors",
 ]

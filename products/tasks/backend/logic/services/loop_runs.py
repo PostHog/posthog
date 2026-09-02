@@ -20,7 +20,7 @@ from django.db.models import Q
 from django.utils import timezone as django_timezone
 
 from posthog.models import User
-from posthog.temporal.oauth import PosthogMcpScopes, resolve_scopes
+from posthog.temporal.oauth import LOOP_CONTEXT_INTERNAL_SCOPE, PosthogMcpScopes, resolve_scopes
 from posthog.user_permissions import UserPermissions
 
 from products.tasks.backend.logic.services.code_usage_gate import usage_limit_response
@@ -103,11 +103,12 @@ def render_loop_run_message(loop_instructions: str, execution_context: str) -> s
     return f"{hidden_context}\n\n{loop_instructions}"
 
 
-# Least-privilege write grants for a loop that maintains a context's context.md or canvas,
+# Least-privilege write grants for a loop that maintains a context page or canvas,
 # added on top of whatever posthog_mcp_scopes the loop already carries rather than escalating
 # the run to the broad `full` write surface. resolve_scopes() re-adds the internal scopes at
-# mint time. Channel instructions ride the channels API (task scope); canvases have their own.
-_CONTEXT_MD_WRITE_SCOPES = ["task:read", "task:write"]
+# mint time. Context updates use the task surface plus server-minted internal-run provenance;
+# canvases have their own scopes.
+_CONTEXT_WRITE_SCOPES = ["task:read", "task:write", LOOP_CONTEXT_INTERNAL_SCOPE]
 _CANVAS_WRITE_SCOPES = ["canvas:read", "canvas:write"]
 
 
@@ -150,12 +151,16 @@ def render_context_target_block(context_target: dict | None) -> str:
     ]
     if outputs["update_context"]:
         lines.append(
-            f"- Update its context.md: read the current version with the "
-            f"`channel-instructions-retrieve` tool (id: {channel_id}), revise it to reflect "
-            f"this run, then publish the full new markdown with "
-            f"`channel-instructions-update` (id: {channel_id}, base_version: the "
-            f"version you just read). Edit in place, carrying forward anything still true instead of "
-            f"rewriting from scratch."
+            f"- Update its context for channel id {channel_id}. When the context wiki tools are available, resolve "
+            f"the channel with `loop-context-wiki-channel-resolve`, read the returned path with "
+            f"`loop-context-wiki-page-retrieve`, then publish the complete Markdown with "
+            f"`loop-context-wiki-page-update` using the head_sha you just read as base_head. If resolution returns "
+            f"a path marked as not existing yet, publish the complete Markdown to that path with "
+            f"`loop-context-wiki-page-update`, starting it with frontmatter `channel_id: {channel_id}` and passing "
+            f"no base_head, to create the page. If resolution reports that the wiki is unavailable, use "
+            f"`loop-channel-instructions-retrieve` and "
+            f"`loop-channel-instructions-update` with the version you just read as base_version. Edit in place, "
+            f"carrying forward anything still true instead of rewriting from scratch."
         )
     if outputs["canvas_id"]:
         lines.append(
@@ -203,10 +208,10 @@ def _augment_scopes_for_context(scopes: PosthogMcpScopes, *, outputs: dict) -> P
     """
     extra: list[str] = []
     if outputs.get("update_context"):
-        extra.extend(_CONTEXT_MD_WRITE_SCOPES)
+        extra.extend(_CONTEXT_WRITE_SCOPES)
     if outputs.get("canvas_id"):
         extra.extend(_CANVAS_WRITE_SCOPES)
-    if not extra or scopes == "full":
+    if not extra:
         return scopes
     base = resolve_scopes(scopes, include_internal_scopes=False)
     return list(dict.fromkeys([*base, *extra]))
@@ -380,7 +385,7 @@ def _fire_loop_committed(
         # deactivation grabs the row lock first, the other either sees the disabled row (and skips)
         # or blocks until this fire commits, so deactivation's run-cancellation scan then sees the
         # new run instead of racing past it. A run must never start under a just-deactivated
-        # owner's credentials (see loop_lifecycle._pause_loop_and_cancel_runs).
+        # owner's credentials (see loop_lifecycle.pause_loop).
         # `for_team`: fire_loop runs outside request/team scope (Temporal workflow, webhook), so the
         # fail-closed default manager would raise without ambient team context.
         locked_loop = (

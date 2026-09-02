@@ -10,6 +10,7 @@ import { Breadcrumb } from '~/types'
 
 import { visionActionsRetrieve, visionActionsRunsRetrieve } from '../generated/api'
 import type { RunObservationApi, VisionActionApi, VisionActionRunApi } from '../generated/api.schemas'
+import { VISION_ROOT_BREADCRUMB, scannerBreadcrumb } from '../utils/breadcrumbs'
 
 /**
  * Resolve the `[obs N]` citation markers the synthesizer leaves in a group summary into `[N]` links to
@@ -160,20 +161,9 @@ export const visionActionRunSceneLogic = kea<visionActionRunSceneLogicType>([
                 action: VisionActionApi | null,
                 run: VisionActionRunApi | null
             ): Breadcrumb[] => {
-                const breadcrumbs: Breadcrumb[] = [
-                    {
-                        key: 'replay-vision',
-                        name: 'Replay vision',
-                        path: urls.replayVision(),
-                        iconType: 'replay_vision',
-                    },
-                ]
+                const breadcrumbs: Breadcrumb[] = [VISION_ROOT_BREADCRUMB]
                 if (action?.scanner) {
-                    breadcrumbs.push({
-                        key: `scanner-${action.scanner}`,
-                        name: 'Scanner',
-                        path: `${urls.replayVision(action.scanner)}?tab=actions`,
-                    })
+                    breadcrumbs.push(scannerBreadcrumb(action.scanner, null, 'actions'))
                 }
                 breadcrumbs.push({
                     key: actionId ? `action-${actionId}` : 'action',

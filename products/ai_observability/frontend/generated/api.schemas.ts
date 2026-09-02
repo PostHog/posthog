@@ -215,6 +215,85 @@ export interface _ErrorResponseApi {
     detail: string
 }
 
+/**
+ * * `sessions` - sessions
+ * * `tool_calls` - tool_calls
+ * * `user_identity` - user_identity
+ * * `trace_structure` - trace_structure
+ */
+export type AIObservabilityInstrumentationCheckEnumApi =
+    (typeof AIObservabilityInstrumentationCheckEnumApi)[keyof typeof AIObservabilityInstrumentationCheckEnumApi]
+
+export const AIObservabilityInstrumentationCheckEnumApi = {
+    Sessions: 'sessions',
+    ToolCalls: 'tool_calls',
+    UserIdentity: 'user_identity',
+    TraceStructure: 'trace_structure',
+} as const
+
+/**
+ * * `ok` - ok
+ * * `warning` - warning
+ * * `pending` - pending
+ * * `dismissed` - dismissed
+ */
+export type InstrumentationCheckStatusEnumApi =
+    (typeof InstrumentationCheckStatusEnumApi)[keyof typeof InstrumentationCheckStatusEnumApi]
+
+export const InstrumentationCheckStatusEnumApi = {
+    Ok: 'ok',
+    Warning: 'warning',
+    Pending: 'pending',
+    Dismissed: 'dismissed',
+} as const
+
+/**
+ * Counts this check was graded from, over the same window. Which counts appear depends on the check.
+ */
+export type InstrumentationCheckApiStats = { [key: string]: number }
+
+export interface InstrumentationCheckApi {
+    /** Identifier of the check. Stable across statuses, so a surface can key its own copy off it.
+     *
+     * * `sessions` - sessions
+     * * `tool_calls` - tool_calls
+     * * `user_identity` - user_identity
+     * * `trace_structure` - trace_structure */
+    key: AIObservabilityInstrumentationCheckEnumApi
+    /** How the check graded: 'ok' when the instrumentation is present, 'warning' when it is absent, 'pending' when the project has too little traffic to judge, and 'dismissed' when someone on the team marked the check as not applicable.
+     *
+     * * `ok` - ok
+     * * `warning` - warning
+     * * `pending` - pending
+     * * `dismissed` - dismissed */
+    status: InstrumentationCheckStatusEnumApi
+    /** Short label for the check, the same for every status. */
+    title: string
+    /** Sentence explaining what the counts mean and, for a warning, what to send. A dismissed check keeps the sentence its counts earned. */
+    detail: string
+    /** Documentation page covering how to send the missing instrumentation. */
+    docs_url: string
+    /** Counts this check was graded from, over the same window. Which counts appear depends on the check. */
+    stats: InstrumentationCheckApiStats
+}
+
+export interface InstrumentationChecklistApi {
+    /** Length in days of the event window the checks were graded over. */
+    window_days: number
+    /** Every check, graded. Checks are always all returned, including the ones that pass. */
+    checks: InstrumentationCheckApi[]
+}
+
+export interface InstrumentationCheckActionApi {
+    /** Key of the check to dismiss or restore.
+     *
+     * * `sessions` - sessions
+     * * `tool_calls` - tool_calls
+     * * `user_identity` - user_identity
+     * * `trace_structure` - trace_structure */
+    check: AIObservabilityInstrumentationCheckEnumApi
+}
+
 export type DatasetJSONValueApi = { [key: string]: unknown } | unknown[] | string | number | boolean
 
 /**
@@ -688,9 +767,10 @@ export const EvaluationStatusEnumApi = {
  * * `model_not_found` - Model not found
  * * `hog_error` - Hog evaluation code failed
  */
-export type StatusReasonEnumApi = (typeof StatusReasonEnumApi)[keyof typeof StatusReasonEnumApi]
+export type EvaluationStatusReasonEnumApi =
+    (typeof EvaluationStatusReasonEnumApi)[keyof typeof EvaluationStatusReasonEnumApi]
 
-export const StatusReasonEnumApi = {
+export const EvaluationStatusReasonEnumApi = {
     ProviderKeyRequired: 'provider_key_required',
     ProviderKeyDeleted: 'provider_key_deleted',
     NoDefaultModel: 'no_default_model',
@@ -863,6 +943,9 @@ export type EvaluationApiTargetConfig =
           max_age_seconds?: number
       }
 
+/**
+ * An evaluation that scores LLM generations, traces, or sessions.
+ */
 export interface EvaluationApi {
     readonly id: string
     /**
@@ -880,7 +963,7 @@ export interface EvaluationApi {
     /** Whether the evaluation runs automatically on new $ai_generation events. */
     enabled?: boolean
     readonly status: EvaluationStatusEnumApi
-    readonly status_reason: StatusReasonEnumApi | null
+    readonly status_reason: EvaluationStatusReasonEnumApi | null
     /**
      * Additional detail for the current system-disabled status. This is only populated when the detail is safe to show in the evaluation UI.
      * @nullable
@@ -919,6 +1002,11 @@ export interface EvaluationApi {
     readonly created_by: UserBasicApi | null
     /** Set to true to soft-delete the evaluation. */
     deleted?: boolean
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
 }
 
 export interface PaginatedEvaluationListApi {
@@ -992,6 +1080,9 @@ export type PatchedEvaluationApiTargetConfig =
           max_age_seconds?: number
       }
 
+/**
+ * An evaluation that scores LLM generations, traces, or sessions.
+ */
 export interface PatchedEvaluationApi {
     readonly id?: string
     /**
@@ -1009,7 +1100,7 @@ export interface PatchedEvaluationApi {
     /** Whether the evaluation runs automatically on new $ai_generation events. */
     enabled?: boolean
     readonly status?: EvaluationStatusEnumApi
-    readonly status_reason?: StatusReasonEnumApi | null
+    readonly status_reason?: EvaluationStatusReasonEnumApi | null
     /**
      * Additional detail for the current system-disabled status. This is only populated when the detail is safe to show in the evaluation UI.
      * @nullable
@@ -1048,6 +1139,11 @@ export interface PatchedEvaluationApi {
     readonly created_by?: UserBasicApi | null
     /** Set to true to soft-delete the evaluation. */
     deleted?: boolean
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level?: string | null
 }
 
 export type TestHogRequestApiConditionsItem = { [key: string]: unknown }
@@ -1168,12 +1264,15 @@ export const AnalysisLevelEnumApi = {
     Evaluation: 'evaluation',
 } as const
 
+export type ClusteringJobApiEventFiltersItem = { [key: string]: unknown }
+
 export interface ClusteringJobApi {
     readonly id: string
     /** @maxLength 100 */
     name: string
     analysis_level: AnalysisLevelEnumApi
-    event_filters?: unknown
+    /** PostHog property filters that scope this clustering job. Empty array means no filters. */
+    event_filters?: ClusteringJobApiEventFiltersItem[]
     enabled?: boolean
     readonly created_at: string
     readonly updated_at: string
@@ -1188,12 +1287,15 @@ export interface PaginatedClusteringJobListApi {
     results: ClusteringJobApi[]
 }
 
+export type PatchedClusteringJobApiEventFiltersItem = { [key: string]: unknown }
+
 export interface PatchedClusteringJobApi {
     readonly id?: string
     /** @maxLength 100 */
     name?: string
     analysis_level?: AnalysisLevelEnumApi
-    event_filters?: unknown
+    /** PostHog property filters that scope this clustering job. Empty array means no filters. */
+    event_filters?: PatchedClusteringJobApiEventFiltersItem[]
     enabled?: boolean
     readonly created_at?: string
     readonly updated_at?: string
@@ -1640,10 +1742,9 @@ export interface EvaluationReportCitationApi {
  * * `completed` - completed
  * * `metrics_unavailable` - metrics_unavailable
  */
-export type EvaluationReportRunContentGenerationStatusEnumApi =
-    (typeof EvaluationReportRunContentGenerationStatusEnumApi)[keyof typeof EvaluationReportRunContentGenerationStatusEnumApi]
+export type GenerationStatusEnumApi = (typeof GenerationStatusEnumApi)[keyof typeof GenerationStatusEnumApi]
 
-export const EvaluationReportRunContentGenerationStatusEnumApi = {
+export const GenerationStatusEnumApi = {
     Completed: 'completed',
     MetricsUnavailable: 'metrics_unavailable',
 } as const
@@ -1727,7 +1828,7 @@ export interface EvaluationReportRunContentApi {
      *
      * * `completed` - completed
      * * `metrics_unavailable` - metrics_unavailable */
-    generation_status?: EvaluationReportRunContentGenerationStatusEnumApi
+    generation_status?: GenerationStatusEnumApi
     /** Structured metrics for completed reports, or null when metrics were temporarily unavailable. */
     metrics?: EvaluationReportMetricsApi | null
 }
@@ -1739,9 +1840,10 @@ export interface EvaluationReportRunContentApi {
  * * `partial_failure` - Partial Failure
  * * `failed` - Failed
  */
-export type DeliveryStatusEnumApi = (typeof DeliveryStatusEnumApi)[keyof typeof DeliveryStatusEnumApi]
+export type EvaluationReportRunDeliveryStatusEnumApi =
+    (typeof EvaluationReportRunDeliveryStatusEnumApi)[keyof typeof EvaluationReportRunDeliveryStatusEnumApi]
 
-export const DeliveryStatusEnumApi = {
+export const EvaluationReportRunDeliveryStatusEnumApi = {
     Pending: 'pending',
     Generated: 'generated',
     Delivered: 'delivered',
@@ -1769,7 +1871,7 @@ export interface EvaluationReportRunApi {
      * * `delivered` - Delivered
      * * `partial_failure` - Partial Failure
      * * `failed` - Failed */
-    readonly delivery_status: DeliveryStatusEnumApi
+    readonly delivery_status: EvaluationReportRunDeliveryStatusEnumApi
     /** Delivery error messages. Empty when all configured deliveries succeeded. */
     readonly delivery_errors: readonly string[]
     /** When this report run was created. */
@@ -1788,11 +1890,24 @@ export interface PaginatedEvaluationReportRunListApi {
 export interface LLMModelInfoApi {
     /** Provider-specific model identifier (e.g. 'gpt-4o-mini', 'claude-3-5-sonnet-20241022'). */
     id: string
+    /** Provider this model belongs to. Pass this value together with `id` when configuring an llm_judge evaluation. */
+    provider: string
+}
+
+export interface LLMProviderModelsSummaryApi {
+    /** Supported provider value, exactly as the `provider` param accepts it. */
+    provider: string
+    /** How many of this provider's models appear in `models`. */
+    model_count: number
+    /** True when this provider's models can only be listed by passing `key_id` for one of the team's provider keys. PostHog funds no models for it, so `model_count` is 0 until a key is supplied. */
+    requires_provider_key: boolean
 }
 
 export interface LLMModelsListResponseApi {
-    /** Models supported for the requested provider. */
+    /** Models supported for the requested provider, or for every supported provider when `provider` is omitted. */
     models: LLMModelInfoApi[]
+    /** One entry per provider covered by this response. Read it to tell an unsupported provider apart from a provider whose models need a team key before they can be listed. */
+    providers: LLMProviderModelsSummaryApi[]
 }
 
 export interface OfflineExperimentItemsRequestApi {
@@ -1989,9 +2104,9 @@ export interface PatchedReviewQueueUpdateApi {
  * * `numeric` - numeric
  * * `boolean` - boolean
  */
-export type ExperimentMetricKindEnumApi = (typeof ExperimentMetricKindEnumApi)[keyof typeof ExperimentMetricKindEnumApi]
+export type ScoreDefinitionKindEnumApi = (typeof ScoreDefinitionKindEnumApi)[keyof typeof ScoreDefinitionKindEnumApi]
 
-export const ExperimentMetricKindEnumApi = {
+export const ScoreDefinitionKindEnumApi = {
     Categorical: 'categorical',
     Numeric: 'numeric',
     Boolean: 'boolean',
@@ -2077,7 +2192,7 @@ export interface ScoreDefinitionApi {
     readonly id: string
     readonly name: string
     readonly description: string
-    readonly kind: ExperimentMetricKindEnumApi
+    readonly kind: ScoreDefinitionKindEnumApi
     readonly archived: boolean
     /** Current immutable configuration version number. */
     readonly current_version: number
@@ -2121,7 +2236,7 @@ export interface ScoreDefinitionCreateApi {
      * * `categorical` - categorical
      * * `numeric` - numeric
      * * `boolean` - boolean */
-    kind: ExperimentMetricKindEnumApi
+    kind: ScoreDefinitionKindEnumApi
     /** New scorers are always created as active. */
     archived?: boolean
     /** Initial immutable scorer configuration. */
@@ -3015,6 +3130,13 @@ export const LlmAnalyticsPersonalSpendListBucketMinutes = {
     Number60: 60,
 } as const
 
+export type AiObservabilityInstrumentationChecklistRetrieveParams = {
+    /**
+     * Grade the checks against a fresh read instead of a recent cached one. Use it after changing instrumentation, when a cached verdict would still describe the old code.
+     */
+    refresh?: boolean
+}
+
 export type DatasetItemsListParams = {
     /**
      * Return archived items instead of active items.
@@ -3240,13 +3362,13 @@ export type LlmAnalyticsEvaluationReportsRunsListParams = {
 
 export type LlmAnalyticsModelsRetrieveParams = {
     /**
-     * Optional provider key UUID. When supplied, models reachable with that specific key are returned (useful for Azure OpenAI, where the deployment list depends on the configured endpoint). Must belong to the same provider as the `provider` parameter.
+     * Optional provider key UUID. When supplied, models reachable with that specific key are returned (useful for Azure OpenAI, where the deployment list depends on the configured endpoint). A key belongs to exactly one provider, so `provider` may be omitted alongside it; when both are given they must agree.
      */
     key_id?: string
     /**
-     * LLM provider to list models for. Must be one of the supported providers.
+     * LLM provider to list models for. Omit it to list every supported provider and its models in one call.
      */
-    provider: LlmAnalyticsModelsRetrieveProvider
+    provider?: LlmAnalyticsModelsRetrieveProvider
 }
 
 export type LlmAnalyticsModelsRetrieveProvider =

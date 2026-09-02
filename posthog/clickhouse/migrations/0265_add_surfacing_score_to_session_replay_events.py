@@ -1,6 +1,6 @@
-from posthog import settings
 from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
+from posthog.run_mode import run_mode
 from posthog.session_recordings.sql.session_replay_event_migrations_sql import (
     ADD_SURFACING_SCORE_DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL,
     ADD_SURFACING_SCORE_SESSION_REPLAY_EVENTS_TABLE_SQL,
@@ -19,8 +19,6 @@ from posthog.session_recordings.sql.session_replay_event_sql import (
 
 # Add surfacing_score to session_replay_events. Cloud uses WarpStream and is dropping MSK;
 # non-cloud only has MSK.
-
-_IS_CLOUD = settings.CLOUD_DEPLOYMENT in ("US", "EU", "DEV")
 
 operations = [
     # Drop MV + Kafka tables (DROP IF EXISTS, so WS drops no-op in non-cloud).
@@ -57,7 +55,7 @@ operations = [
             run_sql_with_exceptions(KAFKA_SESSION_REPLAY_EVENTS_WS_TABLE_SQL(), node_roles=[NodeRole.INGESTION_SMALL]),
             run_sql_with_exceptions(SESSION_REPLAY_EVENTS_WS_MV_SQL(), node_roles=[NodeRole.INGESTION_SMALL]),
         ]
-        if _IS_CLOUD
+        if run_mode().is_deployed_cloud
         else [
             run_sql_with_exceptions(
                 KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL(on_cluster=False), node_roles=[NodeRole.INGESTION_SMALL]

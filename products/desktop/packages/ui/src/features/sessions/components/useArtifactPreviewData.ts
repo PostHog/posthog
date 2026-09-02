@@ -1,4 +1,8 @@
-import { groupRunArtifactVersions } from "@posthog/core/canvas/runArtifactSchemas";
+import {
+  getPostHogObjectArtifactMetadata,
+  groupRunArtifactVersions,
+  type PostHogObjectArtifactMetadata,
+} from "@posthog/core/canvas/runArtifactSchemas";
 import type { SessionService } from "@posthog/core/sessions/sessionService";
 import type { TaskRunArtifact } from "@posthog/shared";
 import { AUTH_SCOPED_QUERY_META } from "@posthog/ui/features/auth/useCurrentUser";
@@ -10,7 +14,11 @@ const MARKDOWN_EXTENSIONS = new Set(["md", "mdx", "markdown"]);
 const HTML_EXTENSIONS = new Set(["html", "htm"]);
 
 export type HtmlPreview = { kind: "html"; html: string };
-export type PreviewData = string | Blob | HtmlPreview;
+export type PostHogObjectPreview = {
+  kind: "posthog-object";
+  metadata: PostHogObjectArtifactMetadata;
+};
+export type PreviewData = string | Blob | HtmlPreview | PostHogObjectPreview;
 export type EditableArtifactKind = "html" | "markdown" | "plain-text";
 
 export interface ArtifactPreviewResult {
@@ -103,6 +111,9 @@ export function useArtifactPreviewData({
       artifactId,
     ],
     queryFn: async () => {
+      // The parallel pair shares one in-flight manifest read; a reference
+      // artifact resolves to a null URL there without a presign, so checking
+      // its metadata after the pair costs no extra request.
       const [artifacts, url] = await Promise.all([
         sessionService.getCloudRunArtifacts(taskId, runId),
         sessionService.getCloudAttachmentPreviewUrl(taskId, runId, artifactId),
@@ -111,6 +122,14 @@ export function useArtifactPreviewData({
         (candidate) => candidate.id === artifactId,
       );
       if (!artifact) throw new Error("Artifact is unavailable");
+      const reference = getPostHogObjectArtifactMetadata(artifact);
+      if (reference) {
+        return {
+          artifact,
+          artifacts,
+          preview: { kind: "posthog-object", metadata: reference },
+        };
+      }
       if (!url) throw new Error("Artifact is unavailable");
       const response = await fetch(url);
       if (!response.ok) throw new Error("Artifact preview failed");

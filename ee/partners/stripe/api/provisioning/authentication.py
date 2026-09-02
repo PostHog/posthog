@@ -3,10 +3,11 @@
 The only accepted identity is the Stripe orchestrator: tokens issued to the
 Stripe Projects OAuth app (resolved by
 ``settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID``). Tokens bound to any other
-application are rejected outright. Identity is the whole check - this namespace
-is deliberately isolated from the provisioning-partner config model, so no
-``provisioning_*`` capability flags on the app are consulted; the Stripe app is
-trusted with full access.
+application are rejected outright.
+
+Identity is most of the check, not all of it: ``DeepLinksView`` additionally
+requires ``can_issue_deep_links`` on the application, because a deep link mints
+a full web session. Other capability flags are not consulted here.
 """
 
 from __future__ import annotations

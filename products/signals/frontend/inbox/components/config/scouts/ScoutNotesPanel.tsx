@@ -5,7 +5,6 @@ import { IconPencil, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonTag, LemonTextArea, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { pluralize } from 'lib/utils/strings'
 
@@ -19,6 +18,7 @@ import {
     scoutNoteOriginLabel,
     scoutNotesLogic,
 } from '../../../logics/scoutNotesLogic'
+import { ScoutNoteContent } from './ScoutNoteContent'
 
 /** Bounded by the create serializer; mirrored here so the dialog can say so before a failed request. */
 const NOTE_MAX_CHARS = 10000
@@ -222,9 +222,7 @@ function ScoutNoteRow({ note, onDelete }: { note: ScoutNoteApi; onDelete: () => 
                         </Tooltip>
                     )}
                 </div>
-                <LemonMarkdown className="text-xs text-secondary" disableImages>
-                    {note.content}
-                </LemonMarkdown>
+                <ScoutNoteContent content={note.content} />
             </div>
             {/* Only a note someone left here is retired here. A derived one is a record of what
                 happened in the inbox, and deleting it would rewrite that. */}

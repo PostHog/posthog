@@ -79,7 +79,13 @@ class GoogleAnalyticsSource(ResumableSource[GoogleAnalyticsSourceConfig, GoogleA
         # still exhausted once those retries run out, the property's token quota refills over
         # time and the resumable source picks up from the last saved chunk, so let Temporal
         # retry the activity without paging it as a bug.
-        return {"(retryable)"}
+        #
+        # "Connection aborted"/"Connection reset by peer"/"Read timed out" are transport-level blips
+        # from `requests` raised directly by `session.post()` in `_run_report`, outside its own retry
+        # loop (which only handles `RefreshError` and HTTP-level failures). The resumable source picks
+        # up from the last saved chunk on the next Temporal retry, same as ClickHouse's source
+        # classifies this text.
+        return {"(retryable)", "Connection aborted", "Connection reset by peer", "Read timed out"}
 
     def get_schemas(
         self,

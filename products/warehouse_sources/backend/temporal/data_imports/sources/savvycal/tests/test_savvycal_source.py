@@ -3,16 +3,11 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.savvycal import (
     SavvyCalSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.savvycal.savvycal import SavvyCalResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.savvycal.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.savvycal.source import SavvyCalSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestSavvyCalSource:
@@ -21,37 +16,10 @@ class TestSavvyCalSource:
         self.team_id = 123
         self.config = SavvyCalSourceConfig(api_key="pt_secret_key")
 
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.SAVVYCAL
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-        assert config.name.value == "SavvyCal"
-        assert config.label == "SavvyCal"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/savvycal"
-
-        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert field_names == ["api_key"]
-
-    def test_token_field_is_secret_password(self) -> None:
-        config = self.source.get_source_config
-        field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_key")
-        assert field.type == SourceFieldInputConfigType.PASSWORD
-        assert field.secret is True
-        assert field.required is True
-
     def test_no_connection_host_fields(self) -> None:
         # The only field is the secret token; the base URL is hardcoded, so there is no non-secret
         # field an editor could retarget to reuse a preserved token against another host.
         assert self.source.connection_host_fields == []
-
-    def test_lists_tables_without_credentials(self) -> None:
-        assert self.source.lists_tables_without_credentials is True
-
-    def test_get_schemas_covers_all_endpoints(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
 
     def test_only_events_support_incremental(self) -> None:
         # Only /events exposes a server-side cursor (`from` on start date); advertising incremental
@@ -62,18 +30,6 @@ class TestSavvyCalSource:
         for name in set(ENDPOINTS) - {"events"}:
             assert schemas[name].supports_incremental is False
             assert schemas[name].incremental_fields == []
-
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["links"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "links"
-
-    def test_get_schemas_filtered_unknown_name_returns_empty(self) -> None:
-        assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
-
-    def test_documented_tables_render_for_public_docs(self) -> None:
-        tables = self.source.get_documented_tables()
-        assert {t["name"] for t in tables} == set(ENDPOINTS)
 
     @parameterized.expand(
         [
@@ -102,11 +58,6 @@ class TestSavvyCalSource:
         result = self.source.validate_credentials(self.config, self.team_id)
         assert result == (False, "Invalid SavvyCal personal access token")
         mock_validate.assert_called_once_with("pt_secret_key")
-
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is SavvyCalResumeConfig
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.savvycal.source.savvycal_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:

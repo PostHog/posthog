@@ -92,6 +92,10 @@ UNKNOWN_CHANNEL = DefaultChannelTypes.UNKNOWN.value
 # REPORTED_ROAS, the platform's own figure. Not a base column: it needs the goals CTE.
 ROAS_COLUMN = MarketingAnalyticsConstants.ROAS.value
 
+# Joined to the "Cost per" prefix so it inherits that family's currency and higher-is-worse
+# formatting. Counts each customer goal's conversions as customers — see the aggregator.
+CAC_COLUMN_SUFFIX = MarketingAnalyticsConstants.CUSTOMER.value
+
 # What `$entry_referring_domain` holds when a session arrived with no referrer at all. Stored as a
 # sentinel rather than an empty string, so anything asking "does this session name a referrer?" has
 # to test for it explicitly. Matches the literal the channel-type classifier keys off in

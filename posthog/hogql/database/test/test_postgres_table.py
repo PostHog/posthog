@@ -27,9 +27,8 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import create_default_modifiers_for_team
 
-from posthog.rbac.user_access_control import RESOURCE_INHERITANCE_MAP
-
-from ee.api.rbac.access_control import AccessControlViewSetMixin
+from products.access_control.backend.facade.user_access_control import RESOURCE_INHERITANCE_MAP
+from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 
 ALL_POSTGRES_SYSTEM_TABLES: list[tuple[str, PostgresTable]] = [
     (name, node.table) for name, node in SystemTables().children.items() if isinstance(node.table, PostgresTable)

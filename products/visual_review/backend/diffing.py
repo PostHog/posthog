@@ -18,22 +18,11 @@ from pixelhog import thumbnail as pixelhog_thumbnail
 from .db import WRITER_DB
 from .diff import THUMB_HEIGHT, THUMB_WIDTH, CompareResult, compare_images
 from .diff_metadata import DiffMetadata
+from .facade.contracts import PIXEL_DIFF_THRESHOLD_PERCENT, SSIM_DISSIMILARITY_THRESHOLD
 from .facade.enums import ChangeKind, ClassificationReason, SnapshotResult, ToleratedReason
 from .models import RunSnapshot, ToleratedHash
 
 logger = structlog.get_logger(__name__)
-
-# Two-tier classification thresholds:
-#
-# 1. Pixel diff ratio — fast path for obvious changes. Snapshots above
-#    this are immediately classified as CHANGED.
-# 2. SSIM perceptual threshold — safety net for tall-page dilution. A real UI
-#    change at the bottom of a long screenshot affects few pixels but produces
-#    a measurable structural shift that SSIM catches.
-#
-# Only when both are below threshold is the snapshot reclassified as UNCHANGED.
-PIXEL_DIFF_THRESHOLD_PERCENT = 2.5
-SSIM_DISSIMILARITY_THRESHOLD = 0.01  # 1% structural difference
 
 
 def classify_compare_result(result: CompareResult) -> ChangeKind | None:

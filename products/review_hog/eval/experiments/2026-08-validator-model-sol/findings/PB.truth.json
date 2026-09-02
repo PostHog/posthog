@@ -1,0 +1,92 @@
+{
+    "PB1": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 13,
+        "source": "cluster 0/3"
+    },
+    "PB2": {
+        "is_real": true,
+        "severity": "consider",
+        "cluster": 35,
+        "source": "cluster 3/3"
+    },
+    "PB3": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 58,
+        "source": "verified-same-claim:KA13"
+    },
+    "PB4": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 58,
+        "source": "verified-same-claim:KB4"
+    },
+    "PB5": {
+        "is_real": true,
+        "severity": "consider",
+        "cluster": null,
+        "source": "verified-same-claim:LB20"
+    },
+    "PB6": {
+        "is_real": true,
+        "severity": "must_fix",
+        "cluster": 2,
+        "source": "verified-same-claim:KA10 (AGENTS.md-anchored code claim; NA7/MA6/MB14 rule)"
+    },
+    "PB7": {
+        "is_real": true,
+        "severity": "must_fix",
+        "cluster": 2,
+        "source": "verified-same-claim:KA10"
+    },
+    "PB8": {
+        "is_real": true,
+        "severity": "must_fix",
+        "cluster": 2,
+        "source": "verified-same-claim:KA10"
+    },
+    "PB9": {
+        "is_real": true,
+        "severity": "must_fix",
+        "cluster": 2,
+        "source": "verified-same-claim:LA19"
+    },
+    "PB10": {
+        "is_real": true,
+        "severity": "should_fix",
+        "cluster": 57,
+        "source": "verified-same-claim:KA4"
+    },
+    "PB11": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 39,
+        "source": "verified-same-claim:KA5"
+    },
+    "PB12": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 15,
+        "source": "verified-same-claim:W10"
+    },
+    "PB13": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 58,
+        "source": "verified-same-claim:KA13"
+    },
+    "PB14": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 16,
+        "source": "verified (high)"
+    },
+    "PB15": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 31,
+        "source": "cluster 0/6"
+    }
+}

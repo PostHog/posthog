@@ -8,24 +8,12 @@ const httpHeaderSchema = z.object({
   value: z.string(),
 });
 
-const nullishString = z
-  .string()
-  .nullish()
-  .transform((value) => value ?? null);
-
-export const handoffLocalGitStateSchema = z.object({
-  head: nullishString,
-  branch: nullishString,
-  upstreamHead: nullishString,
-  upstreamRemote: nullishString,
-  upstreamMergeRef: nullishString,
-});
-
 const remoteMcpServerSchema: z.ZodType<McpServerConnection> = z.object({
   type: z.enum(["http", "sse"]),
   name: z.string().min(1, "MCP server name is required"),
   url: z.url({ error: "MCP server url must be a valid URL" }),
   headers: z.array(httpHeaderSchema).default([]),
+  description: z.string().optional(),
 });
 
 export const mcpServersSchema = z.array(remoteMcpServerSchema);
@@ -99,6 +87,13 @@ export const refreshSessionParamsSchema = z.object({
   mcpServers: mcpServersSchema,
 });
 
+export const sideQuestionParamsSchema = z.object({
+  question: z.string().min(1, "question is required"),
+  // The adapter resolves the ACP session itself; accepted for symmetry with
+  // the other session-scoped commands.
+  sessionId: z.string().optional(),
+});
+
 /**
  * Names of desktop-only local MCP servers designated for relaying into this
  * run (docs/CLOUD-MCP-RELAY.md). Names only — the sandbox never learns the
@@ -120,11 +115,7 @@ export const mcpResponseParamsSchema = z
     error: "Exactly one of payload or error is required",
   });
 
-export const closeParamsSchema = z
-  .object({
-    localGitState: handoffLocalGitStateSchema.optional(),
-  })
-  .optional();
+export const closeParamsSchema = z.object({}).optional();
 
 export const commandParamsSchemas = {
   user_message: userMessageParamsSchema,
@@ -143,6 +134,8 @@ export const commandParamsSchemas = {
   mcp_response: mcpResponseParamsSchema,
   "posthog/mcp_response": mcpResponseParamsSchema,
   "_posthog/mcp_response": mcpResponseParamsSchema,
+  side_question: sideQuestionParamsSchema,
+  "posthog/side_question": sideQuestionParamsSchema,
 } as const;
 
 export type CommandMethod = keyof typeof commandParamsSchemas;

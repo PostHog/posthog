@@ -2,7 +2,7 @@
 name: analyzing-experiment-query-performance
 description: >
   Pull and interpret production experiment query-performance data from the staff-only
-  `/api/debug_ch_queries` endpoints backing the `/instance/query_performance` scene:
+  `/api/debug_ch_queries` endpoints backing the `/experiments/staff` scene:
   slowest experiment queries, precompute read/build health, and preaggregation cache footprint.
   Covers prod-US and prod-EU via a `query_performance:read` personal API key, all query params,
   and response field semantics (exception codes, exposure paths, precompute skip reasons, job states).
@@ -13,7 +13,7 @@ description: >
 
 # Analyzing experiment query performance
 
-The `/instance/query_performance` scene (staff-only UI) is backed by three GET endpoints
+The `/experiments/staff` scene (staff-only UI, "Experiments staff tools") is backed by three GET endpoints
 that are also callable directly with a personal API key.
 They return the exact data the UI renders, sourced from ClickHouse `query_log_archive`
 (experiment queries only, `lc_product = 'experiments'`), `system.parts`,
@@ -247,7 +247,7 @@ re-check the key's scopes before anything else.
 
 ## Maintenance
 
-This skill documents the `/instance/query_performance` API surface.
+This skill documents the `/experiments/staff` API surface.
 When adding a tab, endpoint, filter, or response field to the scene
-(`posthog/api/debug_ch_queries.py` + `frontend/src/scenes/instance/QueryPerformance/`),
+(`posthog/api/debug_ch_queries.py` + `frontend/src/scenes/experiments/staff/`),
 update this file in the same PR.

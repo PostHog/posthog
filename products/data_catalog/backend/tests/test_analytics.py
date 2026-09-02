@@ -12,7 +12,7 @@ from products.data_catalog.backend.logic.exceptions import MetricDrifted
 from products.data_catalog.backend.logic.execution import run_metric
 from products.data_catalog.backend.logic.metrics import approve_metric, upsert_metric
 from products.data_catalog.backend.logic.relationships import propose_relationship
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 _HOGQL = {"kind": "HogQLQuery", "query": "select count() from events"}

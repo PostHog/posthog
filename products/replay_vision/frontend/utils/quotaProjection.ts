@@ -149,11 +149,11 @@ export function quotaUx(quota: VisionQuotaApi | null): { disabledReason?: string
         return {
             disabledReason: isFreeAllocationOnly(quota)
                 ? `You've used all your free Replay vision credits. Resets ${state.resetsOn}.`
-                : `Monthly Replay vision spend limit reached. Resets ${state.resetsOn}.`,
+                : `Replay vision spend limit reached. Resets ${state.resetsOn}.`,
         }
     }
     return {
-        tooltip: `${formatCreditCount(state.quota.remaining ?? 0)} left this month (resets ${state.resetsOn})`,
+        tooltip: `${formatCreditCount(state.quota.remaining ?? 0)} left this billing period (resets ${state.resetsOn})`,
     }
 }
 

@@ -6,7 +6,7 @@ from temporalio import activity
 from posthog.temporal.common.utils import asyncify
 
 from products.tasks.backend.exceptions import SandboxNotFoundError
-from products.tasks.backend.logic.services.sandbox import Sandbox
+from products.tasks.backend.logic.services.sandbox import get_sandbox_class_for_sandbox_id
 from products.tasks.backend.logic.services.sandbox_usage import (
     close_sandbox_session,
     measure_sandbox_billed_cpu_usage,
@@ -47,7 +47,7 @@ def cleanup_sandbox_now(input: CleanupSandboxInput) -> None:
     billed_cpu_usage_usec = None
     cpu_usage_measured_at = None
     try:
-        sandbox = Sandbox.get_by_id(input.sandbox_id)
+        sandbox = get_sandbox_class_for_sandbox_id(input.sandbox_id).get_by_id(input.sandbox_id)
     except SandboxNotFoundError:
         stream_completion_safe = True
         sandbox = None

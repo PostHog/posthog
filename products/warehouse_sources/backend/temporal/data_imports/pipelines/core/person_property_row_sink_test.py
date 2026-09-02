@@ -4,6 +4,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.conf import settings
+from django.db import OperationalError
 
 import pyarrow as pa
 from parameterized import parameterized
@@ -51,6 +52,22 @@ async def test_should_run_reflects_projection():
     other = _sink()
     with patch(f"{_MODULE}.person_property_projection_for", return_value=[_projection("distinct_id", "plan")]):
         assert await other.should_run() is True
+
+
+@pytest.mark.asyncio
+async def test_should_run_retries_once_on_a_transient_db_connection_drop():
+    # A long-lived Temporal worker's pooled app-DB connection can go stale (pooler recycle,
+    # failover, deploy) between syncs. Without a retry, that one-off OperationalError would
+    # propagate and get treated as "no person-property mapping to sync" for the whole run instead
+    # of the transient blip it is.
+    sink = _sink()
+    projection = [_projection("distinct_id", "plan")]
+    resolver = MagicMock(side_effect=[OperationalError("server closed the connection unexpectedly"), projection])
+
+    with patch(f"{_MODULE}.person_property_projection_for", resolver):
+        assert await sink.should_run() is True
+
+    assert resolver.call_count == 2
 
 
 @pytest.mark.asyncio
@@ -217,6 +234,26 @@ async def test_clear_tolerates_missing_prefixes():
 
     with patch(f"{_MODULE}.aget_s3_client", return_value=_FakeS3ClientCM(s3_client)):
         await sink.clear()
+
+
+@pytest.mark.asyncio
+async def test_clear_still_sweeps_abandoned_siblings_when_own_prefix_delete_fails():
+    # A permissions error (or any other non-FileNotFoundError) deleting the own prefix must not
+    # skip the sibling-sweep backstop, which is an independent cleanup — otherwise abandoned sibling
+    # prefixes from crashed jobs never get swept on every run where the own-prefix delete fails.
+    sink = _sink()
+    stale_file = f"{sink._get_binding_prefix()}/job-old/chunk_0.parquet"
+    s3_client = _s3_client(
+        find_result={stale_file: {"LastModified": datetime.now(UTC) - ABANDONED_STAGED_PREFIX_TTL - timedelta(days=1)}}
+    )
+    s3_client._rm = AsyncMock(side_effect=[PermissionError("Access Denied"), None])
+
+    with patch(f"{_MODULE}.aget_s3_client", return_value=_FakeS3ClientCM(s3_client)):
+        with pytest.raises(PermissionError):
+            await sink.clear()
+
+    removed = [call.args[0] for call in s3_client._rm.await_args_list]
+    assert [f"s3://{stale_file}"] in removed  # sibling sweep still ran despite the own-prefix failure
 
 
 @parameterized.expand([("schema", schema_binding("schema-1")), ("saved_query", saved_query_binding("view-1"))])

@@ -1,4 +1,6 @@
 import datetime as dt
+import dataclasses
+from collections.abc import Callable
 from contextlib import ExitStack
 
 import pytest
@@ -17,10 +19,13 @@ from posthog.temporal.data_modeling.activities import (
 )
 from posthog.temporal.data_modeling.activities.enrich_view_semantics import EnrichViewSemanticsInputs
 from posthog.temporal.data_modeling.workflows.materialize_view import (
+    ACCOUNT_PROPERTY_S3_SYNC_PATCH,
+    ACCOUNT_PROPERTY_STAGING_WORKFLOW_PATCH,
     MaterializeViewWorkflow,
     MaterializeViewWorkflowInputs,
 )
 
+from products.customer_analytics.backend.facade.temporal_contracts import StageAccountPropertySyncInput
 from products.data_quality.backend.facade.contracts import CHECK_SUITE_WORKFLOW_NAME, QualityAuditMode
 from products.warehouse_sources.backend.facade.hooks import PersonPropertySyncActivityInputs
 
@@ -51,7 +56,7 @@ class TestQualityGateBranching:
         activity_results: list,
         child_result: dict | Exception,
         *,
-        patched: bool = True,
+        patched: bool | Callable[[str], bool] = True,
         shadow_handle: AsyncMock | None = None,
         start_child: AsyncMock | None = None,
     ) -> tuple:
@@ -69,7 +74,12 @@ class TestQualityGateBranching:
             stack.enter_context(
                 patch.object(temporalio.workflow, "start_child_workflow", new=start_child or AsyncMock())
             )
-            stack.enter_context(patch.object(temporalio.workflow, "patched", return_value=patched))
+            patched_mock = (
+                patch.object(temporalio.workflow, "patched", side_effect=patched)
+                if callable(patched)
+                else patch.object(temporalio.workflow, "patched", return_value=patched)
+            )
+            stack.enter_context(patched_mock)
             stack.enter_context(patch.object(temporalio.workflow, "info", return_value=info))
             stack.enter_context(patch.object(temporalio.workflow, "now", return_value=dt.datetime(2026, 8, 1)))
             stack.enter_context(patch.object(temporalio.workflow, "logger"))
@@ -111,6 +121,93 @@ class TestQualityGateBranching:
         assert started[-2:] == ["stage_queryable_files_activity", "quality_block_materialization_activity"]
         assert "publish_queryable_table_activity" not in started
         assert "succeed_materialization_activity" not in started
+
+    async def test_account_staging_starts_an_isolated_child_workflow(self):
+        materialize_result = dataclasses.replace(
+            _materialize_result("skip"),
+            account_property_sync_enabled=True,
+            delta_version=5,
+        )
+        activity_results = [
+            False,
+            "job-1",
+            materialize_result,
+            PrepareQueryableTableResult(storage_delta_mib=None, total_storage_mib=None),
+            None,
+            None,
+        ]
+        start_child = AsyncMock()
+
+        await self._run(activity_results, {}, start_child=start_child)
+
+        staging_call = next(
+            call for call in start_child.await_args_list if call.args[0] == "stage-warehouse-account-properties"
+        )
+        assert isinstance(staging_call.args[1], StageAccountPropertySyncInput)
+        assert staging_call.args[1].job_id == "job-1"
+        assert staging_call.args[1].delta_version == 5
+        assert staging_call.kwargs["parent_close_policy"] == temporalio.workflow.ParentClosePolicy.ABANDON
+
+    async def test_a_legacy_history_replays_the_inline_dispatch_command(self):
+        # A history recorded under ACCOUNT_PROPERTY_S3_SYNC_PATCH holds the old dispatch activity
+        # command and no delta_version. Replaying it with only that marker present must re-emit the
+        # dispatch command, not the staging child, or the execution fails as nondeterministic.
+        materialize_result = dataclasses.replace(
+            _materialize_result("skip"),
+            account_property_sync_enabled=True,
+        )
+        activity_results = [
+            False,
+            "job-1",
+            materialize_result,
+            PrepareQueryableTableResult(storage_delta_mib=None, total_storage_mib=None),
+            None,
+            None,
+        ]
+        start_child = AsyncMock()
+
+        _, execute_activity = await self._run(
+            activity_results,
+            {},
+            patched=lambda change_id: change_id == ACCOUNT_PROPERTY_S3_SYNC_PATCH,
+            start_child=start_child,
+        )
+
+        assert any(
+            call.args[0] == "dispatch-warehouse-account-property-sync" for call in execute_activity.await_args_list
+        )
+        assert not [
+            call for call in start_child.await_args_list if call.args[0] == "stage-warehouse-account-properties"
+        ]
+
+    async def test_the_isolated_staging_child_wins_when_both_markers_are_present(self):
+        materialize_result = dataclasses.replace(
+            _materialize_result("skip"),
+            account_property_sync_enabled=True,
+            delta_version=5,
+        )
+        activity_results = [
+            False,
+            "job-1",
+            materialize_result,
+            PrepareQueryableTableResult(storage_delta_mib=None, total_storage_mib=None),
+            None,
+        ]
+        start_child = AsyncMock()
+
+        _, execute_activity = await self._run(
+            activity_results,
+            {},
+            patched=lambda change_id: (
+                change_id in (ACCOUNT_PROPERTY_STAGING_WORKFLOW_PATCH, ACCOUNT_PROPERTY_S3_SYNC_PATCH)
+            ),
+            start_child=start_child,
+        )
+
+        assert any(call.args[0] == "stage-warehouse-account-properties" for call in start_child.await_args_list)
+        assert not any(
+            call.args[0] == "dispatch-warehouse-account-property-sync" for call in execute_activity.await_args_list
+        )
 
     async def test_a_passing_audit_publishes_and_succeeds(self):
         activity_results = [
@@ -307,6 +404,52 @@ class TestFinalizeOrphanedDuckgresJob:
             await workflow._finalize_orphaned_duckgres_job("job-123", _inputs(), "activity died")
 
 
+class TestMaybeStageAccountProperties:
+    async def test_starts_an_abandoned_staging_child(self):
+        workflow = MaterializeViewWorkflow()
+        result = dataclasses.replace(
+            _materialize_result("skip"),
+            account_property_sync_enabled=True,
+            delta_version=5,
+        )
+        start_child = AsyncMock()
+        with patch.object(temporalio.workflow, "start_child_workflow", new=start_child):
+            await workflow._maybe_stage_account_properties(_inputs(), result, "job-123")
+
+        start_child.assert_awaited_once()
+        assert start_child.await_args is not None
+        workflow_name, payload = start_child.await_args.args
+        assert workflow_name == "stage-warehouse-account-properties"
+        assert isinstance(payload, StageAccountPropertySyncInput)
+        assert payload.job_id == "job-123"
+        assert payload.delta_version == 5
+        assert start_child.await_args.kwargs["parent_close_policy"] == temporalio.workflow.ParentClosePolicy.ABANDON
+
+    async def test_staging_start_failure_does_not_fail_materialization(self):
+        workflow = MaterializeViewWorkflow()
+        result = dataclasses.replace(
+            _materialize_result("skip"),
+            account_property_sync_enabled=True,
+            delta_version=5,
+        )
+        start_child = AsyncMock(side_effect=PermissionError("access denied"))
+        with (
+            patch.object(temporalio.workflow, "start_child_workflow", new=start_child),
+            patch.object(temporalio.workflow, "logger", new=MagicMock()),
+            patch("posthog.temporal.data_modeling.workflows.materialize_view.capture_exception"),
+        ):
+            await workflow._maybe_stage_account_properties(_inputs(), result, "job-123")
+
+        start_child.assert_awaited_once()
+
+    async def test_no_staging_when_no_account_sources_are_enabled(self):
+        workflow = MaterializeViewWorkflow()
+        start_child = AsyncMock()
+        with patch.object(temporalio.workflow, "start_child_workflow", new=start_child):
+            await workflow._maybe_stage_account_properties(_inputs(), _materialize_result("skip"), "job-123")
+        start_child.assert_not_awaited()
+
+
 class TestMaybeEnrichViewSemantics:
     async def test_starts_child_when_enrichment_needed(self):
         workflow = MaterializeViewWorkflow()
@@ -430,3 +573,81 @@ class TestMaybeSyncPersonProperties:
             patch(f"{WORKFLOW_MODULE}.capture_exception"),
         ):
             await workflow._maybe_sync_person_properties(_inputs(), result, "job-123")
+
+
+class TestCDPProducerHandoff(TestQualityGateBranching):
+    """When the workflow hands a run's staged rows to the CDP producer, and when it throws them away."""
+
+    @staticmethod
+    def _result(*, should_trigger: bool, quality_audit: QualityAuditMode = "skip") -> MaterializeViewResult:
+        result = _materialize_result(quality_audit)
+        return dataclasses.replace(result, should_trigger_cdp_producer=should_trigger)
+
+    async def test_the_producer_starts_after_a_successful_publish(self):
+        start_child = AsyncMock()
+        activity_results = [
+            False,
+            "job-1",
+            self._result(should_trigger=True),
+            PrepareQueryableTableResult(storage_delta_mib=None, total_storage_mib=None),
+            SucceedMaterializationResult(enrichment_needed=False, saved_query_id="sq-1"),
+        ]
+
+        await self._run(activity_results, {"checks_failed_blocking": 0}, start_child=start_child)
+
+        started = [call.kwargs.get("workflow") or call.args[0] for call in start_child.await_args_list]
+        assert "dwh-cdp-producer-job" in started
+
+    async def test_no_producer_starts_when_nothing_subscribes(self):
+        start_child = AsyncMock()
+        activity_results = [
+            False,
+            "job-1",
+            self._result(should_trigger=False),
+            PrepareQueryableTableResult(storage_delta_mib=None, total_storage_mib=None),
+            SucceedMaterializationResult(enrichment_needed=False, saved_query_id="sq-1"),
+        ]
+
+        await self._run(activity_results, {"checks_failed_blocking": 0}, start_child=start_child)
+
+        started = [call.kwargs.get("workflow") or call.args[0] for call in start_child.await_args_list]
+        assert "dwh-cdp-producer-job" not in started
+
+    async def test_a_producer_that_fails_to_start_clears_the_staged_rows(self):
+        # Nothing will read them now, and the prefix is keyed on this job, so no later run's own
+        # clear reaches them.
+        start_child = AsyncMock(side_effect=RuntimeError("task queue is gone"))
+        activity_results = [
+            False,
+            "job-1",
+            self._result(should_trigger=True),
+            PrepareQueryableTableResult(storage_delta_mib=None, total_storage_mib=None),
+            SucceedMaterializationResult(enrichment_needed=False, saved_query_id="sq-1"),
+            None,  # clear_cdp_staging
+        ]
+
+        _, execute_activity = await self._run(activity_results, {"checks_failed_blocking": 0}, start_child=start_child)
+
+        started = [call.args[0].__name__ for call in execute_activity.await_args_list]
+        assert "clear_cdp_staging_activity" in started
+
+    async def test_a_quality_blocked_run_clears_its_staged_rows_instead_of_producing(self):
+        # The rows were never published, and the prefix is keyed on this job, so no later run's own
+        # clear will ever reach them.
+        start_child = AsyncMock()
+        activity_results = [
+            False,
+            "job-1",
+            self._result(should_trigger=True, quality_audit="gate"),
+            StageQueryableFilesResult(staged_folder_path="staged_1"),
+            None,  # quality_block_materialization
+            None,  # clear_cdp_staging
+        ]
+
+        _, execute_activity = await self._run(activity_results, {"checks_failed_blocking": 2}, start_child=start_child)
+
+        started = [call.args[0].__name__ for call in execute_activity.await_args_list]
+        assert "clear_cdp_staging_activity" in started
+        assert "dwh-cdp-producer-job" not in [
+            call.kwargs.get("workflow") or call.args[0] for call in start_child.await_args_list
+        ]

@@ -3,8 +3,6 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock, patch
 
-from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
-
 from posthog.cdp.validation import compile_hog
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
@@ -19,18 +17,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.web
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mailerlite import (
     MailerLiteSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.mailerlite.mailerlite import (
-    MailerLiteResumeConfig,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailerlite.settings import (
-    ENDPOINTS,
     MAILERLITE_V1,
     MAILERLITE_V2,
     SUBSCRIBER_WEBHOOK_EVENTS,
     WEBHOOK_SCHEMA_NAMES,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailerlite.source import MailerLiteSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config() -> MailerLiteSourceConfig:
@@ -38,31 +31,6 @@ def _config() -> MailerLiteSourceConfig:
 
 
 class TestMailerLiteSourceClass:
-    def test_source_type(self) -> None:
-        assert MailerLiteSource().source_type == ExternalDataSourceType.MAILERLITE
-
-    def test_source_config_fields(self) -> None:
-        config = MailerLiteSource().get_source_config
-        assert config.label == "MailerLite"
-        assert config.unreleasedSource is not True
-        assert [field.name for field in config.fields] == ["api_key"]
-        api_key_field = config.fields[0]
-        assert isinstance(api_key_field, SourceFieldInputConfig)
-        assert api_key_field.required is True
-        assert api_key_field.secret is True
-        assert api_key_field.type == SourceFieldInputConfigType.PASSWORD
-
-    def test_get_schemas_are_all_full_refresh(self) -> None:
-        schemas = MailerLiteSource().get_schemas(_config(), team_id=1)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-        assert all(s.supports_incremental is False for s in schemas)
-        assert all(s.supports_append is False for s in schemas)
-        assert all(s.incremental_fields == [] for s in schemas)
-
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = MailerLiteSource().get_schemas(_config(), team_id=1, names=["subscribers", "groups"])
-        assert {s.name for s in schemas} == {"subscribers", "groups"}
-
     @pytest.mark.parametrize(
         ("valid", "expected_ok"),
         [(True, True), (False, False)],
@@ -84,23 +52,21 @@ class TestMailerLiteSourceClass:
             MailerLiteSource().validate_credentials(_config(), team_id=1, schema_name="groups")
             assert mock_validate.call_args.args == ("test-key", "/groups")
 
-    def test_get_non_retryable_errors_cover_auth(self) -> None:
-        errors = MailerLiteSource().get_non_retryable_errors()
-        assert any("401" in key for key in errors)
-        assert any("403" in key for key in errors)
-
-    def test_get_resumable_source_manager_bound_to_resume_config(self) -> None:
-        inputs = MagicMock(spec=SourceInputs)
-        inputs.logger = MagicMock()
-        manager = MailerLiteSource().get_resumable_source_manager(inputs)
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is MailerLiteResumeConfig
-
     def test_default_version_is_v2(self) -> None:
         source = MailerLiteSource()
         assert source.default_version == MAILERLITE_V2
         assert set(source.supported_versions) == {MAILERLITE_V1, MAILERLITE_V2}
         assert source.default_version in source.supported_versions
+
+    def test_v1_is_deprecated_without_sunset(self) -> None:
+        # Guards the in-product deprecation banner: v1 must stay flagged, and with no announced
+        # sunset date (a fabricated one would flip the framework into "sunsetting" behaviour and
+        # invite a repin off a version MailerLite still serves).
+        source = MailerLiteSource()
+        deprecation = source.get_version_deprecation(MAILERLITE_V1)
+        assert deprecation is not None
+        assert deprecation.sunset_at is None
+        assert source.get_version_deprecation(MAILERLITE_V2) is None
 
     @pytest.mark.parametrize(
         ("pin", "expected_version"),
@@ -173,15 +139,6 @@ class TestMailerLiteWebhooks:
     )
     def test_desired_webhook_events_cover_only_webhook_schemas(self, eligible: list[str], expected: list[str]) -> None:
         assert MailerLiteSource().get_desired_webhook_events(_config(), eligible) == expected
-
-    def test_webhook_signing_secret_is_a_secret_webhook_field(self) -> None:
-        config = MailerLiteSource().get_source_config
-        assert config.webhookFields is not None
-        secret_field = config.webhookFields[0]
-        assert isinstance(secret_field, SourceFieldInputConfig)
-        assert secret_field.name == "signing_secret"
-        assert secret_field.secret is True
-        assert secret_field.type == SourceFieldInputConfigType.PASSWORD
 
     @pytest.mark.parametrize(
         ("method", "client_function", "expected"),

@@ -20,6 +20,7 @@ from products.managed_warehouse.backend.temporal.ducklake_copy_data_modeling_wor
 )
 from products.managed_warehouse.backend.temporal.ducklake_register_data_imports_workflow import (
     DuckLakeRegisterDataImportsWorkflow,
+    cleanup_ducklake_registration_tables_activity,
     copy_and_register_ducklake_data_imports_activity,
     ducklake_register_data_imports_gate_activity,
     prepare_ducklake_data_imports_registration_activity,
@@ -35,6 +36,7 @@ WORKFLOWS = [
 ACTIVITIES = [
     cleanup_data_imports_staging_activity,
     cleanup_data_modeling_staging_activity,
+    cleanup_ducklake_registration_tables_activity,
     copy_data_imports_to_ducklake_activity,
     copy_data_modeling_model_to_ducklake_activity,
     copy_and_register_ducklake_data_imports_activity,

@@ -1,6 +1,8 @@
 from datetime import date, datetime, timedelta
-from json import JSONDecodeError, loads
+from io import BytesIO
+from json import JSONDecodeError, dumps, loads
 from typing import Any, List, Literal, cast, get_args  # noqa: UP035
+from urllib.parse import parse_qs, urlparse
 
 from django.core.exceptions import FieldError
 from django.db import transaction
@@ -12,9 +14,11 @@ import structlog
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_field
+from PIL import Image
 from prometheus_client import Counter
 from rest_framework import request, response, serializers, status, viewsets
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import PermissionDenied, UnsupportedMediaType, ValidationError
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import BasePermission
 from rest_framework.views import APIView
 
@@ -25,14 +29,17 @@ from posthog.hogql.ast import Constant
 from posthog.hogql.base import Expr
 from posthog.hogql.constants import MAX_SELECT_HEATMAPS_LIMIT, LimitContext
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.errors import QueryError
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.api.uploaded_media import validate_image_file
 from posthog.api.utils import action
 from posthog.auth import ExportRendererAuthentication
 from posthog.clickhouse.query_tagging import Feature, tag_queries
@@ -49,11 +56,14 @@ from posthog.rate_limit import (
     HeatmapPreflightBurstRateThrottle,
     HeatmapPreflightSustainedRateThrottle,
 )
-from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
-from posthog.rbac.user_access_control import AccessControlLevel, UserAccessControlSerializerMixin
 from posthog.security.url_validation import is_url_allowed
 from posthog.utils import relative_date_parse_with_delta_mapping
 
+from products.access_control.backend.facade.user_access_control import AccessControlLevel
+from products.access_control.backend.presentation.access_control import (
+    AccessControlViewSetMixin,
+    UserAccessControlSerializerMixin,
+)
 from products.cohorts.backend.models.cohort import Cohort
 from products.web_analytics.backend.api.heatmaps_utils import (
     DEFAULT_TARGET_WIDTHS,
@@ -64,11 +74,38 @@ from products.web_analytics.backend.api.heatmaps_utils import (
 )
 from products.web_analytics.backend.heatmap_preflight import BlockedBy, Framing, preflight_page
 from products.web_analytics.backend.models import HeatmapSnapshot, SavedHeatmap
-from products.web_analytics.backend.tasks.heatmap_screenshot import generate_heatmap_screenshot
+from products.web_analytics.backend.tasks.heatmap_screenshot import (
+    HEATMAP_SCREENSHOT_MAX_BYTES,
+    _persist_snapshot,
+    generate_heatmap_screenshot,
+)
 
 STALE_PROCESSING_THRESHOLD = timedelta(minutes=10)
 
+MAX_CAPTURE_IMAGE_WIDTH = 4000
+MAX_CAPTURE_IMAGE_HEIGHT = 30000
+MAX_CAPTURE_IMAGE_PIXELS = 50_000_000
+MAX_CAPTURE_TOTAL_BYTES = 60 * 1024 * 1024
+
 HEATMAPS_COHORT_FILTER_FLAG = "heatmaps-cohort-filter"
+HEATMAPS_EVENT_FILTER_FLAG = "heatmaps-event-filter"
+
+# A heatmap interaction and the event that qualifies its session are separate rows, and a session can
+# straddle a day boundary — the click lands inside the requested window while the purchase that selects
+# it sits just outside. Session replay hit this and widened its events scan by a day at each end; do the
+# same here, or sessions on the boundary drop out of the heatmap.
+EVENT_FILTER_SESSION_BUFFER = timedelta(days=1)
+
+# The property filters on a selected event reach property_to_expr, which parses the key of a "hogql"
+# property as an arbitrary expression. Heatmap access is its own API scope and its own access-control
+# resource, so accepting that type would let a caller who may only read heatmaps read any table the
+# project's HogQL database exposes. Accept only the types the heatmap filter offers.
+EVENT_FILTER_PROPERTY_TYPES = frozenset({"element", "event"})
+
+# Each selected event adds one events-table session subquery, and every property filter on it adds another
+# predicate inside that subquery, so cap both. Neither cap is reachable from the in-app filter bar.
+MAX_EVENT_FILTERS = 10
+MAX_PROPERTIES_PER_EVENT_FILTER = 20
 
 logger = structlog.get_logger(__name__)
 
@@ -86,6 +123,42 @@ def _heatmaps_cohort_filter_enabled(user: User, team: Team) -> bool:
         team_id=team.id,
         organization_id=str(team.organization_id),
     )
+
+
+def _heatmaps_event_filter_enabled(user: User, team: Team) -> bool:
+    return heatmaps_flag_enabled(
+        HEATMAPS_EVENT_FILTER_FLAG,
+        str(getattr(user, "distinct_id", "") or ""),
+        team_id=team.id,
+        organization_id=str(team.organization_id),
+    )
+
+
+def _requests_event_filter(request: request.Request) -> bool:
+    """Whether the request asks for an event filter, read before the serializer runs."""
+    raw = request.query_params.get("events")
+    if not raw:
+        return False
+    try:
+        return bool(loads(raw))
+    except JSONDecodeError:
+        # The serializer turns this into a 400 either way; treat it as asking rather than letting a
+        # malformed value walk past the access check.
+        return True
+
+
+def _reject_oversized_capture_image(image_bytes: bytes) -> None:
+    try:
+        with Image.open(BytesIO(image_bytes)) as im:
+            width, height = im.size
+    except Exception:
+        raise ValidationError(code="invalid_image", detail="Uploaded media must be a valid image")
+    if (
+        width > MAX_CAPTURE_IMAGE_WIDTH
+        or height > MAX_CAPTURE_IMAGE_HEIGHT
+        or width * height > MAX_CAPTURE_IMAGE_PIXELS
+    ):
+        raise ValidationError(code="image_too_large", detail="Screenshot dimensions are too large to process")
 
 
 DEFAULT_QUERY = """
@@ -272,6 +345,19 @@ class HeatmapsRequestSerializer(serializers.Serializer):
         help_text="JSON array of cohort IDs (e.g. '[123, 456]') to restrict results to people in those cohorts. "
         "Feature-flagged; ignored when the cohort filter is not enabled for the caller.",
     )
+    events = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text='JSON array of event filters (e.g. \'[{"id": "purchase", "properties": []}]\') to restrict '
+        "results to sessions in which those events occurred. Each entry needs a string 'id' (the event name) and "
+        "may carry a 'properties' array of property filters applied to that event, each of type 'event' or "
+        "'element'. Several entries are combined with AND: the session must contain a matching event for "
+        f"every entry. At most {MAX_EVENT_FILTERS} entries, each with at most "
+        f"{MAX_PROPERTIES_PER_EVENT_FILTER} property filters. Requires project-wide heatmap access, since "
+        "the filter reads the project's events rather than one saved heatmap. "
+        "Feature-flagged; ignored when the event filter is not enabled for the caller.",
+    )
     limit = serializers.IntegerField(
         required=False,
         default=500,
@@ -312,6 +398,39 @@ class HeatmapsRequestSerializer(serializers.Serializer):
         if missing:
             raise serializers.ValidationError(f"Cohort(s) not found or deleted: {missing}")
         return cohort_ids
+
+    def validate_events(self, value: str | None) -> list[dict[str, Any]]:
+        if value is None or value == "":
+            return []
+        try:
+            events = loads(value)
+        except JSONDecodeError:
+            raise serializers.ValidationError("events must be valid JSON")
+        if not isinstance(events, list) or not all(isinstance(entity, dict) for entity in events):
+            raise serializers.ValidationError("events must be a JSON array of event objects")
+        if len(events) > MAX_EVENT_FILTERS:
+            raise serializers.ValidationError(f"events cannot have more than {MAX_EVENT_FILTERS} entries")
+        for entity in events:
+            if not isinstance(entity.get("id"), str):
+                raise serializers.ValidationError("each event must have a string 'id'")
+            properties = entity.get("properties")
+            # These reach property_to_expr when the query is built, where a wrong shape raises and
+            # surfaces as a 500. Reject it here so the caller gets a 400 instead.
+            if properties is not None and (
+                not isinstance(properties, list) or not all(isinstance(prop, dict) for prop in properties)
+            ):
+                raise serializers.ValidationError("event 'properties' must be a JSON array of property objects")
+            if properties is not None and len(properties) > MAX_PROPERTIES_PER_EVENT_FILTER:
+                raise serializers.ValidationError(
+                    f"an event cannot have more than {MAX_PROPERTIES_PER_EVENT_FILTER} property filters"
+                )
+            for prop in properties or []:
+                if prop.get("type") not in EVENT_FILTER_PROPERTY_TYPES:
+                    raise serializers.ValidationError(
+                        "event property filters must have a 'type' of "
+                        f"{' or '.join(sorted(EVENT_FILTER_PROPERTY_TYPES))}"
+                    )
+        return events
 
     def validate_date(self, value, label: Literal["date_from", "date_to"]) -> date:
         try:
@@ -465,7 +584,10 @@ class HeatmapAggregateQueryScopingPermission(AccessControlPermission):
     has at least the required access level on — the same value the in-app heatmap overlay always
     queries with (see heatmapDataLogic.ts). `url_pattern` requests always require resource-level
     access: the query matches the pattern against every row in the dataset, so an object grant for
-    one saved heatmap can't bound what a broad pattern is allowed to read.
+    one saved heatmap can't bound what a broad pattern is allowed to read. An `events` filter needs
+    resource-level access for the same reason, one table over: it selects sessions out of the project's
+    whole events table, so the counts it returns describe what the granted URL's visitors did away
+    from it.
     """
 
     def has_permission(self, request, view) -> bool:
@@ -503,6 +625,12 @@ class HeatmapAggregateQueryScopingPermission(AccessControlPermission):
             self.message = f"You do not have {required_level} access to this resource."
             return False
 
+        if _requests_event_filter(request):
+            # The event subqueries read the project's events table, not the granted saved heatmap, so an
+            # object grant can't bound what they disclose either.
+            self.message = f"You do not have {required_level} access to this resource."
+            return False
+
         # Prewarm rows are speculative implementation details, not user-saved authorization anchors.
         # Their creators implicitly own them, so including them would turn prewarming into aggregate-data access.
         candidates = SavedHeatmap.objects.filter(team=team, deleted=False, is_prewarm=False)
@@ -519,11 +647,107 @@ class HeatmapAggregateQueryScopingPermission(AccessControlPermission):
         return False
 
 
+def _renderer_heatmap_query(export_context: dict[str, object]) -> dict[str, object] | None:
+    heatmap_data_url = export_context.get("heatmap_data_url")
+    if not isinstance(heatmap_data_url, str) or not heatmap_data_url:
+        return None
+
+    # The exporter client applies two different viewport defaults, so this must too. When
+    # heatmap_filters is present but omits viewportAccuracy, calculateViewportRange falls back to
+    # 0.2. When the whole object is absent, the client keeps DEFAULT_HEATMAP_FILTERS instead, whose
+    # viewportAccuracy is 0.9. A single default would authorize one state and reject the other.
+    raw_heatmap_filters = export_context.get("heatmap_filters")
+    if isinstance(raw_heatmap_filters, dict):
+        heatmap_filters = raw_heatmap_filters
+        default_viewport_accuracy = 0.2
+    else:
+        heatmap_filters = {}
+        default_viewport_accuracy = 0.9
+    common_filters = export_context.get("common_filters")
+    if not isinstance(common_filters, dict):
+        common_filters = {}
+
+    width = export_context.get("width", 1400)
+    if not isinstance(width, int | float) or isinstance(width, bool):
+        return None
+    viewport_accuracy = heatmap_filters.get("viewportAccuracy", default_viewport_accuracy)
+    if not isinstance(viewport_accuracy, int | float) or isinstance(viewport_accuracy, bool):
+        return None
+
+    extra_pixels = width - width * viewport_accuracy
+    query: dict[str, object] = {
+        "type": heatmap_filters.get("type", "click"),
+        "date_from": common_filters.get("date_from", "-7d"),
+        "aggregation": heatmap_filters.get("aggregation", "total_count"),
+        "viewport_width_min": max(0, int((width - extra_pixels) + 0.5)),
+        "viewport_width_max": int((width + extra_pixels) + 0.5),
+        "limit": 0,
+    }
+    if any(character in heatmap_data_url for character in "*+?^${}()|[]\\"):
+        query["url_pattern"] = heatmap_data_url
+    else:
+        query["url_exact"] = heatmap_data_url
+
+    for key in ("date_to", "filter_test_accounts"):
+        if common_filters.get(key) is not None:
+            query[key] = common_filters[key]
+
+    cohort_ids = common_filters.get("cohort_ids")
+    if isinstance(cohort_ids, list) and cohort_ids:
+        query["cohort_ids"] = dumps(cohort_ids, separators=(",", ":"))
+
+    events = common_filters.get("events")
+    if isinstance(events, list):
+        selected_events = [event for event in events if isinstance(event, dict) and event.get("id")]
+        if selected_events:
+            query["events"] = dumps(selected_events, separators=(",", ":"))
+    return query
+
+
+class ExportRendererHeatmapPermission(BasePermission):
+    def has_permission(self, request: request.Request, view: Any) -> bool:
+        authenticator = request.successful_authenticator
+        if not isinstance(authenticator, ExportRendererAuthentication):
+            return True
+
+        export_context = authenticator.export_context
+        if export_context.get("heatmap_type") == "screenshot" and view.action == "content":
+            heatmap_url = export_context.get("heatmap_url")
+            if not isinstance(heatmap_url, str):
+                return False
+            expected_url = urlparse(heatmap_url)
+            path_parts = expected_url.path.rstrip("/").split("/")
+            if len(path_parts) < 3 or path_parts[-3] != "heatmap_screenshots" or path_parts[-1] != "content":
+                return False
+            actual_query = {key: request.query_params.getlist(key) for key in request.query_params}
+            return str(view.kwargs.get("pk")) == path_parts[-2] and actual_query == parse_qs(
+                expected_url.query, keep_blank_values=True
+            )
+
+        if view.action != "list":
+            return False
+        expected_query = _renderer_heatmap_query(export_context)
+        if expected_query is None:
+            return False
+        expected_serializer = HeatmapsRequestSerializer(data=expected_query, context={"team": view.team})
+        actual_serializer = HeatmapsRequestSerializer(data=request.query_params, context={"team": view.team})
+        if not expected_serializer.is_valid() or not actual_serializer.is_valid():
+            return False
+        expected_filters = expected_serializer.validated_data
+        if expected_filters.get("cohort_ids") and not _heatmaps_cohort_filter_enabled(
+            cast(User, request.user), view.team
+        ):
+            return False
+        if expected_filters.get("events") and not _heatmaps_event_filter_enabled(cast(User, request.user), view.team):
+            return False
+        return actual_serializer.validated_data == expected_filters
+
+
 class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     authentication_classes = [ExportRendererAuthentication]
     scope_object = "heatmap"
     scope_object_read_actions = ["list", "retrieve", "events"]
-    permission_classes = [HeatmapAggregateQueryScopingPermission]
+    permission_classes = [HeatmapAggregateQueryScopingPermission, ExportRendererHeatmapPermission]
 
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
     serializer_class = HeatmapsResponseSerializer
@@ -551,6 +775,10 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             cast(User, request.user), self.team
         ):
             request_serializer.validated_data.pop("cohort_ids")
+        if request_serializer.validated_data.get("events") and not _heatmaps_event_filter_enabled(
+            cast(User, request.user), self.team
+        ):
+            request_serializer.validated_data.pop("events")
         placeholders = self._build_placeholders(request_serializer.validated_data)
         is_scrolldepth_query = placeholders.get("type", None) == Constant(value="scrolldepth")
 
@@ -562,10 +790,13 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if hide_zero_coordinates and not is_scrolldepth_query:
             exprs.append(parse_expr("NOT (x = 0 AND y = 0)"))
 
+        date_from: date = request_serializer.validated_data["date_from"]
+        date_to: date | None = request_serializer.validated_data.get("date_to", None)
         if request_serializer.validated_data.get("filter_test_accounts") is True:
-            date_from: date = request_serializer.validated_data["date_from"]
-            date_to: date | None = request_serializer.validated_data.get("date_to", None)
             exprs.append(self._build_test_accounts_filter(date_from, date_to))
+        exprs.extend(
+            self._build_event_filters(date_from, date_to, request_serializer.validated_data.get("events") or [])
+        )
 
         unbounded = limit == 0
         query_placeholders: dict[str, Expr] = {
@@ -608,30 +839,88 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         aggregation_count = parse_expr(aggregation_value)
         return aggregation_count
 
+    def _sessions_seen_in_events(
+        self,
+        date_from: date,
+        date_to: date,
+        *,
+        filter_test_accounts: bool = False,
+        predicate: ast.Expr | None = None,
+    ) -> ast.SelectQuery:
+        """The session ids the events table saw in a window, as a subquery to match heatmap rows against."""
+        events_select = cast(
+            ast.SelectQuery,
+            replace_filters(
+                parse_select(
+                    "SELECT distinct $session_id FROM events where notEmpty($session_id) AND {filters}",
+                    placeholders={},
+                ),
+                HogQLFilters(
+                    filterTestAccounts=filter_test_accounts,
+                    dateRange=DateRange(
+                        date_from=date_from.strftime("%Y-%m-%d"),
+                        date_to=date_to.strftime("%Y-%m-%dT00:00:00"),
+                    ),
+                ),
+                self.team,
+            ),
+        )
+        if predicate is not None:
+            events_select.where = ast.And(exprs=[events_select.where, predicate]) if events_select.where else predicate
+        return events_select
+
+    @staticmethod
+    def _session_id_in(events_select: ast.SelectQuery) -> ast.CompareOperation:
+        # Stays a plain IN: the resolver rewrites an IN whose subquery reads events into a GLOBAL IN, so the
+        # set is built once on the initiator instead of on every heatmaps shard.
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.In,
+            left=ast.Field(chain=["session_id"]),
+            right=events_select,
+        )
+
     def _build_test_accounts_filter(self, date_from: date, date_to: date | None) -> ast.CompareOperation:
         # The heatmap predicate treats date_to as an inclusive day via `timestamp <= {date_to} + interval 1 day`.
         # Pass the same bound as an explicit next-day-midnight datetime, which HogQLFilters uses verbatim with a
         # strict `<`, so the events subquery covers the same inclusive days as the main heatmap query. A date-only
         # value would instead snap to the end of that next day and widen the window by a day.
         events_date_to = (date_to or date.today()) + timedelta(days=1)
-        events_select = replace_filters(
-            parse_select(
-                "SELECT distinct $session_id FROM events where notEmpty($session_id) AND {filters}", placeholders={}
-            ),
-            HogQLFilters(
-                filterTestAccounts=True,
-                dateRange=DateRange(
-                    date_from=date_from.strftime("%Y-%m-%d"),
-                    date_to=events_date_to.strftime("%Y-%m-%dT00:00:00"),
-                ),
-            ),
-            self.team,
-        )
-        return ast.CompareOperation(
-            op=ast.CompareOperationOp.In,
-            left=ast.Field(chain=["session_id"]),
-            right=events_select,
-        )
+        return self._session_id_in(self._sessions_seen_in_events(date_from, events_date_to, filter_test_accounts=True))
+
+    def _build_event_filters(
+        self,
+        date_from: date,
+        date_to: date | None,
+        events: List[dict[str, Any]],  # noqa: UP006
+    ) -> List[ast.Expr]:  # noqa: UP006
+        """One session subquery per selected event, so a heatmap row survives only when its session
+        contains a matching event for every entry.
+
+        Session replay compiled several event filters into one events query and moved back to one query
+        per filter, because the combined form kept producing bugs. The cost here is an extra subquery
+        per filter, and a heatmap carries a handful of filters at most.
+        """
+        events_date_from = date_from - EVENT_FILTER_SESSION_BUFFER
+        events_date_to = (date_to or date.today()) + timedelta(days=1) + EVENT_FILTER_SESSION_BUFFER
+
+        filters: list[ast.Expr] = []
+        for entity in events:
+            predicate: ast.Expr = parse_expr("event = {event}", {"event": Constant(value=entity["id"])})
+            entity_properties = entity.get("properties")
+            if entity_properties:
+                # strict, so a property the caller got wrong is a 400 rather than a filter that quietly
+                # drops itself and returns the unfiltered heatmap.
+                try:
+                    properties_expr = property_to_expr(entity_properties, self.team, scope="event", strict=True)
+                except (QueryError, NotImplementedError, TypeError, ValueError) as error:
+                    raise serializers.ValidationError(f"Invalid property filter on event '{entity['id']}': {error}")
+                predicate = ast.And(exprs=[predicate, properties_expr])
+            filters.append(
+                self._session_id_in(
+                    self._sessions_seen_in_events(events_date_from, events_date_to, predicate=predicate)
+                )
+            )
+        return filters
 
     @staticmethod
     def _build_placeholders(validated_data: dict[str, Any]) -> dict[str, Expr]:
@@ -640,6 +929,9 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             if key == "cohort_ids":
                 if value:
                     placeholders[key] = ast.Array(exprs=[Constant(value=cid) for cid in value])
+                continue
+            if key == "events":
+                # Compiled into session subqueries by _build_event_filters, not a heatmaps-table predicate.
                 continue
             placeholders[key] = Constant(value=value)
         placeholders.setdefault("date_to", Constant(value=date.today().strftime("%Y-%m-%d")))
@@ -747,6 +1039,8 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             cast(User, request.user), self.team
         ):
             validated_data.pop("cohort_ids")
+        if validated_data.get("events") and not _heatmaps_event_filter_enabled(cast(User, request.user), self.team):
+            validated_data.pop("events")
 
         placeholders = self._build_placeholders(validated_data)
 
@@ -774,10 +1068,11 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         else:
             exprs.append(ast.Or(exprs=point_conditions))
 
+        date_from: date = validated_data["date_from"]
+        date_to: date | None = validated_data.get("date_to", None)
         if validated_data.get("filter_test_accounts") is True:
-            date_from: date = validated_data["date_from"]
-            date_to: date | None = validated_data.get("date_to", None)
             exprs.append(self._build_test_accounts_filter(date_from, date_to))
+        exprs.extend(self._build_event_filters(date_from, date_to, validated_data.get("events") or []))
 
         # First get total count
         count_stmt = parse_select(
@@ -835,6 +1130,11 @@ class HeatmapSnapshotMetadataSerializer(serializers.Serializer):
 
 class HeatmapScreenshotResponseSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
+    target_widths = serializers.ListField(
+        child=serializers.IntegerField(),
+        read_only=True,
+        help_text="Viewport widths (CSS pixels) the screenshot is rendered at.",
+    )
     snapshots = serializers.SerializerMethodField(
         help_text="Per-width render metadata. Fetch the actual image bytes for a width from the content endpoint."
     )
@@ -849,6 +1149,7 @@ class HeatmapScreenshotResponseSerializer(UserAccessControlSerializerMixin, seri
             "data_url",
             "target_widths",
             "type",
+            "source",
             "status",
             "has_content",
             "snapshots",
@@ -863,6 +1164,7 @@ class HeatmapScreenshotResponseSerializer(UserAccessControlSerializerMixin, seri
         read_only_fields = [
             "id",
             "short_id",
+            "source",
             "status",
             "has_content",
             "created_by",
@@ -875,8 +1177,11 @@ class HeatmapScreenshotResponseSerializer(UserAccessControlSerializerMixin, seri
             "name": {"help_text": "Human-readable label for the saved heatmap."},
             "url": {"help_text": "The page URL this saved heatmap renders and overlays data on."},
             "data_url": {"help_text": "URL whose heatmap data is overlaid on the screenshot (defaults to 'url')."},
-            "target_widths": {"help_text": "Viewport widths (CSS pixels) the screenshot is rendered at."},
             "type": {"help_text": "Render mode: 'screenshot', 'iframe', or 'recording'."},
+            "source": {
+                "help_text": "How the screenshot was captured: 'server' (rendered headlessly via Browserless) or "
+                "'toolbar' (captured client-side from the on-page toolbar, e.g. for pages behind a login)."
+            },
             "status": {"help_text": "Screenshot generation status: 'processing', 'completed', or 'failed'."},
             "has_content": {"help_text": "Whether at least one rendered image is ready to fetch."},
             "deleted": {"help_text": "Soft-delete flag; deleted heatmaps are hidden from the list."},
@@ -909,6 +1214,7 @@ class HeatmapScreenshotViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     # frontend/src/exporter/exporterViewLogic.ts:50-52 gets rejected, the background
     # image never loads, and the exported PNG renders an `<img alt="Heatmap">` placeholder.
     authentication_classes = [ExportRendererAuthentication]
+    permission_classes = [ExportRendererHeatmapPermission]
     scope_object = "heatmap"
     scope_object_read_actions = ["list", "retrieve", "content"]
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
@@ -1009,12 +1315,23 @@ class HeatmapScreenshotViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 _URL_PATTERN_CHARS = set("*+?^${}()|[]\\")
 
 
-def validate_page_url(value: str) -> str:
+def _reject_url_wildcards(value: str) -> None:
     if any(c in _URL_PATTERN_CHARS for c in value):
         raise serializers.ValidationError("Wildcards are not allowed in the page URL.")
+
+
+def validate_page_url(value: str) -> str:
+    _reject_url_wildcards(value)
     ok, err = is_url_allowed(value)
     if not ok:
         raise serializers.ValidationError(err or "URL not allowed")
+    return value
+
+
+def validate_captured_page_url(value: str) -> str:
+    _reject_url_wildcards(value)
+    if urlparse(value).scheme not in ("http", "https"):
+        raise serializers.ValidationError("URL must start with http:// or https://.")
     return value
 
 
@@ -1061,6 +1378,65 @@ class SavedHeatmapRequestSerializer(serializers.ModelSerializer):
                 "time out. Only applies to 'screenshot' heatmaps.",
             },
         }
+
+
+class SavedHeatmapCaptureRequestSerializer(serializers.Serializer):
+    image = serializers.ImageField(
+        required=False,
+        help_text="Single screenshot of the page, captured client-side by the toolbar (JPEG or PNG). Max 20MB. "
+        "Pair with 'width'. Use 'images'/'widths' instead to save several viewport widths on one heatmap.",
+    )
+    width = serializers.IntegerField(
+        required=False,
+        min_value=100,
+        max_value=3000,
+        help_text="Viewport width (CSS pixels) the single 'image' was captured at.",
+    )
+    images = serializers.ListField(
+        child=serializers.ImageField(),
+        required=False,
+        allow_empty=False,
+        max_length=MAX_TARGET_WIDTHS,
+        help_text="One screenshot per viewport width, parallel to 'widths' (same length, same order). Lets a single "
+        f"toolbar capture cover the same viewport widths the server renders. At most {MAX_TARGET_WIDTHS} widths.",
+    )
+    widths = serializers.ListField(
+        child=serializers.IntegerField(min_value=100, max_value=3000),
+        required=False,
+        allow_empty=False,
+        max_length=MAX_TARGET_WIDTHS,
+        help_text="Viewport widths (CSS pixels) the 'images' were captured at, parallel to 'images'.",
+    )
+    url = serializers.CharField(
+        max_length=2000,
+        help_text="Exact page URL the screenshot was captured on. Wildcards are not allowed; this is stored as both "
+        "the heatmap URL and its data URL, so the overlay reads aggregate data for this exact URL.",
+    )
+    name = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=400,
+        help_text="Human-readable label for the saved heatmap. Defaults to the URL when omitted.",
+    )
+
+    def validate_url(self, value: str) -> str:
+        return validate_captured_page_url(value)
+
+    def validate(self, data: dict) -> dict:
+        has_multi = "images" in data or "widths" in data
+        has_single = "image" in data or "width" in data
+        if has_multi and has_single:
+            raise serializers.ValidationError("Provide either 'image'+'width' or 'images'+'widths', not both.")
+        if has_multi:
+            if "images" not in data or "widths" not in data:
+                raise serializers.ValidationError("Both 'images' and 'widths' are required for a multi-width capture.")
+            if len(data["images"]) != len(data["widths"]):
+                raise serializers.ValidationError("'images' and 'widths' must be the same length.")
+            if len(set(data["widths"])) != len(data["widths"]):
+                raise serializers.ValidationError("'widths' must not contain duplicate values.")
+        elif not ("image" in data and "width" in data):
+            raise serializers.ValidationError("Provide 'image'+'width' or 'images'+'widths'.")
+        return data
 
 
 class SavedHeatmapListQuerySerializer(serializers.Serializer):
@@ -1136,7 +1512,11 @@ class HeatmapPreflightResponseSerializer(serializers.Serializer):
 # AccessControlPermission lets a collection action through on a grant over any single heatmap, which
 # for an action that spends something on a caller-supplied URL rather than reading one heatmap is not
 # the boundary we want. These two need resource-level access to the whole kind instead.
-_RESOURCE_LEVEL_ACTIONS: dict[str, AccessControlLevel] = {"prewarm": "editor", "preflight": "viewer"}
+_RESOURCE_LEVEL_ACTIONS: dict[str, AccessControlLevel] = {
+    "capture": "editor",
+    "prewarm": "editor",
+    "preflight": "viewer",
+}
 
 
 class HeatmapResourceAccessPermission(BasePermission):
@@ -1169,7 +1549,7 @@ class SavedHeatmapViewSet(
     pagination_class = None
 
     def get_throttles(self):
-        if self.action in ("create", "prewarm"):
+        if self.action in ("create", "prewarm", "capture"):
             # More restrictive rate limiting for expensive screenshot generation
             return [AIBurstRateThrottle(), AISustainedRateThrottle()]
         if self.action == "preflight":
@@ -1320,21 +1700,78 @@ class SavedHeatmapViewSet(
                 else SavedHeatmap.Status.COMPLETED,
             )
 
-        log_activity(
-            organization_id=cast(User, request.user).current_organization_id
-            if hasattr(request.user, "current_organization_id")
-            else None,
-            team_id=self.team.id,
-            user=cast(User, request.user),
-            item_id=screenshot.short_id or str(screenshot.id),
-            scope="Heatmap",
-            activity="created",
-            detail=Detail(name=screenshot.name or screenshot.url, short_id=screenshot.short_id, type=screenshot.type),
-            was_impersonated=is_impersonated(request),
-        )
+        self._log_heatmap_activity(request, screenshot, "created")
 
         if enqueue_render:
             generate_heatmap_screenshot.delay(screenshot.id)
+
+        response_serializer = HeatmapScreenshotResponseSerializer(screenshot, context=self.get_serializer_context())
+        return response.Response(response_serializer.data, status=status.HTTP_201_CREATED)
+
+    @extend_schema(
+        request={"multipart/form-data": SavedHeatmapCaptureRequestSerializer},
+        responses={201: HeatmapScreenshotResponseSerializer},
+        description="Persist screenshots captured client-side by the on-page toolbar as a completed screenshot "
+        "heatmap. No headless render is enqueued: the toolbar runs in the user's authenticated browser, so this is "
+        "the path for pages behind a login that Browserless cannot reach. Send one 'image'+'width', or 'images'+"
+        "'widths' parallel arrays to store several viewport widths on one heatmap (the toolbar re-lays out the page "
+        "at each width and captures it, matching the widths the server renders). The image bytes are stored and "
+        "served only through the authenticated content endpoint. The heatmap's data URL is set to the captured URL.",
+    )
+    @action(
+        methods=["POST"],
+        detail=False,
+        required_scopes=["heatmap:write"],
+        parser_classes=[MultiPartParser, FormParser],
+    )
+    def capture(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        serializer = SavedHeatmapCaptureRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        validated = serializer.validated_data
+
+        if "images" in validated:
+            width_image_pairs = list(zip(validated["widths"], validated["images"]))
+        else:
+            width_image_pairs = [(validated["width"], validated["image"])]
+
+        if sum(image_file.size for _, image_file in width_image_pairs) > MAX_CAPTURE_TOTAL_BYTES:
+            raise ValidationError(code="request_too_large", detail="Total screenshot size is too large")
+
+        user_id = cast(User, request.user).id
+        snapshot_bytes: list[tuple[int, bytes]] = []
+        for width, image_file in width_image_pairs:
+            if image_file.size > HEATMAP_SCREENSHOT_MAX_BYTES:
+                raise ValidationError(code="file_too_large", detail="Each screenshot must be less than 20MB")
+            content_type = getattr(image_file, "content_type", "") or ""
+            if not content_type.startswith("image/"):
+                raise UnsupportedMediaType(content_type or "unknown")
+            image_file.seek(0)
+            image_bytes = image_file.read()
+            _reject_oversized_capture_image(image_bytes)
+            if not validate_image_file(image_bytes, user=user_id):
+                raise ValidationError(code="invalid_image", detail="Uploaded media must be a valid image")
+            snapshot_bytes.append((width, image_bytes))
+
+        url = validated["url"]
+        name = validated.get("name") or url
+        target_widths = list(dict.fromkeys(width for width, _ in snapshot_bytes))
+
+        with transaction.atomic():
+            screenshot = SavedHeatmap.objects.create(
+                team=self.team,
+                name=name,
+                url=url,
+                data_url=url,
+                target_widths=target_widths,
+                type=SavedHeatmap.Type.SCREENSHOT,
+                source=SavedHeatmap.Source.TOOLBAR,
+                status=SavedHeatmap.Status.COMPLETED,
+                created_by=cast(User, request.user),
+            )
+            for width, image_bytes in snapshot_bytes:
+                _persist_snapshot(screenshot, width, image_bytes)
+
+        self._log_heatmap_activity(request, screenshot, "created")
 
         response_serializer = HeatmapScreenshotResponseSerializer(screenshot, context=self.get_serializer_context())
         return response.Response(response_serializer.data, status=status.HTTP_201_CREATED)
@@ -1407,6 +1844,11 @@ class SavedHeatmapViewSet(
             return response.Response(
                 {"error": "Only screenshot heatmaps can be regenerated"}, status=status.HTTP_400_BAD_REQUEST
             )
+        if obj.source == SavedHeatmap.Source.TOOLBAR:
+            return response.Response(
+                {"error": "Toolbar-captured heatmaps can't be re-rendered on the server; re-capture from the toolbar"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         self._regenerate(obj)
         response_serializer = HeatmapScreenshotResponseSerializer(obj, context=self.get_serializer_context())
@@ -1431,11 +1873,27 @@ class SavedHeatmapViewSet(
         return response.Response(HeatmapPreflightResponseSerializer(result).data, status=status.HTTP_200_OK)
 
     def _regenerate(self, obj: SavedHeatmap) -> None:
+        if obj.source == SavedHeatmap.Source.TOOLBAR:
+            return
         obj.status = SavedHeatmap.Status.PROCESSING
         obj.exception = None
         obj.save(update_fields=["status", "exception", "updated_at"])
         HeatmapSnapshot.objects.filter(heatmap=obj).delete()
         generate_heatmap_screenshot.delay(obj.id)
+
+    def _log_heatmap_activity(self, request: request.Request, obj: SavedHeatmap, activity: str) -> None:
+        log_activity(
+            organization_id=cast(User, request.user).current_organization_id
+            if hasattr(request.user, "current_organization_id")
+            else None,
+            team_id=self.team.id,
+            user=cast(User, request.user),
+            item_id=obj.short_id or str(obj.id),
+            scope="Heatmap",
+            activity=activity,
+            detail=Detail(name=obj.name or obj.url, short_id=obj.short_id, type=obj.type),
+            was_impersonated=is_impersonated(request),
+        )
 
     @extend_schema(
         request=SavedHeatmapRequestSerializer,
@@ -1463,23 +1921,28 @@ class SavedHeatmapViewSet(
 
         serializer = SavedHeatmapRequestSerializer(obj, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
+
+        if obj.source == SavedHeatmap.Source.TOOLBAR:
+            validated = serializer.validated_data
+            render_input_changing = (
+                ("url" in validated and validated["url"] != obj.url)
+                or ("data_url" in validated and validated["data_url"] != obj.data_url)
+                or (
+                    "block_consent_modals" in validated
+                    and validated["block_consent_modals"] != obj.block_consent_modals
+                )
+            )
+            if render_input_changing:
+                raise ValidationError(
+                    "Toolbar-captured heatmaps can't change their URL or rendering settings; re-capture from the toolbar instead."
+                )
+
         updated = serializer.save()
 
         render_input_changed = updated.url != old_url or updated.block_consent_modals != old_block_consent_modals
         if updated.type == SavedHeatmap.Type.SCREENSHOT and render_input_changed:
             self._regenerate(updated)
 
-        log_activity(
-            organization_id=cast(User, request.user).current_organization_id
-            if hasattr(request.user, "current_organization_id")
-            else None,
-            team_id=self.team.id,
-            user=cast(User, request.user),
-            item_id=updated.short_id or str(updated.id),
-            scope="Heatmap",
-            activity="updated",
-            detail=Detail(name=updated.name or updated.url, short_id=updated.short_id, type=updated.type),
-            was_impersonated=is_impersonated(request),
-        )
+        self._log_heatmap_activity(request, updated, "updated")
         response_serializer = HeatmapScreenshotResponseSerializer(updated, context=self.get_serializer_context())
         return response.Response(response_serializer.data, status=status.HTTP_200_OK)

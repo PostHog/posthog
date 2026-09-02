@@ -127,6 +127,24 @@ class TestApplyCostAliases:
         assert input_cost == pytest.approx(expected_input_cost)
         assert output_cost == pytest.approx(expected_output_cost)
 
+    @pytest.mark.parametrize("alias", sorted(COST_ALIASES))
+    def test_every_alias_resolves_a_nonzero_price(self, alias: str) -> None:
+        # The case above pins exact rates for a hand-picked few. This one covers every alias, so a
+        # newly routed model cannot ship priced at zero — apply_cost_aliases only logs a warning
+        # when the canonical entry is missing, and an unpriced generation bills nothing.
+        model_cost = dict(litellm.model_cost)
+        apply_model_cost_overrides(model_cost)
+        apply_cost_aliases(model_cost)
+        litellm.model_cost = model_cost
+
+        provider, _, model = alias.partition("/")
+        input_cost, output_cost = litellm.cost_per_token(
+            model=model, prompt_tokens=1000, completion_tokens=1000, custom_llm_provider=provider
+        )
+
+        assert input_cost > 0
+        assert output_cost > 0
+
 
 class TestNormalizeMetricLabels:
     def test_returns_user_facing_labels_for_aliased_model(self) -> None:

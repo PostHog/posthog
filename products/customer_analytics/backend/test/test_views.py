@@ -4,7 +4,7 @@ from uuid import uuid4
 import pytest
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.apps import apps
 from django.utils import timezone
@@ -16,12 +16,14 @@ from posthog.constants import AvailableFeature
 from posthog.models import Tag, TaggedItem
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.comment import Comment
+from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.conversations.backend.models import (
     EMAIL_THREAD_COMMENT_SCOPE,
     EmailThread,
@@ -41,6 +43,7 @@ from products.customer_analytics.backend.models import (
     CustomerProfileConfig,
     CustomPropertyDefinition,
     CustomPropertySource,
+    CustomPropertyValue,
     DisplayType,
     Meeting,
     MeetingParticipant,
@@ -48,11 +51,11 @@ from products.customer_analytics.backend.models import (
 )
 from products.customer_analytics.backend.test.factories import create_account, create_custom_property_definition
 from products.notebooks.backend.models import Notebook, ResourceNotebook
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-
-from ee.models.rbac.access_control import AccessControl
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.workflows.backend.models import HogFlow
 
 
 class TestCustomerProfileConfigViewSet(APIBaseTest):
@@ -566,7 +569,7 @@ class TestAccountViewSet(APIBaseTest):
             f"{self.endpoint_base}{account.id}/",
             {
                 "name": "Renamed",
-                "properties": {"sfdc_id": "001xx"},
+                "properties": {"sfdc_id": "001xx", "website_domain": "https://www.acme.example/about"},
             },
             format="json",
         )
@@ -575,6 +578,7 @@ class TestAccountViewSet(APIBaseTest):
         account.refresh_from_db()
         self.assertEqual(account.name, "Renamed")
         self.assertEqual(account.properties.sfdc_id, "001xx")
+        self.assertEqual(account.properties.website_domain, "acme.example")
 
     def test_update_does_not_accept_ignored_at(self):
         ignored_at = timezone.now()
@@ -1651,6 +1655,7 @@ class TestCustomPropertyDefinitionViewSet(APIBaseTest):
     @parameterized.expand(
         [
             ("text", "text", status.HTTP_201_CREATED),
+            ("link", "link", status.HTTP_201_CREATED),
             ("number", "number", status.HTTP_201_CREATED),
             ("currency", "currency", status.HTTP_201_CREATED),
             ("percent", "percent", status.HTTP_201_CREATED),
@@ -1760,15 +1765,28 @@ class TestCustomPropertyDefinitionViewSet(APIBaseTest):
         self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
         self.assertEqual(response.json()["display_type"], "text")
 
-    def test_delete_removes_definition_only(self):
+    def test_delete_removes_definition_and_values(self):
         keep = self._create(name="Keep", display_type="text").json()
         remove = self._create(name="Remove", display_type="text").json()
+        remove_definition = CustomPropertyDefinition.objects.unscoped().get(id=remove["id"])
+        account = create_account(team_id=self.team.id, external_id="account-with-value")
+        CustomPropertyValue.objects.unscoped().create(
+            team_id=self.team.id,
+            definition=remove_definition,
+            account=account,
+            value_str="stored value",
+        )
+        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.ADMIN
+        membership.save()
 
         response = self.client.delete(f"{self.endpoint_base}{remove['id']}/")
 
         self.assertEqual(status.HTTP_204_NO_CONTENT, response.status_code)
         # nosemgrep: idor-lookup-without-team (test assertion)
         self.assertFalse(CustomPropertyDefinition.objects.unscoped().filter(id=remove["id"]).exists())
+        # nosemgrep: idor-lookup-without-team (test assertion)
+        self.assertFalse(CustomPropertyValue.objects.unscoped().filter(definition_id=remove["id"]).exists())
         # nosemgrep: idor-lookup-without-team (test assertion)
         self.assertTrue(CustomPropertyDefinition.objects.unscoped().filter(id=keep["id"]).exists())
 
@@ -1785,6 +1803,9 @@ class TestCustomPropertyDefinitionViewSet(APIBaseTest):
 
     def test_activity_log_on_create_and_delete(self):
         created = self._create(name="ARR").json()
+        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.ADMIN
+        membership.save()
         self.client.delete(f"{self.endpoint_base}{created['id']}/")
 
         logs = ActivityLog.objects.filter(
@@ -1799,7 +1820,8 @@ class TestCustomPropertyDefinitionAccessControl(APIBaseTest):
     Definitions are a team-wide ``account``-resource config (no per-object ownership), so they are
     gated at the resource level by the default ``AccessControlPermission`` (keyed on
     ``scope_object="account"``) — the same gate as accounts and journeys, including inheritance from
-    the ``customer_analytics`` parent resource. Reads need ``viewer``, writes need ``editor``.
+    the ``customer_analytics`` parent resource. Reads need ``viewer``, writes need ``editor``,
+    and deletion needs a project admin.
     """
 
     def setUp(self):
@@ -1820,15 +1842,49 @@ class TestCustomPropertyDefinitionAccessControl(APIBaseTest):
         )
         self.endpoint_base = f"/api/environments/{self.team.id}/custom_property_definitions/"
 
-    def _set_access_level(self, user: User, resource: str = "customer_analytics", access_level: str = "viewer") -> None:
+    def _set_access_level(
+        self,
+        user: User,
+        resource: str = "customer_analytics",
+        access_level: str = "viewer",
+        resource_id: str | None = None,
+    ) -> None:
         membership = OrganizationMembership.objects.get(user=user, organization=self.organization)
         AccessControl.objects.create(
             team=self.team,
             resource=resource,
-            resource_id=None,
+            resource_id=resource_id,
             access_level=access_level,
             organization_member=membership,
         )
+
+    def _create_workflow_reference(self, *, name: str) -> HogFlow:
+        return HogFlow.objects.create(
+            team=self.team,
+            name=name,
+            status="active",
+            actions=[
+                {
+                    "type": "function",
+                    "config": {
+                        "template_id": "template-posthog-update-account-property",
+                        "inputs": {"properties": {"value": {str(self.definition.id): "enterprise"}}},
+                    },
+                }
+            ],
+        )
+
+    def _token(self, scopes: list[str]) -> str:
+        value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="custom property definitions",
+            user=self.user,
+            secure_value=hash_key_value(value),
+            scopes=scopes,
+            scoped_teams=[],
+            scoped_organizations=[],
+        )
+        return value
 
     def test_viewer_can_list(self):
         self._set_access_level(self.viewer_user, access_level="viewer")
@@ -1840,6 +1896,73 @@ class TestCustomPropertyDefinitionAccessControl(APIBaseTest):
         self.client.force_login(self.viewer_user)
         response = self.client.get(f"{self.endpoint_base}{self.definition.id}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_workflow_presence_is_exposed_when_object_access_hides_references(self):
+        denied = self._create_workflow_reference(name="Update plan")
+        self._set_access_level(self.editor_user, resource="account", access_level="editor")
+        self._set_access_level(self.editor_user, resource="hog_flow", access_level="viewer")
+        self._set_access_level(
+            self.editor_user,
+            resource="hog_flow",
+            resource_id=str(denied.id),
+            access_level="none",
+        )
+        self.client.force_login(self.editor_user)
+
+        list_response = self.client.get(self.endpoint_base)
+        retrieve_response = self.client.get(f"{self.endpoint_base}{self.definition.id}/")
+        update_response = self.client.patch(
+            f"{self.endpoint_base}{self.definition.id}/", {"description": "Customer plan"}, format="json"
+        )
+
+        for response in (list_response, retrieve_response, update_response):
+            definition = response.json()["results"][0] if response is list_response else response.json()
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+            self.assertTrue(definition["has_workflow_reference"])
+            self.assertEqual(definition["references"], [])
+
+    def test_personal_api_key_without_workflow_scope_cannot_read_references(self):
+        self._create_workflow_reference(name="Update plan")
+        token = self._token(["account:read"])
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+        list_response = self.client.get(self.endpoint_base)
+        retrieve_response = self.client.get(f"{self.endpoint_base}{self.definition.id}/")
+
+        for response in (list_response, retrieve_response):
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+            definition = response.json()["results"][0] if response is list_response else response.json()
+            self.assertTrue(definition["has_workflow_reference"])
+            self.assertEqual(definition["references"], [])
+
+    def test_object_level_workflow_denial_filters_only_the_denied_reference(self):
+        visible = self._create_workflow_reference(name="Visible workflow")
+        denied = self._create_workflow_reference(name="Denied workflow")
+        self._set_access_level(self.editor_user, resource="account", access_level="editor")
+        self._set_access_level(self.editor_user, resource="hog_flow", access_level="viewer")
+        self._set_access_level(
+            self.editor_user,
+            resource="hog_flow",
+            resource_id=str(denied.id),
+            access_level="none",
+        )
+        self.client.force_login(self.editor_user)
+
+        list_response = self.client.get(self.endpoint_base)
+        retrieve_response = self.client.get(f"{self.endpoint_base}{self.definition.id}/")
+        update_response = self.client.patch(
+            f"{self.endpoint_base}{self.definition.id}/", {"description": "Customer plan"}, format="json"
+        )
+
+        for response in (list_response, retrieve_response, update_response):
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+            definition = response.json()["results"][0] if response is list_response else response.json()
+            self.assertTrue(definition["has_workflow_reference"])
+            self.assertEqual(
+                definition["references"],
+                [{"id": str(visible.id), "name": visible.name, "status": "active", "type": "workflow"}],
+            )
 
     def test_viewer_cannot_create(self):
         self._set_access_level(self.viewer_user, access_level="viewer")
@@ -1865,8 +1988,19 @@ class TestCustomPropertyDefinitionAccessControl(APIBaseTest):
         response = self.client.post(self.endpoint_base, {"name": "Editor Prop", "display_type": "text"}, format="json")
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
-    def test_editor_can_delete(self):
+    def test_editor_cannot_delete(self):
         self._set_access_level(self.editor_user, access_level="editor")
+        self._set_access_level(
+            self.editor_user, resource="project", access_level="member", resource_id=str(self.team.id)
+        )
+        self.client.force_login(self.editor_user)
+        response = self.client.delete(f"{self.endpoint_base}{self.definition.id}/")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_admin_can_delete(self):
+        membership = OrganizationMembership.objects.get(user=self.editor_user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.ADMIN
+        membership.save()
         self.client.force_login(self.editor_user)
         response = self.client.delete(f"{self.endpoint_base}{self.definition.id}/")
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
@@ -2739,6 +2873,73 @@ class TestAccountRelationshipViewSet(APIBaseTest):
 
         self.assertEqual(status.HTTP_404_NOT_FOUND, response.status_code)
 
+    @parameterized.expand([("active", False), ("ended", True)])
+    def test_admin_hard_deletes_relationship(self, _case, ended):
+        OrganizationMembership.objects.filter(user=self.user, organization=self.organization).update(
+            level=OrganizationMembership.Level.ADMIN
+        )
+        definition = self._create_relationship_definition()
+        relationship = relationships_logic.assign(
+            team_id=self.team.id, account=self.account, definition=definition, user=self.user, created_by=self.user
+        )
+        if ended:
+            relationships_logic.end_relationship(
+                team_id=self.team.id, account_id=self.account.id, relationship_id=str(relationship.id)
+            )
+
+        response = self.client.delete(f"{self.endpoint}{relationship.id}/")
+
+        self.assertEqual(status.HTTP_204_NO_CONTENT, response.status_code)
+        self.assertFalse(AccountRelationship.objects.for_team(self.team.id).filter(id=relationship.id).exists())
+
+    def test_non_admin_cannot_hard_delete_relationship(self):
+        definition = self._create_relationship_definition()
+        relationship = relationships_logic.assign(
+            team_id=self.team.id, account=self.account, definition=definition, user=self.user, created_by=self.user
+        )
+        member = User.objects.create_and_join(self.organization, "relationship-member@posthog.com", "testtest")
+        self.client.force_login(member)
+
+        response = self.client.delete(f"{self.endpoint}{relationship.id}/")
+
+        self.assertEqual(status.HTTP_403_FORBIDDEN, response.status_code)
+        self.assertTrue(AccountRelationship.objects.for_team(self.team.id).filter(id=relationship.id).exists())
+
+    def test_account_viewer_cannot_hard_delete_relationship_as_customer_analytics_editor(self):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        definition = self._create_relationship_definition()
+        relationship = relationships_logic.assign(
+            team_id=self.team.id, account=self.account, definition=definition, user=self.user, created_by=self.user
+        )
+        account_viewer = User.objects.create_and_join(
+            self.organization, "account-viewer-relationship-editor@example.com", "testtest"
+        )
+        membership = OrganizationMembership.objects.get(user=account_viewer, organization=self.organization)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="customer_analytics",
+            resource_id=None,
+            access_level="editor",
+            organization_member=membership,
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="account",
+            resource_id=str(self.account.id),
+            access_level="viewer",
+            organization_member=membership,
+        )
+        self.client.force_login(account_viewer)
+
+        response = self.client.delete(f"{self.endpoint}{relationship.id}/")
+
+        self.assertEqual(status.HTTP_404_NOT_FOUND, response.status_code)
+        self.assertTrue(AccountRelationship.objects.for_team(self.team.id).filter(id=relationship.id).exists())
+
 
 class TestAccountSupportTicketViewSet(APIBaseTest):
     def setUp(self):
@@ -2747,13 +2948,21 @@ class TestAccountSupportTicketViewSet(APIBaseTest):
         self.endpoint = f"/api/environments/{self.team.id}/accounts/{self.account.id}/support_tickets/"
 
     def test_list_returns_tickets_for_the_accounts_org(self):
-        Ticket.objects.create(
+        ticket = Ticket.objects.create(
             team=self.team,
             ticket_number=7,
             widget_session_id="s7",
             distinct_id="d7",
             organization_id="acme-1",
             status="open",
+            anonymous_traits={"name": "Example customer", "email": "customer@example.com"},
+        )
+        Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(ticket.id),
+            content="Latest question",
+            item_context={"author_type": "customer", "is_private": False},
         )
         Ticket.objects.create(
             team=self.team, ticket_number=8, widget_session_id="s8", distinct_id="d8", organization_id="other-org"
@@ -2765,7 +2974,15 @@ class TestAccountSupportTicketViewSet(APIBaseTest):
         data = response.json()
         self.assertEqual([t["ticket_number"] for t in data], [7])
         self.assertEqual(data[0]["status"], "open")
+        self.assertEqual(data[0]["last_message"]["sender"]["name"], "Example customer")
+        self.assertEqual(data[0]["last_message"]["direction"], "inbound")
         self.assertTrue(data[0]["deep_link"].endswith(f"/project/{self.team.id}/support/tickets/7"))
+
+        detail_response = self.client.get(f"{self.endpoint}{ticket.id}/")
+        self.assertEqual(status.HTTP_200_OK, detail_response.status_code, detail_response.json())
+        self.assertEqual(detail_response.json()["count"], 1)
+        self.assertEqual(detail_response.json()["results"][0]["content"], "Latest question")
+        self.assertEqual(detail_response.json()["results"][0]["direction"], "inbound")
 
     def test_list_is_empty_when_account_has_no_external_id(self):
         unlinked = Account.objects.unscoped().create(team=self.team, name="Unlinked", external_id=None)
@@ -2774,6 +2991,72 @@ class TestAccountSupportTicketViewSet(APIBaseTest):
 
         self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
         self.assertEqual(response.json(), [])
+
+    def test_ticket_object_denial_hides_list_metadata_and_message_bodies(self):
+        allowed_ticket = Ticket.objects.create(
+            team=self.team,
+            ticket_number=9,
+            widget_session_id="s9",
+            distinct_id="d9",
+            organization_id="acme-1",
+        )
+        denied_ticket = Ticket.objects.create(
+            team=self.team,
+            ticket_number=10,
+            widget_session_id="s10",
+            distinct_id="d10",
+            organization_id="acme-1",
+        )
+        for ticket in (allowed_ticket, denied_ticket):
+            Comment.objects.create(
+                team=self.team,
+                scope="conversations_ticket",
+                item_id=str(ticket.id),
+                content=f"Message for {ticket.ticket_number}",
+                item_context={"author_type": "customer", "is_private": False},
+            )
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        viewer = User.objects.create_and_join(self.organization, "ticket-object-denied@posthog.com", "testtest")
+        membership = OrganizationMembership.objects.get(user=viewer, organization=self.organization)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="customer_analytics",
+            resource_id=None,
+            access_level="viewer",
+            organization_member=membership,
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="ticket",
+            resource_id=None,
+            access_level="viewer",
+            organization_member=membership,
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="ticket",
+            resource_id=str(denied_ticket.id),
+            access_level="none",
+            organization_member=membership,
+        )
+        self.client.force_login(viewer)
+
+        list_response = self.client.get(self.endpoint)
+
+        self.assertEqual(status.HTTP_200_OK, list_response.status_code, list_response.json())
+        self.assertEqual([ticket["id"] for ticket in list_response.json()], [str(allowed_ticket.id)])
+        self.assertEqual(
+            status.HTTP_404_NOT_FOUND,
+            self.client.get(f"{self.endpoint}{denied_ticket.id}/").status_code,
+        )
+        self.assertEqual(
+            status.HTTP_200_OK,
+            self.client.get(f"{self.endpoint}{allowed_ticket.id}/").status_code,
+        )
 
     def test_account_viewer_denied_tickets_cannot_read_them(self):
         Ticket.objects.create(
@@ -2838,6 +3121,13 @@ class TestAccountEmailThreadViewSet(APIBaseTest):
             display_name="Customer",
             kind=EmailThreadParticipantKind.CUSTOMER,
         )
+        EmailThreadParticipant.objects.for_team(self.team.id).create(
+            team=self.team,
+            thread=self.thread,
+            email="agent@example.com",
+            display_name="Account manager",
+            kind=EmailThreadParticipantKind.INTERNAL,
+        )
         for index, sent_at in enumerate([last_message_at, first_message_at], start=1):
             comment = Comment.objects.create(
                 team=self.team,
@@ -2870,6 +3160,9 @@ class TestAccountEmailThreadViewSet(APIBaseTest):
         summary = payload["results"][0]
         self.assertEqual(summary["subject"], "Renewal planning")
         self.assertEqual(summary["message_count"], 2)
+        self.assertEqual(summary["first_message"]["sender"]["name"], "Customer")
+        self.assertEqual(summary["last_message"]["sender"]["name"], "Customer")
+        self.assertEqual(summary["last_message"]["direction"], "inbound")
         self.assertNotIn("messages", summary)
 
         detail_response = self.client.get(f"{self.endpoint}{self.thread.id}/?limit=1&offset=0")
@@ -2933,8 +3226,6 @@ class TestCalendarSyncViewSet(APIBaseTest):
         self.organization_membership.save()
 
     def test_sync_now_starts_the_workflow_for_a_team_owned_integration(self):
-        from posthog.models.integration import Integration
-
         self._become_admin()
         integration = Integration.objects.create(team=self.team, kind="google-calendar", integration_id="sub-1")
         with patch("posthog.temporal.common.client.sync_connect") as mock_connect:
@@ -2949,14 +3240,25 @@ class TestCalendarSyncViewSet(APIBaseTest):
         workflow_kwargs = mock_connect.return_value.start_workflow.call_args.kwargs
         self.assertEqual(workflow_kwargs["id"], f"google-calendar-sync-{integration.id}")
 
+    def test_sync_now_allows_the_connection_creator(self) -> None:
+        integration = Integration.objects.create(
+            team=self.team,
+            kind=Integration.IntegrationKind.GOOGLE_CALENDAR,
+            integration_id="sub-owned",
+            created_by=self.user,
+        )
+        with patch("posthog.temporal.common.client.sync_connect") as mock_connect:
+            mock_connect.return_value.start_workflow.return_value = _immediate_future()
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/calendar_sync/sync_now/",
+                {"integration_id": integration.id},
+            )
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+        self.assertEqual(response.json(), {"status": "started"})
+
     def test_list_reports_last_synced_and_in_flight_runs(self):
-        from datetime import timedelta
-
-        from django.utils import timezone as dj_timezone
-
-        from posthog.models.integration import Integration
-
-        now = dj_timezone.now()
+        now = timezone.now()
         synced = Integration.objects.create(
             team=self.team,
             kind="google-calendar",
@@ -2989,8 +3291,6 @@ class TestCalendarSyncViewSet(APIBaseTest):
         self.assertFalse(by_id[stale.id]["is_syncing"])
 
     def test_sync_now_404s_for_another_teams_integration(self):
-        from posthog.models.integration import Integration
-
         self._become_admin()
         other_team = Team.objects.create(organization=self.organization, name="other")
         integration = Integration.objects.create(team=other_team, kind="google-calendar", integration_id="sub-2")
@@ -3000,10 +3300,26 @@ class TestCalendarSyncViewSet(APIBaseTest):
         )
         self.assertEqual(status.HTTP_404_NOT_FOUND, response.status_code)
 
-    def test_sync_now_requires_project_admin(self):
-        from posthog.models.integration import Integration
-
-        integration = Integration.objects.create(team=self.team, kind="google-calendar", integration_id="sub-3")
+    @parameterized.expand(
+        [
+            ("ownerless", False),
+            ("another_member", True),
+        ]
+    )
+    def test_sync_now_rejects_members_who_do_not_own_the_connection(
+        self, _name: str, create_another_owner: bool
+    ) -> None:
+        creator = (
+            User.objects.create_and_join(self.organization, "calendar-owner@example.com", "test")
+            if create_another_owner
+            else None
+        )
+        integration = Integration.objects.create(
+            team=self.team,
+            kind=Integration.IntegrationKind.GOOGLE_CALENDAR,
+            integration_id=f"sub-{_name}",
+            created_by=creator,
+        )
         response = self.client.post(
             f"/api/environments/{self.team.id}/calendar_sync/sync_now/",
             {"integration_id": integration.id},
@@ -3054,6 +3370,55 @@ class TestAccountMeetingViewSet(APIBaseTest):
                 }
             ],
         )
+
+    @patch("products.customer_analytics.backend.logic.gong.execute_hogql_query")
+    def test_list_includes_the_gong_url_for_a_matching_calendar_event(
+        self, mock_execute_hogql_query: MagicMock
+    ) -> None:
+        account = Account.objects.unscoped().create(team=self.team, name="Acme Corp", external_id="acme-gong")
+        meeting = Meeting.objects.unscoped().create(
+            team=self.team,
+            account=account,
+            ical_uid="calendar-event@google.com",
+            recurrence_instance_id="2026-08-03T15:00:00Z",
+            start_time="2026-08-03T15:00:00Z",
+            title="Review",
+        )
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="gong-source",
+            connection_id="gong-connection",
+            status="Completed",
+            source_type="Gong",
+        )
+        table = DataWarehouseTable.objects.create(
+            team=self.team,
+            name="gong_calls",
+            format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+            url_pattern="https://example.com/gong_calls/*",
+            external_data_source=source,
+            columns={"calendar_event_id": {}, "url": {}},
+        )
+        ExternalDataSchema.objects.create(
+            team=self.team,
+            source=source,
+            table=table,
+            name="calls",
+            should_sync=True,
+            status="Completed",
+        )
+        mock_execute_hogql_query.return_value.results = [
+            [
+                "calendar-event@google.com_2026-08-03T15:00:00Z",
+                "https://app.gong.io/call?id=123",
+            ]
+        ]
+
+        response = self.client.get(f"/api/environments/{self.team.id}/accounts/{account.id}/meetings/")
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+        self.assertEqual(response.json()["results"][0]["id"], str(meeting.id))
+        self.assertEqual(response.json()["results"][0]["gong_url"], "https://app.gong.io/call?id=123")
 
     def test_search_filters_by_title_or_attendee(self):
         account = Account.objects.unscoped().create(team=self.team, name="Acme Corp", external_id="acme-2")

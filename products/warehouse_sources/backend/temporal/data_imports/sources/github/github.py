@@ -1,4 +1,5 @@
 import re
+import time
 import random
 import asyncio
 import dataclasses
@@ -12,9 +13,11 @@ import requests
 from asgiref.sync import async_to_sync
 from dateutil import parser as dateutil_parser
 from structlog.types import FilteringBoundLogger
+from temporalio import activity
 from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 from urllib3.util.retry import Retry
 
+from posthog.egress.github.limiter import github_installation_pace_seconds
 from posthog.egress.github.transport import (
     GitHubEgressBudgetExhausted,
     GitHubRateLimitError,
@@ -182,6 +185,7 @@ def _build_initial_params(
     params["sort"] = "created"
     params["direction"] = "asc"
 
+    since_capable = endpoint in ("issues", "commits") or config.supports_since_param
     if should_use_incremental_field and db_incremental_field_last_value:
         formatted_value = _format_incremental_value(db_incremental_field_last_value)
         incremental = incremental_field or config.default_incremental_field or "updated_at"
@@ -195,8 +199,18 @@ def _build_initial_params(
             )
         params["sort"] = sort_field_mapping[incremental]
         params["direction"] = config.sort_mode
-        if endpoint in ("issues", "commits") or config.supports_since_param:
+        if since_capable:
             params["since"] = formatted_value
+    elif should_use_incremental_field and config.initial_lookback_days is not None and since_capable:
+        # First incremental sync with no watermark: floor the backfill with a server-side `since`
+        # window instead of walking the endpoint's whole history, the repo-wide counterpart of the
+        # fan-out parent floor in _fan_out_get_rows. Scoped to the first incremental run on
+        # purpose, because an explicit full refresh should still pull everything, and once a
+        # watermark exists the branch above bounds the read with it. History past the window is a
+        # deliberate one-off backfill, not a connect-time cost. `is not None` keeps the field's
+        # zero contract uniform with the fan-out floor: zero floors at now, so the poll backfills
+        # nothing, rather than reading as "no floor" and walking the whole history.
+        params["since"] = _format_incremental_value(_now_utc() - timedelta(days=config.initial_lookback_days))
 
     return params
 
@@ -687,6 +701,7 @@ GITHUB_MAX_RETRY_AFTER_SECONDS = 300.0
 # us no reset to honor.
 _github_backoff_wait = wait_exponential_jitter(initial=1, max=30)
 
+
 # Disable the tracked session's default adapter retries on this path. That policy
 # retries 429/5xx and honors Retry-After *uncapped*, underneath _fetch_page — which
 # would defeat the 300s cap below and stack a second, untested retry layer. With
@@ -812,6 +827,36 @@ def _github_retry_wait(state: RetryCallState) -> float:
     return _github_backoff_wait(state)
 
 
+def _pace_before_request(installation_id: str, logger: FilteringBoundLogger) -> None:
+    """Wait out this installation's share of the shared egress budget before the next request.
+
+    A backfill spends one request per page and can run for hours, so at full speed it drains the
+    installation's budget and is then shed for the rest of the window. Each shed page costs a retry
+    attempt and a backoff that knows nothing about when the budget frees. Waiting first keeps the run
+    inside the budget instead of recovering from it, and leaves the headroom the budget reserves for
+    the interactive products that share this installation.
+
+    The wait is bounded by the worker drain signal rather than by sleep. The pipeline tests for
+    worker shutdown only between the chunks a source yields, so a plain sleep here would hold a
+    draining pod for the full wait and delay the hand-off by that much. Waiting on the shutdown event
+    returns as soon as the pod starts draining, so pacing costs the hand-off nothing.
+    """
+    # The same ceiling the Retry-After path honors, and safe here for the reason recorded on
+    # GITHUB_MAX_RETRY_AFTER_SECONDS: this runs in the source thread pool, while the activity's
+    # liveness heartbeat fires from the event loop.
+    pace = min(
+        github_installation_pace_seconds(installation_id, priority=Priority.BATCH), GITHUB_MAX_RETRY_AFTER_SECONDS
+    )
+    if pace <= 0:
+        return
+
+    logger.debug(f"Github: waiting {pace:.1f}s for egress budget before the next request")
+    if activity.in_activity():
+        activity.wait_for_worker_shutdown_sync(timeout=pace)
+    else:
+        time.sleep(pace)
+
+
 @retry(
     retry=retry_if_exception_type(
         (
@@ -846,6 +891,13 @@ def _fetch_page(
     # this function's @retry backs off on; transport failures are recorded and re-raised for the same
     # retry. We keep our own tracked session and the GitHub response→exception mapping below.
     installation_id = egress_identity.installation_id if egress_identity is not None else None
+    # Wait for budget before asking for it, so a long walk drips instead of draining its share and
+    # being shed. Only the App path has a budget to pace against; the PAT path has no installation
+    # and skips the gate too. On the rare page that is still shed, the retry backoff above applies
+    # as well, which is the conservative order: the budget really is spent at that point.
+    if installation_id is not None:
+        _pace_before_request(installation_id, logger)
+
     response = github_request(
         "GET",
         page_url,
@@ -1042,6 +1094,7 @@ def _fan_out_get_rows(
     egress_identity: GithubEgressIdentity | None = None,
     api_version: str = GITHUB_DEFAULT_API_VERSION,
     parent_cutoff_override: datetime | None = None,
+    max_parents: int | None = None,
 ) -> Iterator[Any]:
     """Single-hop parent->child fan-out: walk the parent endpoint and emit every child row for each
     parent, substituting the parent's field into the child path (workflow_jobs -> {run_id},
@@ -1144,6 +1197,8 @@ def _fan_out_get_rows(
     # workflow_runs).
     parent_mapper = _get_item_mapper(parent_config.name)
 
+    fanned_out_parents = 0
+
     for raw_parents, page_url in _iter_pages(
         parent_url,
         headers,
@@ -1170,6 +1225,17 @@ def _fan_out_get_rows(
                 and _is_older_than_cutoff(parent.get(parent_recency_field), parent_recency_cutoff)
             ):
                 continue
+            if max_parents is not None and fanned_out_parents >= max_parents:
+                logger.warning(
+                    "Github: fan-out parent cap reached; older parents in the window skipped",
+                    endpoint=endpoint,
+                    repository=repository,
+                    max_parents=max_parents,
+                )
+                # The walk is newest-first, so no later page holds a parent worth fanning out.
+                stop_after_this_page = True
+                break
+            fanned_out_parents += 1
             inject = (
                 _make_parent_field_injector(parent, child_config.fan_out_include_parent_fields)
                 if child_config.fan_out_include_parent_fields
@@ -1204,6 +1270,7 @@ def get_rows(
     egress_identity: GithubEgressIdentity | None = None,
     api_version: str = GITHUB_DEFAULT_API_VERSION,
     parent_cutoff_override: datetime | None = None,
+    max_parents: int | None = None,
 ) -> Iterator[Any]:
     config = GITHUB_ENDPOINTS[endpoint]
     if config.fan_out_parent is not None:
@@ -1218,6 +1285,7 @@ def get_rows(
             egress_identity=egress_identity,
             api_version=api_version,
             parent_cutoff_override=parent_cutoff_override,
+            max_parents=max_parents,
         )
         return
 
@@ -1472,9 +1540,11 @@ def github_source(
             # Each event for an id arrives as its own row (queued -> in_progress -> completed);
             # collapse them to the latest per id here, since the delta merge doesn't dedupe a
             # source batch. Same pattern as the Stripe webhook source.
-            # Webhook-capable endpoints all key on a single column; the dedupe transformer
-            # collapses one pk column, so pass the first (only) key. Fan-out children with
-            # composite keys have no version_keys, so this branch never runs for them.
+            # The dedupe transformer collapses on one pk column, so pass the first key. That is
+            # sound only while every endpoint declaring version_keys keys on a single column:
+            # commit_statuses is webhook-capable with a composite ["commit_sha", "id"] key, and
+            # giving it version_keys would collapse a commit's statuses to one row. Guarded by
+            # test_no_composite_key_endpoint_declares_version_keys.
             transformer = (
                 _make_webhook_dedupe_transformer(
                     _normalize_primary_key(endpoint_config.primary_key)[0], endpoint_config.version_keys
@@ -1490,8 +1560,9 @@ def github_source(
             # webhook drain would miss rollback/auto_inactive transitions; chase the drain with a
             # bounded fan-out over recent parents so those rows still arrive from the list API.
             # should_use_incremental_field is forced on so the fan-out applies the parent recency
-            # skip against the real child watermark; the window override below, not the watermark,
-            # bounds the parent walk either way.
+            # skip when a watermark exists. A webhook schema configures no incremental field, so in
+            # that case the watermark arrives as None and only the window override and the parent
+            # cap bound the walk.
             return _chain_webhook_items_with_reconciliation(
                 webhook_items,
                 lambda: get_rows(
@@ -1506,6 +1577,14 @@ def github_source(
                     egress_identity=egress_identity,
                     api_version=api_version,
                     parent_cutoff_override=_now_utc() - timedelta(days=reconcile_days),
+                    # The recency skip bounds the walk on its own once a watermark exists, and every
+                    # parent it admits is known to hold an unseen child, so a count bound would drop
+                    # one for good: the run advances the watermark past it either way.
+                    max_parents=(
+                        None
+                        if isinstance(db_incremental_field_last_value, datetime)
+                        else endpoint_config.max_fan_out_parents
+                    ),
                 ),
             )
 

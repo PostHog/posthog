@@ -34,10 +34,13 @@ _AUTH_MARKERS = (
 # reachable and the failure is plausibly transient — these are deterministic for the configured
 # host (e.g. it resolves to a private or otherwise non-routable address, such as an IPv6 address
 # PostHog can't route to), so retrying re-hits the same wall. Mirrors the non-retryable treatment
-# on the batch path (PostgresSource.get_non_retryable_errors).
+# on the batch path (PostgresSource.get_non_retryable_errors). "enetunreach" is Supabase Supavisor's
+# erlang-tuple wording of the same condition ("{:error, :enetunreach}"), which never contains the
+# libpq phrasing above.
 _HOST_UNREACHABLE_MARKERS = (
     "network is unreachable",
     "no route to host",
+    "enetunreach",
 )
 
 # sshtunnel raises BaseSSHTunnelForwarderError("Could not establish session to SSH gateway") when it

@@ -1,3 +1,5 @@
+from typing import Any
+
 import pytest
 from unittest.mock import patch
 
@@ -11,8 +13,10 @@ from posthog.models.user_integration import UserIntegration
 
 from products.tasks.backend.constants import (
     AGENT_PROXY_KEEP_STREAM_OPEN_FEATURE_FLAG,
+    BENJAMIN_FEATURE_FLAG,
     CONTINUE_AS_NEW_FEATURE_FLAG,
     DESKTOP_WORKSPACE_WARM_FEATURE_FLAG,
+    DEV_STACK_IMAGE_NAME,
     MODAL_VM_SANDBOX_FEATURE_FLAG,
     PR_BABYSIT_SNAPSHOT_FEATURE_FLAG,
     RTK_DISABLED_FEATURE_FLAG,
@@ -24,25 +28,32 @@ from products.tasks.backend.constants import (
     vm_sandbox_origin_rollout_percentages,
 )
 from products.tasks.backend.exceptions import TaskInvalidStateError, TaskRunNotReadyError
-from products.tasks.backend.models import SandboxEnvironment, Task
+from products.tasks.backend.models import TASK_OWNERSHIP_VERSION_STATE_KEY, SandboxEnvironment, Task
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import (
     GetTaskProcessingContextInput,
     TaskProcessingContext,
     VmSandboxDecision,
     _is_agent_otel_telemetry_enabled,
     _is_agent_proxy_keep_stream_open_enabled,
+    _is_benjamin_enabled,
     _is_burstable_sandbox_resources_enabled,
     _is_continue_as_new_enabled,
     _is_desktop_workspace_warm_enabled,
+    _is_dev_stack_preview_enabled,
     _is_pr_babysit_snapshot_enabled,
     _is_rtk_enabled,
     _is_sandbox_event_ingest_enabled,
     _resolve_modal_vm_sandbox,
+    _resolve_sandbox_backend,
     get_task_processing_context,
 )
 from products.tasks.backend.temporal.process_task.utils import get_actor_distinct_id
 
 VM_FLAG_PAYLOAD_TARGET = "products.tasks.backend.constants.posthoganalytics.get_feature_flag_payload"
+BENJAMIN_PAYLOAD_TARGET = (
+    "products.tasks.backend.temporal.process_task.activities."
+    "get_task_processing_context.posthoganalytics.get_feature_flag_payload"
+)
 
 
 @pytest.mark.parametrize(
@@ -50,7 +61,7 @@ VM_FLAG_PAYLOAD_TARGET = "products.tasks.backend.constants.posthoganalytics.get_
     [
         ({}, False),
         ({"resume_from_run_id": "previous-run"}, False),
-        ({"handoff_resumed": True}, False),
+        ({"same_run_resume": True}, False),
         ({"snapshot_external_id": "snapshot-id"}, False),
         (
             {
@@ -61,7 +72,7 @@ VM_FLAG_PAYLOAD_TARGET = "products.tasks.backend.constants.posthoganalytics.get_
         ),
         (
             {
-                "handoff_resumed": True,
+                "same_run_resume": True,
                 "snapshot_external_id": "snapshot-id",
             },
             True,
@@ -124,6 +135,54 @@ def test_desktop_workspace_warm_flag_fails_closed():
         )
 
 
+def _preview_gate(
+    *,
+    origin_product: str = Task.OriginProduct.USER_CREATED,
+    use_modal_vm_sandbox: bool = True,
+    custom_image_name: str | None = DEV_STACK_IMAGE_NAME,
+    repository: str | None = "PostHog/PostHog",
+) -> bool:
+    return _is_dev_stack_preview_enabled(
+        distinct_id="distinct-id",
+        organization_id="organization-id",
+        run_id="run-id",
+        origin_product=origin_product,
+        use_modal_vm_sandbox=use_modal_vm_sandbox,
+        custom_image_name=custom_image_name,
+        repository=repository,
+    )
+
+
+@pytest.mark.parametrize(
+    "flag_value,overrides,expected",
+    [
+        (True, {}, True),
+        (False, {}, False),
+        (None, {}, False),
+        (True, {"origin_product": Task.OriginProduct.ONBOARDING}, False),
+        (True, {"use_modal_vm_sandbox": False}, False),
+        (True, {"custom_image_name": "posthog-sandbox-custom-abc"}, False),
+        (True, {"custom_image_name": None}, False),
+        (True, {"repository": "posthog/posthog-js"}, False),
+        (True, {"repository": None}, False),
+    ],
+)
+def test_dev_stack_preview_needs_the_flag_and_the_right_shape_of_run(flag_value, overrides, expected):
+    with patch(
+        "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
+        return_value=flag_value,
+    ):
+        assert _preview_gate(**overrides) is expected
+
+
+def test_dev_stack_preview_flag_fails_closed():
+    with patch(
+        "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
+        side_effect=RuntimeError("flag service failed"),
+    ):
+        assert _preview_gate() is False
+
+
 @pytest.mark.requires_secrets
 class TestIsAgentOtelTelemetryEnabled:
     @pytest.mark.parametrize(
@@ -174,6 +233,18 @@ class TestGetTaskProcessingContextActivity:
         assert result.github_integration_id == test_task.github_integration_id
         assert result.repository == "posthog/posthog-js"
         assert result.create_pr is True
+
+    @pytest.mark.django_db(transaction=True)
+    def test_get_task_processing_context_rejects_previous_owner_run(self, activity_environment, test_task):
+        task_run = test_task.create_run()
+        test_task.state = {TASK_OWNERSHIP_VERSION_STATE_KEY: "new-owner"}
+        test_task.save(update_fields=["state", "updated_at"])
+
+        with pytest.raises(TaskInvalidStateError):
+            async_to_sync(activity_environment.run)(
+                get_task_processing_context,
+                GetTaskProcessingContextInput(run_id=str(task_run.id)),
+            )
 
     @pytest.mark.django_db(transaction=True)
     def test_get_task_processing_context_task_not_found_is_retryable(self, activity_environment):
@@ -792,6 +863,120 @@ class TestGetTaskProcessingContextActivity:
                 is False
             )
 
+    @pytest.mark.parametrize("launched_value", [True, False])
+    def test_benjamin_launch_persisted_value_pins_later_resolutions(self, launched_value):
+        with patch(BENJAMIN_PAYLOAD_TARGET) as payload_mock:
+            assert (
+                _is_benjamin_enabled(
+                    distinct_id="distinct-id",
+                    organization_id="organization-id",
+                    run_id="run-id",
+                    origin_product=Task.OriginProduct.USER_CREATED,
+                    state={"benjamin_effective": launched_value, "benjamin_enabled": not launched_value},
+                )
+                is launched_value
+            )
+
+        payload_mock.assert_not_called()
+
+    @pytest.mark.parametrize("state_override", [True, False])
+    def test_benjamin_state_override_wins_without_consulting_the_flag(self, state_override):
+        with patch(BENJAMIN_PAYLOAD_TARGET) as payload_mock:
+            assert (
+                _is_benjamin_enabled(
+                    distinct_id="distinct-id",
+                    organization_id="organization-id",
+                    run_id="run-id",
+                    origin_product=Task.OriginProduct.USER_CREATED,
+                    state={"benjamin_enabled": state_override},
+                )
+                is state_override
+            )
+
+        payload_mock.assert_not_called()
+
+    def test_benjamin_disabled_when_flag_serves_no_payload(self):
+        with patch(BENJAMIN_PAYLOAD_TARGET, return_value=None) as payload_mock:
+            assert (
+                _is_benjamin_enabled(
+                    distinct_id="distinct-id",
+                    organization_id="organization-id",
+                    run_id="run-id",
+                    origin_product=Task.OriginProduct.USER_CREATED,
+                )
+                is False
+            )
+
+        payload_mock.assert_called_once_with(
+            BENJAMIN_FEATURE_FLAG,
+            distinct_id="distinct-id",
+            groups={"organization": "organization-id"},
+            group_properties={"organization": {"id": "organization-id"}},
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
+
+    @pytest.mark.parametrize(
+        "payload, origin_product, expected",
+        [
+            ({"origins": {"user_created": 1}}, Task.OriginProduct.USER_CREATED, True),
+            ({"origins": {"user_created": 0}}, Task.OriginProduct.USER_CREATED, False),
+            ({"origins": {"slack": 1}, "default": 0}, Task.OriginProduct.USER_CREATED, False),
+            ({"origins": {"slack": 0}, "default": 1}, Task.OriginProduct.SLACK, False),
+            ({"origins": {}, "default": 1}, Task.OriginProduct.USER_CREATED, True),
+            ({"default": 1}, None, True),
+            ('{"default": 1}', Task.OriginProduct.USER_CREATED, True),
+            ("not json at all", Task.OriginProduct.USER_CREATED, False),
+            ({"default": "1"}, Task.OriginProduct.USER_CREATED, False),
+            ({"origins": ["user_created"]}, Task.OriginProduct.USER_CREATED, False),
+            (None, Task.OriginProduct.USER_CREATED, False),
+        ],
+    )
+    def test_benjamin_applies_the_payload_rollout_fraction(self, payload, origin_product, expected):
+        with patch(BENJAMIN_PAYLOAD_TARGET, return_value=payload):
+            assert (
+                _is_benjamin_enabled(
+                    distinct_id="distinct-id",
+                    organization_id="organization-id",
+                    run_id="run-id",
+                    origin_product=origin_product,
+                )
+                is expected
+            )
+
+    @pytest.mark.parametrize(
+        "run_id, fraction, expected",
+        [
+            ("run-a", 0.77, False),
+            ("run-a", 0.78, True),
+            ("run-b", 0.04, True),
+            ("run-b", 0.03, False),
+        ],
+    )
+    def test_benjamin_buckets_runs_deterministically_by_run_id(self, run_id, fraction, expected):
+        with patch(BENJAMIN_PAYLOAD_TARGET, return_value={"default": fraction}):
+            assert (
+                _is_benjamin_enabled(
+                    distinct_id="distinct-id",
+                    organization_id="organization-id",
+                    run_id=run_id,
+                    origin_product=Task.OriginProduct.USER_CREATED,
+                )
+                is expected
+            )
+
+    def test_benjamin_fails_closed_on_flag_error(self):
+        with patch(BENJAMIN_PAYLOAD_TARGET, side_effect=RuntimeError("flag service failed")):
+            assert (
+                _is_benjamin_enabled(
+                    distinct_id="distinct-id",
+                    organization_id="organization-id",
+                    run_id="run-id",
+                    origin_product=Task.OriginProduct.USER_CREATED,
+                )
+                is False
+            )
+
     @pytest.mark.parametrize("flag_value, expected", [(True, True), (False, False)])
     @override_settings(TASKS_CONTINUE_AS_NEW_ENABLED=False)
     def test_continue_as_new_flag_uses_organization_rollout(self, flag_value, expected):
@@ -1288,6 +1473,36 @@ class TestGetTaskProcessingContextActivity:
         assert result.custom_image_name == "posthog-dev-stack"
 
     @pytest.mark.django_db(transaction=True)
+    @override_settings(HOGLAND_API_URL="https://hogland.example", HOGLAND_API_TOKEN="hog-tok")
+    def test_hogland_run_drops_modal_vm_allowlist_and_default_image(self, activity_environment, test_task):
+        # A run that resolves to hogland must carry use_modal_vm_sandbox and
+        # use_modal_network_allowlist as False and custom_image_name as None, so
+        # provisioning builds a plain hogland box on the golden instead of a Modal
+        # VM_BASE config with the org default image and the provider allowlist. The
+        # payload's default_custom_image (applied because the user picked none) must not
+        # gate the run onto Modal, and the force-off must land all three Modal-only
+        # values at their hogland state.
+        task_run = test_task.create_run()
+        input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
+
+        with (
+            patch(
+                VM_FLAG_PAYLOAD_TARGET,
+                return_value='{"default_base_origin_products": ["user_created"], "default_custom_image": "posthog-dev-stack"}',
+            ),
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
+                return_value=True,
+            ),
+        ):
+            result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
+
+        assert result.sandbox_backend == "hogland"
+        assert result.use_modal_vm_sandbox is False
+        assert result.use_modal_network_allowlist is False
+        assert result.custom_image_name is None
+
+    @pytest.mark.django_db(transaction=True)
     def test_get_task_processing_context_exposes_ci_prompt(self, activity_environment, test_task):
         custom_prompt = "Re-run the failed mypy checks and push a fix."
         test_task.ci_prompt = custom_prompt
@@ -1318,3 +1533,114 @@ class TestGetTaskProcessingContextActivity:
         assert result.model is None
         assert result.reasoning_effort is None
         assert result.initial_permission_mode is None
+
+
+_HOGLAND_SETTINGS = {"HOGLAND_API_URL": "https://hogland.example", "HOGLAND_API_TOKEN": "hog-tok"}
+
+
+class TestResolveSandboxBackend:
+    def _resolve(self, **overrides):
+        kwargs: dict[str, Any] = {
+            "distinct_id": "user-1",
+            "organization_id": "org-1",
+            "run_id": "run-1",
+            "state": None,
+            "task_runtime": "acp",
+            "has_user_custom_image": False,
+        }
+        kwargs.update(overrides)
+        return _resolve_sandbox_backend(**kwargs)
+
+    def _resolve_with_flag(self, flag_enabled, **overrides):
+        with patch(
+            "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
+            return_value=flag_enabled,
+        ):
+            return self._resolve(**overrides)
+
+    @override_settings(**_HOGLAND_SETTINGS)
+    def test_flag_routes_a_plain_run_to_hogland(self):
+        assert self._resolve_with_flag(True) == "hogland"
+        assert self._resolve_with_flag(False) == "modal"
+
+    @pytest.mark.parametrize(
+        "overrides",
+        [
+            {"has_user_custom_image": True},
+            {"task_runtime": "pi"},
+        ],
+        ids=["user_custom_image", "pi_runtime"],
+    )
+    @override_settings(**_HOGLAND_SETTINGS)
+    def test_hard_incapabilities_fall_back_to_modal_even_with_the_flag_on(self, overrides):
+        # A real user/environment custom image or the Pi runtime cannot run on hogland's
+        # golden, so they force Modal even with the flag on. The Modal VM-sandbox /
+        # network-allowlist preferences and the org default image are deliberately not
+        # gated here — a flagged run wins hogland over them (covered by the caller
+        # force-off test).
+        assert self._resolve_with_flag(True, **overrides) == "modal"
+
+    @override_settings(**_HOGLAND_SETTINGS, CLOUD_DEPLOYMENT="EU")
+    def test_eu_stays_on_modal(self):
+        assert self._resolve_with_flag(True) == "modal"
+
+    @override_settings(
+        HOGLAND_API_URL="https://hogland.example",
+        HOGLAND_API_TOKEN=None,
+        HOGLAND_API_TOKEN_FILE="/var/run/secrets/hogland.posthog.dev/token",
+    )
+    def test_token_file_alone_enables_hogland_routing(self):
+        assert self._resolve_with_flag(True) == "hogland"
+
+    @override_settings(HOGLAND_API_URL=None, HOGLAND_API_TOKEN=None, HOGLAND_API_TOKEN_FILE=None)
+    def test_unconfigured_hogland_stays_on_modal_without_evaluating_the_flag(self):
+        with patch(
+            "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
+        ) as feature_enabled_mock:
+            assert self._resolve() == "modal"
+        feature_enabled_mock.assert_not_called()
+
+    @override_settings(**_HOGLAND_SETTINGS)
+    def test_flag_evaluation_failure_fails_closed_to_modal(self):
+        with patch(
+            "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
+            side_effect=RuntimeError("flag service down"),
+        ):
+            assert self._resolve() == "modal"
+
+    @pytest.mark.parametrize(
+        "override,flag_enabled,expected",
+        [
+            ("hogland", False, "hogland"),
+            ("modal", True, "modal"),
+        ],
+        ids=["pin_hogland", "pin_modal"],
+    )
+    @override_settings(**_HOGLAND_SETTINGS)
+    def test_state_override_wins_over_the_flag(self, override, flag_enabled, expected):
+        assert self._resolve_with_flag(flag_enabled, state={"sandbox_backend": override}) == expected
+
+    @override_settings(**_HOGLAND_SETTINGS, CLOUD_DEPLOYMENT="EU")
+    def test_hogland_override_cannot_defeat_the_eu_guard(self):
+        # A stale or forged hogland override surviving a cloud resume must not run an
+        # EU run on hogland — the capability gates sit ahead of the override.
+        assert self._resolve_with_flag(True, state={"sandbox_backend": "hogland"}) == "modal"
+
+    @pytest.mark.parametrize(
+        "overrides",
+        [
+            {"has_user_custom_image": True},
+            {"task_runtime": "pi"},
+        ],
+        ids=["user_custom_image", "pi_runtime"],
+    )
+    @override_settings(**_HOGLAND_SETTINGS)
+    def test_hogland_override_cannot_defeat_hard_incapabilities(self, overrides):
+        # A stale or forged hogland override surviving a cloud resume must not route a
+        # user-custom-image or Pi run to hogland — the capability gates sit ahead of the override.
+        assert self._resolve_with_flag(True, state={"sandbox_backend": "hogland"}, **overrides) == "modal"
+
+    @override_settings(**_HOGLAND_SETTINGS)
+    def test_modal_override_still_wins_even_when_hogland_is_available(self):
+        # The kill switch must always work.
+        assert self._resolve_with_flag(True, state={"sandbox_backend": "modal"}) == "modal"

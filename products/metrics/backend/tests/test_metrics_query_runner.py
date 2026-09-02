@@ -11,10 +11,13 @@ from parameterized import parameterized
 from posthog.schema import (
     DashboardFilter,
     DateRange,
+    GoalLine,
+    MetricsDisplaySettings,
     MetricsQuery,
     MetricsQueryClause,
     MetricsQueryFilter,
     MetricsQueryGroupBy,
+    MetricsYAxisSettings,
 )
 
 from posthog.constants import AvailableFeature
@@ -22,14 +25,13 @@ from posthog.models import User
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.utils import generate_random_token_personal, hash_key_value
-from posthog.rbac.user_access_control import UserAccessControlError
 from posthog.shared_link_user import SharedLinkUser
 
+from products.access_control.backend.facade.user_access_control import UserAccessControlError
+from products.access_control.backend.models.access_control import AccessControl
 from products.metrics.backend.facade.enums import AttributeScope, FilterOp, MetricAggregation, MetricType
 from products.metrics.backend.hogql_queries.metrics_query_runner import MetricsQueryRunner
 from products.metrics.backend.tests._seeder import seed_metric
-
-from ee.models.rbac.access_control import AccessControl
 
 
 class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
@@ -216,3 +218,22 @@ class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert runner.query.dateRange is not None
         assert runner.query.dateRange.date_from == "-7d"
         assert runner.query.dateRange.date_to == "-1d"
+
+    def _cache_key_for(self, **kwargs) -> str:
+        return self._runner(
+            MetricsQuery(clauses=[MetricsQueryClause(name="a", metricName="queue_depth", aggregation="sum")], **kwargs)
+        ).get_cache_key()
+
+    @parameterized.expand(
+        [
+            ("chart_type", MetricsDisplaySettings(type="bar")),
+            ("goal_lines", MetricsDisplaySettings(goalLines=[GoalLine(label="SLO", value=99.9)])),
+            ("y_axis", MetricsDisplaySettings(yAxis=MetricsYAxisSettings(scale="log", min=10, max=100))),
+            ("stat_summary", MetricsDisplaySettings(type="stat", statSummary="average")),
+        ]
+    )
+    def test_display_settings_do_not_change_the_cache_key(self, _name: str, display: MetricsDisplaySettings) -> None:
+        assert self._cache_key_for(display=display) == self._cache_key_for()
+
+    def test_query_semantics_still_change_the_cache_key(self) -> None:
+        assert self._cache_key_for(dateRange=DateRange(date_from="-7d")) != self._cache_key_for()

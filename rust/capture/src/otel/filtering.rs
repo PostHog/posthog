@@ -130,7 +130,7 @@ pub fn build_events(
         };
 
         let metadata = ProcessedEventMetadata {
-            data_type: DataType::AnalyticsMain,
+            data_type: DataType::AiEvents,
             session_id: None,
             computed_timestamp: Some(timestamp),
             event_name: span_event.event_name,

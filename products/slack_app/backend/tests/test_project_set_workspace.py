@@ -1,15 +1,23 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
+from parameterized import parameterized
+
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
+from products.slack_app.backend.api import RulesCommand
 from products.slack_app.backend.models import SlackSettings
-from products.slack_app.backend.services.commands import _handle_help, _handle_project_set_workspace
+from products.slack_app.backend.services.commands import (
+    MENTION_HELP_REDIRECT,
+    _handle_project_set_workspace,
+    dispatch_rules_command,
+)
 
-WORKSPACE_HELP_LINE = "`@PostHog project workspace <id>`"
+SLASH_COMMAND_PREFIX = "/posthog"
+WORKSPACE_HELP_LINE = "`/posthog project workspace <id>`"
 
 
 def _slack_user_info(*, is_admin: bool = False, is_owner: bool = False) -> dict:
@@ -116,11 +124,23 @@ class TestHandleHelp:
             integration_id="T_WS",
             sensitive_config={"access_token": "xoxb-a"},
         )
+        self.user = User.objects.create_and_join(self.organization, "help@example.com", "pw")
         self.slack = MagicMock()
 
-    def _help_text(self) -> str:
-        _handle_help(self.slack, self.integration, "C1", "111.1", "U1")
-        return self.slack.client.chat_postMessage.call_args.kwargs["text"]
+    def _help_text(self, command_prefix: str = SLASH_COMMAND_PREFIX) -> str:
+        """Dispatch `help` the way a real command does, so the surface branch is exercised too."""
+        dispatch_rules_command(
+            RulesCommand(action="help"),
+            self.slack,
+            self.integration,
+            channel="C1",
+            thread_ts="111.1",
+            slack_user_id="U1",
+            slack_workspace_id="T_WS",
+            user_id=self.user.id,
+            command_prefix=command_prefix,
+        )
+        return self.slack.client.chat_postEphemeral.call_args.kwargs["text"]
 
     @patch("products.slack_app.backend.services.slack_user_info.get_slack_user_info")
     def test_admin_sees_workspace_line(self, mock_info):
@@ -139,3 +159,23 @@ class TestHandleHelp:
         assert WORKSPACE_HELP_LINE not in text
         # The rest of the help is still posted.
         assert "Available commands" in text
+
+    @patch("products.slack_app.backend.services.slack_user_info.get_slack_user_info")
+    def test_slash_help_documents_mention_only_capabilities(self, mock_info):
+        mock_info.return_value = _slack_user_info(is_admin=False, is_owner=False)
+        text = self._help_text()
+        assert "`@PostHog <task description>`" in text
+        assert "reply in an active thread" in text
+
+    @parameterized.expand([("slash", SLASH_COMMAND_PREFIX), ("mention", "@PostHog")])
+    @patch("products.slack_app.backend.services.slack_user_info.get_slack_user_info")
+    def test_help_is_ephemeral_to_the_caller(self, _name, command_prefix, mock_info):
+        mock_info.return_value = _slack_user_info(is_admin=False, is_owner=False)
+        self._help_text(command_prefix=command_prefix)
+        assert self.slack.client.chat_postMessage.call_count == 0
+        assert self.slack.client.chat_postEphemeral.call_args.kwargs["user"] == "U1"
+
+    def test_mention_help_redirects_to_the_slash_command(self):
+        text = self._help_text(command_prefix="@PostHog")
+        assert text == MENTION_HELP_REDIRECT
+        assert "Available commands" not in text

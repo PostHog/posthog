@@ -1,4 +1,7 @@
-import { groupRunArtifactVersions } from "@posthog/core/canvas/runArtifactSchemas";
+import {
+  getPostHogObjectArtifactMetadata,
+  groupRunArtifactVersions,
+} from "@posthog/core/canvas/runArtifactSchemas";
 import { mergePrUrls, readPrUrls, type TaskRunArtifact } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import { useSessionSelector } from "@posthog/ui/features/sessions/sessionStore";
@@ -66,6 +69,13 @@ export function countArtifacts({
   const files = groupRunArtifactVersions(
     manifest.filter((artifact) => artifact.type === "output"),
   ).filter((group) => !group.dismissed).length;
+  const references = new Set(
+    manifest.flatMap((artifact) =>
+      !artifact.dismissed_at && getPostHogObjectArtifactMetadata(artifact)
+        ? [artifact.id ?? `${artifact.type}:${artifact.name}`]
+        : [],
+    ),
+  ).size;
   // A PR the run just opened lands in the session's live output before the task
   // query refetches, so read both sources and dedupe rather than the task alone,
   // or the count misses the PR at the turn boundary the tip waits on.
@@ -73,7 +83,7 @@ export function countArtifacts({
     readPrUrls(taskOutput),
     readPrUrls(cloudOutput),
   ).length;
-  return files + prs;
+  return files + references + prs;
 }
 
 /**

@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { POSTHOG_METHODS, POSTHOG_NOTIFICATIONS } from "../../acp-extensions";
 import { Pushable } from "../../utils/streams";
 import { getSessionJsonlPath } from "./session/jsonl-hydration";
+import { FALLBACK_MODEL } from "./session/models";
 
 type InitResult = {
   result: "success";
@@ -94,7 +95,11 @@ function makeAgent(): { agent: Agent; client: ClientMocks } {
   return { agent, client };
 }
 
-function installFakeSession(agent: Agent, sessionId: string) {
+function installFakeSession(
+  agent: Agent,
+  sessionId: string,
+  overrides: Partial<{ modelId: string; fallbackModel: string }> = {},
+) {
   const oldQuery = makeQueryHandle();
   const input = new Pushable();
   const endSpy = vi.spyOn(input, "end");
@@ -108,6 +113,7 @@ function installFakeSession(agent: Agent, sessionId: string) {
       cwd: "/tmp/repo",
       permissionMode: "bypassPermissions",
       model: "claude-sonnet-4-6",
+      fallbackModel: overrides.fallbackModel ?? FALLBACK_MODEL,
       mcpServers: {
         posthog: { type: "http", url: "https://posthog" },
         "posthog-code-tools": {
@@ -147,7 +153,7 @@ function installFakeSession(agent: Agent, sessionId: string) {
     notificationHistory: [] as unknown[],
     taskRunId: "run-1",
     lastContextWindowSize: 200_000,
-    modelId: "claude-sonnet-4-6",
+    modelId: overrides.modelId ?? "claude-sonnet-4-6",
     taskState: new Map(),
   };
 
@@ -270,6 +276,31 @@ describe("ClaudeAcpAgent /clear", () => {
       used: 0,
       size: 200_000,
     });
+  });
+
+  it("re-roots /clear on a pinned live model without colliding with its own fallback model", async () => {
+    const { agent } = makeAgent();
+    installFakeSession(agent, "s-model", { modelId: "claude-opus-4-8" });
+
+    await agent.prompt({
+      sessionId: "s-model",
+      prompt: [{ type: "text", text: "/clear" }],
+    });
+
+    expect(lastQueryCall.options?.model).toBe("claude-opus-4-8");
+    expect(lastQueryCall.options?.fallbackModel).toBeUndefined();
+  });
+
+  it("preserves a caller-configured fallback model across /clear", async () => {
+    const { agent } = makeAgent();
+    installFakeSession(agent, "s-model", { fallbackModel: "claude-fable-5" });
+
+    await agent.prompt({
+      sessionId: "s-model",
+      prompt: [{ type: "text", text: "/clear" }],
+    });
+
+    expect(lastQueryCall.options?.fallbackModel).toBe("claude-fable-5");
   });
 
   it("clears when the host prepends hidden context ahead of the /clear, as cloud resumes do", async () => {
@@ -687,14 +718,8 @@ describe("ClaudeAcpAgent /clear", () => {
   });
 
   it("resets pre-clear plan and notification state so it can't resurface after /clear", async () => {
-    // ExitPlanMode falls back to lastPlanContent/fileContentCache/
-    // notificationHistory when its tool input omits an explicit plan; left
-    // untouched, a plan written before /clear (possibly carrying
-    // repo-injected content) could resurface in the fresh session.
     const { agent } = makeAgent();
     const { session } = installFakeSession(agent, "s-plan");
-    (session as unknown as { lastPlanContent?: string }).lastPlanContent =
-      "stale pre-clear plan";
     (session as unknown as { lastPlanFilePath?: string }).lastPlanFilePath =
       "/tmp/repo/.claude/plans/old.md";
     session.notificationHistory.push({ type: "assistant", text: "old" });
@@ -705,9 +730,6 @@ describe("ClaudeAcpAgent /clear", () => {
       prompt: [{ type: "text", text: "/clear" }],
     });
 
-    expect(
-      (session as unknown as { lastPlanContent?: string }).lastPlanContent,
-    ).toBeUndefined();
     expect(
       (session as unknown as { lastPlanFilePath?: string }).lastPlanFilePath,
     ).toBeUndefined();

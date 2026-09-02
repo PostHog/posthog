@@ -28,15 +28,18 @@ from rest_framework import status
 from rest_framework.relations import ManyRelatedField
 from rest_framework.response import Response
 
+from posthog.hogql.database.database import Database
+
 from posthog import redis
 from posthog.api.cohort import BATCH_FLAG_EVALUATION_PAGE_ATTEMPTS, get_cohort_actors_for_feature_flag
 from posthog.api.services.flags_service import FlagVersionConflictError
 from posthog.constants import AvailableFeature
 from posthog.models import TaggedItem, User
-from posthog.models.group.util import create_group
+from posthog.models.group.util import create_group, raw_create_group_ch
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
+from posthog.models.signals import mute_selected_signals
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
@@ -48,6 +51,7 @@ from posthog.test.persons import (
 )
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.util import CohortErrorCode, get_friendly_error_message
@@ -69,11 +73,9 @@ from products.feature_flags.backend.flag_status import FeatureFlagStatus
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, FeatureFlagDashboards
 from products.feature_flags.backend.models.team_feature_flags_config import TeamFeatureFlagsConfig
 from products.feature_flags.backend.user_blast_radius import get_user_blast_radius, get_user_blast_radius_persons
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
-
-from ee.models.rbac.access_control import AccessControl
 
 
 def _make_feature_flag_psak(
@@ -8117,9 +8119,13 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     def test_reuse_key_with_inconsistent_soft_deleted_flag_referenced_by_active_experiment(self, mode: str):
         # If a tombstone is still referenced by an active experiment (invariant
         # violation), renaming it would silently break the experiment. Error out.
+        # A team gating replay on the tombstone must not change that: the replay relink
+        # takes the rename path, which would otherwise skip this check.
         legacy_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="inconsistent-key")
         exp = Experiment.objects.create(team=self.team, created_by=self.user, feature_flag=legacy_flag)
         FeatureFlag.objects_including_soft_deleted.filter(pk=legacy_flag.pk).update(deleted=True)
+        self.team.session_recording_linked_flag = {"id": legacy_flag.id, "key": "inconsistent-key"}
+        self.team.save()
 
         if mode == "create":
             response = self.client.post(
@@ -8150,7 +8156,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     def test_reuse_key_with_inconsistent_soft_deleted_flag_referenced_by_eaf(self, mode: str):
         # EarlyAccessFeature.feature_flag uses on_delete=PROTECT (sibling of
         # RESTRICT). A tombstone with an EAF must surface the same defensive
-        # error, not a 500.
+        # error, not a 500. A team gating replay on it must not skip that check
+        # by diverting to the rename path.
         legacy_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="eaf-key")
         EarlyAccessFeature.objects.create(
             team=self.team,
@@ -8160,6 +8167,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             feature_flag=legacy_flag,
         )
         FeatureFlag.objects_including_soft_deleted.filter(pk=legacy_flag.pk).update(deleted=True)
+        self.team.session_recording_linked_flag = {"id": legacy_flag.id, "key": "eaf-key"}
+        self.team.save()
 
         if mode == "create":
             response = self.client.post(
@@ -9353,6 +9362,38 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         response_json = response.json()
         self.assertLessEqual({"affected": 4, "total": 10}.items(), response_json.items())
 
+    @snapshot_clickhouse_queries
+    def test_persons_seen_so_far_ignores_team_v2_argmax_modifier(self):
+        team = Team.objects.create(organization=self.organization, modifiers={"personsArgMaxVersion": "v2"})
+        for i in range(3):
+            _create_person(team_id=team.pk, distinct_ids=[f"seen_person_{i}"], properties={"group": f"{i}"})
+
+        with self.capture_select_queries() as queries:
+            assert team.persons_seen_so_far == 3
+
+        assert queries
+        for query in queries:
+            # A truncated start of the v2 dedup semi-join, on purpose. The expression continues
+            # with a subquery, so a balanced paren would build a string that never occurs and
+            # the assertion would always pass.
+            assert "in(tuple(person.id, person.version)" not in query
+
+        # The filtered path builds one database and shares it between its two counts.
+        # The denominator must keep the pinned v1 shape even then.
+        with patch.object(Database, "create_for", wraps=Database.create_for) as create_for_spy:
+            with self.capture_select_queries() as queries:
+                result = get_user_blast_radius(
+                    team,
+                    {"properties": [{"key": "group", "type": "person", "value": ["0"], "operator": "exact"}]},
+                )
+
+        assert (result.affected, result.total) == (1, 3)
+        assert create_for_spy.call_count == 1
+        denominator_queries = [query for query in queries if "count(DISTINCT" not in query]
+        assert denominator_queries
+        for query in denominator_queries:
+            assert "in(tuple(person.id, person.version)" not in query
+
     @parameterized.expand(
         [
             (
@@ -10078,6 +10119,8 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
                 group_key=f"org:{i}",
                 properties={"industry": f"{i}"},
             )
+        # A property update writes a second ClickHouse row for the same key; it is still one group.
+        raw_create_group_ch(self.team.pk, 1, "org:0", {"industry": "updated"}, created_at=now())
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
@@ -12685,6 +12728,83 @@ class TestFeatureFlagBulkDelete(APIBaseTest):
         # Key is freed up for reuse
         assert flag.key == f"stopped_experiment_flag:deleted:{flag.id}"
 
+    def test_bulk_delete_blocks_a_flag_used_in_session_replay(self):
+        # bulk_delete bypasses the serializer, so it needs its own replay guard; without one,
+        # this delete would silently stop the linking team's recording.
+        linked_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay_gate")
+        unlinked_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="unrelated")
+        self.team.session_recording_linked_flag = {"id": linked_flag.id, "key": "replay_gate"}
+        self.team.save()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/bulk_delete/",
+            {"ids": [linked_flag.id, unlinked_flag.id]},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        # The rest of the batch still deletes, so one linked flag does not block the whole call.
+        assert {d["id"] for d in data["deleted"]} == {unlinked_flag.id}
+        assert len(data["errors"]) == 1
+        assert data["errors"][0]["id"] == linked_flag.id
+        assert "session replay settings" in data["errors"][0]["reason"]
+
+        linked_flag.refresh_from_db()
+        unlinked_flag.refresh_from_db()
+        assert linked_flag.deleted is False
+        assert unlinked_flag.deleted is True
+
+    def test_bulk_delete_blocks_a_flag_a_sibling_team_links(self):
+        # Replay links are project-scoped: a team can gate recording on a flag owned by a sibling
+        # team, so a team-scoped lookup would let this delete through.
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay_gate")
+        sibling_team = Team.objects.create(organization=self.organization, project=self.team.project)
+        sibling_team.session_recording_linked_flag = {"id": flag.id, "key": "replay_gate"}
+        sibling_team.save()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/bulk_delete/",
+            {"ids": [flag.id]},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data["deleted"]) == 0
+        assert len(data["errors"]) == 1
+        flag.refresh_from_db()
+        assert flag.deleted is False
+
+    @parameterized.expand(
+        [
+            ("bool_id", lambda flag_id: {"id": True, "key": "replay_gate"}),
+            ("string_id", lambda flag_id: {"id": "abc", "key": "replay_gate"}),
+            ("missing_id", lambda flag_id: {"key": "replay_gate"}),
+            # A text id matching the flag's number is malformed, not linked: the team API
+            # normalizes numeric-string ids to ints at write time (see
+            # validate_session_recording_linked_flag), so jsonb's type-sensitive equality
+            # can safely ignore it, same as the single-flag guard's containment check.
+            ("numeric_string_id", lambda flag_id: {"id": str(flag_id), "key": "replay_gate"}),
+        ]
+    )
+    def test_bulk_delete_ignores_a_malformed_replay_link(self, _case, stored_link_factory):
+        # One team's malformed stored link must not block or 500 the project's bulk deletes:
+        # the guard's jsonb filter matches no flag for these shapes, so it ignores them.
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="unrelated")
+        self.team.session_recording_linked_flag = stored_link_factory(flag.id)
+        self.team.save()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/bulk_delete/",
+            {"ids": [flag.id]},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert {d["id"] for d in data["deleted"]} == {flag.id}
+        assert data["errors"] == []
+        flag.refresh_from_db()
+        assert flag.deleted is True
+
     def test_bulk_delete_requires_filters_or_ids(self):
         """Test validation error when neither filters nor ids provided."""
         response = self.client.post(
@@ -14197,6 +14317,37 @@ class TestFeatureFlagEvaluationReasons(APIBaseTest, ClickhouseTestMixin):
         self.assertIn("error", response.json())
 
 
+class TestFeatureFlagMyFlags(APIBaseTest, ClickhouseTestMixin):
+    @parameterized.expand(
+        [
+            ("repeated_params", {"flag_keys": ["wanted"]}),
+            ("mcp_json_array_string", {"flag_keys": '["wanted"]'}),
+        ]
+    )
+    @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
+    def test_my_flags_scopes_to_flag_keys(self, _name, query_flag_keys, mock_get_flags):
+        # flag_keys must scope both the flag definitions returned and the flags service call,
+        # otherwise the response lists every flag in the project. MCP clients JSON-stringify
+        # array query params into a single value, so that encoding must scope the same way.
+        FeatureFlag.objects.create(team=self.team, key="wanted")
+        FeatureFlag.objects.create(team=self.team, key="other")
+        mock_get_flags.return_value = {"flags": {"wanted": {"enabled": True, "variant": None}}}
+
+        response = self.client.get(
+            f"/api/projects/{self.team.pk}/feature_flags/my_flags/",
+            query_flag_keys,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(mock_get_flags.call_args.kwargs["flag_keys"], ["wanted"])
+        # Must request all runtimes, otherwise the flags service reads the internal
+        # python-requests User-Agent as a server runtime and drops client-only flags,
+        # reporting a client-only flag that is on as false.
+        self.assertEqual(mock_get_flags.call_args.kwargs["evaluation_runtime"], "all")
+        returned_keys = {item["feature_flag"]["key"] for item in response.json()}
+        self.assertEqual(returned_keys, {"wanted"})
+
+
 class TestFeatureFlagFiltersMetrics(APIBaseTest):
     def _write_count(self, operation: str, outcome: str) -> float:
         return FLAG_FILTERS_WRITE_COUNTER.labels(operation=operation, outcome=outcome, source="ui")._value.get()
@@ -14443,3 +14594,48 @@ class TestFeatureFlagReplayLinkFollowsRename(APIBaseTest):
         sibling_team.refresh_from_db()
         assert sibling_team.session_recording_linked_flag == linked_flag_before
         assert sibling_team.id not in {call.args[0] for call in mock_refresh.call_args_list}
+
+    def test_rename_still_relinks_teams_while_the_activity_signal_is_muted(self) -> None:
+        # mute_selected_signals is for mass-deletion scenarios where firing the activity-log
+        # signal thousands of times would be wasteful, but it silences every @mutable_receiver
+        # indiscriminately. Muting the audit log must not also stop teams recording sessions.
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-gate")
+        self._link_flag(self.team, {"id": flag.id, "key": "replay-gate"})
+
+        with self.captureOnCommitCallbacks(execute=True):
+            with mute_selected_signals():
+                flag.key = "replay-gate-v2"
+                flag.save()
+
+        self.team.refresh_from_db()
+        assert self.team.session_recording_linked_flag == {"id": flag.id, "key": "replay-gate-v2"}
+
+    @parameterized.expand([("create",), ("rename",)])
+    def test_freeing_a_tombstoned_key_relinks_teams_to_the_tombstone(self, mode: str) -> None:
+        # Nothing here blocks the hard delete, which is what makes this the interesting case:
+        # a hard delete fires no save, so a team gating replay on this tombstone would be left
+        # on the key the new flag is about to claim. _free_key_held_by_soft_deleted_flags keeps
+        # the row and renames it instead, and the relink follows it to the tombstone. The rename
+        # path frees the key inside the update transaction, where the tombstone and the claiming
+        # flag each schedule their own relink, so it needs its own coverage.
+        old_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-gate", deleted=True)
+        self._link_flag(self.team, {"id": old_flag.id, "key": "replay-gate"})
+
+        with self.captureOnCommitCallbacks(execute=True):
+            if mode == "create":
+                response = self.client.post(
+                    f"/api/projects/{self.team.id}/feature_flags/",
+                    {"name": "New gate", "key": "replay-gate"},
+                )
+            else:
+                claiming_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-gate-tmp")
+                response = self.client.patch(
+                    f"/api/projects/{self.team.id}/feature_flags/{claiming_flag.id}/",
+                    {"key": "replay-gate"},
+                )
+
+        assert response.status_code in (status.HTTP_200_OK, status.HTTP_201_CREATED), response.content
+        old_flag.refresh_from_db()
+        assert old_flag.key == f"replay-gate:deleted:{old_flag.id}"
+        self.team.refresh_from_db()
+        assert self.team.session_recording_linked_flag == {"id": old_flag.id, "key": old_flag.key}

@@ -70,40 +70,38 @@ class TestResolvePythonNodeInputs(SimpleTestCase):
 
 class TestResolveSQLNodeRun(SimpleTestCase):
     def test_all_hogql_refs_push_to_clickhouse(self):
-        node_type, run_code, inputs = resolve_sql_node_run(
-            "select * from df1", {"df1": hogql_ref("select id from events")}
-        )
-        self.assertEqual(node_type, "hogql")
-        self.assertIn("WITH df1 AS (SELECT id FROM events)", run_code)
-        self.assertEqual(inputs, [])
+        plan = resolve_sql_node_run("select * from df1", {"df1": hogql_ref("select id from events")})
+        self.assertEqual(plan.node_type, "hogql")
+        self.assertIn("WITH df1 AS (SELECT id FROM events)", plan.code)
+        self.assertEqual(plan.inputs, [])
 
     def test_unreferenced_local_frame_does_not_reroute(self):
         # The local frame exists in the notebook but this query never touches it.
-        node_type, run_code, inputs = resolve_sql_node_run(
+        plan = resolve_sql_node_run(
             "select * from df1", {"df1": hogql_ref("select id from events"), "new_events": LOCAL}
         )
-        self.assertEqual(node_type, "hogql")
-        self.assertIn("WITH df1 AS", run_code)
-        self.assertEqual(inputs, [])
+        self.assertEqual(plan.node_type, "hogql")
+        self.assertIn("WITH df1 AS", plan.code)
+        self.assertEqual(plan.inputs, [])
 
     def test_referenced_local_frame_reroutes_to_duckdb_and_materializes_hogql_refs(self):
         # Journey 5 step 4: the join runs locally, forcing df2 into the sandbox.
         code = "select * from df2 join new_events on df2.id = new_events.id"
-        node_type, run_code, inputs = resolve_sql_node_run(
-            code, {"df2": hogql_ref("select id from persons"), "new_events": LOCAL}
+        plan = resolve_sql_node_run(code, {"df2": hogql_ref("select id from persons"), "new_events": LOCAL})
+        self.assertEqual(plan.node_type, "duckdb")
+        self.assertEqual(plan.code, code)  # DuckDB gets the SQL as written, not a CTE rewrite
+        self.assertEqual(
+            [(spec["name"], spec["kind"]) for spec in plan.inputs], [("df2", "hogql"), ("new_events", "local")]
         )
-        self.assertEqual(node_type, "duckdb")
-        self.assertEqual(run_code, code)  # DuckDB gets the SQL as written, not a CTE rewrite
-        self.assertEqual([(spec["name"], spec["kind"]) for spec in inputs], [("df2", "hogql"), ("new_events", "local")])
-        self.assertEqual(inputs[0]["query"], "select id from persons")
+        self.assertEqual(plan.inputs[0]["query"], "select id from persons")
         # DuckDB-rerouted runs key materialized frames the same way python nodes do.
-        self.assertEqual(inputs[0]["node_id"], "node-df1")
-        self.assertEqual(inputs[0]["run_id"], "run-1")
+        self.assertEqual(plan.inputs[0]["node_id"], "node-df1")
+        self.assertEqual(plan.inputs[0]["run_id"], "run-1")
 
     def test_local_only_query_reroutes_with_no_materialization(self):
-        node_type, run_code, inputs = resolve_sql_node_run("select count() from new_events", {"new_events": LOCAL})
-        self.assertEqual(node_type, "duckdb")
-        self.assertEqual(inputs, [{"name": "new_events", "kind": "local"}])
+        plan = resolve_sql_node_run("select count() from new_events", {"new_events": LOCAL})
+        self.assertEqual(plan.node_type, "duckdb")
+        self.assertEqual(plan.inputs, [{"name": "new_events", "kind": "local"}])
 
     def test_duckdb_run_referencing_a_never_run_hogql_node_raises(self):
         with self.assertRaises(SQLV2ReferenceError):
@@ -115,19 +113,19 @@ class TestResolveSQLNodeRun(SimpleTestCase):
         # DuckDB-only syntax (PIVOT isn't HogQL; QUALIFY actually parses) must still run
         # locally when it names a local frame — this is the regex fallback's positive path.
         code = "pivot new_events on category"
-        node_type, run_code, inputs = resolve_sql_node_run(code, {"new_events": LOCAL})
-        self.assertEqual(node_type, "duckdb")
-        self.assertEqual(run_code, code)
-        self.assertEqual(inputs, [{"name": "new_events", "kind": "local"}])
+        plan = resolve_sql_node_run(code, {"new_events": LOCAL})
+        self.assertEqual(plan.node_type, "duckdb")
+        self.assertEqual(plan.code, code)
+        self.assertEqual(plan.inputs, [{"name": "new_events", "kind": "local"}])
 
     def test_frame_named_only_in_a_literal_or_comment_does_not_route_to_duckdb(self):
         # The fallback scanner must not see the frame name inside a string or comment —
         # that would reroute the query to DuckDB and materialize a frame it never reads.
         code = "pivot events on label in ('new_events') -- new_events"
-        node_type, run_code, inputs = resolve_sql_node_run(code, {"new_events": LOCAL})
-        self.assertEqual(node_type, "hogql")
-        self.assertEqual(run_code, code)
-        self.assertEqual(inputs, [])
+        plan = resolve_sql_node_run(code, {"new_events": LOCAL})
+        self.assertEqual(plan.node_type, "hogql")
+        self.assertEqual(plan.code, code)
+        self.assertEqual(plan.inputs, [])
 
 
 class TestResolveSQLV2References(SimpleTestCase):

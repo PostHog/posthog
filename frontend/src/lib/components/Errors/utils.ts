@@ -73,13 +73,15 @@ export function concatValues(
     return definedKeys.map((key) => attrs[key]).join(' ')
 }
 
+function nonEmptyString(value: unknown): string | undefined {
+    return typeof value === 'string' && value.length > 0 ? value : undefined
+}
+
 export function getExceptionAttributes(properties: Record<string, any>): ExceptionAttributes {
     const {
         $lib: lib,
         $lib_version: libVersion,
-        $browser: browser,
         $browser_version: browserVersion,
-        $os: os,
         $os_version: osVersion,
         $sentry_url: sentryUrl,
         $exception_level: level,
@@ -111,6 +113,10 @@ export function getExceptionAttributes(properties: Record<string, any>): Excepti
     const runtime: ErrorTrackingRuntime = getRuntimeFromLib(lib)
     const appNamespace = properties.$app_namespace
     const appVersion = properties.$app_version
+    // Misbehaving SDKs can send non-string values, which would crash PropertyIcon's lowercase lookup.
+    const browser = nonEmptyString(properties.$browser)
+    // Mobile SDKs report the platform in $os_name and leave $os unset; web SDKs do the opposite.
+    const os = nonEmptyString(properties.$os_name) ?? nonEmptyString(properties.$os)
 
     return {
         type,

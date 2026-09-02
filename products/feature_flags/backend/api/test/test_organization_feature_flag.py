@@ -153,7 +153,7 @@ class TestOrganizationFeatureFlagGet(APIBaseTest, QueryMatchingTest):
         self.organization.save()
 
         # Import AccessControl for setting up private team
-        from ee.models.rbac.access_control import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         # Make team_2 private by setting default access to "none"
         AccessControl.objects.create(
@@ -183,7 +183,7 @@ class TestOrganizationFeatureFlagGet(APIBaseTest, QueryMatchingTest):
         ]
         self.organization.save()
 
-        from ee.models.rbac.access_control import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         # Create a second user and log in as them (not the flag creator) so that
         # the "creator is always visible" exception does not apply.
@@ -382,7 +382,7 @@ class TestOrganizationFeatureFlagKeys(APIBaseTest):
         ]
         self.organization.save()
 
-        from ee.models.rbac.access_control import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         # Use a second user (not the flag creator) so the creator-always-visible
         # exception in filter_queryset_by_access_level does not apply.
@@ -983,7 +983,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
 
     def test_copy_feature_flag_to_inaccessible_team_fails(self):
         """Test that copying a flag to a team the user cannot access fails."""
-        from ee.models.rbac.access_control import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         self._enable_access_control()
 
@@ -1012,7 +1012,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.json()["failed"][0]["error_message"], "Project not found.")
 
     def test_copy_feature_flag_to_target_without_feature_flag_create_access_fails(self):
-        from ee.models.rbac.access_control import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         self._enable_access_control()
         copying_user = self._create_user("copy-target-create-denied@posthog.com")
@@ -1060,7 +1060,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         self.assertFalse(FeatureFlag.objects.filter(team=self.team_2, key=flag_to_copy.key).exists())
 
     def test_copy_feature_flag_with_dependencies_succeeds_for_allowed_target_when_another_target_is_denied(self):
-        from ee.models.rbac.access_control import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         self._enable_access_control()
         copying_user = self._create_user("copy-mixed-target-create-access@posthog.com")
@@ -1113,7 +1113,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         self.assertFalse(FeatureFlag.objects.filter(team=self.team_2, key=flag_to_copy.key).exists())
 
     def test_copy_feature_flag_does_not_update_object_denied_target_flag(self):
-        from ee.models.rbac.access_control import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         self._enable_access_control()
         copying_user = self._create_user("copy-target-object-denied@posthog.com")
@@ -1169,7 +1169,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         self.assertFalse(FeatureFlag.objects.filter(team=other_team, key=self.feature_flag_key).exists())
 
     def test_copy_feature_flag_to_team_without_flag_editor_access_fails(self):
-        from ee.models.rbac.access_control import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         self._enable_access_control()
 
@@ -1546,7 +1546,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         ]
     )
     def test_copy_feature_flag_source_project_denied_returns_not_found(self, _name, endpoint):
-        from ee.models.rbac.access_control import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         self._enable_access_control()
         copying_user = self._create_user("copy-source-project-denied@posthog.com")
@@ -1577,7 +1577,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         ]
     )
     def test_copy_feature_flag_source_object_denied_returns_forbidden(self, _name, endpoint):
-        from ee.models.rbac.access_control import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         self._enable_access_control()
         copying_user = self._create_user("copy-source-object-denied@posthog.com")
@@ -2116,7 +2116,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         self.assertEqual(copied_dependency_keys, [str(target_b.id), str(copied_c.id)])
 
     def test_copy_feature_flag_with_dependencies_ignores_restricted_transitive_dependency_under_reused_target(self):
-        from ee.models.rbac.access_control import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         self._enable_access_control()
         copying_user = self._create_user("copy-reused-branch-restricted-child@posthog.com")
@@ -2390,7 +2390,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
     def test_copy_feature_flag_with_dependencies_does_not_reuse_restricted_target_dependency(self):
         from posthog.constants import AvailableFeature
 
-        from ee.models.rbac.access_control import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         self.organization.available_product_features = [
             {"name": AvailableFeature.ACCESS_CONTROL, "key": AvailableFeature.ACCESS_CONTROL}
@@ -2797,7 +2797,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
     def test_copy_feature_flag_with_dependency_denied_returns_forbidden(self):
         from posthog.constants import AvailableFeature
 
-        from ee.models.rbac.access_control import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         self.organization.available_product_features = [
             {"name": AvailableFeature.ACCESS_CONTROL, "key": AvailableFeature.ACCESS_CONTROL}
@@ -2902,7 +2902,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
     def test_copy_feature_flag_overwrite_denied_by_object_level_access_control_fails(self):
         from posthog.constants import AvailableFeature
 
-        from ee.models.rbac.access_control import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         self.organization.available_product_features = [
             {
@@ -3637,7 +3637,7 @@ class TestOrganizationFeatureFlagCopySchedules(APIBaseTest):
     def test_copy_flag_schedule_dependency_denied_does_not_disclose_key(self):
         from posthog.constants import AvailableFeature
 
-        from ee.models.rbac.access_control import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         self.organization.available_product_features = [
             {"name": AvailableFeature.ACCESS_CONTROL, "key": AvailableFeature.ACCESS_CONTROL}

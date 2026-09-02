@@ -29,6 +29,7 @@ import { dateFilterToText, dateStringToComponents } from 'lib/utils/dateFilters'
 import { clamp } from 'lib/utils/numbers'
 import { capitalizeFirstLetter, pluralize } from 'lib/utils/strings'
 import { FeatureFlagConditionWarning } from 'scenes/feature-flags/FeatureFlagConditionWarning'
+import { FeatureFlagNoConditionsWarning } from 'scenes/feature-flags/FeatureFlagNoConditionsWarning'
 import { PercentageInput } from 'scenes/feature-flags/PercentageInput'
 import { urls } from 'scenes/urls'
 
@@ -586,6 +587,7 @@ export function FeatureFlagReleaseConditions({
                 </LemonBanner>
             )}
             <FractionalRolloutWarning filterGroups={filterGroups} className="mb-3" />
+            <FeatureFlagNoConditionsWarning conditionSetCount={filterGroups.length} className="mb-3" />
             {!readOnly &&
                 !filterGroups.every(
                     (group) => filterGroups.filter((g) => g.variant === group.variant && g.variant !== null).length < 2

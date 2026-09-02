@@ -3,9 +3,17 @@ import { useMemo } from 'react'
 
 import { TRACING_SCENE_VIEWER_ID, tracingFiltersLogic } from 'products/tracing/frontend/tracingFiltersLogic'
 
+import { customFacetsLogic } from './customFacetsLogic'
 import { Facet } from './Facet'
 import { facetRailLogic } from './facetRailLogic'
-import { FacetConfig, FacetOption, facetSelection, mergeSelectedIntoOptions } from './facets'
+import {
+    FacetConfig,
+    FacetOption,
+    customFacetIdentity,
+    facetSelection,
+    facetValueGroup,
+    mergeSelectedIntoOptions,
+} from './facets'
 import { facetValuesLogic } from './facetValuesLogic'
 
 export interface RailFacetProps {
@@ -28,6 +36,9 @@ export function RailFacet({ facet, id = TRACING_SCENE_VIEWER_ID, hidden }: RailF
     const { setFacetSearch } = useActions(facetValuesLogic(logicProps))
     const { serviceNames, filters } = useValues(tracingFiltersLogic({ id }))
     const { toggleFacetValue, toggleFacetCollapsed } = useActions(facetRailLogic({ id }))
+    const { removeCustomFacet } = useActions(customFacetsLogic)
+    const { entriesLoading } = useValues(customFacetsLogic)
+    const removeDisabledReason = entriesLoading ? 'Custom facets are updating' : undefined
 
     if (hidden) {
         return null
@@ -44,13 +55,17 @@ export function RailFacet({ facet, id = TRACING_SCENE_VIEWER_ID, hidden }: RailF
         .map((row) => ({ value: row.value, label: row.value, count: row.count }))
     const onToggle = (value: string): void => toggleFacetValue(source, value)
     const onToggleCollapsed = (): void => toggleFacetCollapsed(facet.key)
+    const customIdentity = customFacetIdentity(facet)
+    const onRemove = customIdentity
+        ? (): void => removeCustomFacet(customIdentity.key, customIdentity.sourceType)
+        : undefined
 
     if (facet.kind === 'fixed') {
         // Fixed value set from config, counts overlaid. Missing values render as a dimmed 0.
         const countByValue = new Map(fetched.map((option) => [option.value, option.count]))
         const options: FacetOption[] = (facet.fixedOptions ?? []).map((option) => ({
             ...option,
-            count: countByValue.get(option.value) ?? 0,
+            count: facetValueGroup(source, option.value).reduce((sum, v) => sum + (countByValue.get(v) ?? 0), 0),
         }))
         return (
             <Facet
@@ -64,6 +79,8 @@ export function RailFacet({ facet, id = TRACING_SCENE_VIEWER_ID, hidden }: RailF
                 onToggleCollapsed={onToggleCollapsed}
                 dimZeroCounts
                 error={fetchFailed}
+                onRemove={onRemove}
+                removeDisabledReason={removeDisabledReason}
             />
         )
     }
@@ -87,6 +104,8 @@ export function RailFacet({ facet, id = TRACING_SCENE_VIEWER_ID, hidden }: RailF
             onToggleCollapsed={onToggleCollapsed}
             maxHeight={facet.maxHeight}
             error={fetchFailed}
+            onRemove={onRemove}
+            removeDisabledReason={removeDisabledReason}
         />
     )
 }

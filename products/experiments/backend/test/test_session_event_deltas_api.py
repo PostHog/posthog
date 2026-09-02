@@ -848,7 +848,7 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
         # Only that one recording is denied: the same check guards the experiment itself, and
         # failing it there would 500 the request rather than test anything.
         with patch(
-            "posthog.rbac.user_access_control.UserAccessControl.check_access_level_for_object",
+            "products.access_control.backend.facade.user_access_control.UserAccessControl.check_access_level_for_object",
             side_effect=lambda obj, *args, **kwargs: getattr(obj, "session_id", None) != denied,
         ):
             data = self._post_deltas(experiment).json()
@@ -879,7 +879,7 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
         # This viewer may open neither card's shared recordings, which is what leaves the two cards
         # showing different recordings after all.
         with patch(
-            "posthog.rbac.user_access_control.UserAccessControl.check_access_level_for_object",
+            "products.access_control.backend.facade.user_access_control.UserAccessControl.check_access_level_for_object",
             side_effect=lambda obj, *args, **kwargs: getattr(obj, "session_id", None) not in shared,
         ):
             data = self._post_deltas(experiment).json()
@@ -929,7 +929,8 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
         experiment = self._create_experiment(metrics=[PURCHASE_METRIC])
 
         with patch(
-            "posthog.rbac.user_access_control.UserAccessControl.check_access_level_for_resource", return_value=False
+            "products.access_control.backend.facade.user_access_control.UserAccessControl.check_access_level_for_resource",
+            return_value=False,
         ):
             response = self._post_deltas(experiment)
 

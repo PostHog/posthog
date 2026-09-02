@@ -106,3 +106,33 @@ class TestMarketingTouchpointsPrecompute(ClickhouseTestMixin, APIBaseTest):
         # Identical (config-agnostic) query hash → the second call reuses the same job(s), no re-materialize.
         assert set(first.job_ids) == set(second.job_ids)
         assert self._count_touchpoints() == 3
+
+    def test_source_or_click_id_alone_is_a_touchpoint(self):
+        _create_person(distinct_ids=["p1"], team=self.team)
+        # utm_source with no utm_campaign — the paid touchpoint the old both-required filter dropped.
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp=datetime(2025, 1, 3, 10, tzinfo=UTC),
+            properties={"utm_source": "google"},
+        )
+        # A click id with no UTMs at all — also paid evidence.
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp=datetime(2025, 1, 4, 10, tzinfo=UTC),
+            properties={"gclid": "abc123"},
+        )
+        # No source and no click id — organic, still excluded.
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp=datetime(2025, 1, 5, 10, tzinfo=UTC),
+            properties={"utm_campaign": "spring"},
+        )
+        flush_persons_and_events()
+        assert self._ensure().ready
+        assert self._count_touchpoints() == 2

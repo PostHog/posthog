@@ -402,6 +402,29 @@ def _skip_rows_on_stale_issue_404(
         raise
 
 
+def _skip_issue_on_tags_server_error(
+    rows: Iterator[dict[str, Any]], organization_slug: str, issue_id: str
+) -> Iterator[dict[str, Any]]:
+    """Swallow a persistent 5xx raised while iterating an issue's tags endpoint.
+
+    Retries are already exhausted by _request_with_retry; skip this issue's tags
+    rather than failing the whole sync — same graceful-skip as the values endpoint.
+    """
+    try:
+        yield from rows
+    except HTTPError as exc:
+        response = exc.response
+        if response is not None and response.status_code >= 500:
+            logger.warning(
+                "sentry_source.issue_tags_server_error_skipped",
+                organization_slug=organization_slug,
+                issue_id=issue_id,
+                status_code=response.status_code,
+            )
+            return
+        raise
+
+
 # lastSeen carries the scan floor, so it is always projected. A parent whose column selection
 # dropped it fails the eager resolve check and drives this child from the API instead.
 _ISSUES_PARENT_COLUMNS = ["id", "lastSeen"]
@@ -455,6 +478,7 @@ def _iter_issue_tag_values_rows(
     resumable_source_manager: Optional[ResumableSourceManager[SentryResumeConfig]] = None,
     incremental_last_seen_max: Any = None,
     issues_table: Optional["ParentTableRef"] = None,
+    issues_snapshot_at: datetime | None = None,
 ) -> Iterator[dict[str, Any]]:
     cutoff_last_seen = _parse_datetime_value(incremental_last_seen_max)
     use_warehouse_parent = issues_table is not None
@@ -556,7 +580,7 @@ def _iter_issue_tag_values_rows(
             # schema last synced; their tags endpoint 404s. A fresh API parent pull would
             # simply not list them, so skip instead of failing the sync.
             tags = _skip_rows_on_stale_issue_404(tags, organization_slug, issue_id, stale_issues)
-        for tag in tags:
+        for tag in _skip_issue_on_tags_server_error(tags, organization_slug, issue_id):
             tag_key = tag.get("key") or tag.get("id")
             if not isinstance(tag_key, str) or not tag_key:
                 continue
@@ -654,11 +678,16 @@ def _iter_issue_tag_values_rows(
 
                 should_stop = False
                 for row in rows:
-                    if cutoff_last_seen is not None:
-                        row_last_seen = _parse_datetime_value(row.get("lastSeen"))
-                        if row_last_seen is not None and row_last_seen <= cutoff_last_seen:
+                    row_last_seen = _parse_datetime_value(row.get("lastSeen"))
+                    if cutoff_last_seen is not None and row_last_seen is not None:
+                        if row_last_seen <= cutoff_last_seen:
                             should_stop = True
                             break
+                    if issues_snapshot_at is not None and row_last_seen is not None:
+                        if row_last_seen > issues_snapshot_at:
+                            # Newer than the issues snapshot this run fanned out over. Values are
+                            # returned newest-first, so skip past it rather than stopping.
+                            continue
 
                     row["issue_id"] = issue_id
                     row["tag_key"] = tag_key
@@ -1114,6 +1143,19 @@ def validate_credentials(
         return False, str(exc)
 
     url = f"{base_url}/api/0/organizations/{organization_slug}/projects/"
+
+    try:
+        auth_token.encode("latin-1")
+    except UnicodeEncodeError:
+        # The token rides in the Authorization header, which http.client encodes as latin-1. A
+        # character outside that range raises mid-request; reject it as invalid input rather than
+        # letting the UnicodeEncodeError surface as a 500.
+        return (
+            False,
+            "Invalid Sentry auth token. It contains characters that can't be sent to Sentry. "
+            "Copy the token again from Sentry, then reconnect.",
+        )
+
     headers = _auth_headers(auth_token)
 
     try:
@@ -1130,14 +1172,15 @@ def validate_credentials(
                 + ".",
             )
         if response.status_code == 404:
-            return False, f"Sentry organization '{organization_slug}' not found"
+            return False, "Sentry organization not found. Verify your organization slug, then reconnect."
 
-        try:
-            return False, response.json().get("detail", response.text)
-        except Exception:
-            return False, response.text
+        # Keep the vendor detail in logs for debugging, but never surface it — the raw body can
+        # echo the org slug or unrelated Sentry internals back to the customer.
+        logger.warning("sentry_source.validate_credentials_unexpected_status", status_code=response.status_code)
+        return False, "Could not connect to Sentry. Check your auth token and organization slug, then reconnect."
     except RequestException as exc:
-        return False, str(exc)
+        logger.warning("sentry_source.validate_credentials_request_error", error=str(exc))
+        return False, "Could not reach Sentry to validate your credentials. Check your connection, then try again."
 
 
 # ---------------------------------------------------------------------------
@@ -1273,6 +1316,7 @@ def sentry_source(
         headers = _auth_headers(auth_token)
         incremental_last_seen_max = db_incremental_field_last_value if should_use_incremental_field else None
         issues_table: ParentTableRef | None = None
+        issues_snapshot_at: datetime | None = None
         # Warehouse reuse only with a watermark: the per-row cutoff then bounds the fan-out to
         # issues newer than the last run, the regime whose volume matched the API path in
         # production. Without one (a full refresh), the only available floor is our window
@@ -1284,20 +1328,34 @@ def sentry_source(
             # noqa reason: keeps deltalake/pyarrow off the import path of this module (imported
             # by the API process for schema discovery) — the reader stack loads only when syncing.
             from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent import (  # noqa: PLC0415
+                parent_snapshot_covers_through,
                 try_resolve_parent_table,
             )
 
-            # Resolved here, in sync source-build context, never inside the iterator: its body
-            # runs on the pipeline's executor threads, where ad-hoc ORM reads hit the
-            # pooler-drop failure mode resolve_parent_table_ref documents.
-            issues_table = try_resolve_parent_table(
-                team_id=team_id,
-                source_id=source_id,
-                parent_name="issues",
-                required_columns=_ISSUES_PARENT_COLUMNS,
-                schema_name="issue_tag_values",
-                row_filter=_issues_parent_row_filter(_parse_datetime_value(incremental_last_seen_max)),
-            )
+            # How far the issues snapshot is guaranteed complete. The tag values fanned out below
+            # are fetched live, so emitting one past this point would carry the watermark over
+            # issues the snapshot has not shown yet, and the next floor would skip them for good.
+            # Read before the table is pinned, never after: a sync completing between the two
+            # reads would otherwise cap on the newer job while the fan-out reads the older
+            # snapshot. No completed sync means nothing to cap against, so take the API path.
+            issues_snapshot_at = parent_snapshot_covers_through(team_id, source_id, "issues")
+            if issues_snapshot_at is not None:
+                # Resolved here, in sync source-build context, never inside the iterator: its body
+                # runs on the pipeline's executor threads, where ad-hoc ORM reads hit the
+                # pooler-drop failure mode resolve_parent_table_ref documents.
+                issues_table = try_resolve_parent_table(
+                    team_id=team_id,
+                    source_id=source_id,
+                    parent_name="issues",
+                    required_columns=_ISSUES_PARENT_COLUMNS,
+                    schema_name="issue_tag_values",
+                    row_filter=_issues_parent_row_filter(_parse_datetime_value(incremental_last_seen_max)),
+                )
+                if issues_table is None:
+                    # The table turned out to be unreadable, so this run reads the live issues
+                    # API. That listing has no snapshot behind it, so capping against one would
+                    # drop fresh tag values the API path had no reason to hold back.
+                    issues_snapshot_at = None
         if resumable_source_manager is not None and resumable_source_manager.can_resume():
             # The pipeline reads this same Redis state to pick replace-vs-append for chunk 0,
             # so state the iterator will refuse has to go now, before it decides. Same
@@ -1313,6 +1371,7 @@ def sentry_source(
                 resumable_source_manager=resumable_source_manager,
                 incremental_last_seen_max=incremental_last_seen_max,
                 issues_table=issues_table,
+                issues_snapshot_at=issues_snapshot_at,
             ),
         )
 

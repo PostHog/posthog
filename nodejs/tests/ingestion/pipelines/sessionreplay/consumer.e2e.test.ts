@@ -36,7 +36,7 @@ import { waitForExpect } from '~/tests/helpers/expectations'
 import { IngestionTestInfra, createIngestionTestInfra } from '~/tests/helpers/ingestion-e2e'
 import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from '~/tests/helpers/kafka'
 import { forSnapshot } from '~/tests/helpers/snapshots'
-import { createOrganization, createTeam, getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
+import { createOrganization, createTeam, createTestTeamFixture } from '~/tests/helpers/sql'
 import { Team } from '~/types'
 
 // Test configuration - matches local dev environment (MinIO API on port 19000)
@@ -53,9 +53,9 @@ const TEST_CONFIG = {
 // Reduced wait time for partition assignments (1 second is usually enough locally)
 const PARTITION_ASSIGNMENT_WAIT_MS = 1000
 
-// Token for a team that has DROP_EVENT restriction applied
-// This team is created in beforeAll and the restriction is set in Redis
-const RESTRICTED_TEAM_TOKEN = 'restricted-team-token-for-e2e-tests'
+// Token for a team that has DROP_EVENT restriction applied. Assigned in beforeAll,
+// so the rows it leaves behind never collide with an earlier run's.
+let RESTRICTED_TEAM_TOKEN = ''
 
 /**
  * Payload configuration for test cases.
@@ -956,7 +956,6 @@ describe('Session Recording Consumer Integration', () => {
         }
 
         await ensureKafkaTopics(TEST_KAFKA_TOPICS)
-        await resetTestDatabase()
 
         infra = await createIngestionTestInfra({
             SESSION_RECORDING_V2_S3_BUCKET: TEST_CONFIG.S3_BUCKET,
@@ -970,17 +969,10 @@ describe('Session Recording Consumer Integration', () => {
             SESSION_RECORDING_MAX_BATCH_AGE_MS: 1000,
         })
 
-        team = await getFirstTeam(infra.postgres)
-
-        // Enable console log capture for the primary team so console log tests work
-        await infra.postgres.query(
-            PostgresUse.COMMON_WRITE,
-            'UPDATE posthog_team SET capture_console_log_opt_in = true WHERE id = $1',
-            [team.id],
-            'enable-console-log-capture'
-        )
+        team = (await createTestTeamFixture(infra.postgres, { capture_console_log_opt_in: true })).team
 
         // Create a second team with a known token that will have DROP_EVENT restriction
+        RESTRICTED_TEAM_TOKEN = `restricted-team-${uuidv4()}`
         const restrictedOrgId = await createOrganization(infra.postgres)
         await createTeam(infra.postgres, restrictedOrgId, RESTRICTED_TEAM_TOKEN)
 

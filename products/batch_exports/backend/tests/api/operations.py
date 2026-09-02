@@ -74,15 +74,17 @@ def get_batch_export_ok(client: TestClient, team_id: int, batch_export_id: UUIDT
     return response.json()
 
 
-def get_batch_export_runs(client: TestClient, team_id: int, batch_export_id: str):
+def get_batch_export_runs(client: TestClient, team_id: int, batch_export_id: str, **query_params):
     return client.get(
         f"/api/projects/{team_id}/batch_exports/{batch_export_id}/runs",
+        # List values are encoded as repeated parameters, matching how the API expects them.
+        data=query_params or None,
         content_type="application/json",
     )
 
 
-def get_batch_export_runs_ok(client: TestClient, team_id: int, batch_export_id: str):
-    response = get_batch_export_runs(client, team_id, batch_export_id)
+def get_batch_export_runs_ok(client: TestClient, team_id: int, batch_export_id: str, **query_params):
+    response = get_batch_export_runs(client, team_id, batch_export_id, **query_params)
     assert response.status_code == status.HTTP_200_OK, response.json()
     return response.json()
 

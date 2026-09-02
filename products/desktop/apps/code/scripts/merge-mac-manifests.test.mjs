@@ -4,20 +4,24 @@ import { mergeManifests } from "./merge-mac-manifests.mjs";
 const arm64Manifest = () => ({
   version: "1.2.3",
   releaseDate: "2026-06-20T00:00:00.000Z",
-  path: "PostHog-Code-1.2.3-arm64-mac.zip",
+  path: "PostHog-Desktop-1.2.3-arm64-mac.zip",
   sha512: "arm64-sha",
   files: [
-    { url: "PostHog-Code-1.2.3-arm64-mac.zip", sha512: "arm64-sha", size: 1 },
+    {
+      url: "PostHog-Desktop-1.2.3-arm64-mac.zip",
+      sha512: "arm64-sha",
+      size: 1,
+    },
   ],
 });
 
 const x64Manifest = () => ({
   version: "1.2.3",
   releaseDate: "2026-06-20T00:00:01.000Z",
-  path: "PostHog-Code-1.2.3-x64-mac.zip",
+  path: "PostHog-Desktop-1.2.3-x64-mac.zip",
   sha512: "x64-sha",
   files: [
-    { url: "PostHog-Code-1.2.3-x64-mac.zip", sha512: "x64-sha", size: 2 },
+    { url: "PostHog-Desktop-1.2.3-x64-mac.zip", sha512: "x64-sha", size: 2 },
   ],
 });
 
@@ -26,8 +30,8 @@ describe("mergeManifests", () => {
     const merged = mergeManifests(arm64Manifest(), x64Manifest());
 
     expect(merged.files.map((f) => f.url)).toEqual([
-      "PostHog-Code-1.2.3-arm64-mac.zip",
-      "PostHog-Code-1.2.3-x64-mac.zip",
+      "PostHog-Desktop-1.2.3-arm64-mac.zip",
+      "PostHog-Desktop-1.2.3-x64-mac.zip",
     ]);
   });
 
@@ -71,7 +75,7 @@ describe("mergeManifests", () => {
     const merged = mergeManifests(arm64, x64Manifest());
 
     expect(merged.files.map((f) => f.url)).toEqual([
-      "PostHog-Code-1.2.3-x64-mac.zip",
+      "PostHog-Desktop-1.2.3-x64-mac.zip",
     ]);
   });
 

@@ -2,7 +2,7 @@ import { OnboardingComponentsContext, createInstallation } from 'scenes/onboardi
 
 import { StepDefinition } from '../steps'
 
-export const getIOSSteps = (
+export const getIOSInstallSteps = (
     ctx: OnboardingComponentsContext,
     options?: {
         includeExperimentalSpi?: boolean
@@ -90,30 +90,45 @@ export const getIOSSteps = (
                 </>
             ),
         },
-        {
-            title: 'Send events',
-            badge: 'recommended',
-            content: (
-                <>
-                    <Markdown>
-                        Once installed, PostHog will automatically start capturing events. You can also manually send
-                        events to test your integration:
-                    </Markdown>
-                    <CodeBlock
-                        blocks={[
-                            {
-                                language: 'swift',
-                                file: 'Swift',
-                                code: dedent`
-                                    PostHogSDK.shared.capture("button_clicked", properties: ["button_name": "signup"])
-                                `,
-                            },
-                        ]}
-                    />
-                </>
-            ),
-        },
     ]
 }
+
+export const getIOSEventStep = (ctx: OnboardingComponentsContext): StepDefinition => {
+    const { CodeBlock, Markdown, dedent } = ctx
+
+    return {
+        title: 'Send events',
+        badge: 'recommended',
+        content: (
+            <>
+                <Markdown>
+                    Once installed, PostHog will automatically start capturing events. You can also manually send events
+                    to test your integration:
+                </Markdown>
+                <CodeBlock
+                    blocks={[
+                        {
+                            language: 'swift',
+                            file: 'Swift',
+                            code: dedent`
+                                    PostHogSDK.shared.capture("button_clicked", properties: ["button_name": "signup"])
+                                `,
+                        },
+                    ]}
+                />
+            </>
+        ),
+    }
+}
+
+export const getIOSSteps = (
+    ctx: OnboardingComponentsContext,
+    options?: {
+        includeExperimentalSpi?: boolean
+        experimentalDescription?: string
+        minVersionPod?: string
+        minVersionSPM?: string
+    }
+): StepDefinition[] => [...getIOSInstallSteps(ctx, options), getIOSEventStep(ctx)]
 
 export const IOSInstallation = createInstallation(getIOSSteps)

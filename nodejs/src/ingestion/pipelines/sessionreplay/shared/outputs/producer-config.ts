@@ -104,12 +104,11 @@ export function getDefaultKafkaMlImageScrubProducerEnvConfig(): KafkaMlImageScru
         // Image bytes are already-compressed formats; recompressing burns CPU for nothing.
         KAFKA_INGESTION_SESSIONREPLAY_ML_IMAGE_SCRUB_PRODUCER_COMPRESSION_CODEC: 'none',
         KAFKA_INGESTION_SESSIONREPLAY_ML_IMAGE_SCRUB_PRODUCER_LINGER_MS: '',
-        // Small queue by design: bounds the lane's RSS ceiling (~128 MB of ~900 KB records — four
-        // worst-case 32 MB source messages) and makes a scrub-topic backlog fail fast in this
-        // producer instead of accumulating.
+        // The byte limit bounds the queue near 128 MiB, so a scrub-topic backlog fails fast instead
+        // of accumulating in the mirror process.
         KAFKA_INGESTION_SESSIONREPLAY_ML_IMAGE_SCRUB_PRODUCER_QUEUE_BUFFERING_MAX_MESSAGES: '10000',
         KAFKA_INGESTION_SESSIONREPLAY_ML_IMAGE_SCRUB_PRODUCER_QUEUE_BUFFERING_MAX_KBYTES: '131072',
-        KAFKA_INGESTION_SESSIONREPLAY_ML_IMAGE_SCRUB_PRODUCER_MESSAGE_MAX_BYTES: '',
+        KAFKA_INGESTION_SESSIONREPLAY_ML_IMAGE_SCRUB_PRODUCER_MESSAGE_MAX_BYTES: `${20 * 1024 * 1024 + 64 * 1024}`,
         // Short local delivery timeout (librdkafka defaults to 300s): the lane is best-effort and
         // its ack promises join the mirror's pre-commit side-effect drain, so a scrub-topic
         // slowdown must fail deliveries fast (dangling ref = placeholder) rather than stall the
@@ -121,12 +120,9 @@ export function getDefaultKafkaMlImageScrubProducerEnvConfig(): KafkaMlImageScru
 /**
  * ML_IMAGE_FETCH producer — the fetch lane's own client instance on the replay cluster.
  *
- * It does not share the ML_IMAGE_SCRUB producer, whose settings are tuned for the opposite payload.
- * That producer sets `compression.codec: none`, which is right for image bytes that are already
- * compressed and wrong for a record of JSON URLs, which compress well. Its queue is also sized in
- * messages for a lane whose records are ~900 KB each, so this lane's much smaller records would
- * share a byte budget shaped for something else, and a scrub-topic backlog would fail URL produces
- * that have nothing to do with it.
+ * It carries frontier JSON and fetched response bodies. A separate queue prevents a scrub-topic
+ * backlog from blocking the mirror's other outputs. Deployments that publish response bodies set
+ * compression to none because the accepted image formats and HTTP content codings are compressed.
  *
  * Broker and security config are shared with the SESSIONREPLAY producer, as on the scrub lane.
  */
@@ -142,6 +138,7 @@ export const INGESTION_SESSIONREPLAY_ML_IMAGE_FETCH_PRODUCER_CONFIG_MAP = {
     'queue.buffering.max.messages':
         'KAFKA_INGESTION_SESSIONREPLAY_ML_IMAGE_FETCH_PRODUCER_QUEUE_BUFFERING_MAX_MESSAGES',
     'queue.buffering.max.kbytes': 'KAFKA_INGESTION_SESSIONREPLAY_ML_IMAGE_FETCH_PRODUCER_QUEUE_BUFFERING_MAX_KBYTES',
+    'message.max.bytes': 'KAFKA_INGESTION_SESSIONREPLAY_ML_IMAGE_FETCH_PRODUCER_MESSAGE_MAX_BYTES',
     'message.timeout.ms': 'KAFKA_INGESTION_SESSIONREPLAY_ML_IMAGE_FETCH_PRODUCER_MESSAGE_TIMEOUT_MS',
 } as const satisfies Partial<Record<AllowedConfigKey, string>>
 
@@ -150,18 +147,19 @@ export type KafkaMlImageFetchProducerEnvConfig = {
     KAFKA_INGESTION_SESSIONREPLAY_ML_IMAGE_FETCH_PRODUCER_LINGER_MS: string
     KAFKA_INGESTION_SESSIONREPLAY_ML_IMAGE_FETCH_PRODUCER_QUEUE_BUFFERING_MAX_MESSAGES: string
     KAFKA_INGESTION_SESSIONREPLAY_ML_IMAGE_FETCH_PRODUCER_QUEUE_BUFFERING_MAX_KBYTES: string
+    KAFKA_INGESTION_SESSIONREPLAY_ML_IMAGE_FETCH_PRODUCER_MESSAGE_MAX_BYTES: string
     KAFKA_INGESTION_SESSIONREPLAY_ML_IMAGE_FETCH_PRODUCER_MESSAGE_TIMEOUT_MS: string
 }
 
 export function getDefaultKafkaMlImageFetchProducerEnvConfig(): KafkaMlImageFetchProducerEnvConfig {
     return {
-        // JSON URLs compress well, unlike the image bytes on the scrub lane.
+        // Mirror and retry deployments carry JSON. The fetch deployment overrides this to none.
         KAFKA_INGESTION_SESSIONREPLAY_ML_IMAGE_FETCH_PRODUCER_COMPRESSION_CODEC: 'snappy',
         KAFKA_INGESTION_SESSIONREPLAY_ML_IMAGE_FETCH_PRODUCER_LINGER_MS: '',
-        // A record is packed to a byte budget, so bytes rather than count are what bind here:
-        // this holds roughly 60 full records in flight against 50,000 small ones.
+        // This holds one maximum image response or roughly 60 maximum frontier records.
         KAFKA_INGESTION_SESSIONREPLAY_ML_IMAGE_FETCH_PRODUCER_QUEUE_BUFFERING_MAX_MESSAGES: '50000',
         KAFKA_INGESTION_SESSIONREPLAY_ML_IMAGE_FETCH_PRODUCER_QUEUE_BUFFERING_MAX_KBYTES: '32768',
+        KAFKA_INGESTION_SESSIONREPLAY_ML_IMAGE_FETCH_PRODUCER_MESSAGE_MAX_BYTES: `${20 * 1024 * 1024 + 64 * 1024}`,
         // The same short local timeout as the scrub lane, and for the same reason: these ack
         // promises join the mirror's pre-commit side-effect drain, so a slow topic must fail fast
         // rather than hold the mirror's offset commits toward max.poll.interval.ms.

@@ -3,10 +3,8 @@ import { OnboardingComponentsContext, createInstallation } from 'scenes/onboardi
 import { StepDefinition } from '../steps'
 import { SDK_DEFAULTS_DATE } from './_snippets/sdkDefaults'
 
-export const getRemixSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
-    const { CodeBlock, Markdown, CalloutBox, dedent, snippets } = ctx
-
-    const JSEventCapture = snippets?.JSEventCapture
+export const getRemixInstallSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+    const { CodeBlock, Markdown, CalloutBox, dedent } = ctx
 
     return [
         {
@@ -42,6 +40,13 @@ export const getRemixSteps = (ctx: OnboardingComponentsContext): StepDefinition[
                                 file: 'pnpm',
                                 code: dedent`
                                     pnpm add posthog-js
+                                `,
+                            },
+                            {
+                                language: 'bash',
+                                file: 'bun',
+                                code: dedent`
+                                    bun add posthog-js
                                 `,
                             },
                         ]}
@@ -180,12 +185,24 @@ export const getRemixSteps = (ctx: OnboardingComponentsContext): StepDefinition[
                 </>
             ),
         },
-        {
-            title: 'Send events',
-            badge: undefined,
-            content: <>{JSEventCapture && <JSEventCapture />}</>,
-        },
     ]
 }
+
+export const getRemixEventStep = (ctx: OnboardingComponentsContext): StepDefinition => {
+    const { snippets } = ctx
+
+    const JSEventCapture = snippets?.JSEventCapture
+
+    return {
+        title: 'Send events',
+        badge: undefined,
+        content: <>{JSEventCapture && <JSEventCapture />}</>,
+    }
+}
+
+export const getRemixSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => [
+    ...getRemixInstallSteps(ctx),
+    getRemixEventStep(ctx),
+]
 
 export const RemixInstallation = createInstallation(getRemixSteps)

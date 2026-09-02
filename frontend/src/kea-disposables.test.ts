@@ -229,4 +229,23 @@ describe('disposablesPlugin', () => {
         expect(setupCalls).toBe(1)
         expect(cache.disposables.registry.has('k2')).toBe(false)
     })
+
+    it('mounting a built logic again replaces its disposed manager', () => {
+        // Remounting a retained built logic keeps its cache, the lifecycle
+        // scratchpadLogic.test.ts exercises. A manager left disposed there makes every add() in
+        // the next afterMount a no-op, so the logic loses its timers and listeners for good.
+        setHidden(false)
+        const remounted = kea<logicType>([path(['test', 'disposablesRemountTest'])]).build()
+        remounted.mount()
+        ;(remounted as any).cache.disposables.add(makeSetup(), 'k1')
+        remounted.unmount()
+        expect(cleanupCalls).toBe(1)
+        expect((remounted as any).cache.disposables.isDisposed).toBe(true)
+
+        remounted.mount()
+        ;(remounted as any).cache.disposables.add(makeSetup(), 'k1')
+        expect(setupCalls).toBe(2)
+        expect((remounted as any).cache.disposables.registry.has('k1')).toBe(true)
+        remounted.unmount()
+    })
 })

@@ -1,4 +1,3 @@
-from posthog import settings
 from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
 from posthog.clickhouse.query_log_archive import (
@@ -12,6 +11,7 @@ from posthog.clickhouse.query_log_archive import (
     WRITABLE_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL,
     WRITABLE_QUERY_LOG_ARCHIVE_TABLE,
 )
+from posthog.run_mode import run_mode
 
 # Rebuild query_log_archive as a JSON-backed data table living on the OPS cluster:
 #   - sharded_query_log_archive : OPS data table, stores log_comment as a curated JSON column and
@@ -66,7 +66,7 @@ operations = [
     # node, it catches the DATA-side table and leaves an empty copy behind — so drop it.
     *(
         []
-        if settings.CLOUD_DEPLOYMENT in ("US", "EU", "DEV")
+        if run_mode().is_deployed_cloud
         else [
             run_sql_with_exceptions(
                 f"DROP TABLE IF EXISTS {QUERY_LOG_ARCHIVE_OLD_TABLE}",

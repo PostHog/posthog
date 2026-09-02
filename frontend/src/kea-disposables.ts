@@ -25,6 +25,12 @@ export type DisposablesManager = {
      * `dispose` do nothing from that point on, which is what lets async work that outlives the
      * unmount call them unconditionally. Read it when the continuation itself must stop early,
      * for instance before reading `values` on a logic whose reducers are already detached.
+     *
+     * A disposed manager stays inert for the rest of its own life, but the next mount of the same
+     * logic puts a fresh manager on the cache. So a continuation that reaches `cache.disposables`
+     * late can find a live manager belonging to the logic's next life, and disposing a shared key
+     * from there tears down the new life's resource. Capture what the continuation needs while the
+     * logic is alive when that matters.
      */
     isDisposed: boolean
 }
@@ -114,7 +120,10 @@ const detachGlobalVisibilityListener = (): void => {
 }
 
 const initializeDisposablesManager = (logic: LogicWithCache): void => {
-    if (logic.cache.disposables) {
+    // A logic that mounts again keeps the same cache, so the disposed manager from its previous
+    // life is still attached. Replace it, or every `add` in the new `afterMount` is a no-op and
+    // the logic silently loses its timers and listeners for the rest of the session.
+    if (logic.cache.disposables && !logic.cache.disposables.isDisposed) {
         return
     }
 

@@ -125,6 +125,7 @@ export interface accessControlsLogicValues {
     defaults: AccessControlDefaultsResponse | null
     defaultsLoading: boolean
     filteredMembers: AccessControlMemberEntry[]
+    filteredResourceKeySet: Set<APIScopeObject>
     filteredRoles: AccessControlRoleEntry[]
     filters: AccessControlFilters
     loading: boolean
@@ -476,6 +477,7 @@ export interface accessControlsLogicActions {
             | 'signal_scout'
             | 'signal_scout_internal'
             | 'signal_scout_report'
+            | 'signal_scratchpad_internal'
             | 'stamphog'
             | 'streamlit_app'
             | 'subscription'
@@ -490,6 +492,7 @@ export interface accessControlsLogicActions {
             | 'user'
             | 'user_interview'
             | 'vision_action'
+            | 'vision_alert'
             | 'visual_review'
             | 'warehouse_objects'
             | 'warehouse_table'
@@ -645,6 +648,7 @@ export interface accessControlsLogicMeta {
                 | 'signal_scout'
                 | 'signal_scout_internal'
                 | 'signal_scout_report'
+                | 'signal_scratchpad_internal'
                 | 'stamphog'
                 | 'streamlit_app'
                 | 'subscription'
@@ -659,6 +663,7 @@ export interface accessControlsLogicMeta {
                 | 'user'
                 | 'user_interview'
                 | 'vision_action'
+                | 'vision_alert'
                 | 'visual_review'
                 | 'warehouse_objects'
                 | 'warehouse_table'
@@ -687,6 +692,7 @@ export interface accessControlsLogicMeta {
                 label: string
             }[]
         ) => Set<APIScopeObject>
+        filteredResourceKeySet: (filters: AccessControlFilters) => Set<APIScopeObject>
         ruleOptions: (
             availableProjectLevels: AccessControlLevel[],
             availableResourceLevels: AccessControlLevel[]
@@ -790,6 +796,7 @@ export interface accessControlsLogicMeta {
                 | 'signal_scout'
                 | 'signal_scout_internal'
                 | 'signal_scout_report'
+                | 'signal_scratchpad_internal'
                 | 'stamphog'
                 | 'streamlit_app'
                 | 'subscription'
@@ -804,6 +811,7 @@ export interface accessControlsLogicMeta {
                 | 'user'
                 | 'user_interview'
                 | 'vision_action'
+                | 'vision_alert'
                 | 'visual_review'
                 | 'warehouse_objects'
                 | 'warehouse_table'
@@ -908,6 +916,7 @@ export interface accessControlsLogicMeta {
                 | 'signal_scout'
                 | 'signal_scout_internal'
                 | 'signal_scout_report'
+                | 'signal_scratchpad_internal'
                 | 'stamphog'
                 | 'streamlit_app'
                 | 'subscription'
@@ -922,6 +931,7 @@ export interface accessControlsLogicMeta {
                 | 'user'
                 | 'user_interview'
                 | 'vision_action'
+                | 'vision_alert'
                 | 'visual_review'
                 | 'warehouse_objects'
                 | 'warehouse_table'
@@ -1239,6 +1249,10 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                     label: string
                 }[]
             ): Set<APIScopeObject> => new Set(resourceKeys.map((r) => r.key)),
+        ],
+        filteredResourceKeySet: [
+            (s) => [s.filters],
+            (filters: AccessControlFilters): Set<APIScopeObject> => new Set(filters.resourceKeys),
         ],
 
         ruleOptions: [

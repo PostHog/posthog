@@ -20,6 +20,7 @@ from posthog.temporal.common.errors import NonReportableError
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Any_Source_Errors
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     BillingLimitsWillBeReachedException,
+    BinaryColumnReporter,
     SchemaColumnTypeChangedException,
     _get_max_decimal_type,
     _to_list_array,
@@ -27,15 +28,19 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
     apply_enabled_columns_projection,
     conditional_lru_cache_async,
     evolve_pyarrow_schema,
+    hex_encode_id_binary_columns,
     is_safe_numeric_widening,
     merge_observed_columns_into_schema_metadata,
     normalize_table_column_names,
     observe_and_project_table,
     observed_schema_metadata_columns,
     raise_on_nullability_drift,
+    reconcile_batch_to_accumulated_schema,
+    relax_batch_nullability,
     restrict_schema_to_columns,
     source_uses_delta_write_column_selection,
     table_from_py_list,
+    unify_schemas_with_text_fallback,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
@@ -164,10 +169,20 @@ def test_table_from_py_list_inconsistent_types_with_none():
     )
 
 
-def test_table_from_py_list_inconsistent_types_with_str_and_dict():
-    table = table_from_py_list([{"column": "hello"}, {"column": {"field": 1}}])
+@pytest.mark.parametrize(
+    "rows,expected",
+    [
+        ([{"column": "hello"}, {"column": {"field": 1}}], ["hello", '{"field":1}']),
+        # A third scalar type (e.g. int) alongside str and dict used to reach pa.array()
+        # unconverted and raise "ArrowTypeError: Expected bytes, got a 'int' object" — a free-form
+        # field that's sometimes a plain number is a real shape (e.g. an execution's JSON output).
+        ([{"column": "hello"}, {"column": {"field": 1}}, {"column": 5}], ["hello", '{"field":1}', "5"]),
+    ],
+)
+def test_table_from_py_list_inconsistent_types_with_str_and_dict(rows, expected):
+    table = table_from_py_list(rows)
 
-    assert table.equals(pa.table({"column": ["hello", '{"field":1}']}))
+    assert table.equals(pa.table({"column": expected}))
     assert table.schema.equals(
         pa.schema(
             [
@@ -331,6 +346,95 @@ def test_table_from_py_list_with_null_filled_binary_column():
             ]
         )
     )
+
+
+@pytest.mark.parametrize(
+    "column_name,primary_keys,expect_kept",
+    [
+        ("id", None, True),
+        ("ID", None, True),
+        ("order_id", None, True),
+        ("uuid", None, True),
+        ("guid", None, True),
+        ("token", ["token"], True),
+        ("token", None, False),
+        ("payload", None, False),
+    ],
+)
+def test_table_from_py_list_keeps_id_like_binary_columns_as_hex(
+    column_name: str, primary_keys: list[str] | None, expect_kept: bool
+):
+    table = table_from_py_list([{column_name: b"\xbd\xd6\x40", "other": 1.0}], primary_keys=primary_keys)
+
+    if expect_kept:
+        assert table.column(column_name).to_pylist() == ["bdd640"]
+        assert table.schema.field(column_name).type == pa.string()
+    else:
+        assert column_name not in table.schema.names
+
+
+def test_table_from_py_list_keeps_binary_id_column_with_schema():
+    schema = pa.schema(cast(Any, [pa.field("id", pa.binary()), pa.field("column", pa.string())]))
+    table = table_from_py_list([{"id": b"\x01\xff", "column": "hello"}, {"id": None, "column": "world"}], schema)
+
+    assert table.column("id").to_pylist() == ["01ff", None]
+    assert table.schema.field("id").type == pa.string()
+    assert table.column("column").to_pylist() == ["hello", "world"]
+
+
+@pytest.mark.parametrize(
+    "column_name,column_type,primary_keys,expected_values,expected_type",
+    [
+        ("id", pa.binary(), None, ["bdd640", None], pa.string()),
+        ("order_id", pa.binary(), None, ["bdd640", None], pa.string()),
+        ("sk_load", pa.binary(), ["sk_load"], ["bdd640", None], pa.string()),
+        ("sk_load", pa.large_binary(), ["sk_load"], ["bdd640", None], pa.large_string()),
+        ("sk_load", pa.binary(), None, [b"\xbd\xd6\x40", None], pa.binary()),
+        ("payload", pa.binary(), None, [b"\xbd\xd6\x40", None], pa.binary()),
+    ],
+)
+def test_hex_encode_id_binary_columns(
+    column_name: str,
+    column_type: pa.DataType,
+    primary_keys: list[str] | None,
+    expected_values: list[Any],
+    expected_type: pa.DataType,
+):
+    table = pa.table({column_name: pa.array([b"\xbd\xd6\x40", None], type=column_type), "other": [1.0, 2.0]})
+
+    converted = hex_encode_id_binary_columns(table, primary_keys)
+
+    assert converted.column(column_name).to_pylist() == expected_values
+    assert converted.column("other").to_pylist() == [1.0, 2.0]
+    assert converted.schema.field(column_name).type == expected_type
+
+
+def test_hex_encode_id_binary_columns_keeps_chunk_order_and_nulls():
+    chunked = pa.chunked_array(
+        [
+            pa.array([b"\xbd\xd6\x40", None], type=pa.binary()),
+            pa.array([None, b"\x01\xff"], type=pa.binary()),
+        ]
+    )
+    table = pa.table({"id": chunked})
+
+    converted = hex_encode_id_binary_columns(table)
+
+    assert converted.column("id").to_pylist() == ["bdd640", None, None, "01ff"]
+    assert converted.schema.field("id").type == pa.string()
+
+
+def test_binary_column_reporter_logs_each_column_once_across_batches():
+    logger = MagicMock()
+    reporter = BinaryColumnReporter(logger)
+
+    for _ in range(2):
+        table_from_py_list([{"id": b"\x01", "payload": b"\x02"}], binary_reporter=reporter)
+
+    assert logger.info.call_count == 1
+    assert "id" in logger.info.call_args[0][0]
+    assert logger.warning.call_count == 1
+    assert "payload" in logger.warning.call_args[0][0]
 
 
 @pytest.mark.parametrize(
@@ -872,6 +976,34 @@ def test_evolve_pyarrow_schema_whole_valued_floats_cast_into_stored_integer_colu
 
 
 @pytest.mark.parametrize(
+    "merge_key_columns,raises",
+    [
+        (["val"], True),
+        (None, False),
+    ],
+)
+def test_evolve_pyarrow_schema_guards_only_merge_keys_against_hex_text(
+    merge_key_columns: list[str] | None, raises: bool
+):
+    arrow_table = pa.table(
+        {
+            "id": pa.array([1, 2], type=pa.int64()),
+            "val": pa.array(["01ff", "02ff"], type=pa.string()),
+        }
+    )
+    delta_schema = deltalake.Schema.from_arrow(
+        pa.schema(cast(Any, [pa.field("id", pa.int64(), nullable=False), pa.field("val", pa.binary(), nullable=True)]))
+    )
+
+    if raises:
+        with pytest.raises(SchemaColumnTypeChangedException, match="merge key"):
+            evolve_pyarrow_schema(arrow_table, delta_schema, merge_key_columns=merge_key_columns)
+    else:
+        evolved = evolve_pyarrow_schema(arrow_table, delta_schema, merge_key_columns=merge_key_columns)
+        assert evolved.column("val").to_pylist() == [b"01ff", b"02ff"]
+
+
+@pytest.mark.parametrize(
     "delta_type, incoming_column",
     [
         # Non-numeric text arriving for a column stored as int (Failed to parse string).
@@ -998,6 +1130,66 @@ def test_raise_on_nullability_drift_permits_valid_batches(
     delta_schema = deltalake.Schema.from_arrow(pa.schema(delta_fields))
 
     raise_on_nullability_drift(pa_table, delta_schema)
+
+
+@pytest.mark.parametrize(
+    "fields, columns, expected_nullable",
+    [
+        # The source declared the column NOT NULL but sent a null in it, so the claim is corrected.
+        (
+            [pa.field("id", pa.int64(), nullable=False), pa.field("v", pa.int64(), nullable=False)],
+            {"id": [1, 2], "v": [None, 5]},
+            {"id": False, "v": True},
+        ),
+        # No nulls arrived, so the source's NOT NULL claim is true and stands.
+        (
+            [pa.field("id", pa.int64(), nullable=False), pa.field("v", pa.int64(), nullable=False)],
+            {"id": [1, 2], "v": [4, 5]},
+            {"id": False, "v": False},
+        ),
+        # The column is already nullable, so there is nothing to correct.
+        (
+            [pa.field("id", pa.int64(), nullable=False), pa.field("v", pa.int64(), nullable=True)],
+            {"id": [1, 2], "v": [None, 5]},
+            {"id": False, "v": True},
+        ),
+        # Only the column that holds nulls is relaxed; its neighbours keep their declared nullability.
+        (
+            [
+                pa.field("id", pa.int64(), nullable=False),
+                pa.field("v", pa.int64(), nullable=False),
+                pa.field("name", pa.string(), nullable=False),
+            ],
+            {"id": [1, 2], "v": [None, 5], "name": ["a", "b"]},
+            {"id": False, "v": True, "name": False},
+        ),
+    ],
+)
+def test_relax_batch_nullability_corrects_only_columns_that_hold_nulls(
+    fields: list[pa.Field], columns: dict[str, list], expected_nullable: dict[str, bool]
+):
+    pa_table = pa.table(columns, schema=pa.schema(fields))
+
+    relaxed = relax_batch_nullability(pa_table)
+
+    assert {field.name: field.nullable for field in relaxed.schema} == expected_nullable
+    assert relaxed.to_pydict() == pa_table.to_pydict()
+    assert relaxed.schema.types == pa_table.schema.types
+
+
+def test_relax_batch_nullability_keeps_schema_metadata():
+    # The observed-column metadata rides on the schema, so rebuilding the schema must carry it over
+    # or the batch loses the column observations the sync persists.
+    metadata: dict[bytes | str, bytes | str] = {b"ph_observed_columns": b"[]"}
+    pa_table = pa.table(
+        {"v": [None, 5]},
+        schema=pa.schema([pa.field("v", pa.int64(), nullable=False)], metadata=metadata),
+    )
+
+    relaxed = relax_batch_nullability(pa_table)
+
+    assert relaxed.schema.field("v").nullable is True
+    assert relaxed.schema.metadata == metadata
 
 
 def test_evolve_pyarrow_schema_with_struct_containing_datetime_and_decimal():
@@ -1714,3 +1906,181 @@ class TestConditionalLruCacheAsyncCachePop:
         assert fetch.cache_pop("a") == "value-a"
         # Popped, not just read — a second pop finds nothing left to remove.
         assert fetch.cache_pop("a") is None
+
+
+class TestReconcileBatchToAccumulatedSchema:
+    def test_first_batch_seeds_the_accumulated_schema(self):
+        batch = pa.table({"owner_id": [1, 2]})
+
+        result, accumulated = reconcile_batch_to_accumulated_schema(batch, None)
+
+        assert result.equals(batch)
+        assert accumulated == batch.schema
+
+    @pytest.mark.parametrize(
+        "first,second,expected_type,expected_values",
+        [
+            # An epoch field arriving as numeric text after a numeric batch — the shape that
+            # kept breaking Intercom syncs — folds back into the type already written.
+            (pa.table({"f": [1700000000]}), pa.table({"f": ["1700000001"]}), pa.int64(), [1700000001]),
+            (pa.table({"f": ["a"]}), pa.table({"f": [7]}), pa.string(), ["7"]),
+            # Arrow's own promotion wins over stringifying when the types are compatible.
+            (pa.table({"f": [1]}), pa.table({"f": [1.5]}), pa.float64(), [1.5]),
+            # A column that was all-null in the first batch adopts the real type later.
+            (pa.table({"f": [None]}), pa.table({"f": [3]}), pa.int64(), [3]),
+            # Nothing else holds both, so text does.
+            (pa.table({"f": [1]}), pa.table({"f": ["nope"]}), pa.string(), ["nope"]),
+            # Pairs Arrow would "cast" by reinterpretation must degrade to text instead: ints
+            # read as the accumulated timestamp's epoch unit would turn 2023 data into 1970
+            # dates, and numeric ↔ bool casts truthify.
+            (
+                pa.table({"f": pa.array([datetime.datetime(2023, 11, 14)], type=pa.timestamp("us"))}),
+                pa.table({"f": [1700000000]}),
+                pa.string(),
+                ["1700000000"],
+            ),
+            (pa.table({"f": [True]}), pa.table({"f": [7]}), pa.string(), ["7"]),
+            (pa.table({"f": [1]}), pa.table({"f": [True]}), pa.string(), ["true"]),
+        ],
+    )
+    def test_conflicting_column_types_converge(
+        self, first: pa.Table, second: pa.Table, expected_type: pa.DataType, expected_values: list[Any]
+    ):
+        _, accumulated = reconcile_batch_to_accumulated_schema(first, None)
+
+        result, accumulated = reconcile_batch_to_accumulated_schema(second, accumulated)
+
+        assert result.schema.field("f").type == expected_type
+        assert accumulated.field("f").type == expected_type
+        assert result.column("f").to_pylist() == expected_values
+
+    def test_columns_missing_from_a_batch_are_backfilled(self):
+        _, accumulated = reconcile_batch_to_accumulated_schema(pa.table({"a": [1], "b": ["x"]}), None)
+
+        result, accumulated = reconcile_batch_to_accumulated_schema(pa.table({"a": [2]}), accumulated)
+
+        assert result.column("b").to_pylist() == [None]
+        assert result.schema.field("b").type == pa.string()
+
+    def test_columns_new_to_a_batch_join_the_accumulated_schema(self):
+        _, accumulated = reconcile_batch_to_accumulated_schema(pa.table({"a": [1]}), None)
+
+        _, accumulated = reconcile_batch_to_accumulated_schema(pa.table({"a": [2], "b": ["x"]}), accumulated)
+
+        assert accumulated.names == ["a", "b"]
+
+    def test_nested_shapes_degrade_to_json_text_not_reshaped_structs(self):
+        # pc.cast(struct → struct) "succeeds" by dropping unmatched fields and null-filling the
+        # rest, silently emptying the column. A nested column whose shape changes between
+        # batches must render as JSON text instead — with nulls staying null, not becoming text.
+        _, accumulated = reconcile_batch_to_accumulated_schema(pa.table({"f": [{"a": 1}]}), None)
+
+        result, accumulated = reconcile_batch_to_accumulated_schema(pa.table({"f": [{"b": "x"}, None]}), accumulated)
+
+        assert result.schema.field("f").type == pa.string()
+        rendered, null_value = result.column("f").to_pylist()
+        assert rendered is not None
+        assert orjson.loads(rendered) == {"b": "x"}
+        assert null_value is None
+        assert accumulated.field("f").type == pa.string()
+
+    def test_stringified_bytes_decode_as_text_and_nulls_stay_null(self):
+        # A binary flip against a non-string accumulated type has no Arrow promotion, so it
+        # degrades to text through the per-value renderer: bytes must decode (replacing invalid
+        # sequences) rather than render as Python reprs, and nulls must stay null.
+        _, accumulated = reconcile_batch_to_accumulated_schema(pa.table({"f": [1]}), None)
+
+        result, _ = reconcile_batch_to_accumulated_schema(
+            pa.table({"f": pa.array([b"caf\xc3\xa9", b"\xff", None], type=pa.binary())}), accumulated
+        )
+
+        assert result.schema.field("f").type == pa.string()
+        assert result.column("f").to_pylist() == ["café", "�", None]
+
+    def test_protected_cursor_column_still_converges_castable_flips(self):
+        # The known Intercom shape on the cursor itself: numeric text parses back to the
+        # accumulated numeric type, so incremental syncs keep working.
+        _, accumulated = reconcile_batch_to_accumulated_schema(pa.table({"updated_at": [1700000000]}), None)
+
+        result, _ = reconcile_batch_to_accumulated_schema(
+            pa.table({"updated_at": ["1700000001"]}), accumulated, protected_columns={"updated_at"}
+        )
+
+        assert result.column("updated_at").to_pylist() == [1700000001]
+
+    def test_protected_cursor_column_widens_numerically_instead_of_raising(self):
+        # A cursor that outgrows the narrow integer type its first batch inferred must widen
+        # via Arrow's own promotion — and log the coercion — rather than fail the run.
+        logger = MagicMock()
+        _, accumulated = reconcile_batch_to_accumulated_schema(
+            pa.table({"updated_at": pa.array([1000], type=pa.int32())}), None
+        )
+
+        result, accumulated = reconcile_batch_to_accumulated_schema(
+            pa.table({"updated_at": pa.array([2**40], type=pa.int64())}),
+            accumulated,
+            logger=logger,
+            protected_columns={"updated_at"},
+        )
+
+        assert result.schema.field("updated_at").type == pa.int64()
+        assert result.column("updated_at").to_pylist() == [2**40]
+        assert accumulated.field("updated_at").type == pa.int64()
+        assert logger.warning.call_args.kwargs["resolution"] == "promoted"
+
+    @pytest.mark.parametrize(
+        "first,second",
+        [
+            # True text in the cursor: a string watermark would compare lexicographically and
+            # silently corrupt incremental progress, so refuse loudly.
+            (pa.table({"updated_at": [1700000000]}), pa.table({"updated_at": ["not-a-number"]})),
+            # A cursor that accumulated as text must not quietly absorb numbers either.
+            (pa.table({"updated_at": ["2024-01-01T00:00:00"]}), pa.table({"updated_at": [1700000000]})),
+        ],
+    )
+    def test_protected_cursor_column_refuses_text_convergence(self, first: pa.Table, second: pa.Table):
+        _, accumulated = reconcile_batch_to_accumulated_schema(first, None)
+
+        with pytest.raises(ValueError, match="cursor column"):
+            reconcile_batch_to_accumulated_schema(second, accumulated, protected_columns={"updated_at"})
+
+    def test_batches_of_source_rows_that_flip_type_stay_mergeable(self):
+        # The prod failure: a source returns the same field as an int on some rows and a string
+        # on others, each batch infers its own type, and merging the run's parquet schemas dies
+        # with "Unable to merge: Field ... has incompatible types: int64 vs string".
+        accumulated = None
+        schemas = []
+        for row in ({"id": "1", "waiting_since": 1700000000}, {"id": "2", "waiting_since": "1700000001"}):
+            batch = evolve_pyarrow_schema(table_from_py_list([row]), None)
+            batch, accumulated = reconcile_batch_to_accumulated_schema(batch, accumulated)
+            schemas.append(batch.schema)
+
+        assert unify_schemas_with_text_fallback(schemas).field("waiting_since").type == pa.int64()
+
+
+class TestUnifySchemasWithTextFallback:
+    def test_unmergeable_field_resolves_to_text(self):
+        # Batches written before a conflict keep their original type on disk, so the run's
+        # merged schema still sees both. Describing it as text beats failing the extraction —
+        # while columns the schemas agree on pass through untouched, with only the conflict
+        # resolved and logged.
+        logger = MagicMock()
+        struct = pa.struct([pa.field("x", pa.int64())])
+        merged = unify_schemas_with_text_fallback(
+            [
+                pa.schema([pa.field("f", pa.int64()), pa.field("s", struct)]),
+                pa.schema([pa.field("f", pa.string()), pa.field("s", struct)]),
+            ],
+            logger=logger,
+        )
+
+        assert merged.field("f").type == pa.string()
+        assert merged.field("s").type == struct
+        assert logger.warning.call_count == 1
+
+    def test_mergeable_schemas_are_unchanged(self):
+        merged = unify_schemas_with_text_fallback(
+            [pa.schema([pa.field("a", pa.int64())]), pa.schema([pa.field("b", pa.string())])]
+        )
+
+        assert merged.names == ["a", "b"]

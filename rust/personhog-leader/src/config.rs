@@ -5,6 +5,9 @@ use std::time::Duration;
 use common_kafka::config::KafkaConfig;
 use envconfig::Envconfig;
 use personhog_coordination::authority::AuthorityClock;
+use personhog_coordination::pod::{
+    PodConfig, DRAIN_SETUP_BOUND, REVOKE_TIMEOUT, SHUTDOWN_FENCE_BOUND,
+};
 
 #[derive(Envconfig, Clone)]
 pub struct Config {
@@ -327,6 +330,30 @@ pub struct Config {
 
     #[envconfig(default = "10")]
     pub heartbeat_interval_secs: u64,
+
+    // ── Shutdown budgets ─────────────────────────────────────────
+    // The lifecycle manager's per-phase windows. Configurable because
+    // the terms validated against them — the drain timeout, the
+    // heartbeat interval — are, and a fixed ceiling under adjustable
+    // terms is a configuration an operator cannot resolve. Their
+    // relations are checked by `validate_shutdown_budgets` at startup.
+    /// How long the lifecycle manager lets the coordination component
+    /// exit gracefully. The pod's whole teardown — drain setup, drain,
+    /// fence, keepalive join, revoke — must fit inside it, which
+    /// `validate_lease_timescales` enforces.
+    #[envconfig(default = "55")]
+    pub coordination_graceful_shutdown_secs: u64,
+
+    /// The phase-1 components' shared budget: the gRPC server and the
+    /// producer stop in parallel after coordination finishes.
+    #[envconfig(default = "15")]
+    pub phase1_graceful_shutdown_secs: u64,
+
+    /// Phase 0 (coordination) plus phase 1, with slack. Must stay under
+    /// the chart's termination grace period so shutdown concludes
+    /// process-side.
+    #[envconfig(default = "75")]
+    pub global_shutdown_timeout_secs: u64,
 }
 
 /// A fenced write must resolve inside the runway the lease keepalive
@@ -580,7 +607,76 @@ impl Config {
                 self.lease_ttl,
             ));
         }
+        // The pod's graceful exit — drain setup, drain, shutdown-path
+        // fence, one keepalive round's join, bounded revoke — has to
+        // fit the coordination budget, or the lifecycle manager
+        // abandons it mid-teardown while this pod is still the
+        // registered owner. The drain term reads the same
+        // `base_pod_config` the running pod is built from, so a future
+        // knob cannot decouple the validated sum from the deployed one.
+        let drain = self.base_pod_config().drain_timeout;
+        let teardown =
+            DRAIN_SETUP_BOUND + drain + SHUTDOWN_FENCE_BOUND + heartbeat + REVOKE_TIMEOUT;
+        let budget = self.coordination_graceful_shutdown();
+        if teardown >= budget {
+            return Err(format!(
+                "the pod's teardown ({teardown:?} = setup {DRAIN_SETUP_BOUND:?} + drain \
+                 {drain:?} + fence {SHUTDOWN_FENCE_BOUND:?} + a {heartbeat:?} keepalive join \
+                 + revoke {REVOKE_TIMEOUT:?}) must finish inside the coordination \
+                 component's {budget:?} graceful shutdown budget; lower \
+                 HEARTBEAT_INTERVAL_SECS or raise COORDINATION_GRACEFUL_SHUTDOWN_SECS"
+            ));
+        }
         Ok(())
+    }
+
+    /// The lifecycle manager's phases must fit the window that
+    /// supervises them, or its own deadline fires before theirs.
+    ///
+    /// Checked at startup rather than compile time because the budgets
+    /// are configuration: a fixed ceiling under adjustable phase
+    /// timings is a configuration an operator cannot resolve.
+    pub fn validate_shutdown_budgets(&self) -> Result<(), String> {
+        let phases = self.coordination_graceful_shutdown() + self.phase1_graceful_shutdown();
+        let global = self.global_shutdown_timeout();
+        if phases >= global {
+            return Err(format!(
+                "the shutdown phases ({phases:?} = a {:?} coordination drain plus a {:?} \
+                 server and producer stop) must finish inside the {global:?} global window \
+                 with room to spare; raise GLOBAL_SHUTDOWN_TIMEOUT_SECS or lower the phases",
+                self.coordination_graceful_shutdown(),
+                self.phase1_graceful_shutdown(),
+            ));
+        }
+        Ok(())
+    }
+
+    pub fn coordination_graceful_shutdown(&self) -> Duration {
+        Duration::from_secs(self.coordination_graceful_shutdown_secs)
+    }
+
+    pub fn phase1_graceful_shutdown(&self) -> Duration {
+        Duration::from_secs(self.phase1_graceful_shutdown_secs)
+    }
+
+    pub fn global_shutdown_timeout(&self) -> Duration {
+        Duration::from_secs(self.global_shutdown_timeout_secs)
+    }
+
+    /// The coordination-relevant half of the pod's configuration, shared
+    /// by `main`'s construction and the teardown validation above so the
+    /// two cannot drift: a drain or heartbeat knob added here is summed
+    /// by the validation automatically, where one added at the
+    /// construction site would be invisible to it.
+    pub fn base_pod_config(&self) -> PodConfig {
+        PodConfig {
+            lease_ttl: self.lease_ttl,
+            heartbeat_interval: self.heartbeat_interval(),
+            // Zero would park every warm on an unobtainable permit and
+            // wedge handoffs; treat it as fully sequential instead.
+            warm_concurrency: self.warm_concurrency.max(1),
+            ..Default::default()
+        }
     }
 
     /// Every relation the fenced produce path depends on, checked at
@@ -779,11 +875,68 @@ mod tests {
 }
 
 #[cfg(test)]
+mod lease_timescale_tests {
+    use super::*;
+
+    /// The phase budgets have to fit the window supervising them. This
+    /// held at compile time while they were constants; as configuration
+    /// it is a startup refusal, and the defaults must still satisfy it.
+    #[test]
+    fn shutdown_phases_that_overrun_the_global_window_are_refused() {
+        let config =
+            Config::init_from_hashmap(&std::collections::HashMap::new()).expect("defaults");
+        assert!(
+            config.validate_shutdown_budgets().is_ok(),
+            "the defaults must satisfy their own relations"
+        );
+
+        let mut overrun =
+            Config::init_from_hashmap(&std::collections::HashMap::new()).expect("defaults");
+        overrun.global_shutdown_timeout_secs =
+            overrun.coordination_graceful_shutdown_secs + overrun.phase1_graceful_shutdown_secs;
+        assert!(
+            overrun.validate_shutdown_budgets().is_err(),
+            "phases summing to the whole global window leave the manager no slack"
+        );
+    }
+
+    /// The pod's teardown must fit the coordination component's budget,
+    /// and the keepalive join is the one term an operator can move. A
+    /// heartbeat the renewal margin accepts can still blow the budget —
+    /// that band is exactly what a check on the margin alone missed.
+    #[test]
+    fn a_teardown_the_shutdown_budget_cannot_fit_is_refused() {
+        let mut config =
+            Config::init_from_hashmap(&std::collections::HashMap::new()).expect("defaults");
+        config.lease_ttl = 30;
+        // Inside the 20s renewal margin, so the pair check passes — but
+        // setup (5s) + drain (30s) + fence (3s) + a 16s join + revoke
+        // (5s) = 59s overruns the 55s budget. Sixteen, not a rounder
+        // number, because it discriminates on every term: without the
+        // setup bound the sum is 54s, which a broken validation would
+        // accept — a 17s join sums to exactly 55s either way and pins
+        // nothing about the setup term.
+        config.heartbeat_interval_secs = 16;
+        assert!(config.validate_lease_timescales().is_err());
+
+        config.heartbeat_interval_secs = 10;
+        assert!(
+            config.validate_lease_timescales().is_ok(),
+            "the default heartbeat must fit the budget"
+        );
+    }
+}
+
+#[cfg(test)]
 mod fencing_timescale_tests {
     use super::*;
 
+    /// The envconfig defaults with no environment behind them, so an
+    /// ambient variable in a developer's shell cannot change what these
+    /// tests assert.
     fn fenced(lease_ttl: i64) -> Config {
-        let mut config = Config::init_from_env().expect("defaults");
+        let mut config =
+            Config::init_from_hashmap(&std::collections::HashMap::new()).expect("defaults");
         config.kafka_transactional_fencing = true;
         config.lease_gated_authority = true;
         config.lease_ttl = lease_ttl;

@@ -10,7 +10,7 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 
 from posthog.api.utils import ServerTimingsGathered
-from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 from posthog.models import Team, User
 from posthog.utils import get_instance_region
 
@@ -93,7 +93,7 @@ def summarize_survey_responses(
         prepared_data = [x[0] for x in query_response.results if x[0]]
 
     with timer("openai_completion"):
-        result = OpenAI(posthog_client=posthoganalytics.default_client).chat.completions.create(  # type: ignore[call-overload]
+        result = OpenAI(posthog_client=posthoganalytics.default_client).chat.completions.create(
             model="gpt-4.1-mini",  # allows 128k tokens
             temperature=0.7,
             messages=[

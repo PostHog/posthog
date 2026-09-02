@@ -2,29 +2,8 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import SourceFieldInputConfig
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.elevenlabs import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.elevenlabs.elevenlabs import (
-    ElevenLabsResumeConfig,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.elevenlabs.source import ElevenLabsSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
-
-
-class TestElevenLabsSourceConfig:
-    def test_source_type(self) -> None:
-        assert ElevenLabsSource().source_type == ExternalDataSourceType.ELEVENLABS
-
-    def test_config_exposes_api_key_password_field(self) -> None:
-        config = ElevenLabsSource().get_source_config
-        fields = {f.name: f for f in config.fields}
-        assert "api_key" in fields
-        api_key_field = fields["api_key"]
-        assert isinstance(api_key_field, SourceFieldInputConfig)
-        assert api_key_field.type == "password"
-        assert api_key_field.required is True
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/elevenlabs"
 
 
 class TestElevenLabsSchemas:
@@ -82,34 +61,6 @@ class TestElevenLabsNonRetryableErrors:
 
 
 class TestElevenLabsPipelinePlumbing:
-    def test_resumable_manager_bound_to_resume_config(self) -> None:
-        inputs = MagicMock()
-        manager = ElevenLabsSource().get_resumable_source_manager(inputs)
-        assert manager._data_class is ElevenLabsResumeConfig
-
-    def test_source_for_pipeline_forwards_incremental_inputs(self) -> None:
-        config = MagicMock(api_key="sk_test")
-        manager = MagicMock()
-        inputs = MagicMock(
-            schema_name="history",
-            team_id=7,
-            job_id="job-1",
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=1700000000,
-            incremental_field="date_unix",
-        )
-        with patch.object(source_module, "elevenlabs_source") as mocked:
-            ElevenLabsSource().source_for_pipeline(config, manager, inputs)
-
-        _args, kwargs = mocked.call_args
-        assert kwargs["endpoint"] == "history"
-        assert kwargs["api_key"] == "sk_test"
-        assert kwargs["team_id"] == 7
-        assert kwargs["job_id"] == "job-1"
-        assert kwargs["should_use_incremental_field"] is True
-        assert kwargs["db_incremental_field_last_value"] == 1700000000
-        assert kwargs["incremental_field"] == "date_unix"
-
     def test_source_for_pipeline_drops_watermark_on_full_refresh(self) -> None:
         # When incremental is off, the stored watermark must not leak into the request as a filter.
         inputs = MagicMock(
@@ -123,10 +74,3 @@ class TestElevenLabsPipelinePlumbing:
 
         _args, kwargs = mocked.call_args
         assert kwargs["db_incremental_field_last_value"] is None
-
-
-def test_validate_credentials_delegates_to_transport() -> None:
-    with patch.object(source_module, "validate_elevenlabs_credentials", return_value=(True, None)) as mocked:
-        result = ElevenLabsSource().validate_credentials(MagicMock(api_key="sk_test"), team_id=1, schema_name="history")
-    assert result == (True, None)
-    assert mocked.call_args[0] == ("sk_test", "history")

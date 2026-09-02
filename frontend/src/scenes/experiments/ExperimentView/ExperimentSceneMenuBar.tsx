@@ -46,9 +46,10 @@ import {
     confirmFreezeExposure,
     confirmResetExperiment,
     confirmUnfreezeExposure,
-} from '../experimentActions'
+} from 'products/experiments/frontend/experimentActions'
+import { isExperimentExposureFrozen, isExperimentPaused } from 'products/experiments/frontend/experimentStatus'
+
 import { experimentLogic } from '../experimentLogic'
-import { isExperimentExposureFrozen, isExperimentPaused } from '../experimentsLogic'
 import { modalsLogic } from '../modalsLogic'
 import { isLegacyExperiment } from '../utils'
 

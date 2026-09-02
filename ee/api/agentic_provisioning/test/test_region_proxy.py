@@ -157,7 +157,7 @@ class TestShouldProxyBearerLookup(BaseTest):
 
 class TestProxyHeaderAllowlist(BaseTest):
     @patch("ee.api.agentic_provisioning.region_proxy.requests")
-    def test_strips_cookies_and_forwarded_headers(self, mock_requests):
+    def test_strips_cookies_and_carries_the_caller_address(self, mock_requests):
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.content = b'{"status": "ok"}'
@@ -169,7 +169,7 @@ class TestProxyHeaderAllowlist(BaseTest):
             data={},
             format="json",
             HTTP_COOKIE="sessionid=secret123",
-            HTTP_X_FORWARDED_FOR="10.0.0.1",
+            HTTP_X_FORWARDED_FOR="203.0.113.7, 10.0.0.1",
             HTTP_STRIPE_SIGNATURE="t=123,v1=abc",
             HTTP_AUTHORIZATION="Bearer pha_test",
         )
@@ -182,8 +182,10 @@ class TestProxyHeaderAllowlist(BaseTest):
         header_keys_lower = {k.lower() for k in forwarded_headers}
 
         assert "cookie" not in header_keys_lower
-        assert "x-forwarded-for" not in header_keys_lower
         assert "stripe-signature" not in header_keys_lower
+        # Carried through, so the other region's per-IP limits key on the caller
+        # rather than on this region's egress address.
+        assert forwarded_headers["X-Forwarded-For"] == "203.0.113.7, 10.0.0.1"
         assert "authorization" in header_keys_lower
         assert "host" in header_keys_lower
         assert forwarded_headers["Host"] == "eu.posthog.com"

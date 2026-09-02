@@ -24,7 +24,10 @@ pytestmark = [
 
 def wait_for_backfill_creation(client: HttpClient, team_id: int, batch_export_id: str):
     total = 0
-    timeout = 30
+    # The backfill appears when the Temporal worker processes the workflow. On a
+    # shard that also runs the temporal suites the worker can lag well past 30s,
+    # so give it headroom; the green path returns as soon as it shows up.
+    timeout = 120
     while total < timeout:
         response = list_batch_export_backfills_ok(client, team_id, batch_export_id)
         backfills = response["results"]
@@ -37,7 +40,7 @@ def wait_for_backfill_creation(client: HttpClient, team_id: int, batch_export_id
     raise Exception("Backfill not found")
 
 
-def wait_for_backfill_runs(backfill_id: str, timeout: int = 30) -> list[BatchExportRun]:
+def wait_for_backfill_runs(backfill_id: str, timeout: int = 120) -> list[BatchExportRun]:
     total = 0
     while total < timeout:
         runs = list(BatchExportRun.objects.filter(backfill_id=backfill_id))

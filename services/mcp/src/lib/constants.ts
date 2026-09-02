@@ -28,10 +28,6 @@ export const MCP_ANALYTICS_SOURCE = 'posthog_mcp_analytics'
 // fit, and the tool-domain index absorbs whatever budget the fixed sections leave.
 export const MCP_INSTRUCTIONS_CHAR_BUDGET = 2048
 
-// Gates the semantic layer (governed-metrics catalog) — no tool declares it, so it must be
-// joined into the evaluated flag set explicitly; instructions content branches on it.
-export const PRODUCT_DATA_CATALOG_FLAG = 'product-data-catalog'
-
 // Gates reaching third-party MCP servers connected through the MCP gateway. Same flag as
 // the gateway's own UI in the main app, so a team gets the tools when it gets the gateway.
 export const MCP_GATEWAY_FLAG = 'mcp-gateway'

@@ -154,21 +154,28 @@ function SavedInsightChartBody({ query, uniqueKey }: { query: SavedInsightNode; 
  * be handed something it cannot draw. That degrades to `Query`'s own error boundary rather than
  * taking the report down with it.
  */
+/** Looks the chart up on the open report. Replay Vision reads reports through its own
+ * scanner-scoped endpoint, so it renders `ReportChartCard` with the chart it already holds. */
 export function ReportChart({ chartId }: { chartId: string }): JSX.Element | null {
     const { chartsById } = useValues(inboxReportDetailLogic)
-    const chart: ReportChartApi | undefined = chartsById.get(chartId)
+    const chart = chartsById.get(chartId)
+    return chart ? <ReportChartCard chart={chart} /> : null
+}
+
+/** One chart as it appears in a report: title, the drawn query, and an optional caption. */
+export function ReportChartCard({ chart }: { chart: ReportChartApi }): JSX.Element | null {
     // `query` is `unknown` on the serializer, and the rows behind it are older stored JSON, so this is
     // where it becomes a node: anything that isn't an object has no `kind` for `Query` to draw.
     const authoredQuery = useMemo(
-        () => (chart?.query && typeof chart.query === 'object' ? (chart.query as Node) : null),
-        [chart?.query]
+        () => (chart.query && typeof chart.query === 'object' ? (chart.query as Node) : null),
+        [chart.query]
     )
     const query = useMemo(
         () => (authoredQuery ? asEmbeddedChart(authoredQuery as Record<string, any>) : null),
         [authoredQuery]
     )
 
-    if (!chart || !query || !authoredQuery) {
+    if (!query || !authoredQuery) {
         return null
     }
 

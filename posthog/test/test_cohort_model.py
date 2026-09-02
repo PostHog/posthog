@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 
 import pytest
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.test import SimpleTestCase, override_settings
 
@@ -13,9 +14,10 @@ from posthog.clickhouse.client import sync_execute
 from posthog.helpers.batch_iterators import FunctionBatchIterator
 from posthog.models import Person, Team
 from posthog.models.person.util import get_person_by_id
+from posthog.tasks.calculate_cohort import calculate_cohort_from_list
 from posthog.test.persons import add_cohort_members, create_person
 
-from products.cohorts.backend.models.cohort import Cohort, CohortConditionFlags, CohortType
+from products.cohorts.backend.models.cohort import Cohort, CohortConditionFlags, CohortType, ImportResolution
 from products.cohorts.backend.models.sql import GET_COHORTPEOPLE_BY_COHORT_ID
 from products.cohorts.backend.models.util import count_cohort_members, list_cohort_member_ids
 from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
@@ -75,6 +77,101 @@ class TestCohort(BaseTest):
         cohort.refresh_from_db()
         self.assertEqual(count_cohort_members(self.team.id, cohort.pk), 11)
         self.assertEqual(cohort.is_calculating, False)
+
+    def test_csv_import_records_unmatched_distinct_ids(self):
+        create_person(team=self.team, distinct_ids=["000"])
+        create_person(team=self.team, distinct_ids=["123"])
+
+        cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True)
+        with patch("posthog.tasks.calculate_cohort.logger.warning") as warning:
+            calculate_cohort_from_list(
+                cohort.id,
+                ["123", "000", "anonymous-1", "anonymous-2", "anonymous-3"],
+                team_id=self.team.id,
+            )
+        cohort.refresh_from_db()
+
+        self.assertEqual(cohort.count, 2)
+        self.assertEqual(cohort.last_import_total_count, 5)
+        self.assertEqual(cohort.last_import_unmatched_count, 3)
+        warning.assert_called_once_with(
+            "cohort_import_unmatched_ids",
+            cohort_id=cohort.id,
+            team_id=self.team.id,
+            total=5,
+            unmatched=3,
+        )
+
+    def test_distinct_id_resolution_accumulates_across_batches(self):
+        create_person(team=self.team, distinct_ids=["000"])
+        create_person(team=self.team, distinct_ids=["123"])
+        cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True)
+        resolution = ImportResolution()
+
+        cohort.insert_users_by_list(
+            ["123", "000", "anonymous-1", "anonymous-2", "anonymous-3"],
+            team_id=self.team.id,
+            batch_size=2,
+            import_resolution=resolution,
+        )
+
+        self.assertEqual(resolution.total, 5)
+        self.assertEqual(resolution.unmatched, 3)
+
+    def test_csv_import_records_unmatched_emails(self):
+        person1 = create_person(team=self.team, distinct_ids=["person-1"])
+        person2 = create_person(team=self.team, distinct_ids=["person-2"])
+        cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True)
+
+        with patch.object(
+            Cohort,
+            "_get_uuids_for_emails_batch_ch",
+            return_value=([str(person1.uuid), str(person2.uuid)], {"one@example.com", "two@example.com"}),
+        ):
+            calculate_cohort_from_list(
+                cohort.id,
+                ["one@example.com", "two@example.com", "missing@example.com"],
+                team_id=self.team.id,
+                id_type="email",
+            )
+
+        cohort.refresh_from_db()
+        self.assertEqual(cohort.count, 2)
+        self.assertEqual(cohort.last_import_total_count, 3)
+        self.assertEqual(cohort.last_import_unmatched_count, 1)
+
+    def test_csv_import_records_unmatched_person_uuids(self):
+        person1 = create_person(team=self.team, distinct_ids=["person-1"])
+        person2 = create_person(team=self.team, distinct_ids=["person-2"])
+        cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True)
+
+        calculate_cohort_from_list(
+            cohort.id,
+            [str(person1.uuid), str(person2.uuid), str(uuid.uuid4())],
+            team_id=self.team.id,
+            id_type="person_id",
+        )
+
+        cohort.refresh_from_db()
+        self.assertEqual(cohort.count, 2)
+        self.assertEqual(cohort.last_import_total_count, 3)
+        self.assertEqual(cohort.last_import_unmatched_count, 1)
+
+    def test_membership_addition_does_not_replace_import_counts(self):
+        person = create_person(team=self.team, distinct_ids=["002"])
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[],
+            is_static=True,
+            last_import_total_count=5,
+            last_import_unmatched_count=3,
+        )
+        cohort.insert_users_list_by_uuid([str(person.uuid)], team_id=self.team.id)
+        cohort.refresh_from_db()
+
+        self.assertEqual(cohort.count, 1)
+        self.assertEqual(cohort.last_import_total_count, 5)
+        self.assertEqual(cohort.last_import_unmatched_count, 3)
 
     @pytest.mark.ee
     def test_calculating_cohort_clickhouse(self):
@@ -875,6 +972,16 @@ class TestCohortComputeConditionType(SimpleTestCase):
     )
     def test_compute_condition_type(self, _label, filters, expected):
         self.assertEqual(Cohort.compute_condition_type(filters), expected)
+
+
+class TestImportResolution(SimpleTestCase):
+    def test_deduplicates_inputs_across_batches(self) -> None:
+        resolution = ImportResolution()
+        resolution.record(["matched", "duplicate"], {"matched"})
+        resolution.record(["duplicate", "unmatched"], {"duplicate"})
+
+        self.assertEqual(resolution.total, 3)
+        self.assertEqual(resolution.unmatched, 1)
 
 
 class TestCohortConditionTypeDerivedOnSave(BaseTest):

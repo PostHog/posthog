@@ -105,6 +105,13 @@ class TestThrottleMath:
 
 @pytest.mark.django_db(transaction=True)
 class TestMeterScannerReadsActivity:
+    def test_the_metering_sql_executes_against_clickhouse(self) -> None:
+        # Every other test here mocks sync_execute, which is how an alias-shadowing SQL error once
+        # shipped and failed every production metering run; this executes the real query.
+        result = meter_scanner_read_bytes_activity()
+
+        assert result.scanners_updated == 0
+
     def test_junk_scanner_tag_does_not_take_down_the_run(self) -> None:
         # scanner_id is a free-form string in the query log, so a non-UUID must be skipped rather
         # than blowing up the pk__in lookup for every other scanner in the batch.

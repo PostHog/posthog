@@ -6,7 +6,11 @@ import {
   isAgentPolicyState,
   isPolicyStateAllowedByCeiling,
 } from "@posthog/core/mcp-gateway/gatewayServers";
-import { shouldAutoRefreshTools } from "@posthog/core/mcp-servers/toolRefresh";
+import {
+  autoRefreshRetryDelayMs,
+  shouldAutoRefreshTools,
+  shouldRetryAutoRefresh,
+} from "@posthog/core/mcp-servers/toolRefresh";
 import {
   type GatewayPolicyScope,
   gatewayKeys,
@@ -127,10 +131,16 @@ export function useGatewayToolPolicies(
 
   // Re-lists tools from the upstream server via the caller's installation.
   const silentRefreshRef = useRef(false);
+  const attemptedThisMount = useRef(new Set<string>());
   const refreshMutation = useAuthenticatedMutation(
     (client, installationId: string) =>
       client.refreshMcpInstallationTools(installationId),
     {
+      // A silent listing retries a few times with backoff before it gives up;
+      // a manual refresh reports its first failure.
+      retry: (failureCount) =>
+        shouldRetryAutoRefresh(failureCount, silentRefreshRef.current),
+      retryDelay: autoRefreshRetryDelayMs,
       onSuccess: () => {
         silentRefreshRef.current = false;
         queryClient.invalidateQueries({
@@ -166,11 +176,18 @@ export function useGatewayToolPolicies(
       installationId: autoDiscoverWith,
       isLoading,
       toolsLength: policyCount,
-      alreadyRefreshed: autoDiscovered.has(autoDiscoverWith),
+      // The module-level marker is dropped when a listing fails so a later
+      // mount retries; the per-mount one is not, because this effect re-runs
+      // when the failed mutation settles and would otherwise fire again at
+      // once, looping against the upstream server until it rate-limits.
+      alreadyRefreshed:
+        autoDiscovered.has(autoDiscoverWith) ||
+        attemptedThisMount.current.has(autoDiscoverWith),
       refreshPending: refreshIsPending,
     });
     if (!fire) return;
     autoDiscovered.add(autoDiscoverWith);
+    attemptedThisMount.current.add(autoDiscoverWith);
     silentRefreshRef.current = true;
     refreshMutate(autoDiscoverWith);
   }, [

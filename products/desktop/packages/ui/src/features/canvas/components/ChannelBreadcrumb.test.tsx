@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // Hoisted so the module factory below can read them, and each test can steer
 // the current route / assert navigations.
 const router = vi.hoisted(() => ({
-  pathname: "/website/team/artifacts",
+  pathname: "/spaces/team/artifacts",
   navigate: vi.fn(),
 }));
 const channels = vi.hoisted(() => ({
@@ -50,7 +50,7 @@ import { ChannelBreadcrumb } from "./ChannelBreadcrumb";
 
 describe("ChannelBreadcrumb", () => {
   beforeEach(() => {
-    router.pathname = "/website/team/artifacts";
+    router.pathname = "/spaces/team/artifacts";
     router.navigate.mockClear();
     channels.star.mockClear();
     channels.unstar.mockClear();
@@ -112,7 +112,7 @@ describe("ChannelBreadcrumb", () => {
     expect(root).not.toHaveAttribute("aria-disabled", "true");
     fireEvent.click(root);
     expect(router.navigate).toHaveBeenCalledWith({
-      to: "/website/$channelId",
+      to: "/spaces/$channelId",
       params: { channelId: "team" },
     });
   });
@@ -141,7 +141,7 @@ describe("ChannelBreadcrumb", () => {
   });
 
   it("disables the root segment on the space's own index", () => {
-    router.pathname = "/website/team";
+    router.pathname = "/spaces/team";
     render(
       <Theme>
         <ChannelBreadcrumb

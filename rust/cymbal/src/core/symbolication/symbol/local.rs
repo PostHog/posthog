@@ -15,6 +15,7 @@ use sqlx::PgPool;
 
 use crate::{
     core::config::ResolverConfig,
+    core::write_attribution::{record_frame_write, FrameWriteOutcome},
     error::{JsResolveErr, ProguardError, ResolveError, UnhandledError},
     frames::{releases::ReleaseRecord, Frame, RawFrame},
     langs::native::DebugImage,
@@ -23,7 +24,9 @@ use crate::{
         RELEASE_ID_CACHE_HITS, RELEASE_ID_CACHE_MISSES, SUSPICIOUS_FRAMES_DETECTED,
     },
     symbolication::resolve::Resolve,
-    symbolication::symbol::records::{ErrorTrackingStackFrame, FrameResultTtlPolicy},
+    symbolication::symbol::records::{
+        classify_frame_snapshot, ErrorTrackingStackFrame, FrameResultTtlPolicy,
+    },
     symbolication::symbol::SymbolResolver,
     symbolication::symbol_store::{
         chunk_id::OrChunkId,
@@ -156,11 +159,11 @@ impl LocalSymbolResolver {
         raw_id: RawFrameId,
         debug_images: &[DebugImage],
     ) -> Result<Vec<ErrorTrackingStackFrame>, UnhandledError> {
-        let loaded =
-            ErrorTrackingStackFrame::load_all(&self.pool, &raw_id, self.ttl_policy).await?;
-        if !loaded.is_empty() {
+        let stored =
+            ErrorTrackingStackFrame::load_snapshot(&self.pool, &raw_id, self.ttl_policy).await?;
+        if stored.fresh {
             metrics::counter!(FRAME_DB_HITS).increment(1);
-            return Ok(loaded);
+            return Ok(stored.records);
         }
 
         metrics::counter!(FRAME_DB_MISSES).increment(1);
@@ -186,9 +189,8 @@ impl LocalSymbolResolver {
             None
         };
 
-        let mut records = Vec::new();
+        let mut records = Vec::with_capacity(resolved.len());
         for r_frame in &resolved {
-            // Save back to the DB
             let record = ErrorTrackingStackFrame::new(
                 r_frame.frame_id.clone(),
                 set.as_ref().map(|s| s.id),
@@ -196,14 +198,25 @@ impl LocalSymbolResolver {
                 r_frame.resolved,
                 r_frame.context.clone(),
             );
-            record.save(&self.pool).await?;
+            records.push(record);
+        }
+
+        let write_outcome = classify_frame_snapshot(&stored.records, &records);
+        for record in &records {
+            let rows_affected = match record.save(&self.pool).await {
+                Ok(rows_affected) => rows_affected,
+                Err(error) => {
+                    record_frame_write(FrameWriteOutcome::Error, 0);
+                    return Err(error);
+                }
+            };
+            record_frame_write(write_outcome, rows_affected);
+
+            let r_frame = &record.contents;
             if r_frame.suspicious {
                 metrics::counter!(SUSPICIOUS_FRAMES_DETECTED, "frame_type" => "resolved")
                     .increment(1);
             }
-
-            // And gather up for the cache
-            records.push(record);
         }
         Ok(records)
     }

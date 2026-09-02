@@ -2,6 +2,7 @@ import fs from 'fs'
 import path from 'path'
 
 import { parseJSON } from '~/common/utils/json-parse'
+import type { ModelCost } from '~/ingestion/pipelines/ai/costs/providers/types'
 
 import {
     type BuiltModelRow,
@@ -9,6 +10,8 @@ import {
     DISCOUNT_SUMMARY_ENV,
     type DiscountReportEntry,
     type EndpointCandidate,
+    FLAT_FEE_FIELDS,
+    OPTIONAL_PRICING_FIELDS,
     type RunTotals,
     UNCHECKED_WARN_FRACTION,
     accumulateModelRow,
@@ -176,14 +179,15 @@ describe('buildModelCost() discount handling', () => {
         })
     })
 
-    it('applies the rate uniformly to every field, flat fees included', () => {
-        // web_search is a per-call fee and is discounted at the same ratio.
+    it('de-discounts the per-token rates but carries flat fees across untouched', () => {
+        // A promotional route serves web_search at the same price as its undiscounted sibling.
         expect(
             buildModelCost({
                 prompt: '0.0000005',
                 completion: '0.000003',
                 input_cache_read: '0.00000005',
-                web_search: '0.005',
+                web_search: '0.01',
+                request: '0.004',
                 discount: 0.5,
             })
         ).toEqual({
@@ -191,7 +195,14 @@ describe('buildModelCost() discount handling', () => {
             completion_token: 0.000006,
             cache_read_token: 0.0000001,
             web_search: 0.01,
+            request: 0.004,
         })
+    })
+
+    it.each([-0.25, 0, 0.1, 0.41, 0.5, 0.9])('leaves a flat fee alone at a rate of %d', (discount) => {
+        expect(buildModelCost({ prompt: '0.000001', completion: '0.000006', web_search: '0.01', discount })).toEqual(
+            expect.objectContaining({ web_search: 0.01 })
+        )
     })
 
     it('does not adjust prices when the rate is out of range', () => {
@@ -207,6 +218,69 @@ describe('buildModelCost() discount handling', () => {
             prompt_token: 0.000002,
             completion_token: 0.000012,
         })
+    })
+})
+
+describe('FLAT_FEE_FIELDS is bound to the field list it filters', () => {
+    // Neither direction is a type error: a member outside the loop is dead, and a
+    // loop field outside the set is silently de-discounted.
+    const targetFields = OPTIONAL_PRICING_FIELDS.map(([targetField]) => targetField)
+
+    it.each([...FLAT_FEE_FIELDS])('%s is a field the loop actually reads', (field) => {
+        expect(targetFields).toContain(field)
+    })
+
+    it('reads the OpenRouter field names this list claims to read', () => {
+        // Spelled out rather than derived: every other assertion feeds the source name
+        // back into its own fixture, so only a literal catches a typo or a dropped pair.
+        expect(OPTIONAL_PRICING_FIELDS).toEqual([
+            ['cache_read_token', 'input_cache_read'],
+            ['cache_write_token', 'input_cache_write'],
+            ['request', 'request'],
+            ['web_search', 'web_search'],
+            ['image', 'image'],
+            ['image_output', 'image_output'],
+            ['audio', 'audio'],
+            ['audio_output', 'audio_output'],
+            ['input_audio_cache', 'input_audio_cache'],
+            ['internal_reasoning', 'internal_reasoning'],
+        ])
+    })
+
+    // Partial, so the absent-policy guard below is type-honest. A stray key
+    // outside `keyof ModelCost` fails to compile; one inside it but outside the
+    // loop fails the keys-equality test.
+    const policy: Partial<Record<keyof ModelCost, 'flat' | 'de-discounted'>> = {
+        cache_read_token: 'de-discounted',
+        cache_write_token: 'de-discounted',
+        request: 'flat',
+        web_search: 'flat',
+        image: 'de-discounted',
+        image_output: 'de-discounted',
+        audio: 'de-discounted',
+        audio_output: 'de-discounted',
+        input_audio_cache: 'de-discounted',
+        internal_reasoning: 'de-discounted',
+    }
+
+    it('declares a policy for every field the loop reads, and no others', () => {
+        expect(Object.keys(policy).sort()).toEqual([...targetFields].sort())
+    })
+
+    it.each(OPTIONAL_PRICING_FIELDS)('%s is priced as its declared policy says', (targetField, sourceField) => {
+        const expected = policy[targetField]
+        // A loop field with no policy here fails rather than silently inheriting the de-discount.
+        expect(expected).toBeTruthy()
+
+        const built = buildModelCost({
+            prompt: '0.000001',
+            completion: '0.000001',
+            [sourceField]: '0.01',
+            discount: 0.5,
+        })
+
+        expect(built?.[targetField]).toBe(expected === 'flat' ? 0.01 : 0.02)
+        expect(FLAT_FEE_FIELDS.has(targetField)).toBe(expected === 'flat')
     })
 })
 
@@ -418,6 +492,25 @@ describe('renderDiscountReport()', () => {
 
     it('says so plainly when nothing is discounted', () => {
         expect(renderDiscountReport([])).toContain('No discounted endpoints found')
+    })
+
+    it('says that per-call fees are not de-discounted', () => {
+        const report = renderDiscountReport([entry()])
+        expect(report).toContain(
+            'Per-call fees (`request`, `web_search`) carry across untouched: promotional routes in\n' +
+                'the feed serve `web_search` at the same fee as their undiscounted siblings,\n' +
+                'and every other per-call fee follows the same policy.'
+        )
+    })
+
+    it('derives the flat-fee list from FLAT_FEE_FIELDS', () => {
+        // The literal pin above catches a retyped sentence; this binds it to the set.
+        expect(renderDiscountReport([entry()])).toContain(
+            `Per-call fees (${[...FLAT_FEE_FIELDS]
+                .sort()
+                .map((field) => `\`${field}\``)
+                .join(', ')}) carry across untouched`
+        )
     })
 
     it('names each discounted model, endpoint and rate', () => {

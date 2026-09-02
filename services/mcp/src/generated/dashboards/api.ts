@@ -8,7 +8,7 @@
  */
 import * as zod from 'zod'
 
-export const DashboardTemplatesListParams = /* @__PURE__ */ zod.object({
+export const DashboardTemplatesListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -16,7 +16,7 @@ export const DashboardTemplatesListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const DashboardTemplatesListQueryParams = /* @__PURE__ */ zod.object({
+export const DashboardTemplatesListQueryParams = () => zod.object({
     is_featured: zod
         .boolean()
         .optional()
@@ -45,7 +45,7 @@ export const DashboardTemplatesListQueryParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const DashboardTemplatesRetrieveParams = /* @__PURE__ */ zod.object({
+export const DashboardTemplatesRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this dashboard template.'),
     project_id: zod
         .string()
@@ -54,7 +54,7 @@ export const DashboardTemplatesRetrieveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const DashboardsListParams = /* @__PURE__ */ zod.object({
+export const DashboardsListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -62,7 +62,7 @@ export const DashboardsListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const DashboardsListQueryParams = /* @__PURE__ */ zod.object({
+export const DashboardsListQueryParams = () => zod.object({
     folder: zod
         .string()
         .optional()
@@ -80,7 +80,7 @@ export const DashboardsListQueryParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const DashboardsCreateParams = /* @__PURE__ */ zod.object({
+export const DashboardsCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -88,7 +88,7 @@ export const DashboardsCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const DashboardsCreateQueryParams = /* @__PURE__ */ zod.object({
+export const DashboardsCreateQueryParams = () => zod.object({
     format: zod.enum(['json', 'txt']).optional(),
     include_dashboards: zod
         .boolean()
@@ -102,7 +102,7 @@ export const dashboardsCreateBodyNameMax = 400
 
 export const dashboardsCreateBodyDeleteInsightsDefault = false
 
-export const DashboardsCreateBody = /* @__PURE__ */ zod
+export const DashboardsCreateBody = () => zod
     .object({
         name: zod.string().max(dashboardsCreateBodyNameMax).nullish(),
         description: zod.string().optional(),
@@ -129,6 +129,13 @@ export const DashboardsCreateBody = /* @__PURE__ */ zod
             .describe(
                 'Named tile density preset. Use tight, condensed, standard, relaxed, or wide.\n\n\* `tight` - tight\n\* `condensed` - condensed\n\* `standard` - standard\n\* `relaxed` - relaxed\n\* `wide` - wide'
             ),
+        layout_compaction: zod
+            .enum(['vertical', 'horizontal', 'stable'])
+            .describe('\* `vertical` - vertical\n\* `horizontal` - horizontal\n\* `stable` - stable')
+            .optional()
+            .describe(
+                'How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles to the left, and stable preserves positions while moving colliding tiles.\n\n\* `vertical` - vertical\n\* `horizontal` - horizontal\n\* `stable` - stable'
+            ),
         use_template: zod
             .string()
             .optional()
@@ -141,7 +148,7 @@ export const DashboardsCreateBody = /* @__PURE__ */ zod
     })
     .describe('Serializer mixin that handles tags for objects.')
 
-export const DashboardsRetrieveParams = /* @__PURE__ */ zod.object({
+export const DashboardsRetrieveParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this dashboard.'),
     project_id: zod
         .string()
@@ -150,7 +157,7 @@ export const DashboardsRetrieveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const DashboardsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const DashboardsRetrieveQueryParams = () => zod.object({
     filters_override: zod
         .string()
         .optional()
@@ -172,7 +179,7 @@ export const DashboardsRetrieveQueryParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const DashboardsPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const DashboardsPartialUpdateParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this dashboard.'),
     project_id: zod
         .string()
@@ -181,7 +188,7 @@ export const DashboardsPartialUpdateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const DashboardsPartialUpdateQueryParams = /* @__PURE__ */ zod.object({
+export const DashboardsPartialUpdateQueryParams = () => zod.object({
     format: zod.enum(['json', 'txt']).optional(),
     include_dashboards: zod
         .boolean()
@@ -249,7 +256,7 @@ export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneEightSavedVie
 
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneNameMax = 400
 
-export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
+export const DashboardsPartialUpdateBody = () => zod
     .object({
         name: zod.string().max(dashboardsPartialUpdateBodyNameMax).nullish(),
         description: zod.string().optional(),
@@ -285,7 +292,15 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
         breakdown_colors: zod.unknown().optional().describe('Custom color mapping for breakdown values.'),
         data_color_theme_id: zod.number().nullish().describe('ID of the color theme used for chart visualizations.'),
         tags: zod.array(zod.string()).optional(),
-        restriction_level: zod.union([zod.literal(21), zod.literal(37)]).optional(),
+        restriction_level: zod
+            .union([zod.literal(21), zod.literal(37)])
+            .describe(
+                '\* `21` - Everyone in the project can edit\n\* `37` - Only those invited to this dashboard can edit'
+            )
+            .optional()
+            .describe(
+                'Who can edit this dashboard.\n\n\* `21` - Everyone in the project can edit\n\* `37` - Only those invited to this dashboard can edit'
+            ),
         quick_filter_ids: zod
             .array(zod.string())
             .nullish()
@@ -298,6 +313,13 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'Named tile density preset. Use tight, condensed, standard, relaxed, or wide.\n\n\* `tight` - tight\n\* `condensed` - condensed\n\* `standard` - standard\n\* `relaxed` - relaxed\n\* `wide` - wide'
+            ),
+        layout_compaction: zod
+            .enum(['vertical', 'horizontal', 'stable'])
+            .describe('\* `vertical` - vertical\n\* `horizontal` - horizontal\n\* `stable` - stable')
+            .optional()
+            .describe(
+                'How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles to the left, and stable preserves positions while moving colliding tiles.\n\n\* `vertical` - vertical\n\* `horizontal` - horizontal\n\* `stable` - stable'
             ),
         tiles: zod
             .array(
@@ -1027,7 +1049,7 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
 /**
  * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
  */
-export const DashboardsDestroyParams = /* @__PURE__ */ zod.object({
+export const DashboardsDestroyParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this dashboard.'),
     project_id: zod
         .string()
@@ -1036,14 +1058,14 @@ export const DashboardsDestroyParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const DashboardsDestroyQueryParams = /* @__PURE__ */ zod.object({
+export const DashboardsDestroyQueryParams = () => zod.object({
     format: zod.enum(['json', 'txt']).optional(),
 })
 
 /**
  * Copy an existing dashboard tile to another dashboard (insight, text card, or widget tile).
  */
-export const DashboardsCopyTileCreateParams = /* @__PURE__ */ zod.object({
+export const DashboardsCopyTileCreateParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this dashboard.'),
     project_id: zod
         .string()
@@ -1052,11 +1074,11 @@ export const DashboardsCopyTileCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const DashboardsCopyTileCreateQueryParams = /* @__PURE__ */ zod.object({
+export const DashboardsCopyTileCreateQueryParams = () => zod.object({
     format: zod.enum(['json', 'txt']).optional(),
 })
 
-export const DashboardsCopyTileCreateBody = /* @__PURE__ */ zod.object({
+export const DashboardsCopyTileCreateBody = () => zod.object({
     fromDashboardId: zod.number().describe('Dashboard id the tile currently belongs to.'),
     tileId: zod.number().describe('Dashboard tile id to copy.'),
 })
@@ -1067,7 +1089,7 @@ export const DashboardsCopyTileCreateBody = /* @__PURE__ */ zod.object({
  * Text tiles render as markdown blocks on the dashboard — useful as section headings, dividers,
  * or annotations between insight tiles to give the dashboard structure.
  */
-export const DashboardsCreateTextTileCreateParams = /* @__PURE__ */ zod.object({
+export const DashboardsCreateTextTileCreateParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this dashboard.'),
     project_id: zod
         .string()
@@ -1076,7 +1098,7 @@ export const DashboardsCreateTextTileCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const DashboardsCreateTextTileCreateQueryParams = /* @__PURE__ */ zod.object({
+export const DashboardsCreateTextTileCreateQueryParams = () => zod.object({
     format: zod.enum(['json', 'txt']).optional(),
 })
 
@@ -1084,7 +1106,7 @@ export const dashboardsCreateTextTileCreateBodyBodyMax = 4000
 
 export const dashboardsCreateTextTileCreateBodyColorMax = 400
 
-export const DashboardsCreateTextTileCreateBody = /* @__PURE__ */ zod.object({
+export const DashboardsCreateTextTileCreateBody = () => zod.object({
     body: zod
         .string()
         .min(1)
@@ -1131,7 +1153,7 @@ export const DashboardsCreateTextTileCreateBody = /* @__PURE__ */ zod.object({
  * object is preserved — only the dashboard tile is hidden. To delete the entire dashboard,
  * use the dashboard delete endpoint instead.
  */
-export const DashboardsDeleteTileParams = /* @__PURE__ */ zod.object({
+export const DashboardsDeleteTileParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this dashboard.'),
     project_id: zod
         .string()
@@ -1140,15 +1162,15 @@ export const DashboardsDeleteTileParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const DashboardsDeleteTileQueryParams = /* @__PURE__ */ zod.object({
+export const DashboardsDeleteTileQueryParams = () => zod.object({
     format: zod.enum(['json', 'txt']).optional(),
 })
 
-export const DashboardsDeleteTileBody = /* @__PURE__ */ zod.object({
+export const DashboardsDeleteTileBody = () => zod.object({
     tile_id: zod.number().describe('ID of the dashboard tile to delete. Use dashboard-get to look up tile IDs.'),
 })
 
-export const DashboardsMoveTilePartialUpdateParams = /* @__PURE__ */ zod.object({
+export const DashboardsMoveTilePartialUpdateParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this dashboard.'),
     project_id: zod
         .string()
@@ -1157,11 +1179,11 @@ export const DashboardsMoveTilePartialUpdateParams = /* @__PURE__ */ zod.object(
         ),
 })
 
-export const DashboardsMoveTilePartialUpdateQueryParams = /* @__PURE__ */ zod.object({
+export const DashboardsMoveTilePartialUpdateQueryParams = () => zod.object({
     format: zod.enum(['json', 'txt']).optional(),
 })
 
-export const DashboardsMoveTilePartialUpdateBody = /* @__PURE__ */ zod.object({
+export const DashboardsMoveTilePartialUpdateBody = () => zod.object({
     to_dashboard: zod.number().optional().describe('Destination dashboard ID.'),
     tile: zod
         .object({
@@ -1171,7 +1193,7 @@ export const DashboardsMoveTilePartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe('Tile to move, identified by its dashboard tile ID.'),
 })
 
-export const DashboardsReorderTilesCreateParams = /* @__PURE__ */ zod.object({
+export const DashboardsReorderTilesCreateParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this dashboard.'),
     project_id: zod
         .string()
@@ -1180,13 +1202,13 @@ export const DashboardsReorderTilesCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const DashboardsReorderTilesCreateQueryParams = /* @__PURE__ */ zod.object({
+export const DashboardsReorderTilesCreateQueryParams = () => zod.object({
     format: zod.enum(['json', 'txt']).optional(),
 })
 
 export const dashboardsReorderTilesCreateBodyLayoutDefault = `preserve`
 
-export const DashboardsReorderTilesCreateBody = /* @__PURE__ */ zod.object({
+export const DashboardsReorderTilesCreateBody = () => zod.object({
     tile_order: zod
         .array(zod.number())
         .min(1)
@@ -1203,7 +1225,7 @@ export const DashboardsReorderTilesCreateBody = /* @__PURE__ */ zod.object({
 /**
  * Run all insights on a dashboard and return their results.
  */
-export const DashboardsRunInsightsRetrieveParams = /* @__PURE__ */ zod.object({
+export const DashboardsRunInsightsRetrieveParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this dashboard.'),
     project_id: zod
         .string()
@@ -1212,7 +1234,7 @@ export const DashboardsRunInsightsRetrieveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const DashboardsRunInsightsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const DashboardsRunInsightsRetrieveQueryParams = () => zod.object({
     filters_override: zod
         .string()
         .optional()
@@ -1240,7 +1262,7 @@ export const DashboardsRunInsightsRetrieveQueryParams = /* @__PURE__ */ zod.obje
         ),
 })
 
-export const DashboardsRunWidgetsRetrieveParams = /* @__PURE__ */ zod.object({
+export const DashboardsRunWidgetsRetrieveParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this dashboard.'),
     project_id: zod
         .string()
@@ -1249,7 +1271,7 @@ export const DashboardsRunWidgetsRetrieveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const DashboardsRunWidgetsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const DashboardsRunWidgetsRetrieveQueryParams = () => zod.object({
     format: zod.enum(['json', 'txt']).optional(),
     tile_ids: zod.string().describe('Comma-separated dashboard tile IDs to run widgets for.'),
 })
@@ -1257,7 +1279,7 @@ export const DashboardsRunWidgetsRetrieveQueryParams = /* @__PURE__ */ zod.objec
 /**
  * Update the markdown body, layout, or color of an existing text tile on a dashboard.
  */
-export const DashboardsUpdateTextTileCreateParams = /* @__PURE__ */ zod.object({
+export const DashboardsUpdateTextTileCreateParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this dashboard.'),
     project_id: zod
         .string()
@@ -1266,7 +1288,7 @@ export const DashboardsUpdateTextTileCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const DashboardsUpdateTextTileCreateQueryParams = /* @__PURE__ */ zod.object({
+export const DashboardsUpdateTextTileCreateQueryParams = () => zod.object({
     format: zod.enum(['json', 'txt']).optional(),
 })
 
@@ -1274,7 +1296,7 @@ export const dashboardsUpdateTextTileCreateBodyBodyMax = 4000
 
 export const dashboardsUpdateTextTileCreateBodyColorMax = 400
 
-export const DashboardsUpdateTextTileCreateBody = /* @__PURE__ */ zod.object({
+export const DashboardsUpdateTextTileCreateBody = () => zod.object({
     tile_id: zod.number().describe('ID of the dashboard tile to update. Use dashboard-get to look up tile IDs.'),
     body: zod
         .string()
@@ -1315,7 +1337,7 @@ export const DashboardsUpdateTextTileCreateBody = /* @__PURE__ */ zod.object({
 /**
  * Add multiple widget tiles to a dashboard in one atomic request.
  */
-export const DashboardsWidgetsBatchCreateParams = /* @__PURE__ */ zod.object({
+export const DashboardsWidgetsBatchCreateParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this dashboard.'),
     project_id: zod
         .string()
@@ -1324,7 +1346,7 @@ export const DashboardsWidgetsBatchCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const DashboardsWidgetsBatchCreateQueryParams = /* @__PURE__ */ zod.object({
+export const DashboardsWidgetsBatchCreateQueryParams = () => zod.object({
     format: zod.enum(['json', 'txt']).optional(),
 })
 
@@ -1399,7 +1421,7 @@ export const dashboardsWidgetsBatchCreateBodyWidgetsItemEightConfigOneSavedViewI
 
 export const dashboardsWidgetsBatchCreateBodyWidgetsMax = 10
 
-export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
+export const DashboardsWidgetsBatchCreateBody = () => zod
     .object({
         widgets: zod
             .array(
@@ -2514,7 +2536,7 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
  * that. All updates succeed or fail together. To add new widgets, use the widgets/batch POST endpoint; to
  * remove one, use delete_tile.
  */
-export const DashboardsUpdateWidgetsBatchParams = /* @__PURE__ */ zod.object({
+export const DashboardsUpdateWidgetsBatchParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this dashboard.'),
     project_id: zod
         .string()
@@ -2523,7 +2545,7 @@ export const DashboardsUpdateWidgetsBatchParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const DashboardsUpdateWidgetsBatchQueryParams = /* @__PURE__ */ zod.object({
+export const DashboardsUpdateWidgetsBatchQueryParams = () => zod.object({
     format: zod.enum(['json', 'txt']).optional(),
 })
 
@@ -2598,7 +2620,7 @@ export const dashboardsUpdateWidgetsBatchBodyWidgetsItemEightConfigOneSavedViewI
 
 export const dashboardsUpdateWidgetsBatchBodyWidgetsMax = 10
 
-export const DashboardsUpdateWidgetsBatchBody = /* @__PURE__ */ zod
+export const DashboardsUpdateWidgetsBatchBody = () => zod
     .object({
         widgets: zod
             .array(
@@ -3380,7 +3402,7 @@ export const DashboardsUpdateWidgetsBatchBody = /* @__PURE__ */ zod
 /**
  * List registered dashboard widget types and per-type config_schema documentation for agents.
  */
-export const DashboardsWidgetCatalogRetrieveParams = /* @__PURE__ */ zod.object({
+export const DashboardsWidgetCatalogRetrieveParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -3388,6 +3410,6 @@ export const DashboardsWidgetCatalogRetrieveParams = /* @__PURE__ */ zod.object(
         ),
 })
 
-export const DashboardsWidgetCatalogRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const DashboardsWidgetCatalogRetrieveQueryParams = () => zod.object({
     format: zod.enum(['json', 'txt']).optional(),
 })

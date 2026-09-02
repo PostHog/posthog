@@ -119,7 +119,7 @@ export function InsightAlerts({ alertId }: InsightAlertsProps): JSX.Element {
             title: 'Status',
             dataIndex: 'state',
             render: function renderStateIndicator(_, alert: AlertType) {
-                return alert.enabled ? <AlertStateIndicator alert={alert} /> : null
+                return <AlertStateIndicator alert={alert} />
             },
         },
         {

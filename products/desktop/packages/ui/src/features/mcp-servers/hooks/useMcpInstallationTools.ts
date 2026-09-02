@@ -4,7 +4,11 @@ import type {
 } from "@posthog/api-client/posthog-client";
 import { isPolicyStateAllowedByCeiling } from "@posthog/core/mcp-gateway/gatewayServers";
 import { dispatchBulkApproval } from "@posthog/core/mcp-servers/toolBulk";
-import { shouldAutoRefreshTools } from "@posthog/core/mcp-servers/toolRefresh";
+import {
+  autoRefreshRetryDelayMs,
+  shouldAutoRefreshTools,
+  shouldRetryAutoRefresh,
+} from "@posthog/core/mcp-servers/toolRefresh";
 import { useHostTRPC } from "@posthog/host-router/react";
 import { useAuthenticatedMutation } from "@posthog/ui/hooks/useAuthenticatedMutation";
 import { useAuthenticatedQuery } from "@posthog/ui/hooks/useAuthenticatedQuery";
@@ -119,6 +123,7 @@ export function useMcpInstallationTools(
   );
 
   const silentRefreshRef = useRef(false);
+  const attemptedThisMount = useRef(new Set<string>());
 
   const refreshMutation = useAuthenticatedMutation(
     (client) => {
@@ -128,6 +133,11 @@ export function useMcpInstallationTools(
       return client.refreshMcpInstallationTools(installationId);
     },
     {
+      // A silent listing retries a few times with backoff before it gives up;
+      // a manual refresh reports its first failure.
+      retry: (failureCount) =>
+        shouldRetryAutoRefresh(failureCount, silentRefreshRef.current),
+      retryDelay: autoRefreshRetryDelayMs,
       onSuccess: () => {
         const silent = silentRefreshRef.current;
         silentRefreshRef.current = false;
@@ -160,11 +170,18 @@ export function useMcpInstallationTools(
       installationId,
       isLoading,
       toolsLength,
-      alreadyRefreshed: autoRefreshedInstallations.has(installationId),
+      // The module-level marker is dropped when a listing fails so a later
+      // mount retries; the per-mount one is not, because this effect re-runs
+      // when the failed mutation settles and would otherwise fire again at
+      // once, looping against the upstream server until it rate-limits.
+      alreadyRefreshed:
+        autoRefreshedInstallations.has(installationId) ||
+        attemptedThisMount.current.has(installationId),
       refreshPending: refreshIsPending,
     });
     if (!fire) return;
     autoRefreshedInstallations.add(installationId);
+    attemptedThisMount.current.add(installationId);
     silentRefreshRef.current = true;
     refreshMutate(undefined);
   }, [

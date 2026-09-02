@@ -20,33 +20,35 @@ export function CreateScannerButton({
     acceptedLabel,
     dataAttr,
     size = 'small',
-    consentRequested: controlledConsentRequested,
-    onConsentRequestedChange,
 }: {
     acceptedLabel: string
     dataAttr: string
     size?: 'small' | 'medium'
-    // Controlled mode, for surfaces with several AI entry points that share one consent popover slot.
-    consentRequested?: boolean
-    onConsentRequestedChange?: (requested: boolean) => void
 }): JSX.Element {
-    const { dataProcessingAccepted } = useValues(aiConsentLogic)
+    const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(aiConsentLogic)
     const { push } = useActions(router)
-    const [internalConsentRequested, setInternalConsentRequested] = useState(false)
-    const consentRequested = controlledConsentRequested ?? internalConsentRequested
-    const setConsentRequested = onConsentRequestedChange ?? setInternalConsentRequested
+    const [consentRequested, setConsentRequested] = useState(false)
     const goToCreate = (): void => push(urls.replayVisionTemplates())
+
+    // A member cannot allow anything, so don't label the CTA as if they can. Clicking still opens
+    // the popover, where their actual next step is to ask an admin.
+    const canApproveConsent = !dataProcessingApprovalDisabledReason
+    const label = dataProcessingAccepted
+        ? acceptedLabel
+        : canApproveConsent
+          ? 'Allow AI analysis and create scanner'
+          : 'Ask an admin to enable AI analysis'
 
     const button = (
         <LemonButton
             type="primary"
             size={size}
-            icon={<IconPlus />}
+            icon={dataProcessingAccepted || canApproveConsent ? <IconPlus /> : undefined}
             disabledReason={getReplayVisionEditDisabledReason()}
             data-attr={dataAttr}
             onClick={() => (dataProcessingAccepted ? goToCreate() : setConsentRequested(true))}
         >
-            {dataProcessingAccepted ? acceptedLabel : 'Allow AI analysis and create scanner'}
+            {label}
         </LemonButton>
     )
 

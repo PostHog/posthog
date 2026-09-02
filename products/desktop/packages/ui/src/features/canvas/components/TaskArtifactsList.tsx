@@ -8,6 +8,7 @@ import {
 } from "@phosphor-icons/react";
 import type { ResourceComment } from "@posthog/api-client/posthog-client";
 import {
+  getPostHogObjectArtifactMetadata,
   type RunArtifactVersions,
   runArtifactVersionKey,
 } from "@posthog/core/canvas/runArtifactSchemas";
@@ -56,6 +57,10 @@ import {
 import { FileIcon } from "@posthog/ui/primitives/FileIcon";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { formatFileSize } from "@posthog/ui/utils/formatFileSize";
+import {
+  getObjectKind,
+  POSTHOG_OBJECT_ICON_COLOR,
+} from "@posthog/ui/utils/objectKinds";
 import { useMemo, useState } from "react";
 
 const EMPTY_COMMENTS: ResourceComment[] = [];
@@ -335,6 +340,49 @@ function FileRow({
   );
 }
 
+function PostHogObjectRow({
+  taskId,
+  artifactId,
+  runId,
+  name,
+  objectKind,
+  occurrenceCount,
+  uploadedAt,
+  commentCount,
+}: {
+  taskId: string;
+  artifactId: string;
+  runId: string;
+  name: string;
+  objectKind: string;
+  occurrenceCount: number;
+  uploadedAt: string | undefined;
+  commentCount: number;
+}) {
+  const openArtifactTab = usePanelLayoutStore((state) => state.openArtifactTab);
+  const object = getObjectKind(objectKind);
+  const ObjectIcon = object.icon;
+  const meta = [
+    object.kindLabel,
+    occurrenceCount > 1 ? `Referenced ${occurrenceCount} times` : null,
+    uploadedAt ? formatRelativeTimeShort(uploadedAt) : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  return (
+    <ArtifactCard
+      icon={<ObjectIcon size={16} color={POSTHOG_OBJECT_ICON_COLOR} />}
+      title={name}
+      meta={meta}
+      onOpen={() =>
+        openArtifactTab(taskId, { runId, artifactId, name, objectKind })
+      }
+      actions={<CommentCountBadge count={commentCount} />}
+    />
+  );
+}
+
 export function TaskArtifactsList({
   task,
   timeline,
@@ -350,7 +398,15 @@ export function TaskArtifactsList({
   // the agent just delivered shows up now rather than on the next poll.
   const events = useSessionSelector(task.id, (session) => session?.events);
   const completedUploads = useCompletedArtifactUploads(events ?? []);
-  const { runs } = useTaskRuns(task.id, completedUploads);
+  // Occurrence counts move without changing the entry count when a turn
+  // re-cites an already registered object, so the key sums them too.
+  const referenceRefreshKey = useSessionSelector(task.id, (session) =>
+    (session?.cloudArtifacts ?? []).reduce((sum, artifact) => {
+      const reference = getPostHogObjectArtifactMetadata(artifact);
+      return reference ? sum + 1 + reference.occurrence_count : sum;
+    }, 0),
+  );
+  const { runs } = useTaskRuns(task.id, completedUploads + referenceRefreshKey);
   const { data: currentUser } = useMeQuery();
   const rows = useMemo(
     () => buildRows(task, timeline, runs),
@@ -419,6 +475,18 @@ export function TaskArtifactsList({
               row.artifactId ? (openCountByItem.get(row.artifactId) ?? 0) : 0
             }
             currentUser={currentUser}
+          />
+        ) : row.kind === "posthog_object" ? (
+          <PostHogObjectRow
+            key={row.key}
+            taskId={task.id}
+            artifactId={row.artifactId}
+            runId={row.runId}
+            name={row.name}
+            objectKind={row.metadata.object_kind}
+            occurrenceCount={row.metadata.occurrence_count}
+            uploadedAt={row.uploadedAt}
+            commentCount={openCountByItem.get(row.artifactId) ?? 0}
           />
         ) : (
           <ArtifactCard

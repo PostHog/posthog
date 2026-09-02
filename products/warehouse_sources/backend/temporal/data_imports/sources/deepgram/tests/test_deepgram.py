@@ -77,22 +77,20 @@ def _source(endpoint: str, manager: mock.MagicMock, **kwargs: Any):
 class TestFormatStartValue:
     @parameterized.expand(
         [
-            ("utc_datetime", datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC), "2026-03-04T02:58:14.000Z"),
-            ("naive_datetime", datetime(2026, 3, 4, 2, 58, 14), "2026-03-04T02:58:14.000Z"),
+            ("utc_datetime", datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC), "2026-03-04T02:58:14+00:00"),
+            ("naive_datetime", datetime(2026, 3, 4, 2, 58, 14), "2026-03-04T02:58:14+00:00"),
+            # Deepgram rejects fractional seconds, so a cursor with microseconds is floored to the second.
+            ("subsecond_datetime", datetime(2026, 3, 4, 2, 58, 14, 987654, tzinfo=UTC), "2026-03-04T02:58:14+00:00"),
             ("date_value", date(2026, 3, 4), "2026-03-04"),
         ]
     )
     def test_format(self, _name: str, value: Any, expected: str) -> None:
         assert _format_start_value(value) == expected
 
-    def test_no_plus_zero_offset(self) -> None:
-        # A +00:00 offset (isoformat default) is not the ISO shape we send; assert we emit the Z form.
-        assert "+00:00" not in _format_start_value(datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC))
-
     @freeze_time("2026-06-15T12:00:00Z")
     def test_future_datetime_clamped_to_now(self) -> None:
         # Asking for requests created after "now" is pointless; cap it so we don't skip the window.
-        assert _format_start_value(datetime(2027, 1, 1, tzinfo=UTC)) == "2026-06-15T12:00:00.000Z"
+        assert _format_start_value(datetime(2027, 1, 1, tzinfo=UTC)) == "2026-06-15T12:00:00+00:00"
 
 
 class TestChildMap:
@@ -280,7 +278,7 @@ class TestRequestsIncremental:
             )
         )
 
-        assert snapshots[-1][1]["start"] == "2026-03-04T02:58:14.000Z"
+        assert snapshots[-1][1]["start"] == "2026-03-04T02:58:14+00:00"
         assert snapshots[-1][1]["limit"] == deepgram_mod.REQUESTS_PAGE_SIZE
         # The parent project enumeration carries no incremental filter.
         assert "start" not in snapshots[0][1]

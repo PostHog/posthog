@@ -20,3 +20,11 @@ export const Default: Story = {
 export const StaticOnly: Story = {
     args: { staticOnly: true },
 }
+
+export const WrapLongTagsInNarrowContainer: Story = {
+    render: () => (
+        <div className="w-40 rounded border p-2">
+            <ObjectTags tags={['support-ticket-tag-with-a-very-long-unbroken-name', 'billing']} staticOnly wrap />
+        </div>
+    ),
+}

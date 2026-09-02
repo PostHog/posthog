@@ -19,7 +19,7 @@ import { dashboardLogic } from './dashboardLogic'
 import { EmptyDashboardComponent } from './EmptyDashboardComponent'
 
 jest.mock('./emptyDashboardAiStarterPrompts', () => ({
-    EmptyDashboardAiStarterPrompts: () => null,
+    EmptyDashboardAiStarterPrompts: () => <div>Create a chart from a question</div>,
 }))
 
 const MOCK_DASHBOARD: DashboardType<QueryBasedInsightModel> = {
@@ -86,7 +86,7 @@ describe('EmptyDashboardComponent', () => {
         return { logic }
     }
 
-    async function openGetStartedDropdown(): Promise<void> {
+    async function openAddFirstChartDropdown(): Promise<void> {
         await userEvent.click(document.querySelector('[data-attr="dashboard-add-dropdown"]')!)
     }
 
@@ -96,7 +96,23 @@ describe('EmptyDashboardComponent', () => {
         expect(document.querySelector('[data-attr="dashboard-loading-controls"]')).toBeInTheDocument()
     })
 
-    it('opens the insight picker when Get started is clicked', async () => {
+    it('shows clear paths to add an existing chart or create one with PostHog AI', () => {
+        const { logic } = renderEmptyState()
+
+        expect(screen.getByText('Build your dashboard')).toBeInTheDocument()
+        expect(
+            screen.getByText(
+                'Add a chart from your library, or start with a question about what matters to your product.'
+            )
+        ).toBeInTheDocument()
+        expect(screen.getByText('Add an existing chart')).toBeInTheDocument()
+        expect(screen.getByText('or View Web Analytics')).toBeInTheDocument()
+        expect(screen.getByText('Create a chart from a question')).toBeInTheDocument()
+
+        logic.unmount()
+    })
+
+    it('opens the insight picker when Add your first chart is clicked', async () => {
         const { logic } = renderEmptyState()
 
         await userEvent.click(document.querySelector('[data-attr="dashboard-add-graph-header"]')!)
@@ -118,7 +134,7 @@ describe('EmptyDashboardComponent', () => {
         const pushSpy = jest.spyOn(router.actions, 'push')
         const { logic } = renderEmptyState()
 
-        await openGetStartedDropdown()
+        await openAddFirstChartDropdown()
         await userEvent.click(screen.getByText('Widget'))
 
         expect(pushSpy).toHaveBeenCalledWith(urls.featurePreview(FEATURE_FLAGS.DASHBOARD_WIDGETS))
@@ -128,10 +144,10 @@ describe('EmptyDashboardComponent', () => {
         logic.unmount()
     })
 
-    it('shows the shared dashboard add options in the Get started dropdown', async () => {
+    it('shows the shared dashboard add options in the Add your first chart dropdown', async () => {
         const { logic } = renderEmptyState()
 
-        await openGetStartedDropdown()
+        await openAddFirstChartDropdown()
 
         expect(screen.getByText('Content')).toBeInTheDocument()
         expect(screen.getByText('Charts')).toBeInTheDocument()
@@ -143,10 +159,10 @@ describe('EmptyDashboardComponent', () => {
         logic.unmount()
     })
 
-    it('shows Widget in the Get started dropdown when dashboard widgets flag is enabled', async () => {
+    it('shows Widget in the Add your first chart dropdown when dashboard widgets flag is enabled', async () => {
         const { logic } = renderEmptyState({ widgetsEnabled: true })
 
-        await openGetStartedDropdown()
+        await openAddFirstChartDropdown()
 
         expect(screen.getByText('Widget')).toBeInTheDocument()
         expect(screen.getByText('NEW')).toBeInTheDocument()
@@ -157,7 +173,7 @@ describe('EmptyDashboardComponent', () => {
     it('opens the add widget modal when Widget is clicked', async () => {
         const { logic } = renderEmptyState({ widgetsEnabled: true })
 
-        await openGetStartedDropdown()
+        await openAddFirstChartDropdown()
         await userEvent.click(screen.getByText('Widget'))
 
         expect(logic.values.addWidgetModalOpen).toBe(true)

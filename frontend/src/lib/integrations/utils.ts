@@ -31,6 +31,7 @@ import IconPardot from 'public/services/pardot.png'
 import IconPinterest from 'public/services/pinterest_ads.png'
 import IconPostgres from 'public/services/postgres.png'
 import IconReddit from 'public/services/reddit.png'
+import IconRedshift from 'public/services/redshift.png'
 import IconS3Compatible from 'public/services/s3-compatible.png'
 import IconSalesforce from 'public/services/salesforce.png'
 import IconSlack from 'public/services/slack.png'
@@ -61,9 +62,12 @@ export type IntegrationConnectSurface =
     | 'missing_scopes_reconnect'
     | 'warehouse_source_reconnect'
     | 'onboarding_wizard'
+    | 'inbox_welcome'
     | 'signals_agent_setup'
     | 'task_composer'
     | 'visual_review_settings'
+    | 'install_approved_banner'
+    | 'unavailable_banner_reconnect'
 
 export const ICONS: Record<IntegrationKind, any> = {
     slack: IconSlack,
@@ -105,6 +109,7 @@ export const ICONS: Record<IntegrationKind, any> = {
     apns: IconApple,
     postgresql: IconPostgres,
     'aws-s3': IconAwsS3,
+    'aws-redshift': IconRedshift,
     's3-compatible': IconS3Compatible,
     snowflake: IconSnowflake,
     'youtube-analytics': IconYouTubeAnalytics,
@@ -154,6 +159,9 @@ export const getIntegrationNameFromKind = (kind: string): string => {
             return 'PostgreSQL'
         case 'aws-s3':
             return 'AWS S3'
+        // Named after the batch export destination users already see, not the `aws-` kind prefix.
+        case 'aws-redshift':
+            return 'Redshift'
         case 's3-compatible':
             return 'S3-compatible storage'
         case 'youtube-analytics':

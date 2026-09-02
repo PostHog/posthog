@@ -9,17 +9,19 @@ from __future__ import annotations
 
 import re
 import json
+import time
 import hashlib
 from typing import Any
 
 from django.conf import settings
 
+import jwt
 import yaml
 import requests
 import structlog
 
 from posthog.dataclasses import frozen
-from posthog.egress.github.transport import GitHubRateLimitError
+from posthog.egress.github.transport import GitHubRateLimitError, github_request
 from posthog.models.github_integration_base import GitHubIntegrationError
 from posthog.models.integration import GitHubIntegration, Integration
 
@@ -33,8 +35,12 @@ from .skill_services import (
     check_allowed_tool_name,
     normalize_skill_file_path,
 )
+from .skill_template_services import TemplateRenderError, parse_template_variables, validate_template
 
 logger = structlog.get_logger(__name__)
+
+# Per-subsystem attribution on the shared GitHub egress metrics.
+_EGRESS_SOURCE = "community_skills"
 
 MAX_SLUG_LENGTH = 64
 # GitHub caps one create-tree request at 7 MB, and commit_files_to_branch inlines every file's
@@ -172,6 +178,7 @@ def render_skill_md(
     license: str = "",
     compatibility: str = "",
     author_handle: str = "",
+    metadata: dict[str, Any] | None = None,
 ) -> str:
     """Render an LLMSkill's fields into community-skills `SKILL.md` content (frontmatter + body).
 
@@ -187,9 +194,10 @@ def render_skill_md(
         raise CommunitySkillPublishValidationError("Skill name must be one line, with no line breaks.")
     if not description.strip():
         raise CommunitySkillPublishValidationError("Skill description is required to publish.")
-    # LLMSkill.description holds 4096, and the Agent Skills spec stops at 1024. A longer one
-    # publishes, syncs and installs, and then validate_for_export refuses the installed skill, so the
-    # publisher hands someone a skill they can never export.
+    # The LLMSkill.description column holds 4096, and the Agent Skills spec stops at 1024. New writes
+    # cap at 1024, but a legacy row can still exceed it. A longer one publishes, syncs and installs,
+    # and then validate_for_export refuses the installed skill, so the publisher hands someone a skill
+    # they can never export.
     if len(description.strip()) > SPEC_DESCRIPTION_MAX_LENGTH:
         raise CommunitySkillPublishValidationError(
             f"Skill description must be {SPEC_DESCRIPTION_MAX_LENGTH} characters or fewer to publish."
@@ -221,6 +229,20 @@ def render_skill_md(
         frontmatter["compatibility"] = compatibility.strip()
     if allowed_tools:
         frontmatter["allowed_tools"] = list(allowed_tools)
+    template_variables = parse_template_variables(metadata)
+    if template_variables:
+        # `required` is always written, so an omitted `default` reads back the same as an empty one.
+        frontmatter["metadata"] = {
+            "variables": [
+                {
+                    "name": variable.name,
+                    "prompt": variable.prompt,
+                    "required": variable.required,
+                    **({"default": variable.default} if variable.default else {}),
+                }
+                for variable in template_variables
+            ]
+        }
 
     # sort_keys=False keeps the human-friendly field order above; default_flow_style=False emits
     # block-style YAML (lists as `- item`) that the repo's yaml.safe_load round-trips.
@@ -243,6 +265,7 @@ def render_community_skill_files(
     license: str = "",
     compatibility: str = "",
     author_handle: str = "",
+    metadata: dict[str, Any] | None = None,
 ) -> list[RenderedFile]:
     """Render the full set of files to commit for a skill: SKILL.md plus any bundled files.
 
@@ -251,6 +274,14 @@ def render_community_skill_files(
     """
     _validate_slug(slug)
     _validate_entry_caps(body=body, files=files or [])
+    # Only a template reads `{{ }}` as placeholders. A plain skill keeps that text verbatim, the way
+    # install does, so a skill quoting GitHub Actions or Go template syntax still publishes.
+    template_variables = parse_template_variables(metadata)
+    if template_variables:
+        try:
+            validate_template(variables=template_variables, body=body, files=files or [])
+        except TemplateRenderError as err:
+            raise CommunitySkillPublishValidationError(str(err)) from err
     skill_root = f"{SKILLS_DIR}/{slug}"
 
     rendered: list[RenderedFile] = [
@@ -265,6 +296,7 @@ def render_community_skill_files(
                 license=license,
                 compatibility=compatibility,
                 author_handle=author_handle,
+                metadata=metadata,
             ),
         )
     ]
@@ -373,8 +405,9 @@ def _parent_directories(path: str) -> list[str]:
 PUBLISHER_TOKEN_PERMISSIONS = {"contents": "write", "pull_requests": "write", "metadata": "read"}
 # Statuses that mean the App isn't installed here or its credentials are rejected: unauthenticated,
 # not permitted, or no such installation. Rate limits never reach this set — the transport raises
-# them, including the 403 spellings.
-PUBLISHER_NOT_CONFIGURED_STATUSES = frozenset({401, 403, 404})
+# them, including the 403 spellings. 422 joins them because GitHub answers a mint asking for
+# permissions the installation does not grant that way, and only an admin can change that.
+PUBLISHER_NOT_CONFIGURED_STATUSES = frozenset({401, 403, 404, 422})
 
 
 def _publisher_token_request_body() -> dict[str, Any]:
@@ -387,32 +420,90 @@ def _publisher_token_request_body() -> dict[str, Any]:
     return body
 
 
+def _publisher_app_jwt() -> str | None:
+    """Sign a short-lived App JWT for the dedicated community-skills publisher App, or None.
+
+    ``iat`` is backdated to tolerate clock skew against GitHub, and ``exp`` stays inside GitHub's
+    10-minute maximum. Returns None when the App is unconfigured, and also when its private key
+    cannot sign: a key GitHub would reject is a deployment nobody can retry their way out of, so it
+    has to read as "this instance cannot publish" rather than as a GitHub outage.
+    """
+    client_id = settings.COMMUNITY_SKILLS_GITHUB_APP_CLIENT_ID
+    private_key = settings.COMMUNITY_SKILLS_GITHUB_APP_PRIVATE_KEY
+    if not client_id or not private_key:
+        return None
+
+    now = int(time.time())
+    try:
+        return jwt.encode(
+            {"iat": now - 60, "exp": now + 540, "iss": str(client_id)},
+            # Environment variables commonly carry the PEM with its newlines escaped.
+            private_key.replace("\\n", "\n").strip(),
+            algorithm="RS256",
+        )
+    except Exception:
+        logger.error("community_skills_publisher_key_unusable", exc_info=True)
+        return None
+
+
+def _publisher_app_request(
+    path: str,
+    *,
+    app_jwt: str,
+    telemetry_endpoint: str,
+    method: str = "GET",
+    json_body: dict[str, Any] | None = None,
+) -> requests.Response:
+    """Call the GitHub App API as the publisher App, through the shared egress transport.
+
+    Identity-blind on purpose: App-JWT calls are metered per App rather than per installation, so
+    there is no installation budget to gate them under, but volume telemetry still counts.
+    """
+    return github_request(
+        method,
+        f"https://api.github.com/app/{path}",
+        source=_EGRESS_SOURCE,
+        headers={"Authorization": f"Bearer {app_jwt}"},
+        endpoint=telemetry_endpoint,
+        timeout=10,
+        # requests omits the body entirely when json is None
+        json=json_body,
+    )
+
+
 def get_community_skills_publisher() -> GitHubIntegration | None:
     """Build a GitHubIntegration bound to the central community-skills installation, or None.
 
-    Mints a fresh installation token via the GitHub App JWT (the same flow the per-team integration
-    uses), downscoped to the publish repository and the permissions a publish needs, and wraps it in a
-    transient, unsaved Integration — we never persist a teamless central row. Returns None when the
-    App or the community-skills installation isn't configured, so callers can surface a clean "not
-    configured" error instead of failing.
+    Mints a fresh installation token from the dedicated publisher App, downscoped to the publish
+    repository and the permissions a publish needs, and wraps it in a transient, unsaved Integration,
+    because we never persist a teamless central row. Returns None when that App or its
+    community-skills installation isn't configured, so callers can surface a clean "not configured"
+    error instead of failing.
 
     Raises CommunitySkillPublishError when GitHub can't be reached to mint the token: an outage here
     is the same failure as an outage on the write that follows, and must not read as "not configured".
     """
     installation_id = settings.COMMUNITY_SKILLS_GITHUB_INSTALLATION_ID
-    if not installation_id or not settings.GITHUB_APP_CLIENT_ID or not settings.GITHUB_APP_PRIVATE_KEY:
+    app_jwt = _publisher_app_jwt()
+    if not installation_id or app_jwt is None:
         return None
 
     try:
-        info_response = GitHubIntegration.client_request(f"installations/{installation_id}")
-        token_response = GitHubIntegration.client_request(
+        info_response = _publisher_app_request(
+            f"installations/{installation_id}",
+            app_jwt=app_jwt,
+            telemetry_endpoint="/app/installations/{installation_id}",
+        )
+        token_response = _publisher_app_request(
             f"installations/{installation_id}/access_tokens",
+            app_jwt=app_jwt,
+            telemetry_endpoint="/app/installations/{installation_id}/access_tokens",
             method="POST",
             json_body=_publisher_token_request_body(),
         )
     except (requests.RequestException, GitHubIntegrationError, GitHubRateLimitError) as err:
-        # client_request talks to the transport directly, so unlike api_request it hands a timeout
-        # back raw. Without this the publish path answers a GitHub outage with an unhandled 500.
+        # The transport hands a timeout back raw. Without this the publish path answers a GitHub
+        # outage with an unhandled 500.
         logger.warning("community_skills_publisher_unreachable", exc_info=True)
         raise CommunitySkillPublishError(
             "Could not reach GitHub to publish this skill. Try again in a few minutes."
@@ -452,7 +543,8 @@ def get_community_skills_publisher() -> GitHubIntegration | None:
         config={"account": {"name": account["login"], "type": account.get("type")}},
         sensitive_config={"access_token": token},
     )
-    return _CommunitySkillsPublisher(integration)
+    # The same source as the App-JWT calls above, so every publish request lands under one label.
+    return _CommunitySkillsPublisher(integration, source=_EGRESS_SOURCE)
 
 
 def _community_pr_body(*, name: str, slug: str, author_handle: str) -> str:
@@ -485,6 +577,7 @@ def publish_skill_to_community(
     license: str = "",
     compatibility: str = "",
     author_handle: str = "",
+    metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Open a PR in PostHog/community-skills adding (or updating) this skill. Returns the PR url/number.
 
@@ -516,6 +609,7 @@ def publish_skill_to_community(
         license=license,
         compatibility=compatibility,
         author_handle=author_handle,
+        metadata=metadata,
     )
 
     publisher = get_community_skills_publisher()

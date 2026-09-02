@@ -28,14 +28,25 @@ const SORT_OPTIONS: { value: ClusterSortKey; label: string }[] = [
 ]
 
 export function ClusterListPanel(): JSX.Element {
-    const { filteredClusters, selectedClusterId, sortKey, toolSearch, clusterFilter, totalClusterCount, clusters } =
-        useValues(mcpClusteringLogic)
-    const { selectCluster, setSortKey, setToolSearch, setClusterFilter } = useActions(mcpClusteringLogic)
+    const {
+        filteredClusters,
+        selectedClusterId,
+        sortKey,
+        toolSearch,
+        clusterFilter,
+        selectedCategories,
+        totalClusterCount,
+        clusters,
+    } = useValues(mcpClusteringLogic)
+    const { selectCluster, setSortKey, setToolSearch, setClusterFilter, setSelectedCategories } =
+        useActions(mcpClusteringLogic)
     // Resolved once here: the row component renders per cluster and the theme hook is not free.
     const theme = useChartTheme()
     const barColor = seriesColor(theme, PRIMARY_SERIES)
 
-    const isNarrowed = clusterFilter !== 'all' || toolSearch.trim() !== ''
+    // The category scope narrows this list too, so the count has to include it — otherwise
+    // "3 of 30 shown" sits next to a Clear button that only restores some of the 30.
+    const isNarrowed = clusterFilter !== 'all' || toolSearch.trim() !== '' || selectedCategories.length > 0
 
     return (
         <div className="flex h-full min-h-0 flex-col overflow-hidden rounded border border-primary bg-surface-primary">
@@ -84,6 +95,7 @@ export function ClusterListPanel(): JSX.Element {
                             onClick={() => {
                                 setClusterFilter('all')
                                 setToolSearch('')
+                                setSelectedCategories([])
                             }}
                             data-attr="mcp-clustering-clear-filters"
                         >

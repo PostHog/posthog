@@ -76,4 +76,25 @@ describe("execGhWithRetry", () => {
     expect(res.exitCode).toBe(1);
     expect(exec).toHaveBeenCalledTimes(1);
   });
+
+  // Dropping `options.input` on a retry would send an empty body, not fail.
+  it("re-sends the same request body on a retried attempt", async () => {
+    const exec = vi
+      .fn()
+      .mockResolvedValueOnce(result({ stderr: "gh: HTTP 502" }))
+      .mockResolvedValueOnce(result({ stdout: "ok", exitCode: 0 }));
+    const options = { input: JSON.stringify({ pull_requests: [1, 2] }) };
+
+    await execGhWithRetry(
+      ["api", "-X", "POST"],
+      options,
+      { backoffMs: 0 },
+      exec,
+    );
+
+    expect(exec).toHaveBeenCalledTimes(2);
+    for (const call of exec.mock.calls) {
+      expect(call[1]).toMatchObject({ input: options.input });
+    }
+  });
 });

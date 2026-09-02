@@ -352,7 +352,10 @@ export function DefinitionEdit(rawProps: DefinitionLogicProps): JSX.Element {
                             title="Access control"
                             description="Control who can see this property's values, and who can edit them from the PostHog UI."
                         >
-                            <PayGateMini feature={AvailableFeature.PROPERTY_ACCESS_CONTROL}>
+                            <PayGateMini
+                                feature={AvailableFeature.PROPERTY_ACCESS_CONTROL}
+                                featureDetail="property-definition-access-control"
+                            >
                                 <PropertyAccessControl
                                     propertyDefinitionId={editDefinition.id}
                                     teamId={currentTeamId}

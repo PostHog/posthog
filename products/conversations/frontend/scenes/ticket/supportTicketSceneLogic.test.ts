@@ -64,11 +64,15 @@ jest.mock('products/business_knowledge/frontend/generated/api', () => ({
 jest.mock('products/conversations/frontend/generated/api', () => ({
     conversationsTicketsNotesPartialUpdate: jest.fn().mockResolvedValue(undefined),
     conversationsTicketsNotesDestroy: jest.fn().mockResolvedValue(undefined),
+    conversationsTicketsPartialUpdate: jest.fn(),
 }))
 
 import api from '~/lib/api'
 
-import { conversationsTicketsNotesPartialUpdate } from 'products/conversations/frontend/generated/api'
+import {
+    conversationsTicketsNotesPartialUpdate,
+    conversationsTicketsPartialUpdate,
+} from 'products/conversations/frontend/generated/api'
 
 const submitAiFeedbackMock = api.conversationsTickets.submitAiFeedback as jest.Mock
 
@@ -343,7 +347,7 @@ describe('supportTicketSceneLogic sendMessage with statusAfterSend', () => {
 
     const createResponseMock = api.createResponse as jest.Mock
     const ticketGetMock = api.conversationsTickets.get as jest.Mock
-    const ticketUpdateMock = api.conversationsTickets.update as jest.Mock
+    const ticketUpdateMock = conversationsTicketsPartialUpdate as jest.Mock
 
     // Unlike makeTicket(), API responses always carry priority/assignee; without them the
     // hasUnsavedChanges comparison against the seeded local reducers never settles to false.
@@ -382,6 +386,7 @@ describe('supportTicketSceneLogic sendMessage with statusAfterSend', () => {
         }).toDispatchActions(['updateTicket', 'setTicket'])
 
         expect(ticketUpdateMock).toHaveBeenCalledWith(
+            expect.any(String),
             '42',
             expect.objectContaining({ status: statusAfterSend, assignee: presetAssignee })
         )
@@ -423,7 +428,7 @@ describe('supportTicketSceneLogic sendMessage with statusAfterSend', () => {
                     resolveFirst = () => resolve({ ...loadedTicket(), status: 'resolved' })
                 })
         )
-        ticketUpdateMock.mockImplementationOnce((_id: string, data: Record<string, unknown>) =>
+        ticketUpdateMock.mockImplementationOnce((_projectId: string, _id: string, data: Record<string, unknown>) =>
             Promise.resolve({ ...loadedTicket(), ...data })
         )
 
@@ -437,7 +442,11 @@ describe('supportTicketSceneLogic sendMessage with statusAfterSend', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(ticketUpdateMock).toHaveBeenCalledTimes(2)
-        expect(ticketUpdateMock).toHaveBeenLastCalledWith('42', expect.objectContaining({ status: 'pending' }))
+        expect(ticketUpdateMock).toHaveBeenLastCalledWith(
+            expect.any(String),
+            '42',
+            expect.objectContaining({ status: 'pending' })
+        )
         expect(logic.values.status).toBe('pending')
         expect(logic.values.ticketUpdating).toBe(false)
     })
@@ -616,7 +625,7 @@ describe('supportTicketSceneLogic tag pool refresh', () => {
     let logic: ReturnType<typeof supportTicketSceneLogic.build>
 
     const ticketGetMock = api.conversationsTickets.get as jest.Mock
-    const ticketUpdateMock = api.conversationsTickets.update as jest.Mock
+    const ticketUpdateMock = conversationsTicketsPartialUpdate as jest.Mock
     const tagsListMock = api.tags.list as jest.Mock
 
     const loadedTicket = (): Ticket => ({ ...makeTicket(), priority: 'medium', assignee: null }) as Ticket

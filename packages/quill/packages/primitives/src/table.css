@@ -29,10 +29,15 @@
         --tbl-edge-shadow: rgb(0 0 0 / 55%);
     }
 
-    /* Viewport — owns the scroll; fills the root. */
+    /* Viewport — owns the scroll; fills the root. `max-height: inherit` passes a
+       `max-h-*` set on the root down to the scroller, so the viewport caps and
+       scrolls at that height instead of growing to full content height (a `height:
+       100%` against a max-height-only parent resolves to auto, which the root then
+       clips with no scrollbar). A definite height on the root still wins. */
     .quill-table__viewport {
         width: 100%;
         height: 100%;
+        max-height: inherit;
         overflow: auto;
     }
 

@@ -925,6 +925,7 @@ class TestMprocsGeneratorRegression:
 
         assert "capture" in resolved.units
         assert "capture" in config.procs
+        assert "usage-ingestion" in config.procs
         assert "feature-flags" in config.procs
         assert "property-defs-rs" in config.procs
         assert "docker-compose" in config.procs

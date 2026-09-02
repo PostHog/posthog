@@ -3,12 +3,12 @@ import { router } from 'kea-router'
 
 import { AddToDashboardModal } from 'lib/components/AddToDashboard/AddToDashboardModal'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
+import { ScreenShotEditor } from 'lib/components/TakeScreenshot/ScreenShotEditor'
 import { TerraformExportModal } from 'lib/components/TerraformExporter/TerraformExportModal'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { INSIGHT_SCREENSHOT_KEY } from 'scenes/insights/insightImageCapture'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { urls } from 'scenes/urls'
@@ -43,6 +43,7 @@ export function InsightModals({ insightLogicProps }: { insightLogicProps: Insigh
             )}
 
             <InsightTerraformModalWrapper insightLogicProps={insightLogicProps} />
+            <ScreenShotEditor screenshotKey={INSIGHT_SCREENSHOT_KEY} />
         </>
     )
 }
@@ -52,7 +53,7 @@ function InsightSubscriptionsModalWrapper({
 }: {
     insightLogicProps: InsightLogicProps
 }): JSX.Element {
-    const { insightMode, itemId } = useValues(insightSceneLogic)
+    const { insightMode, itemId, isNewSubscription } = useValues(insightSceneLogic)
     const { insight } = useValues(insightLogic(insightLogicProps))
     const { push } = useActions(router)
 
@@ -62,7 +63,9 @@ function InsightSubscriptionsModalWrapper({
             isOpen={insightMode === ItemMode.Subscriptions}
             closeModal={() => push(urls.insightView(insight.short_id as InsightShortId))}
             insightShortId={insight.short_id}
-            subscriptionId={typeof itemId === 'number' || itemId === 'new' ? itemId : null}
+            insightName={insight.name || insight.derived_name || 'Untitled insight'}
+            isCreating={isNewSubscription}
+            subscriptionId={itemId}
         />
     )
 }
@@ -185,12 +188,7 @@ function InsightMetricModalWrapper({
 }: {
     insightLogicProps: InsightLogicProps
 }): JSX.Element | null {
-    const { featureFlags } = useValues(featureFlagLogic)
     const { insight } = useValues(insightLogic(insightLogicProps))
-
-    if (!featureFlags[FEATURE_FLAGS.PRODUCT_DATA_CATALOG]) {
-        return null
-    }
 
     return (
         <MetricFromInsightModal

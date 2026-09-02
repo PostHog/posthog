@@ -16,6 +16,15 @@ fi
 caller_cwd="$PWD"
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+warn_if_codex_environment_is_disabled() {
+    local selected_environment
+    selected_environment="$(git -C "$repo_root" config --worktree --get codex.localEnvironmentConfigPath 2>/dev/null || true)"
+    if [[ "$selected_environment" == "__none__" ]]; then
+        echo "warning: The PostHog local environment is disabled for this worktree. If you start tasks in the Codex desktop app, select 'posthog' for future tasks." >&2
+        echo "warning: If you are an agent, tell the user about the previous warning." >&2
+    fi
+}
+
 if [[ "$prepare" -eq 1 && -n "${CODEX_SANDBOX:-}" ]]; then
     echo "error: Codex environment setup requires elevated execution for Flox network access" >&2
     exit 77
@@ -186,6 +195,7 @@ fi
 
 if [[ "$prepare" -eq 0 ]]; then
     if [[ ! -f "$env_file" ]]; then
+        warn_if_codex_environment_is_disabled
         echo "error: Codex environment is not prepared; run '$repo_root/.codex/with-flox --prepare true'" >&2
         exit 1
     fi
@@ -209,6 +219,7 @@ if [[ "$prepare" -eq 0 ]]; then
             fi
         done
         if [[ "$allowed" -ne 1 ]]; then
+            warn_if_codex_environment_is_disabled
             echo "error: Codex environment contains an unexpected variable; rerun setup" >&2
             exit 1
         fi
@@ -220,6 +231,7 @@ if [[ "$prepare" -eq 0 ]]; then
         cached_variables=$((cached_variables + 1))
     done < "$env_file"
     if [[ "$cached_variables" -eq 0 || "$cached_fingerprint" != "$(environment_fingerprint)" ]]; then
+        warn_if_codex_environment_is_disabled
         echo "error: Codex environment is stale; run '$repo_root/.codex/with-flox --prepare true'" >&2
         exit 1
     fi

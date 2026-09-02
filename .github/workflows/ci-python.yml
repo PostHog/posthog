@@ -14,9 +14,6 @@ concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
-env:
-    RUNS_ON_INTERNAL_PR: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
-
 jobs:
     # Job to decide if we should run python ci
     # See .github/actions/paths-filter/README.md for filter semantics
@@ -27,23 +24,38 @@ jobs:
         # Set job outputs to values from filter step
         outputs:
             python: ${{ steps.filter.outputs.python || 'true' }}
+            complexity_files: ${{ steps.filter.outputs.complexity_files }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: .github/actions/paths-filter
+                  sparse-checkout-cone-mode: false
 
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               id: app-token
               if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
+                  client-id: ${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
             - uses: ./.github/actions/paths-filter
               id: filter
+              env:
+                  # This workflow opts in for the whole repository. It runs on every pull
+                  # request, so one wiring covers every shape the comparison needs to see.
+                  PATHS_FILTER_SHADOW_POSTHOG_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
               if: github.event_name != 'push' # Run all tests on master push
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
+                  list-files: 'escape'
                   filters: |
+                      # Consumed as a file list (complexity_files) by the changed-file
+                      # complexity check — the PR files API, not a hand-rolled git diff.
+                      complexity:
+                          - 'posthog/**/*.py'
+                          - 'ee/**/*.py'
+                          - 'products/**/*.py'
                       python:
                         # ruff/mypy/ty run repo-wide (`.`) in code-quality, so any Python
                         # file anywhere must trigger this workflow — otherwise an unformatted
@@ -62,14 +74,20 @@ jobs:
                         - 'frontend/src/queries/schema.json'
                         # Products changes need to trigger Python CI to validate the json usage is still valid
                         - 'frontend/src/products.json'
+                        # A hand-edit to the generated taxonomy JSON must reach the drift check
+                        - 'frontend/src/taxonomy/core-filter-definitions-by-group.json'
                         # hogli CLI changes need validation
                         - 'tools/hogli/**'
                         - 'tools/hogli-commands/hogli_commands/**'
                         - 'tools/owners/**'
                         - 'hogli.yaml'
                         - 'bin/**'
+                        # Django templates live outside posthog/ for products, and the
+                        # code-quality job formats them with djlint
+                        - 'products/**/backend/templates/**'
                         # Dev tools with dedicated pytest steps below
                         - 'tools/pr-approval-agent/**'
+                        - 'products/stamphog/packages/pr-approval-agent/**'
                         - 'tools/query-performance-ai/**'
                         # Stamphog policy files validated by the pr-approval-agent suite
                         - '.stamphog/**'
@@ -94,7 +112,7 @@ jobs:
               continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  client-id: ${{ vars.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
                   skip-token-revoke: true
 
@@ -178,6 +196,46 @@ jobs:
               run: |
                   npm run schema:build:python && git diff --exit-code
 
+            # Calls the generator directly because this job installs neither pnpm nor
+            # node_modules. Keep the step after "Install Python dependencies": importing
+            # posthog.taxonomy.taxonomy pulls in Django via posthog/__init__.py, so the
+            # generator needs the full synced dependency set, not just stdlib.
+            - name: Check if the taxonomy JSON is up to date
+              shell: bash
+              run: |
+                  python3 bin/build-taxonomy-json.py
+                  git diff --exit-code -- frontend/src/taxonomy/core-filter-definitions-by-group.json
+
+            # Warn-only while the pre-existing violation backlog settles: findings annotate
+            # the diff and land in the shared CI report comment, never a job failure.
+            # Scoped to the PR's own diff because C901 stays off repo-wide. Skip on
+            # unrebased branches: the lint:complexity command may not be registered yet.
+            - name: Check cyclomatic complexity of changed files
+              if: github.event_name == 'pull_request' && needs.changes.outputs.complexity_files != ''
+              shell: bash
+              env:
+                  # Space-separated, from paths-filter (list-files: escape) — the PR
+                  # files API, so no git-diff plumbing to drift from what the PR changed.
+                  CHANGED_FILES: ${{ needs.changes.outputs.complexity_files }}
+              run: |
+                  if [ ! -f tools/hogli-commands/hogli_commands/complexity_lint.py ]; then
+                      echo "hogli lint:complexity not present on this branch yet — skipping (rebase to pick it up)"
+                      exit 0
+                  fi
+                  # xargs re-parses the escape format, keeping escaped paths whole.
+                  printf '%s' "$CHANGED_FILES" | xargs -r ./bin/hogli lint:complexity --report complexity-findings-python.json
+
+            - name: Post CI report — complexity
+              if: always() && github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/')
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+              run: |
+                  if [ -f .github/scripts/post-complexity-section.mjs ] && [ -f complexity-findings-python.json ]; then
+                      node .github/scripts/post-complexity-section.mjs python complexity-findings-python.json
+                  else
+                      echo "Skipping the complexity report section: script or findings not on this branch"
+                  fi
+
             - parallel:
                   - name: Check for syntax errors, import sort, and code style violations
                     shell: bash
@@ -186,6 +244,14 @@ jobs:
                   - name: Check formatting
                     shell: bash
                     run: ruff format --check --diff .
+
+                  - name: Check Django template formatting
+                    shell: bash
+                    run: ./bin/hogli format:html:check
+
+                  - name: Lint Django templates
+                    shell: bash
+                    run: ./bin/hogli lint:html
 
                   - name: Check hogli manifest completeness
                     shell: bash
@@ -209,7 +275,22 @@ jobs:
 
                   - name: Run pr-approval-agent (stamphog) tests
                     shell: bash
-                    run: pytest tools/pr-approval-agent -v --junitxml=junit-pr-approval-agent.xml
+                    # Two candidate paths. The engine now lives under the stamphog product, but an
+                    # open PR that has not rebased still carries it under tools/, and this workflow
+                    # runs against that branch merged with master. The loop tests both trees when
+                    # both exist, because that merge can add a file at the old path next to the new
+                    # tree.
+                    run: |
+                        found=0
+                        for dir in products/stamphog/packages/pr-approval-agent tools/pr-approval-agent; do
+                          [ -d "$dir" ] || continue
+                          found=1
+                          pytest "$dir" -v --junitxml="junit-pr-approval-agent-$(echo "$dir" | tr / -).xml"
+                        done
+                        if [ "$found" = "0" ]; then
+                          echo "::error::pr-approval-agent engine not found at either path"
+                          exit 1
+                        fi
 
                   - name: Run dependency detection script tests
                     shell: bash
@@ -225,7 +306,7 @@ jobs:
                       junit-hogli-commands.xml
                       junit-owners.xml
                       junit-query-performance-ai.xml
-                      junit-pr-approval-agent.xml
+                      junit-pr-approval-agent-*.xml
 
             - name: Upload test results for dependency detection
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
@@ -233,26 +314,6 @@ jobs:
               with:
                   name: junit-results-dependency-detection
                   path: junit-dependency-detection.xml
-
-            # Upload results to Trunk for flaky-test detection. Non-gating (continue-on-error),
-            # so a Trunk outage never fails the job. Runs the token only on internal PRs
-            # and master, never on fork PRs or Dependabot, which have no secret.
-            # The TRUNK_UPLOAD_ENABLED repo variable is the kill-switch: when it is not 'true'
-            # this upload skips.
-            - name: Upload test results to Trunk
-              if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true' }}
-              continue-on-error: true
-              uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
-              with:
-                  junit-paths: junit-*.xml
-                  org-slug: posthog-inc
-                  token: ${{ secrets.TRUNK_API_TOKEN }}
-
-            # - name: Check if "taxonomy.json/taxonomy.tsx" is up to date
-            #   if: needs.changes.outputs.python == 'true'
-            #   shell: bash
-            #   run: |
-            #       npm run taxonomy:build:json && git diff --exit-code
 
     # Collate job - single required status check for branch protection.
     # The code-quality job skips when no Python changes, but this job always

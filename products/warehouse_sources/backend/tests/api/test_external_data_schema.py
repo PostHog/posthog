@@ -4017,7 +4017,6 @@ class TestFanoutParentSelection(APIBaseTest):
                     stack.enter_context(p)
                 response = self.client.delete(f"/api/environments/{self.team.pk}/external_data_schemas/{parent.id}")
             assert response.status_code == 204
-
     def test_schema_soft_delete_also_soft_deletes_linked_warehouse_table(self):
         source = ExternalDataSource.objects.create(team=self.team, source_type=ExternalDataSourceType.POSTGRES)
         table = DataWarehouseTable.objects.create(
@@ -4113,7 +4112,6 @@ class TestFanoutParentSelection(APIBaseTest):
         assert reloaded_active.deleted is False
         assert reloaded_table.deleted is False
         assert DataWarehouseTable.objects.queryable().filter(pk=table.pk).exists()
-
 
 class TestSchemaDisplayStatus(SimpleTestCase):
     @parameterized.expand(

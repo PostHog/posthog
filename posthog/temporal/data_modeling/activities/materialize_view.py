@@ -18,8 +18,10 @@ from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.errors import ParsingError
+from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
+from posthog.hogql.visitor import CloningVisitor
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.exceptions_capture import capture_exception
@@ -28,7 +30,10 @@ from posthog.ph_client import feature_enabled_or_false
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.settings.base_variables import TEST
 from posthog.sync import database_sync_to_async_pool
-from posthog.temporal.common.clickhouse import get_client as get_clickhouse_client
+from posthog.temporal.common.clickhouse import (
+    ClickHouseError,
+    get_client as get_clickhouse_client,
+)
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.data_modeling.activities.incremental_write import (
@@ -61,11 +66,69 @@ from products.data_quality.backend.facade.contracts import QUALITY_AUDIT_SKIP, Q
 from products.data_warehouse.backend.facade.api import ensure_bucket_exists, get_s3_client
 from products.endpoints.backend.facade.temporal import prepare_executable_query
 from products.warehouse_sources.backend.facade.hooks import saved_query_binding
-from products.warehouse_sources.backend.facade.temporal import PersonPropertyRowSink
+from products.warehouse_sources.backend.facade.pipelines import CDPProducer
+from products.warehouse_sources.backend.facade.temporal import AccountPropertyRowSink, PersonPropertyRowSink
 
 LOGGER = get_logger(__name__)
 
 MB_100_IN_BYTES = 100 * 1000 * 1000
+
+# ClickHouse builds every GLOBAL IN subquery as a temporary table while it plans a query, and
+# DESCRIBE plans the query too, so the schema probe scans the source tables just to return column
+# types. The probe therefore prints a copy of the query with GLOBAL IN downgraded to plain IN and
+# runs with the two settings that would add GLOBAL back pinned off (the cluster profile sets
+# distributed_product_mode=global). Joins keep their GLOBAL prefix: the resolver adds it to
+# events-to-S3 join chains to work around a ClickHouse bug, not for cost. The materialization query
+# itself is printed from the untouched AST.
+DESCRIBE_QUERY_SETTINGS = {"distributed_product_mode": "allow", "prefer_global_in_and_join": "0"}
+
+_LOCAL_COMPARE_OPS = {
+    ast.CompareOperationOp.GlobalIn: ast.CompareOperationOp.In,
+    ast.CompareOperationOp.GlobalNotIn: ast.CompareOperationOp.NotIn,
+}
+
+
+class _DowngradeGlobalIn(CloningVisitor):
+    def __init__(self) -> None:
+        super().__init__(clear_types=False, clear_locations=False)
+
+    def visit_compare_operation(self, node: ast.CompareOperation) -> ast.CompareOperation:
+        cloned = super().visit_compare_operation(node)
+        cloned.op = _LOCAL_COMPARE_OPS.get(cloned.op, cloned.op)
+        return cloned
+
+
+def _print_describe_variant(
+    prepared_query: ast.SelectQuery | ast.SelectSetQuery, context: HogQLContext, settings: HogQLGlobalSettings
+) -> str:
+    downgraded = _DowngradeGlobalIn().visit(prepared_query)
+    return print_prepared_ast(downgraded, context=context, dialect="clickhouse", settings=settings, stack=[])
+
+
+def _print_untouched(
+    prepared_query: ast.SelectQuery | ast.SelectSetQuery, context: HogQLContext, settings: HogQLGlobalSettings
+) -> str:
+    return print_prepared_ast(prepared_query, context=context, dialect="clickhouse", settings=settings, stack=[])
+
+
+async def _describe_columns(
+    printed: str, query_parameters: dict[str, typing.Any], query_settings: dict[str, str] | None
+) -> dict[str, str]:
+    async with _clickhouse_query_semaphore, get_clickhouse_client() as client:
+        async with client.apost_query(
+            query=f"DESCRIBE TABLE ({printed}) FORMAT TabSeparatedRaw",
+            query_parameters=query_parameters,
+            query_id=str(uuid.uuid4()),
+            settings=query_settings,
+        ) as ch_response:
+            table_describe_response = await ch_response.content.read()
+    columns: dict[str, str] = {}
+    for line in table_describe_response.decode("utf-8").splitlines():
+        column_name, ch_type = line.strip().split("\t")
+        columns[column_name] = ch_type
+    return columns
+
+
 CLICKHOUSE_MAX_BLOCK_SIZE_ROWS = 50 * 1000
 DELTA_TABLE_RETENTION_HOURS = 24
 
@@ -159,6 +222,71 @@ def _resolve_write_plan(saved_query: DataWarehouseSavedQuery, team_id: int) -> W
     )
 
 
+def _is_s3_permission_denied(error: BaseException) -> bool:
+    """True for an S3 access-denied error on our own bucket, from either client this pipeline uses.
+
+    `s3fs`/aiobotocore (used by `CDPProducer._list_files_to_produce`) maps an AccessDenied response
+    onto the builtin `PermissionError`. pyarrow's `S3FileSystem` (used by `stage_chunk`'s parquet
+    write) doesn't set an errno for it, so the same AWS error surfaces as a plain `OSError` with the
+    AWS error code embedded in the message instead.
+    """
+    if isinstance(error, PermissionError):
+        return True
+    return isinstance(error, OSError) and "ACCESS_DENIED" in str(error)
+
+
+class _CDPRowSink:
+    """Stages the rows a run wrote so CDP destinations and workflows subscribed to the view can act
+    on them.
+
+    Best effort by design: the materialization is the product and the trigger is not, so a staging
+    failure never fails the run. A partial stage is worse than none, though — a subscriber would get
+    some of the run's rows and silently miss the rest — so the first failure discards everything
+    staged and the run produces nothing.
+    """
+
+    def __init__(self, producer: CDPProducer, logger: FilteringBoundLogger) -> None:
+        self._producer = producer
+        self._logger = logger
+        self._chunk = 0
+        self.enabled = False
+
+    async def prepare(self) -> None:
+        """Resolve the gate once, then clear anything a previous attempt of this activity staged."""
+        try:
+            self.enabled = await self._producer.should_run()
+            if self.enabled:
+                await self._producer.clear()
+        except Exception as e:
+            capture_exception(e)
+            await self._logger.awarning(f"Could not prepare CDP row staging; skipping it for this run: {e}")
+            self.enabled = False
+
+    async def stage(self, batch: pa.RecordBatch) -> None:
+        if not self.enabled or batch.num_rows == 0:
+            return
+
+        try:
+            await self._producer.stage_chunk(self._chunk, batch)
+            self._chunk += 1
+        except Exception as e:
+            # A missing write grant on the cdp_producer/ prefix is the same anticipated
+            # provisioning gap `_list_files_to_produce` already tolerates quietly for reads (see its
+            # `except PermissionError` branch) — not a bug worth paging on.
+            if not _is_s3_permission_denied(e):
+                capture_exception(e)
+            await self._logger.awarning(f"Failed to stage rows for CDP; discarding this run's staged rows: {e}")
+            self.enabled = False
+            await self.discard()
+
+    async def discard(self) -> None:
+        try:
+            await self._producer.clear()
+        except Exception as e:
+            capture_exception(e)
+            await self._logger.awarning(f"Failed to clear staged CDP rows: {e}")
+
+
 class InvalidNodeTypeException(Exception):
     """Exception raised when attempting to materialize an invalid node type."""
 
@@ -198,6 +326,12 @@ class MaterializeViewResult:
     # what the workflow gates the person-property child on. Defaulted to the skip value so an old
     # history decodes without it and never fires that child during replay.
     person_property_sync_enabled: bool = False
+    # Defaulted so workflow histories recorded before account staging do not start new children on replay.
+    account_property_sync_enabled: bool = False
+    delta_version: int | None = None
+    # Whether this run staged rows for a warehouse-view CDP trigger, so the workflow knows to start
+    # the producer job. Defaulted so old workflow histories decode without it.
+    should_trigger_cdp_producer: bool = False
 
 
 def _build_model_table_uri(team_id: int, saved_query_id_hex: str, normalized_name: str) -> str:
@@ -409,10 +543,12 @@ async def hogql_table(
     settings = HogQLGlobalSettings()
     settings.max_execution_time = HOGQL_INCREASED_MAX_EXECUTION_TIME
 
+    modifiers = await database_sync_to_async_pool(create_default_modifiers_for_team)(team)
     context = HogQLContext(
         team=team,
         enable_select_queries=True,
         limit_top_select=False,
+        modifiers=modifiers,
     )
     # Userless materialization context; bypass warehouse HogQL access control so the model query
     # can resolve its source tables/views.
@@ -432,15 +568,8 @@ async def hogql_table(
     if prepared_hogql_query is None:
         raise EmptyHogQLResponseColumnsError()
 
-    printed = await database_sync_to_async_pool(print_prepared_ast)(
-        prepared_hogql_query,
-        context=context,
-        dialect="clickhouse",
-        settings=settings,
-        stack=[],
-    )
+    printed = await database_sync_to_async_pool(_print_describe_variant)(prepared_hogql_query, context, settings)
 
-    table_describe_query = f"DESCRIBE TABLE ({printed}) FORMAT TabSeparatedRaw"
     arrow_type_conversion: dict[str, tuple[str, tuple[ast.Constant, ...]]] = {
         "DateTime": ("toTimeZone", (ast.Constant(value="UTC"),)),
         "Nullable(Nothing)": ("toNullableString", ()),
@@ -465,18 +594,23 @@ async def hogql_table(
         iter([call_tuple for uat, call_tuple in arrow_type_conversion.items() if uat.lower() in ch_type.lower()])
     )
 
+    try:
+        described_columns = await _describe_columns(printed, context.values, DESCRIBE_QUERY_SETTINGS)
+    except ClickHouseError as error:
+        # ClickHouse cannot plan some shapes once GLOBAL is gone, such as an IN subquery inside an
+        # aggregate function. The untouched query is the one that runs, so it always describes.
+        await logger.awarning(
+            "DESCRIBE with local subqueries failed, retrying with the untouched query", error=str(error)
+        )
+        untouched = await database_sync_to_async_pool(_print_untouched)(prepared_hogql_query, context, settings)
+        described_columns = await _describe_columns(untouched, context.values, None)
+
     query_typings: list[tuple[str, str, tuple[str, tuple[ast.Constant, ...]] | None]] = []
-    async with _clickhouse_query_semaphore, get_clickhouse_client() as client:
-        async with client.apost_query(
-            query=table_describe_query, query_parameters=context.values, query_id=str(uuid.uuid4())
-        ) as ch_response:
-            table_describe_response = await ch_response.content.read()
-            for line in table_describe_response.decode("utf-8").splitlines():
-                column_name, ch_type = line.strip().split("\t")
-                if _needs_conversion(ch_type):
-                    query_typings.append((column_name, ch_type, get_call_tuple(ch_type)))
-                else:
-                    query_typings.append((column_name, ch_type, None))
+    for column_name, ch_type in described_columns.items():
+        if _needs_conversion(ch_type):
+            query_typings.append((column_name, ch_type, get_call_tuple(ch_type)))
+        else:
+            query_typings.append((column_name, ch_type, None))
 
     has_type_to_convert = any(call_tuple is not None for _, _, call_tuple in query_typings)
     if has_type_to_convert:
@@ -633,6 +767,23 @@ async def _build_person_property_sink(
         return None
 
 
+async def _account_property_sync_enabled(
+    objects: MatviewInputObjects, job_id: str, logger: FilteringBoundLogger
+) -> bool:
+    sink = AccountPropertyRowSink(
+        team_id=objects.team.pk,
+        binding=saved_query_binding(objects.saved_query.id),
+        job_id=job_id,
+        logger=logger,
+    )
+    try:
+        return await sink.should_run()
+    except Exception as error:
+        await logger.awarning(f"Could not resolve account-property staging for this view: {error}")
+        capture_exception(error)
+        return False
+
+
 async def _clear_person_property_staging(sink: PersonPropertyRowSink, logger: FilteringBoundLogger) -> None:
     """Clear stale staged rows at run start. Never raises, for the same reason staging doesn't."""
     try:
@@ -676,6 +827,7 @@ async def _materialize_fully(
     table_uri: str,
     storage_options: dict[str, str],
     logger: FilteringBoundLogger,
+    cdp_sink: "_CDPRowSink",
     person_property_sink: PersonPropertyRowSink | None = None,
 ) -> tuple[int, list[str]]:
     """Rebuild the whole table from the query. The only path that creates a Delta table, and the
@@ -736,6 +888,9 @@ async def _materialize_fully(
                 schema_mode="merge",
                 storage_options=storage_options,
             )
+        # Staged only once the batch is committed: a run that announces rows it then fails to write
+        # cannot take the announcement back.
+        await cdp_sink.stage(batch)
         if plan.config is not None and plan.config.incremental_key in batch.schema.names:
             watermark = max_of(batch, plan.config.incremental_key, watermark)
         row_count = row_count + batch.num_rows
@@ -772,6 +927,7 @@ async def _materialize_incrementally(
     table_uri: str,
     storage_options: dict[str, str],
     logger: FilteringBoundLogger,
+    cdp_sink: "_CDPRowSink",
     person_property_sink: PersonPropertyRowSink | None = None,
 ) -> tuple[int, list[str]]:
     """Upsert only the rows at or after the watermark into the existing table.
@@ -824,6 +980,7 @@ async def _materialize_incrementally(
                 commit_metadata={"posthog_job_id": str(objects.job.id)},
             )
             await logger.ainfo("Upserted batch into delta table", **upsert_stats_fields(stats))
+            await cdp_sink.stage(batch)
 
             watermark = max_of(batch, config.incremental_key, watermark)
             row_count = row_count + batch.num_rows
@@ -876,6 +1033,40 @@ async def _vacuum(delta_table: deltalake.DeltaTable, logger: FilteringBoundLogge
     )
 
 
+@dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
+class ClearCDPStagingInputs:
+    team_id: int
+    saved_query_id: str
+    job_id: str
+
+    @property
+    def properties_to_log(self) -> dict[str, typing.Any]:
+        return {
+            "team_id": self.team_id,
+            "saved_query_id": self.saved_query_id,
+            "job_id": self.job_id,
+        }
+
+
+@activity.defn
+async def clear_cdp_staging_activity(inputs: ClearCDPStagingInputs) -> None:
+    """Drop the rows a run staged for CDP but never published.
+
+    The staging prefix is keyed on the job, so the next run's own clear never reaches this one's.
+    A run that ends without producing has to clean up after itself or the objects stay forever.
+    """
+    bind_contextvars(team_id=inputs.team_id)
+    logger = LOGGER.bind()
+
+    producer = CDPProducer.for_view(
+        team_id=inputs.team_id,
+        saved_query_id=inputs.saved_query_id,
+        job_id=inputs.job_id,
+        logger=logger,
+    )
+    await producer.clear()
+
+
 @activity.defn
 async def materialize_view_activity(inputs: MaterializeViewInputs) -> MaterializeViewResult:
     """Materialize a view by executing its query and writing to delta lake."""
@@ -915,30 +1106,94 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
         # what sweeps long-abandoned sibling job prefixes.
         await _clear_person_property_staging(person_property_sink, logger)
 
-    async with Heartbeater():
-        hogql_query = typing.cast(dict, objects.saved_query.query)["query"]
-
-        if plan.incremental:
-            row_count, file_uris = await _materialize_incrementally(
-                objects, plan, hogql_query, table_uri, storage_options, logger, person_property_sink
-            )
-        else:
-            row_count, file_uris = await _materialize_fully(
-                objects, plan, hogql_query, table_uri, storage_options, logger, person_property_sink
-            )
-
-        await logger.ainfo(f"Materialized node {objects.node.name} with {row_count} rows")
-    quality_audit = await database_sync_to_async_pool(data_quality_facade.quality_audit_mode)(
-        inputs.team_id, str(objects.saved_query.id)
+    cdp_sink = _CDPRowSink(
+        CDPProducer.for_view(
+            team_id=inputs.team_id,
+            saved_query_id=str(objects.saved_query.id),
+            job_id=str(objects.job.id),
+            logger=logger,
+        ),
+        logger,
     )
-    return MaterializeViewResult(
-        node_id=objects.node.id,
-        node_name=objects.node.name,
-        row_count=row_count,
-        table_uri=table_uri,
-        file_uris=file_uris,
-        saved_query_id=str(objects.saved_query.id),
-        quality_audit=quality_audit,
-        incremental=plan.incremental,
-        person_property_sync_enabled=person_property_sink is not None,
-    )
+    await cdp_sink.prepare()
+
+    # Staged rows are only safe to leave in place once MaterializeViewResult is actually returned:
+    # that is the one signal the workflow's own cleanup keys off. Anything that leaves this block
+    # early - a write failure, a cancellation mid-write, or a cancellation during the logging,
+    # heartbeat teardown, or quality-audit lookup that follow it - must discard what was staged
+    # itself, because the workflow will never see a result to clean up after. CancelledError is a
+    # BaseException, not an Exception, so it has to be named explicitly to be caught here at all.
+    # cdp_sink.discard() only clears a non-empty prefix, so catching it at both this level and the
+    # inner write-loop level below is safe to double up on.
+    published = False
+    try:
+        async with Heartbeater():
+            hogql_query = typing.cast(dict, objects.saved_query.query)["query"]
+
+            try:
+                if plan.incremental:
+                    row_count, file_uris = await _materialize_incrementally(
+                        objects,
+                        plan,
+                        hogql_query,
+                        table_uri,
+                        storage_options,
+                        logger,
+                        cdp_sink,
+                        person_property_sink,
+                    )
+                else:
+                    row_count, file_uris = await _materialize_fully(
+                        objects,
+                        plan,
+                        hogql_query,
+                        table_uri,
+                        storage_options,
+                        logger,
+                        cdp_sink,
+                        person_property_sink,
+                    )
+            except (Exception, asyncio.CancelledError):
+                # A retry stages from scratch and a terminal failure produces nothing, so whatever
+                # this attempt wrote is only ever waste.
+                await cdp_sink.discard()
+                raise
+
+            await logger.ainfo(f"Materialized node {objects.node.name} with {row_count} rows")
+        quality_audit = await database_sync_to_async_pool(data_quality_facade.quality_audit_mode)(
+            inputs.team_id, str(objects.saved_query.id)
+        )
+        account_property_sync_enabled = await _account_property_sync_enabled(objects, inputs.job_id, logger)
+        delta_version: int | None = None
+        if account_property_sync_enabled:
+            try:
+                delta_table = await asyncio.to_thread(
+                    deltalake.DeltaTable,
+                    table_uri,
+                    storage_options=storage_options,
+                )
+                delta_version = delta_table.version()
+            except Exception as error:
+                await logger.awarning(f"Could not resolve account-property Delta snapshot: {error}")
+                capture_exception(error)
+                account_property_sync_enabled = False
+        result = MaterializeViewResult(
+            node_id=objects.node.id,
+            node_name=objects.node.name,
+            row_count=row_count,
+            table_uri=table_uri,
+            file_uris=file_uris,
+            saved_query_id=str(objects.saved_query.id),
+            quality_audit=quality_audit,
+            incremental=plan.incremental,
+            person_property_sync_enabled=person_property_sink is not None,
+            account_property_sync_enabled=account_property_sync_enabled,
+            delta_version=delta_version,
+            should_trigger_cdp_producer=cdp_sink.enabled,
+        )
+        published = True
+        return result
+    except (Exception, asyncio.CancelledError):
+        if not published:
+            await cdp_sink.discard()
+        raise

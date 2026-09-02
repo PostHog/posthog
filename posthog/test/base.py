@@ -52,6 +52,7 @@ from posthog.clickhouse.adhoc_events_deletion import (
     ADHOC_EVENTS_DELETION_TABLE_SQL,
     DROP_ADHOC_EVENTS_DELETION_TABLE_SQL,
 )
+from posthog.clickhouse.cleanup_snapshots import CLEANUP_SNAPSHOT_TABLE_SQL, DROP_CLEANUP_SNAPSHOT_TABLE_SQL
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import get_client_from_pool
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
@@ -83,7 +84,7 @@ from posthog.clickhouse.query_log_archive import (
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.helpers.two_factor_session import code_based_verification_token_generator
 from posthog.hogql_queries.ai.ai_table_resolver import AI_EVENT_NAMES as _AI_EVENT_TYPES
-from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 from posthog.models import Organization, Team, User
 from posthog.models.ai_events.sql import TRUNCATE_AI_EVENTS_TABLE_SQL
 from posthog.models.channel_type.sql import (
@@ -239,7 +240,7 @@ from products.event_definitions.backend.models.property_definition import (
     DROP_PROPERTY_DEFINITIONS_TABLE_SQL,
     PROPERTY_DEFINITIONS_TABLE_SQL,
 )
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 # Make sure freezegun ignores our utils class that times functions, and heavy optional
 # deps (e.g. transformers) that can break when freezegun walks sys.modules.
@@ -713,7 +714,7 @@ class PostHogTestCase(SimpleTestCase):
         if get_instance_setting("PERSON_ON_EVENTS_ENABLED"):
             from posthog.models.team import util
 
-            util.can_enable_actor_on_events = True  # ty: ignore[invalid-assignment]
+            util.can_enable_actor_on_events = True
 
         if not self.CLASS_DATA_LEVEL_SETUP:
             _setup_test_data(self)
@@ -1459,6 +1460,21 @@ def _format_sql_for_snapshot(query: str) -> str:
     return formatted
 
 
+class NewEventsSchemaSnapshotExtension(AmberSnapshotExtension):
+    """Amber extension that writes new-events-schema snapshots to `<test_file>.new_events_schema.ambr`.
+
+    These snapshots only get written when CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA is on
+    (the label-gated CI legs). Kept in the shared `.ambr` file, a legacy-schema
+    `--snapshot-update` run deletes them as unused: syrupy resolves both
+    `test_x[new_events_schema]` and `test_x` to the same owning test, so a run of the
+    other schema mode claims the name but never writes it. A snapshot file whose name
+    matches no test file is skipped by syrupy's unused-snapshot pass entirely, which
+    keeps each schema mode's snapshots safe from the other mode's update runs.
+    """
+
+    _file_extension = "new_events_schema.ambr"
+
+
 @pytest.mark.usefixtures("unittest_snapshot")
 class QueryMatchingTest:
     snapshot: Any
@@ -1477,7 +1493,7 @@ class QueryMatchingTest:
         snapshot_index = getattr(self, "_new_events_schema_snapshot_index", 0)
         self._new_events_schema_snapshot_index = snapshot_index + 1
         snapshot_name = "new_events_schema" if snapshot_index == 0 else f"new_events_schema.{snapshot_index}"
-        return self.snapshot(name=snapshot_name)
+        return self.snapshot(name=snapshot_name, extension_class=NewEventsSchemaSnapshotExtension)
 
     # :NOTE: Update snapshots by passing --snapshot-update to bin/tests
     def assertQueryMatchesSnapshot(self, query, params=None, replace_all_numbers=False):
@@ -1986,7 +2002,7 @@ if settings.TEST:
         _clickhouse_pool_checkouts += 1
         return _original_chpool_get_client(self, *args, **kwargs)
 
-    ChPool.get_client = _counting_chpool_get_client
+    ChPool.get_client = _counting_chpool_get_client  # ty: ignore[invalid-assignment]
 
 
 def reset_clickhouse_database() -> None:
@@ -2015,6 +2031,7 @@ def reset_clickhouse_database() -> None:
             DROP_EXCHANGE_RATE_DICTIONARY_SQL(),
             DROP_WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_SQL(),
             DROP_ADHOC_EVENTS_DELETION_TABLE_SQL(),
+            *[drop_sql() for drop_sql in DROP_CLEANUP_SNAPSHOT_TABLE_SQL],
         ]
     )
     run_clickhouse_statement_in_parallel(
@@ -2137,6 +2154,7 @@ def reset_clickhouse_database() -> None:
             SESSIONS_TABLE_MV_SQL(),
             SESSIONS_VIEW_SQL(),
             ADHOC_EVENTS_DELETION_TABLE_SQL(),
+            *[table_sql() for table_sql in CLEANUP_SNAPSHOT_TABLE_SQL],
             CUSTOM_METRICS_VIEW(include_counters=True),
             WEB_PRE_AGGREGATED_TEAM_SELECTION_DATA_SQL(),
             COHORT_MEMBERSHIP_MV_SQL(),

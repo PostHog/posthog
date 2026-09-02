@@ -6,25 +6,21 @@
 //! sibling attribute carries the content ref. The message also carries the original URL back to
 //! the caller.
 //!
-//! **Two URLs come out of this module. Do not confuse them.**
+//! **Two forms of one URL come out of this module. Do not confuse them.**
 //!
 //! The *dedup* URL is canonical, and its volatile parameters are removed. It is the only input to
 //! the hash, so it sets the ref and the dedup key of the fetch lane.
 //!
-//! The *fetch* URL is canonical, and every parameter stays. The fetcher requests this one. A
-//! signed URL works only in this form, and it dedups only in the first form.
+//! The *fetch* URL keeps the original query bytes, and every permitted parameter stays. The
+//! fetcher requests this one. URLs that carry credentials or signatures are refused before either
+//! form is created.
 //!
-//! That split is what makes the ref stable. A URL that carries a fresh signature on each page
-//! load would otherwise mint a new ref every time. A ref that appears once joins to nothing
-//! downstream. Removing the volatile parameters matters more for that than it does for
-//! the request count.
+//! That split is what makes the ref stable across non-credential cache busters. A ref that appears
+//! once joins to nothing downstream. Removing the volatile parameters matters more for that than
+//! it does for the request count.
 //!
-//! The hash is a *keyed* HMAC, for the same reason as the image hash. The ML bucket is not
-//! encrypted. An unkeyed digest of a URL would let a reader of the bucket learn which sites the
-//! users of a team visited.
-//!
-//! The caller derives the per-team key from the same KMS-held secret as the team pseudonym.
-//! Neither the secret nor the key leaves the ingester.
+//! The hash is a *keyed* HMAC. The caller derives one global URL key from the KMS-held secret. The
+//! secret does not leave the ingester.
 
 use std::collections::{HashMap, HashSet};
 
@@ -55,11 +51,7 @@ pub const MAX_URLS_PER_MESSAGE: usize = 512;
 /// Enables URL collection for one anonymize call.
 #[derive(Debug, Clone)]
 pub struct UrlCollection {
-    /// The non-reversible HMAC team pseudonym (32 hex chars), computed by the caller. Embedded
-    /// verbatim in every emitted ref, exactly as on the image lane.
-    pub pseudo_team: String,
-    /// Per-team key for the URL HMAC. The caller derives it under its own domain separator, so a
-    /// URL ref and an image ref stay distinct for one team.
+    /// Global key for the URL HMAC. The caller derives it under a URL-specific domain separator.
     pub url_key: String,
 }
 
@@ -68,7 +60,7 @@ pub struct UrlCollection {
 pub struct CollectedUrl {
     /// First 22 base64url chars of `HMAC-SHA256(url_key, dedup_url)`.
     pub hash: String,
-    /// The canonical URL with every parameter intact. This is what the fetcher requests.
+    /// The URL with its original query bytes intact. This is what the fetcher requests.
     pub url: String,
     /// The host the request goes to. robots.txt and the connection limit are scoped to this.
     pub host: String,
@@ -91,7 +83,6 @@ pub fn hash_url(url_key: &[u8], dedup_url: &str) -> String {
 
 /// Accumulates the remote image URLs of one message, deduplicated on the hash.
 pub struct UrlCollector {
-    pseudo_team: String,
     url_key: String,
     urls: Vec<CollectedUrl>,
     seen: HashSet<String>,
@@ -106,7 +97,6 @@ pub struct UrlCollector {
 impl UrlCollector {
     pub fn new(collection: UrlCollection) -> Self {
         Self {
-            pseudo_team: collection.pseudo_team,
             url_key: collection.url_key,
             urls: Vec::new(),
             seen: HashSet::new(),
@@ -156,7 +146,7 @@ impl UrlCollector {
         };
         let hash = hash_url(self.url_key.as_bytes(), &canonical.dedup);
         if self.seen.contains(&hash) {
-            return Some(crate::collect::url_ref(&self.pseudo_team, &hash));
+            return Some(crate::collect::url_ref(&hash));
         }
         self.seen.insert(hash.clone());
         self.urls.push(CollectedUrl {
@@ -165,7 +155,7 @@ impl UrlCollector {
             host: canonical.host,
             domain: canonical.domain,
         });
-        Some(crate::collect::url_ref(&self.pseudo_team, &hash))
+        Some(crate::collect::url_ref(&hash))
     }
 
     /// Counts by reason for the URLs this collector refused.
@@ -194,7 +184,6 @@ mod tests {
 
     fn collector() -> UrlCollector {
         UrlCollector::new(UrlCollection {
-            pseudo_team: "a".repeat(32),
             url_key: String::from_utf8(TEST_KEY.to_vec()).unwrap(),
         })
     }
@@ -219,19 +208,13 @@ mod tests {
     }
 
     #[test]
-    fn two_signatures_of_one_image_share_a_ref() {
+    fn a_signed_url_produces_no_global_ref() {
         let mut c = collector();
-        let first = c
+        assert!(c
             .collect("https://cdn.example.com/a.png?X-Amz-Signature=aaa")
-            .unwrap();
-        let second = c
-            .collect("https://cdn.example.com/a.png?X-Amz-Signature=bbb")
-            .unwrap();
-        assert_eq!(first, second);
-        // One entry, and it keeps the URL of the first sighting, which is a URL that still works.
-        let urls = c.into_urls();
-        assert_eq!(urls.len(), 1);
-        assert!(urls[0].url.contains("X-Amz-Signature=aaa"));
+            .is_none());
+        assert_eq!(c.into_declines(), vec![("credential".to_string(), 1)]);
+        assert_eq!(c.into_urls(), Vec::new());
     }
 
     #[test]
@@ -242,6 +225,21 @@ mod tests {
         let large = c.collect("https://cdn.example.com/a.png?w=900").unwrap();
         assert_ne!(small, large);
         assert_eq!(c.into_urls().len(), 2);
+    }
+
+    #[test]
+    fn cache_busters_share_one_global_ref_and_fetch_candidate() {
+        let mut c = collector();
+        let first_url = "https://cdn.example.com/a.png?w=100&cb=first";
+        let first = c.collect(first_url).unwrap();
+        let second = c
+            .collect("https://cdn.example.com/a.png?w=100&cb=second")
+            .unwrap();
+
+        assert_eq!(first, second);
+        let urls = c.into_urls();
+        assert_eq!(urls.len(), 1);
+        assert_eq!(urls[0].url, first_url);
     }
 
     #[test]

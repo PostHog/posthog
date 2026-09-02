@@ -12,6 +12,7 @@ import {
     IconFlask,
     IconHome,
     IconList,
+    IconListCheck,
     IconLive,
     IconListTree,
     IconLlmAnalytics,
@@ -66,6 +67,8 @@ export function ScopeIcon(props: { scope: APIScopeObject }): JSX.Element | null 
             return <IconWarning />
         case 'event_definition':
             return <IconApps />
+        case 'evaluation':
+            return <IconListCheck />
         case 'experiment':
             return <IconFlask />
         case 'export':

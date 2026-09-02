@@ -20,6 +20,7 @@ interface TaskRowProps {
   onDragStart?: (event: React.DragEvent) => void;
   onDragEnd?: (event: React.DragEvent) => void;
   timestamp: number;
+  subtitle?: React.ReactNode;
   depth?: number;
   /**
    * Whether to resolve the PR's state — a query per row into the host, where it
@@ -47,6 +48,7 @@ export function TaskRow({
   onDragStart,
   onDragEnd,
   timestamp,
+  subtitle,
   depth = 0,
   withPrStatus = true,
 }: TaskRowProps) {
@@ -65,14 +67,16 @@ export function TaskRow({
     state.archivingTaskIds.has(task.id),
   );
 
+  if (isArchiving) return null;
+
   return (
     <TaskItem
       depth={depth}
       taskId={task.id}
       label={task.title}
+      subtitle={subtitle}
       isActive={isActive}
       isSelected={isSelected}
-      isArchiving={isArchiving}
       hideHoverActions={hideHoverActions}
       isEditing={isEditing}
       workspaceMode={effectiveMode}

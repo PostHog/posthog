@@ -37,7 +37,7 @@ The three secrets stored in Stripe are:
 
 Key files:
 
-- `posthog/models/integration.py` — `StripeIntegration` class: writes and clears secrets in Stripe
+- `posthog/models/integration/stripe.py` — `StripeIntegration` class: writes and clears secrets in Stripe
 - `posthog/api/integration.py` — triggers `write_posthog_secrets()` after Stripe OAuth callback
 - `posthog/settings/integrations.py` — env vars (`STRIPE_APP_CLIENT_ID`, `STRIPE_APP_SECRET_KEY`,
   `STRIPE_POSTHOG_OAUTH_CLIENT_ID`, `STRIPE_APP_OVERRIDE_AUTHORIZE_URL`)

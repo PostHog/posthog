@@ -30,7 +30,7 @@ from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.models.subscription import Subscription
 from products.exports.backend.temporal.subscriptions.delivery_common import strip_null_bytes
 from products.exports.backend.temporal.subscriptions.types import safe_error_message
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 logger = structlog.get_logger(__name__)
 

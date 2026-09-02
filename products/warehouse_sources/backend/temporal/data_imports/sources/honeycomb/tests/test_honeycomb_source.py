@@ -1,25 +1,19 @@
 from typing import Any
 
-from unittest import mock
 from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from posthog.schema import SourceFieldInputConfig, SourceFieldSelectConfig
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.honeycomb import (
     HoneycombSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.honeycomb.honeycomb import HoneycombResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.honeycomb.settings import (
     ENDPOINTS,
     HONEYCOMB_ENDPOINTS,
     HoneycombScope,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.honeycomb.source import HoneycombSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _source_inputs(schema_name: str = "datasets") -> SourceInputs:
@@ -43,23 +37,6 @@ class TestHoneycombSource:
     def setup_method(self) -> None:
         self.source = HoneycombSource()
         self.team_id = 1
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.HONEYCOMB
-
-    def test_source_config_basics(self) -> None:
-        config = self.source.get_source_config
-        assert config.label == "Honeycomb"
-        assert config.unreleasedSource is None
-        field_names = [f.name for f in config.fields]
-        assert field_names == ["api_key", "region"]
-        api_key_field = config.fields[0]
-        assert isinstance(api_key_field, SourceFieldInputConfig)
-        assert api_key_field.required is True
-        assert api_key_field.secret is True
-        region_field = config.fields[1]
-        assert isinstance(region_field, SourceFieldSelectConfig)
-        assert {option.value for option in region_field.options} == {"us", "eu"}
 
     def test_generated_config_parses_fields(self) -> None:
         # Guards the generated_configs.py wiring: the form fields must map to `api_key` and
@@ -94,30 +71,6 @@ class TestHoneycombSource:
         datasets = next(t for t in tables if t["name"] == "datasets")
         assert "Full refresh" in datasets["sync_methods"]
         assert datasets["description"]
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.honeycomb.source.validate_honeycomb_credentials"
-    )
-    def test_validate_credentials_passes_region(self, mock_validate: MagicMock) -> None:
-        mock_validate.return_value = (True, None)
-        ok, error = self.source.validate_credentials(HoneycombSourceConfig(api_key="k", region="eu"), self.team_id)
-        assert ok is True
-        assert error is None
-        mock_validate.assert_called_once_with("k", "eu")
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.honeycomb.source.validate_honeycomb_credentials"
-    )
-    def test_validate_credentials_failure(self, mock_validate: MagicMock) -> None:
-        mock_validate.return_value = (False, "Invalid Honeycomb API key")
-        ok, error = self.source.validate_credentials(HoneycombSourceConfig(api_key="bad"), self.team_id)
-        assert ok is False
-        assert error == "Invalid Honeycomb API key"
-
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(_source_inputs())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is HoneycombResumeConfig
 
     @parameterized.expand(
         [

@@ -154,6 +154,26 @@ const SCENARIOS: Scenario[] = [
     sessionCommands: [{ name: "agent-cmd", description: "From agent" }],
     expectContains: ["agent-cmd", "fallback-skill"],
   },
+  {
+    name: "claude session offers /btw",
+    contextTaskId: TASK_ID,
+    adapter: "claude",
+    sessionCommands: [],
+    expectContains: ["btw"],
+  },
+  {
+    name: "codex session hides /btw (side questions unsupported)",
+    contextTaskId: TASK_ID,
+    adapter: "codex",
+    sessionCommands: [],
+    expectContains: ["good"],
+    expectNotContains: ["btw"],
+  },
+  {
+    name: "new-task composer with no session hides /btw",
+    expectContains: ["good"],
+    expectNotContains: ["btw"],
+  },
 ];
 
 describe("getCommandSuggestions", () => {

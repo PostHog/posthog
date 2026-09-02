@@ -10,6 +10,7 @@ from django.utils import timezone as django_timezone
 import posthoganalytics
 from asgiref.sync import sync_to_async
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
+from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.models.team.team import Team
 from posthog.temporal.common.client import async_connect, sync_connect
@@ -201,10 +202,14 @@ async def execute_task_processing_workflow_async(
     prewarmed: bool = False,
     workflow_id_prefix: Optional[str] = None,
     initial_message: PendingFollowup | None = None,
+    durable_dispatch: bool = False,
 ) -> None:
     """
     Start the task processing workflow asynchronously. Fire-and-forget.
     Use this from async contexts (e.g., within Temporal activities).
+
+    ``durable_dispatch`` means an outbox row already covers this run, so a failed start
+    leaves the run QUEUED for the dispatcher to retry instead of terminalizing it.
     """
     logger.info(
         "execute_task_processing_workflow_async_called",
@@ -263,12 +268,20 @@ async def execute_task_processing_workflow_async(
             run_id,
             f"Failed to start task workflow: permission validation failed: {e}",
         )
+    except WorkflowAlreadyStartedError:
+        observe_task_run_workflow_start(task_run_for_metrics, outcome="blocked", reason="already_running")
+        logger.info(
+            "task_processing_workflow_already_running",
+            extra={"task_id": task_id, "run_id": run_id},
+        )
     except Exception as e:
         observe_task_run_workflow_start(task_run_for_metrics, outcome="failed", reason="temporal_start")
         logger.exception(
             "task_processing_workflow_start_failed",
             extra={"task_id": task_id, "run_id": run_id, "error": str(e)},
         )
+        if durable_dispatch:
+            return
         await _terminalize_unstarted_task_run_async(
             run_id,
             f"Failed to start task workflow: {e}",
@@ -287,10 +300,14 @@ def execute_task_processing_workflow(
     prewarmed: bool = False,
     workflow_id_prefix: Optional[str] = None,
     initial_message: PendingFollowup | None = None,
+    durable_dispatch: bool = False,
 ) -> None:
     """
     Start the task processing workflow synchronously. Fire-and-forget.
     Use this from sync contexts (e.g., API endpoints).
+
+    ``durable_dispatch`` means an outbox row already covers this run, so a failed start
+    leaves the run QUEUED for the dispatcher to retry instead of terminalizing it.
     """
     # Metrics lookups stay inside the try so a failure here can't bypass terminalization and
     # leave the run orphaned in QUEUED (see the async variant above).
@@ -356,12 +373,20 @@ def execute_task_processing_workflow(
             run_id,
             f"Failed to start task workflow: permission validation failed: {e}",
         )
+    except WorkflowAlreadyStartedError:
+        observe_task_run_workflow_start(task_run_for_metrics, outcome="blocked", reason="already_running")
+        logger.info(
+            "task_processing_workflow_already_running",
+            extra={"task_id": task_id, "run_id": run_id},
+        )
     except Exception as e:
         observe_task_run_workflow_start(task_run_for_metrics, outcome="failed", reason="temporal_start")
         logger.exception(
             "task_processing_workflow_start_failed",
             extra={"task_id": task_id, "run_id": run_id, "error": str(e)},
         )
+        if durable_dispatch:
+            return
         _terminalize_unstarted_task_run(
             run_id,
             f"Failed to start task workflow: {e}",
@@ -389,6 +414,9 @@ def _resolve_mcp_scopes(task_run: TaskRun) -> PosthogMcpScopes:
 
     if task_run.task.origin_product == Task.OriginProduct.SIGNALS_SCOUT:
         return "signals_scout_reports"
+    # The suggestion scan only reads; a reconciled run must not inherit the generic full posture.
+    if task_run.task.origin_product == Task.OriginProduct.SIGNALS_SCOUT_SUGGESTIONS:
+        return "read_only"
 
     # Loop-fired runs persist their real scopes in pending_dispatch; a row missing it must
     # degrade to read_only, never escalate to the full write surface the generic fallback
@@ -628,7 +656,6 @@ def execute_posthog_code_agent_relay_workflow(
             id=workflow_id,
             id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
             task_queue=settings.TASKS_TASK_QUEUE,
-            retry_policy=RetryPolicy(maximum_attempts=3),
         )
     )
     return relay_id

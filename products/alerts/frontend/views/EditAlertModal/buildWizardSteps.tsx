@@ -1,7 +1,8 @@
 import type { ReactNode } from 'react'
 
+import { WizardReview } from 'lib/components/WizardReview'
+
 import { AlertWizardStep } from 'products/alerts/frontend/components/AlertWizard'
-import { AlertWizardReview } from 'products/alerts/frontend/components/AlertWizardReview'
 
 interface WizardStepInput {
     nameNode: ReactNode
@@ -67,7 +68,7 @@ export function buildWizardSteps(input: WizardStepInput): AlertWizardStep[] {
             canAdvance: !alertFormHasErrors,
             cannotAdvanceReason: alertFormHasErrors ? 'Fix the errors in previous steps before creating.' : undefined,
             content: (
-                <AlertWizardReview
+                <WizardReview
                     items={[
                         { label: 'Fires when', value: reviewFires },
                         { label: 'Runs', value: reviewCadence },

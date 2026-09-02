@@ -16,6 +16,14 @@ import { SnapshotChangeBadge, hasSnapshotChangeBadge } from './SnapshotChangeBad
 import { SnapshotClusterPanel } from './SnapshotClusterPanel'
 import { SnapshotStatusIndicator } from './SnapshotStatusIndicator'
 
+// A toleration the diff pipeline minted for sub-threshold jitter reads very
+// differently from one somebody chose, so the two never share a label.
+const TOLERATION_REASON_LABELS: Record<string, string> = {
+    human: 'manual',
+    agent: 'agent',
+    auto_threshold: 'auto',
+}
+
 function DiffMinimap({ url, onClick }: { url: string; onClick?: () => void }): JSX.Element {
     const [loaded, setLoaded] = useState(false)
     return (
@@ -175,10 +183,10 @@ export function SnapshotDiffViewer({
                                     size="small"
                                     onClick={() => {
                                         LemonDialog.open({
-                                            title: 'Tolerate this difference?',
+                                            title: 'Does this snapshot really render correctly?',
                                             description:
-                                                'Marks this as rendering noise — future runs with the same hash pass automatically. ' +
-                                                'If this is a bug, fix it instead.',
+                                                'Only tolerate slight rendering noise above the difference threshold. Confirm there are no visible errors or missing elements. ' +
+                                                'Otherwise, quarantine this snapshot.',
                                             primaryButton: {
                                                 children: 'Tolerate',
                                                 onClick: onMarkTolerated,
@@ -491,7 +499,7 @@ export function SnapshotDiffViewer({
                                             {entry.alternate_hash.slice(0, 10)}…
                                         </span>
                                         <LemonTag type="muted" size="small">
-                                            {entry.reason === 'human' ? 'manual' : 'auto'}
+                                            {TOLERATION_REASON_LABELS[entry.reason] ?? 'auto'}
                                         </LemonTag>
                                     </div>
                                 ))}

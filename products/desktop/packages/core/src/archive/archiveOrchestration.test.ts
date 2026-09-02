@@ -112,6 +112,7 @@ describe("archiveTask", () => {
     expect(harness.ids).not.toContain(TASK_ID);
     expect(harness.list).toEqual([]);
     expect(harness.deps.togglePin).toHaveBeenCalledWith(TASK_ID);
+    expect(harness.deps.cache.invalidatePathFilter).toHaveBeenCalled();
   });
 
   it("archives when reading task pins fails", async () => {
@@ -241,6 +242,25 @@ describe("archiveTasks", () => {
       archived: 0,
       failed: 0,
     });
+  });
+
+  it("archives tasks in parallel", async () => {
+    const harness = makeDeps();
+    let releaseFirst: (() => void) | undefined;
+    harness.deps.archive = vi.fn().mockImplementation((taskId: string) => {
+      if (taskId !== "a") return Promise.resolve();
+      return new Promise<void>((resolve) => {
+        releaseFirst = resolve;
+      });
+    });
+
+    const result = archiveTasks(["a", "b"], harness.deps);
+    await vi.waitFor(() => {
+      expect(harness.deps.archive).toHaveBeenCalledWith("b");
+    });
+    releaseFirst?.();
+
+    await expect(result).resolves.toEqual({ archived: 2, failed: 0 });
   });
 });
 

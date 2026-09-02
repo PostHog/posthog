@@ -17,6 +17,7 @@ of the HMAC), so those two run every check explicitly in the handler.
 from __future__ import annotations
 
 import re
+import math
 import base64
 import hashlib
 import secrets
@@ -103,6 +104,32 @@ class StripeProvisioningAPIView(RegionProxyMixin, APIView):
     authentication_classes: list[type[BaseAuthentication]] = []
     permission_classes: list = []
     spec_envelope: ClassVar[Envelope] = "flat"
+    # Rate-limit errors keep one shape per endpoint whichever throttle refuses,
+    # so a global throttle can't answer a bucket rejection in another envelope.
+    # The token endpoint keeps the typed shape here, not its own oauth one.
+    rate_limit_envelope: ClassVar[Envelope] = "typed"
+
+    def check_throttles(self, request: Request) -> None:
+        """Reject in the endpoint's rate-limit envelope: DRF's default
+        ``{"detail": ...}`` shape is not part of this namespace's wire contract
+        and must not leak out of it, whichever throttle refuses. Consults every throttle and keeps
+        the longest wait, mirroring DRF's own ``check_throttles`` so
+        ``Retry-After`` is the real time until the request would be allowed,
+        not the first refusing throttle's shorter window."""
+        durations: list[float | None] = []
+        for throttle in self.get_throttles():
+            if not throttle.allow_request(request, self):
+                durations.append(throttle.wait())
+        if not durations:
+            return
+        wait = max((d for d in durations if d is not None), default=None)
+        raise SpecError(
+            "rate_limited",
+            "Rate limit exceeded. Try again later.",
+            status=429,
+            envelope=self.rate_limit_envelope,
+            retry_after=math.ceil(wait) if wait else None,
+        )
 
     def handle_exception(self, exc: Exception) -> Response:
         if isinstance(exc, PreRenderedError):
@@ -538,6 +565,7 @@ class OAuthTokenView(StripeProvisioningAPIView):
 
 class StripeResourceAPIView(SignatureCheckedMixin, StripeProvisioningAPIView):
     spec_envelope = "status"
+    rate_limit_envelope: ClassVar[Envelope] = "status"
     region_proxy_strategy = "bearer_lookup"
     authentication_classes = [StripeBearerAuthentication]
 
@@ -899,6 +927,15 @@ class DeepLinksView(StripeResourceAPIView):
     @extend_schema(exclude=True)
     def post(self, request: Request) -> Response:
         access_token = cast(OAuthAccessToken, request.auth)
+
+        # A deep link logs its user straight in, so reaching this namespace is not enough.
+        if not access_token.application.provisioning.can_issue_deep_links:
+            capture_provisioning_event("deep_link_created", "not_enabled", partner=access_token.application)
+            raise SpecError(
+                "deep_links_not_enabled",
+                "Deep links are not enabled for this partner",
+                status=403,
+            )
 
         serializer = DeepLinkSerializer(data=request.data)
         if not serializer.is_valid():

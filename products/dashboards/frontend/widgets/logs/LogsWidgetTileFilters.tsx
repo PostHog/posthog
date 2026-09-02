@@ -3,9 +3,7 @@ import { useEffect, useMemo } from 'react'
 
 import { IconExternal } from '@posthog/icons'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import type { DateRange, LogMessage } from '~/queries/schema/schema-general'
@@ -68,19 +66,12 @@ export function LogsWidgetTileFilters({
     const savedViewId = parsed.savedViewId ?? null
     const hasSavedView = !!savedViewId
 
-    const { featureFlags } = useValues(featureFlagLogic)
-    const savedViewsEnabled = !!featureFlags[FEATURE_FLAGS.LOGS_SAVED_VIEWS]
-    // Keep the picker reachable when a view is already persisted, even if the flag is later turned
-    // off — otherwise the tile would be stuck on that view with no way to clear it.
-    const showSavedViewPicker = savedViewsEnabled || hasSavedView
     const { savedViewOptions, savedViewsLoading, savedViewLabelById } = useValues(logsWidgetSavedViewsLogic)
     const { ensureSavedViewsLoaded } = useActions(logsWidgetSavedViewsLogic)
 
     useEffect(() => {
-        if (showSavedViewPicker) {
-            ensureSavedViewsLoaded()
-        }
-    }, [showSavedViewPicker, ensureSavedViewsLoaded])
+        ensureSavedViewsLoaded()
+    }, [ensureSavedViewsLoaded])
 
     const savedViewSelectOptions = useMemo(
         () => [
@@ -149,16 +140,14 @@ export function LogsWidgetTileFilters({
 
     return (
         <WidgetTileFiltersBar dataAttr="logs-widget-tile-filters">
-            {showSavedViewPicker ? (
-                <LemonSelect
-                    size="small"
-                    value={savedViewId}
-                    loading={savedViewsLoading}
-                    options={savedViewSelectOptions}
-                    placeholder="Saved view"
-                    onChange={(value) => void applySavedView(value ?? null)}
-                />
-            ) : null}
+            <LemonSelect
+                size="small"
+                value={savedViewId}
+                loading={savedViewsLoading}
+                options={savedViewSelectOptions}
+                placeholder="Saved view"
+                onChange={(value) => void applySavedView(value ?? null)}
+            />
             {!hasSavedView ? (
                 <>
                     <SeverityLevelsFilter

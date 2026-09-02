@@ -5,7 +5,10 @@ use crate::{
 use common_geoip::GeoIpClient;
 use common_metrics::inc;
 use serde_json::Value;
-use std::{collections::HashMap, net::IpAddr};
+use std::{
+    collections::{hash_map::Entry, HashMap},
+    net::IpAddr,
+};
 
 use super::canonical_log::with_canonical_log;
 use super::types::{RequestContext, RequestPropertyOverrides};
@@ -46,12 +49,11 @@ pub fn prepare_overrides(
     })
 }
 
-/// Flags requests whose own `$geoip_*` values disagree with the lookup, without changing what
-/// wins. The lookup still overwrites them.
-///
-/// Sizes the population that letting request values win would affect, so that change can be
-/// measured before it ships rather than after. A JSON null counts as absent: it carries no
-/// value to compare against the lookup, so it can't be a divergence.
+/// Flags requests that supplied a `$geoip_*` value disagreeing with the lookup. These are the
+/// requests where keeping supplied values produces a different evaluation input than letting the
+/// lookup win, so the counter sizes the behavior difference between the two precedences.
+/// A JSON null counts as absent: it carries no value to compare against the lookup, so it can't
+/// be a divergence.
 fn record_geoip_divergence(
     person_properties: &HashMap<String, Value>,
     geoip_props: &HashMap<String, String>,
@@ -67,39 +69,47 @@ fn record_geoip_divergence(
     }
 }
 
+/// Builds the person property overrides for a request, filling in GeoIP-derived properties
+/// unless GeoIP is disabled.
+///
+/// GeoIP only fills gaps: a `$geoip_*` key the caller sent explicitly is kept as-is, because the
+/// IP we geolocate is whoever the request appears to come from. For a server-side caller that
+/// doesn't forward the end user's IP, that's its own server, so a caller that resolved geo itself
+/// is the authority for those keys.
 pub fn get_person_property_overrides(
     geoip_disabled: bool,
     person_properties: Option<HashMap<String, Value>>,
     ip: &IpAddr,
     geoip_service: &GeoIpClient,
 ) -> Option<HashMap<String, Value>> {
-    match (!geoip_disabled, person_properties) {
-        (true, Some(mut props)) => {
-            if let Some(geoip_props) = geoip_service.get_geoip_properties(&ip.to_string()) {
-                record_geoip_divergence(&props, &geoip_props);
-                props.extend(geoip_props.into_iter().map(|(k, v)| (k, Value::String(v))));
-            }
-            Some(props)
-        }
-        (true, None) => {
-            if let Some(geoip_props) = geoip_service.get_geoip_properties(&ip.to_string()) {
-                if !geoip_props.is_empty() {
-                    Some(
-                        geoip_props
-                            .into_iter()
-                            .map(|(k, v)| (k, Value::String(v)))
-                            .collect(),
-                    )
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        }
-        (false, Some(props)) => Some(props),
-        (false, None) => None,
+    if geoip_disabled {
+        return person_properties;
     }
+
+    let geoip_props = geoip_service
+        .get_geoip_properties(&ip.to_string())
+        .unwrap_or_default();
+    if geoip_props.is_empty() {
+        return person_properties;
+    }
+
+    let mut props = person_properties.unwrap_or_default();
+    record_geoip_divergence(&props, &geoip_props);
+    for (key, value) in geoip_props {
+        match props.entry(key) {
+            Entry::Vacant(slot) => {
+                slot.insert(Value::String(value));
+            }
+            // A JSON null means the caller had no value rather than that it supplied one.
+            // Callers clear a property with `$unset`, so a null here is a gap to fill.
+            Entry::Occupied(mut slot) if slot.get().is_null() => {
+                slot.insert(Value::String(value));
+            }
+            Entry::Occupied(_) => {}
+        }
+    }
+
+    Some(props)
 }
 
 pub fn get_group_property_overrides(

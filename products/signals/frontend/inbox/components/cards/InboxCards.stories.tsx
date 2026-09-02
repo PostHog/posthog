@@ -92,6 +92,27 @@ export const ReportCardStates: Story = {
                     summary: 'Real but insignificant.',
                 })}
             />
+            {/* Closed states keep the open-row surface, dimmed; a green or red dot on the reason tag says which. */}
+            <ReportCard
+                report={makeReport({
+                    title: 'Resolved by a merged pull request',
+                    priority: 'P1',
+                    status: SignalReportStatus.RESOLVED,
+                    dismissal_reason: 'pr_merged',
+                    source_products: ['error_tracking'],
+                    summary: 'Fixed and shipped; kept for reference.',
+                })}
+            />
+            <ReportCard
+                report={makeReport({
+                    title: 'Dismissed as intentional behavior',
+                    priority: 'P3',
+                    status: SignalReportStatus.SUPPRESSED,
+                    dismissal_reason: 'wontfix_intentional',
+                    source_products: ['session_replay'],
+                    summary: 'The flow works as designed.',
+                })}
+            />
         </Stack>
     ),
 }

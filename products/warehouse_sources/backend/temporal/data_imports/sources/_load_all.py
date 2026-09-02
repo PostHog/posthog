@@ -57,6 +57,7 @@ from .amplitude.source import AmplitudeSource
 from .anodot_cost.source import AnodotCostSource
 from .anomalo.source import AnomaloSource
 from .anthropic.source import AnthropicSource
+from .anvil.source import AnvilSource
 from .apaleo.source import ApaleoSource
 from .apify_dataset.source import ApifyDatasetSource
 from .apitally.source import ApitallySource
@@ -217,6 +218,7 @@ from .canny.source import CannySource
 from .canvas_lms.source import CanvasLmsSource
 from .capsule_crm.source import CapsuleCRMSource
 from .captain_data.source import CaptainDataSource
+from .capterra.source import CapterraSource
 from .captivate.source import CaptivateSource
 from .care_quality_commission.source import CareQualityCommissionSource
 from .cart_com.source import CartComSource
@@ -248,6 +250,7 @@ from .cisco_duo.source import CiscoDuoSource
 from .cisco_meraki.source import CiscoMerakiSource
 from .clari.source import ClariSource
 from .clarifai.source import ClarifaiSource
+from .clarify.source import ClarifySource
 from .classy.source import ClassySource
 from .clay.source import ClaySource
 from .clazar.source import ClazarSource
@@ -286,6 +289,7 @@ from .coingecko.source import CoinGeckoSource
 from .coinmarketcap.source import CoinMarketCapSource
 from .collibra.source import CollibraSource
 from .commercetools.source import CommercetoolsSource
+from .commission_junction.source import CommissionJunctionSource
 from .companycam.source import CompanycamSource
 from .concord.source import ConcordSource
 from .conekta.source import ConektaSource
@@ -298,6 +302,7 @@ from .contentsquare.source import ContentsquareSource
 from .convertkit.source import ConvertKitSource
 from .convex.source import ConvexSource
 from .convonite.source import ConvoniteSource
+from .coolify.source import CoolifySource
 from .copper.source import CopperSource
 from .coralogix.source import CoralogixSource
 from .cortex.source import CortexSource
@@ -327,6 +332,7 @@ from .datadog.source import DatadogSource
 from .dataforseo.source import DataForSEOSource
 from .datahub.source import DatahubSource
 from .datascope.source import DatascopeSource
+from .datocms.source import DatoCMSSource
 from .datorama.source import DatoramaSource
 from .dayforce.source import DayforceSource
 from .db2.source import Db2Source
@@ -337,6 +343,7 @@ from .deel.source import DeelSource
 from .deelflows.source import DeelFlowsSource
 from .deepgram.source import DeepgramSource
 from .deepsource.source import DeepsourceSource
+from .demodesk.source import DemodeskSource
 from .deno_deploy.source import DenoDeploySource
 from .depot.source import DepotSource
 from .deputy.source import DeputySource
@@ -525,6 +532,7 @@ from .google_forms.source import GoogleFormsSource
 from .google_merchant_center.source import GoogleMerchantCenterSource
 from .google_pagespeed_insights.source import GooglePageSpeedInsightsSource
 from .google_play_console.source import GooglePlayConsoleSource
+from .google_postmaster_tools.source import GooglePostmasterToolsSource
 from .google_search_console.source import GoogleSearchConsoleSource
 from .google_sheets.source import GoogleSheetsSource
 from .google_tasks.source import GoogleTasksSource
@@ -537,6 +545,7 @@ from .greenhouse.source import GreenhouseSource
 from .greythr.source import GreytHrSource
 from .gridly.source import GridlySource
 from .groq.source import GroqSource
+from .growi.source import GrowiSource
 from .growthbook.source import GrowthBookSource
 from .guardian.source import GuardianSource
 from .guesty.source import GuestySource
@@ -627,6 +636,7 @@ from .justsift.source import JustSiftSource
 from .k6_cloud.source import K6CloudSource
 from .kafka.source import KafkaSource
 from .kajabi.source import KajabiSource
+from .kalshi.source import KalshiSource
 from .kameleoon.source import KameleoonSource
 from .kandji.source import KandjiSource
 from .kapa_ai.source import KapaAISource
@@ -684,6 +694,7 @@ from .linkedin_pages.source import LinkedinPagesSource
 from .linkrunner.source import LinkrunnerSource
 from .linnworks.source import LinnworksSource
 from .linode.source import LinodeSource
+from .liveblocks.source import LiveblocksSource
 from .llama_cloud.source import LlamaCloudSource
 from .lob.source import LobSource
 from .lodgify.source import LodgifySource
@@ -694,6 +705,7 @@ from .lokalise.source import LokaliseSource
 from .looker.source import LookerSource
 from .loop_returns.source import LoopReturnsSource
 from .loops.source import LoopsSource
+from .lovable.source import LovableSource
 from .luma.source import LumaSource
 from .m3ter.source import M3terSource
 from .mailchimp.source import MailchimpSource
@@ -777,6 +789,7 @@ from .mysql.source import MySQLSource
 from .n8n.source import N8nSource
 from .nager_date.source import NagerDateSource
 from .nasa.source import NasaSource
+from .nationbuilder.source import NationBuilderSource
 from .navan.source import NavanSource
 from .nebius_ai.source import NebiusAISource
 from .neon.source import NeonSource
@@ -912,6 +925,7 @@ from .podbean.source import PodbeanSource
 from .podium.source import PodiumSource
 from .polar.source import PolarSource
 from .polygon.source import PolygonSource
+from .polymarket.source import PolymarketSource
 from .poplar.source import PoplarSource
 from .postgres.source import PostgresSource
 from .postmark.source import PostmarkSource
@@ -986,6 +1000,7 @@ from .roark.source import RoarkSource
 from .rocket_chat.source import RocketChatSource
 from .rocket_matter.source import RocketMatterSource
 from .rocketlane.source import RocketlaneSource
+from .rokt_ads.source import RoktAdsSource
 from .rollbar.source import RollbarSource
 from .rootly.source import RootlySource
 from .rss.source import RssSource
@@ -1042,6 +1057,7 @@ from .sevenshifts.source import SevenShiftsSource
 from .sftp.source import SFTPSource
 from .sharepoint.source import SharePointSource
 from .sharetribe.source import SharetribeSource
+from .shipmail.source import ShipmailSource
 from .shippo.source import ShippoSource
 from .shipstation.source import ShipStationSource
 from .shopify.source import ShopifySource
@@ -1057,6 +1073,7 @@ from .signoz.source import SigNozSource
 from .sim.source import SimSource
 from .simfin.source import SimFinSource
 from .similarweb.source import SimilarwebSource
+from .simon_data.source import SimonDataSource
 from .simplecast.source import SimpleCastSource
 from .simplesat.source import SimplesatSource
 from .simpro.source import SimproSource
@@ -1082,6 +1099,7 @@ from .snovio.source import SnovioSource
 from .snowflake.source import SnowflakeSource
 from .snowplow.source import SnowplowSource
 from .snyk.source import SnykSource
+from .socialpilot.source import SocialPilotSource
 from .soda_cloud.source import SodaCloudSource
 from .solarwinds_service_desk.source import SolarwindsServiceDeskSource
 from .sonar_cloud.source import SonarCloudSource
@@ -1110,6 +1128,7 @@ from .statuspage.source import StatuspageSource
 from .stigg.source import StiggSource
 from .stockdata.source import StockDataSource
 from .stockx.source import StockxSource
+from .strato.source import StratoSource
 from .strava.source import StravaSource
 from .streamelements.source import StreamElementsSource
 from .streamlabs.source import StreamlabsSource
@@ -1134,6 +1153,7 @@ from .tailscale.source import TailscaleSource
 from .talkdesk.source import TalkdeskSource
 from .talkwalker.source import TalkwalkerSource
 from .tally.source import TallySource
+from .tana.source import TanaSource
 from .tavus.source import TavusSource
 from .tawk_to.source import TawkToSource
 from .teachable.source import TeachableSource
@@ -1147,6 +1167,7 @@ from .telnyx.source import TelnyxSource
 from .tempo.source import TempoSource
 from .temporalio.source import TemporalIOSource
 from .tenable_vulnerability_management.source import TenableVulnerabilityManagementSource
+from .terabox.source import TeraBoxSource
 from .ternary.source import TernarySource
 from .terra_api.source import TerraApiSource
 from .terraform_cloud.source import TerraformCloudSource
@@ -1181,6 +1202,7 @@ from .travis_ci.source import TravisCISource
 from .trello.source import TrelloSource
 from .tremendous.source import TremendousSource
 from .trigger_dev.source import TriggerDevSource
+from .trino.source import TrinoSource
 from .triple_whale.source import TripleWhaleSource
 from .trunk_io.source import TrunkIoSource
 from .trustpilot.source import TrustPilotSource
@@ -1264,6 +1286,7 @@ from .workiz.source import WorkizSource
 from .workos.source import WorkOSSource
 from .workramp.source import WorkrampSource
 from .world_bank.source import WorldBankSource
+from .wps_office.source import WPSOfficeSource
 from .wrike.source import WrikeSource
 from .writesonic.source import WritesonicSource
 from .wufoo.source import WufooSource
@@ -1284,6 +1307,7 @@ from .zalando_zdirect.source import ZalandoZdirectSource
 from .zapier_supported_storage.source import ZapierSupportedStorageSource
 from .zapsign.source import ZapSignSource
 from .zellify.source import ZellifySource
+from .zenchef.source import ZenchefSource
 from .zendesk.source import ZendeskSource
 from .zendesk_sell.source import ZendeskSellSource
 from .zendesk_sunshine.source import ZendeskSunshineSource

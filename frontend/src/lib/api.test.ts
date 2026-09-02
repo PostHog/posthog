@@ -146,6 +146,13 @@ describe('API helper', () => {
             expect(fakeFetch.mock.calls[0][0]).toEqual('/api/environments/2/query/HogQLQuery/')
         })
 
+        it('uses the accounts table endpoint for AccountsTableQuery', async () => {
+            ApiConfig.setCurrentProjectId(2)
+            await api.query({ kind: NodeKind.AccountsTableQuery, columns: [], filters: [] })
+
+            expect(fakeFetch.mock.calls[0][0]).toEqual('/api/projects/2/accounts_table_query/')
+        })
+
         it('keeps the query URL kind optional', async () => {
             await api.query({} as Record<string, any>)
 
@@ -161,6 +168,38 @@ describe('API helper', () => {
                     }
                 )
             ).rejects.toThrow('Query kind mismatch')
+        })
+    })
+
+    describe('workflow endpoints', () => {
+        // These must carry the team id of the tab that issues them. `@current` resolves server-side to
+        // the account's last-switched project, so a second tab on another project makes every save 404.
+        it.each([
+            [
+                'hogFlows.updateHogFlow',
+                () => api.hogFlows.updateHogFlow('flow-1', {}),
+                '/api/environments/2/hog_flows/flow-1/',
+            ],
+            ['hogFlows.createHogFlow', () => api.hogFlows.createHogFlow({}), '/api/environments/2/hog_flows/'],
+            [
+                'messaging.updateTemplate',
+                () => api.messaging.updateTemplate('template-1', {}),
+                '/api/environments/2/messaging_templates/template-1/',
+            ],
+            [
+                'messaging.getCategory',
+                () => api.messaging.getCategory('category-1'),
+                '/api/environments/2/messaging_categories/category-1/',
+            ],
+            [
+                'messaging.generateMessagingPreferencesLink',
+                () => api.messaging.generateMessagingPreferencesLink(),
+                '/api/environments/2/messaging_preferences/generate_link/',
+            ],
+        ])("%s targets the tab's team, not @current", async (_name, request, expected) => {
+            await request()
+
+            expect(fakeFetch.mock.calls[0][0]).toEqual(expected)
         })
     })
 
@@ -419,6 +458,18 @@ describe('API helper', () => {
             fakeFetch.mockRejectedValue(new TypeError('Failed to parse URL'))
 
             const error = await api.get('/api/projects/2/insights/').catch((e) => e)
+
+            expect(error).toBeInstanceOf(NetworkError)
+        })
+
+        it('classifies a cross-realm fetch failure that fails instanceof TypeError', async () => {
+            // A TypeError thrown in another realm (an iframe) or a `fetch` swapped by a browser
+            // extension fails `instanceof TypeError`, so matching only on the class would drop it
+            // to an unclassified per-endpoint ApiError. Match the name and known message instead.
+            const crossRealmError = { name: 'TypeError', message: 'Failed to fetch' }
+            fakeFetch.mockRejectedValue(crossRealmError)
+
+            const error = await api.get('api/environments/2/insights').catch((e) => e)
 
             expect(error).toBeInstanceOf(NetworkError)
         })

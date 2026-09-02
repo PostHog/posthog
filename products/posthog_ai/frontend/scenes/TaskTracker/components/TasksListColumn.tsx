@@ -63,7 +63,11 @@ export function TasksListColumn({ selectedTaskId, isMobile = false }: TasksListC
         ) : (
             <div className="flex flex-col items-center justify-center text-center py-8 text-muted">
                 <p className="text-sm mb-0">
-                    {searchQuery || assigneeFilter !== 'for_you' ? 'No tasks match your filters' : 'No tasks yet'}
+                    {searchQuery || assigneeFilter !== 'for_you'
+                        ? 'No tasks match your filters'
+                        : // "For you" leaves scout runs out, so someone whose only tasks are scout runs
+                          // lands here. Point them at the filter that does show them.
+                          'No tasks yet. Scout runs are under "My scouts".'}
                 </p>
             </div>
         )

@@ -45,7 +45,9 @@ from products.data_warehouse.backend.facade.api import (
 from products.warehouse_sources.backend.facade.models import (
     ExternalDataJob,
     ExternalDataSchema,
+    ExternalDataSchemaDestination,
     ExternalDataSource,
+    resolve_destinations,
     sync_frequency_interval_to_sync_frequency,
     sync_frequency_to_sync_frequency_interval,
     update_sync_type_config_keys,
@@ -63,6 +65,11 @@ from products.warehouse_sources.backend.facade.source_management import (
     validate_and_coerce_row_filters,
 )
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType, IncrementalFieldType
+from products.warehouse_sources.backend.presentation.views.destination_links import (
+    DestinationLinkSerializer,
+    SchemaDestinationsSerializer,
+    set_schema_destinations,
+)
 from products.warehouse_sources.backend.presentation.views.source_api_versions import (
     ExternalDataSourceApiVersionDeprecationSerializer,
     api_version_deprecation_payload,
@@ -1474,6 +1481,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "cancel",
         "incremental_fields",
         "delete_data",
+        "destinations",
     ]
     scope_object_read_actions = ["list", "retrieve", "logs"]
     queryset = ExternalDataSchema.objects.all()
@@ -1558,6 +1566,52 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             purge_buffer_prefix(self.team_id, str(instance.id), logger)
 
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @extend_schema(
+        request=DestinationLinkSerializer,
+        responses={200: SchemaDestinationsSerializer},
+    )
+    @action(methods=["GET", "PATCH"], detail=True, filter_backends=[])
+    def destinations(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Read or replace this table's destination override.
+
+        Send `destination_ids: null` to clear the override so the table follows its source again.
+        """
+        schema = self.get_object()
+
+        if request.method == "GET":
+            links = list(
+                ExternalDataSchemaDestination.objects.for_team(self.team_id)
+                .filter(schema_id=schema.id, enabled=True)
+                .exclude(destination__deleted=True)
+            )
+            overridden = (
+                ExternalDataSchemaDestination.objects.for_team(self.team_id).filter(schema_id=schema.id).exists()
+            )
+            return Response(
+                status=status.HTTP_200_OK,
+                data=SchemaDestinationsSerializer(
+                    {
+                        "destination_ids": [str(link.destination_id) for link in links] if overridden else None,
+                        "inherits_from_source": not overridden,
+                        "effective_destination_ids": [str(d.id) for d in resolve_destinations(schema)],
+                    }
+                ).data,
+            )
+
+        serializer = DestinationLinkSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        attached = set_schema_destinations(
+            team_id=self.team_id,
+            schema_id=schema.id,
+            destination_ids=serializer.validated_data["destination_ids"],
+        )
+        return Response(
+            status=status.HTTP_200_OK,
+            data=SchemaDestinationsSerializer(
+                {"destination_ids": attached, "inherits_from_source": attached is None}
+            ).data,
+        )
 
     @extend_schema(parameters=[LogEntryRequestSerializer])
     @action(methods=["GET"], detail=True, filter_backends=[])

@@ -30,3 +30,7 @@ class PostHogAIRunState(RunState):
     # (``state__await_user_message=True`` in products/tasks/backend/logic/services/warm.py), so an alias
     # here would change the stored key and silently stop the filter from matching — opening the cap.
     await_user_message: bool = False
+    # Set on the first Run of a conversation that moved here from the LangGraph runtime. The
+    # conversation carries its history across the flip, so its chat analytics must not report it
+    # as a new one (products/tasks/.../update_task_run_status.py reads this key).
+    converted_from_langgraph: bool = False

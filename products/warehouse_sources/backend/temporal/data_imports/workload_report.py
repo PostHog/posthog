@@ -1,6 +1,6 @@
-"""Per-run workload self-reporting for warehouse sync activities.
+"""Per-run workload self-reporting for warehouse sync and repartition activities.
 
-Each import activity periodically writes what it is doing — phase, current in-memory buffer, process
+Each reporting activity periodically writes what it is doing — phase, current in-memory buffer, process
 RSS, and the peaks of both — to the warehouse Redis, keyed by run. The value outlives the worker, so
 when a worker dies silently the retry can read the dead attempt's last report, and the reports of
 everything else that was running on the same pod, and attach them to the `dwh_pod_heartbeat_timeout`
@@ -241,7 +241,13 @@ class WorkloadReporter:
                 "host": self._host,
                 "attempt": self._attempt,
                 "phase": "finished" if final else self._phase,
-                "buffer_bytes": self._buffer_bytes,
+                # A run that reached teardown released its buffer while unwinding, so the last
+                # value the hooks saw is stale — a rewrite that raised mid-flush still reports the
+                # batch it was writing. Zero it for the same reason the phase becomes "finished":
+                # this run holds nothing now. `peak_buffer_bytes` keeps the real high-water mark,
+                # which is what blame is judged on. A run that died with its pod never writes a
+                # final sample at all, so this cannot erase a death's own last words.
+                "buffer_bytes": 0 if final else self._buffer_bytes,
                 "peak_buffer_bytes": self._peak_buffer_bytes,
                 "rss_bytes": rss_bytes,
                 "peak_rss_bytes": self._peak_rss_bytes or None,
@@ -413,6 +419,7 @@ def enrich_death_event_properties(
                     "co_tenant_sum_buffer_bytes": sum(currents),
                     "co_tenant_merge_count": sum(1 for phase in phases if phase == "merge"),
                     "co_tenant_extract_count": sum(1 for phase in phases if phase == "extract"),
+                    "co_tenant_repartition_count": sum(1 for phase in phases if phase == "repartition"),
                 }
             )
             if death_ts is not None:

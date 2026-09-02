@@ -6,6 +6,7 @@ import { AssignmentRules } from '@posthog/products-error-tracking/frontend/scene
 import { GroupingRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/grouping_rules/GroupingRules'
 import { RateLimitSettings } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/rate_limit/RateLimitSettings'
 import { Releases } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/releases/Releases'
+import { SeverityRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/severity_rules/SeverityRules'
 import { SpikeDetectionSettings } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/spike_detection/SpikeDetectionSettings'
 import { SymbolSets } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/symbol_sets/SymbolSets'
 import { McpStoreSettings } from '@posthog/products-mcp-store/frontend/McpStoreSettings'
@@ -14,11 +15,11 @@ import { ExternalDataSourceConfiguration } from '@posthog/products-revenue-analy
 import { FilterTestAccountsConfiguration as RevenueAnalyticsFilterTestAccountsConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/FilterTestAccountsConfiguration'
 
 import { BaseCurrency } from 'lib/components/BaseCurrency/BaseCurrency'
+import { FeaturePreviews, FeaturePreviewsComingSoon } from 'lib/components/FeaturePreviews/FeaturePreviews'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_SUPPORT } from 'lib/components/SupportedPlatforms/featureSupport'
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { PersonalPosthogConnections } from 'lib/integrations/PosthogConnect'
-import { MAX_LOOKBACK_DAYS, MIN_LOOKBACK_DAYS } from 'scenes/experiments/constants'
 import { DefaultMinimumDetectableEffect } from 'scenes/experiments/DefaultMinimumDetectableEffect'
 import { GitHub, Linear, Slack } from 'scenes/integrations/definitions'
 import { BounceRateDurationSetting } from 'scenes/settings/environment/BounceRateDuration'
@@ -35,8 +36,11 @@ import { PreAggregatedTablesSetting } from 'scenes/settings/environment/PreAggre
 import { ReplayTriggers } from 'scenes/settings/environment/ReplayTriggers'
 import { SessionsTableVersion } from 'scenes/settings/environment/SessionsTableVersion'
 import { SessionsV2JoinModeSettings } from 'scenes/settings/environment/SessionsV2JoinModeSettings'
+import { OrganizationMCPAccess } from 'scenes/settings/organization/OrganizationMCPAccess'
 import { urls } from 'scenes/urls'
 
+import { ConfigScopeEnumApi } from '~/generated/core/api.schemas'
+import { AccessResolutionPreview } from '~/layout/navigation-3000/sidepanel/panels/access_control/ResolutionPreview/AccessResolutionPreview'
 import {
     DefaultRoleSelector,
     RolesAccessControls,
@@ -48,16 +52,17 @@ import { GeneralSection } from 'products/conversations/frontend/scenes/settings/
 import { NotificationsSection } from 'products/conversations/frontend/scenes/settings/NotificationsSection'
 import { ZendeskImportSection } from 'products/conversations/frontend/scenes/settings/ZendeskImportSection'
 import { CustomerAnalyticsEventStream } from 'products/customer_analytics/frontend/components/EventStream/CustomerAnalyticsEventStream'
+import { AccountTrackRules } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/account/AccountTrackRules'
 import { CustomerAnalyticsAccountConfig } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/account/CustomerAnalyticsAccountConfig'
 import {
     WarehouseGroupPropertiesSetting,
     WarehousePersonPropertiesSetting,
 } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/account/WarehousePersonPropertiesSetting'
 import { CalendarSyncConfig } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/calendar/CalendarSyncConfig'
-import { CustomerEmailConfig } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/email/CustomerEmailConfig'
 import { CustomerAnalyticsDashboardEvents } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/events/CustomerAnalyticsDashboardEvents'
 import { ExceptionAutocaptureToggle } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/exception_autocapture/ExceptionAutocaptureSettings'
 import { SuppressionRules } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/suppression_rules/SuppressionRules'
+import { MAX_LOOKBACK_DAYS, MIN_LOOKBACK_DAYS } from 'products/experiments/frontend/constants'
 import { LogsAlertingSection } from 'products/logs/frontend/components/LogsAlerting/LogsAlertingSection'
 import { LogsMetricRulesSection } from 'products/logs/frontend/components/LogsMetricRules/LogsMetricRulesSection'
 import { LogsRetentionSection } from 'products/logs/frontend/components/LogsRetention/LogsRetentionSection'
@@ -97,7 +102,6 @@ import {
     FlagsSecureApiKeys,
     RequireEvaluationContexts,
 } from './environment/FeatureFlagSettings'
-import { FeaturePreviewsComingSoon, FeaturePreviewsSettings } from './environment/FeaturePreviewsSettings'
 import { GroupAnalyticsConfig } from './environment/GroupAnalyticsConfig'
 import { HeatmapsSettings } from './environment/HeatmapsSettings'
 import { HumanFriendlyComparisonPeriodsSetting } from './environment/HumanFriendlyComparisonPeriodsSetting'
@@ -145,8 +149,10 @@ import { AIHipaaDisclaimer, getExternalAIProvidersTooltipTitle } from './organiz
 import { ApprovalPolicies } from './organization/Approvals/ApprovalPolicies'
 import { ChangeRequestsList } from './organization/Approvals/ChangeRequestsList'
 import { CIMDVerificationTokens } from './organization/CIMDVerificationTokens'
+import { IdentityProviderFeatureSection } from './organization/IdentityProviderConfig/IdentityProviderFeatureSection'
 import { Invites } from './organization/Invites'
 import { Members } from './organization/Members'
+import { NotificationGovernanceSetting } from './organization/NotificationGovernanceSetting'
 import { OAuthApps } from './organization/OAuthApps'
 import { OrganizationAI } from './organization/OrgAI'
 import { OrganizationAITrainingOptOut } from './organization/OrgAITraining'
@@ -154,6 +160,7 @@ import { OrganizationDangerZone } from './organization/OrganizationDangerZone'
 import { OrganizationIntegrations } from './organization/OrganizationIntegrations'
 import { OrganizationPersonalAPIKeys } from './organization/OrganizationPersonalAPIKeys'
 import { OrganizationSecuritySettings } from './organization/OrganizationSecuritySettings'
+import { OrganizationDesktopBetaTerms } from './organization/OrgDesktopBetaTerms'
 import { OrganizationDisplayName } from './organization/OrgDisplayName'
 import { OrgIPAnonymizationDefault } from './organization/OrgIPAnonymizationDefault'
 import { OrganizationVariables } from './organization/OrgVariables'
@@ -173,6 +180,7 @@ import { OptOutCapture } from './user/OptOutCapture'
 import { PasskeySettings } from './user/PasskeySettings'
 import { PersonalAPIKeys } from './user/PersonalAPIKeys'
 import { PersonalGitHubIntegrations, PersonalSlackIntegrations } from './user/PersonalIntegrations'
+import { ProfilePictureSettings } from './user/ProfilePictureSettings'
 import { RealtimeNotificationPreferences } from './user/RealtimeNotificationPreferences'
 import { Reminders } from './user/Reminders'
 import { SidebarAutoSuggestSetting } from './user/SidebarProductSettings'
@@ -455,6 +463,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['accounts', 'group', 'b2b'],
             },
             {
+                id: 'customer-analytics-track-rules',
+                title: 'Track rules',
+                description: 'Choose which active accounts appear in Customer analytics.',
+                component: <AccountTrackRules />,
+                flag: ['CUSTOMER_ANALYTICS', 'CUSTOMER_ANALYTICS_TRACK_RULES'],
+                keywords: ['accounts', 'track', 'ignore', 'rules', 'filter'],
+            },
+            {
                 id: 'customer-analytics-calendar-sync',
                 title: 'Google account sync',
                 description:
@@ -462,14 +478,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <CalendarSyncConfig />,
                 flag: ['CUSTOMER_ANALYTICS', 'CUSTOMER_ANALYTICS_CSP'],
                 keywords: ['calendar', 'email', 'meetings', 'google', 'sync', 'accounts'],
-            },
-            {
-                id: 'customer-analytics-email-sync',
-                title: 'Email forwarding',
-                description: 'Manage existing email forwarding connections.',
-                component: <CustomerEmailConfig />,
-                flag: ['CUSTOMER_ANALYTICS', 'CUSTOMER_ANALYTICS_CSP'],
-                keywords: ['email', 'inbox', 'forwarding', 'sync', 'accounts'],
             },
             {
                 id: 'customer-analytics-event-stream',
@@ -563,13 +571,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['notification', 'alert', 'threshold', 'spike'],
             },
             {
-                id: 'error-tracking-suppression-rules',
-                title: 'Suppression rules',
-                description: 'Filter out exceptions that match the given filters.',
-                component: <SuppressionRules />,
-                keywords: ['filter', 'ignore', 'suppress', 'exception', 'type', 'message'],
-            },
-            {
                 id: 'error-tracking-spike-detection',
                 title: 'Spike detection',
                 component: <SpikeDetectionSettings />,
@@ -583,17 +584,31 @@ export const SETTINGS_MAP: SettingSection[] = [
             },
             {
                 id: 'error-tracking-auto-assignment',
-                title: 'Auto assignment rules',
+                title: 'Assignment rules',
                 description: 'Automatically assign errors to team members based on rules you define.',
                 component: <AssignmentRules />,
-                keywords: ['assign', 'owner', 'team', 'rule', 'routing'],
+                keywords: ['assign', 'auto', 'owner', 'team', 'rule', 'routing'],
             },
             {
                 id: 'error-tracking-custom-grouping',
-                title: 'Custom grouping rules',
+                title: 'Grouping rules',
                 description: 'Define rules for how errors are grouped together into issues.',
                 component: <GroupingRules />,
-                keywords: ['group', 'merge', 'fingerprint', 'dedup'],
+                keywords: ['group', 'custom', 'merge', 'fingerprint', 'dedup'],
+            },
+            {
+                id: 'error-tracking-severity-rules',
+                title: 'Severity rules',
+                description: 'Set the initial severity of new issues based on rules you define.',
+                component: <SeverityRules />,
+                keywords: ['severity', 'priority', 'triage', 'critical', 'rule'],
+            },
+            {
+                id: 'error-tracking-suppression-rules',
+                title: 'Suppression rules',
+                description: 'Filter out exceptions that match the given filters.',
+                component: <SuppressionRules />,
+                keywords: ['filter', 'ignore', 'suppress', 'exception', 'type', 'message'],
             },
             {
                 id: 'error-tracking-symbol-sets',
@@ -798,7 +813,6 @@ export const SETTINGS_MAP: SettingSection[] = [
         level: 'environment',
         id: 'environment-logs',
         title: 'Logs',
-        flag: 'LOGS_SETTINGS',
         group: 'Products',
         settings: [
             {
@@ -809,7 +823,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 docsUrl: 'https://posthog.com/docs/logs',
                 platformSupport: FEATURE_SUPPORT.logsCapture,
                 component: <LogsCaptureSettings />,
-                flag: 'LOGS_SETTINGS',
                 keywords: ['log', 'capture', 'collect', 'ingest', 'console'],
             },
             {
@@ -844,7 +857,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 searchDescription:
                     "The log attributes PostHog reads to identify which person a log belongs to. A log is linked when any of these attributes matches one of the person's distinct IDs. Defaults to posthogDistinctId, the key the JavaScript and React Native SDKs auto-attach. Add keys only if your backend pipeline emits the person identifier under different attributes.",
                 component: <LogsDistinctIdAttributeKeys />,
-                flag: 'LOGS_SETTINGS',
                 keywords: ['log', 'person', 'distinct', 'attribute', 'pivot', 'profile', 'link'],
             },
             {
@@ -861,7 +873,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 searchDescription:
                     'The log attributes PostHog reads to identify which session a log belongs to, checked in order with the first match winning, followed by other common session ID attributes. Defaults to sessionId, the key the JavaScript and React Native SDKs auto-attach. Add keys only if your pipeline emits the session ID under different attributes.',
                 component: <LogsSessionIdAttributeKeys />,
-                flag: 'LOGS_SETTINGS',
                 keywords: ['log', 'session', 'replay', 'attribute', 'link'],
             },
             {
@@ -887,12 +898,12 @@ export const SETTINGS_MAP: SettingSection[] = [
             },
             {
                 id: 'logs-metric-rules',
-                title: 'Metric rules',
+                title: 'Log-based metrics',
                 description:
                     'Generate metrics from your logs at ingestion time. Metrics are computed before drop rules, so you can drop noisy logs and keep the trend.',
                 component: <LogsMetricRulesSection />,
-                flag: LogsFeatureFlagKeys.metricRules,
-                keywords: ['metric', 'metrics', 'generate', 'count', 'aggregate', 'logs to metrics'],
+                flag: 'METRICS',
+                keywords: ['metric', 'metrics', 'log-based', 'generate', 'count', 'aggregate', 'logs to metrics'],
             },
             {
                 id: 'logs-retention-rules',
@@ -908,7 +919,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Alerting',
                 description: 'Configure alerts to get notified when log volumes breach thresholds.',
                 component: <LogsAlertingSection />,
-                flag: 'LOGS_ALERTING',
                 keywords: ['notification', 'alert', 'threshold', 'logs'],
             },
         ],
@@ -1453,7 +1463,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Notifications',
                 description: 'Get notified about activity log events via configured destinations.',
                 component: <ActivityLogNotifications />,
-                flag: 'CDP_ACTIVITY_LOG_NOTIFICATIONS',
                 allowForTeam: (t) => (t?.effective_membership_level ?? 0) >= OrganizationMembershipLevel.Admin,
                 keywords: ['notification', 'alert', 'activity', 'webhook'],
             },
@@ -1561,7 +1570,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Slack integration',
                 description:
                     'Integrate with Slack to subscribe to insights or dashboards for regular reports to channels of your choice.',
-                docsUrl: 'https://posthog.com/docs/webhooks/slack',
+                docsUrl: Slack.docsUrl,
                 component: <Slack.SettingsSection />,
                 keywords: ['slack', 'channel', 'notification', 'subscribe', 'report'],
             },
@@ -1569,7 +1578,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'integration-github',
                 title: 'GitHub integration',
                 description: 'Connect GitHub to link issues and pull requests with PostHog insights.',
-                docsUrl: 'https://posthog.com/docs/error-tracking/integrations',
+                docsUrl: GitHub.docsUrl,
                 component: <GitHub.SettingsSection connectSurface="settings" />,
                 keywords: ['github', 'git', 'repository', 'issue', 'pr'],
             },
@@ -1577,15 +1586,41 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'integration-linear',
                 title: 'Linear integration',
                 description: 'Connect Linear to create and link issues directly from PostHog.',
-                docsUrl: 'https://posthog.com/docs/error-tracking/integrations',
+                docsUrl: Linear.docsUrl,
                 component: <Linear.SettingsSection />,
                 keywords: ['linear', 'issue', 'project management', 'task'],
             },
             {
                 id: 'integration-other',
                 title: 'Other integrations',
-                description: 'Browse and manage additional third-party integrations.',
-                component: <IntegrationsList omitKinds={['slack', 'github', 'linear']} />,
+                description:
+                    'Integrations connected from other product areas, such as pipeline destinations, data warehouse sources, error tracking, and marketing analytics.',
+                component: (
+                    <IntegrationsList
+                        omitKinds={['slack', 'github', 'linear']}
+                        titleText=""
+                        emptyState={
+                            <div className="px-4 py-6 text-center text-sm text-secondary rounded border bg-surface-primary">
+                                <p className="mb-1">No other integrations connected</p>
+                                <p className="text-xs text-muted text-balance mb-0">
+                                    These connect from the product area that uses them:{' '}
+                                    <Link to={urls.destinations()}>pipeline destinations</Link>,{' '}
+                                    <Link to={urls.sources()}>data warehouse sources</Link>,{' '}
+                                    <Link
+                                        to={urls.settings('environment-error-tracking', 'error-tracking-integrations')}
+                                    >
+                                        error tracking
+                                    </Link>{' '}
+                                    and{' '}
+                                    <Link to={urls.settings('environment-marketing-analytics', 'marketing-settings')}>
+                                        marketing analytics
+                                    </Link>
+                                    .
+                                </p>
+                            </div>
+                        }
+                    />
+                ),
                 keywords: ['integration', 'connect', 'third-party', 'app'],
             },
             {
@@ -1709,6 +1744,32 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'PostHog AI features use external AI services for data analysis. This can involve transfer of identifying user data.',
             },
             {
+                id: 'organization-desktop-beta-terms',
+                title: 'PostHog Desktop beta terms',
+                description: (
+                    <>
+                        Accept the additional data-processing terms for the PostHog Desktop beta.
+                        <br />
+                        <br />
+                        PostHog Desktop uses Baseten and Modal to process customer data, personal data, and PII. They
+                        are not currently listed as PostHog subprocessors for this feature.
+                        <br />
+                        <br />
+                        Your organization agrees to proceed notwithstanding that status. If this feature becomes
+                        generally available, PostHog will update the DPA and provide notice. This beta may change or be
+                        discontinued.
+                        <br />
+                        <br />
+                        <Link to="https://posthog.com/subprocessors" target="_blank">
+                            View PostHog subprocessors
+                        </Link>
+                    </>
+                ),
+                component: <OrganizationDesktopBetaTerms />,
+                keywords: ['desktop', 'beta', 'terms', 'consent', 'opt-in', 'data processing'],
+                searchDescription: 'Accept the additional data-processing terms for the PostHog Desktop beta.',
+            },
+            {
                 id: 'organization-ai-training-opt-out',
                 title: 'Internal AI training',
                 component: <OrganizationAITrainingOptOut />,
@@ -1731,7 +1792,7 @@ export const SETTINGS_MAP: SettingSection[] = [
     {
         level: 'organization',
         id: 'organization-authentication',
-        title: 'Authentication domains & SSO',
+        title: 'Authentication',
         settings: [
             {
                 id: 'authentication-domains',
@@ -1745,6 +1806,35 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Domain enforcement',
                 component: <EnforceVerifiedDomains />,
                 keywords: ['sso', 'verified domain', 'restrict', 'membership', 'invites'],
+            },
+            {
+                id: 'saml-configuration',
+                title: 'SAML single sign-on',
+                description:
+                    'Authenticate members through your identity provider using Security Assertion Markup Language (SAML).',
+                docsUrl: 'https://posthog.com/docs/data/sso#setting-up-saml',
+                component: <IdentityProviderFeatureSection configScope={ConfigScopeEnumApi.Saml} />,
+                flag: 'SSO_SETTINGS_REDESIGN',
+                keywords: ['sso', 'saml', 'single sign-on', 'identity provider'],
+            },
+            {
+                id: 'scim-configuration',
+                title: 'SCIM provisioning',
+                description:
+                    'Provision and deprovision organization members through your identity provider using System for Cross-domain Identity Management (SCIM).',
+                docsUrl: 'https://posthog.com/docs/data/sso#setting-up-scim',
+                component: <IdentityProviderFeatureSection configScope={ConfigScopeEnumApi.Scim} />,
+                flag: 'SSO_SETTINGS_REDESIGN',
+                keywords: ['scim', 'provisioning', 'identity provider'],
+            },
+            {
+                id: 'xaa-configuration',
+                title: 'XAA authentication',
+                description: 'Automate API and MCP access to PostHog with Cross App Access (XAA).',
+                docsUrl: 'https://posthog.com/docs/settings/id-jag',
+                component: <IdentityProviderFeatureSection configScope={ConfigScopeEnumApi.Xaa} />,
+                flag: ['SSO_SETTINGS_REDESIGN', 'XAA_AUTHENTICATION'],
+                keywords: ['xaa', 'id-jag', 'identity provider', 'token exchange'],
             },
         ],
     },
@@ -1826,6 +1916,16 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <Members />,
                 keywords: ['member', 'user', 'role', 'admin', 'owner'],
             },
+            {
+                id: 'member-notifications',
+                title: 'Member notifications',
+                description:
+                    'Choose which email notifications your members receive. Anything you set here they cannot change back themselves.',
+                component: <NotificationGovernanceSetting />,
+                flag: 'ORG_NOTIFICATION_GOVERNANCE',
+                allowForTeam: (t) => (t?.effective_membership_level ?? 0) >= OrganizationMembershipLevel.Admin,
+                keywords: ['notification', 'email', 'member', 'lock', 'digest', 'pipeline'],
+            },
         ],
     },
     {
@@ -1868,6 +1968,25 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'organization',
+        id: 'organization-access-resolution',
+        title: 'Access resolution preview',
+        flag: 'ACCESS_CONTROL_RESOLUTION_PREVIEW',
+        // Temporary migration surface: reachable only from the access control
+        // settings banner, never from the settings navigation or search
+        hideFromNavigation: true,
+        settings: [
+            {
+                id: 'organization-access-resolution-preview',
+                title: 'Access resolution preview',
+                description:
+                    'PostHog is changing how access levels combine: the most specific rule will decide, instead of the highest one. Review what will be different for your organization before the change takes effect.',
+                component: <AccessResolutionPreview />,
+                keywords: ['access control', 'resolution', 'rbac', 'permission', 'override'],
+            },
+        ],
+    },
+    {
+        level: 'organization',
         id: 'organization-security',
         title: 'Security',
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
@@ -1878,6 +1997,13 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description: 'Configure organization-wide security policies.',
                 component: <OrganizationSecuritySettings />,
                 keywords: ['compliance', 'sharing', 'public'],
+            },
+            {
+                id: 'organization-mcp-access',
+                title: 'MCP access',
+                description: 'Control what the PostHog MCP can do in this organization.',
+                component: <OrganizationMCPAccess />,
+                keywords: ['mcp', 'ai', 'agent', 'read-only', 'model context protocol'],
             },
             {
                 id: 'organization-personal-api-keys',
@@ -1920,6 +2046,12 @@ export const SETTINGS_MAP: SettingSection[] = [
         id: 'user-profile',
         title: 'Profile',
         settings: [
+            {
+                id: 'profile-picture',
+                title: 'Profile picture',
+                component: <ProfilePictureSettings />,
+                keywords: ['avatar', 'gravatar', 'photo', 'picture', 'image', 'profile'],
+            },
             {
                 id: 'details',
                 title: 'Details',
@@ -2093,7 +2225,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Feature previews',
                 description:
                     'Try out upcoming PostHog features before they are generally available. Toggling a preview enables it for your account only.',
-                component: <FeaturePreviewsSettings />,
+                component: <FeaturePreviews />,
                 keywords: ['beta', 'early access', 'preview', 'opt-in'],
             },
             {
@@ -2163,7 +2295,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'Bind your Slack identity to this PostHog account so @PostHog mentions route to you even when your Slack email and PostHog email differ.',
                 component: <PersonalSlackIntegrations />,
                 keywords: ['slack', 'integration', 'identity', 'link', 'mention', 'personal'],
-                flag: 'SLACK_APP_OAUTH',
             },
             {
                 id: 'personal-integrations-posthog',

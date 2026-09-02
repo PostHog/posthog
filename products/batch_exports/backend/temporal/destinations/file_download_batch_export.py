@@ -1,9 +1,9 @@
 import re
 import json
 import uuid
-import typing
 import asyncio
 import datetime as dt
+import functools
 import dataclasses
 
 from django.conf import settings
@@ -18,7 +18,11 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger, get_write_only_logger
 
 from products.batch_exports.backend.models.batch_export import BatchExportFileDownload
-from products.batch_exports.backend.service import BatchExportInsertInputs, FileDownloadBatchExportInputs
+from products.batch_exports.backend.service import (
+    AWSCredentials,
+    BatchExportInsertInputs,
+    FileDownloadBatchExportInputs,
+)
 from products.batch_exports.backend.temporal.batch_exports import (
     DataInterval,
     StartBatchExportRunInputs,
@@ -47,15 +51,9 @@ NON_RETRYABLE_ERROR_TYPES = ()
 SESSION = aioboto3.Session()
 
 
-class Credentials(typing.NamedTuple):
-    aws_access_key_id: str
-    aws_secret_access_key: str
-    aws_session_token: str
-
-
 async def _get_temporary_credentials_for_multipart_upload(
     bucket: str, prefix: str, /, role_arn: str, duration: int = 3600
-) -> Credentials:
+) -> AWSCredentials:
     """Get temporary AWS credentials for a multipart upload to keys under prefix."""
     creds = await _get_temporary_credentials_for_bucket_prefix(
         bucket,
@@ -70,7 +68,7 @@ async def _get_temporary_credentials_for_multipart_upload(
 
 async def _get_temporary_credentials_to_head_object(
     bucket: str, prefix: str, /, role_arn: str, duration: int = 900
-) -> Credentials:
+) -> AWSCredentials:
     """Get temporary AWS credentials for HEAD object requests for keys under prefix."""
     creds = await _get_temporary_credentials_for_bucket_prefix(
         bucket,
@@ -93,7 +91,7 @@ async def _get_temporary_credentials_for_bucket_prefix(
     duration: int = 3600,
     max_attempts: int = 5,
     delay: int | float = 1.0,
-) -> Credentials:
+) -> AWSCredentials:
     """Get temporary credentials scoped to operate only on the bucket's prefix.
 
     The credentials should be limited to a set of actions using the `actions` argument.
@@ -127,11 +125,14 @@ async def _get_temporary_credentials_for_bucket_prefix(
                     raise
 
                 await asyncio.sleep(delay * (2**attempt))
+            else:
+                break
 
-    return Credentials(
-        response["Credentials"]["AccessKeyId"],
-        response["Credentials"]["SecretAccessKey"],
-        response["Credentials"]["SessionToken"],
+    return AWSCredentials(
+        aws_access_key_id=response["Credentials"]["AccessKeyId"],
+        aws_secret_access_key=response["Credentials"]["SecretAccessKey"],
+        aws_session_token=response["Credentials"]["SessionToken"],
+        expiration=response["Credentials"]["Expiration"],
     )
 
 
@@ -244,7 +245,8 @@ async def export_to_file_download_bucket_with_temporary_credentials(inputs: Expo
         batch_export_id=inputs.batch_export.batch_export_id, batch_export_run_id=inputs.batch_export.run_id
     )
 
-    credentials = await _get_temporary_credentials_for_multipart_upload(
+    refresh_credentials = functools.partial(
+        _get_temporary_credentials_for_multipart_upload,
         inputs.s3_bucket.name,
         f"batch-exports/{inputs.batch_export.batch_export_id}/{inputs.batch_export.run_id}",
         role_arn=inputs.aws_role_arn,
@@ -257,9 +259,6 @@ async def export_to_file_download_bucket_with_temporary_credentials(inputs: Expo
         compression=inputs.compression,
         file_format=inputs.file_format,
         max_file_size_mb=inputs.max_file_size_mb,
-        aws_access_key_id=credentials.aws_access_key_id,
-        aws_secret_access_key=credentials.aws_secret_access_key,
-        aws_session_token=credentials.aws_session_token,
         data_interval_start=inputs.batch_export.data_interval_start,
         data_interval_end=inputs.batch_export.data_interval_end,
         exclude_events=inputs.batch_export.exclude_events,
@@ -270,6 +269,7 @@ async def export_to_file_download_bucket_with_temporary_credentials(inputs: Expo
         batch_export_model=inputs.batch_export.batch_export_model,
         batch_export_id=inputs.batch_export.batch_export_id,
         destination_default_fields=inputs.batch_export.destination_default_fields,
+        refresh_credentials=refresh_credentials,
     )
     result = await insert_into_s3_activity_from_stage(s3_insert_inputs)
 

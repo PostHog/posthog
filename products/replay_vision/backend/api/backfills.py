@@ -221,7 +221,10 @@ class ReplayScannerBackfillViewSet(
         snapshot = BackfillScannerSnapshot.from_scanner(scanner)
         return WindowedCandidateQuery(
             team=self.team,
-            query=scanner.recordings_query(),
+            query=scanner.targeted_recordings_query(),
+            # The exposure filter runs as the requesting user, so previewing or launching a
+            # backfill of an experiment scanner requires the same experiment access as viewing it.
+            user=cast(Any, self.request.user),
             window_start=window_start,
             window_end=window_end,
             query_type=BACKFILL_CANDIDATE_QUERY_TYPE,

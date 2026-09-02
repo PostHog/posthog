@@ -9,12 +9,14 @@ import * as dashboardWidgetUtils from '@posthog/products-dashboards/frontend/uti
 import { DASHBOARD_WIDGET_FETCH_ERROR_MESSAGE } from '@posthog/products-dashboards/frontend/widgets/constants'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs, now } from 'lib/dayjs'
 import * as featureFlagLib from 'lib/logic/featureFlagLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { addInsightToDashboardLogic } from 'scenes/dashboard/addInsightToDashboardModalLogic'
+import { parseDashboardId } from 'scenes/dashboard/Dashboard'
 import { dashboardInsightColorsModalLogic } from 'scenes/dashboard/dashboardInsightColorsModalLogic'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import * as dashboardUtils from 'scenes/dashboard/dashboardUtils'
@@ -38,6 +40,8 @@ import {
     InsightShortId,
     QueryBasedInsightModel,
 } from '~/types'
+
+import { DashboardGridCompaction } from 'products/dashboards/frontend/dashboardCustomization'
 
 import { dashboardResult, insightOnDashboard, tileFromInsight } from './dashboardLogic.testHelpers'
 
@@ -309,34 +313,43 @@ describe('dashboardLogic', () => {
         insightsModel.mount()
     })
 
-    describe('key() guard', () => {
+    describe('malformed dashboard id', () => {
         it.each([
             ['NaN', NaN],
             ['undefined', undefined as unknown as number],
             ['Infinity', Infinity],
-        ])('throws when id is %s', (_label, id) => {
-            expect(() => dashboardLogic({ id })).toThrow(/non-finite id/)
+        ])('mounts and reports not found instead of throwing when id is %s', async (_label, id) => {
+            const invalidLogic = dashboardLogic({ id })
+            invalidLogic.mount()
+            await expectLogic(invalidLogic).toMatchValues({ error404: true, hasInvalidDashboardId: true })
         })
 
         it('accepts a finite numeric id', () => {
             expect(() => dashboardLogic({ id: 42 })).not.toThrow()
         })
-    })
 
-    describe('inline tile insertion experiment', () => {
-        beforeEach(() => {
-            logic = dashboardLogic({ id: 5 })
-            logic.mount()
+        it('reports not found when dashboard data is supplied for an invalid id', async () => {
+            const invalidLogic = dashboardLogic({ id: NaN, dashboard: dashboards[5] })
+            invalidLogic.mount()
+
+            await expectLogic(invalidLogic).toMatchValues({ error404: true, hasInvalidDashboardId: true })
         })
 
-        it.each([
-            ['control', false],
-            ['test', true],
-        ])('uses the %s variant', async (variant, expectedEnabled) => {
-            const experimentFlag = FEATURE_FLAGS.DASHBOARD_INLINE_TILE_INSERTION_EXPERIMENT
-            await expectLogic(logic, () => {
-                featureFlagLogic.actions.setFeatureFlags([experimentFlag], { [experimentFlag]: variant })
-            }).toMatchValues({ inlineTileInsertionEnabled: expectedEnabled })
+        it('does not load the zero dashboard sentinel', async () => {
+            const zeroLogic = dashboardLogic({ id: 0 })
+            zeroLogic.mount()
+
+            await expectLogic(zeroLogic)
+                .toNotHaveDispatchedActions(['loadDashboard', 'loadDashboardStreaming', 'dashboardNotFound'])
+                .toMatchValues({ error404: false, hasInvalidDashboardId: false })
+        })
+
+        it.each(['12abc', '12.5', '+12', '-12', '0', '00', '000'])('rejects invalid route id %s', (id) => {
+            expect(parseDashboardId(id)).toBeNaN()
+        })
+
+        it('parses a full numeric route id', () => {
+            expect(parseDashboardId('12')).toBe(12)
         })
     })
 
@@ -387,6 +400,7 @@ describe('dashboardLogic', () => {
 
                 expect(api.update).toHaveBeenCalledTimes(1)
                 expect(api.update).toHaveBeenCalledWith(`api/environments/${MOCK_TEAM_ID}/dashboards/5`, {
+                    layout_compaction: DashboardGridCompaction.Vertical,
                     grid_spacing: 'relaxed',
                 })
                 expect(reportTileDensityConfigured).toHaveBeenCalledWith('relaxed')
@@ -395,7 +409,7 @@ describe('dashboardLogic', () => {
             }
         })
 
-        it('does not report the default tile density', async () => {
+        it('reports the tile density when reset to standard', async () => {
             await expectLogic(logic).toFinishAllListeners()
             const reportTileDensityConfigured = jest.spyOn(
                 eventUsageLogic.actions,
@@ -409,7 +423,69 @@ describe('dashboardLogic', () => {
                 await jest.advanceTimersByTimeAsync(750)
                 await expectLogic(logic).toFinishAllListeners()
 
-                expect(reportTileDensityConfigured).not.toHaveBeenCalled()
+                expect(reportTileDensityConfigured).toHaveBeenCalledWith('standard')
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
+        it('previews layout compaction immediately and persists only the final choice', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+            ;(api.update as jest.Mock).mockClear()
+            jest.useFakeTimers()
+
+            try {
+                logic.actions.setDashboardGridCompaction(DashboardGridCompaction.Vertical)
+                logic.actions.saveDashboardGridCompaction(DashboardGridCompaction.Vertical)
+                logic.actions.setDashboardGridCompaction(DashboardGridCompaction.Horizontal)
+                logic.actions.saveDashboardGridCompaction(DashboardGridCompaction.Horizontal)
+
+                expect(logic.values.dashboard?.customization?.layout_compaction).toBe(
+                    DashboardGridCompaction.Horizontal
+                )
+                expect(api.update).not.toHaveBeenCalled()
+
+                await jest.advanceTimersByTimeAsync(750)
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(api.update).toHaveBeenCalledTimes(1)
+                expect(api.update).toHaveBeenCalledWith(`api/environments/${MOCK_TEAM_ID}/dashboards/5`, {
+                    layout_compaction: DashboardGridCompaction.Horizontal,
+                    grid_spacing: 'standard',
+                })
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
+        it('persists the latest movement mode after a save is already in flight', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+            let resolveFirstSave: (dashboard: DashboardType<QueryBasedInsightModel>) => void = () => {
+                throw new Error('First save resolver is unavailable')
+            }
+            const firstSave = new Promise<DashboardType<QueryBasedInsightModel>>((resolve) => {
+                resolveFirstSave = resolve
+            })
+            ;(api.update as jest.Mock).mockImplementationOnce(() => firstSave)
+            jest.useFakeTimers()
+
+            try {
+                logic.actions.setDashboardGridCompaction(DashboardGridCompaction.Horizontal)
+                logic.actions.saveDashboardGridCompaction(DashboardGridCompaction.Horizontal)
+                await jest.advanceTimersByTimeAsync(750)
+
+                logic.actions.setDashboardGridCompaction(DashboardGridCompaction.Stable)
+                logic.actions.saveDashboardGridCompaction(DashboardGridCompaction.Stable)
+                await jest.advanceTimersByTimeAsync(750)
+
+                resolveFirstSave(logic.values.dashboard!)
+                await jest.advanceTimersByTimeAsync(750)
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(api.update).toHaveBeenLastCalledWith(`api/environments/${MOCK_TEAM_ID}/dashboards/5`, {
+                    layout_compaction: DashboardGridCompaction.Stable,
+                    grid_spacing: 'standard',
+                })
             } finally {
                 jest.useRealTimers()
             }
@@ -1116,6 +1192,46 @@ describe('dashboardLogic', () => {
             })
         })
 
+        describe('url filter overrides', () => {
+            const PROPERTY_OVERRIDE = [{ key: '$browser', value: 'Chrome', type: 'event' }]
+
+            const openWithUrlFilters = async (urlFilters: Record<string, any>): Promise<void> => {
+                logic.unmount()
+                router.actions.push('/dashboard/5', {
+                    [dashboardUtils.SEARCH_PARAM_FILTERS_KEY]: JSON.stringify(urlFilters),
+                })
+                logic = dashboardLogic({ id: 5 })
+                logic.mount()
+                await expectLogic(logic).toFinishAllListeners()
+            }
+
+            // The overrides banner renders off hasUrlFilters. An override that constrains nothing still
+            // has keys, so testing for key presence announces overrides on a dashboard that is showing
+            // exactly its saved state.
+            const activeOverrideCases: [string, Record<string, any>, boolean][] = [
+                ['a date override is active', { date_from: '-7d', date_to: null }, true],
+                ['a property override is active', { properties: PROPERTY_OVERRIDE }, true],
+                ['properties cleared to empty is not active', { properties: [] }, false],
+            ]
+
+            it.each(activeOverrideCases)('%s', async (_name, urlFilters, expected) => {
+                await openWithUrlFilters(urlFilters)
+
+                expect(logic.values.hasUrlFilters).toBe(expected)
+            })
+
+            it('drops the url param when the last filter is cleared', async () => {
+                await openWithUrlFilters({ properties: PROPERTY_OVERRIDE })
+                expect(router.values.searchParams[dashboardUtils.SEARCH_PARAM_FILTERS_KEY]).not.toBeUndefined()
+
+                await expectLogic(logic, () => {
+                    logic.actions.setProperties([])
+                }).toFinishAllListeners()
+
+                expect(router.values.searchParams[dashboardUtils.SEARCH_PARAM_FILTERS_KEY]).toBeUndefined()
+            })
+        })
+
         describe('hasUnsavedLayoutChanges selector', () => {
             const moveFirstTile = (): void => {
                 const firstTile = logic.values.dashboard!.tiles[0]
@@ -1164,6 +1280,64 @@ describe('dashboardLogic', () => {
                 })
                     .toFinishAllListeners()
                     .toMatchValues({ hasUnsavedLayoutChanges: false })
+            })
+        })
+
+        describe('changeDashboardGridCompaction action', () => {
+            let dialogOpenSpy: jest.SpyInstance
+
+            beforeEach(() => {
+                dialogOpenSpy = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
+            })
+
+            afterEach(() => {
+                dialogOpenSpy.mockRestore()
+            })
+
+            const moveFirstTile = (): void => {
+                const firstTile = logic.values.dashboard!.tiles[0]
+                const currentLayouts = logic.values.layouts
+                logic.actions.updateLayouts({
+                    ...currentLayouts,
+                    sm: currentLayouts.sm?.map((layout) =>
+                        layout.i === String(firstTile.id) ? { ...layout, x: (layout.x ?? 0) + 1 } : layout
+                    ),
+                })
+            }
+
+            it('changes the movement mode without a prompt when the layout is saved', async () => {
+                await expectLogic(logic, () => {
+                    logic.actions.changeDashboardGridCompaction(DashboardGridCompaction.Horizontal)
+                }).toDispatchActions([
+                    logic.actionCreators.setDashboardGridCompaction(DashboardGridCompaction.Horizontal),
+                    logic.actionCreators.saveDashboardGridCompaction(DashboardGridCompaction.Horizontal),
+                ])
+
+                expect(dialogOpenSpy).not.toHaveBeenCalled()
+            })
+
+            it('prompts before changing the movement mode when the layout is unsaved', async () => {
+                await expectLogic(logic).toFinishAllListeners()
+                await expectLogic(logic, moveFirstTile).toFinishAllListeners()
+
+                await expectLogic(logic, () => {
+                    logic.actions.changeDashboardGridCompaction(DashboardGridCompaction.Horizontal)
+                }).toNotHaveDispatchedActions([
+                    logic.actionCreators.setDashboardGridCompaction(DashboardGridCompaction.Horizontal),
+                    logic.actionCreators.saveDashboardGridCompaction(DashboardGridCompaction.Horizontal),
+                ])
+
+                expect(dialogOpenSpy).toHaveBeenCalledWith(
+                    expect.objectContaining({
+                        title: 'Change tile movement?',
+                        description: 'Changing this setting discards your unsaved tile layout changes.',
+                    })
+                )
+
+                const dialogProps = dialogOpenSpy.mock.calls.at(-1)?.[0]
+                dialogProps?.primaryButton?.onClick?.({} as React.MouseEvent<HTMLButtonElement>)
+
+                await expectLogic(logic).toFinishAllListeners().toMatchValues({ hasUnsavedLayoutChanges: false })
             })
         })
 
@@ -3081,6 +3255,27 @@ describe('dashboardLogic', () => {
                 results: [{ id: 'issue-1' }],
                 hasMore: false,
             })
+        })
+
+        it('surfaces a failed tile duplicate instead of resolving it as a success', async () => {
+            silenceKeaLoadersErrors()
+            const errorToast = jest.spyOn(lemonToast, 'error')
+            jest.spyOn(api, 'update').mockRejectedValueOnce(
+                new ApiError('forbidden', 403, undefined, { detail: 'You do not have permission' })
+            )
+
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.duplicateTile(WIDGET_TILE)
+            })
+                .toDispatchActions(['duplicateTileFailure'])
+                .toFinishAllListeners()
+
+            expect(errorToast).toHaveBeenCalledWith('You do not have permission')
+            resumeKeaLoadersErrors()
         })
 
         it('addWidgetTiles refreshes newly created widget tiles', async () => {

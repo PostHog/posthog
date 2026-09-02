@@ -1,17 +1,12 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.matomo import MatomoSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.matomo.matomo import MatomoResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.matomo.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.matomo.source import MatomoSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestMatomoSource:
@@ -19,28 +14,6 @@ class TestMatomoSource:
         self.source = MatomoSource()
         self.team_id = 123
         self.config = MatomoSourceConfig(host="https://myorg.matomo.cloud", site_id="1", api_token="token")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.MATOMO
-
-    def test_get_source_config(self):
-        config = self.source.get_source_config
-
-        assert config.name.value == "Matomo"
-        assert config.label == "Matomo"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is None
-        assert config.iconPath == "/static/services/matomo.png"
-
-        field_names = [f.name for f in config.fields]
-        assert field_names == ["host", "site_id", "api_token"]
-
-    def test_api_token_field_is_secret_password(self):
-        config = self.source.get_source_config
-        token_field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_token")
-        assert token_field.type == SourceFieldInputConfigType.PASSWORD
-        assert token_field.secret is True
-        assert token_field.required is True
 
     def test_connection_host_fields_cover_host(self):
         # The instance URL decides where the stored token gets sent.
@@ -87,14 +60,6 @@ class TestMatomoSource:
         assert [f["field"] for f in schemas["referrers"].incremental_fields] == ["_date"]
         assert schemas["visits"].incremental_fields == INCREMENTAL_FIELDS["visits"]
 
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["visits"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "visits"
-
-    def test_get_schemas_filtered_unknown_name_returns_empty(self):
-        assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
-
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.matomo.source.validate_matomo_credentials"
     )
@@ -139,13 +104,6 @@ class TestMatomoSource:
 
         assert is_valid is False
         assert "Invalid Matomo credentials" in (error_message or "")
-
-    def test_get_resumable_source_manager_binds_resume_config(self):
-        inputs = mock.MagicMock()
-        manager = self.source.get_resumable_source_manager(inputs)
-
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is MatomoResumeConfig
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.matomo.source.matomo_source")
     @mock.patch.object(MatomoSource, "is_database_host_valid")

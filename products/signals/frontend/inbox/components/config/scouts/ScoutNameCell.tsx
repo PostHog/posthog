@@ -7,7 +7,6 @@ import type { SignalScoutConfigApi as SignalScoutConfig } from 'products/signals
 
 import { ScoutGroupKey, scoutSubtitle } from '../../../utils/scoutGroups'
 import { prettifyScoutSkillName, ScoutRollup } from '../../../utils/scoutRunsWindow'
-import { ScoutStatusDot } from './ScoutStatusDot'
 
 const SUBTITLE_TONE_CLASS = {
     danger: 'text-danger',
@@ -28,7 +27,6 @@ export function ScoutNameCell({
     return (
         <div className="flex flex-col gap-0.5 py-0.5">
             <div className="flex items-center gap-2">
-                <ScoutStatusDot group={group} />
                 <Link to={urls.inboxScout(config.skill_name)} subtle className="truncate text-sm font-medium">
                     {prettifyScoutSkillName(config.skill_name)}
                 </Link>
@@ -37,16 +35,9 @@ export function ScoutNameCell({
                         <LemonTag size="small">Quiet by design</LemonTag>
                     </Tooltip>
                 )}
-                {!config.emit && (
-                    <Tooltip title="This scout runs and investigates, but nothing it finds reaches your inbox">
-                        <LemonTag size="small" type="option">
-                            Dry run
-                        </LemonTag>
-                    </Tooltip>
-                )}
             </div>
             {subtitle && (
-                <span className={cn('ml-4 line-clamp-1 text-[11.5px]', SUBTITLE_TONE_CLASS[subtitle.tone])}>
+                <span className={cn('line-clamp-1 text-[11.5px]', SUBTITLE_TONE_CLASS[subtitle.tone])}>
                     {subtitle.text}
                 </span>
             )}

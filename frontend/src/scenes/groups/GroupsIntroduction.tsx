@@ -9,6 +9,7 @@ export function GroupsIntroduction(): JSX.Element {
     return (
         <PayGateMini
             feature={AvailableFeature.GROUP_ANALYTICS}
+            featureDetail="groups-introduction"
             className="py-8"
             docsLink="https://posthog.com/docs/user-guides/group-analytics"
         >

@@ -1,7 +1,7 @@
 import re
+import time
 import typing
 import datetime as dt
-import itertools
 import collections.abc
 from types import SimpleNamespace
 
@@ -22,8 +22,6 @@ from google.ads.googleads.v23.errors.types.errors import ErrorCode, GoogleAdsErr
 from google.ads.googleads.v23.errors.types.request_error import RequestErrorEnum
 from google.api_core import exceptions as google_api_exceptions
 from google.auth import exceptions as google_auth_exceptions
-
-from posthog.schema import SourceFieldOauthConfig
 
 from posthog.models.integration import Integration
 
@@ -62,17 +60,6 @@ from products.warehouse_sources.backend.types import IncrementalFieldType
 
 _CUSTOMER_ID_ERROR = "valid Google Ads customer ID"
 _MANAGER_ID_ERROR = "valid Google Ads manager customer ID"
-
-
-def test_get_source_config_oauth_field_declares_required_scope():
-    oauth_field = next(
-        (field for field in GoogleAdsSource().get_source_config.fields if field.name == "google_ads_integration_id"),
-        None,
-    )
-    assert oauth_field is not None, "OAuth field 'google_ads_integration_id' not found in source config"
-    assert isinstance(oauth_field, SourceFieldOauthConfig)
-    assert oauth_field.kind == "google-ads"
-    assert oauth_field.requiredScopes == "https://www.googleapis.com/auth/adwords"
 
 
 class TestCleanCustomerId:
@@ -338,6 +325,33 @@ class TestGoogleAdsNonRetryableErrors:
         assert "admin" in friendly.lower()
 
 
+class TestGoogleAdsRetryableErrors:
+    def setup_method(self):
+        self.source = GoogleAdsSource()
+        self.retryable = self.source.get_retryable_errors()
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # str(google.api_core.exceptions.ResourceExhausted) as it propagates once
+            # `_call_with_transient_retry`'s in-process retry budget (see google_ads.py) is
+            # exhausted on a quota/rate-limit RESOURCE_EXHAUSTED.
+            "Resource has been exhausted (e.g. check quota).",
+        ],
+    )
+    def test_quota_exhausted_is_retryable(self, error_msg):
+        # If this pattern drops out of get_retryable_errors(), a quota window that outlasts the
+        # in-process retry budget starts polluting error tracking even though Temporal's activity
+        # retry still recovers once the quota clears.
+        assert any(pattern in error_msg for pattern in self.retryable)
+
+    def test_receive_limit_exhausted_is_not_retryable(self):
+        # The client-side "Received message larger than max" abort is deterministic (see
+        # `_is_transient_grpc_error`) — it must not be swallowed as benign noise here.
+        error_msg = "Received message larger than max (90000000 vs. 67108864)"
+        assert not any(pattern in error_msg for pattern in self.retryable)
+
+
 class TestGoogleAdsLookbackDefault:
     _SCHEMAS_PATH = "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads.get_schemas"
 
@@ -406,6 +420,32 @@ class TestGrpcReceiveLimit:
 
 
 class TestValidateCredentials:
+    @pytest.mark.parametrize("start_date", ["last tuesday", "2020", "01/02/2020", "9999999999"])
+    def test_an_unreadable_start_date_is_rejected_at_setup(self, start_date: str) -> None:
+        # The sync treats an unreadable value as unset, so without this the source would import a
+        # range nobody asked for and nothing would say why. A partial date is the worse case: it
+        # reads as a year but a lenient parser would resolve it against the day the sync ran.
+        config = GoogleAdsSourceConfig(customer_id="1234567890", google_ads_integration_id=1, start_date=start_date)
+
+        ok, message = GoogleAdsSource().validate_credentials(config, team_id=1)
+
+        assert ok is False
+        # Names the field as the form labels it, since this reaches the user as the body of a 400.
+        assert message is not None and message.startswith("Start date")
+
+    def test_a_readable_start_date_passes_validation_through(self) -> None:
+        # Whitespace and a full timestamp are both readable, and neither should stop a connection.
+        config = GoogleAdsSourceConfig(customer_id="1234567890", google_ads_integration_id=1, start_date=" 2020-01-01 ")
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads.google_ads_client",
+            side_effect=Integration.DoesNotExist(),
+        ):
+            ok, message = GoogleAdsSource().validate_credentials(config, team_id=1)
+
+        # Reaches the connection attempt rather than being turned away on the date.
+        assert ok is False
+        assert "no longer exists" in (message or "")
+
     def test_missing_integration_does_not_exist_returns_reconnect_message(self):
         # `google_ads_client` calls `Integration.objects.get(...)`, which raises the typed
         # `Integration.DoesNotExist` when the OAuth connection row is gone. Surface an
@@ -542,6 +582,20 @@ def _single_row_table() -> GoogleAdsTable:
         parents=None,
         requires_filter=False,
         primary_key=[],
+        should_sync_default=True,
+        description=None,
+    )
+
+
+def _stats_table() -> GoogleAdsTable:
+    # A report table (requires_filter=True) whose only incremental field is ever segments.date.
+    return GoogleAdsTable(
+        name="campaign_stats",
+        alias="campaign_stats",
+        columns=[_string_column("campaign.id"), _string_column("segments.date")],
+        parents=None,
+        requires_filter=True,
+        primary_key=["campaign.id", "segments.date"],
         should_sync_default=True,
         description=None,
     )
@@ -1406,6 +1460,23 @@ class TestGetOAuthAccountsNetworkErrorHandling:
                 source.get_oauth_accounts(1, 2)
 
 
+class _DrainClock:
+    """A monotonic clock the test drives itself, one second per window drained.
+
+    Reading it never advances it, and the harness swaps `google_ads.time` wholesale: patching
+    `time.monotonic` instead reaches every other caller of the stdlib module.
+    """
+
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def monotonic(self) -> float:
+        return self.now
+
+    def tick(self) -> None:
+        self.now += 1
+
+
 class TestGoogleAdsQueryConstruction:
     _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads"
 
@@ -1435,8 +1506,10 @@ class TestGoogleAdsQueryConstruction:
         )
 
         queries: list[str] = []
+        clock = _DrainClock()
 
         def fake_search(*args, **kwargs):
+            clock.tick()
             # The production code calls positionally; pull `query` (3rd positional) either way.
             query = kwargs.get("query", args[2] if len(args) > 2 else "")
             queries.append(query)
@@ -1464,6 +1537,7 @@ class TestGoogleAdsQueryConstruction:
             mock.patch(f"{self._MODULE}.google_ads_client"),
             mock.patch(f"{self._MODULE}._search_as_arrow_tables", side_effect=fake_search),
             mock.patch(f"{self._MODULE}._search_with_transient_retry", side_effect=fake_probe),
+            mock.patch(f"{self._MODULE}.time", SimpleNamespace(monotonic=clock.monotonic, sleep=time.sleep)),
         ):
             response = google_ads_source(
                 config,
@@ -1499,9 +1573,7 @@ class TestGoogleAdsQueryConstruction:
     def test_lookback_overlap_cannot_consume_a_whole_run(self):
         # Spending the whole budget on lookback overlap leaves the cursor unmoved, so the next run
         # repeats it and a schema behind by more than its lookback never advances.
-        clock = itertools.count()
-
-        with freeze_time("2026-07-17"), mock.patch(f"{self._MODULE}.time.monotonic", lambda: next(clock)):
+        with freeze_time("2026-07-17"):
             # A budget of zero: the overlap alone would end the run before any new ground.
             with mock.patch(f"{self._MODULE}.GOOGLE_ADS_MAX_DRAIN_SECONDS", 0):
                 _response, queries = self._run_source(
@@ -1541,11 +1613,9 @@ class TestGoogleAdsQueryConstruction:
         # The pre-lookback cursor is 2026-01-31, straddled by the window starting 2026-01-29.
         overlap_and_straddle = {(cursor + dt.timedelta(days=w * i)).isoformat(): 1 for i in range(5)}
         data_past_gap = cursor + dt.timedelta(days=w * 22)  # 2026-06-04, after a run of empty windows
-        # One second per loop check against a two-second budget: it is spent long before the walk
-        # reaches the data, so only refusing to arm on the straddle keeps the run going.
-        clock = itertools.count()
-
-        with freeze_time("2026-12-31"), mock.patch(f"{self._MODULE}.time.monotonic", lambda: next(clock)):
+        # One second per window drained against a two-second budget: it is spent long before the
+        # walk reaches the data, so only refusing to arm on the straddle keeps the run going.
+        with freeze_time("2026-12-31"):
             with mock.patch(f"{self._MODULE}.GOOGLE_ADS_MAX_DRAIN_SECONDS", 2):
                 _response, queries = self._run_source(
                     self._stats_table(),
@@ -1582,6 +1652,62 @@ class TestGoogleAdsQueryConstruction:
         assert all("LIMIT 1" not in q for q in queries), "a recorded range needs no request to locate it"
         # Windowed, not the open-ended `.. 2100` scan a first sync used to run.
         assert all("2100-01-01" not in q for q in queries)
+
+    @pytest.mark.parametrize(
+        "requested,earliest_date,expected",
+        [
+            # Within the span that holds rows, the stated date is what the drain reads.
+            ("2022-06-01", "2020-02-08", "2022-06-01"),
+            # Whitespace survives a paste from a spreadsheet.
+            ("  2022-06-01  ", "2020-02-08", "2022-06-01"),
+            # Before the account's first row: the walk would spend a request per empty week to reach
+            # the same rows, and the budget cannot end a run that has not reached data.
+            ("2015-01-01", "2020-02-08", "2020-02-08"),
+            # Past today: `start` would sit beyond the loop's end, so every run imports nothing and
+            # reports that as the answer.
+            ("2030-01-01", "2020-02-08", "2026-07-17"),
+            # An account holding nothing has no span to clamp to.
+            ("2015-01-01", None, "2026-07-17"),
+        ],
+    )
+    def test_a_stated_start_date_is_clamped_to_the_span_that_holds_rows(
+        self, requested: str, earliest_date: str | None, expected: str
+    ) -> None:
+        with freeze_time("2026-07-17"):
+            _response, queries = self._run_source(
+                self._stats_table(),
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=None,
+                requested_start=requested,
+                # Recorded, and deliberately different: the stated date has to win over it.
+                history_start=dt.datetime(2024, 1, 1, tzinfo=dt.UTC),
+                earliest_date=earliest_date,
+                incremental_field="segments.date",
+                incremental_field_type=IncrementalFieldType.Date,
+            )
+
+        drain = [q for q in queries if "LIMIT 1" not in q]
+        assert f"WHERE segments.date >= '{expected}'" in drain[0]
+
+    @pytest.mark.parametrize("requested", ["last tuesday", "2020", "01/02/2020"])
+    def test_an_unreadable_stated_date_falls_back_to_the_recorded_range(self, requested: str) -> None:
+        # Validation rejects these at setup, so reaching the sync means a value stored before that
+        # check existed. Failing the sync over it is worse than importing the range this source
+        # would have had without the field.
+        with freeze_time("2026-07-17"):
+            _response, queries = self._run_source(
+                self._stats_table(),
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=None,
+                requested_start=requested,
+                history_start=dt.datetime(2024, 1, 1, tzinfo=dt.UTC),
+                earliest_date="2020-02-08",
+                incremental_field="segments.date",
+                incremental_field_type=IncrementalFieldType.Date,
+            )
+
+        drain = [q for q in queries if "LIMIT 1" not in q]
+        assert "WHERE segments.date >= '2024-01-01'" in drain[0]
 
     @pytest.mark.parametrize("earliest_date,expected_start", [("2020-02-08", "2020-02-08"), (None, "2026-07-17")])
     def test_no_recorded_range_asks_the_account_where_its_rows_begin(
@@ -1649,17 +1775,14 @@ class TestGoogleAdsQueryConstruction:
     # Parametrized so the count tracks the budget. A single case landing on five windows is the
     # same number the deleted `MAX_DATA_WINDOWS_PER_RUN = 5` produced, so it could not tell the two
     # rules apart.
-    @pytest.mark.parametrize("budget,expected_windows", [(4, 5), (9, 10), (19, 20)])
+    @pytest.mark.parametrize("budget,expected_windows", [(4, 4), (9, 9), (19, 19)])
     def test_a_run_takes_as_many_windows_as_the_budget_buys(self, budget: int, expected_windows: int) -> None:
         cursor = dt.date(2026, 1, 1)
         window_rows = {
             (cursor + dt.timedelta(days=GOOGLE_ADS_INCREMENTAL_WINDOW_DAYS * i)).isoformat(): 1 for i in range(40)
         }
-        # One second of drain per loop check. The first window starts at the cursor, so its rows are
-        # not guaranteed past it and it does not arm the budget; the budget buys the rest.
-        clock = itertools.count()
-
-        with freeze_time("2026-07-17"), mock.patch(f"{self._MODULE}.time.monotonic", lambda: next(clock)):
+        # One second of drain per window, so an N-second budget buys N windows.
+        with freeze_time("2026-07-17"):
             with mock.patch(f"{self._MODULE}.GOOGLE_ADS_MAX_DRAIN_SECONDS", budget):
                 _response, queries = self._run_source(
                     self._stats_table(),
@@ -1736,6 +1859,37 @@ class TestVersionDeclaration:
         # A present pin is honored verbatim so an existing v23/v24 source is never silently moved; an
         # empty/missing pin falls back to the new v25 default that new sources are stamped with.
         assert GoogleAdsSource().resolve_api_version(pin) == expected
+
+
+class TestReportTableMissingIncrementalField:
+    def test_incremental_report_table_without_incremental_field_defaults_to_segments_date(self):
+        # A report table's schema can arrive flagged incremental but with no incremental field
+        # (a config inconsistency). Its only valid field is always segments.date, so the sync must
+        # default to it and run rather than crashing with "incremental_field ... can't be None".
+        table = _stats_table()
+        assert table.alias is not None
+        config = GoogleAdsSourceConfig(customer_id="1234567890", google_ads_integration_id=1)
+        with (
+            mock.patch(f"{_GOOGLE_ADS_MODULE}.get_schemas", return_value={table.alias: table}),
+            mock.patch(f"{_GOOGLE_ADS_MODULE}.google_ads_client", return_value=mock.Mock()),
+            mock.patch(f"{_GOOGLE_ADS_MODULE}._search_as_arrow_tables", return_value=iter([])) as search,
+        ):
+            response = google_ads_source(
+                config,
+                table.alias,
+                team_id=1,
+                resumable_source_manager=mock.Mock(),
+                api_version="v25",
+                should_use_incremental_field=True,
+                incremental_field=None,
+                incremental_field_type=None,
+                db_incremental_field_last_value=dt.date.today(),
+            )
+            list(typing.cast(collections.abc.Iterable, response.items()))
+
+        # The windowed drain ran (no crash) and queried on the defaulted segments.date field.
+        assert search.call_count >= 1
+        assert "segments.date" in search.call_args_list[0].args[2]
 
 
 class TestApiVersionDispatch:

@@ -86,6 +86,32 @@ class ErrorTrackingSymbolSetBulkStartUploadSerializer(serializers.Serializer):
         return attrs
 
 
+class ErrorTrackingSymbolSetPresignedPostSerializer(serializers.Serializer):
+    url = serializers.URLField(help_text="S3 endpoint URL to send the multipart POST to.")
+    fields = serializers.DictField(  # type: ignore[assignment]
+        child=serializers.CharField(),
+        help_text="Form fields to include in the multipart POST, before the file part.",
+    )
+
+
+class ErrorTrackingSymbolSetBulkStartUploadEntrySerializer(serializers.Serializer):
+    symbol_set_id = serializers.CharField(help_text="ID of the symbol set the upload belongs to.")
+    presigned_url = ErrorTrackingSymbolSetPresignedPostSerializer(
+        help_text="Presigned POST for the upload. Uses the S3 transfer-acceleration endpoint when configured."
+    )
+    fallback_presigned_url = ErrorTrackingSymbolSetPresignedPostSerializer(
+        required=False,
+        help_text="Presigned POST against the standard S3 endpoint, present only when the primary URL uses transfer acceleration. For clients whose network blocks the accelerated endpoint.",
+    )
+
+
+class ErrorTrackingSymbolSetBulkStartUploadResponseSerializer(serializers.Serializer):
+    id_map = serializers.DictField(
+        child=ErrorTrackingSymbolSetBulkStartUploadEntrySerializer(),
+        help_text="Map of chunk ID to upload details. Chunks skipped because their content is unchanged are omitted.",
+    )
+
+
 class ErrorTrackingSymbolSetBulkFinishUploadSerializer(serializers.Serializer):
     content_hashes = serializers.DictField(
         child=serializers.CharField(),
@@ -287,7 +313,10 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
 
         return Response({"success": True}, status=status.HTTP_200_OK)
 
-    @extend_schema(request=ErrorTrackingSymbolSetBulkStartUploadSerializer)
+    @extend_schema(
+        request=ErrorTrackingSymbolSetBulkStartUploadSerializer,
+        responses={201: ErrorTrackingSymbolSetBulkStartUploadResponseSerializer},
+    )
     @action(methods=["POST"], detail=False, parser_classes=[JSONParser])
     def bulk_start_upload(self, request: Request, **kwargs) -> Response:
         if request.user.pk:

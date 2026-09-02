@@ -2,8 +2,9 @@
  * Where a secret stands relative to a rotation.
  *
  * - `steady`: one live value, with no `<KEY>_FALLBACKS` sibling holding a different one.
- * - `rotating`: the sibling holds a different value, and both are served, because a third
- *   party may still hand back tokens minted against the old one.
+ * - `rotating`: the sibling holds a different value, and both are served, so a caller can use
+ *   the staged replacement before it goes live — useful when the third party has already been
+ *   rotated and the live value no longer works there.
  * - `recovery`: the value is known-burned with no replacement yet, so nothing is served and
  *   callers raise a typed error rather than calling out with a secret that cannot work.
  */
@@ -14,8 +15,15 @@ export interface Secret {
     state: SecretState
     /** Absent only in `recovery`. */
     value?: string
-    /** Present only in `rotating`. */
-    previous?: string
+    /**
+     * The other value the mount serves for this key, present only in `rotating`.
+     *
+     * It is the INCOMING value, not the outgoing one: a rotation stages the new value in the
+     * sibling while `value` stays live, and promoting it moves the staged value into `value` and
+     * drops the sibling. So a key with a sibling is one whose replacement is staged and accepted
+     * but not yet live.
+     */
+    incoming?: string
     versionId: string
     /** When the mount this value came from was last read. */
     fetchedAt: string

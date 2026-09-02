@@ -1,11 +1,14 @@
+import type { Tool as McpTool } from '@modelcontextprotocol/sdk/types.js'
+
 import { ApiClient } from '@/api/client'
+import type { PreBuiltTool } from '@/hono/tool-catalog'
 import { MemoryCache } from '@/lib/cache/MemoryCache'
 import { SessionManager } from '@/lib/SessionManager'
 import { StateManager } from '@/lib/StateManager'
 import type { InsightQuery } from '@/schema/query'
 import { GENERATED_TOOL_MAP } from '@/tools/generated'
 import { TOOL_MAP } from '@/tools/index'
-import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+import type { Context, Tool, ToolBase, ZodObjectAny } from '@/tools/types'
 
 export const API_BASE_URL = process.env.TEST_POSTHOG_API_BASE_URL || 'http://localhost:8010'
 export const API_TOKEN = process.env.TEST_POSTHOG_PERSONAL_API_KEY
@@ -620,3 +623,22 @@ export const SAMPLE_PATHS_QUERIES = {
         },
     },
 } as const satisfies Record<SamplePathsQuery, InsightQuery>
+
+/**
+ * Mirrors ToolCatalog.getFilteredTools for one advertised entry. The schema is
+ * built on access, so a list of every tool does not hold 900+ built schemas.
+ */
+export function toolFromPreBuilt(preBuilt: PreBuiltTool, entry: McpTool): Tool<ZodObjectAny> {
+    return {
+        name: entry.name,
+        get schema() {
+            return preBuilt.build().schema
+        },
+        handler: (context, params) => preBuilt.build().handler(context, params),
+        ...(preBuilt.meta ? { _meta: preBuilt.meta } : {}),
+        title: entry.title ?? entry.name,
+        description: entry.description ?? '',
+        annotations: entry.annotations as Tool<ZodObjectAny>['annotations'],
+        scopes: [],
+    }
+}

@@ -19,6 +19,9 @@ add_default_themes = _migration_0537.add_default_themes
 # Cannot call those migration functions directly because they use
 # apps.get_model("posthog", "DashboardTemplate") which no longer
 # resolves after the model moved to the dashboards product app.
+# Tiles carry `query`, unlike the legacy `filters` those migrations wrote:
+# `create_from_template` builds each insight from `query` alone, so a
+# filters-shaped tile yields an insight with no definition at all.
 _PRODUCT_ANALYTICS_TEMPLATE: dict[str, Any] = {
     "template_name": "Product analytics",
     "dashboard_description": (
@@ -31,12 +34,16 @@ _PRODUCT_ANALYTICS_TEMPLATE: dict[str, Any] = {
             "name": "Daily active users (DAUs)",
             "type": "INSIGHT",
             "color": "blue",
-            "filters": {
-                "events": [{"id": "$pageview", "math": "dau", "type": "events"}],
-                "display": "ActionsLineGraph",
-                "insight": "TRENDS",
-                "interval": "day",
-                "date_from": "-30d",
+            "query": {
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [{"kind": "EventsNode", "event": "$pageview", "name": "$pageview", "math": "dau"}],
+                    "dateRange": {"date_from": "-30d"},
+                    "trendsFilter": {},
+                    "breakdownFilter": {},
+                    "compareFilter": {},
+                },
             },
             "layouts": {
                 "sm": {"h": 5, "w": 6, "x": 0, "y": 0, "minH": 5, "minW": 3},
@@ -48,12 +55,17 @@ _PRODUCT_ANALYTICS_TEMPLATE: dict[str, Any] = {
             "name": "Weekly active users (WAUs)",
             "type": "INSIGHT",
             "color": "green",
-            "filters": {
-                "events": [{"id": "$pageview", "math": "dau", "type": "events"}],
-                "display": "ActionsLineGraph",
-                "insight": "TRENDS",
-                "interval": "week",
-                "date_from": "-90d",
+            "query": {
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [{"kind": "EventsNode", "event": "$pageview", "name": "$pageview", "math": "dau"}],
+                    "dateRange": {"date_from": "-90d"},
+                    "interval": "week",
+                    "trendsFilter": {},
+                    "breakdownFilter": {},
+                    "compareFilter": {},
+                },
             },
             "layouts": {
                 "sm": {"h": 5, "w": 6, "x": 6, "y": 0, "minH": 5, "minW": 3},
@@ -65,12 +77,19 @@ _PRODUCT_ANALYTICS_TEMPLATE: dict[str, Any] = {
             "name": "Retention",
             "type": "INSIGHT",
             "color": "blue",
-            "filters": {
-                "period": "Week",
-                "insight": "RETENTION",
-                "target_entity": {"id": "$pageview", "type": "events"},
-                "retention_type": "retention_first_time",
-                "returning_entity": {"id": "$pageview", "type": "events"},
+            "query": {
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "RetentionQuery",
+                    "dateRange": {},
+                    "retentionFilter": {
+                        "period": "Week",
+                        "retentionType": "retention_first_time",
+                        "targetEntity": {"id": "$pageview", "type": "events"},
+                        "returningEntity": {"id": "$pageview", "type": "events"},
+                        "meanRetentionCalculation": "simple",
+                    },
+                },
             },
             "layouts": {
                 "sm": {"h": 5, "w": 6, "x": 6, "y": 5, "minH": 5, "minW": 3},
@@ -82,13 +101,15 @@ _PRODUCT_ANALYTICS_TEMPLATE: dict[str, Any] = {
             "name": "Growth accounting",
             "type": "INSIGHT",
             "color": "purple",
-            "filters": {
-                "events": [{"id": "$pageview", "type": "events"}],
-                "insight": "LIFECYCLE",
-                "interval": "week",
-                "shown_as": "Lifecycle",
-                "date_from": "-30d",
-                "entity_type": "events",
+            "query": {
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "LifecycleQuery",
+                    "series": [{"kind": "EventsNode", "event": "$pageview", "name": "$pageview"}],
+                    "dateRange": {"date_from": "-30d"},
+                    "interval": "week",
+                    "lifecycleFilter": {},
+                },
             },
             "layouts": {
                 "sm": {"h": 5, "w": 6, "x": 0, "y": 5, "minH": 5, "minW": 3},
@@ -100,14 +121,16 @@ _PRODUCT_ANALYTICS_TEMPLATE: dict[str, Any] = {
             "name": "Referring domain (last 14 days)",
             "type": "INSIGHT",
             "color": "black",
-            "filters": {
-                "events": [{"id": "$pageview", "math": "dau", "type": "events"}],
-                "display": "ActionsBarValue",
-                "insight": "TRENDS",
-                "interval": "day",
-                "breakdown": "$referring_domain",
-                "date_from": "-14d",
-                "breakdown_type": "event",
+            "query": {
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [{"kind": "EventsNode", "event": "$pageview", "name": "$pageview", "math": "dau"}],
+                    "dateRange": {"date_from": "-14d"},
+                    "breakdownFilter": {"breakdown": "$referring_domain"},
+                    "trendsFilter": {"display": "ActionsBarValue"},
+                    "compareFilter": {},
+                },
             },
             "layouts": {
                 "sm": {"h": 5, "w": 6, "x": 0, "y": 10, "minH": 5, "minW": 3},
@@ -119,20 +142,35 @@ _PRODUCT_ANALYTICS_TEMPLATE: dict[str, Any] = {
             "name": "Pageview funnel, by browser",
             "type": "INSIGHT",
             "color": "green",
-            "filters": {
-                "events": [
-                    {"id": "$pageview", "type": "events", "order": 0, "custom_name": "First page view"},
-                    {"id": "$pageview", "type": "events", "order": 1, "custom_name": "Second page view"},
-                    {"id": "$pageview", "type": "events", "order": 2, "custom_name": "Third page view"},
-                ],
-                "layout": "horizontal",
-                "display": "FunnelViz",
-                "insight": "FUNNELS",
-                "interval": "day",
-                "exclusions": [],
-                "breakdown_type": "event",
-                "breakdown": "$browser",
-                "funnel_viz_type": "steps",
+            "query": {
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "FunnelsQuery",
+                    "series": [
+                        {
+                            "kind": "EventsNode",
+                            "event": "$pageview",
+                            "name": "$pageview",
+                            "custom_name": "First page view",
+                        },
+                        {
+                            "kind": "EventsNode",
+                            "event": "$pageview",
+                            "name": "$pageview",
+                            "custom_name": "Second page view",
+                        },
+                        {
+                            "kind": "EventsNode",
+                            "event": "$pageview",
+                            "name": "$pageview",
+                            "custom_name": "Third page view",
+                        },
+                    ],
+                    "dateRange": {},
+                    "interval": "day",
+                    "breakdownFilter": {"breakdown": "$browser"},
+                    "funnelsFilter": {"layout": "horizontal"},
+                },
             },
             "layouts": {
                 "sm": {"h": 5, "w": 6, "x": 6, "y": 10, "minH": 5, "minW": 3},
@@ -151,17 +189,23 @@ _FEATURE_FLAG_TEMPLATE: dict[str, Any] = {
         "Overview of engagement with the flagged feature including daily active users and weekly active users."
     ),
     "dashboard_filters": {},
+    # `{ENGAGEMENT}` stands in for a series entry. The browser resolves it against
+    # the variable below before the tiles reach the API, so no placeholder is stored.
     "tiles": [
         {
             "name": "Daily active users (DAUs)",
             "type": "INSIGHT",
             "color": "blue",
-            "filters": {
-                "events": ["{ENGAGEMENT}"],
-                "display": "ActionsLineGraph",
-                "insight": "TRENDS",
-                "interval": "day",
-                "date_from": "-30d",
+            "query": {
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": ["{ENGAGEMENT}"],
+                    "dateRange": {"date_from": "-30d"},
+                    "trendsFilter": {},
+                    "breakdownFilter": {},
+                    "compareFilter": {},
+                },
             },
             "layouts": {
                 "sm": {"h": 5, "w": 6, "x": 0, "y": 0, "minH": 5, "minW": 3},
@@ -173,12 +217,17 @@ _FEATURE_FLAG_TEMPLATE: dict[str, Any] = {
             "name": "Weekly active users (WAUs)",
             "type": "INSIGHT",
             "color": "green",
-            "filters": {
-                "events": ["{ENGAGEMENT}"],
-                "display": "ActionsLineGraph",
-                "insight": "TRENDS",
-                "interval": "week",
-                "date_from": "-90d",
+            "query": {
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": ["{ENGAGEMENT}"],
+                    "dateRange": {"date_from": "-90d"},
+                    "interval": "week",
+                    "trendsFilter": {},
+                    "breakdownFilter": {},
+                    "compareFilter": {},
+                },
             },
             "layouts": {
                 "sm": {"h": 5, "w": 6, "x": 6, "y": 0, "minH": 5, "minW": 3},

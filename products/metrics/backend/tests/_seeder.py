@@ -43,6 +43,47 @@ def _attribute_map_str_with_type_tags(labels: Mapping[str, str]) -> dict[str, st
     return {f"{key}__str": value for key, value in labels.items()}
 
 
+def truncate_metrics_tables() -> None:
+    """Clear every table the seeders write, so leftovers can't leak between tests."""
+    for table in ("metrics1", "metric_series1", "metric_samples1"):
+        sync_execute(f"TRUNCATE TABLE IF EXISTS {table}")
+
+
+def _insert_series_row(
+    *,
+    team_id: int,
+    metric_name: str,
+    fingerprint: int,
+    metric_type: str,
+    unit: str,
+    aggregation_temporality: str,
+    is_monotonic: bool,
+    service_name: str,
+    resource_attributes: Mapping[str, str],
+    attributes: Mapping[str, str],
+    last_seen: dt.datetime,
+) -> None:
+    """Insert the `metric_series1` row for one (metric, label-set).
+
+    `attributes` goes in untagged — the `__str` suffixes are a `metrics1`
+    storage detail, and the ingest MV writes the series map without them.
+    """
+    series_row = {
+        "team_id": team_id,
+        "metric_name": metric_name,
+        "series_fingerprint": fingerprint,
+        "metric_type": metric_type,
+        "unit": unit,
+        "aggregation_temporality": aggregation_temporality,
+        "is_monotonic": is_monotonic,
+        "service_name": service_name,
+        "resource_attributes": dict(resource_attributes),
+        "attributes": dict(attributes),
+        "last_seen": last_seen.strftime("%Y-%m-%d %H:%M:%S.%f"),
+    }
+    sync_execute("INSERT INTO metric_series1 FORMAT JSONEachRow " + json.dumps(series_row))
+
+
 def seed_metric(
     *,
     team_id: int,
@@ -58,7 +99,18 @@ def seed_metric(
     histogram_counts: list[int] | None = None,
     unit: str = "",
 ) -> None:
-    """Insert one row per `(timestamp, value)` point into `metrics1`.
+    """Insert one row per `(timestamp, value)` point into `metrics1`, plus the
+    matching `metric_series1` row.
+
+    Production fans one Kafka row into both tables, so the seeder does too —
+    anything reading `metric_series` (the name picker) sees what the raw table
+    sees.
+
+    Every point in one call is a sample of the *same* series, since the series
+    identity (`service_name`, `metric_type`, both attribute maps) is fixed per
+    call. Aggregations reduce each series to one value per bucket, so several
+    points in one bucket collapse to the last one. Seed distinct series with
+    separate calls.
 
     `labels` populates the per-data-point `attributes_map_str` map (with the
     `__str` type-tag suffix the schema expects). `resource_labels` populates
@@ -67,8 +119,10 @@ def seed_metric(
     Histogram inputs (`histogram_bounds`, `histogram_counts`) are passed
     through verbatim; only relevant when `metric_type='histogram'`.
     """
-    attributes_map_str = _attribute_map_str_with_type_tags(labels or {})
+    labels = dict(labels or {})
+    attributes_map_str = _attribute_map_str_with_type_tags(labels)
     resource_attributes = dict(resource_labels or {})
+    points = list(points)
 
     rows: list[dict[str, Any]] = []
     for timestamp, value in points:
@@ -103,6 +157,20 @@ def seed_metric(
 
     payload = "\n".join(json.dumps(row) for row in rows)
     sync_execute(f"INSERT INTO metrics1 FORMAT JSONEachRow {payload}")
+
+    _insert_series_row(
+        team_id=team_id,
+        metric_name=metric_name,
+        fingerprint=_series_fingerprint(metric_name, service_name, resource_attributes, labels),
+        metric_type=metric_type,
+        unit=unit,
+        aggregation_temporality=aggregation_temporality,
+        is_monotonic=is_monotonic,
+        service_name=service_name,
+        resource_attributes=resource_attributes,
+        attributes=labels,
+        last_seen=max(ts for ts, _ in points),
+    )
 
 
 def seed_metric_event(
@@ -153,19 +221,18 @@ def seed_metric_event(
         }
         for timestamp, value in points
     ]
-    series_row = {
-        "team_id": team_id,
-        "metric_name": metric_name,
-        "series_fingerprint": fingerprint,
-        "metric_type": metric_type,
-        "unit": unit,
-        "aggregation_temporality": aggregation_temporality,
-        "is_monotonic": is_monotonic,
-        "service_name": service_name,
-        "resource_attributes": resource_attributes,
-        "attributes": attributes,
-        "last_seen": max(ts for ts, _ in points).strftime("%Y-%m-%d %H:%M:%S.%f"),
-    }
-
     sync_execute("INSERT INTO metric_samples1 FORMAT JSONEachRow " + "\n".join(json.dumps(r) for r in sample_rows))
-    sync_execute("INSERT INTO metric_series1 FORMAT JSONEachRow " + json.dumps(series_row))
+
+    _insert_series_row(
+        team_id=team_id,
+        metric_name=metric_name,
+        fingerprint=fingerprint,
+        metric_type=metric_type,
+        unit=unit,
+        aggregation_temporality=aggregation_temporality,
+        is_monotonic=is_monotonic,
+        service_name=service_name,
+        resource_attributes=resource_attributes,
+        attributes=attributes,
+        last_seen=max(ts for ts, _ in points),
+    )

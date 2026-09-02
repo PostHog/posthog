@@ -8,18 +8,21 @@ import {
 import { isTaskActivelyRunning } from "@posthog/core/sidebar/taskRunning";
 import { resolveBulkTaskContextMenuIntent } from "@posthog/core/tasks/contextMenuActions";
 import { useHostTRPCClient } from "@posthog/host-router/react";
-import type { Task } from "@posthog/shared/types";
+import type { Task, UserBasic } from "@posthog/shared/types";
 import {
   archiveTasksImperative,
   useArchiveCacheKeys,
   useArchiveTask,
 } from "@posthog/ui/features/archive/useArchiveTask";
+import { useAuthStateValue } from "@posthog/ui/features/auth/store";
+import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import { useCommandCenterStore } from "@posthog/ui/features/command-center/commandCenterStore";
 import { placeTaskInCommandCenter } from "@posthog/ui/features/command-center/placeTaskInCommandCenter";
 import { useExternalAppAction } from "@posthog/ui/features/external-apps/useExternalAppAction";
 import { useFolders } from "@posthog/ui/features/folders/useFolders";
 import { StopCloudRunDialog } from "@posthog/ui/features/sessions/components/StopCloudRunDialog";
 import { useArchivingTasksStore } from "@posthog/ui/features/sidebar/archivingTasksStore";
+import { withSidebarPeekHeld } from "@posthog/ui/features/sidebar/sidebarPeekStore";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import { useTaskSelectionStore } from "@posthog/ui/features/sidebar/taskSelectionStore";
 import { useBulkArchiveConfirm } from "@posthog/ui/features/sidebar/useBulkArchiveConfirm";
@@ -29,6 +32,7 @@ import { usePinnedTasks } from "@posthog/ui/features/sidebar/usePinnedTasks";
 import { useSidebarBulkActions } from "@posthog/ui/features/sidebar/useSidebarBulkActions";
 import { useSidebarData } from "@posthog/ui/features/sidebar/useSidebarData";
 import { useTaskViewed } from "@posthog/ui/features/sidebar/useTaskViewed";
+import { HandoffTaskDialog } from "@posthog/ui/features/task-detail/components/HandoffTaskDialog";
 import { useTaskContextMenu } from "@posthog/ui/features/tasks/useTaskContextMenu";
 import { useRenameTask } from "@posthog/ui/features/tasks/useTaskMutations";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
@@ -50,6 +54,15 @@ import { TaskListView } from "./TaskListView";
 
 const log = logger.scope("sidebar-menu");
 
+function creatorName(createdBy: UserBasic | null | undefined): string | null {
+  if (!createdBy) return null;
+  const name = [createdBy.first_name, createdBy.last_name]
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+  return name || createdBy.email || null;
+}
+
 function SidebarMenuComponent() {
   const hostClient = useHostTRPCClient();
   const archiveCacheKeys = useArchiveCacheKeys();
@@ -70,6 +83,8 @@ function SidebarMenuComponent() {
 
   const { showContextMenu, editingTaskId, setEditingTaskId } =
     useTaskContextMenu();
+  const authStatus = useAuthStateValue((s) => s.status);
+  const currentUser = useCurrentUser();
   const { archiveTask } = useArchiveTask();
   const { renameTask } = useRenameTask();
   const { togglePin, setPinnedMany } = usePinnedTasks();
@@ -82,6 +97,14 @@ function SidebarMenuComponent() {
     () => new Map<string, Task>(allTasks.map((task) => [task.id, task])),
     [allTasks],
   );
+  const creatorNameByTaskId = useMemo(() => {
+    const names = new Map<string, string>();
+    for (const task of allTasks) {
+      const name = creatorName(task.created_by);
+      if (name) names.set(task.id, name);
+    }
+    return names;
+  }, [allTasks]);
 
   const commandCenterCells = useCommandCenterStore((s) => s.cells);
 
@@ -117,6 +140,8 @@ function SidebarMenuComponent() {
     taskTitle: string;
     runId?: string;
   } | null>(null);
+  const [handoffTaskId, setHandoffTaskId] = useState<string | null>(null);
+  const handoffTask = handoffTaskId ? taskMap.get(handoffTaskId) : undefined;
 
   useClearSelectionOnEscape();
   const listAnchorRef = useRef<HTMLDivElement | null>(null);
@@ -216,8 +241,8 @@ function SidebarMenuComponent() {
       e.stopPropagation();
       const allPinned = bulkActions.pinDirection === "unpin";
       try {
-        const result =
-          await hostClient.contextMenu.showBulkTaskContextMenu.mutate({
+        const result = await withSidebarPeekHeld(() =>
+          hostClient.contextMenu.showBulkTaskContextMenu.mutate({
             taskCount: bulkActions.selectedCount,
             allPinned,
             runningCount: bulkActions.runningCount,
@@ -230,7 +255,8 @@ function SidebarMenuComponent() {
                 starred,
               }),
             ),
-          });
+          }),
+        );
         if (!result.action) return;
 
         const intent = resolveBulkTaskContextMenuIntent(result.action, {
@@ -266,11 +292,12 @@ function SidebarMenuComponent() {
       const folder = findGroupFolder(folders, groupId);
       if (!folder) return;
       try {
-        const result =
-          await hostClient.contextMenu.showFolderContextMenu.mutate({
+        const result = await withSidebarPeekHeld(() =>
+          hostClient.contextMenu.showFolderContextMenu.mutate({
             folderName: folder.name,
             folderPath: folder.path,
-          });
+          }),
+        );
         if (result.action?.type === "remove") {
           await removeFolder(folder.id);
         } else if (result.action?.type === "external-app") {
@@ -322,30 +349,42 @@ function SidebarMenuComponent() {
         (id) => id === taskId && taskMap.has(id),
       );
 
-      showContextMenu(task, e, {
-        worktreePath: workspace?.worktreePath ?? undefined,
-        folderPath: workspace?.folderPath ?? undefined,
-        isPinned,
-        isSuspended: taskData?.isSuspended,
-        canStop:
-          taskData?.taskRunEnvironment === "cloud" &&
-          isTaskActivelyRunning(taskData),
-        runId,
-        isInCommandCenter,
-        hasEmptyCommandCenterCell: true,
-        onTogglePin: () => handleTaskTogglePin(taskId),
-        onStop: (stopTaskId, taskTitle, stopRunId) =>
-          setStopConfirm({
-            taskId: stopTaskId,
-            taskTitle,
-            runId: stopRunId,
-          }),
-        onArchive: handleTaskArchive,
-        onArchivePrior: handleArchivePrior,
-        onAddToCommandCenter: () => {
-          placeTaskInCommandCenter(taskId, task.title);
-        },
-      });
+      // The menu mirrors the header's rule: only the owner sees Hand off.
+      // Read through the full task map: the sidebar's summary rows don't
+      // always carry `created_by`.
+      const canHandoff =
+        authStatus === "authenticated" &&
+        currentUser.data?.id != null &&
+        taskMap.get(taskId)?.created_by?.id === currentUser.data.id;
+
+      void withSidebarPeekHeld(() =>
+        showContextMenu(task, e, {
+          worktreePath: workspace?.worktreePath ?? undefined,
+          folderPath: workspace?.folderPath ?? undefined,
+          isPinned,
+          isSuspended: taskData?.isSuspended,
+          canStop:
+            taskData?.taskRunEnvironment === "cloud" &&
+            isTaskActivelyRunning(taskData),
+          runId,
+          isInCommandCenter,
+          hasEmptyCommandCenterCell: true,
+          canHandoff,
+          onHandoff: () => setHandoffTaskId(task.id),
+          onTogglePin: () => handleTaskTogglePin(taskId),
+          onStop: (stopTaskId, taskTitle, stopRunId) =>
+            setStopConfirm({
+              taskId: stopTaskId,
+              taskTitle,
+              runId: stopRunId,
+            }),
+          onArchive: handleTaskArchive,
+          onArchivePrior: handleArchivePrior,
+          onAddToCommandCenter: () => {
+            placeTaskInCommandCenter(taskId, task.title);
+          },
+        }),
+      );
     }
   };
 
@@ -526,6 +565,7 @@ function SidebarMenuComponent() {
               onTaskEditSubmit={handleTaskEditSubmit}
               onTaskEditCancel={handleTaskEditCancel}
               onGroupContextMenu={handleGroupContextMenu}
+              creatorNameByTaskId={creatorNameByTaskId}
               hasMore={sidebarData.hasMore}
             />
           )}
@@ -549,6 +589,15 @@ function SidebarMenuComponent() {
         onConfirm={handleConfirmArchive}
         onCancel={() => setArchiveConfirm(null)}
       />
+      {handoffTask ? (
+        <HandoffTaskDialog
+          task={handoffTask}
+          open
+          onOpenChange={(open) => {
+            if (!open) setHandoffTaskId(null);
+          }}
+        />
+      ) : null}
       {stopConfirm ? (
         <StopCloudRunDialog
           open

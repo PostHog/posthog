@@ -142,6 +142,13 @@ enum GeoipExpected {
     IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
     GeoipExpected::None
 )]
+// GeoIP on, loopback IP, with person props → supplied props survive an unresolvable IP
+#[case(
+    false,
+    true,
+    IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
+    GeoipExpected::NameOnly
+)]
 fn test_geoip_person_property_overrides(
     #[case] geoip_disabled: bool,
     #[case] with_name: bool,
@@ -181,19 +188,49 @@ fn test_geoip_person_property_overrides(
     }
 }
 
+#[test]
+// A supplied null survives only when the IP resolves nothing: the fill loop at
+// properties.rs only visits keys MaxMind returns. That leftover null reads as
+// "supplied" to `requires_db_property`, so it suppresses the person fetch; treat
+// this as a presence test for the residual null, not a verdict that the DB
+// suppression is correct.
+fn test_supplied_geoip_null_survives_unresolvable_ip() {
+    let geoip_service = create_test_geoip_service();
+    let ip = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
+    let name = Value::String("John".to_string());
+
+    let person_properties = HashMap::from([
+        ("name".to_string(), name.clone()),
+        ("$geoip_country_code".to_string(), Value::Null),
+    ]);
+
+    let result = properties::get_person_property_overrides(
+        false,
+        Some(person_properties),
+        &ip,
+        &geoip_service,
+    );
+
+    let result = result.expect("expected property overrides");
+    assert_eq!(result.len(), 2);
+    assert_eq!(result.get("name"), Some(&name));
+    assert_eq!(result.get("$geoip_country_code"), Some(&Value::Null));
+}
+
 /// `supplied` is the value the request sends for `$geoip_country_code`, or `None` for a request
 /// that sends person properties without that key at all (the `unrelated_key_only` case).
 #[rstest]
-#[case::differs(false, Some(Value::String("DE".to_string())), true)]
-#[case::matches_lookup(false, Some(Value::String("US".to_string())), false)]
-#[case::null_counts_as_absent(false, Some(Value::Null), false)]
-#[case::unrelated_key_only(false, None, false)]
-#[case::geoip_disabled(true, Some(Value::String("DE".to_string())), false)]
+#[case::differs(false, Some(Value::String("DE".to_string())), true, "DE")]
+#[case::matches_lookup(false, Some(Value::String("US".to_string())), false, "US")]
+#[case::null_counts_as_absent(false, Some(Value::Null), false, "US")]
+#[case::unrelated_key_only(false, None, false, "US")]
+#[case::geoip_disabled(true, Some(Value::String("DE".to_string())), false, "DE")]
 #[tokio::test]
 async fn test_canonical_log_records_geoip_divergence(
     #[case] geoip_disabled: bool,
     #[case] supplied: Option<Value>,
-    #[case] expected: bool,
+    #[case] expected_divergence: bool,
+    #[case] expected_country: &str,
 ) {
     let geoip_service = create_test_geoip_service();
     let ip = IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8));
@@ -228,16 +265,22 @@ async fn test_canonical_log_records_geoip_divergence(
     })
     .await;
 
-    assert_eq!(final_log.geoip_properties_differ_from_lookup, expected);
+    assert_eq!(
+        final_log.geoip_properties_differ_from_lookup,
+        expected_divergence
+    );
 
-    // Measuring only: the lookup still overwrites whatever the request sent.
-    if !geoip_disabled {
-        let result = result.expect("expected property overrides");
-        assert_eq!(
-            result.get("$geoip_country_code"),
-            Some(&Value::String("US".to_string()))
-        );
-    }
+    // Supplied values win; the lookup only fills keys the request left absent or null.
+    let result = result.expect("expected property overrides");
+    assert_eq!(
+        result.get("$geoip_country_code"),
+        Some(&Value::String(expected_country.to_string()))
+    );
+    assert_eq!(
+        result.contains_key("$geoip_country_name"),
+        !geoip_disabled,
+        "the lookup should fill the geoip keys the request didn't send, unless disabled"
+    );
 }
 
 #[tokio::test]

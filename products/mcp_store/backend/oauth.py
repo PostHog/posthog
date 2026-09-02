@@ -35,6 +35,17 @@ class OAuthAuthorizeURLError(Exception):
     pass
 
 
+class DCRRegistrationRejectedError(Exception):
+    """The authorization server rejected the Dynamic Client Registration request.
+
+    Carries a short, provider-supplied message that is safe to show the user.
+    """
+
+    def __init__(self, provider_message: str) -> None:
+        super().__init__(provider_message)
+        self.provider_message = provider_message
+
+
 def _validate_url(url: str) -> None:
     allowed, reason = is_url_allowed(url)
     if not allowed:
@@ -311,6 +322,24 @@ class DcrClientRegistration:
     token_endpoint_auth_method: str
 
 
+def _describe_dcr_rejection(resp: requests.Response) -> str:
+    """Build a short, user-safe message from an RFC 7591 error response."""
+    try:
+        body = resp.json()
+    except ValueError:
+        body = None
+    if isinstance(body, dict):
+        description = body.get("error_description")
+        code = body.get("error")
+        parts = [str(p).strip() for p in (code, description) if isinstance(p, str) and p.strip()]
+        if parts:
+            return f"The server rejected registration: {'. '.join(parts)}"[:300]
+    text = (resp.text or "").strip()
+    if text:
+        return f"The server rejected registration (HTTP {resp.status_code}): {text}"[:300]
+    return f"The server rejected registration (HTTP {resp.status_code})."
+
+
 def register_dcr_client(metadata: dict, redirect_uri: str) -> DcrClientRegistration:
     """Run RFC 7591 Dynamic Client Registration.
 
@@ -324,7 +353,10 @@ def register_dcr_client(metadata: dict, redirect_uri: str) -> DcrClientRegistrat
 
     token_endpoint_auth_method = select_token_endpoint_auth_method(metadata)
     payload: dict[str, object] = {
-        "client_name": "MCP Store (PostHog)",
+        # Keep the name plain. Some strict RFC 7591 servers reject a client_name
+        # with parentheses, or one that starts with "posthog", and fail
+        # registration before authorization.
+        "client_name": "MCP Store by PostHog",
         "redirect_uris": [redirect_uri],
         "grant_types": requested_oauth_grant_types(metadata),
         "response_types": ["code"],
@@ -344,7 +376,7 @@ def register_dcr_client(metadata: dict, redirect_uri: str) -> DcrClientRegistrat
             body=resp.text[:500],
             registration_endpoint=registration_endpoint,
         )
-        resp.raise_for_status()
+        raise DCRRegistrationRejectedError(_describe_dcr_rejection(resp))
     data = resp.json()
 
     client_id = data.get("client_id")

@@ -7,8 +7,13 @@ use std::time::Instant;
 use base64::Engine;
 use posthog_replay_anonymizer::allow_lists::AllowLists;
 use posthog_replay_anonymizer::{
-    anonymize_event_str, anonymize_message, collect::hash_image_bytes, context::Ctx,
-    text::scrub_text, url::scrub_url, url::URL_SCHEME_ALLOWLIST,
+    anonymize_event_str, anonymize_message,
+    collect::{hash_image_bytes, url_ref},
+    context::Ctx,
+    text::scrub_text,
+    url::scrub_url,
+    url::URL_SCHEME_ALLOWLIST,
+    url_collect::hash_url,
 };
 use serde_json::Value;
 
@@ -49,6 +54,27 @@ fn image_hash_fixtures() {
             hash_image_bytes(key.as_bytes(), &bytes),
             case["hash"].as_str().unwrap(),
             "image hash case: {}",
+            case["name"]
+        );
+    }
+}
+
+#[test]
+fn image_url_ref_fixtures() {
+    for case in fixtures("image-url-ref.json") {
+        let global_url_key = case["globalUrlKey"].as_str().unwrap();
+        let canonical_url = case["canonicalUrl"].as_str().unwrap();
+        let hash = hash_url(global_url_key.as_bytes(), canonical_url);
+        assert_eq!(
+            hash,
+            case["hash"].as_str().unwrap(),
+            "case: {}",
+            case["name"]
+        );
+        assert_eq!(
+            url_ref(&hash),
+            case["ref"].as_str().unwrap(),
+            "case: {}",
             case["name"]
         );
     }

@@ -8,6 +8,16 @@ On success the tool returns a presigned download URL for the uploaded file (mint
 
 Repository changes should continue to be delivered through git rather than duplicated as task artifacts. A single uploaded artifact is limited to 30 MB.
 
+## PostHog object references
+
+A completed assistant message can reference a PostHog object with an object tag, such as `<insight id="9pQx3">Checkout funnel</insight>`. Desktop extracts these tags after the turn completes and registers them in the same run artifact manifest with `type: reference` and `source: posthog_object`.
+
+Reference artifacts do not upload a file and do not have a storage path, size, or download URL. Their metadata stores the object kind, exact identifier, source message IDs, and occurrence count. Replaying the same completed message updates the existing entry instead of creating another one.
+
+Registration failure does not block the completed turn or replace the current artifact list. Desktop retries when it hydrates the completed turn again, so the client and backend can deploy in either order.
+
+The Artifacts pane shows file and reference artifacts in one list. The Timeline announces a new reference as an added artifact. Both surfaces open the same artifact tab, which resolves the current object data from the active PostHog project.
+
 The desktop app runs scripts embedded in HTML artifacts inside an isolated preview process. The preview cannot access Node.js, Electron, PostHog credentials, remote resources, downloads, or device permissions. Use **Stop preview** if a script becomes unresponsive, then use **Restart preview** to load it in a fresh process.
 
 ## Versions and dismissal

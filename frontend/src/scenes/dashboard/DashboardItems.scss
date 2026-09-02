@@ -32,6 +32,22 @@
             content-visibility: visible;
         }
     }
+
+    &.dashboard-tile-spacing-changing {
+        transition: none;
+
+        .react-grid-item {
+            transition: none;
+        }
+    }
+
+    &.dashboard-layout-interaction .react-grid-item {
+        transition: none;
+    }
+
+    &.dashboard-layout-settling .react-grid-item:not(.react-draggable-dragging, .resizing) {
+        transition: transform 180ms ease-out;
+    }
 }
 
 .react-grid-item.cssTransforms {

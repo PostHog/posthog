@@ -18,6 +18,7 @@ import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { DragBatchLabel } from "@posthog/ui/features/sidebar/components/DragBatchLabel";
 import { DraggableFolder } from "@posthog/ui/features/sidebar/components/DraggableFolder";
 import { GroupWorktreesSection } from "@posthog/ui/features/sidebar/components/GroupWorktreesSection";
+import { taskMetadata } from "@posthog/ui/features/sidebar/components/ListItemMetadata";
 import { SidebarSection } from "@posthog/ui/features/sidebar/components/SidebarSection";
 import { TaskRow } from "@posthog/ui/features/sidebar/components/TaskRow";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
@@ -65,6 +66,7 @@ interface TaskListViewProps {
   ) => void;
   onTaskEditCancel: () => void;
   onGroupContextMenu?: (groupId: string, e: React.MouseEvent) => void;
+  creatorNameByTaskId: ReadonlyMap<string, string>;
   hasMore: boolean;
 }
 
@@ -88,6 +90,7 @@ export function TaskListView({
   onTaskEditSubmit,
   onTaskEditCancel,
   onGroupContextMenu,
+  creatorNameByTaskId,
   hasMore,
 }: TaskListViewProps) {
   const selectedIdSet = useMemo(
@@ -97,6 +100,9 @@ export function TaskListView({
   const hasMultiSelection = selectedTaskIds.length > 1;
   const organizeMode = useSidebarStore((state) => state.organizeMode);
   const sortMode = useSidebarStore((state) => state.sortMode);
+  const listItemMetadataFields = useSidebarStore(
+    (state) => state.listItemMetadataFields,
+  );
   const collapsedSections = useSidebarStore((state) => state.collapsedSections);
   const toggleSection = useSidebarStore((state) => state.toggleSection);
   const loadMoreHistory = useSidebarStore((state) => state.loadMoreHistory);
@@ -216,6 +222,11 @@ export function TaskListView({
           onDragStart={(event) => pinDrag.onItemDragStart(task, event)}
           onDragEnd={pinDrag.onItemDragEnd}
           timestamp={task[timestampKey]}
+          subtitle={taskMetadata(
+            task,
+            creatorNameByTaskId.get(task.id),
+            listItemMetadataFields,
+          )}
           depth={depth}
         />
       </motion.div>
@@ -478,6 +489,11 @@ export function TaskListView({
                   onEditSubmit={() => undefined}
                   onEditCancel={() => undefined}
                   timestamp={dragState.items[0][timestampKey]}
+                  subtitle={taskMetadata(
+                    dragState.items[0],
+                    creatorNameByTaskId.get(dragState.items[0].id),
+                    listItemMetadataFields,
+                  )}
                   withPrStatus={false}
                 />
               )}

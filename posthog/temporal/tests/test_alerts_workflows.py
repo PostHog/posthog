@@ -38,7 +38,7 @@ from posthog.temporal.common.slo_interceptor import SloInterceptor
 from posthog.temporal.tests.test_alerts_activities import _email_delivery
 
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, Threshold
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 CHECK_ALERT_ACTIVITIES: list[Callable[..., Any]] = [
     prepare_alert,
@@ -184,19 +184,20 @@ async def _run_check_alert_workflow(alert_id: str, slo: SloConfig, team_id: int,
             interceptors=[SloInterceptor()],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
-            await env.client.execute_workflow(
-                CheckAlertWorkflow.run,
-                CheckAlertWorkflowInputs(
-                    alert_id=alert_id,
-                    team_id=team_id,
-                    distinct_id=alert_id,
-                    calculation_interval=AlertCalculationInterval.DAILY.value,
-                    insight_id=insight_id,
-                    slo=slo,
-                ),
-                id=f"check-alert-{uuid.uuid4()}",
-                task_queue=settings.TEMPORAL_TASK_QUEUE,
-            )
+            with patch("posthog.temporal.alerts.activities.is_email_available", return_value=True):
+                await env.client.execute_workflow(
+                    CheckAlertWorkflow.run,
+                    CheckAlertWorkflowInputs(
+                        alert_id=alert_id,
+                        team_id=team_id,
+                        distinct_id=alert_id,
+                        calculation_interval=AlertCalculationInterval.DAILY.value,
+                        insight_id=insight_id,
+                        slo=slo,
+                    ),
+                    id=f"check-alert-{uuid.uuid4()}",
+                    task_queue=settings.TEMPORAL_TASK_QUEUE,
+                )
 
 
 def _completed_slo_props(mock_slo_analytics: MagicMock, operation: SloOperation = SloOperation.ALERT_CHECK) -> dict:

@@ -8,6 +8,7 @@ import { TabsContent } from 'lib/ui/quill'
 import { cn } from 'lib/utils/css-classes'
 
 import { ExceptionAttributesPreview } from '../../../ExceptionAttributesPreview'
+import { ExceptionPlatformPills } from '../../../ExceptionAttributesPreview/ExceptionPlatformPills'
 import { ReleasePreviewPill } from '../../../ReleasesPreview/ReleasePreviewPill'
 import { exceptionCardLogic } from '../../exceptionCardLogic'
 import { SubHeader } from './../SubHeader'
@@ -28,6 +29,7 @@ export function StackTraceTab({ className, renderActions, ...props }: StackTrace
                 <div className="flex items-center gap-1">
                     <ExceptionAttributesPreview attributes={exceptionAttributes} loading={loading} />
                     {release && <ReleasePreviewPill release={release} />}
+                    {!loading && <ExceptionPlatformPills attributes={exceptionAttributes} />}
                 </div>
                 {renderActions?.()}
             </SubHeader>

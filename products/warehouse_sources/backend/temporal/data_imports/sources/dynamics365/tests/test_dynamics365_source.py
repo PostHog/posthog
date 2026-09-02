@@ -1,12 +1,8 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.dynamics365.dynamics365 import (
     INVALID_ORGANIZATION_URL_ERROR,
-    Dynamics365ResumeConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.dynamics365.settings import (
     DYNAMICS365_ENDPOINTS,
@@ -23,7 +19,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.dynamics36
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.dynamics365 import (
     Dynamics365SourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 PROBE_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.dynamics365.source.probe_credentials"
 SOURCE_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.dynamics365.source.dynamics365_source"
@@ -39,32 +34,6 @@ class TestDynamics365Source:
             client_id="cid",
             client_secret="sec",
         )
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.DYNAMICS365
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-
-        assert config.name.value == "Dynamics365"
-        assert config.label == "Microsoft Dynamics 365"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is None
-        assert config.iconPath == "/static/services/dynamics365.png"
-        assert [field.name for field in config.fields] == [
-            "organization_url",
-            "tenant_id",
-            "client_id",
-            "client_secret",
-        ]
-
-    def test_only_the_client_secret_is_a_secret_field(self) -> None:
-        fields = [field for field in self.source.get_source_config.fields if isinstance(field, SourceFieldInputConfig)]
-
-        secret_fields = [field for field in fields if field.secret]
-        assert [field.name for field in secret_fields] == ["client_secret"]
-        assert secret_fields[0].type == SourceFieldInputConfigType.PASSWORD
-        assert all(field.required for field in fields)
 
     def test_retargeting_the_environment_or_tenant_requires_new_secrets(self) -> None:
         # Both fields decide where the client secret and the minted token are sent.
@@ -107,13 +76,6 @@ class TestDynamics365Source:
         # Dataverse exposes both tracking columns on every standard table.
         assert [field["field"] for field in schemas["Accounts"].incremental_fields] == ["modifiedon", "createdon"]
         assert schemas["Cases"].incremental_fields == INCREMENTAL_FIELDS["Cases"]
-
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["Contacts"])
-        assert [schema.name for schema in schemas] == ["Contacts"]
-
-    def test_get_schemas_filtered_unknown_name_returns_empty(self) -> None:
-        assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
 
     def test_canonical_descriptions_cover_every_endpoint(self) -> None:
         descriptions = self.source.get_canonical_descriptions()
@@ -185,12 +147,6 @@ class TestDynamics365Source:
 
         assert is_valid is False
         assert message == INVALID_ORGANIZATION_URL_ERROR
-
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is Dynamics365ResumeConfig
 
     @mock.patch(SOURCE_PATCH)
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:

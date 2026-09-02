@@ -5,44 +5,15 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 
-import type { DigestChannelApi, DigestRunApi } from '../../generated/api.schemas'
-
-const digestChannels = {
-    count: 2,
-    next: null,
-    previous: null,
-    results: [
-        {
-            id: '00000000-0000-0000-0000-0000000000d1',
-            audience_key: 'repo:PostHog/posthog',
-            slack_integration_id: 1,
-            slack_channel_id: 'C012AB3CD',
-            slack_channel_name: 'team-devex',
-            resolution_source: 'stamphog_config',
-            enabled: true,
-            last_digest_at: '2026-08-17T09:00:00Z',
-            created_at: '2026-07-01T00:00:00Z',
-            updated_at: '2026-08-17T09:00:00Z',
-        },
-        {
-            id: '00000000-0000-0000-0000-0000000000d2',
-            audience_key: 'repo:PostHog/hogland',
-            slack_integration_id: 1,
-            slack_channel_id: 'C045EF6GH',
-            slack_channel_name: '',
-            resolution_source: 'slack_name_match',
-            enabled: true,
-            last_digest_at: null,
-            created_at: '2026-07-01T00:00:00Z',
-            updated_at: '2026-07-01T00:00:00Z',
-        },
-    ] as DigestChannelApi[],
-}
+import type { DigestRunApi } from '../../generated/api.schemas'
 
 const digestRun = (overrides: Partial<DigestRunApi>): DigestRunApi =>
     ({
         id: '00000000-0000-0000-0000-0000000000e0',
-        digest_channel: '00000000-0000-0000-0000-0000000000d1',
+        audience_key: 'repo:PostHog/posthog',
+        slack_channel_id: 'C012AB3CD',
+        slack_channel_name: 'team-devex',
+        resolution_source: 'stamphog_config',
         status: 'completed',
         pr_count: 14,
         slack_message_ts: '1755424800.001900',
@@ -58,12 +29,15 @@ const digestRuns = {
     previous: null,
     results: [
         digestRun({}),
-        // A channel with no slack_channel_name falls back to its ID. This run also found nothing worth
+        // A run with no slack_channel_name falls back to its ID. This one also found nothing worth
         // summarizing, so it completed with posted_at stamped but never called Slack — only the empty
         // slack_message_ts separates it from a real post.
         digestRun({
             id: '00000000-0000-0000-0000-0000000000e1',
-            digest_channel: '00000000-0000-0000-0000-0000000000d2',
+            audience_key: 'repo:PostHog/hogland',
+            slack_channel_id: 'C045EF6GH',
+            slack_channel_name: '',
+            resolution_source: 'slack_name_match',
             pr_count: 0,
             slack_message_ts: '',
             created_at: '2026-08-17T09:00:01Z',
@@ -71,6 +45,10 @@ const digestRuns = {
         }),
         digestRun({
             id: '00000000-0000-0000-0000-0000000000e2',
+            audience_key: 'team-devex',
+            slack_channel_id: 'C099ZZ9ZZ',
+            slack_channel_name: 'team-devex',
+            resolution_source: 'owners_contact',
             status: 'failed',
             pr_count: 9,
             slack_message_ts: '',
@@ -97,13 +75,12 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2026-08-18 12:00:00',
         pageUrl: urls.stamphogDigests(),
-        testOptions: { waitForSelector: '[data-attr="stamphog-digests-channel-filter"]' },
+        testOptions: { waitForSelector: '[data-attr="stamphog-digests-table"]' },
     },
     decorators: [
         mswDecorator({
             get: {
                 '/api/projects/:team_id/stamphog/digest_runs/': digestRuns,
-                '/api/projects/:team_id/stamphog/digest_channels/': digestChannels,
             },
         }),
     ],

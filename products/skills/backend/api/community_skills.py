@@ -7,7 +7,7 @@ import posthoganalytics
 from drf_spectacular.utils import extend_schema
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -34,6 +34,13 @@ from .community_skill_services import (
 )
 from .skill_serializers import LLMSkillSerializer
 from .skill_services import LLMSkillDuplicateNameConflictError, LLMSkillFileLimitError, LLMSkillFilePathConflictError
+from .skill_template_services import (
+    MissingTemplateVariableError,
+    TemplateRenderTooLargeError,
+    TemplateVariableTooLargeError,
+    UnknownSuppliedVariableError,
+    UnknownTemplatePlaceholderError,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -165,6 +172,17 @@ class CommunitySkillViewSet(
         serializer = self.get_serializer(queryset, many=True)
         return Response({"count": len(serializer.data), "results": serializer.data})
 
+    def _report_install_failed(self, request: Request, slug: str, reason: str) -> None:
+        # One event per failed install path so the dashboard can track the install failure rate and
+        # its causes. reason is a short stable code, not the user-facing message.
+        report_user_action(
+            cast(User, request.user),
+            "community skill install failed",
+            {"community_skill_slug": slug, "reason": reason},
+            team=self.team,
+            request=request,
+        )
+
     @extend_schema(request=CommunitySkillInstallSerializer, responses={201: LLMSkillSerializer})
     @action(methods=["POST"], detail=True)
     def install(self, request: Request, slug: str = "", **kwargs) -> Response:
@@ -186,15 +204,43 @@ class CommunitySkillViewSet(
                 user=cast(User, request.user),
                 slug=slug,
                 new_name=payload.validated_data.get("new_name"),
+                variables=payload.validated_data.get("variables"),
             )
         except CommunitySkillNotFoundError:
+            self._report_install_failed(request, slug, "not_found")
             return Response(
                 {"detail": f"Community skill '{slug}' not found."},
                 status=status.HTTP_404_NOT_FOUND,
             )
+        except (
+            MissingTemplateVariableError,
+            TemplateRenderTooLargeError,
+            TemplateVariableTooLargeError,
+            UnknownSuppliedVariableError,
+        ) as err:
+            # All four are fixable by the caller (supply the value / shorter values / fix the key),
+            # so they're 400s against the field that carried them.
+            self._report_install_failed(request, slug, "missing_variable")
+            raise ValidationError({"variables": str(err)}) from err
+        except UnknownTemplatePlaceholderError as err:
+            # The template body references a variable it never declared — a content-repo bug the
+            # caller can't fix, so surface it as a server-side fault, not a bad request. Returning a
+            # hand-built 500 skips DRF's exception handler, so log it here or a broken catalog entry
+            # fails every install with no server-side signal.
+            logger.exception(
+                "Community skill template references an undeclared placeholder",
+                slug=slug,
+                placeholder=err.placeholder,
+            )
+            self._report_install_failed(request, slug, "undeclared_placeholder")
+            return Response(
+                {"detail": str(err)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
         except LLMSkillDuplicateNameConflictError:
             # Only blame the new_name field when the caller actually supplied it — otherwise the
             # conflicting name is the skill's own slug, so a generic message is accurate.
+            self._report_install_failed(request, slug, "name_conflict")
             if payload.validated_data.get("new_name"):
                 return Response(
                     {"attr": "new_name", "detail": "A skill with this name already exists in your project."},
@@ -208,9 +254,11 @@ class CommunitySkillViewSet(
                 status=status.HTTP_400_BAD_REQUEST,
             )
         except CommunitySkillInvalidPayloadError as err:
+            self._report_install_failed(request, slug, "invalid_payload")
             return Response({"detail": err.detail}, status=status.HTTP_400_BAD_REQUEST)
         except (LLMSkillFileLimitError, LLMSkillFilePathConflictError):
             # The synced community payload violates the skill limits (too many files / bad paths).
+            self._report_install_failed(request, slug, "invalid_files")
             return Response(
                 {"detail": "This community skill can't be installed because its bundled files are invalid."},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -222,6 +270,7 @@ class CommunitySkillViewSet(
             {
                 "community_skill_slug": slug,
                 "installed_skill_name": installed.name,
+                "installed_as_template": "instantiated_from" in (installed.metadata or {}),
             },
             team=self.team,
             request=request,
@@ -247,4 +296,12 @@ class CommunitySkillViewSet(
                 {"detail": f"Community skill '{slug}' not found."},
                 status=status.HTTP_404_NOT_FOUND,
             )
+
+        report_user_action(
+            cast(User, request.user),
+            "community skill voted",
+            {"community_skill_slug": slug, "voted": has_voted, "vote_count": vote_count},
+            team=self.team,
+            request=request,
+        )
         return Response({"vote_count": vote_count, "has_voted": has_voted})

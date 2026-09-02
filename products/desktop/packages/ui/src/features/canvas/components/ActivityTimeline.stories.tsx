@@ -154,6 +154,46 @@ const messages: TaskThreadMessage[] = [
 
 const timeline = buildThreadTimeline(messages);
 
+const BUSY_BRANCHES = ["shy/reports-panel", "shy/drop-report-tables"];
+
+// One run's worth of noise: a push at a time, with the pull requests they opened between.
+const busyMessages: TaskThreadMessage[] = [
+  event(
+    "b0",
+    "run_started",
+    { run_id: "run-2", environment: "cloud", branch: BUSY_BRANCHES[0] },
+    "2026-08-05T09:00:00Z",
+  ),
+  ...Array.from({ length: 9 }, (_, index) =>
+    event(
+      `b${index + 1}`,
+      "commits_pushed",
+      {
+        run_id: "run-2",
+        branch: BUSY_BRANCHES[index % 2],
+        repository: "PostHog/posthog",
+        total: 1,
+        commits: [
+          {
+            sha: `${index + 1}c0ffee`,
+            subject: `chore(desktop): iterate ${index + 1}`,
+            url: `https://github.com/PostHog/posthog/commit/${index + 1}c0ffee`,
+          },
+        ],
+      },
+      `2026-08-05T${10 + Math.floor(index / 3)}:${String((index % 3) * 15 + 5).padStart(2, "0")}:00Z`,
+    ),
+  ),
+  ...[80061, 80062, 80063].map((number, index) =>
+    event(
+      `bp${number}`,
+      "pr_created",
+      { pr_url: `https://github.com/PostHog/posthog/pull/${number}` },
+      `2026-08-05T13:${index * 10 + 10}:00Z`,
+    ),
+  ),
+];
+
 const commentThreads: TaskCommentThreadSummary[] = [
   {
     id: "thread-1",
@@ -237,6 +277,17 @@ export const FullTimeline: Story = {
     ] as any,
     commentThreads,
     currentUserId: ben.id,
+  },
+};
+
+/** What a stack of branches looks like: nine pushes and three pull requests, which the
+ *  panel collapses into one row per branch and one row for the pull requests. */
+export const GroupedRun: Story = {
+  args: {
+    task,
+    timeline: buildThreadTimeline(busyMessages),
+    messages: busyMessages,
+    conversationItems: [],
   },
 };
 

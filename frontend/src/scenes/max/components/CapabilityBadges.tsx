@@ -49,7 +49,7 @@ export function CapabilityBadges({
     return (
         <div
             className={cn(
-                'flex flex-wrap items-center justify-center gap-1.5 max-w-[500px] px-3',
+                'flex flex-wrap items-center justify-center gap-1.5 max-w-[500px] px-3 pt-[2px]',
                 COLORFUL_ICONS,
                 className
             )}

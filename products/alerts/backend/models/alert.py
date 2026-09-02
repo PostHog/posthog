@@ -256,6 +256,7 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
             "calculation_interval": self.calculation_interval,
             "is_high_frequency_interval": self.is_high_frequency_interval,
             "enabled": self.enabled,
+            "investigation_agent_enabled": self.investigation_agent_enabled,
             "skip_weekend": bool(self.skip_weekend),
             "has_schedule_restriction": has_schedule_restriction,
             "has_threshold": has_threshold,

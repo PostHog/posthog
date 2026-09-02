@@ -14,6 +14,7 @@ use crate::metric_consts::{
     SPIKE_INCREMENT_TEAM_BUCKETS_TIME, SPIKE_ISSUES_BLOCKED_BY_COOLDOWN, SPIKE_ISSUES_CHECKED,
     SPIKE_ISSUES_SPIKING,
 };
+use crate::modes::processing::redis_heal::{heal_on_connection_error, HealGate};
 use crate::modes::processing::rules::spike::SpikeDetectionConfig;
 use crate::types::ProcessedExceptionProperties;
 
@@ -89,7 +90,8 @@ fn get_now_rounded_to_minutes(minutes: i64) -> String {
 }
 
 async fn try_increment_issue_buckets(
-    redis: &(dyn Client + Send + Sync),
+    heal_gate: &HealGate,
+    redis: &Arc<dyn Client + Send + Sync>,
     issue_counts: &HashMap<Uuid, u32>,
 ) {
     if issue_counts.is_empty() {
@@ -112,11 +114,13 @@ async fn try_increment_issue_buckets(
         .await
     {
         warn!("Failed to increment issue buckets batch: {err}");
+        heal_on_connection_error(heal_gate, redis, &err);
     }
 }
 
 async fn try_increment_team_buckets(
-    redis: &(dyn Client + Send + Sync),
+    heal_gate: &HealGate,
+    redis: &Arc<dyn Client + Send + Sync>,
     issues_by_id: &HashMap<Uuid, Issue>,
     issue_counts: &HashMap<Uuid, u32>,
 ) {
@@ -152,6 +156,7 @@ async fn try_increment_team_buckets(
         .await
     {
         warn!("Failed to increment team buckets batch: {err}");
+        heal_on_connection_error(heal_gate, redis, &err);
     }
 
     // Track unique issues per team bucket using sets
@@ -171,6 +176,7 @@ async fn try_increment_team_buckets(
         .await
     {
         warn!("Failed to add issues to team sets: {err}");
+        heal_on_connection_error(heal_gate, redis, &err);
     }
 }
 
@@ -209,12 +215,18 @@ pub async fn do_spike_detection(
         .await;
 
     let issue_buckets_timer = common_metrics::timing_guard(SPIKE_INCREMENT_ISSUE_BUCKETS_TIME, &[]);
-    try_increment_issue_buckets(&*context.issue_buckets_redis_client, &issue_counts).await;
+    try_increment_issue_buckets(
+        &context.issue_buckets_heal_gate,
+        &context.issue_buckets_redis_client,
+        &issue_counts,
+    )
+    .await;
     issue_buckets_timer.fin();
 
     let team_buckets_timer = common_metrics::timing_guard(SPIKE_INCREMENT_TEAM_BUCKETS_TIME, &[]);
     try_increment_team_buckets(
-        &*context.issue_buckets_redis_client,
+        &context.issue_buckets_heal_gate,
+        &context.issue_buckets_redis_client,
         &issues_by_id,
         &issue_counts,
     )

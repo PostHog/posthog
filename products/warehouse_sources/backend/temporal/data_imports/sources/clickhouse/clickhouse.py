@@ -150,6 +150,14 @@ _TRANSIENT_CONNECT_DROP_SUBSTRINGS = (
     # HTTP statuses keep their existing handling (404 is non-retryable in the
     # source, 5xx stay retryable via Temporal).
     "returned response code 429",
+    # urllib3 couldn't open the TCP connection to our own egress proxy at all — it never got far
+    # enough to attempt a CONNECT tunnel — and wraps the raw socket timeout as
+    # `ProxyError('Cannot connect to proxy.', TimeoutError('timed out'))`. This is our proxy
+    # being briefly unreachable, not a customer config problem, so a fresh attempt recovers.
+    # Matching the full inner exception keeps this distinct from `Tunnel connection failed:
+    # 407` above, which wraps the same "Cannot connect to proxy." prefix around a deterministic
+    # proxy-auth response and must stay non-retryable.
+    "Cannot connect to proxy.', TimeoutError('timed out')",
 )
 
 

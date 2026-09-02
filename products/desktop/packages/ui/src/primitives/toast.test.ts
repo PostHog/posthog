@@ -28,12 +28,14 @@ vi.mock("@posthog/ui/features/settings/settingsStore", () => ({
   useSettingsStore: { getState: () => settings },
 }));
 
+import { useErrorDetailsStore } from "@posthog/ui/features/notifications/errorDetailsStore";
 import { toast } from "./toast";
 
 beforeEach(() => {
   vi.clearAllMocks();
   quill._reset();
   settings.toastNotifications = true;
+  useErrorDetailsStore.getState().close();
   // clearAllMocks resets the level fns to undefined returns; restore ids.
   let n = 0;
   for (const key of [
@@ -107,6 +109,73 @@ describe("toast wrapper", () => {
     settings.toastNotifications = false;
     toast.error("Offline");
     expect(quill.error).toHaveBeenCalled();
+  });
+
+  it("adds View larger to a bare error toast and shows its title", () => {
+    toast.error("Failed request");
+
+    const options = quill.error.mock.calls[0]?.[0] as {
+      action: { label: string; onClick: () => void };
+    };
+    expect(options.action.label).toBe("View larger");
+    options.action.onClick();
+    expect(useErrorDetailsStore.getState().detail).toEqual(
+      expect.objectContaining({
+        title: "Failed request",
+        error: "Failed request",
+      }),
+    );
+  });
+
+  it("shows the complete error payload instead of its toast summary", () => {
+    const error = { status: 400, body: { detail: "Invalid request" } };
+    toast.error("Failed request", {
+      description: "Invalid request",
+      error,
+    });
+
+    const options = quill.error.mock.calls[0]?.[0] as {
+      action: { label: string; onClick: () => void };
+    };
+    options.action.onClick();
+    expect(useErrorDetailsStore.getState().detail).toEqual(
+      expect.objectContaining({ title: "Failed request", error }),
+    );
+  });
+
+  it("replaces a caller action so error toasts always offer View larger", () => {
+    const callerAction = vi.fn();
+    toast.error("Failed request", {
+      action: { label: "Retry", onClick: callerAction },
+    });
+
+    const options = quill.error.mock.calls[0]?.[0] as {
+      action: { label: string; onClick: () => void };
+    };
+    expect(options.action.label).toBe("View larger");
+    options.action.onClick();
+    expect(callerAction).not.toHaveBeenCalled();
+  });
+
+  it("opens the latest payload after a stable error toast is updated", () => {
+    toast.error("First failure", {
+      id: "updated-error",
+      error: { message: "first" },
+    });
+    const latestError = { message: "second" };
+    toast.error("Second failure", {
+      id: "updated-error",
+      error: latestError,
+    });
+
+    const update = quill.update.mock.calls[0]?.[1] as {
+      action: { label: string; onClick: () => void };
+    };
+    expect(update.action.label).toBe("View larger");
+    update.action.onClick();
+    expect(useErrorDetailsStore.getState().detail).toEqual(
+      expect.objectContaining({ title: "Second failure", error: latestError }),
+    );
   });
 
   it.each([

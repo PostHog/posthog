@@ -3,8 +3,11 @@ import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { toAccessControlLevel } from 'lib/utils/accessControlUtils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+
+import { AccessControlLevel } from '~/types'
 
 import {
     stamphogRepoConfigsInstallInfoRetrieve,
@@ -40,6 +43,7 @@ export interface stamphogSceneLogicValues {
     repoConfigsLoading: boolean
     repoSearch: string
     skippedRepos: readonly string[]
+    stamphogAccessLevel: AccessControlLevel | undefined
     syncResult: StamphogSyncInstallationResponseApi | null
     syncResultLoading: boolean
     syncedRepos: readonly StamphogRepoConfigApi[]
@@ -168,6 +172,7 @@ export interface stamphogSceneLogicMeta {
         ) => readonly StamphogDiscoveredInstallationApi[]
         syncedRepos: (syncResult: StamphogSyncInstallationResponseApi | null) => readonly StamphogRepoConfigApi[]
         skippedRepos: (syncResult: StamphogSyncInstallationResponseApi | null) => readonly string[]
+        stamphogAccessLevel: (repoConfigs: StamphogRepoConfigApi[]) => AccessControlLevel | undefined
         filteredRepoConfigs: (repoConfigs: StamphogRepoConfigApi[], repoSearch: string) => StamphogRepoConfigApi[]
     }
 }
@@ -300,6 +305,13 @@ export const stamphogSceneLogic = kea<stamphogSceneLogicType>([
         skippedRepos: [
             (s) => [s.syncResult],
             (syncResult: StamphogSyncInstallationResponseApi | null): readonly string[] => syncResult?.skipped ?? [],
+        ],
+        // Every row reports the same team-wide level, so the first one answers for the whole scene.
+        // Undefined until a repository loads, which sends the access checks back to the app context.
+        stamphogAccessLevel: [
+            (s) => [s.repoConfigs],
+            (repoConfigs: StamphogRepoConfigApi[]): AccessControlLevel | undefined =>
+                repoConfigs.length > 0 ? toAccessControlLevel(repoConfigs[0].user_access_level) : undefined,
         ],
         // A GitHub App install can surface hundreds of repos, so the table filters client-side by name.
         filteredRepoConfigs: [

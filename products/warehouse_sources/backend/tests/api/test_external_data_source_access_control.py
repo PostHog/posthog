@@ -2,7 +2,6 @@ import uuid
 
 import pytest
 from posthog.test.base import APIBaseTest
-from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 from rest_framework import status
@@ -11,34 +10,21 @@ from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.rbac.user_access_control import UserAccessControl
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.models.role import Role, RoleMembership
 from products.warehouse_sources.backend.facade.models import (
     MANAGED_WAREHOUSE_SOURCE_PREFIX,
     ExternalDataSchema,
     ExternalDataSource,
 )
 
-try:
-    from ee.models.rbac.access_control import AccessControl
-    from ee.models.rbac.role import Role, RoleMembership
-except ImportError:
-    pass
-
 
 @pytest.mark.ee
 class TestExternalDataSourceAccessControl(APIBaseTest):
-    managed_warehouse_sql_editor_flag: MagicMock
-
     def setUp(self) -> None:
         super().setUp()
-
-        flag_patcher = patch(
-            "products.managed_warehouse.backend.facade.feature_flags.posthog_feature_flag_enabled",
-            return_value=True,
-        )
-        self.managed_warehouse_sql_editor_flag = flag_patcher.start()
-        self.addCleanup(flag_patcher.stop)
 
         # Enable access control features
         self.organization.available_product_features = [
@@ -428,28 +414,6 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
                 },
             ),
             (
-                "legacy_org_root",
-                {
-                    "connection_metadata": {
-                        "engine": "duckdb",
-                        "system_managed": True,
-                        "credential_kind": "org_root",
-                        "reader_configured": True,
-                    }
-                },
-            ),
-            (
-                "stored_server_login",
-                {
-                    "connection_metadata": {
-                        "engine": "duckdb",
-                        "system_managed": True,
-                        "credential_kind": "stored_server_login",
-                        "reader_configured": True,
-                    }
-                },
-            ),
-            (
                 "spoofed_root_username",
                 {
                     "job_inputs": {
@@ -483,15 +447,7 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertNotIn(str(source.id), [item["id"] for item in response.json()])
 
-    @parameterized.expand(
-        [
-            ("disabled", False),
-            ("evaluation_error", RuntimeError("feature flag unavailable")),
-        ]
-    )
-    def test_connections_flag_off_preserves_legacy_managed_source_as_external(
-        self, _name: str, flag_result: bool | Exception
-    ) -> None:
+    def test_connections_prefers_dynamic_auth_over_reader_and_legacy_sources(self) -> None:
         legacy_source = self._create_legacy_managed_source()
         ready_reader = self._create_managed_source()
         dynamic_source = self._create_managed_source(
@@ -528,30 +484,25 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
             access_method=ExternalDataSource.AccessMethod.DIRECT,
             created_by=self.user,
         )
-        if isinstance(flag_result, Exception):
-            self.managed_warehouse_sql_editor_flag.side_effect = flag_result
-        else:
-            self.managed_warehouse_sql_editor_flag.return_value = flag_result
-
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/connections/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(
             [item["id"] for item in response.json()],
-            [str(external_source.id), str(legacy_source.id)],
+            [str(dynamic_source.id), str(external_source.id)],
         )
-        self.assertFalse(
-            next(item for item in response.json() if item["id"] == str(legacy_source.id))[
+        self.assertTrue(
+            next(item for item in response.json() if item["id"] == str(dynamic_source.id))[
                 "is_builtin_managed_warehouse"
             ]
         )
         self.assertNotIn(str(ready_reader.id), [item["id"] for item in response.json()])
-        self.assertNotIn(str(dynamic_source.id), [item["id"] for item in response.json()])
+        self.assertNotIn(str(legacy_source.id), [item["id"] for item in response.json()])
         self.assertNotIn(str(pending_reader.id), [item["id"] for item in response.json()])
         self.assertNotIn(str(malformed_legacy.id), [item["id"] for item in response.json()])
         self.assertNotIn(str(unknown_kind.id), [item["id"] for item in response.json()])
 
-    def test_connections_flag_on_hides_legacy_source_and_marks_ready_reader_as_built_in(self) -> None:
+    def test_connections_hides_legacy_source_and_marks_ready_reader_as_built_in(self) -> None:
         ready_reader = self._create_managed_source()
         legacy_source = self._create_legacy_managed_source()
         external_source = ExternalDataSource.objects.create(
@@ -573,9 +524,8 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
         )
         self.assertNotIn(str(legacy_source.id), [item["id"] for item in response.json()])
 
-    def test_connections_flag_off_applies_external_source_access_control_to_legacy_source(self) -> None:
+    def test_connections_applies_external_source_access_control_to_canonical_legacy_source(self) -> None:
         legacy_source = self._create_legacy_managed_source()
-        self.managed_warehouse_sql_editor_flag.return_value = False
         self._create_access_control(self.viewer_user, access_level="none")
         self.client.force_login(self.viewer_user)
 
@@ -597,10 +547,27 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
             [(str(legacy_source.id), False)],
         )
 
-    def test_connections_flag_off_does_not_fall_back_to_an_older_accessible_legacy_source(self) -> None:
+    @parameterized.expand([("org_root",), ("stored_server_login",)])
+    def test_connections_exposes_a_valid_grandfathered_legacy_source(self, credential_kind: str) -> None:
+        legacy_source = self._create_legacy_managed_source(
+            connection_metadata={
+                "engine": "duckdb",
+                "system_managed": True,
+                "credential_kind": credential_kind,
+            }
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/connections/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            [(item["id"], item["is_builtin_managed_warehouse"]) for item in response.json()],
+            [(str(legacy_source.id), False)],
+        )
+
+    def test_connections_does_not_fall_back_to_an_older_accessible_legacy_source(self) -> None:
         older_source = self._create_legacy_managed_source()
         self._create_legacy_managed_source()
-        self.managed_warehouse_sql_editor_flag.return_value = False
         self._create_access_control(self.viewer_user, access_level="none")
         self._create_access_control(
             self.viewer_user,
@@ -682,7 +649,7 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
             response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.id}/")
             self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-    def test_flag_off_preserves_legacy_managed_source_as_read_only_external_resource(self) -> None:
+    def test_preserves_legacy_managed_source_as_read_only_external_resource(self) -> None:
         legacy_source = self._create_legacy_managed_source()
         ready_reader = self._create_managed_source()
         pending_reader = self._create_managed_source(
@@ -703,8 +670,6 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
         )
         other_team = Team.objects.create(organization=self.organization, name="Other project")
         cross_team_legacy = self._create_legacy_managed_source(team=other_team)
-        self.managed_warehouse_sql_editor_flag.return_value = False
-
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)

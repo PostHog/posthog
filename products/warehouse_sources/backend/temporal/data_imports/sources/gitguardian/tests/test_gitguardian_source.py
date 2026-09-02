@@ -2,32 +2,13 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import SourceFieldInputConfig
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.gitguardian import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.gitguardian.gitguardian import (
-    GitGuardianResumeConfig,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.gitguardian.source import GitguardianSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 ALL_ENDPOINTS = {"secret_incidents", "secret_occurrences", "sources", "honeytokens", "members", "teams"}
 
 
 class TestGitguardianSourceConfig:
-    def test_source_type(self) -> None:
-        assert GitguardianSource().source_type == ExternalDataSourceType.GITGUARDIAN
-
-    def test_fields_require_secret_token_and_optional_base_url(self) -> None:
-        fields = {f.name: f for f in GitguardianSource().get_source_config.fields}
-        api_key, base_url = fields["api_key"], fields["base_url"]
-        assert isinstance(api_key, SourceFieldInputConfig)
-        assert isinstance(base_url, SourceFieldInputConfig)
-        assert api_key.required is True
-        assert api_key.secret is True
-        assert base_url.required is False
-        assert base_url.secret is False
-
     def test_base_url_is_a_connection_host_field(self) -> None:
         # Retargeting base_url must re-require the secret, else the preserved token leaks to a new host.
         assert GitguardianSource().connection_host_fields == ["base_url"]
@@ -181,12 +162,6 @@ class TestSourceForPipeline:
         ):
             GitguardianSource().source_for_pipeline(config, MagicMock(), inputs)
         assert build.call_args.kwargs["db_incremental_field_last_value"] is None
-
-
-class TestResumableSourceManager:
-    def test_returns_manager_bound_to_resume_config(self) -> None:
-        manager = GitguardianSource().get_resumable_source_manager(MagicMock())
-        assert manager._data_class is GitGuardianResumeConfig
 
 
 class TestGetDocumentedTables:

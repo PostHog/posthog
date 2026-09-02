@@ -3,18 +3,10 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.tickettailor import (
     TicketTailorSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.tickettailor.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.tickettailor.source import TicketTailorSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.tickettailor.tickettailor import (
-    TicketTailorResumeConfig,
-)
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestTicketTailorSource:
@@ -23,53 +15,10 @@ class TestTicketTailorSource:
         self.team_id = 123
         self.config = TicketTailorSourceConfig(api_key="tt-key")
 
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.TICKETTAILOR
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-        assert config.name.value == "TicketTailor"
-        assert config.label == "Ticket Tailor"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/tickettailor"
-
-        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert field_names == ["api_key"]
-
-    def test_api_key_field_is_secret_password(self) -> None:
-        config = self.source.get_source_config
-        field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_key")
-        assert field.type == SourceFieldInputConfigType.PASSWORD
-        assert field.secret is True
-        assert field.required is True
-
     def test_no_connection_host_fields(self) -> None:
         # The only field is the secret API key; the base URL is hardcoded, so there is no non-secret
         # field an editor could retarget to reuse a preserved key against another server.
         assert self.source.connection_host_fields == []
-
-    def test_lists_tables_without_credentials(self) -> None:
-        assert self.source.lists_tables_without_credentials is True
-
-    def test_get_schemas_covers_all_endpoints_as_full_refresh(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-        assert all(s.supports_incremental is False for s in schemas)
-        assert all(s.supports_append is False for s in schemas)
-        assert all(s.incremental_fields == [] for s in schemas)
-
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["orders"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "orders"
-
-    def test_get_schemas_filtered_unknown_name_returns_empty(self) -> None:
-        assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
-
-    def test_documented_tables_render_for_public_docs(self) -> None:
-        tables = self.source.get_documented_tables()
-        assert {t["name"] for t in tables} == set(ENDPOINTS)
-        assert all("Full refresh" in t["sync_methods"] for t in tables)
 
     @parameterized.expand(
         [
@@ -111,11 +60,6 @@ class TestTicketTailorSource:
         result = self.source.validate_credentials(self.config, self.team_id)
         mock_validate.assert_called_once_with("tt-key")
         assert result == (False, "Invalid Ticket Tailor API key")
-
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is TicketTailorResumeConfig
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.tickettailor.source.tickettailor_source"

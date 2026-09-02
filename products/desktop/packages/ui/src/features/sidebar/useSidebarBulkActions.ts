@@ -138,7 +138,6 @@ export function useSidebarBulkActions(
     if (selectedCount === 0 || isArchiving) return;
     setIsArchiving(true);
     const store = useArchivingTasksStore.getState();
-    // Spinner the rows for the whole sequential batch, not just the current one.
     for (const id of taskIds) store.startArchiving(id);
     try {
       const { archived, failed } = await archiveTasksImperative(

@@ -24,7 +24,7 @@ export interface ObjectKindMeta {
   webPath?: (encodedId: string, rawId: string) => string | null;
 }
 
-export const OBJECT_KINDS: Record<string, ObjectKindMeta> = {
+const OBJECT_KINDS: Record<string, ObjectKindMeta> = {
   insight: {
     kindLabel: "Insight",
     source: "Product analytics",
@@ -73,6 +73,11 @@ export const OBJECT_KINDS: Record<string, ObjectKindMeta> = {
     source: "Conversations",
     webPath: (id) => `/support/tickets/${id}`,
   },
+  report: {
+    kindLabel: "Inbox report",
+    source: "Inbox",
+    webPath: (id) => `/inbox/${id}`,
+  },
   trace: {
     kindLabel: "LLM trace",
     source: "AI observability",
@@ -113,10 +118,11 @@ const OBJECT_KIND_ALIASES: Record<string, string> = {
   "session-replay": "replay",
   recording: "replay",
   "feature-flag": "flag",
+  feature_flag: "flag",
   sql: "hogql",
 };
 
-export const GENERIC_OBJECT_KIND: ObjectKindMeta = {
+const GENERIC_OBJECT_KIND: ObjectKindMeta = {
   kindLabel: "Evidence",
   source: "PostHog",
 };
@@ -156,7 +162,7 @@ const COMPLETE_TAG_RE =
 const ATTR_RE = /([a-z][\w-]*)\s*=\s*"([^"]*)"/g;
 const KNOWN_TAG_START_RE = /<([a-z][\w-]*)/g;
 
-function parseAttrs(raw: string): Record<string, string> {
+export function parseObjectTagAttrs(raw: string): Record<string, string> {
   const attrs: Record<string, string> = {};
   for (const match of raw.matchAll(ATTR_RE)) {
     attrs[match[1]] = unescapeXmlAttr(match[2]);
@@ -164,7 +170,7 @@ function parseAttrs(raw: string): Record<string, string> {
   return attrs;
 }
 
-function buildRef(
+export function buildObjectTagRef(
   kind: string,
   attrs: Record<string, string>,
   body: string | undefined,
@@ -211,7 +217,11 @@ export function parseObjectTags(text: string): ObjectTagSegment[] {
   while ((match = COMPLETE_TAG_RE.exec(text)) !== null) {
     const kind = resolveObjectKindName(match[1]);
     if (!kind) continue;
-    const ref = buildRef(kind, parseAttrs(match[2]), match[3]);
+    const ref = buildObjectTagRef(
+      kind,
+      parseObjectTagAttrs(match[2]),
+      match[3],
+    );
     if (!ref) continue;
     if (match.index > cursor) {
       segments.push({ type: "text", value: text.slice(cursor, match.index) });

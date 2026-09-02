@@ -16,7 +16,7 @@ from posthog.exceptions import (
     ClickHouseQueryMemoryLimitExceeded,
     ClickHouseQueryTimeOut,
 )
-from posthog.models import Team
+from posthog.models import Team, User
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, SamplingMode
@@ -91,6 +91,7 @@ def estimate_scanner_session_volume(
     *,
     team: Team,
     query: RecordingsQuery,
+    user: User | None = None,
     sampling_mode: SamplingMode | str = SamplingMode.COMPREHENSIVE,
     ch_user: ClickHouseUser = ClickHouseUser.APP,
     budget: EstimateBudget = BATCH_ESTIMATE_BUDGET,
@@ -101,6 +102,11 @@ def estimate_scanner_session_volume(
     recordings list agree on what "matches". The exact count runs first; when it times out, is
     rejected as too slow, or hits a memory limit, it retries with sampled events subqueries and
     corrects the count back up (`sampled=True` on the result).
+
+    `user` is the principal the experiment_exposure filter's access check runs as. With no
+    principal (a genuinely userless caller, or a scanner whose creator was deleted) the exposure
+    filter is dropped and the broader eligible set counted — an over-count is the safe direction
+    for a budget forecast.
     """
     # Sampling is only sound when every match must pass the sampled events leg; under OR, sessions
     # matched via unsampled branches (persons, cohorts, console logs) would be multiplied by the
@@ -119,6 +125,7 @@ def estimate_scanner_session_volume(
     sampled_plan = _plan_estimate_query(
         team=team,
         query=windowed,
+        user=user,
         sampling_mode=sampling_mode,
         sample_factor=sample_factor,
         scan_window_days=scan_window_days,
@@ -140,6 +147,7 @@ def estimate_scanner_session_volume(
     exact_plan = _plan_estimate_query(
         team=team,
         query=windowed,
+        user=user,
         sampling_mode=sampling_mode,
         sample_factor=None,
         scan_window_days=scan_window_days,
@@ -175,6 +183,7 @@ def _plan_estimate_query(
     *,
     team: Team,
     query: RecordingsQuery,
+    user: User | None,
     sampling_mode: SamplingMode | str,
     sample_factor: float | None,
     scan_window_days: int,
@@ -184,9 +193,17 @@ def _plan_estimate_query(
     extra_having = eligibility_predicates()
     if (surfacing := surfacing_score_predicate(sampling_mode)) is not None:
         extra_having.append(surfacing)
+    # Without a principal the experiment_exposure access check would raise, so drop the filter and
+    # count the broader eligible set: an over-count is the safe direction for a budget forecast.
+    # Callers that have a principal keep the filter and get the real, narrowed count.
+    estimate_query = query
+    if query.experiment_exposure is not None and user is None:
+        estimate_query = query.model_copy(deep=True)
+        estimate_query.experiment_exposure = None
     list_query = SessionRecordingListFromQuery(
         team=team,
-        query=query,
+        query=estimate_query,
+        user=user,
         extra_having_predicates=extra_having,
         events_sample_factor=sample_factor,
     )
@@ -278,7 +295,9 @@ def refresh_scanner_estimate(
     with tags_context(scanner_id=str(scanner.pk)):
         estimate = estimate_scanner_session_volume(
             team=scanner.team,
-            query=scanner.recordings_query(),
+            query=scanner.targeted_recordings_query(),
+            # The refresher has no request; the creator is the same principal the sweep scans as.
+            user=scanner.created_by,
             sampling_mode=scanner.sampling_mode,
             budget=budget,
             ch_user=ch_user,
@@ -286,8 +305,17 @@ def refresh_scanner_estimate(
     projection = project_monthly_observations(estimate, scanner.sampling_rate)
     estimated_at = timezone.now()
     # Filtered write so a config edit racing the (slow) estimate query can't get stamped fresh with stale numbers.
+    # JSONField quirk: `field=None` filters for JSON null, not SQL NULL, so the no-targeting case needs isnull.
     updated = ReplayScanner.objects.filter(
-        pk=scanner.pk, query=scanner.query, sampling_rate=scanner.sampling_rate, sampling_mode=scanner.sampling_mode
+        pk=scanner.pk,
+        query=scanner.query,
+        sampling_rate=scanner.sampling_rate,
+        sampling_mode=scanner.sampling_mode,
+        **(
+            {"experiment_targeting__isnull": True}
+            if scanner.experiment_targeting is None
+            else {"experiment_targeting": scanner.experiment_targeting}
+        ),
     ).update(estimated_monthly_observations=projection, estimated_at=estimated_at)
     if updated:
         scanner.estimated_monthly_observations = projection

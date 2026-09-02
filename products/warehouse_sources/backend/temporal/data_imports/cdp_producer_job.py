@@ -1,6 +1,7 @@
 import json
 from datetime import timedelta
 
+from prometheus_client import Counter
 from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
@@ -13,15 +14,35 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp
 
 LOGGER = get_logger(__name__)
 
+CDP_PRODUCER_RUNS_TOTAL = Counter(
+    "warehouse_cdp_producer_runs_total",
+    "CDP producer activity attempts by outcome",
+    labelnames=["team_id", "outcome"],
+)
+
 
 @activity.defn
 async def produce_to_cdp_kafka_activity(inputs: CDPProducerWorkflowInputs) -> None:
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind()
 
-    await CDPProducer(
-        team_id=inputs.team_id, schema_id=inputs.schema_id, job_id=inputs.job_id, logger=logger
-    ).produce_to_kafka_from_s3()
+    if inputs.saved_query_id is not None:
+        producer = CDPProducer.for_view(
+            team_id=inputs.team_id, saved_query_id=inputs.saved_query_id, job_id=inputs.job_id, logger=logger
+        )
+    elif inputs.schema_id is not None:
+        producer = CDPProducer.for_source(
+            team_id=inputs.team_id, schema_id=inputs.schema_id, job_id=inputs.job_id, logger=logger
+        )
+    else:
+        raise ValueError("CDP producer needs either a schema_id or a saved_query_id")
+
+    try:
+        await producer.produce_to_kafka_from_s3()
+    except Exception:
+        CDP_PRODUCER_RUNS_TOTAL.labels(team_id=str(inputs.team_id), outcome="failed").inc()
+        raise
+    CDP_PRODUCER_RUNS_TOTAL.labels(team_id=str(inputs.team_id), outcome="completed").inc()
 
 
 @workflow.defn(name="dwh-cdp-producer-job")

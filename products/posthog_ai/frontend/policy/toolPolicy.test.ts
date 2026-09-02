@@ -66,6 +66,7 @@ describe('toolPolicy', () => {
             // Destructive-annotated names with no verb segment come from the exact-name set.
             'workflows-publish',
             'experiment-ship-variant',
+            'feature-requests-remove-evidence-create',
             'skill-archive',
             'error-tracking-issues-merge-create',
         ])('%s is destructive', (sub) => expect(isPostHogDestructiveSubTool(sub)).toBe(true))

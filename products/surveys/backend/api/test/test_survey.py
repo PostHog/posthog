@@ -21,16 +21,20 @@ from nanoid import generate
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.hogql.constants import DEFAULT_RETURNED_ROWS
+
 from posthog.api.test.test_personal_api_keys import PersonalAPIKeysBaseTest
 from posthog.constants import AvailableFeature
 from posthog.models import Team
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.user import User
 from posthog.test.persons import create_person
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.api.survey import (
     get_survey_api_translations,
@@ -38,8 +42,6 @@ from products.surveys.backend.api.survey import (
     nh3_clean_with_allow_list,
 )
 from products.surveys.backend.models import MAX_ITERATION_COUNT, Survey, SurveyResponseArchive
-
-from ee.models.rbac.access_control import AccessControl
 
 
 class TestSurvey(APIBaseTest):
@@ -487,6 +489,50 @@ class TestSurvey(APIBaseTest):
         payload_ids = {str(item["id"]) for item in get_surveys_response(self.team)["surveys"]}
 
         assert (str(survey.id) in payload_ids) is expected_in_payload
+
+    def test_sdk_payload_orders_surveys_by_launch_date(self) -> None:
+        # SDKs break display ties by payload order, so it must be deterministic:
+        # oldest launch first, then created_at, then id.
+        def create_survey(name: str, start_date: datetime, created_at: datetime) -> Survey:
+            survey = Survey.objects.create(
+                team=self.team,
+                name=name,
+                type="popover",
+                start_date=start_date,
+                questions=[{"type": "open", "id": "q1", "question": "How are you?"}],
+            )
+            Survey.objects.filter(id=survey.id).update(created_at=created_at)
+            return survey
+
+        launched_last = create_survey(
+            "Launched last", datetime(2026, 1, 3, tzinfo=UTC), datetime(2026, 1, 1, tzinfo=UTC)
+        )
+        launched_first = create_survey(
+            "Launched first", datetime(2026, 1, 1, tzinfo=UTC), datetime(2026, 1, 2, tzinfo=UTC)
+        )
+        tie_created_second = create_survey(
+            "Tie created second", datetime(2026, 1, 2, tzinfo=UTC), datetime(2026, 1, 2, tzinfo=UTC)
+        )
+        tie_created_first = create_survey(
+            "Tie created first", datetime(2026, 1, 2, tzinfo=UTC), datetime(2026, 1, 1, tzinfo=UTC)
+        )
+        full_tie_a = create_survey("Full tie a", datetime(2026, 1, 2, tzinfo=UTC), datetime(2026, 1, 3, tzinfo=UTC))
+        full_tie_b = create_survey("Full tie b", datetime(2026, 1, 2, tzinfo=UTC), datetime(2026, 1, 3, tzinfo=UTC))
+        id_tie_first, id_tie_second = sorted([full_tie_a, full_tie_b], key=lambda survey: str(survey.id))
+
+        payload_ids = [str(item["id"]) for item in get_surveys_response(self.team)["surveys"]]
+
+        assert payload_ids == [
+            str(survey.id)
+            for survey in [
+                launched_first,
+                tie_created_first,
+                tie_created_second,
+                id_tie_first,
+                id_tie_second,
+                launched_last,
+            ]
+        ]
 
     def test_sdk_payload_strips_non_runtime_question_fields(self) -> None:
         self.team.survey_config = {"appearance": {"backgroundColor": "black"}}
@@ -1523,6 +1569,24 @@ class TestSurvey(APIBaseTest):
             "detail": "Cohort 'cohort2' has an event-based condition on '$pageview' (performed_event_first_time) and cannot be used in surveys.",
             "attr": None,
         }
+
+    @parameterized.expand(
+        [
+            ("targeting_flag_filters", '{"groups": []}'),
+            ("form_content", '{"type": "doc"}'),
+        ]
+    )
+    def test_structured_param_as_json_string_returns_400_not_500(self, field, value):
+        # Some MCP clients send a structured param as a JSON-encoded string when its
+        # generated schema is empty. The server must name the bad field, not raise a 500.
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={"name": "survey with bad param", "type": "popover", field: value},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == field
 
     def test_updating_survey_with_targeting_creates_or_updates_targeting_flag(self):
         survey_with_targeting = self.client.post(
@@ -5348,6 +5412,24 @@ class TestResponsesCount(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(data, expected_counts)
 
     @freeze_time("2024-05-01 14:40:09")
+    def test_responses_count_returns_more_surveys_than_the_hogql_default_limit(self):
+        Survey.objects.create(team_id=self.team.id, start_date=datetime.now() - timedelta(days=1))
+        survey_ids = [str(uuid.uuid4()) for _ in range(DEFAULT_RETURNED_ROWS + 1)]
+        for survey_id in survey_ids:
+            _create_event(
+                event="survey sent",
+                team=self.team,
+                distinct_id=self.user.id,
+                properties={"$survey_id": survey_id},
+                timestamp=datetime.now(),
+            )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/responses_count")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), dict.fromkeys(survey_ids, 1))
+
+    @freeze_time("2024-05-01 14:40:09")
     def test_responses_count_excludes_archived_responses(self):
         survey_id = str(uuid.uuid4())
         response_uuid = str(uuid.uuid4())
@@ -7208,6 +7290,64 @@ class TestSurveyListTypeFilter(APIBaseTest):
         data = response.json()
         self.assertEqual(len(data["results"]), 1)
         self.assertEqual(data["results"][0]["name"], "widget survey")
+
+    def test_filter_by_creator_before_paginating(self):
+        own_survey = Survey.objects.create(
+            team=self.team,
+            name="my survey",
+            type="popover",
+            questions=[],
+            created_by=self.user,
+        )
+        other_user = User.objects.create_and_join(self.organization, "other@example.com", None)
+        Survey.objects.create(
+            team=self.team,
+            name="someone else's survey",
+            type="popover",
+            questions=[],
+            created_by=other_user,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/?created_by={self.user.id}&limit=1")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["count"], 1)
+        self.assertIsNone(data["next"])
+        self.assertEqual([survey["id"] for survey in data["results"]], [str(own_survey.id)])
+
+    @parameterized.expand(
+        [
+            ("draft", "draft survey"),
+            ("running", "running survey"),
+            ("complete", "complete survey"),
+        ]
+    )
+    def test_filter_by_status(self, survey_status: str, expected_name: str):
+        now = datetime.now(UTC)
+        Survey.objects.create(team=self.team, name="draft survey", type="popover", questions=[])
+        Survey.objects.create(
+            team=self.team,
+            name="running survey",
+            type="popover",
+            questions=[],
+            start_date=now,
+        )
+        Survey.objects.create(
+            team=self.team,
+            name="complete survey",
+            type="popover",
+            questions=[],
+            start_date=now - timedelta(days=1),
+            end_date=now,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/?status={survey_status}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["count"], 1)
+        self.assertEqual(data["results"][0]["name"], expected_name)
 
     def test_filter_by_ids(self):
         first = Survey.objects.create(team=self.team, name="first", type="popover", questions=[])

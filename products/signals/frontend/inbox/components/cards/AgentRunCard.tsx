@@ -55,7 +55,7 @@ export function AgentRunCard({ report }: { report: SignalReport }): JSX.Element 
 
     return (
         <Link
-            to={urls.inboxReport('runs', report.id)}
+            to={urls.inboxReport('reports', report.id)}
             className="group flex w-full items-start gap-3 rounded border border-primary bg-surface-primary px-4 py-3.5 text-left text-inherit no-underline transition-colors duration-150 hover:border-primary hover:bg-surface-secondary"
         >
             <RunStatusIndicator variant={variant} className="mt-0.5" />

@@ -15,6 +15,8 @@ export function GitHubRepoSummary({
     installationId,
     accountType,
     accountName,
+    repositorySelection,
+    total,
     onBeforeManage,
 }: {
     repoNames: string[]
@@ -22,6 +24,10 @@ export function GitHubRepoSummary({
     installationId?: string | null
     accountType?: string
     accountName?: string
+    /** GitHub's own scope for the installation: "all" repositories or "selected" ones. */
+    repositorySelection?: string | null
+    /** Total repositories the installation can see, when known without listing them all. */
+    total?: number | null
     /** Called before opening the GitHub installation settings page. Use this to seed
      * server-side state (via the `github_prepare_callback` endpoints) so the eventual
      * Setup URL callback can be dispatched to the right team/personal handler. */
@@ -45,6 +51,19 @@ export function GitHubRepoSummary({
         />
     ) : null
 
+    if (repositorySelection === 'all') {
+        return (
+            <div className="flex items-center gap-2 min-h-5">
+                <div className="text-xs text-muted">
+                    <IconBranch className="inline mr-1 text-sm" />
+                    All repositories in {accountName || 'this account'}
+                    {total != null ? ` (${total})` : ''}
+                </div>
+                {manageButton}
+            </div>
+        )
+    }
+
     if (loading && repoNames.length === 0) {
         return (
             <div className="flex items-center gap-1 text-xs text-muted min-h-5">
@@ -55,11 +74,16 @@ export function GitHubRepoSummary({
     }
 
     if (repoNames.length > 0) {
+        const noun = repoNames.length === 1 ? 'repository' : 'repositories'
+        const countLabel =
+            repositorySelection === 'selected'
+                ? `${repoNames.length} selected ${noun}`
+                : `${repoNames.length} ${noun} accessible`
         return (
             <div className="flex items-center gap-2 min-h-5">
                 <div className="text-xs text-muted">
                     <IconBranch className="inline mr-1 text-sm" />
-                    {repoNames.length} repositor{repoNames.length === 1 ? 'y' : 'ies'} accessible:{' '}
+                    {countLabel}:{' '}
                     {repoNames.length <= 3
                         ? repoNames.join(', ')
                         : `${repoNames.slice(0, 3).join(', ')} and ${repoNames.length - 3} more`}

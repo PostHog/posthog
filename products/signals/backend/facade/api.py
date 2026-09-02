@@ -1,8 +1,8 @@
 import uuid
 import dataclasses
 from collections.abc import Callable, Sequence
-from datetime import timedelta
-from typing import TYPE_CHECKING
+from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
 from django.db import transaction
@@ -13,14 +13,29 @@ import temporalio
 import posthoganalytics
 from temporalio.common import WorkflowIDReusePolicy
 
+from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.helpers.tiktoken_encoding import LLM_TOKEN_COUNT_PROXY_MODEL, get_tiktoken_encoding_for_model
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
 
-from products.signals.backend.contracts import SIGNAL_VARIANT_LOOKUP, SignalRemediation
-from products.signals.backend.models import SignalReport, SignalSourceConfig
+from products.signals.backend.contracts import DIRECT_STEERABLE_SOURCES, SIGNAL_VARIANT_LOOKUP, SignalRemediation
+from products.signals.backend.enums import SIGNAL_SOURCE_PRODUCT_LABELS, SignalSourceProduct
+from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalScoutRun, SignalSourceConfig
+from products.signals.backend.scout_harness.run_gates import (
+    # Re-exported so the workflows endpoint can branch on why a fire was refused without reaching
+    # into the scout harness. Every decision behind them stays Signals-side.
+    ScoutRunRejectionKind as ScoutRunRejectionKind,
+)
+from products.signals.backend.scout_harness.workflow_runs import (
+    WorkflowScoutRunRejected as WorkflowScoutRunRejected,
+    WorkflowScoutRunStarted as WorkflowScoutRunStarted,
+    # Facade entrypoint for a workflow's "Run scout" step: the workflows endpoint proves which
+    # workflow is firing, and everything after that (enrolment, budget, quota, the paused-scout
+    # rule, the workflow cooldown, single-flight, dispatch) happens here.
+    start_workflow_scout_run as start_workflow_scout_run,
+)
 from products.signals.backend.signal_metadata import fetch_signal_stats_for_source_slice
 
 # Re-exported for external products (tasks presentation catches it around facade create_task).
@@ -255,6 +270,65 @@ _SOURCE_CATALOG: tuple[_SourceSpec, ...] = (
 _SOURCE_BY_KEY: dict[str, _SourceSpec] = {spec.key: spec for spec in _SOURCE_CATALOG}
 
 
+# The two statuses a reader still has something to do about, and the only two that stamp
+# `first_visible_at`. An allowlist rather than a denylist, so a status added later is not silently
+# offered to a first-time user.
+_OFFERABLE_STATUSES = (SignalReport.Status.READY, SignalReport.Status.PENDING_INPUT)
+
+
+@frozen
+class InboxReportSummary:
+    """One report, named well enough for an agent to offer it by id."""
+
+    report_id: str
+    title: str
+
+
+@frozen
+class WaitingReports:
+    """What a team has waiting in its inbox: how many, and the newest few that can be named.
+
+    `offerable` is shorter than `count` whenever more are waiting than the caller asked for, or one
+    has no title yet. That is expected, not a mismatch — see `waiting_reports`.
+    """
+
+    count: int
+    offerable: tuple[InboxReportSummary, ...]
+
+
+_REPORT_TITLE_LIMIT = 120
+
+
+def waiting_reports(team_id: int, limit: int = 3) -> WaitingReports:
+    """What is waiting in the team's inbox, newest named first.
+
+    One eligibility rule for both halves, because they drifted apart when there were two:
+    `first_visible_at` is stamped once on the first transition into ready or pending_input and never
+    cleared, so the status filter is the only thing keeping a resolved, archived or re-running report
+    from reading as one that is waiting.
+
+    The two halves then differ on titles, deliberately. `count` is what the inbox will show them, and
+    the inbox renders a titleless report from its summary, so it counts. `offerable` has to name a
+    report in a sentence, so a titleless one is skipped rather than offered as a blank row.
+    """
+    waiting = SignalReport.objects.filter(
+        team_id=team_id, first_visible_at__isnull=False, status__in=_OFFERABLE_STATUSES
+    )
+    newest_named = (
+        waiting.exclude(title__isnull=True)
+        .exclude(title="")
+        .order_by("-first_visible_at")
+        .values_list("id", "title")[:limit]
+    )
+    return WaitingReports(
+        count=waiting.count(),
+        offerable=tuple(
+            InboxReportSummary(report_id=str(report_id), title=" ".join((title or "").split())[:_REPORT_TITLE_LIMIT])
+            for report_id, title in newest_named
+        ),
+    )
+
+
 def has_enabled_source(team_id: int) -> bool:
     """True once the team has at least one enabled signal source — i.e. there's something to respond to.
 
@@ -335,6 +409,72 @@ def set_sources(team_id: int, user_id: int | None, selected_keys: list[str]) -> 
                 ).update(enabled=False)
 
 
+# Each source carries two names: the label, which is the product it comes from, and the watch, which
+# is the problem it catches. Onboarding copy needs the second one, because "error tracking" tells a
+# first-time reader nothing about what turning it on did for them.
+_ONBOARDING_NATIVE_SOURCES: tuple[tuple[str, tuple[str, ...], str, str], ...] = (
+    (
+        SignalSourceProduct.ERROR_TRACKING,
+        ("issue_created", "issue_reopened", "issue_spiking"),
+        "error tracking",
+        "errors",
+    ),
+    (SignalSourceProduct.HEALTH_CHECKS, ("health_issue",), "health checks", "failing health checks"),
+    (SignalSourceProduct.CONVERSATIONS, ("ticket",), "support tickets", "support tickets"),
+    (SignalSourceProduct.LLM_ANALYTICS, ("evaluation_report",), "AI observability", "AI evals"),
+    (SignalSourceProduct.ANALYTICS, ("anomaly_investigation",), "product analytics", "metric swings"),
+)
+
+
+_ONBOARDING_LABELS: dict[str, str] = {product: label for product, _, label, _watch in _ONBOARDING_NATIVE_SOURCES}
+
+
+@dataclasses.dataclass(frozen=True)
+class OnboardingSources:
+    labels: tuple[str, ...]
+    watches: tuple[str, ...]
+    newly_enabled: bool
+
+
+def _active_source_labels(team_id: int) -> tuple[str, ...]:
+    products = (
+        SignalSourceConfig.objects.filter(team_id=team_id, enabled=True)
+        .values_list("source_product", flat=True)
+        .distinct()
+    )
+    labels = {
+        _ONBOARDING_LABELS.get(product) or SIGNAL_SOURCE_PRODUCT_LABELS.get(SignalSourceProduct(product), product)
+        for product in products
+    }
+    return tuple(sorted(labels))
+
+
+def enable_onboarding_signal_sources(team_id: int, user_id: int) -> OnboardingSources:
+    known = set(SignalSourceConfig.objects.filter(team_id=team_id).values_list("source_product", "source_type"))
+    created: list[str] = []
+    watches: list[str] = []
+    for source_product, source_types, label, watch in _ONBOARDING_NATIVE_SOURCES:
+        missing = tuple(t for t in source_types if (source_product, t) not in known)
+        if not missing:
+            continue
+        try:
+            set_signal_source_types_enabled(
+                team_id=team_id,
+                source_product=source_product,
+                source_types=missing,
+                enabled=True,
+                created_by_id=user_id,
+            )
+        except Exception:
+            logger.exception("onboarding_signal_source_enable_failed", team_id=team_id, source_product=source_product)
+            continue
+        created.append(label)
+        watches.append(watch)
+    if created:
+        return OnboardingSources(labels=tuple(created), watches=tuple(watches), newly_enabled=True)
+    return OnboardingSources(labels=_active_source_labels(team_id), watches=(), newly_enabled=False)
+
+
 # The signal channel's generic `extra` passthrough only forwards top-level *scalar* values,
 # each truncated — never nested lists/dicts. Source `extra` payloads nest *uncurated*
 # customer-derived content (pganalyze `references[].queryText` raw SQL, session-replay
@@ -383,6 +523,11 @@ async def emit_signal(
 
     Active path:
         emit_signal() -> SignalEmitterWorkflow -> BufferSignalsWorkflow -> TeamSignalGroupingV2Workflow
+
+    A source in `DIRECT_STEERABLE_SOURCES` is checked against the team's steering first and dropped
+    when the team's rules say to skip it (see `emission/direct_gate.py`). A team that wrote no
+    steering is unaffected. Sources that reach here through the batch pipeline already ran their own
+    steered gate, so they stay out of that set and are never judged twice.
 
     Args:
         team: The team object
@@ -462,8 +607,9 @@ async def emit_signal(
     )
 
     # Fire a "started" marker so direct callers (error tracking, AI observability evals, etc.)
-    # that don't go through the data-source pipeline still have a top-of-funnel event. The
-    # gap to `signal_emitted` surfaces Temporal/dispatch failures.
+    # that don't go through the data-source pipeline still have a top-of-funnel event. The gap to
+    # `signal_emitted` surfaces Temporal/dispatch failures, once the steering gate below is
+    # subtracted: started - signal_data_source_filtered - emitted = failures.
     try:
         posthoganalytics.capture(
             event="signal_emission_started",
@@ -484,6 +630,25 @@ async def emit_signal(
             source_type=source_type,
             source_id=source_id,
         )
+
+    # Below the started event on purpose: a filtered signal then has a top-of-funnel event to be
+    # counted against, so a steering drop reads apart from a dispatch failure rather than as one.
+    if (source_product, source_type) in DIRECT_STEERABLE_SOURCES:
+        # Deferred: the emission package imports this facade back, and its __init__ registers every
+        # emitter, which must stay off the import path of Celery workers and management commands.
+        from products.signals.backend.emission.direct_gate import steering_filters_signal  # noqa: PLC0415
+
+        if await steering_filters_signal(
+            team=team,
+            organization=organization,
+            source_product=source_product,
+            source_type=source_type,
+            source_id=source_id,
+            description=description,
+            weight=weight,
+            extra=extra or {},
+        ):
+            return
 
     client = await async_connect()
 
@@ -643,3 +808,279 @@ def get_outcomes_for_signal_source_slice(
         pr_count=len(pr_urls),
         merged_pr_count=len(merged_pr_urls),
     )
+
+
+@frozen
+class ScoutCreated:
+    """What a scout creation produced. `created` is False when a scout of that name already existed
+    and the supplied config was applied to it instead."""
+
+    skill: Any
+    config: Any
+    created: bool
+
+
+def create_scout_for_source(
+    *,
+    team: "Team",
+    user: Any,
+    name: str,
+    description: str,
+    body: str,
+    files: list[Any],
+    config_options: dict[str, Any],
+    request: Any,
+    serializer_context: dict[str, Any],
+    source_product: str,
+    source_id: str,
+) -> "ScoutCreated":
+    """Create a scout owned by one of another product's objects, recording `(source_product,
+    source_id)` on its config.
+
+    The caller must already have checked that the requesting user may act on the object it names —
+    the pair is not settable through the public scout API precisely because Signals cannot make that
+    check for an object it knows nothing about. Imported here rather than defined here because the
+    creation flow lives with the private helpers it shares with the scout create endpoint.
+    """
+    # Imported inside the call to keep the view module (and the whole API surface it imports) off the
+    # facade's import path, which Celery workers and management commands also load.
+    from products.signals.backend.scout_harness.views import (  # noqa: PLC0415 — keeps the API surface off the import path
+        create_scout_for_source as _create,
+    )
+
+    outcome = _create(
+        team=team,
+        user=user,
+        name=name,
+        description=description,
+        body=body,
+        files=files,
+        config_options=config_options,
+        request=request,
+        serializer_context=serializer_context,
+        source_product=source_product,
+        source_id=source_id,
+    )
+    return ScoutCreated(skill=outcome.skill, config=outcome.config, created=outcome.created)
+
+
+@frozen
+class ScoutReport:
+    """A report a scout filed, with the run that filed it. `filed_at` is that run's start, which is
+    what a reader means by when the report landed; the report row's own timestamps move on later edits."""
+
+    report_id: str
+    skill_name: str
+    filed_at: datetime
+    title: str
+    summary: str
+    # Charts the scout attached, in the stored `{chart_id, title, query, caption?, size?}` shape. The
+    # summary places one inline with a `[label](chart:<chart_id>)` link.
+    charts: list[dict[str, Any]]
+
+
+def scout_reports_for_source(
+    team_id: int,
+    source_product: str,
+    source_id: str,
+    *,
+    report_id: str | None = None,
+    limit: int = 50,
+) -> list[ScoutReport]:
+    """Reports filed by the scouts another product stood up for one of its objects, newest first.
+
+    `(source_product, source_id)` is recorded on the config at creation and is not user-editable, so
+    this doubles as the ownership check: a report filed by a scout belonging to something else is not
+    returned, which lets a caller answer "is this report mine to show?" without reading scout tables.
+    """
+    skill_names = list(
+        SignalScoutConfig.objects.for_team(team_id)
+        .filter(source_product=source_product, source_id=source_id)
+        .values_list("skill_name", flat=True)
+    )
+    if not skill_names:
+        return []
+
+    # Authorship only, never `edited_report_ids`: `edit_report` resolves its target by team alone, so
+    # a scout can edit a report it did not write. Treating an edit as ownership would expose any
+    # report one of these scouts happened to touch to a caller who only has access to this source.
+    runs = (
+        SignalScoutRun.objects.for_team(team_id)
+        .filter(skill_name__in=skill_names)
+        # A run that filed nothing cannot contribute a report, and a scout that runs often but files
+        # rarely would otherwise stream its whole history through here to return a short list. With
+        # empty runs excluded, `limit` rows is always enough, so Postgres stops rather than Python.
+        .exclude(emitted_report_ids=[])
+        .exclude(emitted_report_ids__isnull=True)
+        .order_by("-created_at")
+    )
+    if report_id is not None:
+        # Index-backed by `signal_scout_run_emitted_idx`, so a single report read does not walk the
+        # team's run history.
+        # `@>` served by `signal_scout_run_emitted_idx`. Exactly one run emits a given report, so
+        # one row is all there is to find.
+        runs = runs.filter(emitted_report_ids__contains=[report_id])[:1]
+
+    filed: dict[str, tuple[str, datetime]] = {}
+    if report_id is None:
+        runs = runs[:limit]
+    for skill_name, created_at, emitted_ids in runs.values_list(
+        "skill_name", "created_at", "emitted_report_ids"
+    ).iterator():
+        for candidate in emitted_ids or []:
+            # A report is emitted by exactly one run, so this run is the one that filed it.
+            if candidate not in filed:
+                filed[candidate] = (skill_name, created_at)
+        if report_id is not None:
+            if report_id in filed:
+                break
+        elif len(filed) >= limit:
+            break
+
+    wanted = [report_id] if report_id is not None else list(filed)[:limit]
+    # A deleted or suppressed report is one the platform decided not to show; surfacing it here
+    # would route around that decision.
+    rows = SignalReport.objects.filter(team_id=team_id, id__in=[w for w in wanted if w in filed]).exclude(
+        status__in=[SignalReport.Status.DELETED, SignalReport.Status.SUPPRESSED]
+    )
+    by_id = {str(row.id): row for row in rows}
+    reports: list[ScoutReport] = []
+    for candidate in wanted:
+        row = by_id.get(candidate)
+        if row is None:
+            continue
+        skill_name, created_at = filed[candidate]
+        reports.append(
+            ScoutReport(
+                report_id=candidate,
+                skill_name=skill_name,
+                filed_at=created_at,
+                title=row.title or "",
+                summary=row.summary or "",
+                charts=row.charts or [],
+            )
+        )
+    return reports
+
+
+@frozen
+class ScoutSummary:
+    """One scout standing on another product's object, in the shape that product needs to render
+    or manage it without reaching into scout tables."""
+
+    config_id: str
+    skill_name: str
+    source_id: str | None
+    enabled: bool
+    run_cron_schedule: str | None
+    run_interval_minutes: int
+    output_destinations: dict[str, Any]
+    description: str
+    created_at: datetime
+    created_by_id: int | None
+    last_run_at: datetime | None
+
+
+def list_scouts_for_source(
+    team_id: int, source_product: str, source_ids: list[str] | None = None
+) -> list[ScoutSummary]:
+    """The scouts a product stood up on its own objects, oldest first.
+
+    `(source_product, source_id)` was recorded at creation and is not user-editable, so the rows
+    returned are exactly the ones the calling product owns. Descriptions come from the live skill;
+    a scout whose skill was archived comes back with an empty description, matching the scout UI.
+    """
+    # Imported inside the call for the same reason as `create_scout_for_source`: keeps the skills
+    # API surface off the facade's import path.
+    from products.skills.backend.models.skills import (
+        LLMSkill,  # noqa: PLC0415 — keeps the API surface off the import path
+    )
+
+    configs_qs = SignalScoutConfig.objects.for_team(team_id).filter(source_product=source_product)
+    if source_ids is not None:
+        configs_qs = configs_qs.filter(source_id__in=source_ids)
+    configs = list(configs_qs.order_by("created_at"))
+    descriptions = dict(
+        LLMSkill.objects.filter(
+            team_id=team_id,
+            name__in=[config.skill_name for config in configs],
+            is_latest=True,
+            deleted=False,
+        ).values_list("name", "description")
+    )
+    return [
+        ScoutSummary(
+            config_id=str(config.id),
+            skill_name=config.skill_name,
+            source_id=config.source_id,
+            enabled=config.enabled,
+            run_cron_schedule=config.run_cron_schedule,
+            run_interval_minutes=config.run_interval_minutes,
+            output_destinations=config.output_destinations or {},
+            description=descriptions.get(config.skill_name, ""),
+            created_at=config.created_at,
+            created_by_id=config.created_by_id,
+            last_run_at=config.last_run_at,
+        )
+        for config in configs
+    ]
+
+
+def update_scout_for_source(
+    team_id: int,
+    source_product: str,
+    config_id: str,
+    *,
+    enabled: bool | None = None,
+    run_cron_schedule: str | None = None,
+    output_destinations: dict[str, Any] | None = None,
+) -> bool:
+    """Apply the schedule/enablement/delivery updates a source product may make to its own scout.
+
+    Returns False when no scout with that config id belongs to the source. The skill body is
+    deliberately not updatable here — prompt edits go through the scout surface, where the
+    skill-authoring bar applies.
+    """
+    config = SignalScoutConfig.objects.for_team(team_id).filter(id=config_id, source_product=source_product).first()
+    if config is None:
+        return False
+    update_fields: list[str] = ["updated_at"]
+    if enabled is not None and enabled != config.enabled:
+        config.enabled = enabled
+        update_fields.append("enabled")
+    if run_cron_schedule is not None and run_cron_schedule != config.run_cron_schedule:
+        config.run_cron_schedule = run_cron_schedule
+        config.schedule_changed_at = datetime.now(UTC)
+        update_fields += ["run_cron_schedule", "schedule_changed_at"]
+    if output_destinations is not None and output_destinations != config.output_destinations:
+        config.output_destinations = output_destinations
+        update_fields.append("output_destinations")
+    if len(update_fields) > 1:
+        config.save(update_fields=update_fields)
+    return True
+
+
+def delete_scout_for_source(*, team: "Team", source_product: str, config_id: str) -> bool:
+    """Retire a source-owned scout for good: archive its skill and remove its config.
+
+    Deleting only the config is not enough — the coordinator recreates a default config while the
+    skill exists — so the skill is archived in the same transaction. Returns False when no scout
+    with that config id belongs to the source.
+    """
+    from django.db import transaction  # noqa: PLC0415 — keeps the API surface off the import path
+
+    from products.skills.backend.api.skill_services import (  # noqa: PLC0415 — keeps the API surface off the import path
+        LLMSkillNotFoundError,
+        archive_skill,
+    )
+
+    config = SignalScoutConfig.objects.for_team(team.id).filter(id=config_id, source_product=source_product).first()
+    if config is None:
+        return False
+    with transaction.atomic():
+        try:
+            archive_skill(team, config.skill_name)
+        except LLMSkillNotFoundError:
+            pass  # Already archived; the config is the orphan being cleaned up.
+        config.delete()
+    return True

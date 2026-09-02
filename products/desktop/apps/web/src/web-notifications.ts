@@ -3,11 +3,13 @@ import type {
   NotificationOptions,
   NotificationTarget,
 } from "@posthog/platform/notifications";
+import { useThreadPanelStore } from "@posthog/ui/features/canvas/stores/threadPanelStore";
 import type {
   IActiveView,
   INotificationSettings,
   NotificationSettings,
 } from "@posthog/ui/features/notifications/identifiers";
+import { resolveActiveNotificationTarget } from "@posthog/ui/features/notifications/routeNotification";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import {
   getCurrentMatches,
@@ -84,24 +86,18 @@ export const webActiveView: IActiveView = {
   getActiveTarget: (): NotificationTarget | undefined => {
     const matches = getCurrentMatches();
     const last = matches[matches.length - 1];
-    if (!last) return undefined;
-    const params = last.params as Record<string, string | undefined>;
-    switch (last.routeId) {
-      case "/code/tasks/$taskId":
-      case "/website/$channelId/tasks/$taskId":
-        return params.taskId
-          ? { kind: "task", taskId: params.taskId }
-          : undefined;
-      case "/website/$channelId/dashboards/$dashboardId":
-        return params.channelId && params.dashboardId
-          ? {
-              kind: "canvas",
-              channelId: params.channelId,
-              dashboardId: params.dashboardId,
-            }
-          : undefined;
-      default:
-        return undefined;
-    }
+    const params = last?.params as
+      | Record<string, string | undefined>
+      | undefined;
+    const threadPanel = useThreadPanelStore.getState();
+    const openThreadTaskId = params?.channelId
+      ? threadPanel.openByChannel[params.channelId]
+      : undefined;
+
+    return resolveActiveNotificationTarget(
+      last ? { fullPath: last.fullPath, params: params ?? {} } : undefined,
+      openThreadTaskId,
+      threadPanel.collapsed,
+    );
   },
 };

@@ -112,7 +112,7 @@ def summarize_intents(intents: list[str], team: Team) -> str:
 
     client = OpenAI(posthog_client=posthoganalytics.default_client, base_url=settings.OPENAI_BASE_URL)
     try:
-        response = client.chat.completions.create(  # type: ignore
+        response = client.chat.completions.create(
             model=SESSION_INTENT_MODEL,
             temperature=0,
             max_tokens=90,

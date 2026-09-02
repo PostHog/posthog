@@ -402,6 +402,15 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         return None
 
     @property
+    def last_full_run_at(self) -> str | None:
+        """ISO timestamp of the last run that actually extracted, so a schema completing on a
+        negative probe still gets one full run per interval (see `_fast_return_eligible`)."""
+        if self.sync_type_config:
+            return self.sync_type_config.get("last_full_run_at", None)
+
+        return None
+
+    @property
     def incremental_field_lookback_seconds(self) -> int | None:
         if self.sync_type_config:
             return self.sync_type_config.get("incremental_field_lookback_seconds", None)
@@ -1266,6 +1275,64 @@ def save_repartition_checkpoint_if_claimed(
 
     update_sync_type_config_keys(schema_id=schema.id, team_id=schema.team_id, mutate=_write)
     return claimed
+
+
+def finalize_repartition_scheme(
+    schema: ExternalDataSchema,
+    *,
+    partitioning_keys: list[str],
+    partition_count: int | None,
+    partition_size: int | None,
+    partition_mode: PartitionMode | None,
+    partition_format: PartitionFormat | None,
+    claim_token: str | None = None,
+) -> bool:
+    """Adopt the scheme a completed repartition swap put on disk, and retire its markers, in one write.
+
+    The swap has already re-bucketed the data in S3, so until these settings land the schema row
+    describes a layout the table no longer has. An incremental merge in that window scopes its
+    predicate to a `_ph_partition_key` value the table cannot contain, matches nothing, and inserts
+    every fetched row instead of upserting it. `set_partitioning_enabled` plus the three marker
+    writes leave four separate chances to stop halfway; doing it under one row lock means a reader
+    sees either the whole new scheme or the untouched `repartition_swap` marker that says the swap is
+    still unresolved.
+
+    Returns whether the write happened. False means `claim_token` no longer owns the schema, so a
+    newer attempt owns this swap and will finalize it.
+    """
+    wrote = False
+
+    def _write(config: dict[str, Any]) -> None:
+        nonlocal wrote
+        if claim_token is not None:
+            claim = config.get("repartition_claim")
+            if not (claim and claim.get("token") == claim_token):
+                return
+        config["partitioning_enabled"] = True
+        config["partition_count"] = partition_count
+        config["partition_size"] = partition_size
+        config["partitioning_keys"] = partitioning_keys
+        config["partition_mode"] = partition_mode
+        config["partition_format"] = partition_format
+        # Engage the cooldown here rather than in a follow-up write, or a stop between the two
+        # re-flags the table on the next sync and repartitions it again straight away.
+        config["last_repartition_at"] = timezone.now().isoformat()
+        for key in (
+            # Operator pins are one-shot: they are baked into the settings above, so a later reset
+            # falls back to auto-detection (see `set_partitioning_enabled`).
+            "partition_count_override",
+            "partition_size_override",
+            "partition_mode_override",
+            "partitioning_keys_override",
+            "repartition_swap",
+            "repartition_pending",
+            "repartition_rewrite",
+        ):
+            config.pop(key, None)
+        wrote = True
+
+    schema.sync_type_config = update_sync_type_config_keys(schema_id=schema.id, team_id=schema.team_id, mutate=_write)
+    return wrote
 
 
 def complete_schema_run(schema: ExternalDataSchema, *, last_synced_at: datetime) -> bool:

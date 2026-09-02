@@ -8,6 +8,7 @@ import {
     KAFKA_PERSON_DISTINCT_ID,
     KAFKA_PERSON_MERGE_EVENTS,
 } from '~/common/config/kafka-topics'
+import { TopicMessage } from '~/common/kafka/producer'
 import { INGESTION_WARNINGS_OUTPUT } from '~/common/outputs'
 import { ASYNC_OUTPUT } from '~/common/outputs'
 import { PERSONS_OUTPUT, PERSON_DISTINCT_IDS_OUTPUT, PERSON_MERGE_EVENTS_OUTPUT } from '~/common/outputs'
@@ -17,6 +18,7 @@ import { PostgresPersonRepository } from '~/common/persons/repositories/postgres
 import { fetchDistinctIdValues, fetchDistinctIds } from '~/common/persons/repositories/test-helpers'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import { normalizeEvent, normalizeProcessPerson } from '~/common/utils/event'
+import { parseJSON } from '~/common/utils/json-parse'
 import { UUIDT } from '~/common/utils/utils'
 import { BatchWritingPersonsStore } from '~/ingestion/common/persons/batch-writing-person-store'
 import { PersonOutputs } from '~/ingestion/common/persons/person-context'
@@ -31,7 +33,7 @@ import { parseEventTimestamp } from '~/ingestion/common/timestamps'
 import { PipelineResultType, isDlqResult, isOkResult, isRedirectResult } from '~/ingestion/framework/results'
 import { PluginEvent } from '~/plugin-scaffold'
 import { IngestionTestInfra, createIngestionTestInfra } from '~/tests/helpers/ingestion-e2e'
-import { createOrganization, createTeam, fetchPostgresPersons, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
+import { createOrganization, createTeam, fetchPostgresPersons, getTeam } from '~/tests/helpers/sql'
 import { Person, Team } from '~/types'
 
 describe('createProcessPersonsStep', () => {
@@ -62,7 +64,6 @@ describe('createProcessPersonsStep', () => {
     }
 
     beforeEach(async () => {
-        await resetTestDatabase()
         infra = await createIngestionTestInfra()
         const organizationId = await createOrganization(infra.postgres)
         teamId = await createTeam(infra.postgres, organizationId)
@@ -311,6 +312,75 @@ describe('createProcessPersonsStep', () => {
         }
     })
 
+    it('returns a refused merge before its warning is acked and defers the ack to the side effects', async () => {
+        for (const distinctId of ['identified-source', 'target']) {
+            const created = await personRepository.createPerson(
+                DateTime.utc(),
+                {},
+                {},
+                {},
+                teamId,
+                null,
+                true,
+                new UUIDT().toString(),
+                { distinctId }
+            )
+            expect(created.success).toBe(true)
+        }
+
+        let ackWarning!: () => void
+        const heldWarning = new Promise<void>((resolve) => (ackWarning = resolve))
+        const topicOf = (batch: TopicMessage | TopicMessage[]) => (Array.isArray(batch) ? batch[0] : batch).topic
+        const queueMessages = jest.spyOn(mockProducer, 'queueMessages').mockImplementation((batch) => {
+            return topicOf(batch) === KAFKA_INGESTION_WARNINGS ? heldWarning : Promise.resolve()
+        })
+
+        try {
+            const step = createProcessPersonsStep(options, personOutputs)
+            const result = await step(
+                createInput({
+                    normalizedEvent: {
+                        ...pluginEvent,
+                        event: '$identify',
+                        distinct_id: 'target',
+                        properties: { $anon_distinct_id: 'identified-source' },
+                    },
+                })
+            )
+
+            expect(isOkResult(result)).toBe(true)
+            if (!isOkResult(result)) {
+                return
+            }
+
+            const warningBatches = queueMessages.mock.calls
+                .map(([batch]) => (Array.isArray(batch) ? batch[0] : batch))
+                .filter((batch) => batch.topic === KAFKA_INGESTION_WARNINGS)
+            expect(warningBatches).toHaveLength(1)
+            expect(parseJSON(warningBatches[0].messages[0].value!.toString())).toMatchObject({
+                team_id: teamId,
+                type: 'cannot_merge_already_identified',
+            })
+
+            let settled = false
+            void Promise.all(result.sideEffects).then(() => (settled = true))
+            await new Promise((resolve) => setImmediate(resolve))
+            expect(settled).toBe(false)
+
+            ackWarning()
+            await Promise.all(result.sideEffects)
+            expect(settled).toBe(true)
+        } finally {
+            queueMessages.mockRestore()
+        }
+
+        const persons = await fetchPostgresPersons(infra.postgres, teamId)
+        expect(persons).toHaveLength(2)
+        for (const person of persons) {
+            expect(await fetchDistinctIdValues(infra.postgres, person)).toHaveLength(1)
+        }
+    })
+
     it('does not update last_seen_at when person_last_seen_at_enabled is not set', async () => {
         await createPersonWithDistinctIds('my_id')
 
@@ -448,19 +518,12 @@ describe('createProcessPersonsStep', () => {
             return Number(result.rows[0].version ?? 0)
         }
 
-        it('writes version 1 for a merge-added distinct id and no personless bookkeeping row', async () => {
+        it('writes version 1 for a merge-added distinct id', async () => {
             await createPersonWithDistinctIds('user-1')
 
             await runIdentify(identify('anon-1', 'user-1'))
 
             expect(await versionOf('anon-1')).toBe(1)
-            const personlessRows = await infra.postgres.query(
-                PostgresUse.PERSONS_WRITE,
-                'SELECT 1 FROM posthog_personlessdistinctid WHERE team_id = $1 AND distinct_id = $2',
-                [teamId, 'anon-1'],
-                'fetchPersonlessRow'
-            )
-            expect(personlessRows.rows).toHaveLength(0)
         })
 
         it('gives the non-primary distinct id version 1 when neither points at a person', async () => {

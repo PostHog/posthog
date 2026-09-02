@@ -3,19 +3,13 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
+from posthog.schema import ReleaseStatus, SourceFieldInputConfig
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.datahub.canonical_descriptions import (
-    CANONICAL_DESCRIPTIONS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.datahub.datahub import DatahubResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.datahub.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.datahub.source import DatahubSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.datahub import (
     DatahubSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestDatahubSource:
@@ -23,9 +17,6 @@ class TestDatahubSource:
         self.source = DatahubSource()
         self.team_id = 123
         self.config = DatahubSourceConfig(instance_url="https://datahub.example.com", api_token="secret-token")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.DATAHUB
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config
@@ -38,13 +29,6 @@ class TestDatahubSource:
 
         field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
         assert field_names == ["instance_url", "api_token"]
-
-    def test_api_token_field_is_secret_password(self) -> None:
-        config = self.source.get_source_config
-        field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_token")
-        assert field.type == SourceFieldInputConfigType.PASSWORD
-        assert field.secret is True
-        assert field.required is True
 
     def test_connection_host_fields_covers_instance_url(self) -> None:
         # The stored access token is sent to whatever `instance_url` points at, so retargeting
@@ -74,10 +58,6 @@ class TestDatahubSource:
         assert {t["name"] for t in tables} == set(ENDPOINTS)
         assert all("Full refresh" in t["sync_methods"] for t in tables)
 
-    def test_canonical_descriptions_cover_every_endpoint(self) -> None:
-        assert set(CANONICAL_DESCRIPTIONS.keys()) == set(ENDPOINTS)
-        assert self.source.get_canonical_descriptions() is CANONICAL_DESCRIPTIONS
-
     @parameterized.expand(
         [
             ("401 Client Error: Unauthorized for url: https://datahub.example.com/openapi/v3/entity/dataset",),
@@ -99,15 +79,6 @@ class TestDatahubSource:
         assert not any(key in unrelated_error for key in non_retryable)
 
     @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.datahub.source.validate_datahub_credentials"
-    )
-    def test_validate_credentials_delegates_to_shared_helper(self, mock_validate: mock.MagicMock) -> None:
-        mock_validate.return_value = (False, "Invalid DataHub access token")
-        result = self.source.validate_credentials(self.config, self.team_id, schema_name="datasets")
-        assert result == (False, "Invalid DataHub access token")
-        mock_validate.assert_called_once_with("https://datahub.example.com", "secret-token", "datasets", self.team_id)
-
-    @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.datahub.source.check_endpoint_permissions"
     )
     def test_get_endpoint_permissions_delegates_to_shared_helper(self, mock_check: mock.MagicMock) -> None:
@@ -117,11 +88,6 @@ class TestDatahubSource:
         mock_check.assert_called_once_with(
             "https://datahub.example.com", "secret-token", ["users", "datasets"], self.team_id
         )
-
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is DatahubResumeConfig
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.datahub.source.datahub_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:

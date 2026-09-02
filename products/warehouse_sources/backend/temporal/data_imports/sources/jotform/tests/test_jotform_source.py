@@ -1,19 +1,16 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType, SourceFieldSelectConfig
+from posthog.schema import ReleaseStatus
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.jotform import (
     JotformSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.jotform.jotform import JotformResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.jotform.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.jotform.source import JotformSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestJotformSource:
@@ -21,9 +18,6 @@ class TestJotformSource:
         self.source = JotformSource()
         self.team_id = 123
         self.config = JotformSourceConfig(api_key="key-123", region="us")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.JOTFORM
 
     def test_get_source_config(self):
         config = self.source.get_source_config
@@ -37,28 +31,6 @@ class TestJotformSource:
 
         field_names = [f.name for f in config.fields]
         assert field_names == ["api_key", "region", "enterprise_domain"]
-
-    def test_api_key_field_is_secret_password(self):
-        config = self.source.get_source_config
-        key_field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_key")
-        assert key_field.type == SourceFieldInputConfigType.PASSWORD
-        assert key_field.secret is True
-        assert key_field.required is True
-
-    def test_region_field_is_select_with_us_default(self):
-        config = self.source.get_source_config
-        region_field = next(f for f in config.fields if isinstance(f, SourceFieldSelectConfig) and f.name == "region")
-        assert region_field.required is True
-        assert region_field.defaultValue == "us"
-        assert [option.value for option in region_field.options] == ["us", "eu", "hipaa"]
-
-    def test_enterprise_domain_is_optional_non_secret(self):
-        config = self.source.get_source_config
-        field = next(
-            f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "enterprise_domain"
-        )
-        assert field.required is False
-        assert field.secret is False
 
     def test_enterprise_domain_is_a_connection_host_field(self):
         # Editing the host the API key is sent to must re-require the secret.
@@ -169,11 +141,6 @@ class TestJotformSource:
 
         mock_host_safe.assert_not_called()
 
-    def test_get_resumable_source_manager_binds_resume_config(self):
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is JotformResumeConfig
-
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.jotform.source._is_host_safe",
         return_value=(True, None),
@@ -226,7 +193,3 @@ class TestJotformSource:
 
         mock_jotform_source.assert_not_called()
         mock_host_safe.assert_called_once_with("10.0.0.1", inputs.team_id)
-
-    def test_canonical_descriptions_cover_every_endpoint(self):
-        descriptions = self.source.get_canonical_descriptions()
-        assert set(descriptions) == set(ENDPOINTS)

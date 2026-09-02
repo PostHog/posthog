@@ -13,9 +13,9 @@ from rest_framework import status
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.team import Team
-from posthog.rbac.user_access_control import AccessControlLevel, UserAccessControl
 from posthog.scopes import APIScopeObject
 
+from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
 from products.dashboards.backend.api.dashboard import DashboardTileSerializer
 from products.dashboards.backend.constants import DEFAULT_WIDGET_LIST_LIMIT
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -23,7 +23,7 @@ from products.dashboards.backend.models.dashboard_templates import DashboardTemp
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
 from products.dashboards.backend.widget_registry import EXPECTED_WIDGET_TYPES
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 
 class TestDashboardWidgets(APIBaseTest):

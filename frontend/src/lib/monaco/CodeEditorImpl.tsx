@@ -40,6 +40,8 @@ export interface CodeEditorProps extends Omit<EditorProps, 'loading' | 'theme'> 
     sourceQuery?: AnyDataNode
     globals?: Record<string, any>
     schema?: Record<string, any> | null
+    /** Ask for per-filter index eligibility. Costs a second resolution pass server-side, so set it only where the result is rendered. */
+    indexUsage?: boolean
     onMetadata?: (metadata: HogQLMetadataResponse | null) => void
     onMetadataLoading?: (loading: boolean) => void
     onFixWithAI?: (prompt: string) => void
@@ -151,6 +153,7 @@ export function CodeEditor({
     sourceQuery,
     schema,
     onError,
+    indexUsage,
     onMetadata,
     onMetadataLoading,
     onFixWithAI,
@@ -189,6 +192,7 @@ export function CodeEditor({
         monaco: monaco,
         editor: editor,
         onError,
+        indexUsage,
         onMetadata,
         onMetadataLoading,
         onFixWithAI,

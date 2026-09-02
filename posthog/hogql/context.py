@@ -1,8 +1,10 @@
 from dataclasses import dataclass, field
+from datetime import datetime
 from functools import cached_property
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
 from posthog.hogql.constants import LimitContext
+from posthog.hogql.property_access_types import RestrictedProperty
 from posthog.hogql.timings import HogQLTimings
 
 from posthog.clickhouse.workload import Workload
@@ -18,8 +20,9 @@ if TYPE_CHECKING:
 
     from posthog.clickhouse.client.execute import ClickHouseExternalTable
     from posthog.models import Team, User
-    from posthog.rbac.user_access_control import UserAccessControl
     from posthog.scopes import APIScopeObject
+
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 
 def _default_modifiers() -> "HogQLQueryModifiers":
@@ -30,7 +33,7 @@ def _default_modifiers() -> "HogQLQueryModifiers":
     return HogQLQueryModifiers()
 
 
-@dataclass
+@dataclass(frozen=False)
 class HogQLFieldAccess:
     input: list[str]
     type: Optional[Literal["event", "event.properties", "person", "person.properties"]]
@@ -38,7 +41,9 @@ class HogQLFieldAccess:
     sql: str
 
 
-@dataclass
+# Mutable by design, because the resolver and the printers accumulate into it as they walk a query:
+# bound values, notices, warnings, and the lazily-resolved retention floors below.
+@dataclass(frozen=False)
 class HogQLContext:
     """Context given to a HogQL expression printer"""
 
@@ -62,6 +67,8 @@ class HogQLContext:
     database: Optional["Database"] = None
     # Metadata discovered for a direct Postgres connection, if one is selected
     direct_postgres_connection_metadata: dict[str, Any] | None = None
+    # Query-scoped mappings preserve resolved logical tables through Trino lowering.
+    trino_table_locators: dict[str, tuple[str, str, str]] = field(default_factory=dict)
     # Set when the query executes against an external direct-SQL connection instead of PostHog's own cluster
     is_direct_query: bool = False
     # If set, will save string constants to this dict. Inlines strings into the query if None.
@@ -130,10 +137,10 @@ class HogQLContext:
     # filter and holding lazy introspection objects, so tables resolving to the same bound walk the
     # database only once while surface-specific catalog metadata is fetched only when requested.
     information_schema_introspection: Optional[Any] = field(default=None, compare=False, repr=False)
-    # Property-level access control: set of (property_name, PropertyDefinition.Type) tuples
+    # Property-level access control: (property_name, PropertyDefinition.Type, group_type_index) tuples
     # that the current user is denied access to. Populated before type resolution so that
     # FieldType.get_child() can raise QueryError for restricted properties.
-    restricted_properties: Optional[set[tuple[str, int]]] = None
+    restricted_properties: Optional[set[RestrictedProperty]] = None
 
     # Per-query cache of CTE synthetic tables, keyed by id() of the CTE's SelectQueryType. Value pins a
     # strong ref to the keyed type so its id can't be reused while cached; lookups verify identity.
@@ -146,6 +153,13 @@ class HogQLContext:
     # regardless of retention — notably the GDPR data-deletion mutation path — set this False. Deliberately NOT a
     # HogQLQueryModifier, so a query can't disable enforcement.
     apply_events_retention_floor: bool = True
+
+    # Entitlement-derived floors for federated tables that declare a `retention_field`, keyed by
+    # Postgres table name so two such tables can never share one window. Resolved lazily by the
+    # ClickHouse printer the first time each table is printed, so a query that reads none of them
+    # never pays the organization load. A stored None means "resolved, no restriction", which is why
+    # membership rather than truthiness decides whether the lookup already ran.
+    postgres_retention_starts: dict[str, Optional[datetime]] = field(default_factory=dict, compare=False, repr=False)
 
     def __post_init__(self):
         if self.team:

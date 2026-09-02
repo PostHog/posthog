@@ -3,8 +3,8 @@ from enum import StrEnum
 from typing import Any, Protocol
 
 from posthog.models.team import Team
-from posthog.rbac.user_access_control import UserAccessControl
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.pulse.backend.models import BriefConfig, ResourceLink, ResourceType
 
 

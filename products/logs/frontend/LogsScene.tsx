@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
-import { LemonBanner, LemonButton, LemonTabs } from '@posthog/lemon-ui'
+import { LemonButton, LemonTabs } from '@posthog/lemon-ui'
 
+import { productSetupStatusLogic } from 'lib/components/ProductEmptyState/productSetupStatusLogic'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconFeedback } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
@@ -21,9 +22,8 @@ import { LogsSqlEditor } from 'products/logs/frontend/components/LogsSqlEditor/L
 import { LogsTransformations } from 'products/logs/frontend/components/LogsTransformations/LogsTransformations'
 import { LogsViewer } from 'products/logs/frontend/components/LogsViewer'
 import { LogsViewerModal } from 'products/logs/frontend/components/LogsViewer/LogsViewerModal'
-import { logsIngestionLogic } from 'products/logs/frontend/components/SetupPrompt/logsIngestionLogic'
-import { LogsSetupPrompt } from 'products/logs/frontend/components/SetupPrompt/SetupPrompt'
 
+import { logsEmptyState } from './emptyState/logsEmptyState'
 import { LogsAnomalies } from './LogsAnomalies'
 import { LOGS_SCENE_VIEWER_ID, LogsSceneActiveTab, logsSceneLogic } from './logsSceneLogic'
 
@@ -33,6 +33,7 @@ export const scene: SceneExport = {
     component: LogsScene,
     logic: logsSceneLogic,
     productKey: ProductKey.LOGS,
+    emptyState: logsEmptyState,
 }
 
 export function LogsScene(): JSX.Element {
@@ -46,18 +47,17 @@ export function LogsScene(): JSX.Element {
 const LogsSceneTabbedContent = (): JSX.Element => {
     const { activeTab } = useValues(logsSceneLogic)
     const { setActiveTab } = useActions(logsSceneLogic)
-    const { hasLogs, teamHasLogsCheckFailed } = useValues(logsIngestionLogic)
+    const { status: logsSetupStatus } = useValues(productSetupStatusLogic({ productKey: ProductKey.LOGS }))
     const showServicesView = useFeatureFlag('LOGS_SERVICES_VIEW')
     const showServicesV2 = useFeatureFlag('LOGS_SERVICES_VIEW_V2')
     const showServices = activeTab === 'services' && showServicesView
-    const showAlerting = useFeatureFlag('LOGS_ALERTING')
     const showTransformations = useFeatureFlag('LOGS_TRANSFORMATIONS')
     const showAnomalies = useFeatureFlag('LOGS_ANOMALIES')
 
     const tabs: { key: LogsSceneActiveTab; label: string }[] = [
         { key: 'viewer', label: 'Viewer' },
         ...(showServicesView ? [{ key: 'services' as const, label: 'Services' }] : []),
-        ...(showAlerting ? [{ key: 'alerts' as const, label: 'Alerts' }] : []),
+        { key: 'alerts', label: 'Alerts' },
         ...(showAnomalies ? [{ key: 'anomalies' as const, label: 'Anomalies' }] : []),
         { key: 'sql', label: 'SQL' },
         ...(showTransformations ? [{ key: 'transformations' as const, label: 'Transformations' }] : []),
@@ -71,21 +71,8 @@ const LogsSceneTabbedContent = (): JSX.Element => {
                 resourceType={{
                     type: sceneConfigurations[Scene.Logs].iconType || 'default_icon_type',
                 }}
-                actions={<>{hasLogs && <LogsSceneFeedbackButton />}</>}
+                actions={<>{logsSetupStatus === 'has-data' && <LogsSceneFeedbackButton />}</>}
             />
-            {teamHasLogsCheckFailed && (
-                <LemonBanner
-                    type="info"
-                    dismissKey="logs-setup-hint-banner"
-                    action={{
-                        to: 'https://posthog.com/docs/logs/',
-                        targetBlank: true,
-                        children: 'Setup guide',
-                    }}
-                >
-                    Unable to verify logs setup. If you haven't configured logging yet, check out our setup guide.
-                </LemonBanner>
-            )}
             <LemonTabs<LogsSceneActiveTab>
                 activeKey={activeTab}
                 onChange={(key) => {
@@ -101,11 +88,9 @@ const LogsSceneTabbedContent = (): JSX.Element => {
                 logs, scroll position, and virtualized-list state survive — switching away and back
                 should not replay the initial loading animation. */}
             <div className={cn('flex flex-col flex-1 min-h-0', activeTab !== 'viewer' && 'hidden')}>
-                <LogsSetupPrompt>
-                    <div className="flex flex-col gap-2 py-2 flex-1 min-h-0">
-                        <LogsViewer id={LOGS_SCENE_VIEWER_ID} showSavedViewsButton />
-                    </div>
-                </LogsSetupPrompt>
+                <div className="flex flex-col gap-2 py-2 flex-1 min-h-0">
+                    <LogsViewer id={LOGS_SCENE_VIEWER_ID} showSavedViewsButton />
+                </div>
             </div>
             {showServices && showServicesV2 && <LogsServicesV2 />}
             {showServices && !showServicesV2 && (
@@ -114,7 +99,7 @@ const LogsSceneTabbedContent = (): JSX.Element => {
                     <LogsViewerModal />
                 </>
             )}
-            {activeTab === 'alerts' && showAlerting && <LogsAlertingSection />}
+            {activeTab === 'alerts' && <LogsAlertingSection />}
             {activeTab === 'anomalies' && showAnomalies && <LogsAnomalies />}
             {activeTab === 'sql' && <LogsSqlEditor id={LOGS_SCENE_VIEWER_ID} />}
             {activeTab === 'transformations' && showTransformations && <LogsTransformations />}

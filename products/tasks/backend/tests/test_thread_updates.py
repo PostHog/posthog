@@ -228,8 +228,8 @@ class TestAgentThreadUpdates(TestCase):
         from products.tasks.backend.facade.api import upload_task_run_artifacts
 
         output = {"name": "summary.md", "type": "output", "content_bytes": b"v1", "content_type": "text/markdown"}
-        checkpoint = {
-            "name": "checkpoint.index",
+        internal_artifact = {
+            "name": "context.json",
             "type": "artifact",
             "content_bytes": b"internal state",
             "content_type": "application/octet-stream",
@@ -239,7 +239,7 @@ class TestAgentThreadUpdates(TestCase):
                 self.task_run.id,
                 self.task.id,
                 self.team.id,
-                artifacts=[output, checkpoint],
+                artifacts=[output, internal_artifact],
                 uploaded_by="agent",
             )
             upload_task_run_artifacts(

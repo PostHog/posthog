@@ -2,6 +2,25 @@
 
 from string import Template
 
+# Projected columns a HogQL query can select.
+# NOTE: this is just for the 'old' version of our HogQL support, where a user can define a custom
+# SELECT FROM clause, useful for defining a custom schema. It's not related to the new HogQL model,
+# in which a user can use any arbitrary SELECT query.
+EXPORTABLE_EVENTS_MODEL_FIELDS = frozenset(
+    {
+        "team_id",
+        "timestamp",
+        "event",
+        "distinct_id",
+        "uuid",
+        "created_at",
+        "elements_chain",
+        "person_id",
+        "properties",
+        "person_properties",
+    }
+)
+
 SELECT_FROM_EVENTS_VIEW = Template(
     """
 SELECT

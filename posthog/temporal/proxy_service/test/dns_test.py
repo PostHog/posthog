@@ -67,7 +67,8 @@ class TestProxyChecksDoNotFailOnHandledConditions(SimpleTestCase):
                 raise dns.resolver.NoAnswer()
             raise exc
 
-        with patch("dns.resolver.resolve", side_effect=resolve):
+        with patch("posthog.temporal.proxy_service.monitor.dnssec_resolver") as resolver:
+            resolver.return_value.resolve.side_effect = resolve
             out = await check_dns(CheckActivityInput(proxy_record_id=RECORD_ID))
 
         assert out.errors == ["No CNAME or A record DNS records found"]
@@ -77,7 +78,8 @@ class TestProxyChecksDoNotFailOnHandledConditions(SimpleTestCase):
     async def test_a_cname_failure_is_reported_not_raised(self, _name, exc, mock_get_record):
         mock_get_record.return_value = _record()
 
-        with patch("dns.resolver.resolve", side_effect=exc):
+        with patch("posthog.temporal.proxy_service.monitor.dnssec_resolver") as resolver:
+            resolver.return_value.resolve.side_effect = exc
             out = await check_dns(CheckActivityInput(proxy_record_id=RECORD_ID))
 
         assert out.errors == ["Domain name not found"]
@@ -93,7 +95,8 @@ class TestProxyChecksDoNotFailOnHandledConditions(SimpleTestCase):
                 raise dns.resolver.NoAnswer()
             return [a_rec]
 
-        with patch("dns.resolver.resolve", side_effect=resolve):
+        with patch("posthog.temporal.proxy_service.monitor.dnssec_resolver") as resolver:
+            resolver.return_value.resolve.side_effect = resolve
             with patch(
                 "posthog.temporal.proxy_service.monitor.requests.get",
                 side_effect=requests.exceptions.Timeout(),
@@ -112,7 +115,8 @@ class TestProxyChecksKeepTheEventLoopFree(SimpleTestCase):
             time.sleep(1.0)
             raise dns.resolver.NXDOMAIN()
 
-        with patch("dns.resolver.resolve", side_effect=slow):
+        with patch("posthog.temporal.proxy_service.monitor.dnssec_resolver") as resolver:
+            resolver.return_value.resolve.side_effect = slow
             baseline, contended = await _time_a_co_tenant(
                 lambda: check_dns(CheckActivityInput(proxy_record_id=RECORD_ID))
             )

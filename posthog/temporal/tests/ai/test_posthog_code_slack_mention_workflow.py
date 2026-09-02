@@ -44,6 +44,8 @@ async def test_untagged_followup_with_files_classifier_gating(
             return True
         if activity_fn is posthog_code_slack_mention.request_untagged_followup_confirmation_activity:
             return False
+        if activity_fn is posthog_code_slack_mention.classify_slack_app_model_override_activity:
+            return None
         if activity_fn is posthog_code_slack_mention.forward_posthog_code_followup_activity:
             return True
 
@@ -62,6 +64,9 @@ async def test_untagged_followup_with_files_classifier_gating(
         expected.append("classify_untagged_followup_activity")
     if patched:
         expected.append("request_untagged_followup_confirmation_activity")
+        # The model-override classifier sits above the follow-up/new-task split, so it
+        # runs for a reply too — but only for histories that recorded it there.
+        expected.append("classify_slack_app_model_override_activity")
     expected.append("forward_posthog_code_followup_activity")
     assert calls == expected
 
@@ -85,6 +90,8 @@ async def test_confirmed_untagged_followup_skips_the_classifier_and_the_prompt()
         calls.append(activity_fn.__name__)
         if activity_fn is posthog_code_slack_mention.enforce_posthog_code_billing_quota_activity:
             return False
+        if activity_fn is posthog_code_slack_mention.classify_slack_app_model_override_activity:
+            return None
         if activity_fn is posthog_code_slack_mention.forward_posthog_code_followup_activity:
             return True
         raise AssertionError(f"unexpected activity: {activity_fn.__name__}")
@@ -97,5 +104,6 @@ async def test_confirmed_untagged_followup_skips_the_classifier_and_the_prompt()
 
     assert calls == [
         "enforce_posthog_code_billing_quota_activity",
+        "classify_slack_app_model_override_activity",
         "forward_posthog_code_followup_activity",
     ]

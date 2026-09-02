@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { LemonSegmentedButton, LemonTable, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonSegmentedButton, LemonSwitch, LemonTable, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
@@ -15,6 +15,7 @@ import { BaseMathType, ChartDisplayType, InsightLogicProps, PropertyFilterType, 
 import { VisionDocsLink } from '../../components/DocsLink'
 import { CreditPriceNote } from '../../components/PricingLink'
 import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
+import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
 import { creditsToUsd, formatCreditCount, formatCreditsMaybeUsd, formatCreditsRange } from '../../utils/credits'
 import { exhaustionForecast, hasCreditLimit, projectQuota } from '../../utils/quotaProjection'
 import { STARTUP_CAP_EXPLANATION } from '../../utils/startupCap'
@@ -56,8 +57,8 @@ const SPEND_CHART_CREDITS_FORMULA = SPEND_CHART_MODEL_PRICES.map(
 ).join(' + ')
 
 export function VisionUsageTab(): JSX.Element {
-    const { usageScanners, usageScannersLoading, spendChartInterval } = useValues(visionUsageLogic)
-    const { setSpendChartInterval } = useActions(visionUsageLogic)
+    const { usageScanners, usageScannersLoading, spendChartInterval, togglingScannerIds } = useValues(visionUsageLogic)
+    const { setSpendChartInterval, toggleScannerEnabled } = useActions(visionUsageLogic)
     const {
         displayQuota: quota,
         quotaLoading,
@@ -134,12 +135,25 @@ export function VisionUsageTab(): JSX.Element {
             key: 'name',
             width: '25%',
             render: (_, scanner) => (
-                <div className="flex items-center gap-2">
-                    <Link to={urls.replayVision(scanner.id)} className="font-semibold text-primary">
-                        {scanner.name || '(untitled)'}
-                    </Link>
-                    {!scanner.enabled && <LemonTag type="muted">Disabled</LemonTag>}
-                </div>
+                <Link to={urls.replayVision(scanner.id)} className="font-semibold text-primary">
+                    {scanner.name || '(untitled)'}
+                </Link>
+            ),
+        },
+        {
+            title: 'Enabled',
+            key: 'enabled',
+            tooltip: 'Enabled scanners run automatically on a schedule. Disabled scanners run on-demand only.',
+            render: (_, scanner) => (
+                <LemonSwitch
+                    checked={scanner.enabled}
+                    onChange={() => toggleScannerEnabled(scanner)}
+                    loading={togglingScannerIds.includes(scanner.id)}
+                    disabledReason={getReplayVisionEditDisabledReason(scanner.user_access_level)}
+                    data-attr="vision-usage-scanner-toggle-enabled"
+                    data-ph-capture-attribute-scanner-type={scanner.scanner_type}
+                    data-ph-capture-attribute-will-be-enabled={!scanner.enabled}
+                />
             ),
         },
         {
@@ -215,7 +229,7 @@ export function VisionUsageTab(): JSX.Element {
             key: 'credits_this_month',
             width: '30%',
             className: 'pl-6',
-            tooltip: 'How much of the total spend this period came from this scanner.',
+            tooltip: 'How much of the total spend this billing period came from this scanner.',
             render: (_, scanner) => {
                 const sharePct = totalCredits > 0 ? Math.round((scanner.credits_this_month / totalCredits) * 100) : 0
                 return (
@@ -243,7 +257,7 @@ export function VisionUsageTab(): JSX.Element {
                                     {hasCap
                                         ? formatCreditsRange(quota.credits_used, quota.credit_limit ?? 0)
                                         : formatCreditCount(quota.credits_used)}{' '}
-                                    this period
+                                    this billing period
                                     {projection.resetsOn ? `, resets ${projection.resetsOn}` : ''}
                                 </span>
                             </Tooltip>
@@ -282,7 +296,7 @@ export function VisionUsageTab(): JSX.Element {
                 rowKey={(scanner) => scanner.id}
                 emptyState={
                     <>
-                        No spend this period yet. Costs appear here once scanners produce observations.{' '}
+                        No spend this billing period yet. Costs appear here once scanners produce observations.{' '}
                         <VisionDocsLink page="quota-and-limits" dataAttr="vision-empty-docs-link-usage">
                             Learn how credits and limits work
                         </VisionDocsLink>
@@ -291,7 +305,8 @@ export function VisionUsageTab(): JSX.Element {
                 footer={
                     hiddenCount > 0 ? (
                         <div className="px-3 py-2 text-xs text-muted">
-                            {hiddenCount} scanner{hiddenCount === 1 ? '' : 's'} with no spend or estimate this period
+                            {hiddenCount} scanner{hiddenCount === 1 ? '' : 's'} with no spend or estimate this billing
+                            period
                         </div>
                     ) : undefined
                 }

@@ -8,6 +8,107 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
+ * * `PostHogWarehouse` - PostHog warehouse
+ * * `Redshift` - Redshift
+ * * `Snowflake` - Snowflake
+ * * `BigQuery` - BigQuery
+ * * `Postgres` - Postgres
+ * * `Databricks` - Databricks
+ * * `AzureBlob` - Azure Blob
+ * * `S3` - S3
+ */
+export type ExternalDataDestinationTypeEnumApi =
+    (typeof ExternalDataDestinationTypeEnumApi)[keyof typeof ExternalDataDestinationTypeEnumApi]
+
+export const ExternalDataDestinationTypeEnumApi = {
+    PostHogWarehouse: 'PostHogWarehouse',
+    Redshift: 'Redshift',
+    Snowflake: 'Snowflake',
+    BigQuery: 'BigQuery',
+    Postgres: 'Postgres',
+    Databricks: 'Databricks',
+    AzureBlob: 'AzureBlob',
+    S3: 'S3',
+} as const
+
+export interface ExternalDataDestinationApi {
+    readonly id: string
+    /** Where synced rows are written. The PostHog warehouse is managed for you, so you cannot create one here.
+     *
+     * * `PostHogWarehouse` - PostHog warehouse
+     * * `Redshift` - Redshift
+     * * `Snowflake` - Snowflake
+     * * `BigQuery` - BigQuery
+     * * `Postgres` - Postgres
+     * * `Databricks` - Databricks
+     * * `AzureBlob` - Azure Blob
+     * * `S3` - S3 */
+    type: ExternalDataDestinationTypeEnumApi
+    /**
+     * Human-readable name shown when picking destinations for a source or table.
+     * @maxLength 400
+     */
+    name: string
+    /** Settings for this destination: target database, schema or dataset, bucket and prefix, file format. Credentials are not stored here. They live on the linked integration. */
+    config?: unknown
+    /**
+     * Integration holding this destination's credentials. Required for every type except the PostHog warehouse.
+     * @nullable
+     */
+    integration?: number | null
+    /** Whether this is the managed PostHog warehouse destination. */
+    readonly is_posthog_warehouse: boolean
+    readonly created_at: string
+    /** @nullable */
+    readonly created_by: number | null
+    /** @nullable */
+    readonly updated_at: string | null
+}
+
+export interface PaginatedExternalDataDestinationListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ExternalDataDestinationApi[]
+}
+
+export interface PatchedExternalDataDestinationApi {
+    readonly id?: string
+    /** Where synced rows are written. The PostHog warehouse is managed for you, so you cannot create one here.
+     *
+     * * `PostHogWarehouse` - PostHog warehouse
+     * * `Redshift` - Redshift
+     * * `Snowflake` - Snowflake
+     * * `BigQuery` - BigQuery
+     * * `Postgres` - Postgres
+     * * `Databricks` - Databricks
+     * * `AzureBlob` - Azure Blob
+     * * `S3` - S3 */
+    type?: ExternalDataDestinationTypeEnumApi
+    /**
+     * Human-readable name shown when picking destinations for a source or table.
+     * @maxLength 400
+     */
+    name?: string
+    /** Settings for this destination: target database, schema or dataset, bucket and prefix, file format. Credentials are not stored here. They live on the linked integration. */
+    config?: unknown
+    /**
+     * Integration holding this destination's credentials. Required for every type except the PostHog warehouse.
+     * @nullable
+     */
+    integration?: number | null
+    /** Whether this is the managed PostHog warehouse destination. */
+    readonly is_posthog_warehouse?: boolean
+    readonly created_at?: string
+    /** @nullable */
+    readonly created_by?: number | null
+    /** @nullable */
+    readonly updated_at?: string | null
+}
+
+/**
  * * `full_refresh` - full_refresh
  * * `incremental` - incremental
  * * `append` - append
@@ -15,9 +116,10 @@
  * * `cdc` - cdc
  * * `xmin` - xmin
  */
-export type SyncTypeEnumApi = (typeof SyncTypeEnumApi)[keyof typeof SyncTypeEnumApi]
+export type ExternalDataSchemaSyncTypeEnumApi =
+    (typeof ExternalDataSchemaSyncTypeEnumApi)[keyof typeof ExternalDataSchemaSyncTypeEnumApi]
 
-export const SyncTypeEnumApi = {
+export const ExternalDataSchemaSyncTypeEnumApi = {
     FullRefresh: 'full_refresh',
     Incremental: 'incremental',
     Append: 'append',
@@ -129,6 +231,7 @@ export type ExternalDataSchemaApiSource = {
     readonly access_method?: string
     readonly supports_column_selection?: boolean
     readonly supports_row_filters?: boolean
+    readonly requires_exact_column_metadata?: boolean
     /** @nullable */
     readonly user_access_level?: string | null
     /** @nullable */
@@ -165,7 +268,7 @@ export interface ExternalDataSchemaApi {
      * * `webhook` - webhook
      * * `cdc` - cdc
      * * `xmin` - xmin */
-    sync_type?: SyncTypeEnumApi | null
+    sync_type?: ExternalDataSchemaSyncTypeEnumApi | null
     /**
      * Column name used to track sync progress.
      * @nullable
@@ -231,6 +334,8 @@ export interface ExternalDataSchemaApi {
     row_filters?: ExternalDataSchemaApiRowFiltersItem[] | null
     /** Column metadata (name, data type, nullable) for this schema. For SQL sources this is the source-side schema discovered via `refresh_schemas`; for other sources (and once synced) it falls back to the synced table's columns. Empty only before the first successful sync/refresh. */
     readonly available_columns: readonly ExternalDataSchemaApiAvailableColumnsItem[]
+    /** Whether exact source-side column metadata is available for safe source-query projection. */
+    readonly source_column_metadata_available: boolean
     /**
      * Lightweight parent-source summary (id, source_type, access_method, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
      * @nullable
@@ -289,6 +394,7 @@ export type PatchedExternalDataSchemaApiSource = {
     readonly access_method?: string
     readonly supports_column_selection?: boolean
     readonly supports_row_filters?: boolean
+    readonly requires_exact_column_metadata?: boolean
     /** @nullable */
     readonly user_access_level?: string | null
     /** @nullable */
@@ -325,7 +431,7 @@ export interface PatchedExternalDataSchemaApi {
      * * `webhook` - webhook
      * * `cdc` - cdc
      * * `xmin` - xmin */
-    sync_type?: SyncTypeEnumApi | null
+    sync_type?: ExternalDataSchemaSyncTypeEnumApi | null
     /**
      * Column name used to track sync progress.
      * @nullable
@@ -391,6 +497,8 @@ export interface PatchedExternalDataSchemaApi {
     row_filters?: PatchedExternalDataSchemaApiRowFiltersItem[] | null
     /** Column metadata (name, data type, nullable) for this schema. For SQL sources this is the source-side schema discovered via `refresh_schemas`; for other sources (and once synced) it falls back to the synced table's columns. Empty only before the first successful sync/refresh. */
     readonly available_columns?: readonly PatchedExternalDataSchemaApiAvailableColumnsItem[]
+    /** Whether exact source-side column metadata is available for safe source-query projection. */
+    readonly source_column_metadata_available?: boolean
     /**
      * Lightweight parent-source summary (id, source_type, access_method, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
      * @nullable
@@ -412,16 +520,39 @@ export interface PatchedExternalDataSchemaApi {
 }
 
 /**
+ * Response shape for a table's destination override.
+ */
+export interface SchemaDestinationsApi {
+    /**
+     * The table's own destinations, or null when it follows its source.
+     * @nullable
+     */
+    destination_ids: string[] | null
+    /** Whether this table follows its source rather than having its own destinations. */
+    inherits_from_source: boolean
+    /** Where the table actually syncs, after inheritance is resolved. */
+    effective_destination_ids?: string[]
+}
+
+export interface PatchedDestinationLinkApi {
+    /**
+     * Destinations to sync to. On a table, null clears the override so the table follows its source again.
+     * @nullable
+     */
+    destination_ids?: string[] | null
+}
+
+/**
  * * `web` - web
  * * `api` - api
  * * `mcp` - mcp
  * * `wizard` - wizard
  * * `self_driving` - self_driving
  */
-export type ExternalDataSourceSerializersCreatedViaEnumApi =
-    (typeof ExternalDataSourceSerializersCreatedViaEnumApi)[keyof typeof ExternalDataSourceSerializersCreatedViaEnumApi]
+export type ExternalDataSourceCreatedViaEnumApi =
+    (typeof ExternalDataSourceCreatedViaEnumApi)[keyof typeof ExternalDataSourceCreatedViaEnumApi]
 
-export const ExternalDataSourceSerializersCreatedViaEnumApi = {
+export const ExternalDataSourceCreatedViaEnumApi = {
     Web: 'web',
     Api: 'api',
     Mcp: 'mcp',
@@ -605,6 +736,7 @@ export const ExternalDataSourceSerializersCreatedViaEnumApi = {
  * * `Ebay` - Ebay
  * * `Commercetools` - Commercetools
  * * `LightspeedRetail` - LightspeedRetail
+ * * `Shipmail` - Shipmail
  * * `ShipStation` - ShipStation
  * * `ConstantContact` - ConstantContact
  * * `Mailgun` - Mailgun
@@ -617,6 +749,7 @@ export const ExternalDataSourceSerializersCreatedViaEnumApi = {
  * * `Gladly` - Gladly
  * * `Qualtrics` - Qualtrics
  * * `AzureDevOps` - AzureDevOps
+ * * `RoktAds` - RoktAds
  * * `Rollbar` - Rollbar
  * * `Opsgenie` - Opsgenie
  * * `IncidentIo` - IncidentIo
@@ -719,6 +852,7 @@ export const ExternalDataSourceSerializersCreatedViaEnumApi = {
  * * `Customerly` - Customerly
  * * `Datascope` - Datascope
  * * `Dbt` - Dbt
+ * * `Demodesk` - Demodesk
  * * `Deputy` - Deputy
  * * `DevinAI` - DevinAI
  * * `Docuseal` - Docuseal
@@ -1685,6 +1819,7 @@ export const ExternalDataSourceSerializersCreatedViaEnumApi = {
  * * `SideShift` - SideShift
  * * `DuckLake` - DuckLake
  * * `Starburst` - Starburst
+ * * `Trino` - Trino
  * * `Easybill` - Easybill
  * * `Bexio` - Bexio
  * * `Umami` - Umami
@@ -1732,6 +1867,26 @@ export const ExternalDataSourceSerializersCreatedViaEnumApi = {
  * * `MicrosoftExcel` - MicrosoftExcel
  * * `Profound` - Profound
  * * `Airwallex` - Airwallex
+ * * `Polymarket` - Polymarket
+ * * `Kalshi` - Kalshi
+ * * `Capterra` - Capterra
+ * * `GooglePostmasterTools` - GooglePostmasterTools
+ * * `Growi` - Growi
+ * * `Clarify` - Clarify
+ * * `DatoCMS` - DatoCMS
+ * * `WPSOffice` - WPSOffice
+ * * `TeraBox` - TeraBox
+ * * `SimonData` - SimonData
+ * * `CommissionJunction` - CommissionJunction
+ * * `Liveblocks` - Liveblocks
+ * * `NationBuilder` - NationBuilder
+ * * `Tana` - Tana
+ * * `Zenchef` - Zenchef
+ * * `Lovable` - Lovable
+ * * `Anvil` - Anvil
+ * * `Coolify` - Coolify
+ * * `SocialPilot` - SocialPilot
+ * * `Strato` - Strato
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -1912,6 +2067,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Ebay: 'Ebay',
     Commercetools: 'Commercetools',
     LightspeedRetail: 'LightspeedRetail',
+    Shipmail: 'Shipmail',
     ShipStation: 'ShipStation',
     ConstantContact: 'ConstantContact',
     Mailgun: 'Mailgun',
@@ -1924,6 +2080,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Gladly: 'Gladly',
     Qualtrics: 'Qualtrics',
     AzureDevOps: 'AzureDevOps',
+    RoktAds: 'RoktAds',
     Rollbar: 'Rollbar',
     Opsgenie: 'Opsgenie',
     IncidentIo: 'IncidentIo',
@@ -2026,6 +2183,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Customerly: 'Customerly',
     Datascope: 'Datascope',
     Dbt: 'Dbt',
+    Demodesk: 'Demodesk',
     Deputy: 'Deputy',
     DevinAI: 'DevinAI',
     Docuseal: 'Docuseal',
@@ -2992,6 +3150,7 @@ export const ExternalDataSourceTypeEnumApi = {
     SideShift: 'SideShift',
     DuckLake: 'DuckLake',
     Starburst: 'Starburst',
+    Trino: 'Trino',
     Easybill: 'Easybill',
     Bexio: 'Bexio',
     Umami: 'Umami',
@@ -3039,15 +3198,36 @@ export const ExternalDataSourceTypeEnumApi = {
     MicrosoftExcel: 'MicrosoftExcel',
     Profound: 'Profound',
     Airwallex: 'Airwallex',
+    Polymarket: 'Polymarket',
+    Kalshi: 'Kalshi',
+    Capterra: 'Capterra',
+    GooglePostmasterTools: 'GooglePostmasterTools',
+    Growi: 'Growi',
+    Clarify: 'Clarify',
+    DatoCMS: 'DatoCMS',
+    WPSOffice: 'WPSOffice',
+    TeraBox: 'TeraBox',
+    SimonData: 'SimonData',
+    CommissionJunction: 'CommissionJunction',
+    Liveblocks: 'Liveblocks',
+    NationBuilder: 'NationBuilder',
+    Tana: 'Tana',
+    Zenchef: 'Zenchef',
+    Lovable: 'Lovable',
+    Anvil: 'Anvil',
+    Coolify: 'Coolify',
+    SocialPilot: 'SocialPilot',
+    Strato: 'Strato',
 } as const
 
 /**
  * * `warehouse` - warehouse
  * * `direct` - direct
  */
-export type AccessMethodEnumApi = (typeof AccessMethodEnumApi)[keyof typeof AccessMethodEnumApi]
+export type ExternalDataSourceAccessMethodEnumApi =
+    (typeof ExternalDataSourceAccessMethodEnumApi)[keyof typeof ExternalDataSourceAccessMethodEnumApi]
 
-export const AccessMethodEnumApi = {
+export const ExternalDataSourceAccessMethodEnumApi = {
     Warehouse: 'warehouse',
     Direct: 'direct',
 } as const
@@ -3060,6 +3240,7 @@ export const AccessMethodEnumApi = {
  * * `redshift` - redshift
  * * `clickhouse` - clickhouse
  * * `motherduck` - motherduck
+ * * `trino` - trino
  */
 export type EngineEnumApi = (typeof EngineEnumApi)[keyof typeof EngineEnumApi]
 
@@ -3071,6 +3252,7 @@ export const EngineEnumApi = {
     Redshift: 'redshift',
     Clickhouse: 'clickhouse',
     Motherduck: 'motherduck',
+    Trino: 'trino',
 } as const
 
 export interface ExternalDataSourceRevenueAnalyticsConfigApi {
@@ -3095,7 +3277,7 @@ export interface ExternalDataSourceSerializersApi {
      * * `mcp` - mcp
      * * `wizard` - wizard
      * * `self_driving` - self_driving */
-    created_via?: ExternalDataSourceSerializersCreatedViaEnumApi | null
+    created_via?: ExternalDataSourceCreatedViaEnumApi | null
     readonly status: string
     client_secret: string
     account_id: string
@@ -3112,7 +3294,7 @@ export interface ExternalDataSourceSerializersApi {
      * @nullable
      */
     description?: string | null
-    readonly access_method: AccessMethodEnumApi
+    readonly access_method: ExternalDataSourceAccessMethodEnumApi
     /** Whether this synced source is also live-queryable via direct connection. Defaults to false for new sources; ignored for pure direct-query sources. */
     direct_query_enabled?: boolean
     /** Automatically enable syncing for schemas discovered on this source after creation, on both the scheduled discovery pass and manual schema refreshes. Defaults to false. Not supported for direct-query sources. */
@@ -3132,7 +3314,8 @@ export interface ExternalDataSourceSerializersApi {
      * * `snowflake` - snowflake
      * * `redshift` - redshift
      * * `clickhouse` - clickhouse
-     * * `motherduck` - motherduck */
+     * * `motherduck` - motherduck
+     * * `trino` - trino */
     readonly engine: EngineEnumApi | null
     /** @nullable */
     readonly last_run_at: string | null
@@ -3362,6 +3545,7 @@ export interface ExternalDataSourceCreateApi {
      * * `Ebay` - Ebay
      * * `Commercetools` - Commercetools
      * * `LightspeedRetail` - LightspeedRetail
+     * * `Shipmail` - Shipmail
      * * `ShipStation` - ShipStation
      * * `ConstantContact` - ConstantContact
      * * `Mailgun` - Mailgun
@@ -3374,6 +3558,7 @@ export interface ExternalDataSourceCreateApi {
      * * `Gladly` - Gladly
      * * `Qualtrics` - Qualtrics
      * * `AzureDevOps` - AzureDevOps
+     * * `RoktAds` - RoktAds
      * * `Rollbar` - Rollbar
      * * `Opsgenie` - Opsgenie
      * * `IncidentIo` - IncidentIo
@@ -3476,6 +3661,7 @@ export interface ExternalDataSourceCreateApi {
      * * `Customerly` - Customerly
      * * `Datascope` - Datascope
      * * `Dbt` - Dbt
+     * * `Demodesk` - Demodesk
      * * `Deputy` - Deputy
      * * `DevinAI` - DevinAI
      * * `Docuseal` - Docuseal
@@ -4442,6 +4628,7 @@ export interface ExternalDataSourceCreateApi {
      * * `SideShift` - SideShift
      * * `DuckLake` - DuckLake
      * * `Starburst` - Starburst
+     * * `Trino` - Trino
      * * `Easybill` - Easybill
      * * `Bexio` - Bexio
      * * `Umami` - Umami
@@ -4488,7 +4675,27 @@ export interface ExternalDataSourceCreateApi {
      * * `IronSourceAds` - IronSourceAds
      * * `MicrosoftExcel` - MicrosoftExcel
      * * `Profound` - Profound
-     * * `Airwallex` - Airwallex */
+     * * `Airwallex` - Airwallex
+     * * `Polymarket` - Polymarket
+     * * `Kalshi` - Kalshi
+     * * `Capterra` - Capterra
+     * * `GooglePostmasterTools` - GooglePostmasterTools
+     * * `Growi` - Growi
+     * * `Clarify` - Clarify
+     * * `DatoCMS` - DatoCMS
+     * * `WPSOffice` - WPSOffice
+     * * `TeraBox` - TeraBox
+     * * `SimonData` - SimonData
+     * * `CommissionJunction` - CommissionJunction
+     * * `Liveblocks` - Liveblocks
+     * * `NationBuilder` - NationBuilder
+     * * `Tana` - Tana
+     * * `Zenchef` - Zenchef
+     * * `Lovable` - Lovable
+     * * `Anvil` - Anvil
+     * * `Coolify` - Coolify
+     * * `SocialPilot` - SocialPilot
+     * * `Strato` - Strato */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
     payload: ExternalDataSourceCreateApiPayload
@@ -4508,7 +4715,7 @@ export interface ExternalDataSourceCreateApi {
      *
      * * `warehouse` - warehouse
      * * `direct` - direct */
-    access_method?: AccessMethodEnumApi
+    access_method?: ExternalDataSourceAccessMethodEnumApi
     /** Where the request came from: `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. `wizard` and `self_driving` cannot be set directly — they are derived server-side for wizard- and PostHog Desktop-driven MCP calls. Defaults to `api`.
      *
      * * `web` - web
@@ -4517,6 +4724,8 @@ export interface ExternalDataSourceCreateApi {
     created_via?: ExternalDataSourceCreateCreatedViaEnumApi
     /** Whether a synced source should also be live-queryable via direct connection. Defaults to false; ignored for pure direct-query sources. */
     direct_query_enabled?: boolean
+    /** Destinations every table on this source writes to. Set here rather than afterwards, so the opening sync already carries them. Omit to write to the PostHog warehouse only. */
+    destination_ids?: string[]
 }
 
 export interface ExternalDataSourceCreateResponseApi {
@@ -4541,7 +4750,7 @@ export interface PatchedExternalDataSourceSerializersApi {
      * * `mcp` - mcp
      * * `wizard` - wizard
      * * `self_driving` - self_driving */
-    created_via?: ExternalDataSourceSerializersCreatedViaEnumApi | null
+    created_via?: ExternalDataSourceCreatedViaEnumApi | null
     readonly status?: string
     client_secret?: string
     account_id?: string
@@ -4558,7 +4767,7 @@ export interface PatchedExternalDataSourceSerializersApi {
      * @nullable
      */
     description?: string | null
-    readonly access_method?: AccessMethodEnumApi
+    readonly access_method?: ExternalDataSourceAccessMethodEnumApi
     /** Whether this synced source is also live-queryable via direct connection. Defaults to false for new sources; ignored for pure direct-query sources. */
     direct_query_enabled?: boolean
     /** Automatically enable syncing for schemas discovered on this source after creation, on both the scheduled discovery pass and manual schema refreshes. Defaults to false. Not supported for direct-query sources. */
@@ -4578,7 +4787,8 @@ export interface PatchedExternalDataSourceSerializersApi {
      * * `snowflake` - snowflake
      * * `redshift` - redshift
      * * `clickhouse` - clickhouse
-     * * `motherduck` - motherduck */
+     * * `motherduck` - motherduck
+     * * `trino` - trino */
     readonly engine?: EngineEnumApi | null
     /** @nullable */
     readonly last_run_at?: string | null
@@ -4623,7 +4833,7 @@ export interface ExternalDataSourceBulkUpdateSchemaApi {
      * * `webhook` - webhook
      * * `cdc` - cdc
      * * `xmin` - xmin */
-    sync_type?: SyncTypeEnumApi | null
+    sync_type?: ExternalDataSchemaSyncTypeEnumApi | null
     /**
      * Incremental cursor field for incremental or append syncs.
      * @nullable
@@ -4675,6 +4885,14 @@ export interface PatchedExternalDataSourceBulkUpdateSchemasApi {
 }
 
 /**
+ * Response shape for a source's destination set.
+ */
+export interface SourceDestinationsApi {
+    /** Destinations every table on this source syncs to. */
+    destination_ids: string[]
+}
+
+/**
  * * `oauth` - oauth
  * * `credentials` - credentials
  */
@@ -4711,7 +4929,8 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `snowflake` - snowflake
      * * `redshift` - redshift
      * * `clickhouse` - clickhouse
-     * * `motherduck` - motherduck */
+     * * `motherduck` - motherduck
+     * * `trino` - trino */
     readonly engine: EngineEnumApi | null
     /** The source type (e.g. 'Postgres', 'MySQL', 'Snowflake').
      *
@@ -4890,6 +5109,7 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `Ebay` - Ebay
      * * `Commercetools` - Commercetools
      * * `LightspeedRetail` - LightspeedRetail
+     * * `Shipmail` - Shipmail
      * * `ShipStation` - ShipStation
      * * `ConstantContact` - ConstantContact
      * * `Mailgun` - Mailgun
@@ -4902,6 +5122,7 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `Gladly` - Gladly
      * * `Qualtrics` - Qualtrics
      * * `AzureDevOps` - AzureDevOps
+     * * `RoktAds` - RoktAds
      * * `Rollbar` - Rollbar
      * * `Opsgenie` - Opsgenie
      * * `IncidentIo` - IncidentIo
@@ -5004,6 +5225,7 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `Customerly` - Customerly
      * * `Datascope` - Datascope
      * * `Dbt` - Dbt
+     * * `Demodesk` - Demodesk
      * * `Deputy` - Deputy
      * * `DevinAI` - DevinAI
      * * `Docuseal` - Docuseal
@@ -5970,6 +6192,7 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `SideShift` - SideShift
      * * `DuckLake` - DuckLake
      * * `Starburst` - Starburst
+     * * `Trino` - Trino
      * * `Easybill` - Easybill
      * * `Bexio` - Bexio
      * * `Umami` - Umami
@@ -6016,13 +6239,33 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `IronSourceAds` - IronSourceAds
      * * `MicrosoftExcel` - MicrosoftExcel
      * * `Profound` - Profound
-     * * `Airwallex` - Airwallex */
+     * * `Airwallex` - Airwallex
+     * * `Polymarket` - Polymarket
+     * * `Kalshi` - Kalshi
+     * * `Capterra` - Capterra
+     * * `GooglePostmasterTools` - GooglePostmasterTools
+     * * `Growi` - Growi
+     * * `Clarify` - Clarify
+     * * `DatoCMS` - DatoCMS
+     * * `WPSOffice` - WPSOffice
+     * * `TeraBox` - TeraBox
+     * * `SimonData` - SimonData
+     * * `CommissionJunction` - CommissionJunction
+     * * `Liveblocks` - Liveblocks
+     * * `NationBuilder` - NationBuilder
+     * * `Tana` - Tana
+     * * `Zenchef` - Zenchef
+     * * `Lovable` - Lovable
+     * * `Anvil` - Anvil
+     * * `Coolify` - Coolify
+     * * `SocialPilot` - SocialPilot
+     * * `Strato` - Strato */
     readonly source_type: ExternalDataSourceTypeEnumApi
     /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
      *
      * * `warehouse` - warehouse
      * * `direct` - direct */
-    readonly access_method: AccessMethodEnumApi
+    readonly access_method: ExternalDataSourceAccessMethodEnumApi
     /** Whether HogQL queries compile for this connection. When false, only raw SQL (sendRawQuery) works. */
     readonly supports_hogql: boolean
     /** Whether this option is the built-in PostHog managed warehouse connection. */
@@ -6226,6 +6469,7 @@ export interface DatabaseSchemaRequestApi {
      * * `Ebay` - Ebay
      * * `Commercetools` - Commercetools
      * * `LightspeedRetail` - LightspeedRetail
+     * * `Shipmail` - Shipmail
      * * `ShipStation` - ShipStation
      * * `ConstantContact` - ConstantContact
      * * `Mailgun` - Mailgun
@@ -6238,6 +6482,7 @@ export interface DatabaseSchemaRequestApi {
      * * `Gladly` - Gladly
      * * `Qualtrics` - Qualtrics
      * * `AzureDevOps` - AzureDevOps
+     * * `RoktAds` - RoktAds
      * * `Rollbar` - Rollbar
      * * `Opsgenie` - Opsgenie
      * * `IncidentIo` - IncidentIo
@@ -6340,6 +6585,7 @@ export interface DatabaseSchemaRequestApi {
      * * `Customerly` - Customerly
      * * `Datascope` - Datascope
      * * `Dbt` - Dbt
+     * * `Demodesk` - Demodesk
      * * `Deputy` - Deputy
      * * `DevinAI` - DevinAI
      * * `Docuseal` - Docuseal
@@ -7306,6 +7552,7 @@ export interface DatabaseSchemaRequestApi {
      * * `SideShift` - SideShift
      * * `DuckLake` - DuckLake
      * * `Starburst` - Starburst
+     * * `Trino` - Trino
      * * `Easybill` - Easybill
      * * `Bexio` - Bexio
      * * `Umami` - Umami
@@ -7352,7 +7599,27 @@ export interface DatabaseSchemaRequestApi {
      * * `IronSourceAds` - IronSourceAds
      * * `MicrosoftExcel` - MicrosoftExcel
      * * `Profound` - Profound
-     * * `Airwallex` - Airwallex */
+     * * `Airwallex` - Airwallex
+     * * `Polymarket` - Polymarket
+     * * `Kalshi` - Kalshi
+     * * `Capterra` - Capterra
+     * * `GooglePostmasterTools` - GooglePostmasterTools
+     * * `Growi` - Growi
+     * * `Clarify` - Clarify
+     * * `DatoCMS` - DatoCMS
+     * * `WPSOffice` - WPSOffice
+     * * `TeraBox` - TeraBox
+     * * `SimonData` - SimonData
+     * * `CommissionJunction` - CommissionJunction
+     * * `Liveblocks` - Liveblocks
+     * * `NationBuilder` - NationBuilder
+     * * `Tana` - Tana
+     * * `Zenchef` - Zenchef
+     * * `Lovable` - Lovable
+     * * `Anvil` - Anvil
+     * * `Coolify` - Coolify
+     * * `SocialPilot` - SocialPilot
+     * * `Strato` - Strato */
     source_type: ExternalDataSourceTypeEnumApi
 }
 
@@ -7537,6 +7804,7 @@ export interface DirectConnectionSourceOptionApi {
      * * `Ebay` - Ebay
      * * `Commercetools` - Commercetools
      * * `LightspeedRetail` - LightspeedRetail
+     * * `Shipmail` - Shipmail
      * * `ShipStation` - ShipStation
      * * `ConstantContact` - ConstantContact
      * * `Mailgun` - Mailgun
@@ -7549,6 +7817,7 @@ export interface DirectConnectionSourceOptionApi {
      * * `Gladly` - Gladly
      * * `Qualtrics` - Qualtrics
      * * `AzureDevOps` - AzureDevOps
+     * * `RoktAds` - RoktAds
      * * `Rollbar` - Rollbar
      * * `Opsgenie` - Opsgenie
      * * `IncidentIo` - IncidentIo
@@ -7651,6 +7920,7 @@ export interface DirectConnectionSourceOptionApi {
      * * `Customerly` - Customerly
      * * `Datascope` - Datascope
      * * `Dbt` - Dbt
+     * * `Demodesk` - Demodesk
      * * `Deputy` - Deputy
      * * `DevinAI` - DevinAI
      * * `Docuseal` - Docuseal
@@ -8617,6 +8887,7 @@ export interface DirectConnectionSourceOptionApi {
      * * `SideShift` - SideShift
      * * `DuckLake` - DuckLake
      * * `Starburst` - Starburst
+     * * `Trino` - Trino
      * * `Easybill` - Easybill
      * * `Bexio` - Bexio
      * * `Umami` - Umami
@@ -8663,7 +8934,27 @@ export interface DirectConnectionSourceOptionApi {
      * * `IronSourceAds` - IronSourceAds
      * * `MicrosoftExcel` - MicrosoftExcel
      * * `Profound` - Profound
-     * * `Airwallex` - Airwallex */
+     * * `Airwallex` - Airwallex
+     * * `Polymarket` - Polymarket
+     * * `Kalshi` - Kalshi
+     * * `Capterra` - Capterra
+     * * `GooglePostmasterTools` - GooglePostmasterTools
+     * * `Growi` - Growi
+     * * `Clarify` - Clarify
+     * * `DatoCMS` - DatoCMS
+     * * `WPSOffice` - WPSOffice
+     * * `TeraBox` - TeraBox
+     * * `SimonData` - SimonData
+     * * `CommissionJunction` - CommissionJunction
+     * * `Liveblocks` - Liveblocks
+     * * `NationBuilder` - NationBuilder
+     * * `Tana` - Tana
+     * * `Zenchef` - Zenchef
+     * * `Lovable` - Lovable
+     * * `Anvil` - Anvil
+     * * `Coolify` - Coolify
+     * * `SocialPilot` - SocialPilot
+     * * `Strato` - Strato */
     readonly source_type: ExternalDataSourceTypeEnumApi
     /** Human-readable name to show in the picker (falls back to the source type). */
     readonly label: string
@@ -8933,6 +9224,7 @@ export interface SourcePreviewRequestApi {
      * * `Ebay` - Ebay
      * * `Commercetools` - Commercetools
      * * `LightspeedRetail` - LightspeedRetail
+     * * `Shipmail` - Shipmail
      * * `ShipStation` - ShipStation
      * * `ConstantContact` - ConstantContact
      * * `Mailgun` - Mailgun
@@ -8945,6 +9237,7 @@ export interface SourcePreviewRequestApi {
      * * `Gladly` - Gladly
      * * `Qualtrics` - Qualtrics
      * * `AzureDevOps` - AzureDevOps
+     * * `RoktAds` - RoktAds
      * * `Rollbar` - Rollbar
      * * `Opsgenie` - Opsgenie
      * * `IncidentIo` - IncidentIo
@@ -9047,6 +9340,7 @@ export interface SourcePreviewRequestApi {
      * * `Customerly` - Customerly
      * * `Datascope` - Datascope
      * * `Dbt` - Dbt
+     * * `Demodesk` - Demodesk
      * * `Deputy` - Deputy
      * * `DevinAI` - DevinAI
      * * `Docuseal` - Docuseal
@@ -10013,6 +10307,7 @@ export interface SourcePreviewRequestApi {
      * * `SideShift` - SideShift
      * * `DuckLake` - DuckLake
      * * `Starburst` - Starburst
+     * * `Trino` - Trino
      * * `Easybill` - Easybill
      * * `Bexio` - Bexio
      * * `Umami` - Umami
@@ -10059,7 +10354,27 @@ export interface SourcePreviewRequestApi {
      * * `IronSourceAds` - IronSourceAds
      * * `MicrosoftExcel` - MicrosoftExcel
      * * `Profound` - Profound
-     * * `Airwallex` - Airwallex */
+     * * `Airwallex` - Airwallex
+     * * `Polymarket` - Polymarket
+     * * `Kalshi` - Kalshi
+     * * `Capterra` - Capterra
+     * * `GooglePostmasterTools` - GooglePostmasterTools
+     * * `Growi` - Growi
+     * * `Clarify` - Clarify
+     * * `DatoCMS` - DatoCMS
+     * * `WPSOffice` - WPSOffice
+     * * `TeraBox` - TeraBox
+     * * `SimonData` - SimonData
+     * * `CommissionJunction` - CommissionJunction
+     * * `Liveblocks` - Liveblocks
+     * * `NationBuilder` - NationBuilder
+     * * `Tana` - Tana
+     * * `Zenchef` - Zenchef
+     * * `Lovable` - Lovable
+     * * `Anvil` - Anvil
+     * * `Coolify` - Coolify
+     * * `SocialPilot` - SocialPilot
+     * * `Strato` - Strato */
     source_type: ExternalDataSourceTypeEnumApi
     /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
     payload?: SourcePreviewRequestApiPayload
@@ -10279,6 +10594,7 @@ export interface SourceSetupApi {
      * * `Ebay` - Ebay
      * * `Commercetools` - Commercetools
      * * `LightspeedRetail` - LightspeedRetail
+     * * `Shipmail` - Shipmail
      * * `ShipStation` - ShipStation
      * * `ConstantContact` - ConstantContact
      * * `Mailgun` - Mailgun
@@ -10291,6 +10607,7 @@ export interface SourceSetupApi {
      * * `Gladly` - Gladly
      * * `Qualtrics` - Qualtrics
      * * `AzureDevOps` - AzureDevOps
+     * * `RoktAds` - RoktAds
      * * `Rollbar` - Rollbar
      * * `Opsgenie` - Opsgenie
      * * `IncidentIo` - IncidentIo
@@ -10393,6 +10710,7 @@ export interface SourceSetupApi {
      * * `Customerly` - Customerly
      * * `Datascope` - Datascope
      * * `Dbt` - Dbt
+     * * `Demodesk` - Demodesk
      * * `Deputy` - Deputy
      * * `DevinAI` - DevinAI
      * * `Docuseal` - Docuseal
@@ -11359,6 +11677,7 @@ export interface SourceSetupApi {
      * * `SideShift` - SideShift
      * * `DuckLake` - DuckLake
      * * `Starburst` - Starburst
+     * * `Trino` - Trino
      * * `Easybill` - Easybill
      * * `Bexio` - Bexio
      * * `Umami` - Umami
@@ -11405,7 +11724,27 @@ export interface SourceSetupApi {
      * * `IronSourceAds` - IronSourceAds
      * * `MicrosoftExcel` - MicrosoftExcel
      * * `Profound` - Profound
-     * * `Airwallex` - Airwallex */
+     * * `Airwallex` - Airwallex
+     * * `Polymarket` - Polymarket
+     * * `Kalshi` - Kalshi
+     * * `Capterra` - Capterra
+     * * `GooglePostmasterTools` - GooglePostmasterTools
+     * * `Growi` - Growi
+     * * `Clarify` - Clarify
+     * * `DatoCMS` - DatoCMS
+     * * `WPSOffice` - WPSOffice
+     * * `TeraBox` - TeraBox
+     * * `SimonData` - SimonData
+     * * `CommissionJunction` - CommissionJunction
+     * * `Liveblocks` - Liveblocks
+     * * `NationBuilder` - NationBuilder
+     * * `Tana` - Tana
+     * * `Zenchef` - Zenchef
+     * * `Lovable` - Lovable
+     * * `Anvil` - Anvil
+     * * `Coolify` - Coolify
+     * * `SocialPilot` - SocialPilot
+     * * `Strato` - Strato */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
     payload?: SourceSetupApiPayload
@@ -11632,6 +11971,7 @@ export interface SourceCredentialCreateApi {
      * * `Ebay` - Ebay
      * * `Commercetools` - Commercetools
      * * `LightspeedRetail` - LightspeedRetail
+     * * `Shipmail` - Shipmail
      * * `ShipStation` - ShipStation
      * * `ConstantContact` - ConstantContact
      * * `Mailgun` - Mailgun
@@ -11644,6 +11984,7 @@ export interface SourceCredentialCreateApi {
      * * `Gladly` - Gladly
      * * `Qualtrics` - Qualtrics
      * * `AzureDevOps` - AzureDevOps
+     * * `RoktAds` - RoktAds
      * * `Rollbar` - Rollbar
      * * `Opsgenie` - Opsgenie
      * * `IncidentIo` - IncidentIo
@@ -11746,6 +12087,7 @@ export interface SourceCredentialCreateApi {
      * * `Customerly` - Customerly
      * * `Datascope` - Datascope
      * * `Dbt` - Dbt
+     * * `Demodesk` - Demodesk
      * * `Deputy` - Deputy
      * * `DevinAI` - DevinAI
      * * `Docuseal` - Docuseal
@@ -12712,6 +13054,7 @@ export interface SourceCredentialCreateApi {
      * * `SideShift` - SideShift
      * * `DuckLake` - DuckLake
      * * `Starburst` - Starburst
+     * * `Trino` - Trino
      * * `Easybill` - Easybill
      * * `Bexio` - Bexio
      * * `Umami` - Umami
@@ -12758,7 +13101,27 @@ export interface SourceCredentialCreateApi {
      * * `IronSourceAds` - IronSourceAds
      * * `MicrosoftExcel` - MicrosoftExcel
      * * `Profound` - Profound
-     * * `Airwallex` - Airwallex */
+     * * `Airwallex` - Airwallex
+     * * `Polymarket` - Polymarket
+     * * `Kalshi` - Kalshi
+     * * `Capterra` - Capterra
+     * * `GooglePostmasterTools` - GooglePostmasterTools
+     * * `Growi` - Growi
+     * * `Clarify` - Clarify
+     * * `DatoCMS` - DatoCMS
+     * * `WPSOffice` - WPSOffice
+     * * `TeraBox` - TeraBox
+     * * `SimonData` - SimonData
+     * * `CommissionJunction` - CommissionJunction
+     * * `Liveblocks` - Liveblocks
+     * * `NationBuilder` - NationBuilder
+     * * `Tana` - Tana
+     * * `Zenchef` - Zenchef
+     * * `Lovable` - Lovable
+     * * `Anvil` - Anvil
+     * * `Coolify` - Coolify
+     * * `SocialPilot` - SocialPilot
+     * * `Strato` - Strato */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
     payload: SourceCredentialCreateApiPayload
@@ -12813,6 +13176,17 @@ export interface PaginatedWarehouseColumnStatisticsListApi {
     /** @nullable */
     previous?: string | null
     results: WarehouseColumnStatisticsApi[]
+}
+
+export type ExternalDataDestinationsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }
 
 export type ExternalDataSchemasListParams = {

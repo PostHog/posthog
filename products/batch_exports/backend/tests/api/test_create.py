@@ -588,6 +588,18 @@ def test_create_batch_export_with_custom_schema(
             "SELECT coalesce((SELECT uuid FROM events LIMIT 1), uuid) AS foo FROM events",
             "Subqueries in SELECT expressions are not supported",
         ),
+        (
+            "SELECT event, $session_id FROM events",
+            "Batch exports cannot read these fields: $session_id. Supported fields are: created_at, "
+            "distinct_id, elements_chain, event, person_id, person_properties, properties, team_id, "
+            "timestamp, uuid.",
+        ),
+        (
+            "SELECT event, person.created_at FROM events",
+            "Batch exports cannot read these fields: person_created_at. Supported fields are: created_at, "
+            "distinct_id, elements_chain, event, person_id, person_properties, properties, team_id, "
+            "timestamp, uuid.",
+        ),
     ],
 )
 def test_create_batch_export_fails_with_invalid_query(
@@ -793,7 +805,7 @@ def test_creating_batch_export_with_filters(
     ],
 )
 def test_create_redshift_batch_export_fails_with_invalid_host(
-    client: HttpClient, temporal, organization, team, user, host
+    client: HttpClient, temporal, organization, team, user, host, aws_redshift_integration
 ):
     """Test creating a BatchExport with Redshift destination validates inputs for 'COPY'.
 
@@ -804,13 +816,12 @@ def test_create_redshift_batch_export_fails_with_invalid_host(
     destination_data = {
         "type": "Redshift",
         "config": {
-            "user": "user",
-            "password": "my-password",
             "database": "my-db",
             "host": host,
             "schema": "public",
             "table_name": "my_events",
         },
+        "integration": aws_redshift_integration.pk,
     }
 
     batch_export_data = {

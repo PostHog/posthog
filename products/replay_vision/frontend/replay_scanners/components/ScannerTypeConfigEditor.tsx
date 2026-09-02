@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { useCallback } from 'react'
 
 import { IconAI, IconPlus, IconX } from '@posthog/icons'
@@ -174,12 +175,18 @@ function ClassifierTagSuggestions({ scannerId }: { scannerId: string }): JSX.Ele
 function ClassifierTagsField({ scannerId }: { scannerId: string }): JSX.Element {
     const logic = replayScannerLogic({ id: scannerId })
     const { scanner, isNew, goalDraft, tagSuggestionsLoading } = useValues(logic)
-    const { loadTagSuggestions } = useActions(logic)
+    const { loadTagSuggestions, clearClassifierTags } = useActions(logic)
+    const { searchParams } = useValues(router)
 
     const config = scanner?.scanner_config as ClassifierScannerConfig | undefined
     const hasPrompt = !!config?.prompt?.trim()
+    const hasTags = (config?.tags ?? []).length > 0
     // The draft already filled these in, so the offer is more of them, not a first set.
     const categoriesWereDrafted = isNew && !!goalDraft && !!config?.tags?.length
+    // The param only survives on a new scanner whose config a valid template prefilled: the picker
+    // drops it when the blank card is chosen, and loadScanner strips it on load when a goal draft
+    // outranks the template or the key is unknown.
+    const startedFromTemplate = isNew && typeof searchParams.template === 'string'
 
     return (
         <div className="space-y-2">
@@ -188,17 +195,32 @@ function ClassifierTagsField({ scannerId }: { scannerId: string }): JSX.Element 
                 label={
                     <span className="flex w-full flex-wrap items-center justify-between gap-2">
                         Categories
-                        <LemonButton
-                            size="xsmall"
-                            type="secondary"
-                            icon={<IconAI />}
-                            loading={tagSuggestionsLoading}
-                            disabledReason={hasPrompt ? undefined : 'Add a prompt first so suggestions match your goal'}
-                            onClick={() => loadTagSuggestions()}
-                            data-attr="replay-vision-suggest-tags-with-ai"
-                        >
-                            {categoriesWereDrafted ? 'Suggest more categories' : 'Suggest categories with PostHog AI'}
-                        </LemonButton>
+                        <span className="flex flex-wrap items-center gap-1">
+                            <LemonButton
+                                size="xsmall"
+                                type="secondary"
+                                disabledReason={hasTags ? undefined : 'No categories to clear'}
+                                onClick={() => clearClassifierTags()}
+                                data-attr="replay-vision-clear-categories"
+                            >
+                                Clear all
+                            </LemonButton>
+                            <LemonButton
+                                size="xsmall"
+                                type="secondary"
+                                icon={<IconAI />}
+                                loading={tagSuggestionsLoading}
+                                disabledReason={
+                                    hasPrompt ? undefined : 'Add a prompt first so suggestions match your goal'
+                                }
+                                onClick={() => loadTagSuggestions()}
+                                data-attr="replay-vision-suggest-tags-with-ai"
+                            >
+                                {categoriesWereDrafted
+                                    ? 'Suggest more categories'
+                                    : 'Suggest categories with PostHog AI'}
+                            </LemonButton>
+                        </span>
                     </span>
                 }
             >
@@ -213,6 +235,11 @@ function ClassifierTagsField({ scannerId }: { scannerId: string }): JSX.Element 
                     />
                 )}
             </LemonField>
+            <div className="text-xs text-muted">
+                The classifier sorts each session it scans into these categories.
+                {startedFromTemplate &&
+                    " The template's categories are examples. Edit or clear them to fit your product."}
+            </div>
             <ClassifierTagSuggestions scannerId={scannerId} />
         </div>
     )

@@ -5,6 +5,7 @@ import hashlib
 from unittest.mock import MagicMock, patch
 
 from django.test import TestCase, override_settings
+from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework.test import APIClient
@@ -95,13 +96,13 @@ class TestGitHubInstallationReferenceHelpers(TestCase):
     def test_uninstall_app_installation_false_when_not_configured(self):
         self.assertFalse(GitHubIntegration.uninstall_app_installation("12345"))
 
-    @patch("posthog.models.integration.GitHubIntegration.uninstall_app_installation")
+    @patch("posthog.models.integration.github.GitHubIntegration.uninstall_app_installation")
     def test_uninstall_if_last_reference_skips_when_references_remain(self, mock_uninstall):
         self._team_integration()
         self.assertFalse(GitHubIntegration.uninstall_if_last_reference("12345"))
         mock_uninstall.assert_not_called()
 
-    @patch("posthog.models.integration.GitHubIntegration.uninstall_app_installation")
+    @patch("posthog.models.integration.github.GitHubIntegration.uninstall_app_installation")
     def test_uninstall_if_last_reference_uninstalls_when_none_remain(self, mock_uninstall):
         mock_uninstall.return_value = True
         self.assertTrue(GitHubIntegration.uninstall_if_last_reference("12345"))
@@ -202,7 +203,7 @@ class TestGitHubInstallationWebhook(TestCase):
         response = self._post(
             {
                 "action": "created",
-                "installation": {"id": 55555},
+                "installation": {"id": 55555, "account": {"login": "posthog-org", "type": "Organization"}},
                 "requester": {"id": 4242, "login": "octocat-renamed"},
             }
         )
@@ -211,6 +212,8 @@ class TestGitHubInstallationWebhook(TestCase):
         matching.refresh_from_db()
         self.assertEqual(matching.status, GitHubInstallRequest.Status.APPROVED)
         self.assertEqual(matching.installation_id, "55555")
+        self.assertEqual(matching.account_login, "posthog-org")
+        self.assertEqual(matching.account_type, "Organization")
         self.assertIsNotNone(matching.resolved_at)
 
         someone_else.refresh_from_db()
@@ -233,6 +236,39 @@ class TestGitHubInstallationWebhook(TestCase):
         self.assertEqual(response.status_code, 200)
         pending.refresh_from_db()
         self.assertEqual(pending.status, GitHubInstallRequest.Status.PENDING)
+
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    def test_installation_repositories_updates_selection_and_invalidates_caches(self, mock_get_secret):
+        mock_get_secret.return_value = self.webhook_secret
+        team_row = self._team_integration("12345")
+        user_row = self._user_integration("12345")
+        untouched = self._team_integration("67890")
+        for row in (team_row, user_row, untouched):
+            row.config = {**row.config, "repository_selection": "selected"}
+            row.repository_cache_updated_at = timezone.now()
+            row.save()
+
+        response = self._post(
+            {
+                "action": "added",
+                "installation": {"id": 12345},
+                "repository_selection": "all",
+                "repositories_added": [{"full_name": "posthog/posthog"}],
+                "repositories_removed": [],
+            },
+            event_type="installation_repositories",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        team_row.refresh_from_db()
+        user_row.refresh_from_db()
+        untouched.refresh_from_db()
+        self.assertEqual(team_row.config["repository_selection"], "all")
+        self.assertEqual(user_row.config["repository_selection"], "all")
+        self.assertIsNone(team_row.repository_cache_updated_at)
+        self.assertIsNone(user_row.repository_cache_updated_at)
+        self.assertEqual(untouched.config["repository_selection"], "selected")
+        self.assertIsNotNone(untouched.repository_cache_updated_at)
 
     @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
     def test_invalid_signature_returns_403_and_keeps_rows(self, mock_get_secret):

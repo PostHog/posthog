@@ -3,6 +3,7 @@ import express, { type NextFunction, type Request, type Response } from 'express
 import { type Server } from 'node:http'
 
 import { UndecodableImageError } from './blur.ts'
+import { ImageOptOutError } from './image-input.ts'
 import { ScrubMetrics, register } from './metrics.ts'
 import { ScrubAbandonedError } from './pool.ts'
 
@@ -74,8 +75,8 @@ export function startServer(
 
     app.post('/scrub', shedIfBusy, express.raw({ type: () => true, limit: maxBodyBytes }), (req, res, next) => {
         const body = req.body
-        if (!Buffer.isBuffer(body)) {
-            next(new UndecodableImageError('request body is not image bytes'))
+        if (!Buffer.isBuffer(body) || body.length === 0) {
+            next(new UndecodableImageError('invalid_body', 'request body is not image bytes'))
             return
         }
         res.locals.scrubStarted = true
@@ -122,8 +123,13 @@ export function startServer(
             return
         }
         if (err instanceof UndecodableImageError) {
-            ScrubMetrics.incUndecodable()
+            ScrubMetrics.incUndecodable(err.reason)
             res.status(422).send('undecodable image')
+            return
+        }
+        if (err instanceof ImageOptOutError) {
+            ScrubMetrics.incOptedOut()
+            res.status(422).send('image metadata prohibits AI training')
             return
         }
         ScrubMetrics.incFailed()

@@ -1,4 +1,5 @@
 from django.db import models
+from django.utils.functional import Promise
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDModel
@@ -151,6 +152,11 @@ class ReviewReport(UUIDModel, TeamScopedRootMixin):
         ]
 
 
+def review_report_artefact_type_choices() -> list[tuple[str, str | Promise]]:
+    # Callable so growing the enum doesn't generate a no-op migration.
+    return list(ReviewReportArtefact.ArtefactType.choices)
+
+
 class ReviewReportArtefact(UUIDModel, TeamScopedRootMixin):
     """Append-only work log for a `ReviewReport`.
 
@@ -200,7 +206,7 @@ class ReviewReportArtefact(UUIDModel, TeamScopedRootMixin):
     # db_constraint=False keeps the migration lock-free on hot posthog_team.
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
     report = models.ForeignKey(ReviewReport, on_delete=models.CASCADE, related_name="artefacts")
-    type = models.CharField(max_length=100, choices=ArtefactType)
+    type = models.CharField(max_length=100, choices=review_report_artefact_type_choices)
     content = models.TextField()
     # Turn scope, denormalized from content.head_sha so resume loaders can filter in SQL instead of
     # parsing every historical row. Null when the content model carries no head_sha.

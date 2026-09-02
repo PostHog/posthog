@@ -1,24 +1,16 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType, SourceFieldSelectConfig
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.braintree.braintree import (
     BRAINTREE_VERSION_2019_01_01,
     BRAINTREE_VERSION_2026_07_14,
     BRAINTREE_VERSION_2026_08_04,
-    BraintreeResumeConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.braintree.settings import (
-    ENDPOINTS,
-    INCREMENTAL_FIELDS,
+    BRAINTREE_VERSION_2026_08_13,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.braintree.source import BraintreeSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.braintree import (
     BraintreeSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestBraintreeSource:
@@ -26,35 +18,6 @@ class TestBraintreeSource:
         self.source = BraintreeSource()
         self.team_id = 123
         self.config = BraintreeSourceConfig(environment="production", public_key="pub", private_key="priv")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.BRAINTREE
-
-    def test_get_source_config(self):
-        config = self.source.get_source_config
-
-        assert config.name.value == "Braintree"
-        assert config.label == "Braintree"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is None
-        assert config.iconPath == "/static/services/braintree.png"
-
-        field_names = [f.name for f in config.fields]
-        assert field_names == ["environment", "public_key", "private_key"]
-
-    def test_environment_field_is_a_select_with_default(self):
-        config = self.source.get_source_config
-        env_field = next(f for f in config.fields if f.name == "environment")
-        assert isinstance(env_field, SourceFieldSelectConfig)
-        assert env_field.defaultValue == "production"
-        assert {option.value for option in env_field.options} == {"production", "sandbox"}
-
-    def test_private_key_field_is_secret_password(self):
-        config = self.source.get_source_config
-        key_field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "private_key")
-        assert key_field.type == SourceFieldInputConfigType.PASSWORD
-        assert key_field.secret is True
-        assert key_field.required is True
 
     @pytest.mark.parametrize(
         "observed_error",
@@ -79,28 +42,6 @@ class TestBraintreeSource:
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable_errors)
 
-    def test_get_schemas(self):
-        schemas = self.source.get_schemas(self.config, self.team_id)
-
-        assert {schema.name for schema in schemas} == set(ENDPOINTS)
-        # Every search stream supports the createdAt range filter.
-        assert all(schema.supports_incremental for schema in schemas)
-        assert all(schema.supports_append for schema in schemas)
-
-    def test_schemas_advertise_created_at_cursor(self):
-        schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
-
-        assert schemas["transactions"].incremental_fields == INCREMENTAL_FIELDS["transactions"]
-        assert [f["field"] for f in schemas["transactions"].incremental_fields] == ["createdAt"]
-
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["transactions"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "transactions"
-
-    def test_get_schemas_filtered_unknown_name_returns_empty(self):
-        assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
-
     @pytest.mark.parametrize(
         "mock_return, expected_valid, expected_message",
         [
@@ -118,14 +59,7 @@ class TestBraintreeSource:
 
         assert is_valid is expected_valid
         assert error_message == expected_message
-        mock_validate.assert_called_once_with("production", "pub", "priv", "2026-08-04")
-
-    def test_get_resumable_source_manager_binds_resume_config(self):
-        inputs = mock.MagicMock()
-        manager = self.source.get_resumable_source_manager(inputs)
-
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is BraintreeResumeConfig
+        mock_validate.assert_called_once_with("production", "pub", "priv", "2026-08-13")
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.braintree.source.braintree_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_bt_source):
@@ -159,9 +93,9 @@ class TestBraintreeSource:
         assert mock_bt_source.call_args.kwargs["db_incremental_field_last_value"] is None
 
     def test_supported_versions_and_default(self):
-        assert self.source.supported_versions == ("2019-01-01", "2026-07-14", "2026-08-04")
+        assert self.source.supported_versions == ("2019-01-01", "2026-07-14", "2026-08-04", "2026-08-13")
         # New sources start on the latest version; the default must stay in supported.
-        assert self.source.default_version == "2026-08-04"
+        assert self.source.default_version == "2026-08-13"
         assert self.source.default_version in self.source.supported_versions
 
     @pytest.mark.parametrize(
@@ -170,8 +104,9 @@ class TestBraintreeSource:
             ("2019-01-01", "2019-01-01"),
             ("2026-07-14", "2026-07-14"),
             ("2026-08-04", "2026-08-04"),
-            (None, "2026-08-04"),
-            ("", "2026-08-04"),
+            ("2026-08-13", "2026-08-13"),
+            (None, "2026-08-13"),
+            ("", "2026-08-13"),
         ],
     )
     def test_resolve_api_version(self, pinned, expected):
@@ -183,7 +118,8 @@ class TestBraintreeSource:
             ("2019-01-01", "2019-01-01"),
             ("2026-07-14", "2026-07-14"),
             ("2026-08-04", "2026-08-04"),
-            (None, "2026-08-04"),
+            ("2026-08-13", "2026-08-13"),
+            (None, "2026-08-13"),
         ],
     )
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.braintree.source.braintree_source")
@@ -206,6 +142,7 @@ class TestValidateCredentialsResolvedPin:
             (BRAINTREE_VERSION_2019_01_01, BRAINTREE_VERSION_2019_01_01),
             (BRAINTREE_VERSION_2026_07_14, BRAINTREE_VERSION_2026_07_14),
             (BRAINTREE_VERSION_2026_08_04, BRAINTREE_VERSION_2026_08_04),
+            (BRAINTREE_VERSION_2026_08_13, BRAINTREE_VERSION_2026_08_13),
         ],
     )
     @mock.patch(

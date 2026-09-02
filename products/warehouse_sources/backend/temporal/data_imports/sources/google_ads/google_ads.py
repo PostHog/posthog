@@ -48,6 +48,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads
     GoogleAdsResumeConfig,
     GoogleAdsSourceConfigUnion,
     clean_customer_id,
+    parse_start_date,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.schemas import (
     FIELD_ALIASES,
@@ -527,6 +528,54 @@ def _incremental_value_as_date(value: dt.date | dt.datetime | str) -> dt.date:
     return dateutil_parser.parse(value).date()
 
 
+def _resolve_start(
+    requested_start: str | None,
+    history_start: typing.Any,
+    service: "GoogleAdsSearchService",
+    customer_id: str | None,
+    table: "GoogleAdsTable",
+    incremental_field: str,
+) -> tuple[dt.date, str]:
+    """Where a run with no cursor begins, and which of the three answers it came from.
+
+    A stated start date wins over the range the schema recorded: it is the only one of the two
+    anybody chose, and it wins in both directions, so a source can narrow its range as well as widen
+    it. Neither is a first sync versus a re-import question — both land here and read the same
+    answer, which is what stops the two diverging on which button was pressed.
+    """
+    if requested_start:
+        try:
+            requested = parse_start_date(requested_start)
+        except ValueError:
+            # Validation rejects an unreadable value, so reaching here means one stored before that
+            # check existed. Fall through to the recorded range rather than fail the sync -- the
+            # range this source would have had without the field. Truncated in the log because the
+            # field has no length limit of its own and this runs once per schema per run.
+            logger.warning("google_ads.unparseable_start_date", start_date=requested_start[:32])
+        else:
+            # Clamped to the span that can hold rows. Below the account's first day the walk spends
+            # a request per empty week, and since only a window past the cursor counts as progress,
+            # the drain budget cannot end a run that never reaches data. Past today it leaves
+            # `start` beyond the loop's end, so every run imports nothing and reports that as the
+            # answer.
+            earliest = _earliest_date_with_data(service, customer_id, table, incremental_field)
+            today = dt.date.today()
+            resolved = min(max(requested, earliest), today) if earliest is not None else today
+            if resolved != requested:
+                # The range imported is then not the one the source states, so leave a trace.
+                logger.warning(
+                    "google_ads.clamped_start_date", requested=requested.isoformat(), resolved=resolved.isoformat()
+                )
+            return resolved, "stated"
+
+    if history_start is not None:
+        return _incremental_value_as_date(history_start), "recorded"
+
+    # Neither: unbounded, which this drain reaches by asking the account rather than walking to it.
+    # An account holding nothing has no range to walk.
+    return _earliest_date_with_data(service, customer_id, table, incremental_field) or dt.date.today(), "probe"
+
+
 def google_ads_source(
     config: GoogleAdsSourceConfigUnion,
     resource_name: str,
@@ -539,6 +588,7 @@ def google_ads_source(
     incremental_field_type: IncrementalFieldType | None = None,
     db_incremental_field_last_value_before_lookback: typing.Any = None,
     history_start: typing.Any = None,
+    requested_start: str | None = None,
 ) -> SourceResponse:
     """A data warehouse Google Ads source.
 
@@ -558,7 +608,12 @@ def google_ads_source(
     # incremental pipeline persists a cursor between runs, and the bounded windowed drain below is
     # only sound when it does.
     pipeline_is_incremental = should_use_incremental_field
-    if table.requires_filter and not should_use_incremental_field:
+    # Report tables can only ever be windowed by segments.date, so force it here — both when a
+    # full-refresh schema reaches the incremental path, and when a schema flagged incremental
+    # arrives without an incremental field (a config that would otherwise crash the drain below).
+    if table.requires_filter and (
+        not should_use_incremental_field or incremental_field is None or incremental_field_type is None
+    ):
         should_use_incremental_field = True
         incremental_field = "segments.date"
         incremental_field_type = IncrementalFieldType.Date
@@ -610,6 +665,10 @@ def google_ads_source(
         # runs, take this path.
         if pipeline_is_incremental and table.requires_filter and incremental_field_type == IncrementalFieldType.Date:
             if db_incremental_field_last_value is not None:
+                # A stated start date is deliberately not read here: the cursor is where this table
+                # got to, and reading anything older would re-import a range it already holds on
+                # every run. Stating an earlier date therefore takes effect on the next re-import,
+                # which is what the field's caption says.
                 start = _incremental_value_as_date(db_incremental_field_last_value)
                 # The cursor arrives shifted back by the schema's lookback, so the windows up to the
                 # cursor itself re-read rows the table already has. They don't count as progress.
@@ -619,19 +678,15 @@ def google_ads_source(
                     else start
                 )
             else:
-                # A first sync and a re-import both land here and read the same recorded range, so
-                # the two stop needing to be told apart. No range means unbounded, which this drain
-                # reaches by asking the account rather than walking to it.
-                if history_start is not None:
-                    start = _incremental_value_as_date(history_start)
-                else:
-                    start = _earliest_date_with_data(service, customer_id, table, incremental_field) or dt.date.today()
+                start, resolved_from = _resolve_start(
+                    requested_start, history_start, service, customer_id, table, incremental_field
+                )
                 cursor_before_lookback = start
                 logger.info(
                     "google_ads.history_start_used",
                     resource=table.name,
                     start=start.isoformat(),
-                    bounded=history_start is not None,
+                    resolved_from=resolved_from,
                 )
 
             # Exclusive upper bound of today+1 keeps today in range, matching the open-ended scan.

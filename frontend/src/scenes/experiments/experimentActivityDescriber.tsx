@@ -6,6 +6,8 @@ import { LemonCard } from 'lib/lemon-ui/LemonCard'
 
 import { ExperimentStatus } from '~/types'
 
+import { StatusTag } from 'products/experiments/frontend/components/StatusTag'
+
 import {
     getExperimentChangeDescription,
     getHoldoutChangeDescription,
@@ -13,7 +15,6 @@ import {
     nameOrLinkToExperiment,
     nameOrLinkToSharedMetric,
 } from './activity-descriptions'
-import { StatusTag } from './ExperimentView/StatusTag'
 
 //exporting so the linter doesn't complain about this not being used
 export const ExperimentDetails = ({
@@ -260,6 +261,28 @@ export const experimentActivityDescriber = (logItem: ActivityLogItem): Humanized
                     <SentenceList
                         prefix={<strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>}
                         listParts={['restored experiment:']}
+                        suffix={nameOrLinkToExperiment(detail.name, item_id)}
+                    />
+                ),
+            }
+        })
+        .with({ activity: 'paused' }, ({ item_id, detail }) => {
+            return {
+                description: (
+                    <SentenceList
+                        prefix={<strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>}
+                        listParts={['paused experiment:']}
+                        suffix={nameOrLinkToExperiment(detail.name, item_id)}
+                    />
+                ),
+            }
+        })
+        .with({ activity: 'resumed' }, ({ item_id, detail }) => {
+            return {
+                description: (
+                    <SentenceList
+                        prefix={<strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>}
+                        listParts={['resumed experiment:']}
                         suffix={nameOrLinkToExperiment(detail.name, item_id)}
                     />
                 ),

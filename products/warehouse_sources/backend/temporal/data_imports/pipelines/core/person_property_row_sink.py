@@ -11,6 +11,7 @@ from pyarrow.parquet import write_table
 from structlog.types import FilteringBoundLogger
 
 from posthog.sync import database_sync_to_async_pool
+from posthog.temporal.common.utils import aretry_on_db_connection_drop
 
 from products.data_warehouse.backend.facade.api import aget_s3_client, ensure_bucket_exists
 from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import (
@@ -105,10 +106,16 @@ class PersonPropertyRowSink:
 
     async def _get_projection(self) -> list[PersonPropertySourceProjection] | None:
         """One projection per enabled person source on the binding (key + mapped columns), or None
-        when nothing needs staging. Resolved once per run."""
+        when nothing needs staging. Resolved once per run.
+
+        The resolver reads the app DB (team scoping, enabled profile sources), so a long-lived
+        worker's pooled connection can have gone stale (pooler recycle, failover, deploy) since it
+        was last used. Retry once on a fresh connection rather than let that escape as
+        error-tracking noise, or as a silently skipped person-property sync for the run.
+        """
         if not self._projection_resolved:
-            self._projection = await database_sync_to_async_pool(person_property_projection_for)(
-                self.team_id, self.binding
+            self._projection = await aretry_on_db_connection_drop(
+                lambda: database_sync_to_async_pool(person_property_projection_for)(self.team_id, self.binding)
             )
             self._projection_resolved = True
         return self._projection
@@ -159,14 +166,23 @@ class PersonPropertyRowSink:
         wiping it would lose that sync's delta. Only prefixes older than
         ``ABANDONED_STAGED_PREFIX_TTL`` are swept, as the backstop against a consumer that never
         ran.
+
+        The two clears are independent backstops, so a failure in one (e.g. a permissions error
+        deleting the own prefix) must not skip the other — the sweep always runs, and any
+        own-prefix error is re-raised only afterward.
         """
         async with aget_s3_client() as s3_client:
+            own_prefix_error: Exception | None = None
             if not self._is_incremental:
                 try:
                     await s3_client._rm(f"s3://{self._get_path_prefix()}/", recursive=True)
                 except FileNotFoundError:
                     pass
+                except Exception as e:
+                    own_prefix_error = e
             await self._sweep_abandoned_sibling_prefixes(s3_client)
+            if own_prefix_error is not None:
+                raise own_prefix_error
 
     async def _sweep_abandoned_sibling_prefixes(self, s3_client: Any) -> None:
         try:

@@ -6,6 +6,11 @@ from temporalio.common import Priority
 APPLY_SCANNER_WORKFLOW_NAME = "replay-vision-apply-scanner"
 SWEEP_SCANNER_WORKFLOW_NAME = "replay-vision-sweep-scanner"
 
+# How long a cached admission budget admits without re-running the spend aggregates. Spend the
+# cache misses (settling receipts, evaluation reservations, failed-observation refunds) stays wrong
+# by at most one TTL, and the admission counter itself never goes stale.
+ADMISSION_BUDGET_TTL = dt.timedelta(seconds=15)
+
 # Shared by the sweep's children and the on-demand /observe/ trigger; the orphan cutoff below leans on it.
 # Must exceed the worst-case failure chain in `workflow.py`, where every phase spends its full schedule_to_close
 # budget before the terminal mark runs: create 3m + mark running 3m + fetch 5m + rasterize 40m + upload 20m +
@@ -30,9 +35,8 @@ def on_demand_priority(team_id: int) -> Priority:
 OBSERVATION_ORPHAN_CUTOFF = APPLY_SCANNER_EXECUTION_TIMEOUT + dt.timedelta(minutes=30)
 # Bounds one reaper pass; a backlog beyond this drains across subsequent reconciler ticks.
 REAP_ORPHANED_OBSERVATIONS_BATCH_SIZE = 500
-REAP_ORPHANED_OBSERVATIONS_TIMEOUT = dt.timedelta(minutes=3)
-# The reaper heartbeats between phases; a pass that goes quiet this long is stalled, not slow.
-REAP_ORPHANED_OBSERVATIONS_HEARTBEAT_TIMEOUT = dt.timedelta(seconds=60)
+# The reaper heartbeats as it works, so an attempt quiet this long is stranded or stalled, not slow.
+REAP_ORPHANED_OBSERVATIONS_HEARTBEAT_TIMEOUT = dt.timedelta(seconds=30)
 
 # Per-action vision-action child, fire-and-forgot by the sweep. Name + timeout live here (not in the
 # workflow-def module) so the sweep can start it without cross-importing another @wf.defn module.
@@ -43,13 +47,11 @@ PROCESS_VISION_ACTION_EXECUTION_TIMEOUT = dt.timedelta(hours=1)
 # update activity failed or the workflow was terminated without reaching it).
 VISION_ACTION_RUN_STUCK_CUTOFF = PROCESS_VISION_ACTION_EXECUTION_TIMEOUT * 2
 REAP_STUCK_VISION_ACTION_RUNS_BATCH_SIZE = 500
-REAP_STUCK_VISION_ACTION_RUNS_TIMEOUT = dt.timedelta(minutes=3)
 
 # An inline scanner is minted just before its scans start, so anything still childless well after a
 # scan could have persisted its first observation never had one.
 INLINE_SCANNER_REAP_GRACE = APPLY_SCANNER_EXECUTION_TIMEOUT + dt.timedelta(minutes=30)
 INLINE_SCANNER_REAP_BATCH_SIZE = 500
-INLINE_SCANNER_REAP_TIMEOUT = dt.timedelta(minutes=3)
 
 
 def build_process_vision_action_workflow_id(vision_action_id: UUID) -> str:
@@ -84,6 +86,12 @@ DEEP_SPEND_WINDOW_DAYS = 8
 # would double the per-scanner ceiling this throttling exists to hold.
 DEEP_SWEEP_READ_BUDGET_BYTES_PER_DAY = 100 * 1024**3
 
+# One-off priming pass for a scanner that has never been swept: a few recent recordings scanned on
+# the first sweep tick, so the scanner has observations to show without waiting for new sessions.
+PRIMING_LOOKBACK = dt.timedelta(hours=24)
+PRIMING_SCAN_SESSIONS = 3
+PRIMING_MAX_EXECUTION_SECONDS = 30
+
 # Rolling 24h ClickHouse read budget per scanner. Above it, sweeps stretch their effective cadence
 # proportionally (skipped ticks batch into the next executed one, so no sessions are missed).
 # Sized an order of magnitude above the healthy post-optimization p95 so only pathological
@@ -96,12 +104,9 @@ READ_METER_WORKFLOW_NAME = "replay-vision-meter-scanner-reads"
 READ_METER_WORKFLOW_ID = "replay-vision-scanner-read-meter"
 READ_METER_SCHEDULE_ID = "replay-vision-scanner-read-meter-schedule"
 READ_METER_INTERVAL = dt.timedelta(hours=1)
-# Must cover the metering activity's retries plus the auto-materialize pass, or a slow metering run
-# eats the day's only acting window. Overlap policy is SKIP, so a long run absorbs the next tick.
+# Must cover the metering activity's retries. Overlap policy is SKIP, so a long run absorbs the next tick.
 READ_METER_EXECUTION_TIMEOUT = dt.timedelta(minutes=20)
 METER_SCANNER_READS_TIMEOUT = dt.timedelta(minutes=5)
-# Covers the ON CLUSTER ADD COLUMN round when the auto-materializer acts; candidate scans are seconds.
-AUTO_MATERIALIZE_TIMEOUT = dt.timedelta(minutes=4)
 
 # Children are ABANDONed and don't count against this budget, but activities do: this must cover the
 # prompt-suggestion refresh worst case plus the candidate scan, or a slow refresh kills the whole sweep.
@@ -139,6 +144,20 @@ RECONCILER_EXECUTION_TIMEOUT = dt.timedelta(minutes=5)
 LIST_ENABLED_SCANNERS_TIMEOUT = dt.timedelta(seconds=60)
 LIST_SCANNER_SCHEDULES_TIMEOUT = dt.timedelta(seconds=120)
 RECONCILE_SCHEDULE_OP_TIMEOUT = dt.timedelta(seconds=60)
+
+# Short attempts so one stranded on a dying worker reruns on a live one instead of holding the tick.
+REAPER_OP_TIMEOUT = dt.timedelta(seconds=45)
+REAPER_OP_SCHEDULE_TO_CLOSE = dt.timedelta(minutes=2)
+REAPER_MAX_ATTEMPTS = 3
+
+# The backfill reaper pages through every backfill schedule and only applies fixes at the end, so a
+# healthy pass needs minutes; per-page heartbeats catch a dead worker instead of a short attempt cap.
+REAP_BACKFILL_SCHEDULES_TIMEOUT = dt.timedelta(minutes=3)
+REAP_BACKFILL_SCHEDULES_SCHEDULE_TO_CLOSE = dt.timedelta(minutes=4)
+REAP_BACKFILL_SCHEDULES_HEARTBEAT_TIMEOUT = dt.timedelta(seconds=30)
+
+# Priority 1 so a saturated sweep/backfill backlog cannot queue the tick past its execution timeout.
+RECONCILER_ACTIVITY_PRIORITY = Priority(priority_key=1, fairness_key="replay-vision-scanner-reconciler")
 
 
 # Bounded so broker errors surface as activity failures instead of getting lost in the producer buffer.
@@ -197,7 +216,6 @@ PREPARE_BACKFILL_TICK_TIMEOUT = dt.timedelta(seconds=30)
 FIND_BACKFILL_CANDIDATES_TIMEOUT = dt.timedelta(seconds=200)
 ADVANCE_BACKFILL_CURSOR_TIMEOUT = dt.timedelta(seconds=30)
 BACKFILL_SCHEDULE_OP_TIMEOUT = dt.timedelta(seconds=60)
-REAP_BACKFILL_SCHEDULES_TIMEOUT = dt.timedelta(minutes=3)
 
 # A backfill's dispatches count toward the shared per-scanner/per-team caps but never fill more than
 # this many slots, so live sweeps always retain rasterizer + provider capacity.

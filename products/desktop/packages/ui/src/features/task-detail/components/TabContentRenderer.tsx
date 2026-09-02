@@ -7,6 +7,7 @@ import {
 } from "../../code-review/components/LazyReviewPages";
 import type { Tab } from "../../panels/panelTypes";
 import { PiSessionView } from "../../pi-sessions/PiSessionView";
+import { PostHogObjectPage } from "../../posthog-objects/PostHogObjectPage";
 import { ArtifactPreview } from "../../sessions/components/ArtifactPreview";
 import { useIsCloudTask } from "../../workspace/useWorkspace";
 import { ActionPanel } from "./ActionPanel";
@@ -89,6 +90,17 @@ export function TabContentRenderer({
           runId={data.runId}
           artifactId={data.artifactId}
           name={tab.label}
+        />
+      );
+
+    case "posthog-object":
+      return (
+        <PostHogObjectPage
+          metadata={{
+            object_kind: data.objectKind,
+            object_id: data.objectId,
+          }}
+          fallbackName={tab.label}
         />
       );
 

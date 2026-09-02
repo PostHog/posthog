@@ -27,8 +27,8 @@ if [[ -n "$CHAIN_VERSION" ]]; then
 
   rm -rf "$CHAIN_FEED_DIR"
   mkdir -p "$CHAIN_FEED_DIR"
-  cp "out/PostHog-Code-${CHAIN_VERSION}-arm64-mac.zip" "$CHAIN_FEED_DIR/"
-  cp "out/PostHog-Code-${CHAIN_VERSION}-arm64-mac.zip.blockmap" "$CHAIN_FEED_DIR/"
+  cp "out/PostHog-Desktop-${CHAIN_VERSION}-arm64-mac.zip" "$CHAIN_FEED_DIR/"
+  cp "out/PostHog-Desktop-${CHAIN_VERSION}-arm64-mac.zip.blockmap" "$CHAIN_FEED_DIR/"
   cp "out/latest-mac.yml" "$CHAIN_FEED_DIR/"
 fi
 
@@ -38,8 +38,8 @@ pnpm exec electron-builder build --mac zip --arm64 --publish never \
 
 rm -rf "$FEED_DIR"
 mkdir -p "$FEED_DIR"
-cp "out/PostHog-Code-${NEW_VERSION}-arm64-mac.zip" "$FEED_DIR/"
-cp "out/PostHog-Code-${NEW_VERSION}-arm64-mac.zip.blockmap" "$FEED_DIR/"
+cp "out/PostHog-Desktop-${NEW_VERSION}-arm64-mac.zip" "$FEED_DIR/"
+cp "out/PostHog-Desktop-${NEW_VERSION}-arm64-mac.zip.blockmap" "$FEED_DIR/"
 cp "out/latest-mac.yml" "$FEED_DIR/"
 
 echo "==> build OLD $OLD_VERSION (runnable app left in out/mac-arm64)"

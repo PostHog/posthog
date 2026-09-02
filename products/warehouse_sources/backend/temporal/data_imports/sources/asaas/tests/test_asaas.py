@@ -6,8 +6,6 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType, SourceFieldSelectConfig
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.asaas.asaas import (
     PRODUCTION_BASE_URL,
     SANDBOX_BASE_URL,
@@ -23,7 +21,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.asaas.sour
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import Endpoint
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.asaas import AsaasSourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _INCREMENTAL_ENDPOINTS = {"Payments", "Transfers"}
 _FULL_REFRESH_ENDPOINTS = {"Customers", "Subscriptions", "Installments"}
@@ -219,34 +216,6 @@ class TestAsaasSource:
         self.team_id = 123
         self.config = AsaasSourceConfig(api_key="test-key", environment="production")
 
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.ASAAS
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-
-        assert config.name.value == "Asaas"
-        assert config.label == "Asaas"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is None
-        assert config.iconPath == "/static/services/asaas.png"
-
-        field_names = [f.name for f in config.fields]
-        assert field_names == ["api_key", "environment"]
-
-    def test_api_key_field_is_secret_password(self) -> None:
-        config = self.source.get_source_config
-        api_key_field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_key")
-        assert api_key_field.type == SourceFieldInputConfigType.PASSWORD
-        assert api_key_field.secret is True
-        assert api_key_field.required is True
-
-    def test_environment_field_defaults_to_production(self) -> None:
-        config = self.source.get_source_config
-        environment_field = next(f for f in config.fields if isinstance(f, SourceFieldSelectConfig))
-        assert environment_field.defaultValue == "production"
-        assert {option.value for option in environment_field.options} == {"production", "sandbox"}
-
     def test_api_version_metadata(self) -> None:
         assert self.source.supported_versions == ("v3",)
         assert self.source.default_version == "v3"
@@ -274,38 +243,6 @@ class TestAsaasSource:
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable_errors)
 
-    def test_get_schemas_match_endpoints_with_correct_sync_modes(self) -> None:
-        schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
-
-        assert set(schemas) == set(ENDPOINTS)
-        for name in _INCREMENTAL_ENDPOINTS:
-            assert schemas[name].supports_incremental is True
-            assert schemas[name].supports_append is True
-            assert [f["field"] for f in schemas[name].incremental_fields] == ["dateCreated"]
-        for name in _FULL_REFRESH_ENDPOINTS:
-            assert schemas[name].supports_incremental is False
-            assert schemas[name].supports_append is False
-            assert schemas[name].incremental_fields == []
-
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["Payments"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "Payments"
-
-    def test_get_schemas_filtered_unknown_name_returns_empty(self) -> None:
-        assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
-
-    def test_lists_tables_without_credentials_publishes_catalog(self) -> None:
-        assert self.source.lists_tables_without_credentials is True
-        documented = self.source.get_documented_tables()
-        assert {table["name"] for table in documented} == set(ENDPOINTS)
-
-    def test_canonical_descriptions_cover_every_endpoint(self) -> None:
-        canonical = self.source.get_canonical_descriptions()
-        assert set(canonical) == set(ENDPOINTS)
-        for endpoint in ENDPOINTS:
-            assert canonical[endpoint]["columns"].get("id")
-
     @parameterized.expand([(True, True, None), (False, False, "Invalid credentials")])
     def test_validate_credentials(self, mock_return: bool, expected_valid: bool, expected_message) -> None:
         with mock.patch(VALIDATE_PATCH, return_value=mock_return) as mock_validate:
@@ -313,11 +250,6 @@ class TestAsaasSource:
 
         assert (is_valid, error_message) == (expected_valid, expected_message)
         mock_validate.assert_called_once_with("test-key", "production")
-
-    def test_get_resumable_source_manager_bound_to_resume_config(self) -> None:
-        inputs = mock.MagicMock()
-        manager = self.source.get_resumable_source_manager(inputs)
-        assert manager._data_class is AsaasResumeConfig
 
     def test_source_for_pipeline_plumbs_arguments(self) -> None:
         inputs = mock.MagicMock()

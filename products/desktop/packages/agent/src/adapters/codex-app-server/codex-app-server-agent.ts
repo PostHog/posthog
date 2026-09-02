@@ -33,7 +33,12 @@ import {
   type NativeGoalState,
   POSTHOG_METHODS,
   POSTHOG_NOTIFICATIONS,
+  steerDeclined,
 } from "../../acp-extensions";
+import {
+  buildContextWikiInstructions,
+  resolveContextWikiPath,
+} from "../../context-wiki";
 import type { ModelInfo } from "../../gateway-models";
 import { DEFAULT_CODEX_MODEL } from "../../gateway-models";
 import {
@@ -42,7 +47,7 @@ import {
   matchesPostHogExecPermission,
   resolvePostHogExecPermissionRegex,
 } from "../../posthog-exec-permission";
-import type { ProcessSpawnedCallback } from "../../types";
+import type { ContextWikiEnv, ProcessSpawnedCallback } from "../../types";
 import { ALLOW_BYPASS } from "../../utils/common";
 import { Logger } from "../../utils/logger";
 import {
@@ -85,6 +90,7 @@ import {
   APP_SERVER_METHODS,
   APP_SERVER_NOTIFICATIONS,
   APP_SERVER_REQUESTS,
+  CODEX_CLIENT_INFO,
 } from "./protocol";
 import {
   type CodexSandboxPolicy,
@@ -100,6 +106,56 @@ import { parseStructuredOutput } from "./structured-output";
 import { TurnController } from "./turn-controller";
 import { mergeUsage, UsageTracker } from "./usage-tracker";
 
+const ACP_INTERNAL_ERROR_CODE = -32603;
+const CYBER_POLICY_ERROR_MESSAGE =
+  "This request was blocked because it may pose a cybersecurity risk. Revise the request and try again.";
+const POLICY_ERROR_MESSAGE =
+  "This request was blocked by a safety policy. Revise the request and try again.";
+const GENERIC_FATAL_ERROR_MESSAGE =
+  "The agent stopped before completing this request. Please try again.";
+
+type ApprovalRequestDetail = {
+  itemId?: string;
+  command?: string;
+  changes?: AppServerItem["changes"];
+  availableDecisions?: unknown[];
+  reason?: string | null;
+  grantRoot?: string | null;
+  networkApprovalContext?: unknown;
+  additionalPermissions?: unknown;
+  proposedNetworkPolicyAmendments?: unknown[] | null;
+};
+
+export function shouldAutoAcceptLocalApproval(input: {
+  environment?: "local" | "cloud";
+  mode: string;
+  sandboxPolicy?: CodexSandboxPolicy;
+  method: string;
+  detail: ApprovalRequestDetail;
+  hasMcpToolCall: boolean;
+}): boolean {
+  if (
+    input.environment !== "local" ||
+    input.mode !== "auto" ||
+    input.sandboxPolicy?.type !== "workspaceWrite" ||
+    input.hasMcpToolCall ||
+    input.detail.reason
+  ) {
+    return false;
+  }
+  if (input.method === APP_SERVER_REQUESTS.FILE_CHANGE_APPROVAL) {
+    return !input.detail.grantRoot;
+  }
+  if (input.method !== APP_SERVER_REQUESTS.COMMAND_APPROVAL) {
+    return false;
+  }
+  return (
+    input.detail.networkApprovalContext == null &&
+    input.detail.additionalPermissions == null &&
+    !input.detail.proposedNetworkPolicyAmendments?.length
+  );
+}
+
 type AppServerSessionMeta = {
   // The host sends either a plain string or the Claude-style `{ append }` form.
   systemPrompt?: string | { append?: string };
@@ -109,9 +165,12 @@ type AppServerSessionMeta = {
   taskId?: string;
   persistence?: { taskId?: string };
   environment?: "local" | "cloud";
+  mode?: string;
   channelMode?: boolean;
   spokenNarration?: boolean;
   baseBranch?: string;
+  taskOriginProduct?: string;
+  endRunWhenDone?: boolean;
   posthogExecPermissionRegex?: string;
   nativeGoal?: NativeGoalState;
 };
@@ -171,10 +230,6 @@ function parseGoalCommand(prompt: PromptRequest["prompt"]): GoalCommand | null {
   }
 }
 
-function steerDeclined(): PromptResponse {
-  return { stopReason: "end_turn", _meta: { steer: false } };
-}
-
 function mergePromptResponses(
   left: PromptResponse,
   right: PromptResponse,
@@ -224,6 +279,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
   ) => Promise<void>;
   /** Codex-specific guidance injected at spawn time; replayed per-thread. */
   private readonly developerInstructions?: string;
+  private readonly contextWiki?: ContextWikiEnv;
   private readonly gatewayConfigured: boolean;
   private threadId?: string;
   /** JSON schema constraining the final message; set per session via `_meta`. */
@@ -285,6 +341,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
     );
     this.onStructuredOutput = options.onStructuredOutput;
     this.developerInstructions = options.processOptions.developerInstructions;
+    this.contextWiki = options.processOptions.contextWiki;
     this.gatewayConfigured = Boolean(options.processOptions.apiBaseUrl);
 
     const handlers: AppServerClientHandlers = {
@@ -324,11 +381,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
 
   async initialize(request: InitializeRequest): Promise<InitializeResponse> {
     await this.rpc.request(APP_SERVER_METHODS.INITIALIZE, {
-      clientInfo: {
-        name: "posthog-code",
-        title: "PostHog",
-        version: "0.1.0",
-      },
+      clientInfo: CODEX_CLIENT_INFO,
       // Opt into codex's experimental API so experimental turn/start fields are honored.
       capabilities: { experimentalApi: true, requestAttestation: false },
     });
@@ -582,16 +635,17 @@ export class CodexAppServerAgent extends BaseAcpAgent {
     this.config.setInitialMode(params.meta?.permissionMode);
     // Codex doesn't attribute input tokens by source; the baseline seeds the resident floor + system prompt.
     this.usage.setBaseline(buildBaseline(params.meta));
-    // Flatten the {append} form (else "[object Object]") and dedupe identical parts
-    // (the host pre-flattens into developerInstructions, so the prod prompt would duplicate).
-    const developerInstructions = [
-      ...new Set(
-        [
-          this.developerInstructions,
-          flattenSystemPrompt(params.meta?.systemPrompt),
-        ].filter((s): s is string => !!s),
-      ),
-    ].join("\n\n");
+    const contextWikiPath = resolveContextWikiPath(this.contextWiki?.path);
+    let developerInstructions = mergeDeveloperInstructions(
+      this.developerInstructions,
+      flattenSystemPrompt(params.meta?.systemPrompt),
+    );
+    if (contextWikiPath) {
+      developerInstructions = mergeDeveloperInstructions(
+        developerInstructions,
+        buildContextWikiInstructions(contextWikiPath),
+      );
+    }
     this.threadSetup = { meta: params.meta, developerInstructions };
     // Degrade gracefully: an unresolvable bundled local-tools script skips it with a
     // warning rather than killing thread setup.
@@ -662,12 +716,16 @@ export class CodexAppServerAgent extends BaseAcpAgent {
     if (!meta) return undefined;
     return {
       environment: meta.environment,
+      background: meta.mode === "background",
       channelMode: meta.channelMode,
       spokenNarration: resolveSpokenNarration(meta),
       taskId: meta.taskId,
       taskRunId: meta.taskRunId,
       persistence: meta.persistence,
       baseBranch: meta.baseBranch,
+      peerMessaging: process.env.POSTHOG_AGENT_PEER_MESSAGING === "1",
+      taskOriginProduct: meta.taskOriginProduct,
+      endRunWhenDone: meta.endRunWhenDone === true,
     };
   }
 
@@ -784,15 +842,24 @@ export class CodexAppServerAgent extends BaseAcpAgent {
     if (!this.threadId) {
       throw new Error("prompt() called before newSession()");
     }
+    const isSteer =
+      (params._meta as { steer?: unknown } | undefined)?.steer === true;
+    if (isSteer && this.session.cancelled) {
+      return steerDeclined("cancelled");
+    }
     const goalCommand = parseGoalCommand(params.prompt);
     if (goalCommand) {
       this.broadcastUserInput(visiblePromptBlocks(params.prompt));
       await this.handleGoalCommand(goalCommand);
-      return { stopReason: "end_turn" };
+      return isSteer
+        ? { stopReason: "end_turn", _meta: { steer: true } }
+        : { stopReason: "end_turn" };
     }
     this.cancelNextGoalTurn = false;
     // Reopen the notification gate (a prior interrupt may have left session.cancelled set).
-    this.session.cancelled = false;
+    if (!isSteer) {
+      this.session.cancelled = false;
+    }
     // A new prompt while the plan handoff awaits approval implicitly declines it:
     // settle the race so the previous prompt() returns and this one owns the turn.
     this.planHandoffCancel?.();
@@ -857,8 +924,6 @@ export class CodexAppServerAgent extends BaseAcpAgent {
     if (dropped > 0) {
       this.logger.warn("Dropped non-text/non-image prompt blocks", { dropped });
     }
-    const isSteer =
-      (params._meta as { steer?: unknown } | undefined)?.steer === true;
     if (this.turns.isRunning) {
       if (isSteer) {
         return await this.steerRunningTurn(input, params.prompt);
@@ -876,7 +941,9 @@ export class CodexAppServerAgent extends BaseAcpAgent {
       return { stopReason: "end_turn", _meta: { steer: true } };
     }
     if (isSteer) {
-      return steerDeclined();
+      return steerDeclined(
+        this.turns.isPending ? "turn_not_steerable" : "no_in_flight_turn",
+      );
     }
     if (this.turns.isPending) {
       // A turn is pending but has no turnId yet, so we can't steer; fail fast.
@@ -1040,7 +1107,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
     prompt: PromptRequest["prompt"],
   ): Promise<PromptResponse> {
     if (this.steering) {
-      return steerDeclined();
+      return steerDeclined("steer_in_flight");
     }
     this.steering = true;
     try {
@@ -1048,7 +1115,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
         ? undefined
         : this.turns.markInterrupted();
       if (!turnId) {
-        return steerDeclined();
+        return steerDeclined("cancelled");
       }
       await this.interruptTurn(turnId, "steer turn/interrupt failed");
       this.planProposal = undefined;
@@ -1064,7 +1131,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
         if (!this.turns.clearInterrupted(turnId)) {
           await this.finalizeTurn("cancelled");
         }
-        return steerDeclined();
+        return steerDeclined("continuation_failed");
       }
       this.usage.carryForNativeTurn();
       if (this.session.cancelled) {
@@ -1081,7 +1148,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
             "orphan continuation interrupt failed",
           );
         }
-        return steerDeclined();
+        return steerDeclined("cancelled");
       }
       this.broadcastUserInput(prompt);
       return { stopReason: "end_turn", _meta: { steer: true } };
@@ -1406,15 +1473,14 @@ export class CodexAppServerAgent extends BaseAcpAgent {
   /** Emit a plain agent message (user-facing status the model didn't produce). */
   private broadcastAgentText(text: string): void {
     if (!this.sessionId) return;
-    void this.client
-      .sessionUpdate({
-        sessionId: this.sessionId,
-        update: {
-          sessionUpdate: "agent_message_chunk",
-          content: { type: "text", text },
-        },
-      })
-      .catch(() => undefined);
+    const notification = {
+      sessionId: this.sessionId,
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text },
+      },
+    } as unknown as Parameters<AgentSideConnection["sessionUpdate"]>[0];
+    this.emitSessionNotification(notification);
   }
 
   /** The mode's sandbox with the session's extra writable roots folded into workspaceWrite. */
@@ -1614,6 +1680,13 @@ export class CodexAppServerAgent extends BaseAcpAgent {
       }
       // Drop the late completion of an already-interrupted turn (else it cancels the follow-up).
       if (this.turns.shouldDropCompletion(turn?.id)) return;
+      if (turn?.status === "failed") {
+        this.deferFailedTurnFinalization(
+          turn?.id,
+          this.turns.currentGeneration,
+        );
+        return;
+      }
       void this.finalizeTurn(mapTurnStopReason(turn?.status));
     }
 
@@ -1633,32 +1706,36 @@ export class CodexAppServerAgent extends BaseAcpAgent {
 
     if (method === APP_SERVER_NOTIFICATIONS.ERROR) {
       // A non-retried fatal error: resolve the turn so prompt() returns rather than hangs.
-      const { willRetry, error } = (params ?? {}) as {
+      const { willRetry, turnId, error } = (params ?? {}) as {
         willRetry?: boolean;
-        error?: { message?: string };
+        turnId?: string;
+        error?: { message?: unknown; codexErrorInfo?: unknown };
       };
       if (willRetry === false) {
+        if (turnId && turnId !== this.turns.activeTurnId) {
+          return;
+        }
         this.logger.warn("codex app-server fatal error notification", {
           params,
         });
-        const message = error?.message ?? "";
+        const message = typeof error?.message === "string" ? error.message : "";
+        const codexErrorInfo =
+          typeof error?.codexErrorInfo === "string"
+            ? error.codexErrorInfo
+            : undefined;
         // A gateway billing denial rejects the prompt so the host classifies
         // it and shows the upgrade gate. It must be a RequestError: a plain
         // Error serializes to a bare "Internal error" at the ACP boundary,
         // which the host reads as fatal and answers with a respawn loop.
         if (classifyGatewayLimitError(message) !== null) {
-          if (this.compactionActive) {
-            this.compactionActive = false;
-            this.emitCompactionBoundary();
-          }
-          this.turns.fail(RequestError.internalError(undefined, message));
+          void this.failTurn(RequestError.internalError(undefined, message));
           return;
         }
         if (
           message.includes("413") ||
           message.toLowerCase().includes("request body too large")
         ) {
-          this.turns.fail(
+          void this.failTurn(
             RequestError.internalError(
               undefined,
               "This conversation is too large to continue. Start a new task and carry over a text summary instead of image or tool output.",
@@ -1666,7 +1743,22 @@ export class CodexAppServerAgent extends BaseAcpAgent {
           );
           return;
         }
-        void this.finalizeTurn("refusal");
+        let policyErrorMessage: string | null = null;
+        if (codexErrorInfo === "cyberPolicy") {
+          policyErrorMessage = CYBER_POLICY_ERROR_MESSAGE;
+        } else if (message.toLowerCase().includes("usage policy")) {
+          policyErrorMessage = POLICY_ERROR_MESSAGE;
+        }
+        if (policyErrorMessage) {
+          void this.refuseTurnWithMessage(policyErrorMessage);
+          return;
+        }
+        void this.failTurn(
+          new RequestError(
+            ACP_INTERNAL_ERROR_CODE,
+            GENERIC_FATAL_ERROR_MESSAGE,
+          ),
+        );
       }
     }
   }
@@ -1983,6 +2075,57 @@ export class CodexAppServerAgent extends BaseAcpAgent {
     });
   }
 
+  private async failTurn(error: Error): Promise<void> {
+    this.turns.markInterrupted();
+    const pending = this.turns.claim();
+    if (!pending) return;
+    if (this.compactionActive) {
+      this.compactionActive = false;
+      this.emitCompactionBoundary();
+    }
+    const usage = this.usage.perTurnUsage();
+    pending.reject(error);
+    void this.emitTurnCompleteSignal("refusal", usage);
+    void this.emitUsageBreakdown(this.usage.contextTokens());
+  }
+
+  private deferFailedTurnFinalization(
+    turnId: string | undefined,
+    generation: number,
+  ): void {
+    setTimeout(() => {
+      if (generation !== this.turns.currentGeneration) return;
+      if (
+        turnId &&
+        this.turns.activeTurnId &&
+        this.turns.activeTurnId !== turnId
+      ) {
+        return;
+      }
+      if (!this.turns.isPending) return;
+      this.refuseTurnWithMessage(GENERIC_FATAL_ERROR_MESSAGE);
+    }, 250);
+  }
+
+  private refuseTurnWithMessage(message: string): void {
+    if (this.session.cancelled) return;
+    this.turns.markInterrupted();
+    const pending = this.turns.claim();
+    if (!pending) return;
+    this.broadcastAgentText(message);
+    if (this.compactionActive) {
+      this.compactionActive = false;
+      this.emitCompactionBoundary();
+    }
+    const usage = this.usage.perTurnUsage();
+    void this.emitTurnCompleteSignal("refusal", usage);
+    void this.emitUsageBreakdown(this.usage.contextTokens());
+    pending.resolve({
+      stopReason: "refusal",
+      ...(usage ? { usage } : {}),
+    });
+  }
+
   /** Whether maybeOfferPlanImplementation will run for a turn that ended this way. */
   private willOfferPlanHandoff(reason: StopReason): boolean {
     return (
@@ -2111,12 +2254,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
       return { decision: "decline" };
     }
     const isFileChange = method === APP_SERVER_REQUESTS.FILE_CHANGE_APPROVAL;
-    const detail = params as {
-      itemId?: string;
-      command?: string;
-      changes?: AppServerItem["changes"];
-      availableDecisions?: unknown[];
-    };
+    const detail = params as ApprovalRequestDetail;
     // codex lists the decisions valid for this prompt. An "approve and remember"
     // decision is echoed back verbatim: either the string "acceptForSession" or the
     // acceptWithExecpolicyAmendment object carrying the proposed allowlist amendment.
@@ -2146,6 +2284,18 @@ export class CodexAppServerAgent extends BaseAcpAgent {
     // Codex has no MCP-specific approval; a known MCP call surfaces the real server/tool/args
     // so the host renders the proper MCP permission (incl. PostHog `exec` unwrapping).
     const mcp = this.mcp.byItemId(detail.itemId);
+    if (
+      shouldAutoAcceptLocalApproval({
+        environment: this.environment,
+        mode: this.config.mode,
+        sandboxPolicy: this.sandboxPolicyForTurn(),
+        method,
+        detail,
+        hasMcpToolCall: Boolean(mcp),
+      })
+    ) {
+      return { decision: "accept" };
+    }
     if (mcp && this.shouldAutoAcceptMcpToolCall(mcp)) {
       return { decision: "accept" };
     }
@@ -2323,4 +2473,16 @@ function flattenSystemPrompt(
     return systemPrompt.append || undefined;
   }
   return undefined;
+}
+
+function mergeDeveloperInstructions(
+  developerInstructions: string | undefined,
+  systemPrompt: string | undefined,
+): string {
+  if (!developerInstructions) return systemPrompt ?? "";
+  if (!systemPrompt || developerInstructions.includes(systemPrompt)) {
+    return developerInstructions;
+  }
+  if (systemPrompt.includes(developerInstructions)) return systemPrompt;
+  return `${developerInstructions}\n\n${systemPrompt}`;
 }

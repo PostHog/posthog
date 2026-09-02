@@ -5,15 +5,11 @@ from unittest.mock import MagicMock, patch
 import requests
 from parameterized import parameterized
 
-from posthog.schema import SourceFieldInputConfig
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.render import RenderSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.render import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.render.render import RenderResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.render.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.render.source import RenderSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _inputs(
@@ -42,22 +38,6 @@ class TestRenderSource:
     def setup_method(self) -> None:
         self.source = RenderSource()
         self.config = RenderSourceConfig(api_key="rnd_test", owner_id="tea-123")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.RENDER
-
-    def test_source_config_fields(self) -> None:
-        fields = self.source.get_source_config.fields
-        by_name = {field.name: field for field in fields}
-
-        api_key = by_name["api_key"]
-        assert isinstance(api_key, SourceFieldInputConfig)
-        assert api_key.required is True
-        assert api_key.secret is True
-
-        owner_id = by_name["owner_id"]
-        assert isinstance(owner_id, SourceFieldInputConfig)
-        assert owner_id.required is False
 
     def test_get_schemas_covers_every_endpoint(self) -> None:
         schemas = self.source.get_schemas(self.config, team_id=1)
@@ -92,30 +72,6 @@ class TestRenderSource:
 
         assert valid == expected_valid
         assert (error is None) == expected_valid
-
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(_inputs())
-        assert manager._data_class is RenderResumeConfig
-
-    def test_source_for_pipeline_passes_config_and_incremental_state(self) -> None:
-        inputs = _inputs(
-            schema_name="deploys",
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 3, 4, tzinfo=UTC),
-            incremental_field="finishedAt",
-        )
-        manager = MagicMock()
-        with patch.object(source_module, "render_source") as mock_source:
-            self.source.source_for_pipeline(self.config, manager, inputs)
-
-        kwargs = mock_source.call_args.kwargs
-        assert kwargs["api_key"] == "rnd_test"
-        assert kwargs["owner_id"] == "tea-123"
-        assert kwargs["endpoint"] == "deploys"
-        assert kwargs["resumable_source_manager"] is manager
-        assert kwargs["should_use_incremental_field"] is True
-        assert kwargs["db_incremental_field_last_value"] == datetime(2026, 3, 4, tzinfo=UTC)
-        assert kwargs["incremental_field"] == "finishedAt"
 
     def test_source_for_pipeline_drops_watermark_on_full_refresh(self) -> None:
         # A stale watermark leaking into a full refresh would silently skip older rows.

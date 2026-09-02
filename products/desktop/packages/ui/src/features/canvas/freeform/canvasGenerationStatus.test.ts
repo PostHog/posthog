@@ -9,32 +9,16 @@ import {
 } from "./canvasGenerationStatus";
 
 type Run = Pick<TaskRun, "environment" | "status">;
-type Session = Pick<
-  AgentSession,
-  | "status"
-  | "isCloud"
-  | "cloudStatus"
-  | "isPromptPending"
-  | "taskRunId"
-  | "agentIdleForRunId"
->;
+type Session = Pick<AgentSession, "status" | "cloudStatus" | "isPromptPending">;
 type GenSession = Session;
 
 const genSession = (
   status: AgentSession["status"],
-  opts?: {
-    cloudStatus?: TaskRunStatus;
-    isPromptPending?: boolean;
-    agentIdle?: boolean;
-    isCloud?: boolean;
-  },
+  opts?: { cloudStatus?: TaskRunStatus; isPromptPending?: boolean },
 ): GenSession => ({
   status,
   cloudStatus: opts?.cloudStatus,
   isPromptPending: opts?.isPromptPending ?? false,
-  isCloud: opts?.isCloud,
-  taskRunId: "r1",
-  agentIdleForRunId: opts?.agentIdle ? "r1" : undefined,
 });
 
 const run = (environment: "local" | "cloud", status: TaskRunStatus): Run => ({
@@ -44,14 +28,7 @@ const run = (environment: "local" | "cloud", status: TaskRunStatus): Run => ({
 const session = (
   status: AgentSession["status"],
   cloudStatus?: TaskRunStatus,
-): Session => ({
-  status,
-  cloudStatus,
-  isPromptPending: false,
-  isCloud: undefined,
-  taskRunId: "r1",
-  agentIdleForRunId: undefined,
-});
+): Session => ({ status, cloudStatus, isPromptPending: false });
 
 describe("isCanvasGenerationRunning", () => {
   it("is not running when there is no generation task", () => {
@@ -96,7 +73,7 @@ describe("isCanvasGenerationRunning", () => {
     [
       "turn settled on the lingering sandbox",
       run("cloud", "in_progress"),
-      genSession("connected", { agentIdle: true }),
+      genSession("connected", { isPromptPending: false }),
       false,
     ],
     [
@@ -196,17 +173,6 @@ describe("isCanvasGenerating", () => {
     ).toBe(true);
   });
 
-  it("uses a streaming cloud session before latest run metadata arrives", () => {
-    expect(
-      isCanvasGenerating({
-        genTaskId: "t1",
-        genTaskLoading: false,
-        latestRun: undefined,
-        session: genSession("connected", { isCloud: true }),
-      }),
-    ).toBe(true);
-  });
-
   it.each<[string, Run, GenSession | undefined, boolean]>([
     ["cloud in_progress", run("cloud", "in_progress"), undefined, true],
     [
@@ -226,15 +192,9 @@ describe("isCanvasGenerating", () => {
       true,
     ],
     [
-      "cloud automatic turn attached after its prompt",
-      run("cloud", "in_progress"),
-      genSession("connected"),
-      true,
-    ],
-    [
       "cloud turn settled while the sandbox lingers",
       run("cloud", "in_progress"),
-      genSession("connected", { agentIdle: true }),
+      genSession("connected", { isPromptPending: false }),
       false,
     ],
     [

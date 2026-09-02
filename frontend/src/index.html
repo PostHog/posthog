@@ -69,6 +69,9 @@
                 document.body.prepend(div)
             }
         </script>
-        <div id="root"></div>
+        {# translate="no" stops Chrome/Edge page translation swapping React's text nodes for <font> #}
+        {# elements, which makes React lose nodes it owns and throw NotFoundError on removeChild / #}
+        {# insertBefore, blanking the scene. See https://github.com/facebook/react/issues/11538 #}
+        <div id="root" translate="no"></div>
     </body>
 </html>

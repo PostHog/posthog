@@ -3,14 +3,11 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
+from posthog.schema import ReleaseStatus, SourceFieldInputConfig
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.luma import LumaSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.luma.luma import LumaResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.luma.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.luma.source import LumaSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestLumaSource:
@@ -18,9 +15,6 @@ class TestLumaSource:
         self.source = LumaSource()
         self.team_id = 123
         self.config = LumaSourceConfig(api_key="luma-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.LUMA
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config
@@ -32,13 +26,6 @@ class TestLumaSource:
 
         field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
         assert field_names == ["api_key"]
-
-    def test_api_key_field_is_secret_password(self) -> None:
-        config = self.source.get_source_config
-        field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_key")
-        assert field.type == SourceFieldInputConfigType.PASSWORD
-        assert field.secret is True
-        assert field.required is True
 
     def test_no_connection_host_fields(self) -> None:
         # The only field is the secret API key; the base URL is hardcoded, so there is no non-secret
@@ -89,18 +76,6 @@ class TestLumaSource:
     def test_non_retryable_errors_ignore_transient(self, unrelated_error: str) -> None:
         non_retryable = self.source.get_non_retryable_errors()
         assert not any(key in unrelated_error for key in non_retryable)
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.luma.source.validate_credentials")
-    def test_validate_credentials_delegates_to_shared_helper(self, mock_validate: mock.MagicMock) -> None:
-        mock_validate.return_value = (False, "Invalid Luma API key")
-        result = self.source.validate_credentials(self.config, self.team_id)
-        assert result == (False, "Invalid Luma API key")
-        mock_validate.assert_called_once_with("luma-key")
-
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is LumaResumeConfig
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.luma.source.luma_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:

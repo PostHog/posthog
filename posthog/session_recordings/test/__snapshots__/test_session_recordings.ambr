@@ -76,6 +76,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -151,6 +152,7 @@
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
+         "posthog_datawarehousetable"."created_via",
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."column_order",
          "posthog_datawarehousetable"."options",
@@ -421,6 +423,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -474,6 +477,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -509,10 +513,8 @@
          "ee_accesscontrol"."role_id",
          "ee_accesscontrol"."created_by_id",
          "ee_accesscontrol"."created_at",
-         "ee_accesscontrol"."updated_at",
-         "posthog_team"."organization_id" AS "_team_organization_id"
+         "ee_accesscontrol"."updated_at"
   FROM "ee_accesscontrol"
-  INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
   WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
           AND "ee_accesscontrol"."role_id" IS NULL
@@ -553,6 +555,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -605,6 +608,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -711,6 +715,7 @@
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
+         "posthog_datawarehousetable"."created_via",
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."column_order",
          "posthog_datawarehousetable"."options",
@@ -723,13 +728,12 @@
          "posthog_datawarehousemanagedviewset"."team_id",
          "posthog_datawarehousemanagedviewset"."kind"
   FROM "posthog_datawarehousesavedquery"
-  LEFT OUTER JOIN "posthog_datawarehousemanagedviewset" ON ("posthog_datawarehousesavedquery"."managed_viewset_id" = "posthog_datawarehousemanagedviewset"."id")
   LEFT OUTER JOIN "posthog_user" ON ("posthog_datawarehousesavedquery"."created_by_id" = "posthog_user"."id")
   LEFT OUTER JOIN "posthog_datawarehousetable" ON ("posthog_datawarehousesavedquery"."table_id" = "posthog_datawarehousetable"."id")
+  LEFT OUTER JOIN "posthog_datawarehousemanagedviewset" ON ("posthog_datawarehousesavedquery"."managed_viewset_id" = "posthog_datawarehousemanagedviewset"."id")
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
          AND NOT ("posthog_datawarehousesavedquery"."deleted"
-                  AND "posthog_datawarehousesavedquery"."deleted" IS NOT NULL)
-         AND "posthog_datawarehousesavedquery"."managed_viewset_id" IS NULL)
+                  AND "posthog_datawarehousesavedquery"."deleted" IS NOT NULL))
   ORDER BY "posthog_datawarehousesavedquery"."name" ASC
   '''
 # ---
@@ -815,6 +819,7 @@
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
+         "posthog_datawarehousetable"."created_via",
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."column_order",
          "posthog_datawarehousetable"."options",
@@ -911,6 +916,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -986,6 +992,7 @@
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
+         "posthog_datawarehousetable"."created_via",
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."column_order",
          "posthog_datawarehousetable"."options",
@@ -1253,6 +1260,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -1306,6 +1314,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -1341,10 +1350,8 @@
          "ee_accesscontrol"."role_id",
          "ee_accesscontrol"."created_by_id",
          "ee_accesscontrol"."created_at",
-         "ee_accesscontrol"."updated_at",
-         "posthog_team"."organization_id" AS "_team_organization_id"
+         "ee_accesscontrol"."updated_at"
   FROM "ee_accesscontrol"
-  INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
   WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
           AND "ee_accesscontrol"."role_id" IS NULL
@@ -1385,6 +1392,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -1437,6 +1445,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -1543,6 +1552,7 @@
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
+         "posthog_datawarehousetable"."created_via",
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."column_order",
          "posthog_datawarehousetable"."options",
@@ -1555,13 +1565,12 @@
          "posthog_datawarehousemanagedviewset"."team_id",
          "posthog_datawarehousemanagedviewset"."kind"
   FROM "posthog_datawarehousesavedquery"
-  LEFT OUTER JOIN "posthog_datawarehousemanagedviewset" ON ("posthog_datawarehousesavedquery"."managed_viewset_id" = "posthog_datawarehousemanagedviewset"."id")
   LEFT OUTER JOIN "posthog_user" ON ("posthog_datawarehousesavedquery"."created_by_id" = "posthog_user"."id")
   LEFT OUTER JOIN "posthog_datawarehousetable" ON ("posthog_datawarehousesavedquery"."table_id" = "posthog_datawarehousetable"."id")
+  LEFT OUTER JOIN "posthog_datawarehousemanagedviewset" ON ("posthog_datawarehousesavedquery"."managed_viewset_id" = "posthog_datawarehousemanagedviewset"."id")
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
          AND NOT ("posthog_datawarehousesavedquery"."deleted"
-                  AND "posthog_datawarehousesavedquery"."deleted" IS NOT NULL)
-         AND "posthog_datawarehousesavedquery"."managed_viewset_id" IS NULL)
+                  AND "posthog_datawarehousesavedquery"."deleted" IS NOT NULL))
   ORDER BY "posthog_datawarehousesavedquery"."name" ASC
   '''
 # ---
@@ -1647,6 +1656,7 @@
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
+         "posthog_datawarehousetable"."created_via",
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."column_order",
          "posthog_datawarehousetable"."options",
@@ -1743,6 +1753,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -1818,6 +1829,7 @@
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
+         "posthog_datawarehousetable"."created_via",
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."column_order",
          "posthog_datawarehousetable"."options",
@@ -2082,6 +2094,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -2135,6 +2148,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -2170,10 +2184,8 @@
          "ee_accesscontrol"."role_id",
          "ee_accesscontrol"."created_by_id",
          "ee_accesscontrol"."created_at",
-         "ee_accesscontrol"."updated_at",
-         "posthog_team"."organization_id" AS "_team_organization_id"
+         "ee_accesscontrol"."updated_at"
   FROM "ee_accesscontrol"
-  INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
   WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
           AND "ee_accesscontrol"."role_id" IS NULL
@@ -2214,6 +2226,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -2266,6 +2279,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -2372,6 +2386,7 @@
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
+         "posthog_datawarehousetable"."created_via",
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."column_order",
          "posthog_datawarehousetable"."options",
@@ -2384,13 +2399,12 @@
          "posthog_datawarehousemanagedviewset"."team_id",
          "posthog_datawarehousemanagedviewset"."kind"
   FROM "posthog_datawarehousesavedquery"
-  LEFT OUTER JOIN "posthog_datawarehousemanagedviewset" ON ("posthog_datawarehousesavedquery"."managed_viewset_id" = "posthog_datawarehousemanagedviewset"."id")
   LEFT OUTER JOIN "posthog_user" ON ("posthog_datawarehousesavedquery"."created_by_id" = "posthog_user"."id")
   LEFT OUTER JOIN "posthog_datawarehousetable" ON ("posthog_datawarehousesavedquery"."table_id" = "posthog_datawarehousetable"."id")
+  LEFT OUTER JOIN "posthog_datawarehousemanagedviewset" ON ("posthog_datawarehousesavedquery"."managed_viewset_id" = "posthog_datawarehousemanagedviewset"."id")
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
          AND NOT ("posthog_datawarehousesavedquery"."deleted"
-                  AND "posthog_datawarehousesavedquery"."deleted" IS NOT NULL)
-         AND "posthog_datawarehousesavedquery"."managed_viewset_id" IS NULL)
+                  AND "posthog_datawarehousesavedquery"."deleted" IS NOT NULL))
   ORDER BY "posthog_datawarehousesavedquery"."name" ASC
   '''
 # ---
@@ -2476,6 +2490,7 @@
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
+         "posthog_datawarehousetable"."created_via",
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."column_order",
          "posthog_datawarehousetable"."options",
@@ -2572,6 +2587,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -2647,6 +2663,7 @@
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
+         "posthog_datawarehousetable"."created_via",
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."column_order",
          "posthog_datawarehousetable"."options",
@@ -2911,6 +2928,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -2964,6 +2982,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -2999,10 +3018,8 @@
          "ee_accesscontrol"."role_id",
          "ee_accesscontrol"."created_by_id",
          "ee_accesscontrol"."created_at",
-         "ee_accesscontrol"."updated_at",
-         "posthog_team"."organization_id" AS "_team_organization_id"
+         "ee_accesscontrol"."updated_at"
   FROM "ee_accesscontrol"
-  INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
   WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
           AND "ee_accesscontrol"."role_id" IS NULL
@@ -3043,6 +3060,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -3095,6 +3113,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -3201,6 +3220,7 @@
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
+         "posthog_datawarehousetable"."created_via",
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."column_order",
          "posthog_datawarehousetable"."options",
@@ -3213,13 +3233,12 @@
          "posthog_datawarehousemanagedviewset"."team_id",
          "posthog_datawarehousemanagedviewset"."kind"
   FROM "posthog_datawarehousesavedquery"
-  LEFT OUTER JOIN "posthog_datawarehousemanagedviewset" ON ("posthog_datawarehousesavedquery"."managed_viewset_id" = "posthog_datawarehousemanagedviewset"."id")
   LEFT OUTER JOIN "posthog_user" ON ("posthog_datawarehousesavedquery"."created_by_id" = "posthog_user"."id")
   LEFT OUTER JOIN "posthog_datawarehousetable" ON ("posthog_datawarehousesavedquery"."table_id" = "posthog_datawarehousetable"."id")
+  LEFT OUTER JOIN "posthog_datawarehousemanagedviewset" ON ("posthog_datawarehousesavedquery"."managed_viewset_id" = "posthog_datawarehousemanagedviewset"."id")
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
          AND NOT ("posthog_datawarehousesavedquery"."deleted"
-                  AND "posthog_datawarehousesavedquery"."deleted" IS NOT NULL)
-         AND "posthog_datawarehousesavedquery"."managed_viewset_id" IS NULL)
+                  AND "posthog_datawarehousesavedquery"."deleted" IS NOT NULL))
   ORDER BY "posthog_datawarehousesavedquery"."name" ASC
   '''
 # ---
@@ -3305,6 +3324,7 @@
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
+         "posthog_datawarehousetable"."created_via",
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."column_order",
          "posthog_datawarehousetable"."options",
@@ -3401,6 +3421,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -3476,6 +3497,7 @@
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
+         "posthog_datawarehousetable"."created_via",
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."column_order",
          "posthog_datawarehousetable"."options",
@@ -3743,6 +3765,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -3796,6 +3819,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -3831,10 +3855,8 @@
          "ee_accesscontrol"."role_id",
          "ee_accesscontrol"."created_by_id",
          "ee_accesscontrol"."created_at",
-         "ee_accesscontrol"."updated_at",
-         "posthog_team"."organization_id" AS "_team_organization_id"
+         "ee_accesscontrol"."updated_at"
   FROM "ee_accesscontrol"
-  INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
   WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
           AND "ee_accesscontrol"."role_id" IS NULL
@@ -3875,6 +3897,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -3927,6 +3950,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -4033,6 +4057,7 @@
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
+         "posthog_datawarehousetable"."created_via",
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."column_order",
          "posthog_datawarehousetable"."options",
@@ -4045,13 +4070,12 @@
          "posthog_datawarehousemanagedviewset"."team_id",
          "posthog_datawarehousemanagedviewset"."kind"
   FROM "posthog_datawarehousesavedquery"
-  LEFT OUTER JOIN "posthog_datawarehousemanagedviewset" ON ("posthog_datawarehousesavedquery"."managed_viewset_id" = "posthog_datawarehousemanagedviewset"."id")
   LEFT OUTER JOIN "posthog_user" ON ("posthog_datawarehousesavedquery"."created_by_id" = "posthog_user"."id")
   LEFT OUTER JOIN "posthog_datawarehousetable" ON ("posthog_datawarehousesavedquery"."table_id" = "posthog_datawarehousetable"."id")
+  LEFT OUTER JOIN "posthog_datawarehousemanagedviewset" ON ("posthog_datawarehousesavedquery"."managed_viewset_id" = "posthog_datawarehousemanagedviewset"."id")
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
          AND NOT ("posthog_datawarehousesavedquery"."deleted"
-                  AND "posthog_datawarehousesavedquery"."deleted" IS NOT NULL)
-         AND "posthog_datawarehousesavedquery"."managed_viewset_id" IS NULL)
+                  AND "posthog_datawarehousesavedquery"."deleted" IS NOT NULL))
   ORDER BY "posthog_datawarehousesavedquery"."name" ASC
   '''
 # ---
@@ -4137,6 +4161,7 @@
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
+         "posthog_datawarehousetable"."created_via",
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."column_order",
          "posthog_datawarehousetable"."options",
@@ -4233,6 +4258,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -4308,6 +4334,7 @@
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
+         "posthog_datawarehousetable"."created_via",
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."column_order",
          "posthog_datawarehousetable"."options",
@@ -4575,6 +4602,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -4628,6 +4656,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -4663,10 +4692,8 @@
          "ee_accesscontrol"."role_id",
          "ee_accesscontrol"."created_by_id",
          "ee_accesscontrol"."created_at",
-         "ee_accesscontrol"."updated_at",
-         "posthog_team"."organization_id" AS "_team_organization_id"
+         "ee_accesscontrol"."updated_at"
   FROM "ee_accesscontrol"
-  INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
   WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
           AND "ee_accesscontrol"."role_id" IS NULL
@@ -4707,6 +4734,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -4759,6 +4787,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -4865,6 +4894,7 @@
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
+         "posthog_datawarehousetable"."created_via",
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."column_order",
          "posthog_datawarehousetable"."options",
@@ -4877,13 +4907,12 @@
          "posthog_datawarehousemanagedviewset"."team_id",
          "posthog_datawarehousemanagedviewset"."kind"
   FROM "posthog_datawarehousesavedquery"
-  LEFT OUTER JOIN "posthog_datawarehousemanagedviewset" ON ("posthog_datawarehousesavedquery"."managed_viewset_id" = "posthog_datawarehousemanagedviewset"."id")
   LEFT OUTER JOIN "posthog_user" ON ("posthog_datawarehousesavedquery"."created_by_id" = "posthog_user"."id")
   LEFT OUTER JOIN "posthog_datawarehousetable" ON ("posthog_datawarehousesavedquery"."table_id" = "posthog_datawarehousetable"."id")
+  LEFT OUTER JOIN "posthog_datawarehousemanagedviewset" ON ("posthog_datawarehousesavedquery"."managed_viewset_id" = "posthog_datawarehousemanagedviewset"."id")
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
          AND NOT ("posthog_datawarehousesavedquery"."deleted"
-                  AND "posthog_datawarehousesavedquery"."deleted" IS NOT NULL)
-         AND "posthog_datawarehousesavedquery"."managed_viewset_id" IS NULL)
+                  AND "posthog_datawarehousesavedquery"."deleted" IS NOT NULL))
   ORDER BY "posthog_datawarehousesavedquery"."name" ASC
   '''
 # ---
@@ -4969,6 +4998,7 @@
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
+         "posthog_datawarehousetable"."created_via",
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."column_order",
          "posthog_datawarehousetable"."options",
@@ -5065,6 +5095,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -5140,6 +5171,7 @@
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
+         "posthog_datawarehousetable"."created_via",
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."column_order",
          "posthog_datawarehousetable"."options",
@@ -5407,6 +5439,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -5460,6 +5493,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -5495,10 +5529,8 @@
          "ee_accesscontrol"."role_id",
          "ee_accesscontrol"."created_by_id",
          "ee_accesscontrol"."created_at",
-         "ee_accesscontrol"."updated_at",
-         "posthog_team"."organization_id" AS "_team_organization_id"
+         "ee_accesscontrol"."updated_at"
   FROM "ee_accesscontrol"
-  INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
   WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
           AND "ee_accesscontrol"."role_id" IS NULL
@@ -5539,6 +5571,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -5591,6 +5624,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -5697,6 +5731,7 @@
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
+         "posthog_datawarehousetable"."created_via",
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."column_order",
          "posthog_datawarehousetable"."options",
@@ -5709,13 +5744,12 @@
          "posthog_datawarehousemanagedviewset"."team_id",
          "posthog_datawarehousemanagedviewset"."kind"
   FROM "posthog_datawarehousesavedquery"
-  LEFT OUTER JOIN "posthog_datawarehousemanagedviewset" ON ("posthog_datawarehousesavedquery"."managed_viewset_id" = "posthog_datawarehousemanagedviewset"."id")
   LEFT OUTER JOIN "posthog_user" ON ("posthog_datawarehousesavedquery"."created_by_id" = "posthog_user"."id")
   LEFT OUTER JOIN "posthog_datawarehousetable" ON ("posthog_datawarehousesavedquery"."table_id" = "posthog_datawarehousetable"."id")
+  LEFT OUTER JOIN "posthog_datawarehousemanagedviewset" ON ("posthog_datawarehousesavedquery"."managed_viewset_id" = "posthog_datawarehousemanagedviewset"."id")
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
          AND NOT ("posthog_datawarehousesavedquery"."deleted"
-                  AND "posthog_datawarehousesavedquery"."deleted" IS NOT NULL)
-         AND "posthog_datawarehousesavedquery"."managed_viewset_id" IS NULL)
+                  AND "posthog_datawarehousesavedquery"."deleted" IS NOT NULL))
   ORDER BY "posthog_datawarehousesavedquery"."name" ASC
   '''
 # ---
@@ -5801,6 +5835,7 @@
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
+         "posthog_datawarehousetable"."created_via",
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."column_order",
          "posthog_datawarehousetable"."options",
@@ -5897,6 +5932,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -5934,6 +5970,7 @@
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
+         "posthog_datawarehousetable"."created_via",
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."column_order",
          "posthog_datawarehousetable"."options",
@@ -6074,6 +6111,7 @@
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
+         "posthog_datawarehousetable"."created_via",
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."column_order",
          "posthog_datawarehousetable"."options",
@@ -6086,13 +6124,12 @@
          "posthog_datawarehousemanagedviewset"."team_id",
          "posthog_datawarehousemanagedviewset"."kind"
   FROM "posthog_datawarehousesavedquery"
-  LEFT OUTER JOIN "posthog_datawarehousemanagedviewset" ON ("posthog_datawarehousesavedquery"."managed_viewset_id" = "posthog_datawarehousemanagedviewset"."id")
   LEFT OUTER JOIN "posthog_user" ON ("posthog_datawarehousesavedquery"."created_by_id" = "posthog_user"."id")
   LEFT OUTER JOIN "posthog_datawarehousetable" ON ("posthog_datawarehousesavedquery"."table_id" = "posthog_datawarehousetable"."id")
+  LEFT OUTER JOIN "posthog_datawarehousemanagedviewset" ON ("posthog_datawarehousesavedquery"."managed_viewset_id" = "posthog_datawarehousemanagedviewset"."id")
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
          AND NOT ("posthog_datawarehousesavedquery"."deleted"
-                  AND "posthog_datawarehousesavedquery"."deleted" IS NOT NULL)
-         AND "posthog_datawarehousesavedquery"."managed_viewset_id" IS NULL)
+                  AND "posthog_datawarehousesavedquery"."deleted" IS NOT NULL))
   ORDER BY "posthog_datawarehousesavedquery"."name" ASC
   '''
 # ---
@@ -6178,6 +6215,7 @@
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
+         "posthog_datawarehousetable"."created_via",
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."column_order",
          "posthog_datawarehousetable"."options",
@@ -6245,6 +6283,7 @@
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
+         "posthog_datawarehousetable"."created_via",
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."column_order",
          "posthog_datawarehousetable"."options",
@@ -6495,6 +6534,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -6635,6 +6675,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -6688,6 +6729,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -6723,10 +6765,8 @@
          "ee_accesscontrol"."role_id",
          "ee_accesscontrol"."created_by_id",
          "ee_accesscontrol"."created_at",
-         "ee_accesscontrol"."updated_at",
-         "posthog_team"."organization_id" AS "_team_organization_id"
+         "ee_accesscontrol"."updated_at"
   FROM "ee_accesscontrol"
-  INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
   WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
           AND "ee_accesscontrol"."role_id" IS NULL
@@ -6767,6 +6807,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -6819,6 +6860,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -6925,6 +6967,7 @@
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
+         "posthog_datawarehousetable"."created_via",
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."column_order",
          "posthog_datawarehousetable"."options",
@@ -6937,13 +6980,12 @@
          "posthog_datawarehousemanagedviewset"."team_id",
          "posthog_datawarehousemanagedviewset"."kind"
   FROM "posthog_datawarehousesavedquery"
-  LEFT OUTER JOIN "posthog_datawarehousemanagedviewset" ON ("posthog_datawarehousesavedquery"."managed_viewset_id" = "posthog_datawarehousemanagedviewset"."id")
   LEFT OUTER JOIN "posthog_user" ON ("posthog_datawarehousesavedquery"."created_by_id" = "posthog_user"."id")
   LEFT OUTER JOIN "posthog_datawarehousetable" ON ("posthog_datawarehousesavedquery"."table_id" = "posthog_datawarehousetable"."id")
+  LEFT OUTER JOIN "posthog_datawarehousemanagedviewset" ON ("posthog_datawarehousesavedquery"."managed_viewset_id" = "posthog_datawarehousemanagedviewset"."id")
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
          AND NOT ("posthog_datawarehousesavedquery"."deleted"
-                  AND "posthog_datawarehousesavedquery"."deleted" IS NOT NULL)
-         AND "posthog_datawarehousesavedquery"."managed_viewset_id" IS NULL)
+                  AND "posthog_datawarehousesavedquery"."deleted" IS NOT NULL))
   ORDER BY "posthog_datawarehousesavedquery"."name" ASC
   '''
 # ---
@@ -7029,6 +7071,7 @@
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
+         "posthog_datawarehousetable"."created_via",
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."column_order",
          "posthog_datawarehousetable"."options",
@@ -7096,6 +7139,7 @@
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
+         "posthog_datawarehousetable"."created_via",
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."column_order",
          "posthog_datawarehousetable"."options",
@@ -7348,6 +7392,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -7488,6 +7533,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -7541,6 +7587,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -7576,10 +7623,8 @@
          "ee_accesscontrol"."role_id",
          "ee_accesscontrol"."created_by_id",
          "ee_accesscontrol"."created_at",
-         "ee_accesscontrol"."updated_at",
-         "posthog_team"."organization_id" AS "_team_organization_id"
+         "ee_accesscontrol"."updated_at"
   FROM "ee_accesscontrol"
-  INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
   WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
           AND "ee_accesscontrol"."role_id" IS NULL
@@ -7666,6 +7711,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -7718,6 +7764,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -7824,6 +7871,7 @@
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
+         "posthog_datawarehousetable"."created_via",
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."column_order",
          "posthog_datawarehousetable"."options",
@@ -7836,13 +7884,12 @@
          "posthog_datawarehousemanagedviewset"."team_id",
          "posthog_datawarehousemanagedviewset"."kind"
   FROM "posthog_datawarehousesavedquery"
-  LEFT OUTER JOIN "posthog_datawarehousemanagedviewset" ON ("posthog_datawarehousesavedquery"."managed_viewset_id" = "posthog_datawarehousemanagedviewset"."id")
   LEFT OUTER JOIN "posthog_user" ON ("posthog_datawarehousesavedquery"."created_by_id" = "posthog_user"."id")
   LEFT OUTER JOIN "posthog_datawarehousetable" ON ("posthog_datawarehousesavedquery"."table_id" = "posthog_datawarehousetable"."id")
+  LEFT OUTER JOIN "posthog_datawarehousemanagedviewset" ON ("posthog_datawarehousesavedquery"."managed_viewset_id" = "posthog_datawarehousemanagedviewset"."id")
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
          AND NOT ("posthog_datawarehousesavedquery"."deleted"
-                  AND "posthog_datawarehousesavedquery"."deleted" IS NOT NULL)
-         AND "posthog_datawarehousesavedquery"."managed_viewset_id" IS NULL)
+                  AND "posthog_datawarehousesavedquery"."deleted" IS NOT NULL))
   ORDER BY "posthog_datawarehousesavedquery"."name" ASC
   '''
 # ---
@@ -7928,6 +7975,7 @@
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
+         "posthog_datawarehousetable"."created_via",
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."column_order",
          "posthog_datawarehousetable"."options",
@@ -7995,6 +8043,7 @@
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
+         "posthog_datawarehousetable"."created_via",
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."column_order",
          "posthog_datawarehousetable"."options",
@@ -8167,6 +8216,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -8276,6 +8326,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -8416,6 +8467,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -8469,6 +8521,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -8504,10 +8557,8 @@
          "ee_accesscontrol"."role_id",
          "ee_accesscontrol"."created_by_id",
          "ee_accesscontrol"."created_at",
-         "ee_accesscontrol"."updated_at",
-         "posthog_team"."organization_id" AS "_team_organization_id"
+         "ee_accesscontrol"."updated_at"
   FROM "ee_accesscontrol"
-  INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
   WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
           AND "ee_accesscontrol"."role_id" IS NULL
@@ -8548,6 +8599,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -8600,6 +8652,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -8706,6 +8759,7 @@
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
+         "posthog_datawarehousetable"."created_via",
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."column_order",
          "posthog_datawarehousetable"."options",
@@ -8718,13 +8772,12 @@
          "posthog_datawarehousemanagedviewset"."team_id",
          "posthog_datawarehousemanagedviewset"."kind"
   FROM "posthog_datawarehousesavedquery"
-  LEFT OUTER JOIN "posthog_datawarehousemanagedviewset" ON ("posthog_datawarehousesavedquery"."managed_viewset_id" = "posthog_datawarehousemanagedviewset"."id")
   LEFT OUTER JOIN "posthog_user" ON ("posthog_datawarehousesavedquery"."created_by_id" = "posthog_user"."id")
   LEFT OUTER JOIN "posthog_datawarehousetable" ON ("posthog_datawarehousesavedquery"."table_id" = "posthog_datawarehousetable"."id")
+  LEFT OUTER JOIN "posthog_datawarehousemanagedviewset" ON ("posthog_datawarehousesavedquery"."managed_viewset_id" = "posthog_datawarehousemanagedviewset"."id")
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
          AND NOT ("posthog_datawarehousesavedquery"."deleted"
-                  AND "posthog_datawarehousesavedquery"."deleted" IS NOT NULL)
-         AND "posthog_datawarehousesavedquery"."managed_viewset_id" IS NULL)
+                  AND "posthog_datawarehousesavedquery"."deleted" IS NOT NULL))
   ORDER BY "posthog_datawarehousesavedquery"."name" ASC
   '''
 # ---
@@ -8810,6 +8863,7 @@
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
+         "posthog_datawarehousetable"."created_via",
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."column_order",
          "posthog_datawarehousetable"."options",
@@ -8942,6 +8996,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -9018,6 +9073,7 @@
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
+         "posthog_datawarehousetable"."created_via",
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."column_order",
          "posthog_datawarehousetable"."options",
@@ -9257,6 +9313,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -9397,6 +9454,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -9450,6 +9508,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -9504,6 +9563,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -9539,10 +9599,8 @@
          "ee_accesscontrol"."role_id",
          "ee_accesscontrol"."created_by_id",
          "ee_accesscontrol"."created_at",
-         "ee_accesscontrol"."updated_at",
-         "posthog_team"."organization_id" AS "_team_organization_id"
+         "ee_accesscontrol"."updated_at"
   FROM "ee_accesscontrol"
-  INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
   WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
           AND "ee_accesscontrol"."role_id" IS NULL
@@ -9583,6 +9641,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -9635,6 +9694,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -9741,6 +9801,7 @@
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
+         "posthog_datawarehousetable"."created_via",
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."column_order",
          "posthog_datawarehousetable"."options",
@@ -9753,13 +9814,12 @@
          "posthog_datawarehousemanagedviewset"."team_id",
          "posthog_datawarehousemanagedviewset"."kind"
   FROM "posthog_datawarehousesavedquery"
-  LEFT OUTER JOIN "posthog_datawarehousemanagedviewset" ON ("posthog_datawarehousesavedquery"."managed_viewset_id" = "posthog_datawarehousemanagedviewset"."id")
   LEFT OUTER JOIN "posthog_user" ON ("posthog_datawarehousesavedquery"."created_by_id" = "posthog_user"."id")
   LEFT OUTER JOIN "posthog_datawarehousetable" ON ("posthog_datawarehousesavedquery"."table_id" = "posthog_datawarehousetable"."id")
+  LEFT OUTER JOIN "posthog_datawarehousemanagedviewset" ON ("posthog_datawarehousesavedquery"."managed_viewset_id" = "posthog_datawarehousemanagedviewset"."id")
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
          AND NOT ("posthog_datawarehousesavedquery"."deleted"
-                  AND "posthog_datawarehousesavedquery"."deleted" IS NOT NULL)
-         AND "posthog_datawarehousesavedquery"."managed_viewset_id" IS NULL)
+                  AND "posthog_datawarehousesavedquery"."deleted" IS NOT NULL))
   ORDER BY "posthog_datawarehousesavedquery"."name" ASC
   '''
 # ---
@@ -9845,6 +9905,7 @@
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
+         "posthog_datawarehousetable"."created_via",
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."column_order",
          "posthog_datawarehousetable"."options",
@@ -9912,6 +9973,7 @@
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
+         "posthog_datawarehousetable"."created_via",
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."column_order",
          "posthog_datawarehousetable"."options",
@@ -10020,10 +10082,8 @@
          "ee_accesscontrol"."role_id",
          "ee_accesscontrol"."created_by_id",
          "ee_accesscontrol"."created_at",
-         "ee_accesscontrol"."updated_at",
-         "posthog_team"."organization_id" AS "_team_organization_id"
+         "ee_accesscontrol"."updated_at"
   FROM "ee_accesscontrol"
-  INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
   WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
           AND "ee_accesscontrol"."role_id" IS NULL
@@ -10140,6 +10200,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -10192,6 +10253,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -10334,6 +10396,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -10439,6 +10502,7 @@
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
+         "posthog_datawarehousetable"."created_via",
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."column_order",
          "posthog_datawarehousetable"."options",
@@ -10451,13 +10515,12 @@
          "posthog_datawarehousemanagedviewset"."team_id",
          "posthog_datawarehousemanagedviewset"."kind"
   FROM "posthog_datawarehousesavedquery"
-  LEFT OUTER JOIN "posthog_datawarehousemanagedviewset" ON ("posthog_datawarehousesavedquery"."managed_viewset_id" = "posthog_datawarehousemanagedviewset"."id")
   LEFT OUTER JOIN "posthog_user" ON ("posthog_datawarehousesavedquery"."created_by_id" = "posthog_user"."id")
   LEFT OUTER JOIN "posthog_datawarehousetable" ON ("posthog_datawarehousesavedquery"."table_id" = "posthog_datawarehousetable"."id")
+  LEFT OUTER JOIN "posthog_datawarehousemanagedviewset" ON ("posthog_datawarehousesavedquery"."managed_viewset_id" = "posthog_datawarehousemanagedviewset"."id")
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
          AND NOT ("posthog_datawarehousesavedquery"."deleted"
-                  AND "posthog_datawarehousesavedquery"."deleted" IS NOT NULL)
-         AND "posthog_datawarehousesavedquery"."managed_viewset_id" IS NULL)
+                  AND "posthog_datawarehousesavedquery"."deleted" IS NOT NULL))
   ORDER BY "posthog_datawarehousesavedquery"."name" ASC
   '''
 # ---
@@ -10543,6 +10606,7 @@
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
+         "posthog_datawarehousetable"."created_via",
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."column_order",
          "posthog_datawarehousetable"."options",
@@ -10610,6 +10674,7 @@
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
+         "posthog_datawarehousetable"."created_via",
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."column_order",
          "posthog_datawarehousetable"."options",
@@ -10832,6 +10897,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -10879,6 +10945,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -11019,6 +11086,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -11072,6 +11140,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -11107,10 +11176,8 @@
          "ee_accesscontrol"."role_id",
          "ee_accesscontrol"."created_by_id",
          "ee_accesscontrol"."created_at",
-         "ee_accesscontrol"."updated_at",
-         "posthog_team"."organization_id" AS "_team_organization_id"
+         "ee_accesscontrol"."updated_at"
   FROM "ee_accesscontrol"
-  INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
   WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
           AND "ee_accesscontrol"."role_id" IS NULL
@@ -11151,6 +11218,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -11203,6 +11271,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -11309,6 +11378,7 @@
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
+         "posthog_datawarehousetable"."created_via",
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."column_order",
          "posthog_datawarehousetable"."options",
@@ -11321,13 +11391,12 @@
          "posthog_datawarehousemanagedviewset"."team_id",
          "posthog_datawarehousemanagedviewset"."kind"
   FROM "posthog_datawarehousesavedquery"
-  LEFT OUTER JOIN "posthog_datawarehousemanagedviewset" ON ("posthog_datawarehousesavedquery"."managed_viewset_id" = "posthog_datawarehousemanagedviewset"."id")
   LEFT OUTER JOIN "posthog_user" ON ("posthog_datawarehousesavedquery"."created_by_id" = "posthog_user"."id")
   LEFT OUTER JOIN "posthog_datawarehousetable" ON ("posthog_datawarehousesavedquery"."table_id" = "posthog_datawarehousetable"."id")
+  LEFT OUTER JOIN "posthog_datawarehousemanagedviewset" ON ("posthog_datawarehousesavedquery"."managed_viewset_id" = "posthog_datawarehousemanagedviewset"."id")
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
          AND NOT ("posthog_datawarehousesavedquery"."deleted"
-                  AND "posthog_datawarehousesavedquery"."deleted" IS NOT NULL)
-         AND "posthog_datawarehousesavedquery"."managed_viewset_id" IS NULL)
+                  AND "posthog_datawarehousesavedquery"."deleted" IS NOT NULL))
   ORDER BY "posthog_datawarehousesavedquery"."name" ASC
   '''
 # ---
@@ -11413,6 +11482,7 @@
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
+         "posthog_datawarehousetable"."created_via",
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."column_order",
          "posthog_datawarehousetable"."options",
@@ -11480,6 +11550,7 @@
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
+         "posthog_datawarehousetable"."created_via",
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."column_order",
          "posthog_datawarehousetable"."options",
@@ -11549,10 +11620,8 @@
          "ee_accesscontrol"."role_id",
          "ee_accesscontrol"."created_by_id",
          "ee_accesscontrol"."created_at",
-         "ee_accesscontrol"."updated_at",
-         "posthog_team"."organization_id" AS "_team_organization_id"
+         "ee_accesscontrol"."updated_at"
   FROM "ee_accesscontrol"
-  INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
   WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
           AND "ee_accesscontrol"."role_id" IS NULL
@@ -11723,6 +11792,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -11863,6 +11933,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -11916,6 +11987,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -11951,10 +12023,8 @@
          "ee_accesscontrol"."role_id",
          "ee_accesscontrol"."created_by_id",
          "ee_accesscontrol"."created_at",
-         "ee_accesscontrol"."updated_at",
-         "posthog_team"."organization_id" AS "_team_organization_id"
+         "ee_accesscontrol"."updated_at"
   FROM "ee_accesscontrol"
-  INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
   WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
           AND "ee_accesscontrol"."role_id" IS NULL
@@ -11995,6 +12065,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -12047,6 +12118,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -12099,6 +12171,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -12205,6 +12278,7 @@
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
+         "posthog_datawarehousetable"."created_via",
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."column_order",
          "posthog_datawarehousetable"."options",
@@ -12217,13 +12291,12 @@
          "posthog_datawarehousemanagedviewset"."team_id",
          "posthog_datawarehousemanagedviewset"."kind"
   FROM "posthog_datawarehousesavedquery"
-  LEFT OUTER JOIN "posthog_datawarehousemanagedviewset" ON ("posthog_datawarehousesavedquery"."managed_viewset_id" = "posthog_datawarehousemanagedviewset"."id")
   LEFT OUTER JOIN "posthog_user" ON ("posthog_datawarehousesavedquery"."created_by_id" = "posthog_user"."id")
   LEFT OUTER JOIN "posthog_datawarehousetable" ON ("posthog_datawarehousesavedquery"."table_id" = "posthog_datawarehousetable"."id")
+  LEFT OUTER JOIN "posthog_datawarehousemanagedviewset" ON ("posthog_datawarehousesavedquery"."managed_viewset_id" = "posthog_datawarehousemanagedviewset"."id")
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
          AND NOT ("posthog_datawarehousesavedquery"."deleted"
-                  AND "posthog_datawarehousesavedquery"."deleted" IS NOT NULL)
-         AND "posthog_datawarehousesavedquery"."managed_viewset_id" IS NULL)
+                  AND "posthog_datawarehousesavedquery"."deleted" IS NOT NULL))
   ORDER BY "posthog_datawarehousesavedquery"."name" ASC
   '''
 # ---
@@ -12309,6 +12382,7 @@
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
+         "posthog_datawarehousetable"."created_via",
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."column_order",
          "posthog_datawarehousetable"."options",
@@ -12376,6 +12450,7 @@
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
+         "posthog_datawarehousetable"."created_via",
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."column_order",
          "posthog_datawarehousetable"."options",
@@ -12545,6 +12620,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -12651,6 +12727,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -12791,6 +12868,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -12844,6 +12922,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -12879,10 +12958,8 @@
          "ee_accesscontrol"."role_id",
          "ee_accesscontrol"."created_by_id",
          "ee_accesscontrol"."created_at",
-         "ee_accesscontrol"."updated_at",
-         "posthog_team"."organization_id" AS "_team_organization_id"
+         "ee_accesscontrol"."updated_at"
   FROM "ee_accesscontrol"
-  INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
   WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
           AND "ee_accesscontrol"."role_id" IS NULL
@@ -12923,6 +13000,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -12975,6 +13053,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -13081,6 +13160,7 @@
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
+         "posthog_datawarehousetable"."created_via",
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."column_order",
          "posthog_datawarehousetable"."options",
@@ -13093,13 +13173,12 @@
          "posthog_datawarehousemanagedviewset"."team_id",
          "posthog_datawarehousemanagedviewset"."kind"
   FROM "posthog_datawarehousesavedquery"
-  LEFT OUTER JOIN "posthog_datawarehousemanagedviewset" ON ("posthog_datawarehousesavedquery"."managed_viewset_id" = "posthog_datawarehousemanagedviewset"."id")
   LEFT OUTER JOIN "posthog_user" ON ("posthog_datawarehousesavedquery"."created_by_id" = "posthog_user"."id")
   LEFT OUTER JOIN "posthog_datawarehousetable" ON ("posthog_datawarehousesavedquery"."table_id" = "posthog_datawarehousetable"."id")
+  LEFT OUTER JOIN "posthog_datawarehousemanagedviewset" ON ("posthog_datawarehousesavedquery"."managed_viewset_id" = "posthog_datawarehousemanagedviewset"."id")
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
          AND NOT ("posthog_datawarehousesavedquery"."deleted"
-                  AND "posthog_datawarehousesavedquery"."deleted" IS NOT NULL)
-         AND "posthog_datawarehousesavedquery"."managed_viewset_id" IS NULL)
+                  AND "posthog_datawarehousesavedquery"."deleted" IS NOT NULL))
   ORDER BY "posthog_datawarehousesavedquery"."name" ASC
   '''
 # ---
@@ -13185,6 +13264,7 @@
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
+         "posthog_datawarehousetable"."created_via",
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."column_order",
          "posthog_datawarehousetable"."options",
@@ -13281,6 +13361,7 @@
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
+         "posthog_datawarehousetable"."created_via",
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."column_order",
          "posthog_datawarehousetable"."options",
@@ -13293,13 +13374,12 @@
          "posthog_datawarehousemanagedviewset"."team_id",
          "posthog_datawarehousemanagedviewset"."kind"
   FROM "posthog_datawarehousesavedquery"
-  LEFT OUTER JOIN "posthog_datawarehousemanagedviewset" ON ("posthog_datawarehousesavedquery"."managed_viewset_id" = "posthog_datawarehousemanagedviewset"."id")
   LEFT OUTER JOIN "posthog_user" ON ("posthog_datawarehousesavedquery"."created_by_id" = "posthog_user"."id")
   LEFT OUTER JOIN "posthog_datawarehousetable" ON ("posthog_datawarehousesavedquery"."table_id" = "posthog_datawarehousetable"."id")
+  LEFT OUTER JOIN "posthog_datawarehousemanagedviewset" ON ("posthog_datawarehousesavedquery"."managed_viewset_id" = "posthog_datawarehousemanagedviewset"."id")
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
          AND NOT ("posthog_datawarehousesavedquery"."deleted"
-                  AND "posthog_datawarehousesavedquery"."deleted" IS NOT NULL)
-         AND "posthog_datawarehousesavedquery"."managed_viewset_id" IS NULL)
+                  AND "posthog_datawarehousesavedquery"."deleted" IS NOT NULL))
   ORDER BY "posthog_datawarehousesavedquery"."name" ASC
   '''
 # ---
@@ -13356,6 +13436,7 @@
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
+         "posthog_datawarehousetable"."created_via",
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."column_order",
          "posthog_datawarehousetable"."options",
@@ -13580,6 +13661,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -13720,6 +13802,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -13825,6 +13908,7 @@
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
+         "posthog_datawarehousetable"."created_via",
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."column_order",
          "posthog_datawarehousetable"."options",
@@ -13869,6 +13953,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -13904,10 +13989,8 @@
          "ee_accesscontrol"."role_id",
          "ee_accesscontrol"."created_by_id",
          "ee_accesscontrol"."created_at",
-         "ee_accesscontrol"."updated_at",
-         "posthog_team"."organization_id" AS "_team_organization_id"
+         "ee_accesscontrol"."updated_at"
   FROM "ee_accesscontrol"
-  INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
   WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
           AND "ee_accesscontrol"."role_id" IS NULL
@@ -13948,6 +14031,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -14000,6 +14084,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -14106,6 +14191,7 @@
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
+         "posthog_datawarehousetable"."created_via",
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."column_order",
          "posthog_datawarehousetable"."options",
@@ -14118,13 +14204,12 @@
          "posthog_datawarehousemanagedviewset"."team_id",
          "posthog_datawarehousemanagedviewset"."kind"
   FROM "posthog_datawarehousesavedquery"
-  LEFT OUTER JOIN "posthog_datawarehousemanagedviewset" ON ("posthog_datawarehousesavedquery"."managed_viewset_id" = "posthog_datawarehousemanagedviewset"."id")
   LEFT OUTER JOIN "posthog_user" ON ("posthog_datawarehousesavedquery"."created_by_id" = "posthog_user"."id")
   LEFT OUTER JOIN "posthog_datawarehousetable" ON ("posthog_datawarehousesavedquery"."table_id" = "posthog_datawarehousetable"."id")
+  LEFT OUTER JOIN "posthog_datawarehousemanagedviewset" ON ("posthog_datawarehousesavedquery"."managed_viewset_id" = "posthog_datawarehousemanagedviewset"."id")
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
          AND NOT ("posthog_datawarehousesavedquery"."deleted"
-                  AND "posthog_datawarehousesavedquery"."deleted" IS NOT NULL)
-         AND "posthog_datawarehousesavedquery"."managed_viewset_id" IS NULL)
+                  AND "posthog_datawarehousesavedquery"."deleted" IS NOT NULL))
   ORDER BY "posthog_datawarehousesavedquery"."name" ASC
   '''
 # ---
@@ -14210,6 +14295,7 @@
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
+         "posthog_datawarehousetable"."created_via",
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."column_order",
          "posthog_datawarehousetable"."options",
@@ -14277,6 +14363,7 @@
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
+         "posthog_datawarehousetable"."created_via",
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."column_order",
          "posthog_datawarehousetable"."options",
@@ -14542,6 +14629,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -14682,6 +14770,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -14735,6 +14824,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -14770,10 +14860,8 @@
          "ee_accesscontrol"."role_id",
          "ee_accesscontrol"."created_by_id",
          "ee_accesscontrol"."created_at",
-         "ee_accesscontrol"."updated_at",
-         "posthog_team"."organization_id" AS "_team_organization_id"
+         "ee_accesscontrol"."updated_at"
   FROM "ee_accesscontrol"
-  INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
   WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
           AND "ee_accesscontrol"."role_id" IS NULL
@@ -14814,6 +14902,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
@@ -14866,6 +14955,7 @@
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",

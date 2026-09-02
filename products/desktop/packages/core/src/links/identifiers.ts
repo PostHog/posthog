@@ -11,9 +11,6 @@ export const SCOUT_LINK_SERVICE = Symbol.for("posthog.core.scoutLinkService");
 export const NEW_TASK_LINK_SERVICE = Symbol.for(
   "posthog.core.newTaskLinkService",
 );
-export const APPROVAL_LINK_SERVICE = Symbol.for(
-  "posthog.core.approvalLinkService",
-);
 // Carries notification-click "open this target" intent from main → renderer.
 // Unlike the link services above, it registers no OS URL-scheme handler — it
 // exists purely so a clicked native notification can navigate to its target.

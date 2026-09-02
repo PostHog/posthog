@@ -172,3 +172,8 @@ export function useThemeColors(): ThemeColors {
 export function toRgba(hex: string, alpha: number): string {
   return hexToRgba(hex, alpha);
 }
+
+// Merged-PR purple, mirrored from the desktop app. The theme has no purple
+// scale, and this purple is recognisable enough that a fixed value works in
+// both light and dark.
+export const MERGED_COLOR = "#8e4ec6";

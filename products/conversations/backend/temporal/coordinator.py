@@ -260,8 +260,7 @@ class SupportReplyCoordinatorWorkflow:
             except WorkflowAlreadyStartedError:
                 workflow.logger.info(
                     "support_reply coordinator: child already running",
-                    ticket_id=ticket.ticket_id,
-                    child_id=child_id,
+                    extra={"ticket_id": ticket.ticket_id, "child_id": child_id},
                 )
                 skipped += 1
 

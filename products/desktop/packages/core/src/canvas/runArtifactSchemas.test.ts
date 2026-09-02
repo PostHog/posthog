@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  getPostHogObjectArtifactMetadata,
   groupRunArtifactVersions,
   OUTPUT_ARTIFACT_TYPES,
   parseRunArtifacts,
@@ -70,6 +71,29 @@ describe("parseRunArtifacts", () => {
     expect(
       parseRunArtifacts([{ id: "a", name: "mystery" }], OUTPUT_ARTIFACT_TYPES),
     ).toEqual([]);
+  });
+});
+
+describe("getPostHogObjectArtifactMetadata", () => {
+  it("accepts PostHog references without file storage fields", () => {
+    expect(
+      getPostHogObjectArtifactMetadata({
+        type: "reference",
+        metadata: {
+          reference_type: "posthog_object",
+          object_kind: "insight",
+          object_id: "9pQx3",
+          source_message_ids: ["turn-1"],
+          occurrence_count: 1,
+        },
+      }),
+    ).toEqual({
+      reference_type: "posthog_object",
+      object_kind: "insight",
+      object_id: "9pQx3",
+      source_message_ids: ["turn-1"],
+      occurrence_count: 1,
+    });
   });
 });
 

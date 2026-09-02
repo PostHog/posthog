@@ -61,23 +61,40 @@ jobs:
                     && (steps.exclude.outputs.outside_node_product_workspaces || 'true') == 'true' }}
             replay_shared: >-
                 ${{ (steps.filter.outputs.replay_shared || 'true') == 'true' }}
+            complexity_files: ${{ steps.filter.outputs.complexity_files }}
         steps:
             # For pull requests it's not necessary to check out the code, but we
             # also want this to run on master, so we need to check out
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: |
+                      .github/actions/paths-filter
+                      bin/frontend-exclude-filter
+                      pnpm-workspace.yaml
+                  sparse-checkout-cone-mode: false
 
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               id: app-token
               if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
+                  client-id: ${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
             - uses: ./.github/actions/paths-filter
               id: filter
               if: github.event_name != 'push' # Run all tests on master push
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
+                  list-files: 'escape'
                   filters: |
+                      # Consumed as a file list (complexity_files) by the changed-file
+                      # complexity check — the PR files API, not a hand-rolled git diff.
+                      complexity:
+                          - 'frontend/**/*.ts'
+                          - 'frontend/**/*.tsx'
+                          - 'ee/**/*.ts'
+                          - 'ee/**/*.tsx'
+                          - 'products/**/*.ts'
+                          - 'products/**/*.tsx'
                       frontend:
                         # Avoid running frontend tests for irrelevant changes
                         # NOTE: we are at risk of missing a dependency here.
@@ -136,6 +153,9 @@ jobs:
                         # desktop-* CI and must not drag this suite onto its PRs
                         - '!products/desktop/**'
                         - 'playwright/**'
+                        # The onboarding step components compile into the app and sit in the
+                        # frontend tsconfig program, so they are code, not docs.
+                        - 'docs/**/*.tsx'
                         - .github/workflows/ci-frontend.yml
                         - .oxlintrc.json
                         - .oxfmtrc*
@@ -186,7 +206,7 @@ jobs:
     # Pick which jest tests to run on draft PRs by passing changed files to
     # `jest --findRelatedTests` (jest's resolver walks the import graph for us).
     # Skipped on ready PRs and master pushes; the jest job falls back
-    # to its full FOSS×EE × chunk matrix in those cases. The ready-for-review
+    # to its full four-shard matrix in those cases. The ready-for-review
     # full run is the merge gate. The run-ci-frontend label forces the full
     # matrix on a draft. When selection can't be trusted on a draft (config
     # change, oversized diff, selector failure), the draft skips jest entirely
@@ -309,14 +329,12 @@ jobs:
                       exit 0
                   fi
 
-                  # Selective mode uses two EE-tree shards because a widely imported
-                  # source file can make --findRelatedTests approach a full suite. The FOSS
-                  # structural check (ee/ removed) only matters when ee imports are
-                  # touched; defer that to the ready-for-review full run. --findRelatedTests
+                  # Selective mode uses two shards because a widely imported source file
+                  # can make --findRelatedTests approach a full suite. --findRelatedTests
                   # walks jest's import graph from these files and runs the matching
                   # *.test.* files.
                   echo "mode=selective" >> "$GITHUB_OUTPUT"
-                  echo 'matrix={"include":[{"segment":"EE","chunk":1,"shard_count":2},{"segment":"EE","chunk":2,"shard_count":2}]}' >> "$GITHUB_OUTPUT"
+                  echo 'matrix={"include":[{"segment":"app","chunk":1,"shard_count":2},{"segment":"app","chunk":2,"shard_count":2}]}' >> "$GITHUB_OUTPUT"
                   echo "should_run=true" >> "$GITHUB_OUTPUT"
                   echo "changed_files=$CHANGED_FILES" >> "$GITHUB_OUTPUT"
                   echo "Selective mode: $(echo "$CHANGED_FILES" | wc -w) frontend source files"
@@ -336,7 +354,7 @@ jobs:
               continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  client-id: ${{ vars.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
                   skip-token-revoke: true
 
@@ -363,6 +381,36 @@ jobs:
 
             - name: Lint with Oxlint
               run: pnpm exec oxlint --quiet
+
+            # Oxlint has no cyclomatic complexity rule. Warn-only while the backlog
+            # settles: findings annotate the diff and land in the shared CI report
+            # comment, never a job failure. Scoped to the PR's own diff, no repo-wide
+            # baseline. Skip on unrebased branches: bin/lint-complexity.mjs may not
+            # exist yet.
+            - name: Check cyclomatic complexity of changed files
+              if: github.event_name == 'pull_request' && needs.changes.outputs.complexity_files != ''
+              env:
+                  # Space-separated, from paths-filter (list-files: escape) — the PR
+                  # files API, so no git-diff plumbing to drift from what the PR changed.
+                  CHANGED_FILES: ${{ needs.changes.outputs.complexity_files }}
+              run: |
+                  if [ ! -f bin/lint-complexity.mjs ]; then
+                      echo "bin/lint-complexity.mjs not present on this branch yet — skipping (rebase to pick it up)"
+                      exit 0
+                  fi
+                  # xargs re-parses the escape format, keeping escaped paths whole.
+                  printf '%s' "$CHANGED_FILES" | xargs -r node bin/lint-complexity.mjs --report complexity-findings-ts.json
+
+            - name: Post CI report — complexity
+              if: always() && github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/')
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+              run: |
+                  if [ -f .github/scripts/post-complexity-section.mjs ] && [ -f complexity-findings-ts.json ]; then
+                      node .github/scripts/post-complexity-section.mjs typescript complexity-findings-ts.json
+                  else
+                      echo "Skipping the complexity report section: script or findings not on this branch"
+                  fi
 
             - name: Check markdown formatting with oxfmt
               run: pnpm exec oxfmt --check "**/*.{md,mdx}"
@@ -401,7 +449,7 @@ jobs:
               continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  client-id: ${{ vars.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
                   skip-token-revoke: true
 
@@ -625,18 +673,19 @@ jobs:
         name: Frontend typechecking
         needs: [changes]
         if: needs.changes.outputs.frontend_code == 'true'
-        # tsgo peaks ~12 GB type-checking the whole frontend, which OOM-kills it on ~6% of runs
-        # on any 16 GB runner (ubuntu-latest and depot-ubuntu-24.04-4 alike). Peak tracks the
-        # type graph, not parallelism or lib checking: skipLibCheck is already on, GOMAXPROCS
-        # and declaration:false change nothing, and dropping all of products/ from include
-        # removes only 891 of 13703 files because imports pull them back in. 32 GB is the next
-        # rung on Depot's ladder. Talk to #team-devex before changing.
+        # tsgo peaks ~12 GB type-checking the whole frontend, which OOM-kills it on a 16 GB
+        # runner (ubuntu-latest and depot-ubuntu-24.04-4 alike). Peak tracks the type graph,
+        # not parallelism or lib checking: skipLibCheck is already on, GOMAXPROCS and
+        # declaration:false change nothing, and dropping all of products/ from include removes
+        # only 891 of 13703 files because imports pull them back in. Both runners below give
+        # the job 32 GB. Talk to #team-devex before changing.
         #
-        # Forks stay on GitHub-hosted: this job runs `pnpm install`, so a fork PR controls
-        # lifecycle scripts, and Depot runners inject shared cache credentials ambiently
-        # (see _rust-build-images.yml, which skips sccache creds for the same reason).
-        # Fork PRs keep the pre-existing OOM flake; internal PRs and master get the fix.
-        runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && 'depot-ubuntu-24.04-8' || 'ubuntu-latest' }}
+        # Forks get a GitHub-hosted larger runner instead of Depot: this job runs
+        # `pnpm install`, so a fork PR controls lifecycle scripts, and Depot runners inject
+        # shared cache credentials ambiently (see _rust-build-images.yml, which skips sccache
+        # creds for the same reason). GitHub warns against exposing a larger runner with a
+        # static IP range to fork pull requests, so keep this runner's group off static IPs.
+        runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && 'depot-ubuntu-24.04-8' || 'ubuntu-24.04-8core' }}
         # Kea typegen invalidates on changes to any logic plus everything that depends on it.
         # For changes to shared core (TaxonomicFilter, Insight, etc.) the dependent set is
         # large, so the budget must fit a cache miss on top of the baseline build.
@@ -650,7 +699,7 @@ jobs:
               continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  client-id: ${{ vars.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
                   skip-token-revoke: true
 
@@ -701,6 +750,13 @@ jobs:
                     env:
                         NODE_OPTIONS: --max-old-space-size=8192
 
+                  # The manifest is generated from `urls` (scenes/urls.ts + every product
+                  # manifest) and is what the MCP's generate-app-url tool resolves entity
+                  # links from. Nothing else reads it, so drift is invisible until an agent
+                  # hands a user a 404 — this check is the only thing tying it to its source.
+                  - name: Check if app-url-manifest.json is up to date
+                    run: pnpm --filter=@posthog/frontend build:app-urls:check
+
                   - name: Validate SetupTaskId completions
                     run: node bin/validate-setup-tasks.mjs
 
@@ -720,19 +776,22 @@ jobs:
         strategy:
             # If one test fails, still run the others
             fail-fast: false
-            # On draft PRs, select-jest-tests may narrow this to two EE jobs
+            # On draft PRs, select-jest-tests may narrow this to two jobs
             # running only the tests reachable from changed frontend source files,
             # or skip jest entirely (should_run=false) when selection can't be
             # trusted. On ready PRs and master pushes it's skipped, so
-            # we fall back to the full FOSS×EE × chunk fanout (the merge gate).
-            matrix: ${{ fromJson(needs.select-jest-tests.outputs.matrix || '{"segment":["FOSS","EE"],"chunk":[1,2,3,4]}') }}
+            # we fall back to the full four-chunk fanout (the merge gate).
+            # `segment` is a single fixed value: it survives only as the naming
+            # token for job, JUnit file and artifact, which the timings reporter
+            # parses as `junit-results-frontend-<segment>-<chunk>`. There used to
+            # be a second FOSS segment that deleted ee/ and re-ran the suite, but
+            # ee/ holds no frontend code and nothing under frontend/, products/,
+            # common/ or packages/ imports from it, so the two segments ran
+            # byte-identical suites.
+            matrix: ${{ fromJson(needs.select-jest-tests.outputs.matrix || '{"segment":["app"],"chunk":[1,2,3,4]}') }}
 
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-            - name: Remove ee
-              if: matrix.segment == 'FOSS'
-              run: rm -rf ee
 
             - name: Mint setup-action GitHub token
               id: setup-gh-token
@@ -740,7 +799,7 @@ jobs:
               continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  client-id: ${{ vars.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
                   skip-token-revoke: true
 
@@ -807,8 +866,9 @@ jobs:
                   retention-days: 1
 
             # Best-effort Trunk upload (continue-on-error); the "Fail on jest failure" step below is
-            # the verdict, so a Trunk outage can't red a passing shard. FOSS and EE share test files,
-            # so each segment uploads under its own variant. Internal PRs only (needs the secret).
+            # the verdict, so a Trunk outage can't red a passing shard. Internal PRs only (needs the
+            # secret). No Trunk variant: variants told apart the old FOSS and EE uploads of the same
+            # test files, and only one segment remains.
             # TRUNK_UPLOAD_ENABLED is the master kill-switch: when it is not 'true' this gate
             # skips, so nothing uploads and no known flakes are quarantined. TRUNK_QUARANTINE_ENABLED
             # splits the two — it defaults off, so set it to 'true' to let the verdict step below mask
@@ -820,7 +880,6 @@ jobs:
               uses: ./.github/actions/trunk-quarantine-gate
               with:
                   junit-paths: junit-results/junit-${{ matrix.segment }}-${{ matrix.chunk }}.xml
-                  variant: ${{ matrix.segment }}
                   previous-step-outcome: ${{ steps.run-jest.outcome }}
                   token: ${{ secrets.TRUNK_API_TOKEN }}
             # Verdict: red a real failure the gate didn't clear as a quarantined flake. != 'success'
@@ -845,7 +904,7 @@ jobs:
               continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  client-id: ${{ vars.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
                   skip-token-revoke: true
 

@@ -9,22 +9,23 @@ import type {
 import { defineLocalTool, type LocalTool } from "../registry";
 
 /**
- * Factory for the cloud-only signed-git tools (git_signed_commit / git_signed_rewrite).
- * Resolves the token lazily (live /tmp/agent-env first, so a mid-session credential
- * refresh takes effect) and the optional `cwd` arg against the session cwd, then
- * delegates to the tool's `run`. Kept past ToolSearch via alwaysLoad.
+ * Factory for the cloud-only GitHub tools (git_signed_commit / git_signed_rewrite /
+ * gh_stack). Resolves the token lazily (live /tmp/agent-env first, so a mid-session
+ * credential refresh takes effect) and the optional `cwd` arg against the session cwd,
+ * then delegates to the tool's `run`. Kept past ToolSearch via alwaysLoad by default.
  */
 export function defineSignedGitTool<S extends z.ZodRawShape, R>(opts: {
   name: string;
   description: string;
   schema: S;
+  alwaysLoad?: boolean;
   run: (ctx: SignedCommitToolCtx, input: R) => Promise<SignedCommitToolResult>;
 }): LocalTool {
   return defineLocalTool({
     name: opts.name,
     description: opts.description,
     schema: opts.schema,
-    alwaysLoad: true,
+    alwaysLoad: opts.alwaysLoad ?? true,
     isEnabled: (_ctx, meta) => isCloudRun(meta),
     handler: (ctx, args) => {
       const token = resolveGithubToken() ?? ctx.token;

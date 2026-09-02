@@ -1,3 +1,4 @@
+import { isPersonalChannel } from "@posthog/core/canvas/channelName";
 import { insertTaskDedup } from "@posthog/core/tasks/taskDelete";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import type { Task } from "@posthog/shared/domain-types";
@@ -191,7 +192,7 @@ export function WebsiteChannelHome({ channelId }: { channelId: string }) {
   const handleOpenFull = useCallback(
     (taskId: string) => {
       void navigate({
-        to: "/website/$channelId/tasks/$taskId",
+        to: "/spaces/$channelId/tasks/$taskId",
         params: { channelId, taskId },
       });
     },
@@ -223,7 +224,7 @@ export function WebsiteChannelHome({ channelId }: { channelId: string }) {
 
   // The Slack-style intro pinned at the feed's start — public channels only;
   // the personal channel keeps the welcome empty state below.
-  const isPersonal = channel?.channel_type === "personal";
+  const isPersonal = channel ? isPersonalChannel(channel) : false;
   const hasContextMd = (channelContext ?? "").trim().length > 0;
   // An in-flight build is spotted by its plan task in this channel's feed (by
   // title prefix — the only task↔context.md tie until the backend links them),

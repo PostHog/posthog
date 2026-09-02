@@ -190,5 +190,8 @@ class ChatAgentRunner(BaseAgentRunner):
                 "slack_workspace_domain": self._conversation.slack_workspace_domain,
                 "$session_id": self._session_id,
                 "agent_mode": self._selected_agent_mode,
+                # The sandbox runtime emits this same event when its run terminalizes. Without a
+                # runtime tag the two halves of every series are indistinguishable.
+                "agent_runtime": "langgraph",
             },
         )

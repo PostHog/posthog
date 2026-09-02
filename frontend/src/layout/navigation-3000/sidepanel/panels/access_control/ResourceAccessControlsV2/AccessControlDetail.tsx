@@ -230,8 +230,9 @@ function ProjectAccessSection({
                 levels={availableProjectLevels}
                 onChange={onChange}
                 disabledReason={subjectDisabledReason(entry, canEdit, user?.uuid)}
-                // Plain "No override": project access is object-resolved at runtime (an explicit role rule
-                // can undercut the default), so annotating what applies without a rule can be wrong here.
+                inherited={inheritedFor(entry.project, 'this project')}
+                // Falls back to a plain "No override" for a subject with nothing above them, which
+                // is the project's own default rather than a member or a role
                 allowNoOverride
             />
         </div>

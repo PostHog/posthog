@@ -80,15 +80,27 @@ If you need both a schema change and application code that uses the new schema, 
 
 **No table should exist only in the cloud.** Every table created via migration must also exist in a local dev environment.
 
-Some migrations are cloud-guarded and skipped in local/hobby dev:
+Some migrations are cloud-guarded and skipped in local/hobby dev. Gate on `posthog.run_mode`, never on `settings.CLOUD_DEPLOYMENT` directly, because the `clickhouse-migrations-use-run-mode` semgrep rule blocks raw comparisons:
 
 ```python
+from posthog.run_mode import RunMode, run_mode
+
 operations = (
     []
-    if settings.CLOUD_DEPLOYMENT not in ("US", "EU", "DEV")
+    if not run_mode().is_deployed_cloud  # US/EU/DEV
     else [...]
 )
 ```
+
+| Predicate                        | True for                                      |
+| -------------------------------- | --------------------------------------------- |
+| `run_mode().is_deployed_cloud`   | US, EU, DEV (the usual migration gate)        |
+| `run_mode().is_prod_cloud`       | US, EU (excludes staging)                     |
+| `run_mode() is RunMode.CLOUD_US` | one region (`CLOUD_EU`, `CLOUD_DEV` likewise) |
+
+`run_mode().is_cloud` also counts E2E, so it is wrong for a migration. That one matches `posthog.cloud_utils.is_cloud`.
+
+Call `run_mode()` where you need it rather than assigning a module-level constant. `posthog/clickhouse/test/test_migrations.py` re-imports every migration under a patched `posthog.settings.CLOUD_DEPLOYMENT` to check each deployment's branch for stray `ON CLUSTER`, and a cached value would silently skip that coverage.
 
 If you create a new table inside such a guard, you must also add its SQL function to `posthog/clickhouse/schema.py` in the appropriate tuple so the table gets created locally:
 

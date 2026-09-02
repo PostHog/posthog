@@ -242,5 +242,8 @@ function eventIdentity(
       return event.payload.prUrl;
     case "message_forwarded":
       return event.payload.messageId;
+    case "task_handed_off":
+      // Each handoff is its own row; only a duplicate write of the same one collapses.
+      return message.id;
   }
 }

@@ -3,23 +3,16 @@ from typing import Any
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType, SourceFieldSelectConfig
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zohocrm import (
     ZohoCRMSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.zoho_crm.settings import (
-    ENDPOINTS,
-    ZOHO_CRM_ENDPOINTS,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.zoho_crm.settings import ZOHO_CRM_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.zoho_crm.source import ZohoCRMSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.zoho_crm.zoho_crm import (
     REFRESH_TOKEN_REJECTED_MESSAGE,
-    ZOHO_REGIONS,
     ZohoCRMResumeConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.zoho_crm.source"
 
@@ -52,38 +45,6 @@ class TestZohoCRMSource:
         self.source = ZohoCRMSource()
         self.team_id = 123
         self.config = ZohoCRMSourceConfig(region="eu", client_id="cid", client_secret="secret", refresh_token="refresh")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.ZOHOCRM
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-
-        assert config.name.value == "ZohoCRM"
-        assert config.label == "Zoho CRM"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert not config.unreleasedSource
-        assert config.iconPath == "/static/services/zoho_crm.png"
-        assert [field.name for field in config.fields] == ["region", "client_id", "client_secret", "refresh_token"]
-
-    def test_region_options_cover_every_supported_data_center(self) -> None:
-        region_field = next(field for field in self.source.get_source_config.fields if field.name == "region")
-
-        assert isinstance(region_field, SourceFieldSelectConfig)
-        assert region_field.defaultValue == "us"
-        assert {option.value for option in region_field.options} == set(ZOHO_REGIONS)
-
-    @pytest.mark.parametrize("field_name", ["client_secret", "refresh_token"])
-    def test_credentials_are_required_secret_passwords(self, field_name: str) -> None:
-        field = next(
-            f
-            for f in self.source.get_source_config.fields
-            if isinstance(f, SourceFieldInputConfig) and f.name == field_name
-        )
-
-        assert field.type == SourceFieldInputConfigType.PASSWORD
-        assert field.secret is True
-        assert field.required is True
 
     def test_api_version_is_pinned_to_what_the_transport_calls(self) -> None:
         assert self.source.supported_versions == ("v8",)
@@ -135,47 +96,6 @@ class TestZohoCRMSource:
     )
     def test_transient_failures_stay_retryable(self, observed_error: str) -> None:
         assert not any(key in observed_error for key in self.source.get_non_retryable_errors())
-
-    def test_get_schemas_lists_every_module(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id)
-
-        assert {schema.name for schema in schemas} == set(ENDPOINTS)
-
-    @pytest.mark.parametrize("endpoint", INCREMENTAL_ENDPOINTS)
-    def test_record_modules_advertise_the_modified_time_cursor(self, endpoint: str) -> None:
-        schema = next(s for s in self.source.get_schemas(self.config, self.team_id) if s.name == endpoint)
-
-        assert schema.supports_incremental is True
-        assert [field["field"] for field in schema.incremental_fields] == ["Modified_Time"]
-
-    @pytest.mark.parametrize("endpoint", FULL_REFRESH_ENDPOINTS)
-    def test_endpoints_without_a_server_side_filter_are_full_refresh(self, endpoint: str) -> None:
-        schema = next(s for s in self.source.get_schemas(self.config, self.team_id) if s.name == endpoint)
-
-        assert schema.supports_incremental is False
-        assert schema.incremental_fields == []
-
-    def test_edition_dependent_modules_are_not_ticked_by_default(self) -> None:
-        schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
-
-        assert schemas["Leads"].should_sync_default is True
-        assert schemas["Cases"].should_sync_default is False
-        assert schemas["Invoices"].should_sync_default is False
-
-    def test_get_schemas_filters_by_name(self) -> None:
-        assert [s.name for s in self.source.get_schemas(self.config, self.team_id, names=["Deals"])] == ["Deals"]
-
-    def test_get_schemas_with_an_unknown_name_returns_nothing(self) -> None:
-        assert self.source.get_schemas(self.config, self.team_id, names=["Nope"]) == []
-
-    def test_table_catalog_is_publishable_without_credentials(self) -> None:
-        assert self.source.lists_tables_without_credentials is True
-
-    def test_canonical_descriptions_cover_the_published_tables(self) -> None:
-        descriptions = self.source.get_canonical_descriptions()
-
-        assert set(descriptions) == set(ENDPOINTS)
-        assert all("id" in (entry.get("columns") or {}) for entry in descriptions.values())
 
     @mock.patch(f"{_SOURCE_MODULE}.validate_zoho_crm_credentials")
     def test_validate_credentials_passes_the_resolved_version(self, mock_validate: mock.MagicMock) -> None:

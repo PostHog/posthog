@@ -23,11 +23,11 @@ from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.models import Team, User
 from posthog.ph_client import feature_enabled_or_false
 from posthog.rbac.query_access import assert_user_can_read_query
-from posthog.rbac.user_access_control import AccessControlLevel
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.data_modeling.run_workflow import RunWorkflowInputs, Selector
 from posthog.temporal.data_modeling.workflows.execute_dag import ExecuteDAGInputs
 
+from products.access_control.backend.facade.user_access_control import AccessControlLevel
 from products.data_modeling.backend.facade.api import get_declared_target, resume_nodes, suspension_state
 from products.data_modeling.backend.facade.models import DAG, DataWarehouseSavedQuery, Edge, Node, NodeType
 from products.warehouse_sources.backend.facade.models import sync_frequency_interval_to_sync_frequency

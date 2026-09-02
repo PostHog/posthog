@@ -28,10 +28,13 @@ export type CdpInternalEvent = z.infer<typeof CdpInternalEventSchema>
 
 export const CdpDataWarehouseEventSchema = z.object({
     team_id: z.number(),
-    // Dot-notated table name the row was synced into. Optional for backwards compatibility with
-    // messages produced before the producer started including it.
+    // Dot-notated table name the row was synced into, or a materialized view's own name. Optional
+    // for backwards compatibility with messages produced before the producer started including it.
     table_name: z.string().optional(),
-    // Deterministic id, unique per row per external data job run (see CDPProducer._build_event_id)
+    // Which kind of warehouse table the row came from. Absent means a source-synced table, which is
+    // all the producer emitted before materialized views could trigger.
+    table_type: z.enum(['source', 'view']).optional(),
+    // Deterministic id, unique per row (see CDPProducer._build_event_id)
     event_id: z.string(),
     properties: z.record(z.string(), z.any()),
 })

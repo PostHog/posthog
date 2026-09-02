@@ -16,44 +16,15 @@ import {
   type CloudTaskConfigOption,
   DISMISSAL_REASON_OPTIONS,
   type DismissalReasonOptionValue,
+  type GatewayModel,
   getCloudTaskGatewayUrl,
   isSupportedReasoningEffort,
   normalizeGatewayModelsResponse,
+  RESOLVE_REASON_OPTIONS,
+  type ReportStateReason,
+  type ResolveReasonOptionValue,
   resolveCloudInitialPermissionMode,
 } from "@posthog/shared";
-import type {
-  AgentAnalyticsData,
-  AgentApplication,
-  AgentApplicationSessionDetail,
-  AgentApplicationSessionsListResponse,
-  AgentApprovalRequest,
-  AgentApprovalsListParams,
-  AgentFleetLiveSessionsResponse,
-  AgentMemoryFile,
-  AgentMemorySearchResult,
-  AgentMemoryTableHeader,
-  AgentMemoryTableRows,
-  AgentMemoryTreeNode,
-  AgentPreviewToken,
-  AgentRevision,
-  AgentSessionEvent,
-  AgentSessionLogEntry,
-  AgentSessionLogsParams,
-  AgentSessionsListParams,
-  AgentSlackManifest,
-  AgentSpec,
-  AgentUsersListResponse,
-  BundleFile,
-  DecideApprovalRequest,
-  DryRunToolEnvelope,
-  DryRunToolRequest,
-  DryRunToolResult,
-  ModelCatalog,
-  ToolCapabilities,
-  ToolCompileError,
-  WriteToolRequest,
-  WriteToolResult,
-} from "@posthog/shared/agent-platform-types";
 import type {
   ActionabilityJudgmentArtefact,
   AvailableSuggestedReviewer,
@@ -68,6 +39,7 @@ import type {
   NoteArtefact,
   OrganizationMemberBasic,
   PriorityJudgmentArtefact,
+  ProvisionedTaskChannels,
   RepoSelectionArtefact,
   SafetyJudgmentArtefact,
   SandboxCustomImage,
@@ -104,17 +76,16 @@ import type {
 } from "@posthog/shared/domain-types";
 import { buildPosthogProjectHeaderRecord } from "@posthog/shared/posthog-property-headers";
 import {
-  buildAgentAnalyticsQueries,
-  type HogQLGrid,
-  shapeAgentAnalytics,
-} from "./agent-analytics";
-import {
+  activitySection,
   compactCount,
+  dailySparkLabels,
   dailySparkPoints,
   decorateFlagPreview,
   decorateSurveyPreview,
   type EvidencePreview,
-  exposureFact,
+  type ExperimentMetricQueryResult,
+  experimentMetricQueries,
+  formatDay,
   gridRows,
   hogqlEscape,
   shapeActionPreview,
@@ -123,8 +94,11 @@ import {
   shapeErrorIssuePreview,
   shapeEvaluationPreview,
   shapeEventDefinitionPreview,
+  shapeExperimentExposureChart,
   shapeExperimentPreview,
+  shapeExperimentResults,
   shapeFlagPreview,
+  shapeInboxReportPreview,
   shapePersonPreview,
   shapeRecordingPreview,
   shapeSurveyPreview,
@@ -158,12 +132,18 @@ import type {
   TeamMcpGatewayConfigUpdate,
 } from "./mcp-gateway";
 import type { SpendAnalysisResponse } from "./spend-analysis";
+import { parseUserSpendLimit, type UserSpendLimit } from "./spend-limit";
 import {
   normalizeTaskResponse,
   normalizeTaskRunArtifact,
   normalizeTaskRunResponse,
   type TaskRunArtifactDTO,
 } from "./task-normalization";
+
+interface HogQLGrid {
+  results: unknown[][];
+  columns: string[];
+}
 
 export type * from "./mcp-gateway";
 export interface ApiClientLogger {
@@ -193,6 +173,22 @@ export interface PostHogAPIClientOptions {
 
 export function getPosthogApiClientAppVersion(): string {
   return clientAppVersion;
+}
+
+/**
+ * A scout endpoint answered with a non-2xx. Carries the status so a caller can tell a
+ * refusal it has to live with — 403 for a member without `signal_scout:write`, 404 for a
+ * stale project id — from a real outage worth retrying or reporting.
+ */
+export class ScoutRequestError extends Error {
+  constructor(
+    readonly status: number,
+    subPath: string,
+    statusText: string,
+  ) {
+    super(`Scout request failed (${subPath}): ${statusText}`);
+    this.name = "ScoutRequestError";
+  }
 }
 
 export class SandboxCustomImagesDisabledError extends Error {
@@ -355,6 +351,8 @@ export type {
 
 export type Evaluation = Schemas.Evaluation;
 
+export type GithubInstallationStatus = "connected" | "unavailable";
+
 export interface UserGitHubIntegration {
   id: string;
   kind: "github";
@@ -364,22 +362,39 @@ export interface UserGitHubIntegration {
     type?: string | null;
     name?: string | null;
   } | null;
+  github_login?: string | null;
   uses_shared_installation?: boolean;
+  /** False when disconnecting would also uninstall the App from GitHub. */
+  installation_shared?: boolean;
+  installation_status?: GithubInstallationStatus;
   created_at?: string;
 }
+
+/** `unidentified` means the requester could not be resolved, so approval can never
+ * be detected and the user has to restart the connect flow. */
+export type GithubInstallRequestStatus =
+  | "pending"
+  | "approved"
+  | "unidentified";
 
 /** A personal GitHub App install awaiting (or granted) org-owner approval; the
  * durable server-side counterpart to the in-flight connect spinner. Mirrors
  * `GitHubInstallRequest` on the backend. */
-export interface GitHubInstallRequest {
+export interface GithubInstallRequestItem {
   id: string;
   github_login: string;
-  /** `unidentified` means the requester could not be resolved, so approval can
-   *  never be detected and the user has to restart the connect flow. */
-  status: "pending" | "approved" | "unidentified";
-  installation_id?: string | null;
+  status: GithubInstallRequestStatus;
+  installation_id: string | null;
+  account_login?: string | null;
+  account_type?: string | null;
   requested_at: string;
-  resolved_at?: string | null;
+  resolved_at: string | null;
+}
+
+export interface GithubInstallRequestsResponse {
+  results: GithubInstallRequestItem[];
+  /** App install page with no PostHog state, for an org owner to open. */
+  install_url?: string | null;
 }
 
 export interface LlmSkillCreatedBy {
@@ -389,7 +404,7 @@ export interface LlmSkillCreatedBy {
   last_name?: string | null;
 }
 
-export interface LlmSkillFileManifest {
+interface LlmSkillFileManifest {
   path: string;
   content_type: string;
 }
@@ -585,6 +600,8 @@ export interface ExternalDataSource {
   // The generated `ExternalDataSourceSerializers` types this as `string`,
   // but the actual API returns an array of schema objects
   schemas?: ExternalDataSourceSchema[] | string;
+  /** Non-secret connection settings, e.g. a GitHub source's `repositories`. */
+  job_inputs?: Record<string, unknown> | null;
 }
 
 /**
@@ -650,7 +667,7 @@ export interface IntegrationAccount {
   secondary_text: string | null;
 }
 
-export interface SourceFieldSelectConfigOption {
+interface SourceFieldSelectConfigOption {
   label: string;
   value: string;
   fields?: SourceFieldConfig[];
@@ -732,6 +749,131 @@ export class FolderInstructionsConflictError extends Error {
   }
 }
 
+export interface PostHogObjectReferenceInput {
+  name: string;
+  object_kind: string;
+  object_id: string;
+  source_message_id: string;
+}
+
+export interface ContextWikiTree {
+  head_sha: string;
+  paths: string[];
+}
+
+export interface ContextWikiPage {
+  path: string;
+  content: string;
+  head_sha: string;
+  updated_at: string;
+}
+
+export interface ContextWikiHealthFinding {
+  category: string;
+  path: string;
+  message: string;
+}
+
+export interface ContextWikiHealthReport {
+  head_sha: string;
+  findings: ContextWikiHealthFinding[];
+}
+
+export interface ChannelContextWikiPage {
+  path: string;
+}
+
+export interface ContextWikiDreamRun {
+  sha: string;
+  date: string;
+  committed_at: string;
+  summary: string;
+  pages_added: number;
+  pages_modified: number;
+  pages_deleted: number;
+}
+
+export interface ContextWikiActiveDreamRun {
+  run_status: "not_started" | "queued" | "in_progress";
+  started_at: string;
+}
+
+export interface ContextWikiDreamList {
+  head_sha: string;
+  active_run: ContextWikiActiveDreamRun | null;
+  dreams: ContextWikiDreamRun[];
+}
+
+export interface ContextWikiDreamFile {
+  path: string;
+  status: "added" | "modified" | "deleted";
+  patch: string;
+  truncated: boolean;
+}
+
+export interface ContextWikiDreamDetail {
+  run: ContextWikiDreamRun;
+  files: ContextWikiDreamFile[];
+}
+
+// Thrown when PUT /context_layer/pages/ rejects a write because the caller's
+// `base_head` is older than the wiki's current head. `currentHead` is the head
+// to re-read against before retrying.
+export class ContextWikiConflictError extends Error {
+  status = 409;
+  currentHead: string | null;
+  constructor(currentHead: string | null) {
+    super("The wiki changed since you started editing");
+    this.name = "ContextWikiConflictError";
+    this.currentHead = currentHead;
+  }
+}
+
+// Thrown when a page write fails the wiki's structure lint; `errors` lists the
+// violations for inline display.
+export class ContextWikiLintError extends Error {
+  status = 400;
+  errors: string[];
+  constructor(detail: string, errors: string[]) {
+    super(detail);
+    this.name = "ContextWikiLintError";
+    this.errors = errors;
+  }
+}
+
+// Thrown on 403: the organization has private projects, so its wiki is
+// deliberately unavailable. Distinct from 404 (wiki never enabled).
+export class ContextWikiUnavailableError extends Error {
+  status = 403;
+  constructor(message: string) {
+    super(message);
+    this.name = "ContextWikiUnavailableError";
+  }
+}
+
+/** DRF error bodies carry the human-readable message in `detail`. */
+function readDetail(error: ApiRequestError): string {
+  const body = error.body as { detail?: string } | null;
+  return body?.detail ?? error.message;
+}
+
+/**
+ * DRF validation failures carry the messages per field, `{ field: [msg] }`,
+ * with no top-level `detail`. Flatten them so the server's own wording reaches
+ * the toast instead of a bare status text.
+ */
+function readFieldErrors(error: ApiRequestError): string {
+  if (typeof error.body !== "object" || error.body === null) {
+    return error.message;
+  }
+  const record = error.body as Record<string, unknown>;
+  if (typeof record.detail === "string") return record.detail;
+  const parts = Object.values(record).flatMap((messages) =>
+    Array.isArray(messages) ? messages.map(String) : [],
+  );
+  return parts.length > 0 ? parts.join(" ") : error.message;
+}
+
 export interface TaskArtifactUploadRequest {
   name: string;
   type: "output" | "user_attachment" | "skill_bundle";
@@ -741,7 +883,7 @@ export interface TaskArtifactUploadRequest {
   metadata?: TaskRunArtifactMetadata;
 }
 
-export interface DirectUploadPresignedPost {
+interface DirectUploadPresignedPost {
   url: string;
   fields: Record<string, string>;
 }
@@ -982,29 +1124,6 @@ function extractRequestErrorMessage(error: unknown, fallback: string): string {
   return `${fallback} (HTTP ${match[1]})`;
 }
 
-/**
- * Parse the shared fetcher's `Failed request: [<status>] <json-body>` throw back
- * into its status + parsed JSON body, so status-specific responses (422, 429,
- * 500, 503) can be handled as data instead of a generic error. Returns null when
- * the error isn't that shape (e.g. a network failure).
- */
-function parseFailedRequest(
-  error: unknown,
-): { status: number; body: unknown } | null {
-  const raw = error instanceof Error ? error.message : String(error);
-  const match = raw.match(/^Failed request: \[(\d+)\] (.*)$/s);
-  if (!match) {
-    return null;
-  }
-  let body: unknown;
-  try {
-    body = JSON.parse(match[2]);
-  } catch {
-    body = match[2];
-  }
-  return { status: Number(match[1]), body };
-}
-
 type AnyArtefact =
   | SignalReportArtefact
   | PriorityJudgmentArtefact
@@ -1020,9 +1139,13 @@ type AnyArtefact =
   | TaskRunArtefact
   | NoteArtefact;
 
-const DISMISSAL_REASONS = new Set<DismissalReasonOptionValue>(
-  DISMISSAL_REASON_OPTIONS.map((o) => o.value),
-);
+// Reasons valid on a dismissal artefact. Resolve reasons are included because the
+// backend stores resolve feedback on the same artefact type (a resolve writes a
+// `dismissal` artefact), so `fixed_outside_posthog` / `pr_merged` must normalize too.
+const DISMISSAL_REASONS = new Set<ReportStateReason>([
+  ...DISMISSAL_REASON_OPTIONS.map((o) => o.value),
+  ...RESOLVE_REASON_OPTIONS.map((o) => o.value),
+]);
 
 const PRIORITY_VALUES = new Set(["P0", "P1", "P2", "P3", "P4"]);
 
@@ -1178,8 +1301,8 @@ function normalizeDismissalArtefact(
 
   const rawReason = optionalString(contentValue.reason);
   const reason =
-    rawReason && DISMISSAL_REASONS.has(rawReason as DismissalReasonOptionValue)
-      ? (rawReason as DismissalReasonOptionValue)
+    rawReason && DISMISSAL_REASONS.has(rawReason as ReportStateReason)
+      ? (rawReason as ReportStateReason)
       : null;
 
   if (reason == null) {
@@ -1581,23 +1704,10 @@ function parseAvailableSuggestedReviewersPayload(
   };
 }
 
-/**
- * Wraps the ingress preview token in the `parameters.header` shape the fetcher
- * merges into request headers without clobbering the auth bearer. Returns
- * `undefined` when there is no token so unmodified ingress calls stay byte-for-
- * byte identical to today.
- */
-function previewTokenHeader(
-  token: string | null | undefined,
-): { header: { "X-Agent-Preview-Token": string } } | undefined {
-  return token ? { header: { "X-Agent-Preview-Token": token } } : undefined;
-}
-
 export class PostHogAPIClient {
   private api: ReturnType<typeof createApiClient>;
   private _teamId: number | null = null;
   private githubConnectFrom: string;
-  private readonly fetch: FetchImplementation;
   private readonly apiHost: string;
 
   constructor(
@@ -1610,7 +1720,6 @@ export class PostHogAPIClient {
     const baseUrl = apiHost.endsWith("/") ? apiHost.slice(0, -1) : apiHost;
     this.apiHost = baseUrl;
     this.githubConnectFrom = options.githubConnectFrom ?? "posthog_code";
-    this.fetch = options.fetch ?? globalThis.fetch.bind(globalThis);
     this.api = createApiClient(
       buildApiFetcher({
         getAccessToken,
@@ -1654,9 +1763,7 @@ export class PostHogAPIClient {
     return data;
   }
 
-  async getCloudTaskConfigOptions(
-    adapter: Adapter = "claude",
-  ): Promise<CloudTaskConfigOption[]> {
+  async getCloudTaskGatewayModels(): Promise<GatewayModel[]> {
     const teamId = await this.getTeamId();
     const url = new URL(`${getCloudTaskGatewayUrl(this.apiHost)}/v1/models`);
     const response = await this.api.fetcher.fetch({
@@ -1667,8 +1774,14 @@ export class PostHogAPIClient {
         header: buildPosthogProjectHeaderRecord(teamId),
       },
     });
+    return normalizeGatewayModelsResponse(await response.json());
+  }
+
+  async getCloudTaskConfigOptions(
+    adapter: Adapter = "claude",
+  ): Promise<CloudTaskConfigOption[]> {
     return buildCloudTaskConfigOptions(
-      normalizeGatewayModelsResponse(await response.json()),
+      await this.getCloudTaskGatewayModels(),
       adapter,
     );
   }
@@ -1788,27 +1901,6 @@ export class PostHogAPIClient {
     return data.results ?? [];
   }
 
-  async getGithubInstallRequests(): Promise<GitHubInstallRequest[]> {
-    const urlPath = `/api/users/@me/integrations/github/install_requests/`;
-    const url = new URL(`${this.api.baseUrl}${urlPath}`);
-    const response = await this.api.fetcher.fetch({
-      method: "get",
-      url,
-      path: urlPath,
-    });
-
-    if (!response.ok) {
-      throw new Error(
-        `Failed to fetch GitHub install requests: ${response.statusText}`,
-      );
-    }
-
-    const data = (await response.json()) as {
-      results?: GitHubInstallRequest[];
-    };
-    return data.results ?? [];
-  }
-
   async disconnectGithubUserIntegration(installationId: string): Promise<void> {
     const urlPath = `/api/users/@me/integrations/github/${encodeURIComponent(installationId)}/`;
     const url = new URL(`${this.api.baseUrl}${urlPath}`);
@@ -1822,6 +1914,63 @@ export class PostHogAPIClient {
         `Failed to disconnect GitHub integration: ${response.statusText}`,
       );
     }
+  }
+
+  /** `GET /api/users/@me/integrations/github/install_requests/`: installs waiting on a GitHub org owner. */
+  async getGithubInstallRequests(): Promise<GithubInstallRequestsResponse> {
+    const urlPath = `/api/users/@me/integrations/github/install_requests/`;
+    const url = new URL(`${this.api.baseUrl}${urlPath}`);
+    const response = await this.api.fetcher.fetch({
+      method: "get",
+      url,
+      path: urlPath,
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Failed to fetch GitHub install requests: ${response.statusText}`,
+      );
+    }
+    const data =
+      (await response.json()) as Partial<GithubInstallRequestsResponse>;
+    return {
+      results: data.results ?? [],
+      install_url: data.install_url ?? null,
+    };
+  }
+
+  async dismissGithubInstallRequest(requestId: string): Promise<void> {
+    const urlPath = `/api/users/@me/integrations/github/install_requests/${encodeURIComponent(requestId)}/`;
+    const url = new URL(`${this.api.baseUrl}${urlPath}`);
+    await this.api.fetcher.fetch({
+      method: "delete",
+      url,
+      path: urlPath,
+    });
+  }
+
+  /** `DELETE /api/environments/{project}/integrations/{id}/`: any team-level integration (GitHub, Slack, ...). */
+  async deleteIntegration(
+    projectId: number,
+    integrationId: number | string,
+  ): Promise<void> {
+    await this.api.delete("/api/projects/{project_id}/integrations/{id}/", {
+      path: { project_id: projectId.toString(), id: Number(integrationId) },
+    });
+  }
+
+  /** Emails the project's admins asking them to connect an integration; members only. */
+  async requestIntegrationAccess(
+    projectId: number,
+    body: { kind: string; reason: string },
+  ): Promise<void> {
+    const urlPath = `/api/environments/${projectId}/integrations/request_access/`;
+    const url = new URL(`${this.api.baseUrl}${urlPath}`);
+    await this.api.fetcher.fetch({
+      method: "post",
+      url,
+      path: urlPath,
+      overrides: { body: JSON.stringify(body) },
+    });
   }
 
   /** The user's linked Slack identities. Empty until they run the Sign-in-with-Slack flow. */
@@ -1901,8 +2050,8 @@ export class PostHogAPIClient {
     });
   }
 
-  async approveAiDataProcessing(): Promise<void> {
-    const urlPath = `/api/organizations/@current/`;
+  async approveAiDataProcessing(organizationId: string): Promise<void> {
+    const urlPath = `/api/organizations/${organizationId}/`;
     const url = new URL(`${this.api.baseUrl}${urlPath}`);
     await this.api.fetcher.fetch({
       method: "patch",
@@ -1912,6 +2061,40 @@ export class PostHogAPIClient {
         body: JSON.stringify({ is_ai_data_processing_approved: true }),
       },
     });
+  }
+
+  async areDesktopBetaTermsAccepted(organizationId: string): Promise<boolean> {
+    const urlPath = `/api/organizations/${organizationId}/desktop_beta_terms/`;
+    const url = new URL(`${this.api.baseUrl}${urlPath}`);
+    const response = await this.api.fetcher.fetch({
+      method: "get",
+      url,
+      path: urlPath,
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Failed to check Desktop beta terms: ${response.statusText}`,
+      );
+    }
+    const data = (await response.json()) as {
+      is_desktop_beta_terms_accepted: boolean;
+    };
+    return data.is_desktop_beta_terms_accepted;
+  }
+
+  async acceptDesktopBetaTerms(organizationId: string): Promise<void> {
+    const urlPath = `/api/organizations/${organizationId}/desktop_beta_terms/`;
+    const url = new URL(`${this.api.baseUrl}${urlPath}`);
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url,
+      path: urlPath,
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Failed to accept Desktop beta terms: ${response.statusText}`,
+      );
+    }
   }
 
   async getProject(projectId: number) {
@@ -2017,8 +2200,10 @@ export class PostHogAPIClient {
       path: urlPath,
     });
     if (!response.ok) {
-      throw new Error(
-        `Scout request failed (${subPath}): ${response.statusText}`,
+      throw new ScoutRequestError(
+        response.status,
+        subPath,
+        response.statusText,
       );
     }
     return (await response.json()) as T;
@@ -2028,9 +2213,13 @@ export class PostHogAPIClient {
     projectId: number,
     subPath: string,
     body: unknown,
+    query?: Record<string, string | number | boolean | undefined>,
   ): Promise<T> {
     const urlPath = `/api/projects/${projectId}/signals/scout/${subPath}`;
     const url = new URL(`${this.api.baseUrl}${urlPath}`);
+    for (const [key, value] of Object.entries(query ?? {})) {
+      if (value !== undefined) url.searchParams.set(key, String(value));
+    }
     const response = await this.api.fetcher.fetch({
       method: "post",
       url,
@@ -2040,8 +2229,10 @@ export class PostHogAPIClient {
       },
     });
     if (!response.ok) {
-      throw new Error(
-        `Scout request failed (${subPath}): ${response.statusText}`,
+      throw new ScoutRequestError(
+        response.status,
+        subPath,
+        response.statusText,
       );
     }
     return (await response.json()) as T;
@@ -2051,6 +2242,19 @@ export class PostHogAPIClient {
     const data = await this.scoutGet<
       { results: ScoutConfig[] } | ScoutConfig[]
     >(projectId, "configs/");
+    return Array.isArray(data) ? data : (data.results ?? []);
+  }
+
+  /**
+   * Materialize the project's scout fleet and return it: the backend seeds the
+   * canonical `signals-scout-*` skills, registers a config for every scout
+   * missing one, and retires the ones no longer shipped. Idempotent, and the
+   * only way a project the Temporal coordinator never reached gets any scouts.
+   */
+  async syncScoutConfigs(projectId: number): Promise<ScoutConfig[]> {
+    const data = await this.scoutPost<
+      { results: ScoutConfig[] } | ScoutConfig[]
+    >(projectId, "configs/sync/", {}, { surface: "desktop" });
     return Array.isArray(data) ? data : (data.results ?? []);
   }
 
@@ -2190,13 +2394,10 @@ export class PostHogAPIClient {
   }
 
   async listEvaluations(projectId: number): Promise<Evaluation[]> {
-    const data = await this.api.get(
-      "/api/environments/{project_id}/evaluations/",
-      {
-        path: { project_id: projectId.toString() },
-        query: { limit: 200 },
-      },
-    );
+    const data = await this.api.get("/api/projects/{project_id}/evaluations/", {
+      path: { project_id: projectId.toString() },
+      query: { limit: 200 },
+    });
     return data.results ?? [];
   }
 
@@ -2206,7 +2407,7 @@ export class PostHogAPIClient {
     updates: { enabled: boolean },
   ): Promise<Evaluation> {
     return await this.api.patch(
-      "/api/environments/{project_id}/evaluations/{id}/",
+      "/api/projects/{project_id}/evaluations/{id}/",
       {
         path: {
           project_id: projectId.toString(),
@@ -2253,6 +2454,36 @@ export class PostHogAPIClient {
       throw new Error(
         errorData.detail ??
           `Failed to create external data source: ${response.statusText}`,
+      );
+    }
+    return response.data as unknown as ExternalDataSource;
+  }
+
+  /**
+   * `PATCH .../external_data_sources/{id}/`. `job_inputs` merges into the stored inputs, so
+   * changing a GitHub source's repositories only needs `{ repositories: [...] }`.
+   */
+  async updateExternalDataSource(
+    projectId: number,
+    sourceId: string,
+    payload: { job_inputs: Record<string, unknown> },
+  ): Promise<ExternalDataSource> {
+    const response = await this.api.patch(
+      "/api/projects/{project_id}/external_data_sources/{id}/",
+      {
+        path: { project_id: projectId.toString(), id: sourceId },
+        body: payload as unknown as Schemas.PatchedExternalDataSourceSerializers,
+        withResponse: true,
+        throwOnStatusError: false,
+      },
+    );
+    if (!response.ok) {
+      const errorData = isObjectRecord(response.data)
+        ? (response.data as { detail?: string })
+        : {};
+      throw new Error(
+        errorData.detail ??
+          `Failed to update external data source: ${response.statusText}`,
       );
     }
     return response.data as unknown as ExternalDataSource;
@@ -2337,15 +2568,50 @@ export class PostHogAPIClient {
     }
   }
 
+  /**
+   * Update several of a source's schemas in one request. The backend commits each schema on its
+   * own, so one schema failing still applies the rest and the error names the ones it could not
+   * save — unlike a client-side loop, where the first failure skips everything after it.
+   */
+  async bulkUpdateExternalDataSchemas(
+    projectId: number,
+    sourceId: string,
+    schemas: { id: string; should_sync?: boolean; sync_type?: string }[],
+  ): Promise<void> {
+    const response = await this.api.patch(
+      "/api/projects/{project_id}/external_data_sources/{id}/bulk_update_schemas/",
+      {
+        path: { project_id: projectId.toString(), id: sourceId },
+        query: {},
+        body: {
+          schemas,
+        } as unknown as Schemas.PatchedExternalDataSourceBulkUpdateSchemas,
+        withResponse: true,
+        throwOnStatusError: false,
+      },
+    );
+    if (!response.ok) {
+      const errorData = isObjectRecord(response.data)
+        ? (response.data as { detail?: string })
+        : {};
+      throw new Error(
+        errorData.detail ??
+          `Failed to update external data schemas: ${response.statusText}`,
+      );
+    }
+  }
+
   async getTasks(options?: TaskListOptions): Promise<Task[]> {
     return (await this.getTasksPage(options)).tasks;
   }
 
   async getTasksWithStatus(
     options?: TaskListOptions,
-    pagination?: { maxPages?: number },
+    pagination?: { maxPages?: number; fetchAll?: boolean },
   ): Promise<{ tasks: Task[]; isComplete: boolean }> {
-    const maxPages = pagination?.maxPages ?? 1;
+    const maxPages = pagination?.fetchAll
+      ? Number.POSITIVE_INFINITY
+      : (pagination?.maxPages ?? 1);
     const pageSize = Math.min(options?.limit ?? 100, 100);
     const tasks: Task[] = [];
     let count = 0;
@@ -2465,7 +2731,7 @@ export class PostHogAPIClient {
     if (ids.length === 0) return [];
     const TASK_SUMMARIES_MAX_PAGES = 50;
     const teamId = await this.getTeamId();
-    const all: Schemas.TaskSummary[] = [];
+    const all: Schemas.TaskSummaryDTO[] = [];
     let urlPath: string = `/api/projects/${teamId}/tasks/summaries/`;
     for (let i = 0; i < TASK_SUMMARIES_MAX_PAGES; i++) {
       const url = new URL(`${this.api.baseUrl}${urlPath}`);
@@ -2482,7 +2748,8 @@ export class PostHogAPIClient {
           `Failed to fetch task summaries: ${response.statusText}`,
         );
       }
-      const page = (await response.json()) as Schemas.PaginatedTaskSummaryList;
+      const page =
+        (await response.json()) as Schemas.PaginatedTaskSummaryDTOList;
       all.push(...page.results);
       if (!page.next) return all;
       const nextUrl = new URL(page.next);
@@ -2548,6 +2815,25 @@ export class PostHogAPIClient {
     return data.pinned;
   }
 
+  // Handoff is absent from the Desktop-generated client, so use the same raw-fetch path as pin.
+  async handoffTask(taskId: string, userId: number): Promise<Task> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/tasks/${taskId}/handoff/`;
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+      overrides: { body: JSON.stringify({ user: userId }) },
+    });
+    if (!response.ok) {
+      throw new Error(`Failed to hand off task: ${response.statusText}`);
+    }
+    const data = (await response.json()) as Parameters<
+      typeof normalizeTaskResponse
+    >[0];
+    return normalizeTaskResponse(data, { teamId });
+  }
+
   async createTask(
     options: Pick<Task, "description"> &
       Partial<
@@ -2563,6 +2849,7 @@ export class PostHogAPIClient {
       > & {
         github_integration?: number | null;
         github_user_integration?: string | null;
+        signal_report_task_relationship?: string;
         branch?: string | null;
         runtime_adapter?: string | null;
         model?: string | null;
@@ -2571,6 +2858,7 @@ export class PostHogAPIClient {
         pending_user_message?: string;
         pending_user_artifact_ids?: string[];
         auto_publish?: boolean;
+        naming_source?: string;
       },
   ): Promise<Task> {
     const teamId = await this.getTeamId();
@@ -2582,7 +2870,7 @@ export class PostHogAPIClient {
         body: {
           ...taskOptions,
           origin_product: originProduct ?? "user_created",
-        } as unknown as Schemas.Task,
+        } as unknown as Schemas.TaskCreate,
       }),
     );
 
@@ -2591,7 +2879,7 @@ export class PostHogAPIClient {
 
   async updateTask(
     taskId: string,
-    updates: Partial<Schemas.Task>,
+    updates: Schemas.PatchedTaskWrite,
   ): Promise<Task> {
     const teamId = await this.getTeamId();
     const data = await this.api.patch(
@@ -2603,6 +2891,15 @@ export class PostHogAPIClient {
     );
 
     return normalizeTaskResponse(data, { teamId });
+  }
+
+  /**
+   * Mirror this device's archive state onto the task, so every client agrees on
+   * what is archived — and so the list endpoint, which hides archived tasks,
+   * counts what the app actually shows.
+   */
+  async setTaskArchived(taskId: string, archived: boolean): Promise<void> {
+    await this.updateTask(taskId, { archived });
   }
 
   async deleteTask(taskId: string) {
@@ -2628,8 +2925,8 @@ export class PostHogAPIClient {
   // Task channels + threads. Not in the generated OpenAPI client yet, so these
   // go through the raw fetcher like the desktop file-system endpoints above.
 
-  // List backend task channels: all public channels plus the requester's
-  // personal "#me" channel (provisioned lazily server-side on first list).
+  // All public channels plus the requester's #me. Creates nothing: startup provisions the
+  // default spaces, which is what lets a caller gate on one already existing.
   async getTaskChannels(): Promise<TaskChannel[]> {
     const teamId = await this.getTeamId();
     const urlPath = `/api/projects/${teamId}/task_channels/`;
@@ -2682,6 +2979,85 @@ export class PostHogAPIClient {
     return (await response.json()) as TaskChannel;
   }
 
+  async provisionDefaultTaskChannels(): Promise<ProvisionedTaskChannels> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/task_channels/provision_defaults/`;
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Failed to provision default spaces: ${response.statusText}`,
+      );
+    }
+    return (await response.json()) as ProvisionedTaskChannels;
+  }
+
+  /**
+   * Opens the first-run agent session in #general. Reads the company's homepage, so it takes a
+   * few seconds; callers fire it without awaiting. Resolves false when no session was started,
+   * which is the normal path while the spaces rollout has not reached this user.
+   */
+  async startOnboardingSession(): Promise<string | null> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/task_channels/onboarding_session/`;
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+    });
+    if (!response.ok) return null;
+    const data = (await response.json()) as { task_id?: string | null };
+    return data.task_id ?? null;
+  }
+
+  async startOnboardingTestSession(input: {
+    company_domain: string;
+    joining_existing_organization: boolean;
+    has_events: boolean;
+    signal_reports_waiting: number;
+    other_members: string[];
+    sources_enabled: string[];
+    sources_watching: string[];
+    sources_newly_enabled: boolean;
+  }): Promise<{ task_id: string; channel_id: string }> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/task_channels/onboarding_session_test/`;
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+      overrides: { body: JSON.stringify(input) },
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Failed to start test onboarding session: ${response.statusText}`,
+      );
+    }
+    return (await response.json()) as { task_id: string; channel_id: string };
+  }
+
+  async createTeachingCanvasForTest(): Promise<{
+    canvas_id: string;
+    channel_id: string;
+  }> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/task_channels/teaching_canvas_test/`;
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Failed to create teaching canvas: ${response.statusText}`,
+      );
+    }
+    return (await response.json()) as { canvas_id: string; channel_id: string };
+  }
+
   async updateTaskChannelRepositories(
     id: string,
     githubIntegration: number | null,
@@ -2706,6 +3082,34 @@ export class PostHogAPIClient {
       );
     }
     return (await response.json()) as TaskChannel;
+  }
+
+  async updateTaskChannelAutoArchive(
+    id: string,
+    inactivityDays: number | null,
+  ): Promise<TaskChannel> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/task_channels/${encodeURIComponent(id)}/`;
+    const response = await this.api.fetcher.fetch({
+      method: "patch",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+      overrides: {
+        body: JSON.stringify({ auto_archive_after_days: inactivityDays }),
+      },
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Failed to update automatic archiving: ${response.statusText}`,
+      );
+    }
+    const updatedChannel = (await response.json()) as TaskChannel;
+    if (updatedChannel.auto_archive_after_days !== inactivityDays) {
+      throw new Error(
+        "Automatic archiving isn't available on this server yet. Try again after it has been updated.",
+      );
+    }
+    return updatedChannel;
   }
 
   async deleteTaskChannel(id: string): Promise<void> {
@@ -2831,6 +3235,143 @@ export class PostHogAPIClient {
       returned: all.length,
     });
     return all;
+  }
+
+  // ---- Organization context wiki (context_layer) ------------------------
+  // Org-scoped: the wiki is one repo per organization, shared across projects.
+  // 404 means the wiki was never enabled; 403 means it exists but is dark
+  // because the organization has private projects.
+
+  // GET with the wiki's shared read semantics: 404 (never enabled or missing
+  // page) reads as null, 403 (privacy guard) as ContextWikiUnavailableError.
+  private async getContextWikiResource<T>(urlPath: string): Promise<T | null> {
+    try {
+      const response = await this.api.fetcher.fetch({
+        method: "get",
+        url: new URL(`${this.api.baseUrl}${urlPath}`),
+        path: urlPath,
+      });
+      return (await response.json()) as T;
+    } catch (error) {
+      if (error instanceof ApiRequestError) {
+        if (error.status === 404) return null;
+        if (error.status === 403) {
+          throw new ContextWikiUnavailableError(readDetail(error));
+        }
+      }
+      throw error;
+    }
+  }
+
+  async getContextWikiTree(): Promise<ContextWikiTree | null> {
+    return this.getContextWikiResource<ContextWikiTree>(
+      `/api/organizations/@current/context_layer/tree/`,
+    );
+  }
+
+  async getContextWikiPage(path: string): Promise<ContextWikiPage | null> {
+    return this.getContextWikiResource<ContextWikiPage>(
+      `/api/organizations/@current/context_layer/pages/?path=${encodeURIComponent(path)}`,
+    );
+  }
+
+  async getContextWikiHealthReport(): Promise<ContextWikiHealthReport | null> {
+    return this.getContextWikiResource<ContextWikiHealthReport>(
+      `/api/organizations/@current/context_layer/wiki/report/`,
+    );
+  }
+
+  async getChannelContextWikiPage(
+    channelId: string,
+  ): Promise<ChannelContextWikiPage | null> {
+    return this.getContextWikiResource<ChannelContextWikiPage>(
+      `/api/organizations/@current/context_layer/channel-pages/${encodeURIComponent(channelId)}/`,
+    );
+  }
+
+  async getContextWikiDreams(): Promise<ContextWikiDreamList | null> {
+    return this.getContextWikiResource<ContextWikiDreamList>(
+      `/api/organizations/@current/context_layer/dreams/`,
+    );
+  }
+
+  async getContextWikiDream(
+    sha: string,
+  ): Promise<ContextWikiDreamDetail | null> {
+    return this.getContextWikiResource<ContextWikiDreamDetail>(
+      `/api/organizations/@current/context_layer/dreams/${encodeURIComponent(sha)}/`,
+    );
+  }
+
+  /**
+   * Full-content page write guarded by `baseHead` optimistic concurrency.
+   * The server holds a per-org writer lock shared with agent commit landings;
+   * a lock-busy 429 surfaces as ApiRequestError and is safe to retry with the
+   * same base head — callers configure that retry (see
+   * `useContextWikiPageMutation`). 409 (stale base head) and 400 (lint) are
+   * the actionable failures.
+   */
+  async putContextWikiPage(input: {
+    path: string;
+    content: string;
+    baseHead: string;
+  }): Promise<{ head_sha: string }> {
+    const urlPath = `/api/organizations/@current/context_layer/pages/`;
+    try {
+      const response = await this.api.fetcher.fetch({
+        method: "put",
+        url: new URL(`${this.api.baseUrl}${urlPath}`),
+        path: urlPath,
+        overrides: {
+          body: JSON.stringify({
+            path: input.path,
+            content: input.content,
+            base_head: input.baseHead,
+          }),
+        },
+      });
+      return (await response.json()) as { head_sha: string };
+    } catch (error) {
+      if (!(error instanceof ApiRequestError)) throw error;
+      if (error.status === 409) {
+        const body = error.body as { current_head?: string } | null;
+        throw new ContextWikiConflictError(body?.current_head ?? null);
+      }
+      if (error.status === 400) {
+        const body = error.body as {
+          detail?: string;
+          errors?: string[];
+        } | null;
+        throw new ContextWikiLintError(
+          body?.detail ?? "The change violates the wiki structure.",
+          body?.errors ?? [],
+        );
+      }
+      if (error.status === 403) {
+        throw new ContextWikiUnavailableError(readDetail(error));
+      }
+      throw error;
+    }
+  }
+
+  async enableContextWiki(): Promise<{ head_sha: string }> {
+    const urlPath = `/api/organizations/@current/context_layer/enable/`;
+    try {
+      const response = await this.api.fetcher.fetch({
+        method: "post",
+        url: new URL(`${this.api.baseUrl}${urlPath}`),
+        path: urlPath,
+        overrides: { body: JSON.stringify({}) },
+      });
+      return (await response.json()) as { head_sha: string };
+    } catch (error) {
+      if (error instanceof ApiRequestError) {
+        throw new Error(
+          `Failed to enable the context wiki: ${readDetail(error)}`,
+        );
+      }
+      throw error;
+    }
   }
 
   // A channel's system-announcement feed (context created, CONTEXT.md being
@@ -3396,6 +3937,29 @@ export class PostHogAPIClient {
     return data.artifacts ?? [];
   }
 
+  async registerTaskRunPostHogReferences(
+    taskId: string,
+    runId: string,
+    references: PostHogObjectReferenceInput[],
+  ): Promise<TaskRunArtifact[]> {
+    if (references.length === 0) return [];
+    const teamId = await this.getTeamId();
+    const path = `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/artifacts/references/`;
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url: new URL(`${this.api.baseUrl}${path}`),
+      path,
+      overrides: { body: JSON.stringify({ references }) },
+    });
+    if (!response.ok) {
+      throw new Error(`Failed to register references: ${response.statusText}`);
+    }
+    const data = (await response.json()) as {
+      artifacts?: TaskRunArtifactDTO[];
+    };
+    return (data.artifacts ?? []).map(normalizeTaskRunArtifact);
+  }
+
   async presignTaskRunArtifact(
     taskId: string,
     runId: string,
@@ -3540,7 +4104,7 @@ export class PostHogAPIClient {
       throw new Error(`Failed to resume run in cloud: ${response.statusText}`);
     }
 
-    const data = (await response.json()) as Schemas.TaskRunDetail;
+    const data = (await response.json()) as Schemas.TaskRunDetailDTO;
     return normalizeTaskRunResponse(data, { teamId, taskId });
   }
 
@@ -3560,7 +4124,7 @@ export class PostHogAPIClient {
     }
 
     const data =
-      (await response.json()) as Partial<Schemas.PaginatedTaskRunDetailList>;
+      (await response.json()) as Partial<Schemas.PaginatedTaskRunDetailDTOList>;
     return (data.results ?? []).map((run) =>
       normalizeTaskRunResponse(run, { teamId, taskId }),
     );
@@ -3581,7 +4145,7 @@ export class PostHogAPIClient {
       throw new Error(`Failed to fetch task run: ${response.statusText}`);
     }
 
-    const data = (await response.json()) as Schemas.TaskRunDetail;
+    const data = (await response.json()) as Schemas.TaskRunDetailDTO;
     return normalizeTaskRunResponse(data, { teamId, taskId });
   }
 
@@ -3614,7 +4178,7 @@ export class PostHogAPIClient {
       throw new Error(`Failed to create task run: ${response.statusText}`);
     }
 
-    const data = (await response.json()) as Schemas.TaskRunDetail;
+    const data = (await response.json()) as Schemas.TaskRunDetailDTO;
     return normalizeTaskRunResponse(data, { teamId, taskId });
   }
 
@@ -3645,7 +4209,7 @@ export class PostHogAPIClient {
       throw new Error(`Failed to start task run: ${response.statusText}`);
     }
 
-    const data = (await response.json()) as Schemas.Task;
+    const data = (await response.json()) as Schemas.TaskDetailDTO;
     return normalizeTaskResponse(data, { teamId });
   }
 
@@ -3657,7 +4221,9 @@ export class PostHogAPIClient {
         TaskRun,
         "status" | "branch" | "stage" | "error_message" | "output" | "state"
       >
-    >,
+    > & {
+      state_append?: Record<string, unknown>;
+    },
   ): Promise<TaskRun> {
     const teamId = await this.getTeamId();
     const data = await this.api.patch(
@@ -3672,6 +4238,23 @@ export class PostHogAPIClient {
       },
     );
     return normalizeTaskRunResponse(data, { teamId, taskId });
+  }
+
+  async analyzeTaskRun(
+    taskId: string,
+    runId: string,
+  ): Promise<{ analysis_task_id: string; created: boolean }> {
+    const teamId = await this.getTeamId();
+    return await this.api.post(
+      `/api/projects/{project_id}/tasks/{task_id}/runs/{id}/analyze/`,
+      {
+        path: {
+          project_id: teamId.toString(),
+          task_id: taskId,
+          id: runId,
+        },
+      },
+    );
   }
 
   /**
@@ -3716,15 +4299,6 @@ export class PostHogAPIClient {
         extractRequestErrorMessage(error, "Couldn’t clear the conversation."),
       );
     }
-  }
-
-  async getTaskRunSessionLogs(
-    taskId: string,
-    runId: string,
-    options?: { limit?: number; after?: string },
-  ): Promise<StoredLogEntry[]> {
-    return (await this.getTaskRunSessionLogsResult(taskId, runId, options))
-      .entries;
   }
 
   // AbortController + setTimeout because Hermes, which runs this client on
@@ -3850,39 +4424,6 @@ export class PostHogAPIClient {
     } catch (err) {
       log.warn("Failed to fetch task run session logs", err);
       return { entries, complete: false, truncatedHeadCount };
-    }
-  }
-
-  async getTaskLogs(taskId: string): Promise<StoredLogEntry[]> {
-    try {
-      const task = await this.getTask(taskId);
-      const logUrl = task?.latest_run?.log_url;
-
-      if (!logUrl) {
-        return [];
-      }
-
-      const response = await this.fetch(logUrl);
-
-      if (!response.ok) {
-        log.warn(
-          `Failed to fetch logs: ${response.status} ${response.statusText}`,
-        );
-        return [];
-      }
-
-      const content = await response.text();
-
-      if (!content.trim()) {
-        return [];
-      }
-      return content
-        .trim()
-        .split("\n")
-        .map((line) => JSON.parse(line) as StoredLogEntry);
-    } catch (err) {
-      log.warn("Failed to fetch task logs from latest run", err);
-      return [];
     }
   }
 
@@ -4063,6 +4604,7 @@ export class PostHogAPIClient {
   ): Promise<{
     repositories: string[];
     hasMore: boolean;
+    total: number | null;
   }> {
     const teamId = await this.getTeamId();
     const url = new URL(
@@ -4085,10 +4627,14 @@ export class PostHogAPIClient {
       );
     }
 
-    const data = (await response.json()) as { has_more?: boolean };
+    const data = (await response.json()) as {
+      has_more?: boolean;
+      total?: number;
+    };
     return {
       repositories: this.normalizeGithubRepositories(data),
       hasMore: data.has_more ?? false,
+      total: typeof data.total === "number" ? data.total : null,
     };
   }
 
@@ -4122,6 +4668,7 @@ export class PostHogAPIClient {
   ): Promise<{
     repositories: string[];
     hasMore: boolean;
+    total: number | null;
   }> {
     const urlPath = `/api/users/@me/integrations/github/${installationId}/repos/`;
     const url = new URL(`${this.api.baseUrl}${urlPath}`);
@@ -4142,10 +4689,14 @@ export class PostHogAPIClient {
       );
     }
 
-    const data = (await response.json()) as { has_more?: boolean };
+    const data = (await response.json()) as {
+      has_more?: boolean;
+      total?: number;
+    };
     return {
       repositories: this.normalizeGithubRepositories(data),
       hasMore: data.has_more ?? false,
+      total: typeof data.total === "number" ? data.total : null,
     };
   }
 
@@ -4330,11 +4881,20 @@ export class PostHogAPIClient {
     if (params?.priority) {
       url.searchParams.set("priority", params.priority);
     }
+    if (params?.actionability) {
+      url.searchParams.set("actionability", params.actionability);
+    }
+    if (params?.count_only != null) {
+      url.searchParams.set("count_only", String(params.count_only));
+    }
     if (params?.has_implementation_pr != null) {
       url.searchParams.set(
         "has_implementation_pr",
         String(params.has_implementation_pr),
       );
+    }
+    if (params?.channel_id) {
+      url.searchParams.set("channel_id", params.channel_id);
     }
 
     const response = await this.api.fetcher.fetch({
@@ -4447,14 +5007,25 @@ export class PostHogAPIClient {
     }
   }
 
+  /**
+   * The list is newest-first and truncates to the server page size, which drops the oldest
+   * rows — including the scout `task_run` written when the report was created. Pass `limit`
+   * from callers that read the whole log. Callers that need only the newest row of a
+   * latest-wins type should omit it: artefacts carry diffs and code excerpts, and list rows
+   * fetch this once per card.
+   */
   async getSignalReportArtefacts(
     reportId: string,
+    options?: { limit?: number },
   ): Promise<SignalReportArtefactsResponse> {
     const teamId = await this.getTeamId();
     const url = new URL(
       `${this.api.baseUrl}/api/projects/${teamId}/signals/reports/${reportId}/artefacts/`,
     );
     const path = `/api/projects/${teamId}/signals/reports/${reportId}/artefacts/`;
+    if (options?.limit !== undefined) {
+      url.searchParams.set("limit", String(options.limit));
+    }
 
     try {
       const response = await this.api.fetcher.fetch({
@@ -4542,6 +5113,9 @@ export class PostHogAPIClient {
           snooze_for?: number;
           reset_weight?: boolean;
           error?: string;
+          /** Feedback recorded when a reason drove the snooze (e.g. "Already fixed"); omitted for a plain snooze. */
+          dismissal_reason?: DismissalReasonOptionValue;
+          dismissal_note?: string;
         }
       | {
           state: "suppressed";
@@ -4550,6 +5124,11 @@ export class PostHogAPIClient {
           dismissal_note?: string;
           reset_weight?: boolean;
           error?: string;
+        }
+      | {
+          state: "resolved";
+          dismissal_reason: ResolveReasonOptionValue;
+          dismissal_note?: string;
         },
   ): Promise<SignalReport> {
     const teamId = await this.getTeamId();
@@ -4558,14 +5137,35 @@ export class PostHogAPIClient {
     );
     const path = `/api/projects/${teamId}/signals/reports/${reportId}/state/`;
 
-    const response = await this.api.fetcher.fetch({
-      method: "post",
-      url,
-      path,
-      overrides: {
-        body: JSON.stringify(input),
-      },
-    });
+    let response: Response;
+    try {
+      response = await this.api.fetcher.fetch({
+        method: "post",
+        url,
+        path,
+        overrides: {
+          body: JSON.stringify(input),
+        },
+      });
+    } catch (error) {
+      if (input.state === "suppressed" && requestErrorStatus(error) === 409) {
+        const currentReport = await this.getSignalReport(reportId).catch(
+          () => null,
+        );
+        const requestedReason = input.dismissal_reason ?? null;
+        const requestedNote = input.dismissal_note?.trim() ?? "";
+        const feedbackMatches =
+          currentReport?.dismissal_reason === requestedReason &&
+          (currentReport?.dismissal_note?.trim() ?? "") === requestedNote;
+        if (
+          currentReport?.status === "suppressed" &&
+          ((!requestedReason && !requestedNote) || feedbackMatches)
+        ) {
+          return currentReport;
+        }
+      }
+      throw error;
+    }
 
     if (!response.ok) {
       const errorText = await response.text();
@@ -4627,6 +5227,34 @@ export class PostHogAPIClient {
     );
     const path = `/api/projects/${teamId}/signals/reports/${reportId}/artefacts/${artefactId}/`;
 
+    const response = await this.api.fetcher.fetch({
+      method: "put",
+      url,
+      path,
+      overrides: {
+        body: JSON.stringify({ content }),
+      },
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(errorText || "Failed to update suggested reviewers");
+    }
+
+    const parsed = normalizeSignalReportArtefact(await response.json());
+    if (!parsed || parsed.type !== "suggested_reviewers") {
+      throw new Error("Unexpected response updating suggested reviewers");
+    }
+    return parsed as SuggestedReviewersArtefact;
+  }
+
+  async setSignalReportReviewers(
+    reportId: string,
+    content: SuggestedReviewerWriteEntry[],
+  ): Promise<SuggestedReviewersArtefact> {
+    const teamId = await this.getTeamId();
+    const path = `/api/projects/${teamId}/signals/reports/${reportId}/reviewers/`;
+    const url = new URL(`${this.api.baseUrl}${path}`);
     const response = await this.api.fetcher.fetch({
       method: "put",
       url,
@@ -4729,6 +5357,7 @@ export class PostHogAPIClient {
       default_autostart_priority: string;
       default_slack_notification_channel: string | null;
       autostart_base_branches: Record<string, string>;
+      max_reports_per_day: number | null;
     }>,
   ): Promise<SignalTeamConfig> {
     const teamId = await this.getTeamId();
@@ -5577,20 +6206,22 @@ export class PostHogAPIClient {
     const url = new URL(
       `${this.api.baseUrl}/api/projects/${teamId}/sandbox_environments/`,
     );
-    const response = await this.api.fetcher.fetch({
-      method: "post",
-      url,
-      path: `/api/projects/${teamId}/sandbox_environments/`,
-      overrides: {
-        body: JSON.stringify(input),
-      },
-    });
-    if (!response.ok) {
+    try {
+      const response = await this.api.fetcher.fetch({
+        method: "post",
+        url,
+        path: `/api/projects/${teamId}/sandbox_environments/`,
+        overrides: {
+          body: JSON.stringify(input),
+        },
+      });
+      return (await response.json()) as SandboxEnvironment;
+    } catch (error) {
+      if (!(error instanceof ApiRequestError)) throw error;
       throw new Error(
-        `Failed to create sandbox environment: ${response.statusText}`,
+        `Failed to create sandbox environment: ${readFieldErrors(error)}`,
       );
     }
-    return (await response.json()) as SandboxEnvironment;
   }
 
   async updateSandboxEnvironment(
@@ -5601,20 +6232,22 @@ export class PostHogAPIClient {
     const url = new URL(
       `${this.api.baseUrl}/api/projects/${teamId}/sandbox_environments/${id}/`,
     );
-    const response = await this.api.fetcher.fetch({
-      method: "patch",
-      url,
-      path: `/api/projects/${teamId}/sandbox_environments/${id}/`,
-      overrides: {
-        body: JSON.stringify(input),
-      },
-    });
-    if (!response.ok) {
+    try {
+      const response = await this.api.fetcher.fetch({
+        method: "patch",
+        url,
+        path: `/api/projects/${teamId}/sandbox_environments/${id}/`,
+        overrides: {
+          body: JSON.stringify(input),
+        },
+      });
+      return (await response.json()) as SandboxEnvironment;
+    } catch (error) {
+      if (!(error instanceof ApiRequestError)) throw error;
       throw new Error(
-        `Failed to update sandbox environment: ${response.statusText}`,
+        `Failed to update sandbox environment: ${readFieldErrors(error)}`,
       );
     }
-    return (await response.json()) as SandboxEnvironment;
   }
 
   async deleteSandboxEnvironment(id: string): Promise<void> {
@@ -5882,6 +6515,60 @@ export class PostHogAPIClient {
   }
 
   /**
+   * The signed-in person's own spend limit, as the gateway holds it. A
+   * deployment without the gateway wired answers `available: false` rather than
+   * failing, so the settings page can say the limit informs only.
+   */
+  async getUserSpendLimit(): Promise<UserSpendLimit> {
+    return parseUserSpendLimit(await this.spendLimitRequest("get"));
+  }
+
+  /** Sets the limit; `windowSeconds` is the window it resets over. */
+  async setUserSpendLimit(
+    limitUsd: number,
+    windowSeconds: number,
+  ): Promise<UserSpendLimit> {
+    return parseUserSpendLimit(
+      await this.spendLimitRequest("post", "", {
+        limit_usd: String(limitUsd),
+        window_seconds: windowSeconds,
+      }),
+    );
+  }
+
+  /** Removes the limit, so nothing holds this person's spend. */
+  async clearUserSpendLimit(): Promise<UserSpendLimit> {
+    return parseUserSpendLimit(
+      await this.spendLimitRequest("delete", "clear/"),
+    );
+  }
+
+  private async spendLimitRequest(
+    method: "get" | "post" | "delete",
+    suffix = "",
+    body?: Record<string, unknown>,
+  ): Promise<unknown> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/ai_gateway/@me/spend_limit/${suffix}`;
+    // The shared fetcher throws `Failed request: [<status>] <json-body>` for any
+    // non-2xx, so unwrap that into the endpoint's clean message rather than
+    // surfacing the raw string in the settings toast.
+    try {
+      const response = await this.api.fetcher.fetch({
+        method,
+        url: new URL(`${this.api.baseUrl}${urlPath}`),
+        path: urlPath,
+        ...(body ? { overrides: { body: JSON.stringify(body) } } : {}),
+      });
+      return await response.json();
+    } catch (error) {
+      throw new Error(
+        extractRequestErrorMessage(error, "Couldn't update your spend limit."),
+      );
+    }
+  }
+
+  /**
    * Lists the team's LLM skills (latest versions, no bodies).
    * Returns null when the feature is unavailable for this org (the
    * llm-analytics-skills flag gates the endpoint server-side with a 403).
@@ -6009,1127 +6696,6 @@ export class PostHogAPIClient {
     return (await response.json()) as LlmSkillFile;
   }
 
-  // --- Agent platform ------------------------------------------------------
-  // Deployed agents (`agent_platform` Django app). These routes aren't in the
-  // generated OpenAPI client, so they use the raw fetcher. Applications are
-  // addressable by UUID or slug in the `{idOrSlug}` segment.
-
-  private agentApplicationsPath(teamId: number): string {
-    return `/api/projects/${teamId}/agent_applications/`;
-  }
-
-  /** Lists non-archived agent applications for the current team. */
-  async listAgentApplications(): Promise<AgentApplication[]> {
-    const MAX_PAGES = 50;
-    const teamId = await this.getTeamId();
-    const all: AgentApplication[] = [];
-    let urlPath = `${this.agentApplicationsPath(teamId)}?limit=100`;
-    for (let i = 0; i < MAX_PAGES; i++) {
-      const url = new URL(`${this.api.baseUrl}${urlPath}`);
-      const response = await this.api.fetcher.fetch({
-        method: "get",
-        url,
-        path: urlPath,
-      });
-      const page = (await response.json()) as {
-        results?: AgentApplication[];
-        next?: string | null;
-      };
-      all.push(...(page.results ?? []));
-      if (!page.next) return all;
-      const nextUrl = new URL(page.next);
-      urlPath = `${nextUrl.pathname}${nextUrl.search}`;
-    }
-    return all;
-  }
-
-  /** Fetches a single agent application by UUID or slug; null if not found. */
-  async getAgentApplication(
-    idOrSlug: string,
-  ): Promise<AgentApplication | null> {
-    const teamId = await this.getTeamId();
-    const path = `${this.agentApplicationsPath(teamId)}${encodeURIComponent(idOrSlug)}/`;
-    const url = new URL(`${this.api.baseUrl}${path}`);
-    try {
-      const response = await this.api.fetcher.fetch({
-        method: "get",
-        url,
-        path,
-      });
-      return (await response.json()) as AgentApplication;
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error);
-      if (msg.includes("[404]") || msg.includes("[403]")) {
-        return null;
-      }
-      throw error;
-    }
-  }
-
-  /** Lists sessions for an application (paginated, filterable by state). */
-  async listAgentApplicationSessions(
-    idOrSlug: string,
-    params?: AgentSessionsListParams,
-  ): Promise<AgentApplicationSessionsListResponse> {
-    const teamId = await this.getTeamId();
-    const path = `${this.agentApplicationsPath(teamId)}${encodeURIComponent(idOrSlug)}/sessions/`;
-    const url = new URL(`${this.api.baseUrl}${path}`);
-    if (params?.limit != null) {
-      url.searchParams.set("limit", String(params.limit));
-    }
-    if (params?.offset != null) {
-      url.searchParams.set("offset", String(params.offset));
-    }
-    if (params?.state?.length) {
-      url.searchParams.set("state", params.state.join(","));
-    }
-    if (params?.revision_id) {
-      url.searchParams.set("revision_id", params.revision_id);
-    }
-    if (params?.agent_user_id) {
-      url.searchParams.set("agent_user_id", params.agent_user_id);
-    }
-    if (params?.created_after) {
-      url.searchParams.set("created_after", params.created_after);
-    }
-    if (params?.created_before) {
-      url.searchParams.set("created_before", params.created_before);
-    }
-    if (params?.search?.trim()) {
-      url.searchParams.set("search", params.search.trim());
-    }
-    const response = await this.api.fetcher.fetch({ method: "get", url, path });
-    const data = (await response.json()) as {
-      results?: AgentApplicationSessionsListResponse["results"];
-      count?: number;
-    };
-    return {
-      results: data.results ?? [],
-      count: data.count ?? data.results?.length ?? 0,
-    };
-  }
-
-  /** Full session detail incl. transcript; `lastN` trims to trailing messages. */
-  async getAgentApplicationSession(
-    idOrSlug: string,
-    sessionId: string,
-    lastN?: number,
-  ): Promise<AgentApplicationSessionDetail | null> {
-    const teamId = await this.getTeamId();
-    const path = `${this.agentApplicationsPath(teamId)}${encodeURIComponent(idOrSlug)}/sessions/${encodeURIComponent(sessionId)}/`;
-    const url = new URL(`${this.api.baseUrl}${path}`);
-    if (lastN != null) {
-      url.searchParams.set("last_n", String(lastN));
-    }
-    try {
-      const response = await this.api.fetcher.fetch({
-        method: "get",
-        url,
-        path,
-      });
-      return (await response.json()) as AgentApplicationSessionDetail;
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error);
-      if (msg.includes("[404]") || msg.includes("[403]")) {
-        return null;
-      }
-      throw error;
-    }
-  }
-
-  /** Structured runtime logs for one session (ClickHouse log_entries). */
-  async getAgentApplicationSessionLogs(
-    idOrSlug: string,
-    sessionId: string,
-    params?: AgentSessionLogsParams,
-  ): Promise<AgentSessionLogEntry[]> {
-    const teamId = await this.getTeamId();
-    const path = `${this.agentApplicationsPath(teamId)}${encodeURIComponent(idOrSlug)}/sessions/${encodeURIComponent(sessionId)}/logs/`;
-    const url = new URL(`${this.api.baseUrl}${path}`);
-    if (params?.limit != null) {
-      url.searchParams.set("limit", String(params.limit));
-    }
-    if (params?.level?.length) {
-      url.searchParams.set("level", params.level.join(","));
-    }
-    if (params?.search) {
-      url.searchParams.set("search", params.search);
-    }
-    if (params?.after) {
-      url.searchParams.set("after", params.after);
-    }
-    if (params?.before) {
-      url.searchParams.set("before", params.before);
-    }
-    const response = await this.api.fetcher.fetch({ method: "get", url, path });
-    const data = (await response.json()) as {
-      results?: AgentSessionLogEntry[];
-    };
-    return data.results ?? [];
-  }
-
-  /** Lists tool-approval requests for an application (team-admin only). */
-  async listAgentApplicationApprovals(
-    idOrSlug: string,
-    params?: AgentApprovalsListParams,
-  ): Promise<AgentApprovalRequest[]> {
-    const teamId = await this.getTeamId();
-    const path = `${this.agentApplicationsPath(teamId)}${encodeURIComponent(idOrSlug)}/approvals/`;
-    const url = new URL(`${this.api.baseUrl}${path}`);
-    if (params?.state) {
-      url.searchParams.set("state", params.state);
-    }
-    if (params?.limit != null) {
-      url.searchParams.set("limit", String(params.limit));
-    }
-    if (params?.offset != null) {
-      url.searchParams.set("offset", String(params.offset));
-    }
-    const response = await this.api.fetcher.fetch({ method: "get", url, path });
-    const data = (await response.json()) as {
-      results?: AgentApprovalRequest[];
-    };
-    return data.results ?? [];
-  }
-
-  /** Approve or reject a queued tool-approval request. */
-  async decideAgentApproval(
-    idOrSlug: string,
-    approvalId: string,
-    body: DecideApprovalRequest,
-  ): Promise<AgentApprovalRequest> {
-    const teamId = await this.getTeamId();
-    const path = `${this.agentApplicationsPath(teamId)}${encodeURIComponent(idOrSlug)}/approvals/${encodeURIComponent(approvalId)}/decide/`;
-    const url = new URL(`${this.api.baseUrl}${path}`);
-    const response = await this.api.fetcher.fetch({
-      method: "post",
-      url,
-      path,
-      overrides: { body: JSON.stringify(body) },
-    });
-    return (await response.json()) as AgentApprovalRequest;
-  }
-
-  /** Lists revisions for an application (newest first, paginated). */
-  async listAgentRevisions(idOrSlug: string): Promise<AgentRevision[]> {
-    const teamId = await this.getTeamId();
-    const path = `${this.agentApplicationsPath(teamId)}${encodeURIComponent(idOrSlug)}/revisions/`;
-    const url = new URL(`${this.api.baseUrl}${path}?limit=100`);
-    const response = await this.api.fetcher.fetch({ method: "get", url, path });
-    const data = (await response.json()) as { results?: AgentRevision[] };
-    return data.results ?? [];
-  }
-
-  /** Fetches a single revision by id; null if not found. */
-  async getAgentRevision(
-    idOrSlug: string,
-    revisionId: string,
-  ): Promise<AgentRevision | null> {
-    const teamId = await this.getTeamId();
-    const path = `${this.agentApplicationsPath(teamId)}${encodeURIComponent(idOrSlug)}/revisions/${encodeURIComponent(revisionId)}/`;
-    const url = new URL(`${this.api.baseUrl}${path}`);
-    try {
-      const response = await this.api.fetcher.fetch({
-        method: "get",
-        url,
-        path,
-      });
-      return (await response.json()) as AgentRevision;
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error);
-      if (msg.includes("[404]") || msg.includes("[403]")) {
-        return null;
-      }
-      throw error;
-    }
-  }
-
-  /**
-   * Mint a short-lived preview token (HS256 JWT) for a non-live revision. The
-   * token is sent to the ingress on /run /send /listen /cancel via
-   * `X-Agent-Preview-Token` (alongside the usual bearer) and authorizes those
-   * calls to route against this specific revision instead of `live_revision`.
-   * The response also self-describes the per-trigger ingress URLs the caller
-   * should hit (`endpoints`) so the client never has to construct preview URLs
-   * by string-mangling `ingress_base_url`.
-   *
-   * Note the Django route: app-level path with the revision as a query param,
-   * NOT nested under /revisions/{id}/.
-   */
-  async mintAgentPreviewToken(
-    idOrSlug: string,
-    revisionId: string,
-  ): Promise<AgentPreviewToken> {
-    const teamId = await this.getTeamId();
-    const path = `${this.agentApplicationsPath(teamId)}${encodeURIComponent(idOrSlug)}/preview-token/`;
-    const url = new URL(`${this.api.baseUrl}${path}`);
-    url.searchParams.set("revision_id", revisionId);
-    const response = await this.api.fetcher.fetch({
-      method: "post",
-      url,
-      path,
-    });
-    return (await response.json()) as AgentPreviewToken;
-  }
-
-  /**
-   * Atomically create a fresh draft revision under this app, seeded with the
-   * full bundle of `sourceRevisionId`. The standard "edit an immutable
-   * revision" exit: ready/live/archived bundles are stamped and locked, so
-   * iterating on them requires forking to a new draft first. Both ids are
-   * UUIDs; the app's `slug` is not accepted here (the body needs the UUID).
-   */
-  async createAgentDraftRevisionFrom(
-    applicationId: string,
-    sourceRevisionId: string,
-  ): Promise<AgentRevision> {
-    const teamId = await this.getTeamId();
-    const path = `${this.agentApplicationsPath(teamId)}${encodeURIComponent(applicationId)}/revisions/new_draft/`;
-    const url = new URL(`${this.api.baseUrl}${path}`);
-    const response = await this.api.fetcher.fetch({
-      method: "post",
-      url,
-      path,
-      overrides: {
-        body: JSON.stringify({
-          application_id: applicationId,
-          source_revision_id: sourceRevisionId,
-        }),
-      },
-    });
-    // new_draft wraps the created revision: `{ revision, source_revision_id }`.
-    const data = (await response.json()) as { revision: AgentRevision };
-    return data.revision;
-  }
-
-  /** The served-model catalog + curated auto-level → model map (project-agnostic;
-   * proxies the AI gateway catalog). Powers the config-pane model browser. */
-  async getAgentModelCatalog(): Promise<ModelCatalog> {
-    const teamId = await this.getTeamId();
-    const path = `${this.agentApplicationsPath(teamId)}models/`;
-    const url = new URL(`${this.api.baseUrl}${path}`);
-    const response = await this.api.fetcher.fetch({ method: "get", url, path });
-    return (await response.json()) as ModelCatalog;
-  }
-
-  /** Update a draft revision's spec (PATCH). Draft-only on the server — a
-   * ready/live spec is frozen. Replaces `spec` wholesale, so callers send the
-   * full updated spec. Returns the updated revision. */
-  async updateAgentRevisionSpec(
-    idOrSlug: string,
-    revisionId: string,
-    spec: AgentSpec,
-  ): Promise<AgentRevision> {
-    const teamId = await this.getTeamId();
-    const path = `${this.agentApplicationsPath(teamId)}${encodeURIComponent(idOrSlug)}/revisions/${encodeURIComponent(revisionId)}/`;
-    const url = new URL(`${this.api.baseUrl}${path}`);
-    const response = await this.api.fetcher.fetch({
-      method: "patch",
-      url,
-      path,
-      overrides: { body: JSON.stringify({ spec }) },
-    });
-    return (await response.json()) as AgentRevision;
-  }
-
-  /** Run a revision lifecycle transition: freeze (draft→ready), promote
-   * (ready→live, demoting the old live), or archive. Returns the updated revision. */
-  async transitionAgentRevision(
-    idOrSlug: string,
-    revisionId: string,
-    action: "freeze" | "promote" | "archive",
-  ): Promise<AgentRevision> {
-    const teamId = await this.getTeamId();
-    const path = `${this.agentApplicationsPath(teamId)}${encodeURIComponent(idOrSlug)}/revisions/${encodeURIComponent(revisionId)}/${action}/`;
-    const url = new URL(`${this.api.baseUrl}${path}`);
-    const response = await this.api.fetcher.fetch({
-      method: "post",
-      url,
-      path,
-    });
-    return (await response.json()) as AgentRevision;
-  }
-
-  /**
-   * Write a single bundle file on a draft revision. The server accepts
-   * `agent.md` and `skills/<id>/SKILL.md` paths only — tool source / schema
-   * stay read-only this round. Ready / live / archived revisions return 409.
-   */
-  async updateAgentDraftBundleFile(
-    idOrSlug: string,
-    revisionId: string,
-    filePath: string,
-    content: string,
-  ): Promise<AgentRevision> {
-    const teamId = await this.getTeamId();
-    const path = `${this.agentApplicationsPath(teamId)}${encodeURIComponent(idOrSlug)}/revisions/${encodeURIComponent(revisionId)}/bundle/file/`;
-    const url = new URL(`${this.api.baseUrl}${path}`);
-    const response = await this.api.fetcher.fetch({
-      method: "put",
-      url,
-      path,
-      overrides: {
-        body: JSON.stringify({ path: filePath, content }),
-      },
-    });
-    return (await response.json()) as AgentRevision;
-  }
-
-  /**
-   * Bulk-import a set of `.md` files into a draft revision's bundle — the
-   * migration hatch for porting an existing multi-file agent in one paste.
-   * Sets `agent_md` if present and merges `skills[]` by id (adds new ids,
-   * overwrites bodies for existing ids; skills not mentioned are left alone).
-   * Draft-only; ready / live / archived return 409.
-   */
-  async importAgentDraftBundle(
-    idOrSlug: string,
-    revisionId: string,
-    body: {
-      agent_md?: string;
-      skills?: { id: string; description?: string; body: string }[];
-    },
-  ): Promise<AgentRevision> {
-    const teamId = await this.getTeamId();
-    const path = `${this.agentApplicationsPath(teamId)}${encodeURIComponent(idOrSlug)}/revisions/${encodeURIComponent(revisionId)}/bundle/import/`;
-    const url = new URL(`${this.api.baseUrl}${path}`);
-    const response = await this.api.fetcher.fetch({
-      method: "post",
-      url,
-      path,
-      overrides: {
-        body: JSON.stringify(body),
-      },
-    });
-    return (await response.json()) as AgentRevision;
-  }
-
-  /**
-   * A revision's bundle, flattened to per-file rows. The server returns a typed
-   * `{ bundle: { agent_md, skills[], tools[] } }`; we expand it to the canonical
-   * file paths the explorer renders (agent.md, skills/<id>/SKILL.md,
-   * tools/<id>/source.ts, tools/<id>/schema.json).
-   */
-  async getAgentRevisionBundle(
-    idOrSlug: string,
-    revisionId: string,
-  ): Promise<BundleFile[]> {
-    const teamId = await this.getTeamId();
-    const path = `${this.agentApplicationsPath(teamId)}${encodeURIComponent(idOrSlug)}/revisions/${encodeURIComponent(revisionId)}/bundle/`;
-    const url = new URL(`${this.api.baseUrl}${path}`);
-    const response = await this.api.fetcher.fetch({ method: "get", url, path });
-    const data = (await response.json()) as {
-      bundle?: {
-        agent_md?: string;
-        skills?: { id: string; description?: string; body: string }[];
-        tools?: {
-          id: string;
-          description?: string;
-          args_schema?: Record<string, unknown>;
-          source: string;
-        }[];
-      };
-    };
-    const bundle = data.bundle ?? {};
-    const out: BundleFile[] = [];
-    if (bundle.agent_md !== undefined) {
-      out.push({
-        path: "agent.md",
-        content: bundle.agent_md,
-        language: "markdown",
-      });
-    }
-    for (const skill of bundle.skills ?? []) {
-      out.push({
-        path: `skills/${skill.id}/SKILL.md`,
-        content: skill.body,
-        language: "markdown",
-      });
-    }
-    for (const tool of bundle.tools ?? []) {
-      out.push({
-        path: `tools/${tool.id}/source.ts`,
-        content: tool.source,
-        language: "typescript",
-      });
-      out.push({
-        path: `tools/${tool.id}/schema.json`,
-        content: JSON.stringify(
-          { description: tool.description, args_schema: tool.args_schema },
-          null,
-          2,
-        ),
-        language: "json",
-      });
-    }
-    out.sort((a, b) => a.path.localeCompare(b.path));
-    return out;
-  }
-
-  /**
-   * Author/compile one custom tool on a draft revision (PUT). Draft-only —
-   * ready/live/archived bundles are sealed and the server returns a conflict.
-   * A compile failure (HTTP 422) is returned as a typed `{ ok: false }` result
-   * carrying `errors`, so the caller renders diagnostics inline against the
-   * source rather than surfacing a generic failure; other non-2xx (400
-   * invalid_request, 409 sealed revision, …) still throw.
-   */
-  async putRevisionTool(
-    idOrSlug: string,
-    revisionId: string,
-    toolId: string,
-    body: WriteToolRequest,
-  ): Promise<WriteToolResult> {
-    const teamId = await this.getTeamId();
-    const path = `${this.agentApplicationsPath(teamId)}${encodeURIComponent(idOrSlug)}/revisions/${encodeURIComponent(revisionId)}/tools/${encodeURIComponent(toolId)}/`;
-    const url = new URL(`${this.api.baseUrl}${path}`);
-    try {
-      const response = await this.api.fetcher.fetch({
-        method: "put",
-        url,
-        path,
-        overrides: { body: JSON.stringify(body) },
-      });
-      const data = (await response.json()) as {
-        tool_id: string;
-        capabilities: ToolCapabilities;
-      };
-      return {
-        ok: true,
-        tool_id: data.tool_id,
-        capabilities: data.capabilities,
-      };
-    } catch (error) {
-      const failure = parseFailedRequest(error);
-      if (
-        failure?.status === 422 &&
-        isObjectRecord(failure.body) &&
-        failure.body.error === "tool_compile_failed"
-      ) {
-        return {
-          ok: false,
-          error: "tool_compile_failed",
-          tool_id: optionalString(failure.body.tool_id) ?? toolId,
-          errors: Array.isArray(failure.body.errors)
-            ? (failure.body.errors as ToolCompileError[])
-            : [],
-        };
-      }
-      throw error;
-    }
-  }
-
-  /**
-   * Remove one custom tool from a draft revision (draft-only). A 404
-   * (tool_not_found) is treated as success — the tool is already gone, which is
-   * the desired end state.
-   */
-  async deleteRevisionTool(
-    idOrSlug: string,
-    revisionId: string,
-    toolId: string,
-  ): Promise<void> {
-    const teamId = await this.getTeamId();
-    const path = `${this.agentApplicationsPath(teamId)}${encodeURIComponent(idOrSlug)}/revisions/${encodeURIComponent(revisionId)}/tools/${encodeURIComponent(toolId)}/`;
-    const url = new URL(`${this.api.baseUrl}${path}`);
-    try {
-      await this.api.fetcher.fetch({ method: "delete", url, path });
-    } catch (error) {
-      const failure = parseFailedRequest(error);
-      if (failure?.status === 404) {
-        return;
-      }
-      throw error;
-    }
-  }
-
-  /**
-   * Execute a persisted tool once in a sandbox (POST …/dry_run). The envelope's
-   * `ok` is authoritative: a tool-side failure is HTTP 200 with `ok: false`, so
-   * both 2xx and 500 return `{ outcome: "completed", envelope }` and the caller
-   * reads `error.code`/`message` from the body. Throttling (429) and an
-   * unconfigured backend (503) are returned as distinct outcomes — never thrown,
-   * never retried, since dry-run is interactive and process-capped.
-   */
-  async dryRunRevisionTool(
-    idOrSlug: string,
-    revisionId: string,
-    toolId: string,
-    body: DryRunToolRequest,
-  ): Promise<DryRunToolResult> {
-    const teamId = await this.getTeamId();
-    const path = `${this.agentApplicationsPath(teamId)}${encodeURIComponent(idOrSlug)}/revisions/${encodeURIComponent(revisionId)}/tools/${encodeURIComponent(toolId)}/dry_run/`;
-    const url = new URL(`${this.api.baseUrl}${path}`);
-    try {
-      const response = await this.api.fetcher.fetch({
-        method: "post",
-        url,
-        path,
-        overrides: { body: JSON.stringify(body) },
-      });
-      return {
-        outcome: "completed",
-        envelope: (await response.json()) as DryRunToolEnvelope,
-      };
-    } catch (error) {
-      const failure = parseFailedRequest(error);
-      // A 500 still carries the envelope (ok:false + error.code/duration_ms) —
-      // surface it as completed so infra failures read like any tool failure.
-      if (
-        failure?.status === 500 &&
-        isObjectRecord(failure.body) &&
-        "ok" in failure.body
-      ) {
-        return {
-          outcome: "completed",
-          envelope: failure.body as unknown as DryRunToolEnvelope,
-        };
-      }
-      if (failure?.status === 429) {
-        const max = isObjectRecord(failure.body)
-          ? failure.body.max_concurrent
-          : undefined;
-        // Omit rather than default to 0 — "0 runs in flight" would be a
-        // misleading count for a throttle.
-        return {
-          outcome: "throttled",
-          max_concurrent: typeof max === "number" ? max : undefined,
-        };
-      }
-      if (failure?.status === 503) {
-        return { outcome: "unavailable" };
-      }
-      throw error;
-    }
-  }
-
-  /**
-   * The Slack app manifest derived from a revision's slack trigger + tools,
-   * plus the live Event/Interactivity request URLs and setup notes.
-   */
-  async getAgentSlackManifest(
-    idOrSlug: string,
-    revisionId: string,
-  ): Promise<AgentSlackManifest> {
-    const teamId = await this.getTeamId();
-    const path = `${this.agentApplicationsPath(teamId)}${encodeURIComponent(idOrSlug)}/revisions/${encodeURIComponent(revisionId)}/slack_manifest/`;
-    const url = new URL(`${this.api.baseUrl}${path}`);
-    const response = await this.api.fetcher.fetch({ method: "get", url, path });
-    return (await response.json()) as AgentSlackManifest;
-  }
-
-  /** Fire a cron trigger out-of-band; returns the created session id. */
-  async fireAgentCron(
-    idOrSlug: string,
-    revisionId: string,
-    cronName: string,
-    requestId?: string,
-  ): Promise<{ session_id: string }> {
-    const teamId = await this.getTeamId();
-    const path = `${this.agentApplicationsPath(teamId)}${encodeURIComponent(idOrSlug)}/revisions/${encodeURIComponent(revisionId)}/cron/fire/`;
-    const url = new URL(`${this.api.baseUrl}${path}`);
-    const response = await this.api.fetcher.fetch({
-      method: "post",
-      url,
-      path,
-      overrides: {
-        body: JSON.stringify({
-          cron_name: cronName,
-          ...(requestId ? { request_id: requestId } : {}),
-        }),
-      },
-    });
-    return (await response.json()) as { session_id: string };
-  }
-
-  /**
-   * The names of env keys currently set on a revision (values never returned).
-   * Env keys are scoped to a revision, so each revision carries its own secret
-   * set.
-   */
-  async listAgentEnvKeys(
-    idOrSlug: string,
-    revisionId: string,
-  ): Promise<string[]> {
-    const teamId = await this.getTeamId();
-    const path = `${this.agentApplicationsPath(teamId)}${encodeURIComponent(idOrSlug)}/revisions/${encodeURIComponent(revisionId)}/env_keys/`;
-    const url = new URL(`${this.api.baseUrl}${path}`);
-    const response = await this.api.fetcher.fetch({ method: "get", url, path });
-    const data = (await response.json()) as {
-      keys?: string[];
-      results?: string[];
-    };
-    return data.keys ?? data.results ?? [];
-  }
-
-  /** Set or rotate one encrypted env key on a revision. The value is write-only. */
-  async setAgentEnvKey(
-    idOrSlug: string,
-    revisionId: string,
-    key: string,
-    value: string,
-  ): Promise<void> {
-    const teamId = await this.getTeamId();
-    const path = `${this.agentApplicationsPath(teamId)}${encodeURIComponent(idOrSlug)}/revisions/${encodeURIComponent(revisionId)}/env_keys/${encodeURIComponent(key)}/`;
-    const url = new URL(`${this.api.baseUrl}${path}`);
-    await this.api.fetcher.fetch({
-      method: "put",
-      url,
-      path,
-      overrides: { body: JSON.stringify({ value }) },
-    });
-  }
-
-  /** Clear one encrypted env key on a revision. No-op server-side if it isn't set. */
-  async clearAgentEnvKey(
-    idOrSlug: string,
-    revisionId: string,
-    key: string,
-  ): Promise<void> {
-    const teamId = await this.getTeamId();
-    const path = `${this.agentApplicationsPath(teamId)}${encodeURIComponent(idOrSlug)}/revisions/${encodeURIComponent(revisionId)}/env_keys/${encodeURIComponent(key)}/`;
-    const url = new URL(`${this.api.baseUrl}${path}`);
-    await this.api.fetcher.fetch({ method: "delete", url, path });
-  }
-
-  private agentMemoryPath(teamId: number, idOrSlug: string): string {
-    return `${this.agentApplicationsPath(teamId)}${encodeURIComponent(idOrSlug)}/memory`;
-  }
-
-  /** Pre-aggregated folder tree of the agent's memory store. */
-  async getAgentMemoryTree(idOrSlug: string): Promise<AgentMemoryTreeNode> {
-    const teamId = await this.getTeamId();
-    const path = `${this.agentMemoryPath(teamId, idOrSlug)}/tree/`;
-    const url = new URL(`${this.api.baseUrl}${path}`);
-    const response = await this.api.fetcher.fetch({ method: "get", url, path });
-    const data = (await response.json()) as { root?: AgentMemoryTreeNode };
-    return data.root ?? { name: "root", type: "folder", children: [] };
-  }
-
-  /** Read one memory file (header + content). */
-  async readAgentMemoryFile(
-    idOrSlug: string,
-    filePath: string,
-  ): Promise<AgentMemoryFile> {
-    const teamId = await this.getTeamId();
-    const path = `${this.agentMemoryPath(teamId, idOrSlug)}/files/by_path/`;
-    const url = new URL(`${this.api.baseUrl}${path}`);
-    url.searchParams.set("path", filePath);
-    const response = await this.api.fetcher.fetch({ method: "get", url, path });
-    return (await response.json()) as AgentMemoryFile;
-  }
-
-  /** BM25 full-text search across the agent's memory. */
-  async searchAgentMemory(
-    idOrSlug: string,
-    query: string,
-    limit?: number,
-  ): Promise<AgentMemorySearchResult[]> {
-    const teamId = await this.getTeamId();
-    const path = `${this.agentMemoryPath(teamId, idOrSlug)}/search/`;
-    const url = new URL(`${this.api.baseUrl}${path}`);
-    url.searchParams.set("q", query);
-    if (limit != null) url.searchParams.set("limit", String(limit));
-    const response = await this.api.fetcher.fetch({ method: "get", url, path });
-    const data = (await response.json()) as {
-      results?: AgentMemorySearchResult[];
-    };
-    return data.results ?? [];
-  }
-
-  /** List the agent's JSONL reference tables. */
-  async listAgentMemoryTables(
-    idOrSlug: string,
-  ): Promise<AgentMemoryTableHeader[]> {
-    const teamId = await this.getTeamId();
-    const path = `${this.agentMemoryPath(teamId, idOrSlug)}/tables/`;
-    const url = new URL(`${this.api.baseUrl}${path}`);
-    const response = await this.api.fetcher.fetch({ method: "get", url, path });
-    const data = (await response.json()) as {
-      tables?: AgentMemoryTableHeader[];
-    };
-    return data.tables ?? [];
-  }
-
-  /** Read rows from one memory table. */
-  async readAgentMemoryTable(
-    idOrSlug: string,
-    name: string,
-    limit?: number,
-  ): Promise<AgentMemoryTableRows> {
-    const teamId = await this.getTeamId();
-    const path = `${this.agentMemoryPath(teamId, idOrSlug)}/tables/${encodeURIComponent(name)}/`;
-    const url = new URL(`${this.api.baseUrl}${path}`);
-    if (limit != null) url.searchParams.set("limit", String(limit));
-    const response = await this.api.fetcher.fetch({ method: "get", url, path });
-    return (await response.json()) as AgentMemoryTableRows;
-  }
-
-  // --- Users / connections --------------------------------------------------
-  // The agent's end-users (`agent_user`) and their linked external identities
-  // (`agent_identity_credential`). Connection metadata only — encrypted tokens
-  // never cross this boundary. Proxied Django → janitor → runtime store, same
-  // shape as the memory endpoints above.
-
-  /** List the agent's end-users, each with their linked connections. */
-  async listAgentUsers(idOrSlug: string): Promise<AgentUsersListResponse> {
-    const teamId = await this.getTeamId();
-    const path = `${this.agentApplicationsPath(teamId)}${encodeURIComponent(idOrSlug)}/users/`;
-    const url = new URL(`${this.api.baseUrl}${path}`);
-    const response = await this.api.fetcher.fetch({ method: "get", url, path });
-    // The fetcher doesn't throw on non-2xx — surface a genuine failure so the
-    // pane shows its error branch rather than masking it as "no users yet"
-    // (a non-2xx that still returns JSON would otherwise coalesce to `[]`).
-    if (!response.ok) {
-      throw new Error(`Failed to load agent users: ${response.status}`);
-    }
-    const data = (await response.json()) as Partial<AgentUsersListResponse>;
-    return { results: data.results ?? [], count: data.count ?? 0 };
-  }
-
-  /** Revoke one linked connection for an agent user (kept for audit, not deleted). */
-  async deleteAgentUserConnection(
-    idOrSlug: string,
-    agentUserId: string,
-    provider: string,
-  ): Promise<void> {
-    const teamId = await this.getTeamId();
-    const path = `${this.agentApplicationsPath(teamId)}${encodeURIComponent(idOrSlug)}/users/${encodeURIComponent(agentUserId)}/connections/${encodeURIComponent(provider)}/`;
-    const url = new URL(`${this.api.baseUrl}${path}`);
-    const response = await this.api.fetcher.fetch({
-      method: "delete",
-      url,
-      path,
-    });
-    // The fetcher doesn't throw on non-2xx. Revoke is a destructive, audited
-    // action — fail loudly so the caller's onError fires instead of a false
-    // "Connection revoked" success. 404 is treated as already-gone (idempotent).
-    if (!response.ok && response.status !== 404) {
-      throw new Error(`Failed to revoke connection: ${response.status}`);
-    }
-  }
-
-  // --- Live chat (agent-ingress) -------------------------------------------
-  // These hit the agent's ingress host (`ingress_base_url`, which already
-  // includes `/agents/<slug>`), not the PostHog API. The shared fetcher
-  // attaches the same bearer regardless of host, so no proxy is needed (unlike
-  // the console, which proxied only because browser EventSource can't set
-  // an Authorization header — `fetch` can).
-  //
-  // `previewToken`, when present, scopes the call to a non-live revision via
-  // `X-Agent-Preview-Token`. The fetcher merges `parameters.header` into the
-  // built headers (so the bearer survives) — never put preview-token into
-  // `overrides.headers`, which replaces the whole headers object.
-
-  /** Start a chat session; returns the new session id. */
-  async runAgentSession(
-    ingressBaseUrl: string,
-    message: string,
-    previewToken?: string | null,
-    supportedClientTools?: readonly string[],
-  ): Promise<{ session_id: string; resumed?: boolean }> {
-    const url = new URL(`${ingressBaseUrl.replace(/\/$/, "")}/run`);
-    // `supported_client_tools`: the kind:'client' tool ids this client can
-    // execute this session, so the runner exposes only those to the model.
-    const body: Record<string, unknown> = { message };
-    if (supportedClientTools && supportedClientTools.length > 0) {
-      body.supported_client_tools = supportedClientTools;
-    }
-    const response = await this.api.fetcher.fetch({
-      method: "post",
-      url,
-      path: url.pathname,
-      parameters: previewTokenHeader(previewToken),
-      overrides: { body: JSON.stringify(body) },
-    });
-    return (await response.json()) as { session_id: string; resumed?: boolean };
-  }
-
-  /** Send a follow-up user message to an open session. */
-  async sendAgentMessage(
-    ingressBaseUrl: string,
-    sessionId: string,
-    message: string,
-    previewToken?: string | null,
-  ): Promise<void> {
-    const url = new URL(`${ingressBaseUrl.replace(/\/$/, "")}/send`);
-    await this.api.fetcher.fetch({
-      method: "post",
-      url,
-      path: url.pathname,
-      parameters: previewTokenHeader(previewToken),
-      overrides: { body: JSON.stringify({ session_id: sessionId, message }) },
-    });
-  }
-
-  /**
-   * Decide a `principal`-type tool approval at the ingress, as the session
-   * principal. The ingress authenticates the preview token / passthrough bearer
-   * and enforces principal-match — this is the session owner clearing their own
-   * gated call, not the owner-console (Django) decision path. `agent`-type
-   * approvals are NOT decidable here; they go through `decideAgentApproval`.
-   */
-  async decideAgentApprovalViaIngress(
-    ingressBaseUrl: string,
-    approvalId: string,
-    body: DecideApprovalRequest,
-    previewToken?: string | null,
-  ): Promise<{ ok: boolean; state: string }> {
-    const url = new URL(
-      `${ingressBaseUrl.replace(/\/$/, "")}/approvals/${encodeURIComponent(approvalId)}/decide`,
-    );
-    const response = await this.api.fetcher.fetch({
-      method: "post",
-      url,
-      path: url.pathname,
-      parameters: previewTokenHeader(previewToken),
-      overrides: { body: JSON.stringify(body) },
-    });
-    return (await response.json()) as { ok: boolean; state: string };
-  }
-
-  /**
-   * Fetch one approval by id straight from the agent's ingress, authenticated as
-   * the session principal (the shared bearer). Powers the deep-link approval
-   * modal: no project-scoped lookup, so it resolves from any project. Returns
-   * null on 404/403 (gone, or the caller isn't the session principal).
-   */
-  async getAgentApprovalViaIngress(
-    ingressBaseUrl: string,
-    approvalId: string,
-    previewToken?: string | null,
-  ): Promise<AgentApprovalRequest | null> {
-    const url = new URL(
-      `${ingressBaseUrl.replace(/\/$/, "")}/approvals/${encodeURIComponent(approvalId)}`,
-    );
-    try {
-      const response = await this.api.fetcher.fetch({
-        method: "get",
-        url,
-        path: url.pathname,
-        parameters: previewTokenHeader(previewToken),
-      });
-      return (await response.json()) as AgentApprovalRequest;
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error);
-      if (msg.includes("[404]") || msg.includes("[403]")) {
-        return null;
-      }
-      throw error;
-    }
-  }
-
-  /**
-   * Fetch a session's transcript straight from the agent's ingress, authenticated
-   * as the session principal — cross-project transcript reload (dock reopen, a
-   * web chat-list opening a past session, repainting a pending-approval card
-   * after a reconnect). Mirrors `getAgentApplicationSession`'s shape; `lastN`
-   * trims to the trailing messages. Null on 404/403.
-   */
-  async getAgentSessionViaIngress(
-    ingressBaseUrl: string,
-    sessionId: string,
-    lastN?: number,
-    previewToken?: string | null,
-  ): Promise<AgentApplicationSessionDetail | null> {
-    const url = new URL(
-      `${ingressBaseUrl.replace(/\/$/, "")}/sessions/${encodeURIComponent(sessionId)}`,
-    );
-    if (lastN != null) {
-      url.searchParams.set("last_n", String(lastN));
-    }
-    try {
-      const response = await this.api.fetcher.fetch({
-        method: "get",
-        url,
-        path: url.pathname,
-        parameters: previewTokenHeader(previewToken),
-      });
-      return (await response.json()) as AgentApplicationSessionDetail;
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error);
-      if (msg.includes("[404]") || msg.includes("[403]")) {
-        return null;
-      }
-      throw error;
-    }
-  }
-
-  /** Return a client-tool result to an open session. */
-  async sendAgentClientToolResult(
-    ingressBaseUrl: string,
-    sessionId: string,
-    callId: string,
-    outcome: { result?: unknown; error?: string },
-    previewToken?: string | null,
-  ): Promise<void> {
-    const url = new URL(
-      `${ingressBaseUrl.replace(/\/$/, "")}/client_tool_result`,
-    );
-    await this.api.fetcher.fetch({
-      method: "post",
-      url,
-      path: url.pathname,
-      parameters: previewTokenHeader(previewToken),
-      overrides: {
-        body: JSON.stringify({
-          session_id: sessionId,
-          call_id: callId,
-          ...outcome,
-        }),
-      },
-    });
-  }
-
-  /**
-   * Return an *interactive* client-tool outcome (e.g. `set_secret`). Unlike the
-   * sync `/client_tool_result` path, the server-side tool returned `queued` and
-   * parked the session; posting the outcome via `/send` (as a `client_tool_result`
-   * marker) wakes it on a fresh turn. Exactly one of `result` / `error` is set.
-   */
-  async sendAgentInteractiveToolResult(
-    ingressBaseUrl: string,
-    sessionId: string,
-    callId: string,
-    outcome: { result: Record<string, unknown> } | { error: string },
-    previewToken?: string | null,
-  ): Promise<void> {
-    const url = new URL(`${ingressBaseUrl.replace(/\/$/, "")}/send`);
-    const clientToolResult =
-      "error" in outcome
-        ? { call_id: callId, error: outcome.error }
-        : { call_id: callId, result: outcome.result };
-    await this.api.fetcher.fetch({
-      method: "post",
-      url,
-      path: url.pathname,
-      parameters: previewTokenHeader(previewToken),
-      overrides: {
-        body: JSON.stringify({
-          session_id: sessionId,
-          client_tool_result: clientToolResult,
-        }),
-      },
-    });
-  }
-
-  /** Cancel an open session (terminal). */
-  async cancelAgentSession(
-    ingressBaseUrl: string,
-    sessionId: string,
-    previewToken?: string | null,
-  ): Promise<void> {
-    const url = new URL(`${ingressBaseUrl.replace(/\/$/, "")}/cancel`);
-    await this.api.fetcher.fetch({
-      method: "post",
-      url,
-      path: url.pathname,
-      parameters: previewTokenHeader(previewToken),
-      overrides: { body: JSON.stringify({ session_id: sessionId }) },
-    });
-  }
-
-  /**
-   * Stream a session's SSE events as an async iterator. Reads the raw response
-   * body and parses `text/event-stream` frames into `AgentSessionEvent`s.
-   */
-  async *streamAgentSession(
-    ingressBaseUrl: string,
-    sessionId: string,
-    signal?: AbortSignal,
-    previewToken?: string | null,
-  ): AsyncGenerator<AgentSessionEvent> {
-    const url = new URL(`${ingressBaseUrl.replace(/\/$/, "")}/listen`);
-    url.searchParams.set("session_id", sessionId);
-    // NB: only `signal` in overrides. Passing `headers` here would replace the
-    // fetcher's Authorization header (it spreads overrides over the built
-    // headers), which 401s the stream. The preview token rides on
-    // `parameters.header` — merged in, not replacing. /listen streams SSE
-    // without an explicit Accept header.
-    const response = await this.api.fetcher.fetch({
-      method: "get",
-      url,
-      path: url.pathname,
-      parameters: previewTokenHeader(previewToken),
-      overrides: { signal },
-    });
-    if (!response.body) return;
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        // Frames are separated by a blank line.
-        let sep = buffer.indexOf("\n\n");
-        while (sep !== -1) {
-          const frame = buffer.slice(0, sep);
-          buffer = buffer.slice(sep + 2);
-          const data = frame
-            .split("\n")
-            .filter((line) => line.startsWith("data:"))
-            .map((line) => line.slice(5).trimStart())
-            .join("\n");
-          if (data) {
-            try {
-              yield JSON.parse(data) as AgentSessionEvent;
-            } catch {
-              // Skip unparseable frames (keep-alives, comments).
-            }
-          }
-          sep = buffer.indexOf("\n\n");
-        }
-      }
-    } finally {
-      reader.releaseLock();
-    }
-  }
-
-  /** Live (non-terminal) sessions across every agent on the team. */
-  async listAgentFleetLiveSessions(
-    limit?: number,
-  ): Promise<AgentFleetLiveSessionsResponse> {
-    const teamId = await this.getTeamId();
-    const path = `/api/projects/${teamId}/agent_fleet/live_sessions/`;
-    const url = new URL(`${this.api.baseUrl}${path}`);
-    if (limit != null) {
-      url.searchParams.set("limit", String(limit));
-    }
-    const response = await this.api.fetcher.fetch({ method: "get", url, path });
-    const data = (await response.json()) as {
-      results?: AgentFleetLiveSessionsResponse["results"];
-    };
-    return { results: data.results ?? [] };
-  }
-
-  /** All tool-approval requests across the team (team-admin only). */
-  async listAgentFleetApprovals(
-    params?: AgentApprovalsListParams,
-  ): Promise<AgentApprovalRequest[]> {
-    const teamId = await this.getTeamId();
-    const path = `/api/projects/${teamId}/agent_fleet/approvals/`;
-    const url = new URL(`${this.api.baseUrl}${path}`);
-    if (params?.state) {
-      url.searchParams.set("state", params.state);
-    }
-    if (params?.agent_id) {
-      url.searchParams.set("agent_id", params.agent_id);
-    }
-    if (params?.limit != null) {
-      url.searchParams.set("limit", String(params.limit));
-    }
-    if (params?.offset != null) {
-      url.searchParams.set("offset", String(params.offset));
-    }
-    const response = await this.api.fetcher.fetch({ method: "get", url, path });
-    const data = (await response.json()) as {
-      results?: AgentApprovalRequest[];
-    };
-    return data.results ?? [];
-  }
-
   /**
    * Runs a read-only HogQL query against the team's project and returns the raw
    * result grid. Backs the agent observability rollups (`$ai_*` events the
@@ -7159,25 +6725,20 @@ export class PostHogAPIClient {
     return { results: data.results ?? [], columns: data.columns ?? [] };
   }
 
-  /**
-   * Runs an arbitrary typed query node (TrendsQuery, HogQLQuery, ...) against
-   * the team's project and returns the raw response. `refresh: "blocking"`
-   * serves a fresh-enough cached result and computes synchronously otherwise —
-   * the same mode PostHog insights use. Backs inbox report charts, whose query
-   * nodes are scout-authored and arrive unparsed.
-   */
   async runQuery(
     query: Record<string, unknown>,
+    options?: { refresh?: "blocking" | false },
   ): Promise<Record<string, unknown>> {
     const teamId = await this.getTeamId();
     const path = `/api/projects/${teamId}/query/`;
     const url = new URL(`${this.api.baseUrl}${path}`);
+    const refresh = options?.refresh === false ? null : "blocking";
     const response = await this.api.fetcher.fetch({
       method: "post",
       url,
       path,
       overrides: {
-        body: JSON.stringify({ query, refresh: "blocking" }),
+        body: JSON.stringify({ query, ...(refresh ? { refresh } : {}) }),
       },
     });
     const data = (await response.json()) as Record<string, unknown>;
@@ -7195,19 +6756,33 @@ export class PostHogAPIClient {
     name: string | null;
     description: string | null;
     query: unknown;
+    response: Record<string, unknown> | null;
   } | null> {
     const projectId = (await this.getTeamId()).toString();
-    const page = await this.api.get("/api/projects/{project_id}/insights/", {
-      path: { project_id: projectId },
-      query: { short_id: shortId },
-    });
-    const insight = page.results[0];
-    if (!insight) return null;
-    return {
-      name: insight.name || insight.derived_name || null,
-      description: insight.description || null,
-      query: insight.query ?? null,
-    };
+    try {
+      const insight = await this.api.get(
+        "/api/projects/{project_id}/insights/{id}/",
+        {
+          path: { project_id: projectId, id: shortId },
+          query: { refresh: "blocking" },
+        },
+      );
+      return {
+        name: insight.name || insight.derived_name || null,
+        description: insight.description || null,
+        query: insight.query ?? null,
+        response:
+          insight.result === null || insight.result === undefined
+            ? null
+            : {
+                results: insight.result,
+                columns: insight.columns ?? [],
+              },
+      };
+    } catch (error) {
+      if (requestErrorStatus(error) === 404) return null;
+      throw error;
+    }
   }
 
   /**
@@ -7268,22 +6843,75 @@ export class PostHogAPIClient {
           { path: { project_id: projectId, id: numericId } },
         );
         const preview = shapeExperimentPreview(experiment);
-        // Depth: unique persons exposed per variant, showing the experiment
-        // is collecting and roughly balanced.
-        if (!experiment.start_date || !experiment.feature_flag_key) {
-          return preview;
+        const primaryQueries = experimentMetricQueries(experiment, "primary");
+        const secondaryQueries = experimentMetricQueries(
+          experiment,
+          "secondary",
+        );
+        if (!experiment.start_date) {
+          return {
+            ...preview,
+            experimentResults: shapeExperimentResults(experiment, null, [], []),
+          };
         }
-        const until = experiment.end_date
-          ? ` AND timestamp <= parseDateTimeBestEffort('${hogqlEscape(experiment.end_date)}')`
-          : "";
-        const exposures = await this.runQuery({
-          kind: "HogQLQuery",
-          query: `SELECT toString(properties.$feature_flag_response) AS variant, uniq(person_id) FROM events WHERE event = '$feature_flag_called' AND properties.$feature_flag = '${hogqlEscape(experiment.feature_flag_key)}' AND timestamp >= parseDateTimeBestEffort('${hogqlEscape(experiment.start_date)}')${until} GROUP BY variant ORDER BY variant`,
-        }).catch(() => ({}));
-        const fact = exposureFact(gridRows(exposures));
-        return fact
-          ? { ...preview, facts: [...(preview.facts ?? []), fact] }
-          : preview;
+
+        const runMetricQuery = async (
+          metric: unknown,
+        ): Promise<ExperimentMetricQueryResult> => {
+          if (!metric || typeof metric !== "object") {
+            return { response: null };
+          }
+          try {
+            const response = await this.runQuery(
+              {
+                kind: "ExperimentQuery",
+                metric,
+                experiment_id: numericId,
+              },
+              { refresh: false },
+            );
+            return {
+              response: response as Schemas.ExperimentQueryResponse,
+            };
+          } catch {
+            return { response: null };
+          }
+        };
+
+        const exposureQuery = experiment.feature_flag
+          ? this.runQuery(
+              {
+                kind: "ExperimentExposureQuery",
+                experiment_id: numericId,
+                experiment_name: experiment.name,
+                exposure_criteria: experiment.exposure_criteria,
+                feature_flag: experiment.feature_flag,
+                start_date: experiment.start_date,
+                end_date: experiment.end_date,
+                holdout: experiment.holdout,
+              },
+              { refresh: false },
+            ).catch(() => null)
+          : Promise.resolve(null);
+        const [exposureResponse, primaryResults, secondaryResults] =
+          await Promise.all([
+            exposureQuery,
+            Promise.all(primaryQueries.map(runMetricQuery)),
+            Promise.all(secondaryQueries.map(runMetricQuery)),
+          ]);
+
+        const experimentExposureResponse =
+          exposureResponse as Schemas.ExperimentExposureQueryResponse | null;
+        return {
+          ...preview,
+          experimentResults: shapeExperimentResults(
+            experiment,
+            experimentExposureResponse,
+            primaryResults,
+            secondaryResults,
+          ),
+          chart: shapeExperimentExposureChart(experimentExposureResponse),
+        };
       }
       case "error": {
         // The issue's identity plus its 30-day activity: total events, users
@@ -7291,7 +6919,7 @@ export class PostHogAPIClient {
         const scope = `event = '$exception' AND properties.$exception_issue_id = '${hogqlEscape(id)}' AND timestamp >= now() - INTERVAL 30 DAY`;
         const [issue, totals, daily] = await Promise.all([
           this.api.get(
-            "/api/environments/{project_id}/error_tracking/issues/{id}/",
+            "/api/projects/{project_id}/error_tracking/issues/{id}/",
             { path: { project_id: projectId, id } },
           ),
           this.runQuery({
@@ -7313,12 +6941,29 @@ export class PostHogAPIClient {
             `${compactCount(users)} users · ${compactCount(events)} events (30d)`,
           );
         }
-        const points = dailySparkPoints(gridRows(daily));
+        const stats = [
+          ...(preview.stats ?? []),
+          ...(users > 0
+            ? [
+                { label: "Users in 30 days", value: compactCount(users) },
+                { label: "Events in 30 days", value: compactCount(events) },
+              ]
+            : []),
+        ];
+        const dailyRows = gridRows(daily);
+        const points = dailySparkPoints(dailyRows);
         return {
           ...preview,
           facts,
+          stats,
           spark:
-            points.length > 1 ? { points, render: "bar" as const } : undefined,
+            points.length > 1
+              ? {
+                  points,
+                  labels: dailySparkLabels(dailyRows),
+                  render: "bar" as const,
+                }
+              : undefined,
         };
       }
       case "event": {
@@ -7336,14 +6981,27 @@ export class PostHogAPIClient {
           query: `SELECT toDate(timestamp) AS day, count() FROM events WHERE event = '${hogqlEscape(id)}' AND timestamp >= now() - INTERVAL 14 DAY GROUP BY day ORDER BY day`,
         }).catch(() => ({}));
         const preview = shapeEventDefinitionPreview(definition);
-        const points = dailySparkPoints(gridRows(volume));
+        const volumeRows = gridRows(volume);
+        const points = dailySparkPoints(volumeRows);
         const total = points.reduce((sum, value) => sum + value, 0);
         return {
           ...preview,
           facts:
             total > 0 ? [`${compactCount(total)} events (14d)`] : undefined,
+          stats: [
+            ...(total > 0
+              ? [{ label: "Events in 14 days", value: compactCount(total) }]
+              : []),
+            ...(preview.stats ?? []),
+          ],
           spark:
-            points.length > 1 ? { points, render: "line" as const } : undefined,
+            points.length > 1
+              ? {
+                  points,
+                  labels: dailySparkLabels(volumeRows),
+                  render: "line" as const,
+                }
+              : undefined,
         };
       }
       case "ticket": {
@@ -7353,12 +7011,37 @@ export class PostHogAPIClient {
         );
         return shapeTicketPreview(ticket);
       }
+      case "report": {
+        const report = await this.getSignalReport(id);
+        return report ? shapeInboxReportPreview(report) : null;
+      }
       case "person": {
+        if (/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(id)) {
+          // A UUID-shaped id can be a person uuid or a UUID-shaped distinct id
+          // (posthog-js writes anonymous distinct ids as UUIDs). Retrieve-by-id
+          // matches only the person uuid, so a 404 (no such uuid) or 400 (the id
+          // isn't a valid person uuid) means fall through and resolve it as a
+          // distinct id below rather than giving up.
+          const person = await this.api
+            .get("/api/projects/{project_id}/persons/{id}/", {
+              path: { project_id: projectId, id },
+              query: {},
+            })
+            .catch((error) => {
+              const status = requestErrorStatus(error);
+              if (status === 404 || status === 400) return null;
+              throw error;
+            });
+          if (person) return shapePersonPreview(person);
+        }
         const page = await this.api.get("/api/projects/{project_id}/persons/", {
           path: { project_id: projectId },
           query: { search: id },
         });
-        const person = page.results?.[0];
+        const person = page.results?.find(
+          (candidate) =>
+            candidate.uuid === id || candidate.distinct_ids?.includes(id),
+        );
         return person ? shapePersonPreview(person) : null;
       }
       case "replay": {
@@ -7411,7 +7094,7 @@ export class PostHogAPIClient {
       }
       case "action": {
         if (numericId === null) return null;
-        const [action, volume] = await Promise.all([
+        const [action, volume, totals] = await Promise.all([
           this.api.get("/api/projects/{project_id}/actions/{id}/", {
             path: { project_id: projectId, id: numericId },
             query: {},
@@ -7420,22 +7103,66 @@ export class PostHogAPIClient {
             kind: "HogQLQuery",
             query: `SELECT toDate(timestamp) AS day, count() FROM events WHERE matchesAction(${numericId}) AND timestamp >= now() - INTERVAL 14 DAY GROUP BY day ORDER BY day`,
           }).catch(() => ({})),
+          this.runQuery({
+            kind: "HogQLQuery",
+            query: `SELECT count(), uniq(person_id), max(timestamp) FROM events WHERE matchesAction(${numericId}) AND timestamp >= now() - INTERVAL 30 DAY`,
+          }).catch(() => ({})),
         ]);
         const preview = shapeActionPreview(action);
-        const points = dailySparkPoints(gridRows(volume));
+        const volumeRows = gridRows(volume);
+        const points = dailySparkPoints(volumeRows);
         const total = points.reduce((sum, value) => sum + value, 0);
         const facts = [...(preview.facts ?? [])];
         if (total > 0) facts.unshift(`${compactCount(total)} matches (14d)`);
+        const totalsRow = gridRows(totals)[0];
+        const matches30d = totalsRow ? Number(totalsRow[0]) : 0;
+        const users30d = totalsRow ? Number(totalsRow[1]) : 0;
+        const lastSeen =
+          totalsRow && typeof totalsRow[2] === "string" && matches30d > 0
+            ? totalsRow[2]
+            : null;
+        if (users30d > 0) facts.push(`${compactCount(users30d)} users (30d)`);
         return {
           ...preview,
           facts,
+          stats: [
+            ...(total > 0
+              ? [{ label: "Matches in 14 days", value: compactCount(total) }]
+              : []),
+            ...(users30d > 0
+              ? [{ label: "Users in 30 days", value: compactCount(users30d) }]
+              : []),
+            ...(lastSeen
+              ? [{ label: "Last seen", value: formatDay(lastSeen) }]
+              : []),
+          ],
           spark:
-            points.length > 1 ? { points, render: "line" as const } : undefined,
+            points.length > 1
+              ? {
+                  points,
+                  labels: dailySparkLabels(volumeRows),
+                  render: "line" as const,
+                }
+              : undefined,
+          sections: [
+            ...activitySection([
+              [
+                "Matches in 30 days",
+                matches30d > 0 ? compactCount(matches30d) : null,
+              ],
+              [
+                "Unique users in 30 days",
+                users30d > 0 ? compactCount(users30d) : null,
+              ],
+              ["Last seen", lastSeen ? formatDay(lastSeen) : null],
+            ]),
+            ...(preview.sections ?? []),
+          ],
         };
       }
       case "eval": {
         const evaluation = await this.api.get(
-          "/api/environments/{project_id}/evaluations/{id}/",
+          "/api/projects/{project_id}/evaluations/{id}/",
           { path: { project_id: projectId, id } },
         );
         return shapeEvaluationPreview(evaluation);
@@ -7443,39 +7170,5 @@ export class PostHogAPIClient {
       default:
         return null;
     }
-  }
-
-  /**
-   * Agent observability rollup over the agents' `$ai_*` events — KPIs (spend,
-   * sessions, failure rate, p95), a 14-day daily trend + WoW deltas, and
-   * spend-by-agent / cost-by-model / tool-reliability breakdowns. Pass an
-   * `applicationId` (the agent's UUID) to scope it to a single agent; omit it
-   * for the fleet-wide board.
-   *
-   * The five panels are independent HogQL round-trips fired in parallel. The
-   * KPI query is the gate — a systemic failure (auth, bad query) rejects the
-   * whole call so the UI shows an error rather than a silently-empty board; the
-   * secondary panels degrade to empty individually. The fleet board also reads
-   * the agent list to label per-agent rows by name.
-   */
-  async getAgentAnalytics(applicationId?: string): Promise<AgentAnalyticsData> {
-    const queries = buildAgentAnalyticsQueries(applicationId);
-    const empty: HogQLGrid = { results: [], columns: [] };
-    const [agents, kpi, daily, perAgent, byModel, toolErrors] =
-      await Promise.all([
-        applicationId
-          ? Promise.resolve<AgentApplication[]>([])
-          : this.listAgentApplications().catch(() => [] as AgentApplication[]),
-        this.runHogQLQuery(queries.kpi),
-        this.runHogQLQuery(queries.daily).catch(() => empty),
-        this.runHogQLQuery(queries.perAgent).catch(() => empty),
-        this.runHogQLQuery(queries.byModel).catch(() => empty),
-        this.runHogQLQuery(queries.toolErrors).catch(() => empty),
-      ]);
-    const nameById = new Map(agents.map((a) => [a.id, a.name]));
-    return shapeAgentAnalytics(
-      { kpi, daily, perAgent, byModel, toolErrors },
-      nameById,
-    );
   }
 }

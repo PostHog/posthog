@@ -8,8 +8,11 @@ interface FeatureRequestDetailSectionProps {
     title: string
     children: ReactNode
     meta?: ReactNode
+    action?: ReactNode
     collapsible?: boolean
     defaultCollapsed?: boolean
+    collapsed?: boolean
+    onCollapsedChange?: (collapsed: boolean) => void
     dataAttr?: string
 }
 
@@ -18,12 +21,17 @@ export function FeatureRequestDetailSection({
     title,
     children,
     meta,
+    action,
     collapsible = false,
     defaultCollapsed = false,
+    collapsed,
+    onCollapsedChange,
     dataAttr,
 }: FeatureRequestDetailSectionProps): JSX.Element {
-    const [collapsed, setCollapsed] = useState(defaultCollapsed)
-    const open = !collapsible || !collapsed
+    const [localCollapsed, setLocalCollapsed] = useState(defaultCollapsed)
+    const effectiveCollapsed = collapsed ?? localCollapsed
+    const setCollapsed = onCollapsedChange ?? setLocalCollapsed
+    const open = !collapsible || !effectiveCollapsed
     const header = (
         <div className="flex flex-1 items-center gap-3 min-w-0">
             <div className="flex items-center gap-2 min-w-0">
@@ -43,7 +51,7 @@ export function FeatureRequestDetailSection({
                         type="tertiary"
                         size="small"
                         fullWidth
-                        onClick={() => setCollapsed(!collapsed)}
+                        onClick={() => setCollapsed(!effectiveCollapsed)}
                         aria-expanded={open}
                         sideIcon={open ? <IconCollapse /> : <IconExpand />}
                         className="min-w-0 flex-1 -ml-2 -my-px"
@@ -54,6 +62,7 @@ export function FeatureRequestDetailSection({
                 ) : (
                     <div className="flex flex-1 items-center min-w-0 py-1">{header}</div>
                 )}
+                {action && <div className="shrink-0">{action}</div>}
             </div>
             {open && <div>{children}</div>}
         </section>

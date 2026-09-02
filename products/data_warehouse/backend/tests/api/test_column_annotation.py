@@ -3,13 +3,12 @@ from posthog.test.base import APIBaseTest
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseCredential,
     DataWarehouseTable,
     WarehouseColumnAnnotation,
 )
-
-from ee.models.rbac.access_control import AccessControl
 
 
 class TestWarehouseColumnAnnotation(APIBaseTest):

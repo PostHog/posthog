@@ -64,10 +64,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
-# Must run as `python posthog/temporal/ai/eval_slack_repo_selection.py` (not `python -m ...`):
+# Must run as `python posthog/temporal/ai/slack_app/eval_slack_repo_selection.py` (not `python -m ...`):
 # `python -m` would import `posthog/temporal/ai/__init__.py` first, which loads workflows that
 # reference Django models before django.setup() has a chance to fire.
-_repo_root = Path(__file__).resolve().parents[3]
+_repo_root = Path(__file__).resolve().parents[4]
 if str(_repo_root) not in sys.path:
     sys.path.insert(0, str(_repo_root))
 

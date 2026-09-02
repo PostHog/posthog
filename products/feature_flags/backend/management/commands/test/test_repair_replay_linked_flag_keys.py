@@ -5,6 +5,7 @@ from typing import Any
 from posthog.test.base import BaseTest
 
 from django.core.management import call_command
+from django.core.management.base import CommandError
 
 from parameterized import parameterized
 
@@ -127,3 +128,26 @@ class TestRepairReplayLinkedFlagKeys(BaseTest):
         assert report["outcomes"] == {"repaired": 1}
         sibling_team.refresh_from_db()
         assert sibling_team.session_recording_linked_flag == {"id": flag.id, "key": "replay-gate-v2"}
+
+    def test_repairs_every_team_across_chunk_boundaries(self) -> None:
+        # A chunk size smaller than the number of scanned teams forces _iter_team_chunks through
+        # more than one page; every team must still be repaired, not just the first chunk's.
+        teams = [self.team] + [
+            Team.objects.create(organization=self.organization, project=self.team.project) for _ in range(2)
+        ]
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-gate-v2")
+        for team in teams:
+            self._link_flag(team, {"id": flag.id, "key": "replay-gate"})
+
+        report = self._run("--live-run", "--chunk-size", "1", teams=teams)
+
+        assert report["outcomes"] == {"repaired": 3}
+        for team in teams:
+            team.refresh_from_db()
+            assert team.session_recording_linked_flag == {"id": flag.id, "key": "replay-gate-v2"}
+
+    def test_rejects_a_zero_chunk_size(self) -> None:
+        # A zero chunk slices to an empty list every time, so the command would report scanning
+        # zero teams instead of failing loudly.
+        with self.assertRaises(CommandError):
+            self._run("--live-run", "--chunk-size", "0", teams=[self.team])

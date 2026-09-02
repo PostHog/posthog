@@ -20,12 +20,13 @@ function createContext(requestReturnValue: unknown): { context: Context; request
 }
 
 describe('Generated llma-prompt-* tools', () => {
-    it('uses prompt_name (not name) in generated prompt-get schema', () => {
+    // prompt-get also accepts `name` and the other identifier aliases, normalized to `prompt_name`
+    // before the handler sees them — see llma-identifier-contracts.test.ts.
+    it('uses prompt_name in generated prompt-get schema', () => {
         const tool = getToolByName(GENERATED_TOOLS, 'llma-prompt-get')
 
         const parsed = tool.schema.parse({ prompt_name: 'checkout_prompt', version: 2 })
         expect(parsed).toEqual({ prompt_name: 'checkout_prompt', version: 2, content: 'full' })
-        expect(() => tool.schema.parse({ name: 'checkout_prompt' })).toThrow()
     })
 
     it('exposes content mode on the prompt-get schema so agents can fetch outline-only', () => {

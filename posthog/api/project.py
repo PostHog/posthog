@@ -32,6 +32,7 @@ from posthog.api.team import (
     TEAM_CONFIG_MEMBER_FIELDS_SET,
     EvaluationContextSuggestionRequestSerializer,
     EvaluationContextSuggestionResponseSerializer,
+    EventIngestionRestrictionSerializer,
     TeamCustomerAnalyticsConfigSerializer,
     TeamMarketingAnalyticsConfigSerializer,
     TeamRevenueAnalyticsConfigSerializer,
@@ -44,6 +45,7 @@ from posthog.api.team import (
     handle_experiments_config,
     handle_logs_config,
     report_conversations_settings_changes,
+    team_event_ingestion_restrictions_view,
     validate_secret_token_generation,
     validate_team_attrs,
 )
@@ -67,7 +69,6 @@ from posthog.models.activity_logging.activity_log import (
     log_activity,
 )
 from posthog.models.activity_logging.activity_page import activity_page_response
-from posthog.models.event_ingestion_restriction_config import EventIngestionRestrictionConfig
 from posthog.models.group_type_mapping import cached_group_types_for_project
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.product_intent.product_intent import (
@@ -94,11 +95,6 @@ from posthog.permissions import (
     get_authenticator_scoped_organization_ids,
     get_organization_from_view,
 )
-from posthog.rbac.user_access_control import (
-    UserAccessControlSerializerMixin,
-    get_field_access_control_map,
-    resource_to_display_name,
-)
 from posthog.scopes import APIScopeObjectOrNotSupported
 from posthog.session_recordings.data_retention import (
     VALID_RETENTION_PERIODS,
@@ -109,6 +105,15 @@ from posthog.session_recordings.data_retention import (
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
 from posthog.utils import get_instance_realm, get_ip_address, get_week_start_for_country_code
 
+from products.access_control.backend.facade.user_access_control import (
+    get_field_access_control_map,
+    resource_to_display_name,
+)
+from products.access_control.backend.presentation.access_control import (
+    AccessControlViewSetMixin,
+    UserAccessControlSerializerMixin,
+)
+from products.access_control.backend.presentation.access_control_settings import AccessControlSettingsViewSetMixin
 from products.feature_flags.backend.models import TeamFeatureFlagDefaultsConfig
 from products.feature_flags.backend.models.evaluation_context import (
     EvaluationContext,
@@ -121,9 +126,6 @@ from products.notifications.backend.facade.api import (
     TargetType,
     create_notification,
 )
-
-from ee.api.rbac.access_control import AccessControlViewSetMixin
-from ee.api.rbac.access_control_settings import AccessControlSettingsViewSetMixin
 
 logger = structlog.get_logger(__name__)
 
@@ -383,15 +385,6 @@ def team_settings_as_of_view(team: Team, request: request.Request) -> response.R
     return response.Response(snapshot)
 
 
-def team_event_ingestion_restrictions_view(team: Team, request: request.Request) -> response.Response:
-    restrictions = EventIngestionRestrictionConfig.objects.filter(token=team.api_token)
-    data = [
-        {"restriction_type": restriction.restriction_type, "distinct_ids": restriction.distinct_ids}
-        for restriction in restrictions
-    ]
-    return response.Response(data)
-
-
 def team_default_evaluation_contexts_view(
     team: Team, request: request.Request, user_permissions: UserPermissions
 ) -> response.Response:
@@ -550,7 +543,11 @@ class ProjectBackwardCompatSerializer(
     available_setup_task_ids = serializers.SerializerMethodField()  # Compat with TeamSerializer
     managed_viewsets = serializers.SerializerMethodField()  # Compat with TeamSerializer
     events_retention_enforced = serializers.SerializerMethodField(
-        help_text="Whether events data retention is currently enforced for this team (cohort/flag gated)."
+        help_text=(
+            "Whether events data retention is currently enforced for this team (cohort/flag gated). Read-only: "
+            "neither you nor PostHog support can turn enforcement off, and the retention window itself only "
+            "changes with your plan. Background and discussion: https://github.com/PostHog/posthog/issues/17031"
+        )
     )  # Compat with TeamSerializer
     # These are @property attrs on Team, not Django model fields — declare explicitly so drf-spectacular can resolve them
     default_modifiers = serializers.DictField(read_only=True)  # Compat with TeamSerializer
@@ -839,7 +836,10 @@ class ProjectBackwardCompatSerializer(
             "event_retention_months": {
                 "help_text": (
                     "The team's events data retention window in months (plan-derived, synced from billing). When "
-                    "retention enforcement is active for the team, queries do not return events older than this many months."
+                    "retention enforcement is active for the team, queries do not return events older than this many "
+                    "months. Read-only: this value follows your plan's data retention entitlement, so neither you nor "
+                    "PostHog support can change it unless your organization is on the enterprise plan. Background and "
+                    "discussion: https://github.com/PostHog/posthog/issues/17031"
                 )
             },
             "data_attributes": {
@@ -1419,7 +1419,9 @@ class ProjectViewSet(
         if self.action:
             if self.action == "create":
                 if "is_demo" not in self.request.data or not self.request.data["is_demo"]:
-                    permissions.append(UserCanCreateProjectPermission)
+                    # Evaluate the create-access check before the premium check so a member who lacks
+                    # permission gets the permission message, not the plan-upgrade one.
+                    permissions.insert(permissions.index(PremiumMultiProjectPermission), UserCanCreateProjectPermission)
                 else:
                     permissions.append(OrganizationMemberPermissions)
             elif self.action != "list":
@@ -1724,7 +1726,14 @@ class ProjectViewSet(
         """
         return team_settings_as_of_view(self.get_object().passthrough_team, request)
 
-    @action(methods=["GET"], detail=True, required_scopes=["project:read"], url_path="event_ingestion_restrictions")
+    @extend_schema(responses=EventIngestionRestrictionSerializer(many=True))
+    @action(
+        methods=["GET"],
+        detail=True,
+        required_scopes=["project:read"],
+        url_path="event_ingestion_restrictions",
+        pagination_class=None,
+    )
     def event_ingestion_restrictions(self, request, **kwargs):
         return team_event_ingestion_restrictions_view(self.get_object().passthrough_team, request)
 

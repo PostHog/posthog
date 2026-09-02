@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonCard, LemonInputSelect, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonCard, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 
 import { resolveCategoryDropdownVariant, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
@@ -93,20 +93,25 @@ function ScannerFilterGroup(): JSX.Element {
     )
 }
 
-// Variant selection for a scanner created from an experiment. Compiles the choice into the
-// exposure filter in the card below, so users never have to build that filter by hand.
+// Variant selection for a scanner targeting an experiment. The choice is stored as the scanner's
+// experiment targeting; the backend derives the person-scoped exposure filter from it at scan
+// time, so there is no filter in the card below to hand-edit.
 function ExperimentTargeting({ scannerId }: { scannerId: string }): JSX.Element | null {
     const { experimentContext } = useValues(replayScannerLogic({ id: scannerId }))
-    const { setExperimentVariantKeys, detachExperimentContext } = useActions(replayScannerLogic({ id: scannerId }))
+    const { setExperimentVariant, detachExperimentContext } = useActions(replayScannerLogic({ id: scannerId }))
 
     if (!experimentContext) {
         return null
     }
-    const { experiment, variantKeys } = experimentContext
-    const variantOptions = getExperimentVariants(experiment).map((variant) => ({
-        key: variant.key,
-        label: variant.key,
-    }))
+    const { experiment, variantKey } = experimentContext
+    // A null value targets every variant; each experiment variant is a single-select option.
+    const variantOptions: { value: string | null; label: string }[] = [
+        { value: null, label: 'All variants' },
+        ...getExperimentVariants(experiment).map((variant) => ({
+            value: variant.key,
+            label: variant.key,
+        })),
+    ]
 
     return (
         <LemonCard hoverEffect={false} className="p-3 space-y-3" data-attr="vision-experiment-targeting">
@@ -114,31 +119,28 @@ function ExperimentTargeting({ scannerId }: { scannerId: string }): JSX.Element 
                 <div className="space-y-1">
                     <LemonLabel>Experiment targeting</LemonLabel>
                     <div className="text-xs text-muted">
-                        This scanner watches sessions exposed to{' '}
-                        <Link to={urls.experiment(experiment.id)}>{experiment.name}</Link>. Changing variants updates
-                        the exposure filter below. Filters you add yourself are kept.
+                        This scanner watches sessions of people exposed to{' '}
+                        <Link to={urls.experiment(experiment.id)}>{experiment.name}</Link>. Pick a variant to narrow it,
+                        or watch every variant. Filters you add yourself are kept.
                     </div>
                 </div>
                 <LemonButton
                     size="xsmall"
                     type="secondary"
                     onClick={() => detachExperimentContext()}
-                    tooltip="Remove the experiment link and edit the recording filters directly."
+                    tooltip="Stop limiting this scanner to people exposed to this experiment. Filters you added yourself are kept."
                     data-attr="vision-experiment-targeting-detach"
                 >
-                    Edit as filters
+                    Remove targeting
                 </LemonButton>
             </div>
             <div className="max-w-160">
-                <LemonInputSelect
-                    mode="multiple"
-                    value={variantKeys}
-                    onChange={(keys) => setExperimentVariantKeys(keys)}
+                <LemonSelect
+                    value={variantKey}
+                    onChange={(key) => setExperimentVariant(key)}
                     options={variantOptions}
-                    placeholder="All variants"
                     data-attr="vision-experiment-targeting-variants"
                 />
-                <div className="text-xs text-muted mt-1">Leave empty to watch every variant.</div>
             </div>
         </LemonCard>
     )

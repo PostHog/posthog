@@ -1,21 +1,26 @@
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
+from uuid import UUID
 
 from django.conf import settings
 
 import requests
 from rest_framework import status
+from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.auth import OAuthAccessTokenAuthentication
 from posthog.models import OAuthAccessToken
+from posthog.permissions import get_authenticator_scopes
 
 if TYPE_CHECKING:
-    from posthog.models import User
-from posthog.temporal.oauth import create_oauth_access_token_for_user
+    from posthog.models import Organization, User
+from posthog.temporal.oauth import SANDBOX_OAUTH_APP_CLIENT_IDS, create_oauth_access_token_for_user
 from posthog.utils import get_instance_region
 
-from products.tasks.backend.access import has_tasks_access
+from products.tasks.backend.access import DesktopAccessResolutionError, get_desktop_access_decision
+from products.tasks.backend.facade.contracts import DesktopAccessReason
 from products.tasks.backend.logic.services.compute_quota import (
     COMPUTE_QUOTA_DENIAL_CODE,
     ORGANIZATION_DEACTIVATED_DENIAL_CODE,
@@ -168,25 +173,82 @@ def compute_quota_limit_response(reason: str = COMPUTE_QUOTA_DENIAL_CODE) -> Res
     )
 
 
-def code_access_required_response(user: "User") -> Response | None:
-    """Return a 403 when the user lacks PostHog Desktop access, else None.
+def _task_bound_internal_run(request: Request, task_id: str | UUID | None) -> bool:
+    authenticator = getattr(request, "successful_authenticator", None)
+    authenticator_scopes = get_authenticator_scopes(authenticator) or []
+    if "internal_run:read" not in authenticator_scopes or task_id is None:
+        return False
+    if not isinstance(authenticator, OAuthAccessTokenAuthentication):
+        return False
 
-    The entitlement gate for user-triggered cloud execution: usage-based billing alone
-    doesn't control cost for credit-funded teams (startup-program credits cover the meter),
-    so cloud runs additionally require the Desktop waitlist (the `tasks` flag or a redeemed
-    invite). Endpoints serving generally-available Inbox surfaces skip this for tasks whose
-    Inbox entitlement is server-verifiable — see ``task_exempt_from_code_access``.
-    """
-    if has_tasks_access(user):
+    access_token = authenticator.access_token
+    application = access_token.application
+    if application is None or application.client_id not in SANDBOX_OAUTH_APP_CLIENT_IDS:
+        return False
+
+    try:
+        parsed_task_id = UUID(str(task_id))
+    except ValueError:
+        return False
+    return access_token.sandbox_task_id == parsed_task_id
+
+
+def code_access_required_response(
+    request: Request,
+    organization: "Organization",
+    *,
+    task_id: str | UUID | None = None,
+    fail_open_on_resolution_error: bool = False,
+) -> Response | None:
+    if _task_bound_internal_run(request, task_id):
         return None
+
+    try:
+        decision = get_desktop_access_decision(cast("User", request.user), organization)
+    except DesktopAccessResolutionError:
+        logger.warning(
+            "desktop_access_resolution_failed",
+            extra={"organization_id": organization.id, "fail_open": fail_open_on_resolution_error},
+        )
+        if fail_open_on_resolution_error:
+            return None
+        return Response(
+            TaskRunErrorResponseSerializer(
+                {
+                    "type": "service_unavailable",
+                    "code": "desktop_access_unavailable",
+                    "error": "We couldn't verify PostHog Desktop access. Try again.",
+                }
+            ).data,
+            status=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+
+    if decision.allowed:
+        return None
+
+    messages = {
+        DesktopAccessReason.STARTUP_PLAN: (
+            "PostHog Desktop isn't available for Startup or YC program organizations. "
+            "Select another organization to continue."
+        ),
+        DesktopAccessReason.PREPAID_CREDITS: (
+            "PostHog Desktop isn't available while this organization has prepaid credits. "
+            "Select another organization to continue."
+        ),
+    }
+    reason = decision.reason
+    error_message = (
+        messages[reason] if reason is not None else "PostHog Desktop access is required to run tasks in the cloud."
+    )
+    payload: dict[str, Any] = {
+        "type": "permission_denied",
+        "code": "code_access_required",
+        "error": error_message,
+    }
+    if reason is not None:
+        payload["reason"] = reason.value
     return Response(
-        TaskRunErrorResponseSerializer(
-            {
-                "type": "permission_denied",
-                "code": "code_access_required",
-                "error": "PostHog Desktop access is required to run tasks in the cloud.",
-            }
-        ).data,
+        TaskRunErrorResponseSerializer(payload).data,
         status=status.HTTP_403_FORBIDDEN,
     )
 
