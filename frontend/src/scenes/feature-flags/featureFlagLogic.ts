@@ -876,7 +876,7 @@ export interface featureFlagLogicValues {
         | 'Release toggle (boolean)'
         | 'Remote configuration (single payload)'
     hasEarlyAccessFeatures: boolean
-    hasEncryptedPayloadBeenSaved: boolean | undefined
+    hasEncryptedPayloadBeenSaved: boolean
     hasExperiment: boolean | null
     hasSurveys: boolean | null
     hasUnsavedChanges: boolean
@@ -1929,7 +1929,10 @@ export interface featureFlagLogicMeta {
         featureFlagKey: (featureFlag: FeatureFlagType) => string
         canCreateEarlyAccessFeature: (featureFlag: FeatureFlagType, variants: MultivariateFlagVariant[]) => boolean
         hasSurveys: (featureFlag: FeatureFlagType) => boolean | null
-        hasEncryptedPayloadBeenSaved: (featureFlag: FeatureFlagType, props: any) => boolean | undefined
+        hasEncryptedPayloadBeenSaved: (
+            featureFlag: FeatureFlagType,
+            originalFeatureFlag: FeatureFlagType | null
+        ) => boolean
         hasExperiment: (featureFlag: FeatureFlagType) => boolean | null
         isDraftExperiment: (experiment: any) => boolean
         properties: (featureFlag: FeatureFlagType) => AnyPropertyFilter[]
@@ -4403,15 +4406,16 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             },
         ],
         hasEncryptedPayloadBeenSaved: [
-            (s) => [s.featureFlag, s.props],
-            (featureFlag: FeatureFlagType, props) => {
+            (s) => [s.featureFlag, s.originalFeatureFlag],
+            (featureFlag: FeatureFlagType, originalFeatureFlag: FeatureFlagType | null): boolean => {
+                // A pending reset clears the working copy, which must unlock the payload again.
                 if (!featureFlag.has_encrypted_payloads) {
                     return false
                 }
-                const savedFlag = featureFlagsLogic
-                    .findMounted()
-                    ?.values.featureFlags.results.find((flag) => flag.id === props.id)
-                return savedFlag?.has_encrypted_payloads
+                // The server baseline, not the flag list cache: a flag opened straight from its URL
+                // mounts no list logic, so a cache lookup reads as "never saved" even when the
+                // server already holds the payload encrypted.
+                return originalFeatureFlag?.has_encrypted_payloads === true
             },
         ],
         hasExperiment: [

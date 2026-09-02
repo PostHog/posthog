@@ -760,6 +760,30 @@ describe('featureFlagLogic', () => {
         })
     })
 
+    describe('hasEncryptedPayloadBeenSaved', () => {
+        // featureFlagsLogic stays unmounted here, so a row that expects `true` also proves the
+        // gate reads the server baseline instead of the flag list cache.
+        it.each([
+            ['stays false while encryption is ticked but nothing is saved yet', true, false, false],
+            ['is true once the server holds an encrypted payload', true, true, true],
+            ['returns to false while a reset is pending', false, true, false],
+        ])('%s', async (_, working, baseline, expected) => {
+            await expectLogic(logic, () => {
+                logic.actions.setFeatureFlag({
+                    ...logic.values.featureFlag,
+                    is_remote_configuration: true,
+                    has_encrypted_payloads: working,
+                    filters: { ...logic.values.featureFlag.filters, payloads: { true: '{"a":1}' } },
+                })
+                logic.actions.setOriginalFeatureFlag({
+                    ...logic.values.featureFlag,
+                    is_remote_configuration: true,
+                    has_encrypted_payloads: baseline,
+                })
+            }).toMatchValues({ hasEncryptedPayloadBeenSaved: expected })
+        })
+    })
+
     describe('setFeatureFlagFilters', () => {
         it.each([
             ['an empty payload snapshot', {}],
