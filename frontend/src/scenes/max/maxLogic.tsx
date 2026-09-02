@@ -35,6 +35,9 @@ import { MaxUIContext } from './maxTypes'
 /** Maximum age for restored prompts (5 minutes) */
 const PENDING_PROMPT_MAX_AGE_MS = 5 * 60 * 1000
 
+/** Highest conversation-status poll depth (polls are 2.5s apart) before the user is offered a retry */
+const MAX_CONVERSATION_POLL_DEPTH = 10
+
 /** Key for storing pending Max context in sessionStorage */
 export const PENDING_MAX_CONTEXT_KEY = 'posthog.pending_max_context'
 
@@ -741,7 +744,14 @@ export const maxLogic = kea<maxLogicType>([
          * Polls the conversation status until it's idle or reaches a max recursion depth.
          */
         pollConversation: async ({ conversationId, currentRecursionDepth, leadingTimeout }, breakpoint) => {
-            if (currentRecursionDepth > 10) {
+            if (currentRecursionDepth > MAX_CONVERSATION_POLL_DEPTH) {
+                // Going quiet here leaves the user with a chat that looks frozen, so offer a retry.
+                lemonToast.warning('This chat is taking longer than usual to load.', {
+                    button: {
+                        label: 'Retry',
+                        action: () => actions.pollConversation(conversationId, 0, 0),
+                    },
+                })
                 return
             }
 
@@ -765,8 +775,13 @@ export const maxLogic = kea<maxLogicType>([
                 lemonToast.error(err?.data?.detail || 'Failed to load the chat.')
             }
 
-            if (conversation && conversation.status === ConversationStatus.Idle) {
+            if (conversation) {
+                // Apply every poll, not just the last one, so a turn that is still generating still
+                // renders the messages the server has already committed.
                 actions.prependOrReplaceConversation(conversation)
+            }
+
+            if (conversation?.status === ConversationStatus.Idle) {
                 actions.scrollThreadToBottom('instant')
             } else {
                 actions.pollConversation(conversationId, currentRecursionDepth + 1)

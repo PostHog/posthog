@@ -39,7 +39,7 @@ import { EnhancedToolCall, TOOL_DEFINITIONS } from './max-constants'
 import { maxContextLogic } from './maxContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
-import { MAX_DASHBOARD_CONTEXT_WAIT_MS, maxThreadLogic } from './maxThreadLogic'
+import { MAX_DASHBOARD_CONTEXT_WAIT_MS, type ThreadMessage, maxThreadLogic } from './maxThreadLogic'
 import { MaxContextType } from './maxTypes'
 import {
     MOCK_CONVERSATION,
@@ -1704,6 +1704,59 @@ describe('maxThreadLogic', () => {
                     status: 'completed',
                 },
             ])
+        })
+    })
+
+    describe('re-syncing a stale thread', () => {
+        const staleThread: ThreadMessage[] = [
+            { type: AssistantMessageType.Human, content: 'question', id: 'human-1', status: 'completed' },
+        ]
+        const serverMessages = [
+            { type: AssistantMessageType.Human, content: 'question', id: 'human-1' },
+            { type: AssistantMessageType.Assistant, content: 'answer', id: 'assistant-1' },
+        ]
+
+        it('applies server messages when the server holds more than the screen does', () => {
+            logic.actions.setThread(staleThread)
+
+            maxGlobalLogic
+                .findMounted()!
+                .actions.loadConversationHistorySuccess([
+                    { ...MOCK_CONVERSATION, messages: serverMessages } as ConversationDetail,
+                ])
+
+            expect(logic.values.threadRaw).toEqual([
+                expect.objectContaining({ id: 'human-1', status: 'completed' }),
+                expect.objectContaining({ id: 'assistant-1', content: 'answer', status: 'completed' }),
+            ])
+        })
+
+        it('reconnects when the loaded conversation is still generating', async () => {
+            const streamSpy = mockStream()
+            logic.actions.setThread(staleThread)
+
+            await expectLogic(logic, () => {
+                maxGlobalLogic
+                    .findMounted()!
+                    .actions.loadConversationHistorySuccess([
+                        { ...MOCK_IN_PROGRESS_CONVERSATION, messages: serverMessages } as ConversationDetail,
+                    ])
+            }).toDispatchActions(['reconnectToStream'])
+
+            expect(streamSpy).toHaveBeenCalled()
+        })
+
+        it('does not reconnect when the loaded conversation is idle', async () => {
+            const streamSpy = mockStream()
+
+            maxGlobalLogic
+                .findMounted()!
+                .actions.loadConversationHistorySuccess([
+                    { ...MOCK_CONVERSATION, messages: serverMessages } as ConversationDetail,
+                ])
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(streamSpy).not.toHaveBeenCalled()
         })
     })
 

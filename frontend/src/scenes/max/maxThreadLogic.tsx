@@ -2268,10 +2268,16 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 return
             }
 
-            // Keep conversation and thread in sync to avoid empty thread after history updates.
+            // Keep conversation and thread in sync. The server copy wins whenever it holds more
+            // messages than the screen does — a dropped stream otherwise leaves a stale thread that
+            // only a page reload clears.
             actions.setConversation(conversation)
-            if (conversation.messages?.length && !values.threadRaw.length) {
+            if (conversation.messages && conversation.messages.length > values.threadMessageCount) {
                 actions.setThread(updateMessagesWithCompletedStatus(conversation.messages))
+            }
+            // The turn is still running server-side, but this device has no stream, so pick it back up.
+            if (conversation.status === ConversationStatus.InProgress && conversation.agent_runtime !== 'sandbox') {
+                actions.reconnectToStream()
             }
         },
         selectCommand: ({ command }) => {
@@ -2986,8 +2992,11 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             return
         }
 
-        // Fetch message history if threadRaw is empty (may already be populated by cross-tab sync)
-        if (values.threadRaw.length === 0) {
+        // Fetch message history unless the cache already holds it. threadRaw may be populated by
+        // cross-tab sync, but the cached conversation also carries the status the reconnect below
+        // reads, so a populated thread alone is not enough to skip the load.
+        const cachedConversation = maxGlobalLogic.values.conversationHistory.find((c) => c.id === parentConversationId)
+        if (values.threadRaw.length === 0 || cachedConversation?.messages === undefined) {
             await maxGlobalLogic.asyncActions.loadConversation(parentConversationId)
         }
 
@@ -3028,7 +3037,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         }
 
         // Ensure threadRaw is hydrated before streaming, so setThread doesn't overwrite stream tokens.
-        if (values.threadRaw.length === 0 && conversation.messages.length > 0) {
+        if (conversation.messages.length > values.threadMessageCount) {
             actions.setThread(updateMessagesWithCompletedStatus(conversation.messages))
         }
 
