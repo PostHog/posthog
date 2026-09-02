@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom'
 
 import { cleanup, render, screen, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { expectLogic } from 'kea-test-utils'
 
 import { themeLogic } from 'lib/logic/themeLogic'
@@ -112,9 +113,23 @@ describe('SharingModal (dashboard)', () => {
         expect(screen.getByText('Access control')).toBeInTheDocument()
 
         // Dashboard options smoke checks
-        expect(screen.getByText(/Show PostHog branding/i)).toBeInTheDocument()
-        expect(screen.getByText('Theme')).toBeInTheDocument()
+        expect(screen.getByText(/Show branding/i)).toBeInTheDocument()
+        expect(screen.getByText('Public sharing')).toBeInTheDocument()
+        expect(screen.getByText('Shared dashboard appearance')).toBeInTheDocument()
+        expect(screen.getByText('Choose how the shared dashboard appears to viewers.')).toBeInTheDocument()
+        expect(screen.getByRole('button', { name: /System/i })).toBeInTheDocument()
+        expect(screen.getByRole('button', { name: /Light/i })).toBeInTheDocument()
+        expect(screen.getByRole('button', { name: /Dark/i })).toBeInTheDocument()
         expect(screen.queryByText(/Show insight details/i)).toBeNull()
+    })
+
+    it('updates the shared dashboard theme', async () => {
+        const user = userEvent.setup()
+        render(<DashboardSharingModalWrapper />)
+
+        await user.click(await screen.findByRole('button', { name: /Dark/i }))
+
+        expect(sharingLogic({ dashboardId }).values.sharingSettings.theme).toBe('dark')
     })
 
     it('calls onSharingEnabledChange after the dashboard sharing switch update succeeds', async () => {
@@ -197,6 +212,8 @@ describe('SharingModal (insight)', () => {
 
         // Insight option: Show title and description (insight-specific toggle)
         expect(await screen.findByText(/Show title and description/i)).toBeInTheDocument()
+        expect(screen.getByText('Shared insight appearance')).toBeInTheDocument()
+        expect(screen.getByText('Choose how the shared insight appears to viewers.')).toBeInTheDocument()
 
         // Dashboard-only options should not be present
         const modalTitle = await screen.findByText('Insight permissions & sharing')
