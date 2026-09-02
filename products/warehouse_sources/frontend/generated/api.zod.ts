@@ -9,6 +9,113 @@
  */
 import * as zod from 'zod'
 
+/**
+ * Manage where warehouse sources write their synced rows.
+ *
+ * A destination can be attached to several sources, or to a single table on a source.
+ * Credentials come from an integration, so one connection can be reused across syncs.
+ */
+export const externalDataDestinationsCreateBodyNameMax = 400
+
+export const ExternalDataDestinationsCreateBody = /* @__PURE__ */ zod.object({
+    type: zod
+        .enum(['PostHogWarehouse', 'Redshift', 'Snowflake', 'BigQuery', 'Postgres', 'Databricks', 'AzureBlob', 'S3'])
+        .describe(
+            '\* `PostHogWarehouse` - PostHog warehouse\n\* `Redshift` - Redshift\n\* `Snowflake` - Snowflake\n\* `BigQuery` - BigQuery\n\* `Postgres` - Postgres\n\* `Databricks` - Databricks\n\* `AzureBlob` - Azure Blob\n\* `S3` - S3'
+        )
+        .describe(
+            'Where synced rows are written. The PostHog warehouse is managed for you, so you cannot create one here.\n\n\* `PostHogWarehouse` - PostHog warehouse\n\* `Redshift` - Redshift\n\* `Snowflake` - Snowflake\n\* `BigQuery` - BigQuery\n\* `Postgres` - Postgres\n\* `Databricks` - Databricks\n\* `AzureBlob` - Azure Blob\n\* `S3` - S3'
+        ),
+    name: zod
+        .string()
+        .max(externalDataDestinationsCreateBodyNameMax)
+        .describe('Human-readable name shown when picking destinations for a source or table.'),
+    config: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Settings for this destination: target database, schema or dataset, bucket and prefix, file format. Credentials are not stored here. They live on the linked integration.'
+        ),
+    integration: zod
+        .number()
+        .nullish()
+        .describe(
+            "Integration holding this destination's credentials. Required for every type except the PostHog warehouse."
+        ),
+})
+
+/**
+ * Manage where warehouse sources write their synced rows.
+ *
+ * A destination can be attached to several sources, or to a single table on a source.
+ * Credentials come from an integration, so one connection can be reused across syncs.
+ */
+export const externalDataDestinationsUpdateBodyNameMax = 400
+
+export const ExternalDataDestinationsUpdateBody = /* @__PURE__ */ zod.object({
+    type: zod
+        .enum(['PostHogWarehouse', 'Redshift', 'Snowflake', 'BigQuery', 'Postgres', 'Databricks', 'AzureBlob', 'S3'])
+        .describe(
+            '\* `PostHogWarehouse` - PostHog warehouse\n\* `Redshift` - Redshift\n\* `Snowflake` - Snowflake\n\* `BigQuery` - BigQuery\n\* `Postgres` - Postgres\n\* `Databricks` - Databricks\n\* `AzureBlob` - Azure Blob\n\* `S3` - S3'
+        )
+        .describe(
+            'Where synced rows are written. The PostHog warehouse is managed for you, so you cannot create one here.\n\n\* `PostHogWarehouse` - PostHog warehouse\n\* `Redshift` - Redshift\n\* `Snowflake` - Snowflake\n\* `BigQuery` - BigQuery\n\* `Postgres` - Postgres\n\* `Databricks` - Databricks\n\* `AzureBlob` - Azure Blob\n\* `S3` - S3'
+        ),
+    name: zod
+        .string()
+        .max(externalDataDestinationsUpdateBodyNameMax)
+        .describe('Human-readable name shown when picking destinations for a source or table.'),
+    config: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Settings for this destination: target database, schema or dataset, bucket and prefix, file format. Credentials are not stored here. They live on the linked integration.'
+        ),
+    integration: zod
+        .number()
+        .nullish()
+        .describe(
+            "Integration holding this destination's credentials. Required for every type except the PostHog warehouse."
+        ),
+})
+
+/**
+ * Manage where warehouse sources write their synced rows.
+ *
+ * A destination can be attached to several sources, or to a single table on a source.
+ * Credentials come from an integration, so one connection can be reused across syncs.
+ */
+export const externalDataDestinationsPartialUpdateBodyNameMax = 400
+
+export const ExternalDataDestinationsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    type: zod
+        .enum(['PostHogWarehouse', 'Redshift', 'Snowflake', 'BigQuery', 'Postgres', 'Databricks', 'AzureBlob', 'S3'])
+        .describe(
+            '\* `PostHogWarehouse` - PostHog warehouse\n\* `Redshift` - Redshift\n\* `Snowflake` - Snowflake\n\* `BigQuery` - BigQuery\n\* `Postgres` - Postgres\n\* `Databricks` - Databricks\n\* `AzureBlob` - Azure Blob\n\* `S3` - S3'
+        )
+        .optional()
+        .describe(
+            'Where synced rows are written. The PostHog warehouse is managed for you, so you cannot create one here.\n\n\* `PostHogWarehouse` - PostHog warehouse\n\* `Redshift` - Redshift\n\* `Snowflake` - Snowflake\n\* `BigQuery` - BigQuery\n\* `Postgres` - Postgres\n\* `Databricks` - Databricks\n\* `AzureBlob` - Azure Blob\n\* `S3` - S3'
+        ),
+    name: zod
+        .string()
+        .max(externalDataDestinationsPartialUpdateBodyNameMax)
+        .optional()
+        .describe('Human-readable name shown when picking destinations for a source or table.'),
+    config: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Settings for this destination: target database, schema or dataset, bucket and prefix, file format. Credentials are not stored here. They live on the linked integration.'
+        ),
+    integration: zod
+        .number()
+        .nullish()
+        .describe(
+            "Integration holding this destination's credentials. Required for every type except the PostHog warehouse."
+        ),
+})
+
 export const externalDataSchemasUpdateBodyIncrementalFieldLookbackSecondsMin = 0
 export const externalDataSchemasUpdateBodyIncrementalFieldLookbackSecondsMax = 5184000
 
@@ -210,6 +317,20 @@ export const ExternalDataSchemasPartialUpdateBody = /* @__PURE__ */ zod
             ),
     })
     .describe('A schema of an external data source: its sync configuration and the warehouse table it syncs into.')
+
+/**
+ * Read or replace this table's destination override.
+ *
+ * Send `destination_ids: null` to clear the override so the table follows its source again.
+ */
+export const ExternalDataSchemasDestinationsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    destination_ids: zod
+        .array(zod.uuid())
+        .nullish()
+        .describe(
+            'Destinations to sync to. On a table, null clears the override so the table follows its source again.'
+        ),
+})
 
 export const externalDataSchemasIncrementalFieldsCreateBodyIncrementalFieldLookbackSecondsMin = 0
 export const externalDataSchemasIncrementalFieldsCreateBodyIncrementalFieldLookbackSecondsMax = 5184000
@@ -438,6 +559,20 @@ export const ExternalDataSourcesDeleteWebhookCreateBody = /* @__PURE__ */ zod
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 /**
+ * Read or replace the destinations every table on this source syncs to.
+ *
+ * A table with its own override ignores this set until the override is cleared.
+ */
+export const ExternalDataSourcesDestinationsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    destination_ids: zod
+        .array(zod.uuid())
+        .nullish()
+        .describe(
+            'Destinations to sync to. On a table, null clears the override so the table follows its source again.'
+        ),
+})
+
+/**
  * Disable CDC on an existing source.
  *
  * Cancels any running CDC extraction workflow, deletes the extraction schedule,
@@ -527,6 +662,7 @@ export const ExternalDataSourcesDatabaseSchemaCreateBody = /* @__PURE__ */ zod
  * since the docs are sent to the LLM gateway.
  */
 export const externalDataSourcesDraftCustomManifestCreateBodySourceNameDefault = ``
+export const externalDataSourcesDraftCustomManifestCreateBodyDocsUrlTwoMax = 0
 
 export const ExternalDataSourcesDraftCustomManifestCreateBody = /* @__PURE__ */ zod.object({
     source_name: zod
@@ -534,7 +670,7 @@ export const ExternalDataSourcesDraftCustomManifestCreateBody = /* @__PURE__ */ 
         .default(externalDataSourcesDraftCustomManifestCreateBodySourceNameDefault)
         .describe("Optional human name of the API being connected (e.g. 'Acme CRM'). Used only to orient the model."),
     docs_url: zod
-        .url()
+        .union([zod.url(), zod.string().max(externalDataSourcesDraftCustomManifestCreateBodyDocsUrlTwoMax)])
         .optional()
         .describe(
             'URL of the API documentation to read. Provide this or docs_text; fetched server-side via the egress proxy.'

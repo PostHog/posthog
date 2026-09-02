@@ -261,6 +261,7 @@ mod tests {
             ai_byte_limit_per_second: 0,
             ai_byte_limit_overrides_csv: None,
             ai_byte_limit_dry_run: false,
+            ai_byte_limit_window_interval_secs: None,
             ai_byte_limit_local_cache_max_entries: 300_000,
         }
     }

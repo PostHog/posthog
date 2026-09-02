@@ -19,6 +19,9 @@ import {
   getCloudTaskGatewayUrl,
   isSupportedReasoningEffort,
   normalizeGatewayModelsResponse,
+  RESOLVE_REASON_OPTIONS,
+  type ReportStateReason,
+  type ResolveReasonOptionValue,
   resolveCloudInitialPermissionMode,
 } from "@posthog/shared";
 import type {
@@ -94,6 +97,7 @@ import {
   shapeExperimentPreview,
   shapeExperimentResults,
   shapeFlagPreview,
+  shapeInboxReportPreview,
   shapePersonPreview,
   shapeRecordingPreview,
   shapeSurveyPreview,
@@ -168,6 +172,22 @@ export interface PostHogAPIClientOptions {
 
 export function getPosthogApiClientAppVersion(): string {
   return clientAppVersion;
+}
+
+/**
+ * A scout endpoint answered with a non-2xx. Carries the status so a caller can tell a
+ * refusal it has to live with — 403 for a member without `signal_scout:write`, 404 for a
+ * stale project id — from a real outage worth retrying or reporting.
+ */
+export class ScoutRequestError extends Error {
+  constructor(
+    readonly status: number,
+    subPath: string,
+    statusText: string,
+  ) {
+    super(`Scout request failed (${subPath}): ${statusText}`);
+    this.name = "ScoutRequestError";
+  }
 }
 
 export class SandboxCustomImagesDisabledError extends Error {
@@ -1118,9 +1138,13 @@ type AnyArtefact =
   | TaskRunArtefact
   | NoteArtefact;
 
-const DISMISSAL_REASONS = new Set<DismissalReasonOptionValue>(
-  DISMISSAL_REASON_OPTIONS.map((o) => o.value),
-);
+// Reasons valid on a dismissal artefact. Resolve reasons are included because the
+// backend stores resolve feedback on the same artefact type (a resolve writes a
+// `dismissal` artefact), so `fixed_outside_posthog` / `pr_merged` must normalize too.
+const DISMISSAL_REASONS = new Set<ReportStateReason>([
+  ...DISMISSAL_REASON_OPTIONS.map((o) => o.value),
+  ...RESOLVE_REASON_OPTIONS.map((o) => o.value),
+]);
 
 const PRIORITY_VALUES = new Set(["P0", "P1", "P2", "P3", "P4"]);
 
@@ -1276,8 +1300,8 @@ function normalizeDismissalArtefact(
 
   const rawReason = optionalString(contentValue.reason);
   const reason =
-    rawReason && DISMISSAL_REASONS.has(rawReason as DismissalReasonOptionValue)
-      ? (rawReason as DismissalReasonOptionValue)
+    rawReason && DISMISSAL_REASONS.has(rawReason as ReportStateReason)
+      ? (rawReason as ReportStateReason)
       : null;
 
   if (reason == null) {
@@ -2171,8 +2195,10 @@ export class PostHogAPIClient {
       path: urlPath,
     });
     if (!response.ok) {
-      throw new Error(
-        `Scout request failed (${subPath}): ${response.statusText}`,
+      throw new ScoutRequestError(
+        response.status,
+        subPath,
+        response.statusText,
       );
     }
     return (await response.json()) as T;
@@ -2182,9 +2208,13 @@ export class PostHogAPIClient {
     projectId: number,
     subPath: string,
     body: unknown,
+    query?: Record<string, string | number | boolean | undefined>,
   ): Promise<T> {
     const urlPath = `/api/projects/${projectId}/signals/scout/${subPath}`;
     const url = new URL(`${this.api.baseUrl}${urlPath}`);
+    for (const [key, value] of Object.entries(query ?? {})) {
+      if (value !== undefined) url.searchParams.set(key, String(value));
+    }
     const response = await this.api.fetcher.fetch({
       method: "post",
       url,
@@ -2194,8 +2224,10 @@ export class PostHogAPIClient {
       },
     });
     if (!response.ok) {
-      throw new Error(
-        `Scout request failed (${subPath}): ${response.statusText}`,
+      throw new ScoutRequestError(
+        response.status,
+        subPath,
+        response.statusText,
       );
     }
     return (await response.json()) as T;
@@ -2217,7 +2249,7 @@ export class PostHogAPIClient {
   async syncScoutConfigs(projectId: number): Promise<ScoutConfig[]> {
     const data = await this.scoutPost<
       { results: ScoutConfig[] } | ScoutConfig[]
-    >(projectId, "configs/sync/", {});
+    >(projectId, "configs/sync/", {}, { surface: "desktop" });
     return Array.isArray(data) ? data : (data.results ?? []);
   }
 
@@ -2573,9 +2605,11 @@ export class PostHogAPIClient {
 
   async getTasksWithStatus(
     options?: TaskListOptions,
-    pagination?: { maxPages?: number },
+    pagination?: { maxPages?: number; fetchAll?: boolean },
   ): Promise<{ tasks: Task[]; isComplete: boolean }> {
-    const maxPages = pagination?.maxPages ?? 1;
+    const maxPages = pagination?.fetchAll
+      ? Number.POSITIVE_INFINITY
+      : (pagination?.maxPages ?? 1);
     const pageSize = Math.min(options?.limit ?? 100, 100);
     const tasks: Task[] = [];
     let count = 0;
@@ -3048,6 +3082,34 @@ export class PostHogAPIClient {
       );
     }
     return (await response.json()) as TaskChannel;
+  }
+
+  async updateTaskChannelAutoArchive(
+    id: string,
+    inactivityDays: number | null,
+  ): Promise<TaskChannel> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/task_channels/${encodeURIComponent(id)}/`;
+    const response = await this.api.fetcher.fetch({
+      method: "patch",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+      overrides: {
+        body: JSON.stringify({ auto_archive_after_days: inactivityDays }),
+      },
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Failed to update automatic archiving: ${response.statusText}`,
+      );
+    }
+    const updatedChannel = (await response.json()) as TaskChannel;
+    if (updatedChannel.auto_archive_after_days !== inactivityDays) {
+      throw new Error(
+        "Automatic archiving isn't available on this server yet. Try again after it has been updated.",
+      );
+    }
+    return updatedChannel;
   }
 
   async deleteTaskChannel(id: string): Promise<void> {
@@ -4821,6 +4883,9 @@ export class PostHogAPIClient {
     if (params?.priority) {
       url.searchParams.set("priority", params.priority);
     }
+    if (params?.actionability) {
+      url.searchParams.set("actionability", params.actionability);
+    }
     if (params?.count_only != null) {
       url.searchParams.set("count_only", String(params.count_only));
     }
@@ -4944,14 +5009,25 @@ export class PostHogAPIClient {
     }
   }
 
+  /**
+   * The list is newest-first and truncates to the server page size, which drops the oldest
+   * rows — including the scout `task_run` written when the report was created. Pass `limit`
+   * from callers that read the whole log. Callers that need only the newest row of a
+   * latest-wins type should omit it: artefacts carry diffs and code excerpts, and list rows
+   * fetch this once per card.
+   */
   async getSignalReportArtefacts(
     reportId: string,
+    options?: { limit?: number },
   ): Promise<SignalReportArtefactsResponse> {
     const teamId = await this.getTeamId();
     const url = new URL(
       `${this.api.baseUrl}/api/projects/${teamId}/signals/reports/${reportId}/artefacts/`,
     );
     const path = `/api/projects/${teamId}/signals/reports/${reportId}/artefacts/`;
+    if (options?.limit !== undefined) {
+      url.searchParams.set("limit", String(options.limit));
+    }
 
     try {
       const response = await this.api.fetcher.fetch({
@@ -5039,6 +5115,9 @@ export class PostHogAPIClient {
           snooze_for?: number;
           reset_weight?: boolean;
           error?: string;
+          /** Feedback recorded when a reason drove the snooze (e.g. "Already fixed"); omitted for a plain snooze. */
+          dismissal_reason?: DismissalReasonOptionValue;
+          dismissal_note?: string;
         }
       | {
           state: "suppressed";
@@ -5047,6 +5126,11 @@ export class PostHogAPIClient {
           dismissal_note?: string;
           reset_weight?: boolean;
           error?: string;
+        }
+      | {
+          state: "resolved";
+          dismissal_reason: ResolveReasonOptionValue;
+          dismissal_note?: string;
         },
   ): Promise<SignalReport> {
     const teamId = await this.getTeamId();
@@ -5055,14 +5139,35 @@ export class PostHogAPIClient {
     );
     const path = `/api/projects/${teamId}/signals/reports/${reportId}/state/`;
 
-    const response = await this.api.fetcher.fetch({
-      method: "post",
-      url,
-      path,
-      overrides: {
-        body: JSON.stringify(input),
-      },
-    });
+    let response: Response;
+    try {
+      response = await this.api.fetcher.fetch({
+        method: "post",
+        url,
+        path,
+        overrides: {
+          body: JSON.stringify(input),
+        },
+      });
+    } catch (error) {
+      if (input.state === "suppressed" && requestErrorStatus(error) === 409) {
+        const currentReport = await this.getSignalReport(reportId).catch(
+          () => null,
+        );
+        const requestedReason = input.dismissal_reason ?? null;
+        const requestedNote = input.dismissal_note?.trim() ?? "";
+        const feedbackMatches =
+          currentReport?.dismissal_reason === requestedReason &&
+          (currentReport?.dismissal_note?.trim() ?? "") === requestedNote;
+        if (
+          currentReport?.status === "suppressed" &&
+          ((!requestedReason && !requestedNote) || feedbackMatches)
+        ) {
+          return currentReport;
+        }
+      }
+      throw error;
+    }
 
     if (!response.ok) {
       const errorText = await response.text();
@@ -5124,6 +5229,34 @@ export class PostHogAPIClient {
     );
     const path = `/api/projects/${teamId}/signals/reports/${reportId}/artefacts/${artefactId}/`;
 
+    const response = await this.api.fetcher.fetch({
+      method: "put",
+      url,
+      path,
+      overrides: {
+        body: JSON.stringify({ content }),
+      },
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(errorText || "Failed to update suggested reviewers");
+    }
+
+    const parsed = normalizeSignalReportArtefact(await response.json());
+    if (!parsed || parsed.type !== "suggested_reviewers") {
+      throw new Error("Unexpected response updating suggested reviewers");
+    }
+    return parsed as SuggestedReviewersArtefact;
+  }
+
+  async setSignalReportReviewers(
+    reportId: string,
+    content: SuggestedReviewerWriteEntry[],
+  ): Promise<SuggestedReviewersArtefact> {
+    const teamId = await this.getTeamId();
+    const path = `/api/projects/${teamId}/signals/reports/${reportId}/reviewers/`;
+    const url = new URL(`${this.api.baseUrl}${path}`);
     const response = await this.api.fetcher.fetch({
       method: "put",
       url,
@@ -6879,6 +7012,10 @@ export class PostHogAPIClient {
           { path: { project_id: projectId, id } },
         );
         return shapeTicketPreview(ticket);
+      }
+      case "report": {
+        const report = await this.getSignalReport(id);
+        return report ? shapeInboxReportPreview(report) : null;
       }
       case "person": {
         if (/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(id)) {

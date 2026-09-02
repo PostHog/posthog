@@ -567,7 +567,7 @@ class Team(UUIDTClassicModel):
             Supported entry types and the exact shape each accepts:
 
             # Person property — match (or exclude) by a person property
-            {"key": "email", "type": "person", "value": "@example.com", "operator": "icontains"}
+            {"key": "email", "type": "person", "value": "@example.com", "operator": "ends_with"}
 
             # Event property — match by an event property
             {"key": "$host", "type": "event", "value": "localhost", "operator": "icontains"}
@@ -579,8 +579,9 @@ class Team(UUIDTClassicModel):
             # property-filter schema.
             {"key": "id", "type": "cohort", "value": 8814, "operator": "not_in"}
 
-            Common operators: "exact", "is_not", "icontains", "not_icontains", "regex",
-            "not_regex", "gt", "lt", "gte", "lte", "is_set", "is_not_set", "in", "not_in".""",
+            Common operators: "exact", "is_not", "icontains", "not_icontains", "starts_with",
+            "not_starts_with", "ends_with", "not_ends_with", "regex", "not_regex", "gt", "lt",
+            "gte", "lte", "is_set", "is_not_set", "in", "not_in".""",
         ),
         "project",
         "admin",
@@ -907,19 +908,24 @@ class Team(UUIDTClassicModel):
 
     @lru_cache(maxsize=5)  # noqa: B019 - TODO: refactor to module-level cache
     def groups_seen_so_far(self, group_type_index: GroupTypeIndex) -> int:
-        from posthog.clickhouse.client import sync_execute
+        return self.count_groups_seen_so_far(group_type_index)
+
+    def count_groups_seen_so_far(self, group_type_index: GroupTypeIndex, database: Optional["Database"] = None) -> int:
+        from posthog.hogql import ast  # noqa: PLC0415 — breaks team import cycle
+        from posthog.hogql.context import HogQLContext  # noqa: PLC0415 — breaks team import cycle
+        from posthog.hogql.query import execute_hogql_query  # noqa: PLC0415 — breaks team import cycle
 
         with tags_context(product=Product.FEATURE_FLAGS, feature=Feature.QUERY):
-            # nosemgrep: clickhouse-fstring-param-audit - no interpolation, only parameterized values
-            return sync_execute(
-                f"""
-                SELECT
-                    count(DISTINCT group_key)
-                FROM groups
-                WHERE team_id = %(team_id)s AND group_type_index = %(group_type_index)s
-            """,
-                {"team_id": self.pk, "group_type_index": group_type_index},
-            )[0][0]
+            return execute_hogql_query(
+                # `raw_groups` holds one row per group update, so DISTINCT does the dedup. The `groups`
+                # lazy table would first collapse every row of the team through its argMax subquery.
+                "SELECT count(DISTINCT key) FROM raw_groups WHERE index = {group_type_index}",
+                placeholders={"group_type_index": ast.Constant(value=group_type_index)},
+                team=self,
+                query_type="groups_seen_so_far",
+                # A caller that runs several queries can pass a prebuilt database to skip a rebuild.
+                context=HogQLContext(team_id=self.pk, database=database),
+            ).results[0][0]
 
     @property
     def timezone_info(self) -> ZoneInfo:

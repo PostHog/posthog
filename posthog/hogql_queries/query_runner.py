@@ -52,6 +52,7 @@ from posthog.schema import (
     MarketingAnalyticsAggregatedQuery,
     MarketingAnalyticsTableQuery,
     MCPHarnessBreakdownQuery,
+    MCPMissingCapabilitiesQuery,
     MCPToolCallBreakdownQuery,
     MCPToolCallsAndErrorsQuery,
     MCPToolCategoriesQuery,
@@ -129,16 +130,16 @@ from posthog.event_usage import AnalyticsProps, groups, report_user_or_team_acti
 from posthog.exceptions import APIQueriesQuotaExceeded
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.access_controlled_resources import queried_access_controlled_resources
-from posthog.hogql_queries.insights.utils.breakdowns import has_multi_breakdown, has_single_breakdown
-from posthog.hogql_queries.insights.utils.entities import has_data_warehouse_node
-from posthog.hogql_queries.insights.utils.properties import has_any_property_filters
 from posthog.hogql_queries.query_failure_handling import (
     budget_for_limit_context,
     build_failure_exception,
     classify_failure,
 )
 from posthog.hogql_queries.query_metadata import extract_query_metadata
+from posthog.hogql_queries.utils.breakdowns import has_multi_breakdown, has_single_breakdown
+from posthog.hogql_queries.utils.entities import has_data_warehouse_node
 from posthog.hogql_queries.utils.event_usage import log_event_usage_from_query_metadata
+from posthog.hogql_queries.utils.properties import has_any_property_filters
 from posthog.hogql_queries.validation.validation import (
     QueryValidationContext,
     QueryValidationRule,
@@ -148,7 +149,7 @@ from posthog.models import Team, User
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.team import WeekStartDay
 from posthog.models.team.event_retention import events_retention_months_for_team
-from posthog.query_cache import QueryCache, count_query_cache_hit
+from posthog.query_cache import QueryCache, count_query_cache_hit, retention_ttl
 from posthog.query_cache.failures import (
     BUDGET_EXTENDED,
     QUERY_FAILURE_CACHE_COUNTER,
@@ -474,6 +475,7 @@ RunnableQueryNode = Union[
     MCPToolDescriptionsQuery,
     MCPToolSampleIntentsQuery,
     MCPToolNeighborsQuery,
+    MCPMissingCapabilitiesQuery,
 ]
 
 
@@ -611,7 +613,7 @@ def get_query_runner(
             user=user,
         )
     if kind == "RetentionQuery":
-        from .insights.retention.retention_query_runner import RetentionQueryRunner
+        from products.product_analytics.backend.facade.queries import RetentionQueryRunner
 
         return RetentionQueryRunner(
             query=cast(RetentionQuery | dict[str, Any], query),
@@ -667,7 +669,7 @@ def get_query_runner(
             user=user,
         )
     if kind == "LifecycleQuery":
-        from .insights.lifecycle.lifecycle_query_runner import LifecycleQueryRunner
+        from products.product_analytics.backend.facade.queries import LifecycleQueryRunner
 
         return LifecycleQueryRunner(
             query=cast(LifecycleQuery | dict[str, Any], query),
@@ -753,7 +755,7 @@ def get_query_runner(
         "StickinessActorsQuery",
         "PathsV2ActorsQuery",
     ):
-        from .insights.insight_actors_query_runner import InsightActorsQueryRunner
+        from .insight_actors_query_runner import InsightActorsQueryRunner
 
         return InsightActorsQueryRunner(
             query=cast(InsightActorsQuery | dict[str, Any], query),
@@ -764,7 +766,7 @@ def get_query_runner(
             user=user,
         )
     if kind == "InsightActorsQueryOptions":
-        from .insights.insight_actors_query_options_runner import InsightActorsQueryOptionsRunner
+        from .insight_actors_query_options_runner import InsightActorsQueryOptionsRunner
 
         return InsightActorsQueryOptionsRunner(
             query=cast(InsightActorsQueryOptions | dict[str, Any], query),
@@ -1160,6 +1162,17 @@ def get_query_runner(
 
         return MCPHarnessBreakdownQueryRunner(
             query=cast(MCPHarnessBreakdownQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
+    if kind == "MCPMissingCapabilitiesQuery":
+        from products.mcp_analytics.backend.facade.queries import MCPMissingCapabilitiesQueryRunner
+
+        return MCPMissingCapabilitiesQueryRunner(
+            query=cast(MCPMissingCapabilitiesQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
@@ -2228,6 +2241,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         cache_key=cache_key,
                         insight_id=insight_id,
                         dashboard_id=dashboard_id,
+                        ttl=retention_ttl(
+                            insight_id=insight_id,
+                            dashboard_id=dashboard_id,
+                            access_method=get_query_tag_value("access_method"),
+                        ),
                     )
 
                     if execution_mode == ExecutionMode.CALCULATE_ASYNC_ALWAYS:

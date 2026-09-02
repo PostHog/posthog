@@ -165,13 +165,16 @@ def get_field_access_control_map(model_class: type[Model]) -> dict[str, tuple[AP
     Dynamically retrieve field-level access control requirements from model fields.
     This function looks for fields decorated with @requires_access.
     """
-    field_access_map = {}
+    field_access_map: dict[str, tuple[APIScopeObject, AccessControlLevel]] = {}
 
     # Iterate through all fields in the model
     for field in model_class._meta.get_fields():
         # Check if the field has access control metadata
         if hasattr(field, "_access_control_resource") and hasattr(field, "_access_control_level"):
-            field_access_map[field.name] = (field._access_control_resource, field._access_control_level)
+            field_access_map[field.name] = (
+                cast(APIScopeObject, field._access_control_resource),
+                cast(AccessControlLevel, field._access_control_level),
+            )
 
     return field_access_map
 
@@ -277,6 +280,9 @@ class ResolvedAccess:
     # (the source a table inherited from), so a display can name it. None when the rule is
     # resource-wide or no rule decided.
     source_resource_id: Optional[str] = None
+    # Display name of the member or role whose row decided. Enforcement never sets or reads
+    # it; the resolution preview fills it so explanations can name the deciding subject.
+    subject_name: Optional[str] = None
 
 
 def model_to_resource(model: Model) -> Optional[APIScopeObject]:

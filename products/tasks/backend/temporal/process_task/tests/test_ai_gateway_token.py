@@ -22,6 +22,7 @@ class TestResolveSandboxAiProduct:
         [
             ("signals_scout", "scout", "signals_scout"),
             ("signals_scout", "scout:web-analytics", "signals_scout"),
+            ("scout_suggestions", "scout_suggestions", "signals"),
             ("signal_report", "research", "signals_research"),
             ("signal_report", "implementation", "signals_implementation"),
             ("signal_report", "repo_selection", "signals_repo_selection"),
@@ -99,6 +100,7 @@ def mint_settings(settings):
     settings.SANDBOX_AI_GATEWAY_TOKEN_CAP_USD = "3"
     settings.SANDBOX_AI_GATEWAY_TOKEN_TTL_SECONDS = 14400
     settings.SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_OVERRIDES = ""
+    settings.SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_PRODUCT_OVERRIDES = ""
     return settings
 
 
@@ -364,6 +366,27 @@ class TestUserPinAndCapOverride:
             mint_scoped_token(ai_product="signals_scout", team_id=123)
         assert post.call_args_list[0].kwargs["json"]["cap_usd"] == "10"
         assert post.call_args_list[1].kwargs["json"]["cap_usd"] == "3"
+
+    def test_cap_product_override_beats_team_override(self, mint_settings):
+        mint_settings.SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_OVERRIDES = '{"2": "10"}'
+        mint_settings.SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_PRODUCT_OVERRIDES = '{"signals_implementation": "15"}'
+        with patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post:
+            post.return_value = self._response({"token": "phe_abc"})
+            mint_scoped_token(ai_product="signals_implementation", team_id=2)
+            mint_scoped_token(ai_product="signals_scout", team_id=2)
+        assert post.call_args_list[0].kwargs["json"]["cap_usd"] == "15"
+        assert post.call_args_list[1].kwargs["json"]["cap_usd"] == "10"
+
+    @pytest.mark.parametrize("invalid_product_cap", ["", True, 0, -1, "0.0000001", "10000.000001", "NaN"])
+    def test_invalid_product_cap_falls_back_to_team_override(self, mint_settings, invalid_product_cap):
+        mint_settings.SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_OVERRIDES = '{"2": "10"}'
+        mint_settings.SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_PRODUCT_OVERRIDES = json.dumps(
+            {"signals_implementation": invalid_product_cap}
+        )
+        with patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post:
+            post.return_value = self._response({"token": "phe_abc"})
+            mint_scoped_token(ai_product="signals_implementation", team_id=2)
+        assert post.call_args.kwargs["json"]["cap_usd"] == "10"
 
     def test_malformed_overrides_fall_back_to_default(self, mint_settings):
         mint_settings.SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_OVERRIDES = "not json"

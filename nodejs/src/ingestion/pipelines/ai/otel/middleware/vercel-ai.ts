@@ -1,8 +1,11 @@
 import { parseJSON } from '~/common/utils/json-parse'
+import { COSTED_AI_EVENT_TYPES } from '~/ingestion/common/ai-event-types'
+import { finiteNumberOrUndefined } from '~/ingestion/pipelines/ai/costs/cost-utils'
 import { mustAddReasoningCost } from '~/ingestion/pipelines/ai/costs/output-costs'
 import { PluginEvent } from '~/plugin-scaffold'
 
 import { promotePosthogCustomMetadata } from './custom-metadata'
+import { usableStopReason } from './stop-reason'
 import { OtelLibraryMiddleware } from './types'
 
 // Provider-specific and standard attributes to strip after processing.
@@ -141,6 +144,29 @@ function promptToMessages(prompt: unknown): unknown[] | null {
         return result.length > 0 ? result : null
     }
     return null
+}
+
+// Vercel AI Gateway reports the real charged cost at
+// providerMetadata.gateway.cost, which the token-based estimate cannot match
+// under BYOK rates, discounts, or per-request fallback. The OTel attribute
+// arrives as a JSON string, but accept a parsed object too.
+function extractGatewayCost(providerMetadata: unknown): number | undefined {
+    let parsed = providerMetadata
+    if (typeof parsed === 'string') {
+        try {
+            parsed = parseJSON(parsed)
+        } catch {
+            return undefined
+        }
+    }
+    if (parsed === null || typeof parsed !== 'object') {
+        return undefined
+    }
+    const gateway = (parsed as Record<string, unknown>).gateway
+    if (gateway === null || typeof gateway !== 'object') {
+        return undefined
+    }
+    return finiteNumberOrUndefined((gateway as Record<string, unknown>).cost)
 }
 
 function numericValue(value: unknown): number | null {
@@ -341,18 +367,33 @@ function process(event: PluginEvent, next: () => void): void {
 
     stripProcessedContext(props)
 
-    // Map finish reason to $ai_stop_reason before stripping
+    // Map finish reason to $ai_stop_reason before stripping. An unusable value falls through to
+    // the next source instead of winning by position.
     if (props['$ai_stop_reason'] === undefined) {
-        const vercelReason = props['ai.response.finishReason']
+        const vercelReason = usableStopReason(props['ai.response.finishReason'])
         const genAiReasons = props['gen_ai.response.finish_reasons']
+        // One reason per choice. The first choice is the one the trace view renders first.
+        const firstGenAiReason = Array.isArray(genAiReasons) ? usableStopReason(genAiReasons[0]) : undefined
         if (vercelReason !== undefined) {
             props['$ai_stop_reason'] = vercelReason
-        } else if (Array.isArray(genAiReasons) && genAiReasons.length > 0) {
-            props['$ai_stop_reason'] = genAiReasons[0]
+        } else if (firstGenAiReason !== undefined) {
+            props['$ai_stop_reason'] = firstGenAiReason
         }
     }
     delete props['ai.response.finishReason']
     delete props['gen_ai.response.finish_reasons']
+
+    // The gateway reports only a total with no input/output split, so flag
+    // passthrough to stop the pipeline estimating one. The AI SDK records the same
+    // providerMetadata on the parent ai.generateText and ai.streamText spans, which
+    // are not costed events, so the gate keeps the cost on the generation.
+    if (COSTED_AI_EVENT_TYPES.has(event.event) && props['$ai_total_cost_usd'] === undefined) {
+        const gatewayCost = extractGatewayCost(props['ai.response.providerMetadata'])
+        if (gatewayCost !== undefined) {
+            props['$ai_total_cost_usd'] = gatewayCost
+            props['$ai_cost_passthrough'] = true
+        }
+    }
 
     if (eveSpan) {
         const eveSessionId = props['eve.session.id']

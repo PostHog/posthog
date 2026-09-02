@@ -105,9 +105,7 @@ const VALIDATION_RULES = {
             ? 'You must add at least one mapping'
             : undefined,
     INTERNAL_DESTINATION_REQUIRES_FILTERS: (data: HogFunctionConfigurationType) =>
-        data.type === 'internal_destination' && data.filters?.events?.length === 0
-            ? 'You must choose a filter'
-            : undefined,
+        data.type === 'internal_destination' && !data.filters?.events?.length ? 'You must choose a filter' : undefined,
 } as const
 
 const NEW_FUNCTION_TEMPLATE: HogFunctionTemplateType = {
@@ -190,12 +188,15 @@ export function sanitizeInputs(
 
 export function sanitizeConfiguration(data: HogFunctionConfigurationType): HogFunctionConfigurationType {
     const filters = data.filters ?? {}
-    filters.source = filters.source ?? 'events'
+    filters.source = data.type === 'internal_destination' ? 'internal-events' : (filters.source ?? 'events')
 
     if (filters.source === 'person-updates' || Array.isArray(data?.mappings)) {
         // Ensure we aren't passing in values that aren't supported
         delete filters.actions
         delete filters.events
+    } else if (filters.source === 'internal-events') {
+        delete filters.actions
+        delete filters.data_warehouse
     }
 
     const payload: HogFunctionConfigurationType = {
@@ -1985,8 +1986,11 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                             },
                         })
                     } else {
+                        // A nested attr names a path inside a form field (`filters__events`), and the
+                        // form only has a manual-error slot for the field itself — anchoring the
+                        // message at the leaf renders nothing at all.
                         actions.setConfigurationManualErrors({
-                            [maybeValidationError.attr]: maybeValidationError.detail,
+                            [maybeValidationError.attr.split('__')[0]]: maybeValidationError.detail,
                         })
                     }
                 }, 1)

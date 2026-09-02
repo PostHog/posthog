@@ -389,6 +389,130 @@ database "posthog" {
     }
   }
 
+  table "clickhouse_cleanup_deleted_persons" {
+    order_by     = ["run_id", "team_id", "person_id"]
+    partition_by = "run_id"
+    ttl          = "created_at + toIntervalDay(14)"
+    settings = {
+      index_granularity   = "8192"
+      ttl_only_drop_parts = "1"
+    }
+    column "run_id" {
+      type = "String"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "person_id" {
+      type = "UUID"
+    }
+    column "max_version" {
+      type = "UInt64"
+    }
+    column "created_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now64()"
+    }
+    engine "replicated_replacing_merge_tree" {
+      zoo_path       = "/clickhouse/tables/noshard/posthog.clickhouse_cleanup_deleted_persons"
+      replica_name   = "{replica}-{shard}"
+      version_column = "created_at"
+    }
+  }
+
+  table "clickhouse_cleanup_orphaned_distinct_ids" {
+    order_by     = ["run_id", "team_id", "distinct_id"]
+    partition_by = "run_id"
+    ttl          = "created_at + toIntervalDay(14)"
+    settings = {
+      index_granularity   = "8192"
+      ttl_only_drop_parts = "1"
+    }
+    column "run_id" {
+      type = "String"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "distinct_id" {
+      type = "String"
+    }
+    column "person_id" {
+      type = "UUID"
+    }
+    column "own_tombstone" {
+      type = "UInt8"
+    }
+    column "max_version" {
+      type = "Int64"
+    }
+    column "created_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now64()"
+    }
+    engine "replicated_replacing_merge_tree" {
+      zoo_path       = "/clickhouse/tables/noshard/posthog.clickhouse_cleanup_orphaned_distinct_ids"
+      replica_name   = "{replica}-{shard}"
+      version_column = "created_at"
+    }
+  }
+
+  table "clickhouse_cleanup_revived_distinct_ids" {
+    order_by     = ["run_id", "team_id", "distinct_id"]
+    partition_by = "run_id"
+    ttl          = "created_at + toIntervalDay(14)"
+    settings = {
+      index_granularity   = "8192"
+      ttl_only_drop_parts = "1"
+    }
+    column "run_id" {
+      type = "String"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "distinct_id" {
+      type = "String"
+    }
+    column "created_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now64()"
+    }
+    engine "replicated_replacing_merge_tree" {
+      zoo_path       = "/clickhouse/tables/noshard/posthog.clickhouse_cleanup_revived_distinct_ids"
+      replica_name   = "{replica}-{shard}"
+      version_column = "created_at"
+    }
+  }
+
+  table "clickhouse_cleanup_revived_persons" {
+    order_by     = ["run_id", "team_id", "person_id"]
+    partition_by = "run_id"
+    ttl          = "created_at + toIntervalDay(14)"
+    settings = {
+      index_granularity   = "8192"
+      ttl_only_drop_parts = "1"
+    }
+    column "run_id" {
+      type = "String"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "person_id" {
+      type = "UUID"
+    }
+    column "created_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now64()"
+    }
+    engine "replicated_replacing_merge_tree" {
+      zoo_path       = "/clickhouse/tables/noshard/posthog.clickhouse_cleanup_revived_persons"
+      replica_name   = "{replica}-{shard}"
+      version_column = "created_at"
+    }
+  }
+
   table "cohort_membership" {
     order_by = ["team_id", "cohort_id", "person_id"]
     settings = {
