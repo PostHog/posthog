@@ -46,6 +46,26 @@ describe('sourceWizardLogic', () => {
         }
     })
 
+    it('clears the loading state when createSource runs without a selected connector', async () => {
+        // Regression test: the null-connector guard used to return before the try/finally that
+        // clears isLoading, so the Import button spun forever with no message.
+        const create = jest.spyOn(api.externalDataSources, 'create')
+        const logic = sourceWizardLogic({ availableSources: {} })
+        const unmount = logic.mount()
+
+        try {
+            logic.actions.setIsLoading(true)
+
+            await expectLogic(logic, () => logic.actions.createSource()).toFinishAllListeners()
+
+            expect(logic.values.selectedConnector).toBeNull()
+            expect(logic.values.isLoading).toBe(false)
+            expect(create).not.toHaveBeenCalled()
+        } finally {
+            unmount()
+        }
+    })
+
     it('advances from the webhook step to the progress step without also completing the wizard', () => {
         // Regression test: onSubmit used to read `values.currentStep` again after onNext()
         // advanced it, so a single click on step 4 (webhook) fell through into the step-5

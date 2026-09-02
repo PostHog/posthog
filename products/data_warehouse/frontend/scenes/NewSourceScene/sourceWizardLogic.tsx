@@ -3301,13 +3301,15 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                                 actions.openCdcSelfManagedSetupDialog()
                                 return
                             }
-                            actions.setIsLoading(true)
-                            actions.createSource()
+                            // Capture the intent before createSource runs, so an early
+                            // return inside it cannot swallow the click and hide the loss.
                             if (values.selectedConnector) {
                                 posthog.capture('source created', {
                                     sourceType: values.selectedConnector.name,
                                 })
                             }
+                            actions.setIsLoading(true)
+                            actions.createSource()
                         },
                         size: 'small',
                     },
@@ -3354,7 +3356,17 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         },
         createSource: async () => {
             if (values.selectedConnector === null) {
-                // This should never happen
+                // Rare, but it strands the user on a spinning Import button with no message.
+                // Clear the loading state, tell the user, and record the loss so it is countable.
+                actions.setIsLoading(false)
+                lemonToast.error(
+                    'Something went wrong and we lost track of the source you picked. Please go back and select it again.'
+                )
+                posthog.capture('warehouse source connect failed', {
+                    errorMessage: 'selectedConnector was null at create time',
+                    currentStep: values.currentStep,
+                    accessMethod: values.source?.access_method ?? null,
+                })
                 return
             }
 

@@ -284,30 +284,43 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
             </LemonButton>
         )
 
+        // Show why Import is blocked on the page itself. A hover-only tooltip on a disabled
+        // button tells a clicker nothing, so users rage-click the table step with no clue.
+        const stepBlockReason = currentStep === 3 && !canGoNext ? nextButtonDisabledReason : null
+
         return (
-            <div className="flex flex-row gap-2 justify-end my-4">
-                {!props.hideBackButton && (
-                    <LemonButton
-                        type="secondary"
-                        center
-                        data-attr="source-modal-back-button"
-                        onClick={onBack}
-                        disabledReason={!canGoBack && "You can't go back from here"}
-                    >
-                        Back
-                    </LemonButton>
+            <>
+                {stepBlockReason && (
+                    <LemonBanner type="warning" className="mt-4">
+                        {stepBlockReason}
+                    </LemonBanner>
                 )}
-                {isSelfManagedSource ? (
-                    nextButton()
-                ) : (
-                    <AccessControlAction
-                        resourceType={AccessControlResourceType.ExternalDataSource}
-                        minAccessLevel={AccessControlLevel.Editor}
-                    >
-                        {({ disabledReason: accessDisabledReason }) => nextButton(accessDisabledReason ?? undefined)}
-                    </AccessControlAction>
-                )}
-            </div>
+                <div className="flex flex-row gap-2 justify-end my-4">
+                    {!props.hideBackButton && (
+                        <LemonButton
+                            type="secondary"
+                            center
+                            data-attr="source-modal-back-button"
+                            onClick={onBack}
+                            disabledReason={!canGoBack && "You can't go back from here"}
+                        >
+                            Back
+                        </LemonButton>
+                    )}
+                    {isSelfManagedSource ? (
+                        nextButton()
+                    ) : (
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.ExternalDataSource}
+                            minAccessLevel={AccessControlLevel.Editor}
+                        >
+                            {({ disabledReason: accessDisabledReason }) =>
+                                nextButton(accessDisabledReason ?? undefined)
+                            }
+                        </AccessControlAction>
+                    )}
+                </div>
+            </>
         )
     }, [
         currentStep,
