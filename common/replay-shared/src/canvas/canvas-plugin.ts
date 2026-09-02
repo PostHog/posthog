@@ -83,13 +83,32 @@ export const CanvasReplayerPlugin = (
     let nextPreloadIndex: number | null = null
     let destroyed = false
 
-    // The styles the plugin itself puts on the <img> to make it stand in for the canvas.
-    // Re-applied after a copied `style` attribute overwrites them.
+    // The styles the plugin itself puts on the <img> to make it stand in for the canvas,
+    // measured from the live canvas each painted frame. A full apply, so a canvas that
+    // resizes between frames updates to the newly measured size.
     const applyPresentationStyles = (id: number): void => {
         const img = containers.get(id)
         const styles = presentationStyles.get(id)
         if (img && styles) {
             Object.assign(img.style, styles)
+        }
+    }
+
+    // Restore the presentation styles after a copied `style` attribute wiped the inline
+    // style, but keep the recorded style authoritative: only fill in a property the
+    // recording did not set. A full re-apply would revert a later inline change the page
+    // makes to hide or reveal the canvas (e.g. `display: none`) to the frame-time value.
+    const fillMissingPresentationStyles = (id: number): void => {
+        const img = containers.get(id)
+        const styles = presentationStyles.get(id)
+        if (!img || !styles) {
+            return
+        }
+        const style = img.style as unknown as Record<string, string>
+        for (const [property, value] of Object.entries(styles)) {
+            if (!style[property]) {
+                style[property] = value
+            }
         }
     }
 
@@ -104,7 +123,7 @@ export const CanvasReplayerPlugin = (
             img.setAttribute(name, value)
         }
         if (name.toLowerCase() === 'style') {
-            applyPresentationStyles(id)
+            fillMissingPresentationStyles(id)
         }
     }
 

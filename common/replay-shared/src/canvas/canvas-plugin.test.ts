@@ -476,6 +476,41 @@ describe('CanvasReplayerPlugin', () => {
             expect(image.style.height).toBe('100px')
         })
 
+        // The plugin re-applies its measured styles after a copied `style`, but the recorded
+        // value has to win — otherwise a page that hides or reveals a canvas with `display`
+        // (the more common idiom than `visibility`) is reverted to the frame-time value.
+        it.each([
+            {
+                name: 'display',
+                declaration: 'display: none',
+                changed: { property: 'display', value: 'none' },
+                preserved: { property: 'width', value: '200px' },
+            },
+            {
+                name: 'width',
+                declaration: 'width: 42px',
+                changed: { property: 'width', value: '42px' },
+                preserved: { property: 'display', value: 'block' },
+            },
+        ])(
+            'keeps a later inline $name change and still applies the measured styles it did not set',
+            async ({ declaration, changed, preserved }) => {
+                const image = useRealImage()
+                const canvas = document.createElement('canvas')
+                const parent = document.createElement('div')
+                parent.appendChild(canvas)
+                document.body.appendChild(parent)
+
+                await paintFrame(4, canvas, image)
+
+                canvas.setAttribute('style', declaration)
+                await Promise.resolve()
+
+                expect(image.style.getPropertyValue(changed.property)).toBe(changed.value)
+                expect(image.style.getPropertyValue(preserved.property)).toBe(preserved.value)
+            }
+        )
+
         it('mirrors class changes onto the image', async () => {
             const image = useRealImage()
             const canvas = document.createElement('canvas')
