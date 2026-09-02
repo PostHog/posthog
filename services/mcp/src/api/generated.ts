@@ -29755,6 +29755,7 @@ export namespace Schemas {
       title?: string | null;
       /**
          * Optional new summary. Markdown is supported (headings, lists, code, links; images are not rendered); lead with one plain declarative sentence — it becomes the inbox card headline. The pipeline may later re-research and overwrite it.
+         * @maxLength 20000
          * @nullable
          */
       summary?: string | null;

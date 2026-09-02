@@ -56,7 +56,10 @@ _REQUIRED_NOTE_SCOPES = ("signal_scout:write", "llm_skill:write")
 # The kickoff prompt (frontend `buildDiscussReportPrompt`) prefixes the report URL on its own line,
 # then the user's question after a blank line. We forward just the question; matching is lenient so a
 # format change degrades to forwarding the whole prompt rather than dropping the note.
-_PROMPT_PREFIX = "let's discuss this posthog inbox report:"
+_PROMPT_PREFIXES = (
+    "let's discuss this posthog inbox report:",
+    "a user sent this about the posthog inbox report at ",
+)
 
 
 def forward_discussion_note(
@@ -169,7 +172,7 @@ def _extract_question(text: str) -> str:
     link line as if it were one would put pure noise in the steering channel.
     """
     stripped = text.strip()
-    if not stripped.lower().startswith(_PROMPT_PREFIX):
+    if not stripped.lower().startswith(_PROMPT_PREFIXES):
         return stripped
     _, _, question = stripped.partition("\n")
     return question.strip()

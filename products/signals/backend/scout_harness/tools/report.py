@@ -87,6 +87,7 @@ from products.signals.backend.scout_report.judge import (
     judge_scout_report,
 )
 from products.signals.backend.slack_formatting import strip_chart_references
+from products.tasks.backend.facade import api as tasks_facade
 
 logger = logging.getLogger(__name__)
 
@@ -1523,6 +1524,14 @@ def _assert_edit_gates(team: Team, run: SignalScoutRun) -> None:
     preflight = _preflight_emit_gates(team, run)
     if preflight is not None:
         raise InvalidScoutReportError(f"edit_report blocked by preflight gate: {preflight}")
+    task_is_in_progress = SignalScoutRun.all_teams.filter(
+        pk=run.pk,
+        team_id=team.id,
+        task_run_id=run.task_run_id,
+        task_run__status=tasks_facade.TaskRunStatus.IN_PROGRESS,
+    ).exists()
+    if not task_is_in_progress:
+        raise InvalidScoutReportError("edit_report blocked because the task run is not in progress")
 
 
 def _raise_if_unsafe_edit(safety: SafetyJudgment) -> None:
@@ -1540,6 +1549,8 @@ def _validate_edit_inputs(
     team: Team, run: SignalScoutRun, title, summary, append_note, suggested_reviewers, charts, suggested_prompts
 ) -> None:
     _assert_team_owns_run(team, run)
+    if summary is not None and len(summary) > MAX_REPORT_SUMMARY_LENGTH:
+        raise InvalidScoutReportError(f"summary exceeds {MAX_REPORT_SUMMARY_LENGTH} chars ({len(summary)})")
     # `charts` / `suggested_prompts` are checked against None rather than falsiness: an explicit
     # empty list clears them, so a clear-only edit is a real edit and must not be rejected as empty.
     if (
@@ -1585,6 +1596,7 @@ async def edit_report(
             team_id=team.id,
             title=title,
             summary=summary,
+            note=append_note,
             charts=built_charts or (),
             suggested_prompts=built_prompts or (),
         )
@@ -1638,6 +1650,7 @@ def edit_report_sync(
             team_id=team.id,
             title=title,
             summary=summary,
+            note=append_note,
             charts=built_charts or (),
             suggested_prompts=built_prompts or (),
         )

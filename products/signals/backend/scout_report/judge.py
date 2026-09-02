@@ -182,6 +182,7 @@ async def judge_edited_report_content(
     team_id: int,
     title: str | None = None,
     summary: str | None = None,
+    note: str | None = None,
     charts: Sequence[ReportChart] = (),
     suggested_prompts: Sequence[str] = (),
 ) -> SafetyJudgment:
@@ -191,12 +192,15 @@ async def judge_edited_report_content(
     the same fields onto a report that already surfaced, so without its own judge it would be an
     unjudged door for the exact content the emit judge exists to stop. Suggested prompts carry
     furthest: a reader clicks one and its wording is handed to an agent run that is told to act on
-    it. Judges only the pieces the edit supplies — a note/reviewer-only edit, or one that clears a
-    field, adds no new content and returns safe without an LLM call.
+    it. Judges only the pieces the edit supplies — a reviewer-only edit, or one that clears a
+    field, adds no new content and returns safe without an LLM call. Notes are included because
+    action-capable report agents read the full work log before acting.
     """
     safety_input: list[SignalData] = []
     if title is not None or summary is not None:
         safety_input.append(_report_content_signal(title or "", summary or ""))
+    if note is not None:
+        safety_input.append(_report_content_signal("Report work-log note", note))
     chart_signal = _chart_signal(charts)
     if chart_signal is not None:
         safety_input.append(chart_signal)
