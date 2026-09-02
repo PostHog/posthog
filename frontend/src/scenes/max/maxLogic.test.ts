@@ -23,7 +23,7 @@ import {
     mergeConversations,
 } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
-import { MOCK_CONVERSATION, MOCK_CONVERSATION_ID, maxMocks } from './testUtils'
+import { MOCK_CONVERSATION, MOCK_CONVERSATION_ID, MOCK_IN_PROGRESS_CONVERSATION, maxMocks } from './testUtils'
 
 describe('maxLogic', () => {
     let logic: ReturnType<typeof maxLogic.build>
@@ -230,6 +230,49 @@ describe('maxLogic', () => {
         await expectLogic(logic).toMatchValues({
             conversationId: mockConversationId,
             conversationNotFound: false,
+        })
+    })
+
+    it('stores a still-running conversation returned by a retry instead of leaving the thread blank', async () => {
+        router.actions.push('', {}, { panel: 'max' })
+        sidePanelStateLogic.mount()
+
+        const mockConversationId = 'running-conversation-id'
+        let attempts = 0
+
+        useMocks({
+            ...maxMocks,
+            get: {
+                ...maxMocks.get,
+                '/api/environments/:team_id/conversations/': { results: [] },
+                [`/api/environments/:team_id/conversations/${mockConversationId}`]: () => {
+                    attempts++
+                    // The row lands after the URL does, but the run is still in progress on the read
+                    // that finally succeeds.
+                    return attempts === 1
+                        ? [404, { detail: 'Not found' }]
+                        : [200, { ...MOCK_IN_PROGRESS_CONVERSATION, id: mockConversationId }]
+                },
+            },
+        })
+
+        logic = maxLogic({ panelId: 'test' })
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['loadConversationHistorySuccess'])
+
+        logic.actions.setConversationId(mockConversationId)
+
+        // The in-progress response is stored (so the thread renders it), and polling continues
+        // rather than reporting the chat as missing.
+        await expectLogic(logic, () => {
+            logic.actions.pollConversation(mockConversationId, 0, 0)
+        }).toDispatchActions(['prependOrReplaceConversation'])
+
+        await expectLogic(logic).toMatchValues({
+            conversation: partial({ id: mockConversationId, status: 'in_progress' }),
+            conversationNotFound: false,
+            conversationLoading: false,
         })
     })
 

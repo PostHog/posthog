@@ -812,8 +812,14 @@ export const maxLogic = kea<maxLogicType>([
                 lemonToast.error(err?.data?.detail || 'Failed to load the chat.')
             }
 
-            if (conversation && conversation.status === ConversationStatus.Idle) {
+            // Store every successful read, not only idle ones — a chat opened by link can still be
+            // running, and dropping the in-progress response leaves the thread blank. Keep polling
+            // until it goes idle.
+            if (conversation) {
                 actions.prependOrReplaceConversation(conversation)
+            }
+
+            if (conversation && conversation.status === ConversationStatus.Idle) {
                 actions.scrollThreadToBottom('instant')
                 actions.endConversationPolling()
             } else {
