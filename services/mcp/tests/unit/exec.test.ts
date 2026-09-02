@@ -1637,7 +1637,7 @@ describe('exec tool', () => {
                 )
             })
 
-            describe('a required id sent under a qualified name', () => {
+            describe('a required parameter missing while undeclared keys were sent', () => {
                 const SOME_UUID = '00000000-0000-4000-8000-000000000000'
 
                 const formatFor = (toolName: string, input: unknown): string => {
@@ -1650,44 +1650,47 @@ describe('exec tool', () => {
                 it.each([
                     ['vision-scanners-get', 'scanner_id'],
                     ['vision-observations-retrieve', 'observation_id'],
-                ])('names the key the caller sent to %s instead of id', (toolName, sentKey) => {
-                    const message = formatFor(toolName, { [sentKey]: SOME_UUID })
+                ])('names the key %s dropped, so the caller can see it was not read', (toolName, sentKey) => {
+                    expect(formatFor(toolName, { [sentKey]: SOME_UUID })).toBe(
+                        `Invalid input for "${toolName}": missing required parameter: id; this tool ignored these keys it does not accept: "${sentKey}"`
+                    )
+                })
 
-                    expect(message).toContain(`you sent "${sentKey}" instead`)
-                    expect(message).toContain('resend that value as "id"')
+                it('does not tell the caller to resend a scanner id as an observation id', () => {
+                    // `vision-observations-retrieve` does not declare `scanner_id`, and its
+                    // `id` has no format constraint. Matching the two by name suffix would
+                    // advise reusing a value that identifies a different entity.
+                    const message = formatFor('vision-observations-retrieve', { scanner_id: SOME_UUID })
+
+                    expect(message).toContain('"scanner_id"')
+                    expect(message).not.toContain('resend')
+                    expect(message).not.toContain('as "id"')
                 })
 
                 it('does not name a value the caller sent', () => {
                     expect(formatFor('vision-scanners-get', { scanner_id: SOME_UUID })).not.toContain(SOME_UUID)
                 })
 
-                it('stays quiet when the key the caller sent is a real field of the tool', () => {
-                    // `vision-scanners-observations-get` declares `scanner_id`, so a
-                    // caller sending only that made a different mistake: it omitted
-                    // the observation id rather than misnaming it.
-                    const message = formatFor('vision-scanners-observations-get', { scanner_id: SOME_UUID })
-
-                    expect(message).toBe(
+                it('stays quiet when every key the caller sent is a real field of the tool', () => {
+                    // `vision-scanners-observations-get` declares `scanner_id`, so nothing
+                    // was dropped: the caller omitted the observation id rather than
+                    // having a key silently discarded.
+                    expect(formatFor('vision-scanners-observations-get', { scanner_id: SOME_UUID })).toBe(
                         'Invalid input for "vision-scanners-observations-get": missing required parameter: id'
                     )
                 })
 
-                it('stays quiet when two keys could equally have meant the missing one', () => {
-                    const message = formatFor('vision-scanners-get', {
-                        scanner_id: SOME_UUID,
-                        observation_id: SOME_UUID,
-                    })
-
-                    expect(message).not.toContain('you sent')
-                })
-
-                it.each([
-                    ['nothing at all', {}],
-                    ['only unrelated keys', { limit: 10 }],
-                ])('keeps the bare message for a caller that sent %s', (_label, input) => {
-                    expect(formatFor('vision-scanners-get', input)).toBe(
+                it('keeps the bare message for a caller that sent nothing at all', () => {
+                    expect(formatFor('vision-scanners-get', {})).toBe(
                         'Invalid input for "vision-scanners-get": missing required parameter: id'
                     )
+                })
+
+                it('caps how many keys it names so the analytics message stays bounded', () => {
+                    const input = Object.fromEntries(Array.from({ length: 30 }, (_, i) => [`junk_${i}`, i]))
+                    const message = formatFor('vision-scanners-get', input)
+
+                    expect(message.match(/junk_/g)).toHaveLength(5)
                 })
             })
 
