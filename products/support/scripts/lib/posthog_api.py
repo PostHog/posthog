@@ -59,6 +59,27 @@ def request_with_retries(
     raise PostHogScriptError(f"{method} {url} failed after {max_retries} attempts: {last_error}")
 
 
+def run_hogql_query(
+    session: requests.Session, host: str, project_id: str, query: str, max_retries: int = MAX_RETRIES
+) -> list[list[Any]]:
+    """Run a HogQL query through the query API and return its result rows."""
+    response = request_with_retries(
+        session,
+        "POST",
+        f"{host}/api/projects/{project_id}/query/",
+        max_retries=max_retries,
+        json={"query": {"kind": "HogQLQuery", "query": query}},
+    )
+    if response.status_code != 200:
+        raise PostHogScriptError(f"HogQL query failed (HTTP {response.status_code}): {response.text[:500]}")
+    return response.json()["results"]
+
+
+def hogql_string_literal(value: str) -> str:
+    escaped = value.replace("\\", "\\\\").replace("'", "\\'")
+    return f"'{escaped}'"
+
+
 def confirm_acting_user(email: str) -> None:
     """Make the operator type the session's email so the acting-as identity is conscious, not assumed."""
     log("Session auth acts as the browser session's logged-in user - including for read queries.")

@@ -49,32 +49,17 @@ from urllib.parse import urlencode
 import requests
 from lib.console import confirm, format_status_counts, log, printable
 from lib.errors import PostHogScriptError
-from lib.posthog_api import MAX_RETRIES, request_with_retries, resolve_host, setup_session_auth
+from lib.posthog_api import (
+    hogql_string_literal,
+    request_with_retries,
+    resolve_host,
+    run_hogql_query,
+    setup_session_auth,
+)
 
 # api mode deletes the properties for one person per request (all matched properties in one $unset list);
 # report a status-code histogram every this many so a long run shows steady progress.
 API_REPORT_EVERY = 50
-
-
-def run_hogql_query(
-    session: requests.Session, host: str, project_id: str, query: str, max_retries: int = MAX_RETRIES
-) -> list[list[Any]]:
-    """Run a HogQL query through the query API and return its result rows."""
-    response = request_with_retries(
-        session,
-        "POST",
-        f"{host}/api/projects/{project_id}/query/",
-        max_retries=max_retries,
-        json={"query": {"kind": "HogQLQuery", "query": query}},
-    )
-    if response.status_code != 200:
-        raise PostHogScriptError(f"HogQL query failed (HTTP {response.status_code}): {response.text[:500]}")
-    return response.json()["results"]
-
-
-def hogql_string_literal(value: str) -> str:
-    escaped = value.replace("\\", "\\\\").replace("'", "\\'")
-    return f"'{escaped}'"
 
 
 def iter_persons(
