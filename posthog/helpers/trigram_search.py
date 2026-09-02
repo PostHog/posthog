@@ -103,7 +103,9 @@ def apply_trigram_search(
     this way are flagged `_is_exact=1` and sort with the literal-substring matches.
 
     When `include_tag_search=True`, rows whose tag names contain the term also match (as
-    `exact`), and `.distinct()` dedups the tag-join fan-out.
+    `exact`). The tag predicate is an `id__in` subquery, so it cannot duplicate a row. The
+    result therefore needs no `.distinct()`. Callers that join tags directly, such as a
+    `?tags=` filter, dedup that join themselves.
 
     Word/full annotations are coalesced to 0.0 so a row with a NULL field matched only on
     another field doesn't end up with a NULL `_search_score` (Postgres orders NULLS FIRST in
@@ -150,11 +152,7 @@ def apply_trigram_search(
         _search_score=search_score,
     )
 
-    result = annotated.filter(exact_q | similar_q)
-    if include_tag_search:
-        result = result.distinct()
-
-    return result.order_by("-_search_score", *tiebreakers)
+    return annotated.filter(exact_q | similar_q).order_by("-_search_score", *tiebreakers)
 
 
 def drop_similar_when_exact_exists(queryset: QuerySet) -> QuerySet:
