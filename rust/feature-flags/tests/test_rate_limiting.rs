@@ -396,6 +396,14 @@ async fn test_rate_limit_replenishment() -> Result<()> {
         statuses.push(response.status());
     }
 
+    // Only allow and block are valid here, so a 5xx means the endpoint broke rather than
+    // rate limited. Fail on it instead of letting a server error hide behind the burst.
+    assert!(
+        statuses
+            .iter()
+            .all(|s| *s == StatusCode::OK || *s == StatusCode::TOO_MANY_REQUESTS),
+        "Burst returned an unexpected status: {statuses:?}"
+    );
     assert_eq!(statuses[0], StatusCode::OK, "First request allowed");
     assert!(
         statuses.contains(&StatusCode::TOO_MANY_REQUESTS),
