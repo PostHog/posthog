@@ -3680,9 +3680,9 @@ class TestCurrentPeriodBounds(SimpleTestCase):
                 (datetime(2026, 7, 10, tzinfo=UTC), datetime(2026, 8, 10, tzinfo=UTC)),
             ),
             (
-                "stale_billing_period_falls_back_to_month",
+                "stale_billing_period_rolls_forward_on_its_cadence",
                 {"period": ["2026-05-10T00:00:00+00:00", "2026-06-10T00:00:00+00:00"]},
-                MONTH_BOUNDS,
+                (datetime(2026, 7, 10, tzinfo=UTC), datetime(2026, 8, 10, tzinfo=UTC)),
             ),
             (
                 "naive_timestamps_treated_as_utc",
