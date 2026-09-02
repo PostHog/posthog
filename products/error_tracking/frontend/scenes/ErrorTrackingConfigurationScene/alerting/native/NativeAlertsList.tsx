@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { LemonButton, LemonCard, LemonSwitch, LemonTag, Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonCard, LemonSwitch, LemonTag, Spinner } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 
@@ -138,7 +138,7 @@ function AlertCard({ alert }: { alert: ErrorTrackingAlertApi }): JSX.Element {
 }
 
 export function NativeAlertsList(): JSX.Element {
-    const { alerts, alertsLoading } = useValues(nativeAlertsLogic)
+    const { alerts, alertsLoading, alertsLoaded, loadError } = useValues(nativeAlertsLogic)
     const { loadAlerts } = useActions(nativeAlertsLogic)
     const { openEditor } = useActions(nativeAlertEditorLogic)
 
@@ -152,7 +152,7 @@ export function NativeAlertsList(): JSX.Element {
                 <div className="flex items-center gap-2">
                     <span className="font-semibold">{alerts.length}</span>
                     <span className="text-secondary">{alerts.length === 1 ? 'alert' : 'alerts'}</span>
-                    {alertsLoading && alerts.length === 0 && <Spinner />}
+                    {alertsLoading && !alertsLoaded && <Spinner />}
                 </div>
                 <LemonButton
                     type="primary"
@@ -164,7 +164,11 @@ export function NativeAlertsList(): JSX.Element {
                     New alert
                 </LemonButton>
             </div>
-            {alerts.length === 0 && !alertsLoading ? (
+            {loadError ? (
+                <LemonBanner type="error" action={{ children: 'Retry', onClick: loadAlerts }}>
+                    Could not load alerts.
+                </LemonBanner>
+            ) : alertsLoaded && alerts.length === 0 ? (
                 <LemonCard hoverEffect={false} className="text-secondary text-sm">
                     No alerts yet. An alert opens one Slack thread per issue and keeps it updated as the issue changes.
                 </LemonCard>

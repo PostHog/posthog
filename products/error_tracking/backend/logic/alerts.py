@@ -326,7 +326,8 @@ def preview_alert_messages(team_id: int, trigger: str, actor_email: str | None) 
     def inputs(event: str, **overrides: Any) -> AlertDeliveryWorkflowInputs:
         base: dict[str, Any] = {
             "notification_id": "preview",
-            "team_id": team_id,
+            # The View issue link carries the environment, so a sampled issue links to its own.
+            "team_id": issue.team_id if issue is not None else team_id,
             "issue_id": str(issue.id) if issue is not None else "preview",
             "event": event,
             "issue_name": issue.name if issue is not None else "TypeError: Cannot read properties of undefined",
