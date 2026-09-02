@@ -176,9 +176,11 @@ narrow:
 - Review policy is read from the repo's **default branch**, never the PR head — a PR must not be
   able to rewrite the policy that gates it. Same for the `digest:` channel declaration and the
   root `owners.yaml` team registry the digest routes through.
-- A manually-created repo config (blank `installation_id`) binds **disabled** when a sync adopts
-  it: its flags were set by someone who never proved GitHub access. Reinstall rebinds keep
-  settings — those were configured under a verified binding.
+- A manually-created repo config (blank `installation_id`) binds **disabled** when a sync adopts it,
+  and its review policy (`review_mode`, `trigger_label`) resets to the model defaults: all of those
+  fields were set by someone who never proved GitHub access, so a pre-selected label mode would
+  otherwise go live the moment a manager enables the row. Reinstall rebinds keep settings — those
+  were configured under a verified binding.
 - Digest routing is derived every run from the repositories and never stored, so nothing here can
   go stale silently — and nothing degrades either. A registry that cannot be read stops the whole
   team's run (`RoutingUnavailable`) rather than falling through to derived channel names: the

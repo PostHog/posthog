@@ -26,6 +26,7 @@ from rest_framework.views import APIView
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.models.scoping.manager import resolve_effective_team_id
+from posthog.models.team import Team
 from posthog.models.user import User
 
 # UserAccessControl reaches stamphog through core: the product's tach boundary allows `posthog`
@@ -128,6 +129,40 @@ class _StamphogTeamScopedViewSet(TeamAndOrgViewSetMixin):
     def canonical_team_id(self) -> int:
         return resolve_effective_team_id(self.team_id)
 
+    @cached_property
+    def canonical_team(self) -> Team | None:
+        """The team whose rows this request reads and writes, or None when there is no team yet."""
+        try:
+            team = self.team
+        except (Team.DoesNotExist, KeyError):
+            return None
+        if team.parent_team_id is None or team.parent_team_id == team.id or team.parent_team is None:
+            return team
+        return team.parent_team
+
+    @cached_property
+    def user_access_control(self) -> UserAccessControl:
+        """RBAC anchored to the canonical team, so resource levels are read where the rows live.
+
+        Overrides the mixin, which anchors to the URL team. Through a child environment that let the
+        child's stamphog level decide access to the parent's rows, in both directions: a grant on the
+        child alone reached the parent, and a grant on the parent alone was refused.
+
+        An instance only answers for the team it was built with, so this one cannot see the URL
+        team's own project rules. It does not have to: TeamMemberAccessPermission reads those
+        directly through UserPermissions.effective_membership_level, where an explicit "none" is a
+        denial, and that gate runs on every request here.
+        """
+        return UserAccessControl(
+            user=cast(User, self.request.user), team=self.canonical_team, organization_id=self.organization_id
+        )
+
+    @cached_property
+    def stamphog_access_level(self) -> str | None:
+        """The caller's resource-wide stamphog level, resolved once for the whole response."""
+        access = self.user_access_control.access_level_for_resource("stamphog")
+        return access.access_level if access else None
+
     def get_serializer_context(self) -> dict[str, Any]:
         # The mixin sets context["team_id"] to the RAW url team, but a serializer validating a
         # team-scoped lookup reads it. stamphog rows canonicalize to the parent team on save, so
@@ -157,21 +192,6 @@ class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.GenericView
                 return config
         raise NotFound()
 
-    def _canonical_user_access_control(self) -> UserAccessControl:
-        """Resource-level access for the team whose rows this request actually touches.
-
-        The mixin builds user_access_control for the URL team, but stamphog rows canonicalize to the
-        parent, so a grant on a child environment alone would authorize a write to the parent's
-        config. Re-anchor to the parent, the same way StamphogCanonicalTeamAccessPermission
-        re-anchors the membership check. Root teams read the URL team either way.
-        """
-        team = self.team
-        if team.parent_team_id is None or team.parent_team_id == team.id or team.parent_team is None:
-            return self.user_access_control
-        return UserAccessControl(
-            user=cast(User, self.request.user), team=team.parent_team, organization_id=self.organization_id
-        )
-
     def _require_review_gate_manager(self, request: Request) -> None:
         """Refuse a review-gating write below the manager level on the stamphog resource.
 
@@ -179,7 +199,7 @@ class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.GenericView
         layer cannot resolve, and a key is never a manager, so they are refused here rather than
         silently passed through by AccessControlPermission's service-auth shortcut.
         """
-        if not is_service_auth(request) and self._canonical_user_access_control().check_access_level_for_resource(
+        if not is_service_auth(request) and self.user_access_control.check_access_level_for_resource(
             "stamphog", "manager"
         ):
             return

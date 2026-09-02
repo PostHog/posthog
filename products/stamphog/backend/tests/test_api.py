@@ -128,6 +128,58 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
             ("granted_on_the_parent", True, status.HTTP_200_OK),
         ]
     )
+    def test_editor_grant_is_read_on_the_team_that_owns_the_rows(
+        self, _name: str, grant_on_parent: bool, expected_status: int
+    ) -> None:
+        # Same canonicalization as the manager case, one level down: the digest toggle needs editor,
+        # and the level that counts is the one on the team the rows live under, not the URL team.
+        config_id = self._create_config()
+        env = Team.objects.create(organization=self.organization, parent_team=self.team, name="env")
+        grant_team = self.team if grant_on_parent else env
+        member = self._login_as_member(stamphog_level="editor", grant_team=grant_team)
+        # "none" on the other team, so the request can only pass on the grant under test.
+        AccessControl.objects.create(
+            team=env if grant_on_parent else self.team,
+            resource="stamphog",
+            resource_id=None,
+            access_level="none",
+            organization_member=OrganizationMembership.objects.get(user=member, organization=self.organization),
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{env.id}/stamphog/repo_configs/{config_id}/", {"digest_enabled": True}, format="json"
+        )
+
+        assert response.status_code == expected_status, response.content
+
+    def test_child_project_denial_still_blocks_the_request(self) -> None:
+        # The viewset anchors user_access_control to the parent, so AccessControlPermission can no
+        # longer see the child's own project rules. Somebody the child environment denies must still
+        # be refused, or canonicalizing the resource check would have opened the environment up.
+        config_id = self._create_config()
+        env = Team.objects.create(organization=self.organization, parent_team=self.team, name="env")
+        member = self._login_as_member(stamphog_level="manager")
+        AccessControl.objects.create(
+            team=env,
+            resource="project",
+            resource_id=str(env.id),
+            access_level="none",
+            organization_member=OrganizationMembership.objects.get(user=member, organization=self.organization),
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{env.id}/stamphog/repo_configs/{config_id}/", {"enabled": False}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        assert StamphogRepoConfig.objects.unscoped().get(id=config_id).enabled is True
+
+    @parameterized.expand(
+        [
+            ("granted_on_the_child", False, status.HTTP_403_FORBIDDEN),
+            ("granted_on_the_parent", True, status.HTTP_200_OK),
+        ]
+    )
     def test_manager_grant_is_read_on_the_team_that_owns_the_rows(
         self, _name: str, grant_on_parent: bool, expected_status: int
     ) -> None:
@@ -144,6 +196,20 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
 
         assert response.status_code == expected_status, response.content
         assert StamphogRepoConfig.objects.unscoped().get(id=config_id).enabled == (not grant_on_parent)
+
+    @parameterized.expand([("admin", True, "manager"), ("member", False, "editor")])
+    def test_user_access_level_rides_on_the_repo_config(self, _name: str, as_admin: bool, expected: str) -> None:
+        # The scene disables the review controls off this field. Reading it from the app context
+        # instead would answer for the URL environment while the backend checks the parent, so the
+        # controls and the API would disagree through a child environment's URL.
+        config_id = self._create_config()
+        if not as_admin:
+            self._login_as_member()
+
+        response = self.client.get(f"{self.url}{config_id}/")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json()["user_access_level"] == expected
 
     def test_create_ignores_client_supplied_installation_id(self) -> None:
         # installation_id is read-only: a manual create must not let a caller claim an installation
@@ -580,9 +646,17 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         # team later syncs the verified installation, that row must be adopted (its installation stamped)
         # rather than reported skipped and left unbound forever — but adopted DISABLED: the placeholder's
         # flags were set by someone who never proved GitHub access, so a member could otherwise pre-arm
-        # enabled=True for a private repo and have reviews start the moment a teammate installs.
+        # enabled=True for a private repo and have reviews start the moment a teammate installs. The
+        # review policy resets for the same reason: label mode pointed at a label nobody uses would
+        # go live, reviewing nothing, the moment a manager turns the row on.
         manual = StamphogRepoConfig.objects.unscoped().create(
-            team_id=self.team.id, repository="PostHog/posthog", installation_id="", enabled=True, digest_enabled=True
+            team_id=self.team.id,
+            repository="PostHog/posthog",
+            installation_id="",
+            enabled=True,
+            digest_enabled=True,
+            review_mode=ReviewMode.LABEL,
+            trigger_label="nobody-uses-this",
         )
         response = self.client.post(
             self.url, {"installation_id": "42", "code": "oauth-code", "state": self.state}, format="json"
@@ -596,6 +670,8 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         assert manual.connected_by_user_id == self.user.id
         assert manual.enabled is False
         assert manual.digest_enabled is False
+        assert manual.review_mode == ReviewMode.ALL
+        assert manual.trigger_label == StamphogRepoConfig._meta.get_field("trigger_label").get_default()
 
     @patch(f"{_GITHUB_FACADE}.list_user_accessible_repositories", return_value=["PostHog/posthog"])
     @patch(f"{_VIEWS}.user_can_access_installation", return_value=True)
@@ -610,6 +686,7 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
             repository="PostHog/posthog",
             installation_id="41",
             enabled=True,
+            review_mode=ReviewMode.LABEL,
             connected_by_user_id=previous_connector_id,
         )
         response = self.client.post(
@@ -621,6 +698,7 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         stale.refresh_from_db()
         assert stale.installation_id == "42"
         assert stale.enabled is True  # settings survive the rebind
+        assert stale.review_mode == ReviewMode.LABEL  # including the review policy
         assert stale.connected_by_user_id == self.user.id
         # The restamp reads its before-value from the locked row, so the log names who held the
         # connection before this sync took it over.

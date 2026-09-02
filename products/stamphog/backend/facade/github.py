@@ -54,11 +54,13 @@ def _adopt_preexisting_config(team_id: int, repository: str, installation_id: st
     it skipped and leaving it unbound forever. Safe to rebind: this helper is team-scoped and only
     reached from the sync flow, which already proved the caller owns the NEW installation.
 
-    A never-bound placeholder binds DISABLED: its enabled flags were set by whoever created the row,
-    who never proved GitHub access to the repo — otherwise a member could pre-arm ``enabled=True``
-    for a private repo and have reviews start (under the syncing teammate's identity) the moment
-    someone else completes the install. Reinstall rows keep their settings: they were configured
-    while verifiably bound to a real installation.
+    A never-bound placeholder binds DISABLED and with its review policy back at the defaults: every
+    one of those fields was set by whoever created the row, who never proved GitHub access to the
+    repo — otherwise a member could pre-arm ``enabled=True`` for a private repo and have reviews
+    start (under the syncing teammate's identity) the moment someone else completes the install, or
+    pre-select label mode with a label nobody uses so the row reviews nothing once a manager enables
+    it. Reinstall rows keep their settings: they were configured while verifiably bound to a real
+    installation.
     """
     # Writer pin: the writer-side unique constraint is what routed us here, so the row exists on the
     # writer — a lagged reader missing it would mark the repo skipped and leave it unbound forever.
@@ -75,7 +77,10 @@ def _adopt_preexisting_config(team_id: int, repository: str, installation_id: st
         if not existing.installation_id:
             existing.enabled = False
             existing.digest_enabled = False
-            update_fields += ["enabled", "digest_enabled"]
+            # Read the defaults off the model so the reset cannot drift from what a fresh row gets.
+            existing.review_mode = StamphogRepoConfig._meta.get_field("review_mode").get_default()
+            existing.trigger_label = StamphogRepoConfig._meta.get_field("trigger_label").get_default()
+            update_fields += ["enabled", "digest_enabled", "review_mode", "trigger_label"]
         existing.installation_id = installation_id
         try:
             existing.save(update_fields=update_fields)
