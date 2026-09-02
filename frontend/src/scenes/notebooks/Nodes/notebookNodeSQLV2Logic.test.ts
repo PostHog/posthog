@@ -7,8 +7,6 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { initKeaTests } from '~/test/init'
 
-import { notebooksKernelStatusRetrieve } from 'products/notebooks/frontend/generated/api'
-
 import { buildMarkdownNotebookContent, serializeMarkdownNotebookComponent } from '../Notebook/markdownNotebookV2'
 import { notebookSettingsLogic } from '../Notebook/notebookSettingsLogic'
 import { NotebookNodeType } from '../types'
@@ -16,13 +14,8 @@ import {
     collectSqlV2Refs,
     notebookNodeSQLV2Logic,
     pollIntervalMs,
-    PRICE_LOOKUP_TIMEOUT_MS,
     sqlV2RunErrorMessage,
 } from './notebookNodeSQLV2Logic'
-
-jest.mock('products/notebooks/frontend/generated/api', () => ({
-    notebooksKernelStatusRetrieve: jest.fn(),
-}))
 
 describe('notebookNodeSQLV2Logic', () => {
     let logic: ReturnType<typeof notebookNodeSQLV2Logic.build>
@@ -43,14 +36,6 @@ describe('notebookNodeSQLV2Logic', () => {
         resultSpy = jest
             .spyOn(api.notebooks, 'sqlV2RunResult')
             .mockResolvedValue({ status: 'running', result: null, error: null })
-        jest.mocked(notebooksKernelStatusRetrieve).mockResolvedValue({
-            backend: 'modal',
-            status: 'stopped',
-            frames: [],
-            cpu_cores: 1,
-            memory_gb: 2,
-            hourly_price: 0.25,
-        } as Awaited<ReturnType<typeof notebooksKernelStatusRetrieve>>)
     })
 
     afterEach(() => {
@@ -232,62 +217,41 @@ describe('notebookNodeSQLV2Logic', () => {
             })
         })
 
-        it('opens the kernel panel and notifies for a kernel-lane run, and not for a direct one', async () => {
+        it('opens the kernel panel for a kernel-lane run, and not for a direct one', async () => {
             // Scenario B: a run that needs the sandbox must surface the provisioning wait;
-            // a pure-SQL run must never pop the panel or toast (it needs no sandbox at all).
-            const toastSpy = jest.spyOn(lemonToast, 'info')
+            // a pure-SQL run must never pop the panel (it needs no sandbox at all).
             mount()
             logic.actions.runQuery('select 1')
             await expectLogic(logic).toFinishAllListeners()
             expect(notebookSettingsLogic.findMounted()?.values.showKernelInfo).toBe(false)
             expect(logic.values.pendingKernelStart).toBe(false)
-            expect(toastSpy).not.toHaveBeenCalled()
 
             logic.actions.runQuery('select * from new_events', { new_events: { node_id: 'py', kind: 'local' } })
             await expectLogic(logic).toFinishAllListeners()
             expect(notebookSettingsLogic.findMounted()?.values.showKernelInfo).toBe(true)
             expect(logic.values.pendingKernelStart).toBe(true)
-            // The user never asked for a sandbox here, so the notice has to name the rate.
-            expect(toastSpy).toHaveBeenCalledWith(expect.stringContaining('$0.25 / h'))
         })
     })
 
-    it('does not quote a rate for a free local docker kernel', async () => {
-        // The status endpoint returns hourly_price whatever the backend, but only a Modal
-        // sandbox is charged. Quoting a docker kernel invents a bill nobody will be sent.
-        jest.mocked(notebooksKernelStatusRetrieve).mockResolvedValue({
-            backend: 'docker',
-            status: 'stopped',
-            frames: [],
-            cpu_cores: 1,
-            memory_gb: 2,
-            hourly_price: 0.25,
-        } as Awaited<ReturnType<typeof notebooksKernelStatusRetrieve>>)
+    // The run response is the only source that knows whether this run provisions, because the
+    // backend decides it at dispatch. A client that guesses from a kernel poll either bills a
+    // user twice for one sandbox or starts a paid one in silence.
+    test.each([
+        ['names the rate when the run starts a paid sandbox', true, 0.25, ['compute sandbox at $0.25 / h']],
+        // The unpriced branch is the only one that ends the sentence here, so matching it also
+        // proves no rate was quoted.
+        ['announces without a rate when the run reports no price', true, null, ['compute sandbox. The cell']],
+        ['stays quiet when the run reuses a running sandbox', false, null, []],
+    ])('%s', async (_name, startsSandbox, price, expected) => {
+        runSpy.mockResolvedValue({ run_id: 'r1', starts_sandbox: startsSandbox, sandbox_hourly_price: price })
         const toastSpy = jest.spyOn(lemonToast, 'info')
         mount()
         logic.actions.runQuery('select * from new_events', { new_events: { node_id: 'py', kind: 'local' } })
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(toastSpy).toHaveBeenCalledWith(expect.stringContaining('Starting a compute sandbox'))
-        expect(toastSpy).not.toHaveBeenCalledWith(expect.stringContaining('$'))
-    })
-
-    it('still announces the sandbox when the price lookup hangs', async () => {
-        // The run dispatches without waiting for the price, so a status request that never
-        // settles must not swallow the notice — the user would start paid compute in silence.
-        jest.mocked(notebooksKernelStatusRetrieve).mockReturnValue(new Promise(() => {}) as never)
-        const toastSpy = jest.spyOn(lemonToast, 'info')
-        jest.useFakeTimers()
-        try {
-            mount()
-            logic.actions.runQuery('select * from new_events', { new_events: { node_id: 'py', kind: 'local' } })
-            await jest.advanceTimersByTimeAsync(PRICE_LOOKUP_TIMEOUT_MS + 100)
-
-            expect(toastSpy).toHaveBeenCalledWith(expect.stringContaining('Starting a compute sandbox'))
-            expect(toastSpy).not.toHaveBeenCalledWith(expect.stringContaining('$'))
-        } finally {
-            jest.useRealTimers()
-        }
+        expect(toastSpy.mock.calls.map(([message]) => message)).toEqual(
+            expected.map((fragment) => expect.stringContaining(fragment))
+        )
     })
 
     it('rejects blank code before dispatching a run', async () => {

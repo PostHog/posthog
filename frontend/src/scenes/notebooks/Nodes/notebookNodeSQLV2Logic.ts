@@ -14,12 +14,9 @@ import {
 } from 'kea'
 
 import api from 'lib/api'
-import { ApiConfig } from 'lib/api'
 import { ApiError } from 'lib/api-error'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-
-import { notebooksKernelStatusRetrieve } from 'products/notebooks/frontend/generated/api'
 
 import { notebookKernelInfoLogic } from '../Notebook/notebookKernelInfoLogic'
 import {
@@ -109,17 +106,6 @@ export function pollIntervalMs(waitedMs: number): number {
 // kernel lane at 1200s. Under those, a run the backend goes on to finish still reads here as
 // a client timeout, and the cell renders as errored while the server is still working on it.
 const MAX_POLL_WAIT_MS = 21 * 60 * 1000
-
-// How long the sandbox-start notice waits for a price before it fires without one. The notice
-// has to reach the user while the sandbox is still starting, so a slow status request loses the
-// price rather than the notice.
-export const PRICE_LOOKUP_TIMEOUT_MS = 1500
-
-/** The parts of a kernel status the sandbox-start notice reads, from either source it can come from. */
-type NotebookKernelStatusLike = {
-    backend?: string | null
-    hourly_price?: number | null
-}
 
 export const SQL_V2_DEFAULT_PAGE_SIZE = 50
 
@@ -237,8 +223,8 @@ export interface notebookNodeSQLV2LogicActions {
     setShowKernelInfo: (showKernelInfo: boolean) => {
         showKernelInfo: boolean
     } // notebookSettingsLogic
-    announceSandboxStart: () => {
-        value: true
+    announceSandboxStart: (hourlyPrice: number | null) => {
+        hourlyPrice: number | null
     }
     interruptRun: () => {
         value: true
@@ -363,7 +349,7 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
         resetPaging: true,
         setDirectRows: (directRows: NotebookNodeSQLV2DirectRows | null) => ({ directRows }),
         setPendingKernelStart: (pendingKernelStart: boolean) => ({ pendingKernelStart }),
-        announceSandboxStart: true,
+        announceSandboxStart: (hourlyPrice: number | null) => ({ hourlyPrice }),
     }),
     reducers({
         // Tracks the run being in progress; driven by the run's status, not a socket lifecycle.
@@ -558,7 +544,6 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                 // and never when it targets an external connection (the sandbox can't reach one).
                 // The backend stays authoritative — this only drives the kernel panel, never
                 // dispatch.
-                let announceSandboxOnceAccepted = false
                 const isKernelLane =
                     opts.nodeType === 'python' ||
                     (!opts.connectionId && extractDuckSqlTables(code).some((name) => refs[name]?.kind === 'local'))
@@ -571,7 +556,6 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                     if (!kernelKnownRunning) {
                         actions.setShowKernelInfo(true)
                         actions.setPendingKernelStart(true)
-                        announceSandboxOnceAccepted = true
                     }
                 }
                 // Read from the notebook rather than the caller: every run path (Run button,
@@ -579,7 +563,7 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                 const variables = props.getVariables?.() ?? []
                 actions.startOperation(runOperation)
                 try {
-                    const { run_id } = await api.notebooks.sqlV2Run(props.notebookShortId, {
+                    const runResponse = await api.notebooks.sqlV2Run(props.notebookShortId, {
                         node_id: props.nodeId,
                         code,
                         refs,
@@ -596,11 +580,13 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                     })
                     // Mark this as the active run so a still-in-flight poll from a previous run
                     // can't overwrite this result or stop this run's poller once it resolves.
+                    const run_id = runResponse.run_id
                     cache.activeRunId = run_id
-                    // Only now is a sandbox actually being provisioned. Announcing before this
-                    // point claimed a sandbox was starting even when the run was rejected.
-                    if (announceSandboxOnceAccepted) {
-                        actions.announceSandboxStart()
+                    // The backend decides this at dispatch, so it is the only accurate source.
+                    // A kernel poll is up to ten seconds old, which is long enough to miss a
+                    // sandbox that stopped inside that window and start paid compute silently.
+                    if (runResponse.starts_sandbox) {
+                        actions.announceSandboxStart(runResponse.sandbox_hourly_price ?? null)
                     }
                     // Persisting nodeId pins the cell's identity: markdown-notebook cell ids are
                     // content fingerprints otherwise, so without the pin any later prop change
@@ -619,30 +605,11 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                     actions.nodeRunFinished(props.nodeId, 'failed', null)
                 }
             },
-            announceSandboxStart: async () => {
+            announceSandboxStart: ({ hourlyPrice }) => {
                 // The panel that shows the price is only just opening, so say the rate in the
                 // toast too. A user who runs a Python cell never opens the panel deliberately and
-                // would otherwise start paid compute without being told what it costs.
-                let status: NotebookKernelStatusLike | null =
-                    notebookKernelInfoLogic.findMounted({ shortId: props.notebookShortId })?.values.kernelInfo ?? null
-                if (status == null) {
-                    // The status request must not hold up the notice, so race it. Give up on the
-                    // price rather than on telling the user a sandbox is starting.
-                    let timer: number | undefined
-                    status = await Promise.race([
-                        notebooksKernelStatusRetrieve(
-                            String(ApiConfig.getCurrentTeamId()),
-                            props.notebookShortId
-                        ).catch(() => null),
-                        new Promise<null>((resolve) => {
-                            timer = window.setTimeout(() => resolve(null), PRICE_LOOKUP_TIMEOUT_MS)
-                        }),
-                    ])
-                    window.clearTimeout(timer)
-                }
-                // Only a Modal sandbox is charged. A local Docker kernel is free, so quoting a
-                // rate for one would invent a bill the user will never be sent.
-                const hourlyPrice = status?.backend === 'modal' ? (status.hourly_price ?? null) : null
+                // would otherwise start paid compute without being told what it costs. The price
+                // is null for a local docker kernel, which is free.
                 lemonToast.info(
                     hourlyPrice == null
                         ? 'Starting a compute sandbox. The cell will run once it’s ready.'
