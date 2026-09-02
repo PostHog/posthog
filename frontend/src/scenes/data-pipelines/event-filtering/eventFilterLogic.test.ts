@@ -1,6 +1,12 @@
+import { expectLogic } from 'kea-test-utils'
+
+import { useMocks } from '~/mocks/jest'
+import { initKeaTests } from '~/test/init'
+
 import {
     countConditions,
     evaluateFilterTree,
+    eventFilterLogic,
     FilterNode,
     normalizeRootToGroup,
     treeHasConditions,
@@ -332,5 +338,42 @@ describe('treeHasEmptyValues', () => {
         ['deeply nested empty value', and(or(cond(), not(cond('event_name', 'exact', '')))), true],
     ])('%s', (_name, tree, expected) => {
         expect(treeHasEmptyValues(tree)).toBe(expected)
+    })
+})
+
+describe('eventFilterLogic save', () => {
+    let logic: ReturnType<typeof eventFilterLogic.build>
+    let postedPayloads: any[]
+
+    beforeEach(() => {
+        postedPayloads = []
+        useMocks({
+            get: { '/api/environments/:team_id/event_filter/': () => [200, null] },
+            post: {
+                '/api/environments/:team_id/event_filter/': async ({ request }) => {
+                    postedPayloads.push(await request.json())
+                    return [200, {}]
+                },
+            },
+        })
+        initKeaTests()
+        logic = eventFilterLogic()
+        logic.mount()
+    })
+
+    it('saves in dry run mode when a test case is failing', async () => {
+        logic.actions.setFilterFormValue('filter_tree', or(cond('event_name', 'exact', 'pageview')))
+        logic.actions.setFilterFormValue('test_cases', [
+            { _key: 'a', event_name: 'pageview', distinct_id: '', expected_result: 'ingest' },
+        ])
+        logic.actions.setFilterFormValue('mode', 'live')
+
+        await expectLogic(logic, () => logic.actions.submitFilterForm()).toFinishAllListeners()
+
+        expect(postedPayloads).toHaveLength(1)
+        expect(postedPayloads[0].mode).toBe('dry_run')
+        expect(postedPayloads[0].test_cases).toEqual([
+            { event_name: 'pageview', distinct_id: '', expected_result: 'ingest' },
+        ])
     })
 })

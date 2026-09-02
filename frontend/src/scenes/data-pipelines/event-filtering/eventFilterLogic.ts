@@ -43,7 +43,8 @@
  * ### Save
  *
  *   - "Save" → `submitFilterForm()` → validation → POST to event_filter/ (upsert)
- *   - If 'live' but tests fail, auto-downgrades to 'dry_run'
+ *   - If 'live' but tests fail, auto-downgrades to 'dry_run'. The API applies the same
+ *     rule, so only a 'live' save must pass its test cases.
  *
  * ## Evaluation parity
  *
@@ -54,6 +55,7 @@
 import { MakeLogicType, actions, afterMount, kea, listeners, path, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -405,7 +407,9 @@ export const eventFilterLogic = kea<eventFilterLogicType>([
                 const { currentTeamId } = values
 
                 // Safety: downgrade to dry_run if tests are failing
-                if (formValues.mode === 'live' && !values.allTestsPass && formValues.test_cases.length > 0) {
+                const downgraded =
+                    formValues.mode === 'live' && !values.allTestsPass && formValues.test_cases.length > 0
+                if (downgraded) {
                     formValues = { ...formValues, mode: 'dry_run' }
                 }
 
@@ -414,8 +418,29 @@ export const eventFilterLogic = kea<eventFilterLogicType>([
                     ...formValues,
                     test_cases: formValues.test_cases.map(({ _key, ...tc }) => tc),
                 }
-                await api.create(`api/environments/${currentTeamId}/event_filter/`, payload)
-                lemonToast.success('Event filter saved')
+                const captureProps = {
+                    mode: formValues.mode,
+                    downgraded_to_dry_run: downgraded,
+                    test_case_count: formValues.test_cases.length,
+                    failing_test_case_count: values.testResults.filter((r) => !r.pass).length,
+                    condition_count: values.conditionCount,
+                }
+                try {
+                    await api.create(`api/environments/${currentTeamId}/event_filter/`, payload)
+                } catch (error: any) {
+                    posthog.capture('event_filter_save_failed', {
+                        ...captureProps,
+                        status: error?.status,
+                    })
+                    lemonToast.error(error?.detail ?? 'Could not save the event filter. Try again.')
+                    throw error
+                }
+                posthog.capture('event_filter_saved', captureProps)
+                lemonToast.success(
+                    downgraded
+                        ? 'Event filter saved in dry run mode, because some test cases are failing'
+                        : 'Event filter saved'
+                )
             },
         },
     })),

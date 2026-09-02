@@ -304,15 +304,29 @@ class TestRunTestCases(SimpleTestCase):
         tree = _cond("event_name", "exact", "pageview")
         test_cases = [{"event_name": "click", "expected_result": "drop"}]
         failures = run_test_cases(tree, test_cases)
-        self.assertEqual(len(failures), 1)
-        self.assertIn("expected 'drop' but got 'ingest'", failures[0])
+        self.assertEqual(failures, ['Test 1 expects event "click" to be dropped, but this filter ingests it.'])
 
     def test_failing_test_case_expected_ingest(self):
         tree = _cond("event_name", "exact", "pageview")
         test_cases = [{"event_name": "pageview", "expected_result": "ingest"}]
         failures = run_test_cases(tree, test_cases)
-        self.assertEqual(len(failures), 1)
-        self.assertIn("expected 'ingest' but got 'drop'", failures[0])
+        self.assertEqual(failures, ['Test 1 expects event "pageview" to be ingested, but this filter drops it.'])
+
+    @parameterized.expand(
+        [
+            (
+                {"event_name": "pageview", "distinct_id": "bot-1", "expected_result": "ingest"},
+                'Test 1 expects event "pageview" and distinct ID "bot-1" to be ingested, but this filter drops it.',
+            ),
+            (
+                {"distinct_id": "bot-1", "expected_result": "ingest"},
+                'Test 1 expects distinct ID "bot-1" to be ingested, but this filter drops it.',
+            ),
+        ]
+    )
+    def test_failure_message_names_the_event(self, test_case: dict, expected_message: str):
+        tree = _or(_cond("event_name", "exact", "pageview"), _cond("distinct_id", "contains", "bot"))
+        self.assertEqual(run_test_cases(tree, [test_case]), [expected_message])
 
     def test_multiple_failures_reported(self):
         tree = _cond("event_name", "exact", "pageview")
@@ -322,8 +336,8 @@ class TestRunTestCases(SimpleTestCase):
         ]
         failures = run_test_cases(tree, test_cases)
         self.assertEqual(len(failures), 2)
-        self.assertIn("Test case 0", failures[0])
-        self.assertIn("Test case 1", failures[1])
+        self.assertIn("Test 1 ", failures[0])
+        self.assertIn("Test 2 ", failures[1])
 
     def test_test_case_with_distinct_id(self):
         tree = _and(_cond("event_name", "exact", "pageview"), _cond("distinct_id", "contains", "bot"))
@@ -440,6 +454,26 @@ class TestEventFilterConfigModel(BaseTest):
                 mode=EventFilterMode.DISABLED,
                 test_cases=[{"expected_result": "maybe"}],
             )
+
+    def test_save_rejects_failing_test_cases_when_live(self):
+        with self.assertRaises(ValidationError):
+            EventFilterConfig.objects.create(
+                team=self.team,
+                mode=EventFilterMode.LIVE,
+                filter_tree=_cond(),
+                test_cases=[{"event_name": "pageview", "expected_result": "ingest"}],
+            )
+
+    @parameterized.expand([(EventFilterMode.DISABLED,), (EventFilterMode.DRY_RUN,)])
+    def test_save_keeps_failing_test_cases_when_not_live(self, mode: str):
+        config = EventFilterConfig.objects.create(
+            team=self.team,
+            mode=mode,
+            filter_tree=_cond(),
+            test_cases=[{"event_name": "pageview", "expected_result": "ingest"}],
+        )
+        config.refresh_from_db()
+        self.assertEqual(config.test_cases, [{"event_name": "pageview", "expected_result": "ingest"}])
 
     def test_one_filter_per_team(self):
         EventFilterConfig.objects.create(team=self.team, mode=EventFilterMode.DISABLED)
