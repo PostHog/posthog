@@ -165,9 +165,9 @@ NUM_2FA_BACKUP_CODES = 10
 MAX_PIPELINE_NOTIFICATIONS = 1000
 _PIPELINE_ID_PATTERN = re.compile(r"^(?:hog_function|batch_export|plugin_config):[0-9a-zA-Z-]{1,128}$")
 
-# Far above what a real account reaches: one key per product, plus a handful composed per team.
-# `product_intro_seen` is exempt from the re-auth gate, so it gets a ceiling of its own.
-MAX_PRODUCT_INTROS_SEEN = 1000
+# `product_intro_seen` is exempt from the re-auth gate, so it gets a ceiling of its own. Only a new key
+# is refused at the ceiling, so an intro the user already dismissed still reopens and closes.
+MAX_PRODUCT_INTROS_SEEN = 100
 
 
 def _reject_locked_notification_settings(user: User, incoming: Notifications, current: Mapping[str, Any]) -> None:
