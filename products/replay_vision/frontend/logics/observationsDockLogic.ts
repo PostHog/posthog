@@ -74,6 +74,9 @@ export interface observationsDockLogicActions {
     observeSuccess: () => {
         value: true
     }
+    openDock: () => {
+        value: true
+    }
     retryObservation: (observationId: string) => {
         observationId: string
     }
@@ -82,9 +85,6 @@ export interface observationsDockLogicActions {
     }
     retryObservationSuccess: (observationId: string) => {
         observationId: string
-    }
-    openDock: () => {
-        value: true
     }
     setDockOpen: (open: boolean) => {
         open: boolean
