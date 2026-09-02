@@ -101,7 +101,7 @@ git commit --allow-empty -m "chore(ci): run the full matrix" && git push
 
 Do not add `labeled`/`unlabeled` back to a merge gate's `on.pull_request.types` to avoid that push.
 GitHub cannot filter a label trigger by name, so every unrelated label re-runs the full matrices against a commit CI has already covered.
-Guarding it inside the workflow is worse: skipping the gate job cascades to the `if: always()` aggregator, which counts a skipped dependency as success and posts a green required check with no tests behind it.
+Guarding it inside the workflow is worse: skipping the gate job cascades to the `if: !cancelled()` aggregator, which counts a skipped dependency as success and posts a green required check with no tests behind it.
 
 #### Stacked PRs
 
