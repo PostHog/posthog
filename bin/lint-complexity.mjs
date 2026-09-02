@@ -9,12 +9,14 @@
  * Usage:
  *   node bin/lint-complexity.mjs [--json] [--report <path>] <files...>
  *
- * Findings above WARN_AT are warnings; the check never fails a job (advisory
- * while the pre-existing backlog settles). `--json` emits the findings as
- * JSON for `hogli lint:complexity`, which owns human-readable output.
- * `--report <path>` writes the same JSON to a file while printing human
- * output and annotations (used by CI to post the CI report section). A test
- * binds the thresholds here to the Python side (test_complexity_lint.py).
+ * Findings above a file's limit are warnings; the check never fails a job
+ * (advisory while the pre-existing backlog settles). `--json` emits the
+ * findings as JSON for `hogli lint:complexity`, which owns human-readable
+ * output. `--report <path>` writes the same JSON to a file while printing
+ * human output and annotations (used by CI to post the CI report section).
+ * Both sides read their limits from bin/lint-complexity.limits.json so the
+ * two implementations cannot drift; complexity_lint.py says why tests get
+ * the relaxed bound.
  */
 
 import { existsSync, readFileSync, writeFileSync } from 'fs'
@@ -28,7 +30,15 @@ const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const require = createRequire(resolve(repoRoot, 'frontend', 'package.json'))
 const ts = require('typescript')
 
-const WARN_AT = 10
+const LIMITS = JSON.parse(readFileSync(resolve(repoRoot, 'bin', 'lint-complexity.limits.json'), 'utf8'))
+
+// A test file: a *.test.* / *.spec.* file, or inside a __tests__/test/tests
+// directory. Mirrors is_test_file in complexity_lint.py; keep the two in step.
+const TEST_FILE = /(^|\/)(__tests__|test|tests)\/|\.(test|spec)\.[jt]sx?$/
+
+function warnAtFor(file) {
+    return TEST_FILE.test(file) ? LIMITS.test : LIMITS.production
+}
 
 const FUNCTION_KINDS = new Set([
     ts.SyntaxKind.FunctionDeclaration,
@@ -124,7 +134,10 @@ const args = process.argv.slice(2)
 const asJson = args.includes('--json')
 const reportIdx = args.indexOf('--report')
 const reportPath = reportIdx === -1 ? null : args[reportIdx + 1]
-const files = args.filter((arg, index) => arg !== '--json' && arg !== '--report' && index !== reportIdx + 1)
+// Without --report, reportIdx is -1: guard the value skip or the first file is dropped.
+const files = args.filter(
+    (arg, index) => arg !== '--json' && arg !== '--report' && (reportIdx === -1 || index !== reportIdx + 1)
+)
 
 const findings = []
 for (const file of files) {
@@ -134,14 +147,19 @@ for (const file of files) {
     if (!existsSync(file)) {
         continue
     }
-    findings.push(...lintFile(file).filter((finding) => finding.complexity > WARN_AT))
+    const limit = warnAtFor(file)
+    findings.push(
+        ...lintFile(file)
+            .filter((finding) => finding.complexity > limit)
+            .map((finding) => ({ ...finding, limit }))
+    )
 }
 
 for (const finding of findings) {
     if (asJson) {
         continue
     }
-    const message = `\`${finding.name}\` has cyclomatic complexity ${finding.complexity} (warn >${WARN_AT})`
+    const message = `\`${finding.name}\` has cyclomatic complexity ${finding.complexity} (warn >${finding.limit})`
     console.info(`${finding.file}:${finding.line}:${finding.column}: warning: ${message}`)
     if (process.env.GITHUB_ACTIONS === 'true') {
         console.info(

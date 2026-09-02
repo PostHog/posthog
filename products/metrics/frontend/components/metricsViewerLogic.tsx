@@ -9,6 +9,11 @@ import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/util
 import { dayjs } from 'lib/dayjs'
 import { escapeRegex } from 'lib/utils/actions'
 import { dateStringToDayJs } from 'lib/utils/dateFilters'
+import {
+    NEW_QUERY_STARTED_ERROR_MESSAGE,
+    abortResilientLoading,
+    isUserInitiatedError,
+} from 'lib/utils/kea-logic-builders'
 import { objectsEqual } from 'lib/utils/objects'
 import { insightsApi } from 'scenes/insights/utils/api'
 import { teamLogic } from 'scenes/teamLogic'
@@ -25,7 +30,7 @@ import {
     NodeKind,
 } from '~/queries/schema/schema-general'
 import { QueryBasedInsightModel } from '~/types'
-import { PropertyOperator, UniversalFilterValue, UniversalFiltersGroup } from '~/types'
+import { PropertyFilterType, PropertyOperator, UniversalFilterValue, UniversalFiltersGroup } from '~/types'
 
 import {
     metricsAttributesRetrieve,
@@ -43,6 +48,7 @@ import { canCreateMetricsInsight, canViewMetrics } from 'products/metrics/fronte
 
 import type { Node } from '../../../../frontend/src/queries/schema/schema-general'
 import type { _MetricNameApi } from '../generated/api.schemas'
+import { type MetricTopMoverRow, topMoverRows } from '../metricsAnomaly'
 import { EMPTY_SERVICE_PATTERN, SERVICE_NAME_KEY } from '../metricsAttributes'
 import { correlationServiceNames } from '../metricsLinks'
 import { metricNamePickerLogic } from './metricNamePickerLogic'
@@ -52,8 +58,8 @@ import type { MetricsChartSeries } from './metricsSeries'
 // A derived type ((typeof METRIC_AGGREGATIONS)[number]) would keep these in sync, but
 // kea-typegen inlines derived unions into every consumer's generated block — keep the
 // named alias so those blocks stay stable.
-export type MetricAggregation = 'sum' | 'avg' | 'count' | 'p95' | 'rate' | 'increase'
-export const METRIC_AGGREGATIONS: MetricAggregation[] = ['sum', 'avg', 'count', 'p95', 'rate', 'increase']
+export type MetricAggregation = 'sum' | 'avg' | 'count' | 'min' | 'max' | 'p95' | 'rate' | 'increase'
+export const METRIC_AGGREGATIONS: MetricAggregation[] = ['sum', 'avg', 'count', 'min', 'max', 'p95', 'rate', 'increase']
 
 /** Narrows an untrusted value (a URL param, a saved link) to an aggregation the backend accepts. */
 export const isMetricAggregation = (value: unknown): value is MetricAggregation =>
@@ -89,15 +95,6 @@ export const RECOMMENDED_AGGREGATION_BY_TYPE: Record<string, MetricAggregation> 
 export const DEFAULT_DATE_FROM = '-1h'
 // Kept off the persisted node: a saved query with no `display` renders as a line chart anyway.
 export const DEFAULT_DISPLAY_TYPE: MetricsDisplayType = 'line'
-export const NEW_QUERY_STARTED_ERROR_MESSAGE = 'A new metrics query started, canceling the previous one'
-
-// A superseded or unmounted request rejects with an abort, not a real failure — never surface it as an error.
-// The cancel path aborts with NEW_QUERY_STARTED_ERROR_MESSAGE, whose text doesn't contain "abort", so match it
-// explicitly alongside the generic abort check (mirrors logsViewerDataLogic's isUserInitiatedError).
-export const isUserInitiatedError = (error: unknown): boolean => {
-    const errorStr = String(error).toLowerCase()
-    return error === NEW_QUERY_STARTED_ERROR_MESSAGE || errorStr.includes('abort')
-}
 // The anomaly badge characterizes the most recent slice of the selected window against the rest.
 const ANOMALY_WINDOW_FRACTION = 0.2
 export const LIVE_REFRESH_MS = 15_000
@@ -195,6 +192,7 @@ export interface metricsViewerLogicValues {
     anomalyBadge: MetricsAnomalyBadge | null
     anomalyReport: _MetricAnomalyReportApi | null
     anomalyReportLoading: boolean
+    anomalyTopMovers: MetricTopMoverRow[]
     attributeEndpointFilters: Record<string, string>
     attributeKeyOptions: {
         key: string
@@ -250,6 +248,13 @@ export interface metricsViewerLogicActions {
     setServices: (services: string[]) => {
         services: string[]
     } // metricNamePickerLogic
+    addAttributeFilter: (
+        key: string,
+        value: string
+    ) => {
+        key: string
+        value: string
+    }
     addGoalLine: () => {
         value: true
     }
@@ -431,6 +436,7 @@ export interface metricsViewerLogicMeta {
         attributeEndpointFilters: (dateFrom: string | null, dateTo: string | null) => Record<string, string>
         chartSeries: (queryResults: _MetricSeriesApi[]) => MetricsChartSeries[]
         hasResults: (queryResults: _MetricSeriesApi[]) => boolean
+        anomalyTopMovers: (anomalyReport: _MetricAnomalyReportApi | null) => MetricTopMoverRow[]
         anomalyBadge: (anomalyReport: _MetricAnomalyReportApi | null) => MetricsAnomalyBadge | null
     }
 }
@@ -461,6 +467,8 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         setGroupByKeys: (groupByKeys: string[]) => ({ groupByKeys }),
         setGroupBySearch: (groupBySearch: string) => ({ groupBySearch }),
         setFilterGroup: (filterGroup: UniversalFiltersGroup) => ({ filterGroup }),
+        // Narrows the chart to one label value, from the anomaly panel's ranked movers.
+        addAttributeFilter: (key: string, value: string) => ({ key, value }),
         // Saves the current query as an insight (reusing the last save while the
         // query is unchanged) and opens the dashboard picker for it.
         addToDashboard: true,
@@ -594,18 +602,9 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                     isUserInitiatedError(error) ? state : error || 'Something went wrong running this query.',
             },
         ],
-        // kea-loaders' auto `queryResultsLoading` drops to false when a superseded query's
-        // abort lands as a failure, flashing the empty state while the replacement query is
-        // still in flight. This flag only clears on success or a real failure, so the UI
-        // must read it instead of `queryResultsLoading`.
-        queryLoading: [
-            false as boolean,
-            {
-                fetchQueryResults: () => true,
-                fetchQueryResultsSuccess: () => false,
-                fetchQueryResultsFailure: (state, { error }) => (isUserInitiatedError(error) ? state : false),
-            },
-        ],
+        // Rides out superseded-query aborts, so the UI must read it instead of the auto
+        // `queryResultsLoading`, which drops mid-refetch and flashes the empty state.
+        queryLoading: [false as boolean, abortResilientLoading('fetchQueryResults')],
     }),
     listeners(({ actions, values, cache }) => ({
         // Narrows the metric picker to the filtered services, so it offers only the
@@ -616,6 +615,43 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
             if (!objectsEqual(values.selectedServices, values.pickerServices)) {
                 actions.setServices(values.selectedServices)
             }
+        },
+        addAttributeFilter: ({ key, value }) => {
+            const inner = values.filterGroup.values[0] as UniversalFiltersGroup
+            const existingIndex = inner.values.findIndex(
+                (filter) =>
+                    !isUniversalGroupFilterLike(filter) &&
+                    'key' in filter &&
+                    filter.key === key &&
+                    'operator' in filter &&
+                    filter.operator === PropertyOperator.Exact
+            )
+            const existing = existingIndex >= 0 ? (inner.values[existingIndex] as UniversalFilterValue) : null
+            const existingValues = existing ? toValueStrings('value' in existing ? existing.value : null) : []
+            if (existingValues.includes(value)) {
+                return
+            }
+            // Two chips on one key are ANDed, and no series equals both values, so a second pick of
+            // the same key widens the chip it already has instead of adding another.
+            const chip = {
+                type: PropertyFilterType.MetricAttribute,
+                key,
+                value: [...existingValues, value],
+                operator: PropertyOperator.Exact,
+            }
+            const nextValues = [...inner.values]
+            if (existingIndex >= 0) {
+                nextValues[existingIndex] = chip as UniversalFilterValue
+            } else {
+                nextValues.push(chip as UniversalFilterValue)
+            }
+            actions.setFilterGroup({
+                ...values.filterGroup,
+                values: [
+                    { ...inner, values: nextValues as UniversalFiltersGroup['values'] },
+                    ...values.filterGroup.values.slice(1),
+                ],
+            })
         },
         setMetricName: ({ metricName }) => {
             const metricType = values.items.find((item) => item.name === metricName.trim())?.metric_type
@@ -965,6 +1001,13 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         hasResults: [
             (s) => [s.queryResults],
             (results: MetricsViewerSeries[]): boolean => (results[0]?.points.length ?? 0) > 0,
+        ],
+        // The label values behind the current anomaly, ranked. Empty for an ungrouped metric or
+        // when nothing stood out, which the panel reports rather than hiding.
+        anomalyTopMovers: [
+            (s) => [s.anomalyReport],
+            (report: _MetricAnomalyReportApi | null): MetricTopMoverRow[] =>
+                report ? topMoverRows(report.top_movers) : [],
         ],
         // Display shape for the anomaly badge — null when there's no report or the metric is flat.
         anomalyBadge: [

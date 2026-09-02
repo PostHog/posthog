@@ -128,6 +128,9 @@ export interface accountsViewsLogicActions {
     setAssignedToFilter: (value: RoleFilterValue) => {
         value: RoleFilterValue
     } // accountsLogic
+    setAwaitingSavedView: (awaiting: boolean) => {
+        awaiting: boolean
+    } // accountsLogic
     setSearchQuery: (query: string) => {
         query: string
     } // accountsLogic
@@ -410,6 +413,7 @@ export const accountsViewsLogic = kea<accountsViewsLogicType>([
                 'setAssignedToFilter',
                 'setSortOrder',
                 'setAccountFilters',
+                'setAwaitingSavedView',
             ],
             accountsOverviewTilesLogic,
             ['setTiles', 'setTileFilter'],
@@ -648,6 +652,7 @@ export const accountsViewsLogic = kea<accountsViewsLogicType>([
         loadViewsFailure: ({ error }) => {
             posthog.captureException(error)
             lemonToast.error('Failed to load views')
+            actions.setAwaitingSavedView(false)
         },
         submitNewViewFormFailure: ({ error }) => {
             posthog.captureException(error)
@@ -683,9 +688,13 @@ export const accountsViewsLogic = kea<accountsViewsLogicType>([
                     actions.applyView(view)
                 }
             }
+            actions.setAwaitingSavedView(false)
         },
     })),
-    afterMount(({ actions }) => {
+    afterMount(({ actions, values }) => {
+        if (values.currentViewId && !router.values.hashParams?.view) {
+            actions.setAwaitingSavedView(true)
+        }
         actions.loadViews()
     }),
 ])

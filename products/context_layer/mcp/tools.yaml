@@ -12,6 +12,9 @@ tools:
     context-layer-agent-commits-create:
         operation: context_layer_agent_commits_create
         enabled: false
+    context-layer-channel-pages-retrieve:
+        operation: context_layer_channel_pages_retrieve
+        enabled: false
     context-layer-commits-create:
         operation: context_layer_commits_create
         enabled: false
@@ -27,6 +30,12 @@ tools:
     context-layer-export-retrieve:
         operation: context_layer_export_retrieve
         enabled: false
+    context-layer-pages-retrieve:
+        operation: context_layer_pages_retrieve
+        enabled: false
+    context-layer-pages-update:
+        operation: context_layer_pages_update
+        enabled: false
     context-layer-status-retrieve:
         operation: context_layer_status_retrieve
         enabled: false
@@ -37,7 +46,7 @@ tools:
         operation: context_layer_wiki_report_retrieve
         enabled: false
     context-wiki-channel-resolve:
-        operation: context_layer_channel_pages_retrieve
+        operation: context_layer_agent_channel_pages_retrieve
         enabled: true
         scopes:
             - organization:read
@@ -51,7 +60,7 @@ tools:
             with context-wiki-page-retrieve and context-wiki-page-update. Do not derive a path from the channel name.
         feature_flag: context-layer
     context-wiki-page-retrieve:
-        operation: context_layer_pages_retrieve
+        operation: context_layer_agent_pages_retrieve
         enabled: true
         scopes:
             - organization:read
@@ -65,7 +74,7 @@ tools:
             pass that head_sha as base_head when updating the page.
         feature_flag: context-layer
     context-wiki-page-update:
-        operation: context_layer_pages_update
+        operation: context_layer_agent_pages_update
         enabled: true
         scopes:
             - organization:write

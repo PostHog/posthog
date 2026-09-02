@@ -23,7 +23,6 @@ export class BlockProxy {
             recordingApiBaseUrl: string
             recordingApiSecret: string
             blockListingTimeoutMs: number
-            blockFetchTimeoutMs: number
         },
         private log: Logger = createLogger()
     ) {}
@@ -122,7 +121,6 @@ export class BlockProxy {
             const url = `${apiBase}/${this.teamId}/recordings/${encodeURIComponent(this.sessionId)}/block?${params}`
             const resp = await internalFetch(url, {
                 headers: this.authHeaders(),
-                timeoutMs: this.cfg.blockFetchTimeoutMs,
             })
             if (resp.status < 200 || resp.status >= 300) {
                 const text = await resp.text()

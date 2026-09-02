@@ -34,9 +34,15 @@ class AlertFrequency(models.TextChoices):
     ON_BREACH = "on_breach", "When a threshold is crossed"
 
 
-class AlertMetric(models.TextChoices):
+class VisionActionAlertMetric(models.TextChoices):
     COUNT = "count", "Count of matching observations"
     AVG_SCORE = "avg_score", "Average score"  # scorer scanners only
+
+
+# The class name feeds the derived OpenAPI component name and must not collide
+# with vision_alert's VisionAlertMetric, which holds the same values under
+# different labels. AlertMetric is an alias for callers of the short name.
+AlertMetric = VisionActionAlertMetric
 
 
 class AlertDirection(models.TextChoices):

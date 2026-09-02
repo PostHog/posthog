@@ -1,3 +1,4 @@
+import re
 import json
 import uuid
 from collections.abc import Callable, Sequence
@@ -35,6 +36,7 @@ from asgiref.sync import async_to_sync
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_view
 from opentelemetry import trace
+from pydantic import ValidationError as PydanticValidationError
 from rest_framework import exceptions, mixins, serializers, status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
@@ -67,6 +69,8 @@ from posthog.user_permissions import UserPermissions
 
 from products.data_warehouse.backend.facade.api import trigger_external_data_workflow
 from products.signals.backend.artefact_schemas import (
+    DISMISSAL_NOTE_MAX_LENGTH,
+    DISMISSAL_REASON_WRONG_REPO,
     NON_WRITABLE_ARTEFACT_TYPES,
     SIGNALS_PRODUCT,
     ArtefactContentValidationError,
@@ -110,6 +114,7 @@ from products.signals.backend.models import (
     SignalUserAutonomyConfig,
 )
 from products.signals.backend.quota import self_driving_quota_enforcement_enabled, self_driving_quota_gate
+from products.signals.backend.repo_corrections import sanitized_repository
 from products.signals.backend.report_generation.research import ActionabilityChoice
 from products.signals.backend.report_generation.resolve_reviewers import (
     get_org_member_github_login_to_user_map,
@@ -166,6 +171,7 @@ from products.signals.backend.temporal.types import (
     SignalReportReingestionWorkflowInputs,
 )
 from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade.repo_selection_types import RepoSelectionResult
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 
 logger = structlog.get_logger(__name__)
@@ -438,7 +444,7 @@ class SignalTeamConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return Response(serializer.data)
 
 
-SIGNAL_REPORT_DISMISSAL_NOTE_MAX_LENGTH = 4000
+SIGNAL_REPORT_DISMISSAL_NOTE_MAX_LENGTH = DISMISSAL_NOTE_MAX_LENGTH
 # Upper bound on how far a snooze can push out re-promotion. Generous enough for any
 # realistic snooze, but bounded so a caller can't effectively block a report forever.
 SIGNAL_REPORT_MAX_SNOOZE_FOR = 100_000
@@ -460,6 +466,7 @@ SIGNAL_REPORT_DISMISSAL_REASON_CHOICES = [
     ("already_fixed", "Already fixed"),
     ("report_unclear", "Report is unclear to me"),
     ("analysis_wrong", "Agent's analysis is wrong"),
+    ("wrong_repo", "Agent picked the wrong repository"),
     ("wontfix_intentional", "Won't fix - intentional behavior"),
     ("wontfix_irrelevant", "Won't fix - issue is real but insignificant"),
     ("fixed_outside_posthog", "Fixed outside PostHog"),
@@ -469,15 +476,20 @@ SIGNAL_REPORT_DISMISSAL_REASON_CHOICES = [
 
 _DISMISSAL_REASON_HELP_TEXT = (
     "Optional canonical reason code recorded with the transition. Must be one of: already_fixed, "
-    "report_unclear, analysis_wrong, wontfix_intentional, wontfix_irrelevant, fixed_outside_posthog, "
-    "pr_merged, other — these match the inbox UI so the rationale renders as a labelled chip rather "
-    "than a raw code. When the work this report asked for is done, the honest transition is "
-    "state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), "
+    "report_unclear, analysis_wrong, wrong_repo, wontfix_intentional, wontfix_irrelevant, "
+    "fixed_outside_posthog, pr_merged, other — these match the inbox UI so the rationale renders as a "
+    "labelled chip rather than a raw code. When the work this report asked for is done, the honest "
+    "transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), "
     "'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), "
-    "or 'already_fixed' (it was fixed before the report was filed). The dismissal codes (report_unclear, analysis_wrong, "
-    "wontfix_*) go with state='suppressed'. Use 'other' together with a dismissal_note for anything "
-    "that doesn't fit a code."
+    "or 'already_fixed' (it was fixed before the report was filed). The dismissal codes (report_unclear, "
+    "analysis_wrong, wrong_repo, wontfix_*) go with state='suppressed'. Use 'wrong_repo' when the agent "
+    "picked the wrong repository for this report, ideally with corrected_repository naming the right one. "
+    "Use 'other' together with a dismissal_note for anything that doesn't fit a code."
 )
+
+# GitHub caps owners at 39 characters and repository names at 100; 'owner/repo' fits in 140.
+_CORRECTED_REPOSITORY_MAX_LENGTH = 140
+_CORRECTED_REPOSITORY_RE = re.compile(r"^[^/\s]+/[^/\s]+$")
 
 
 class SignalReportBulkStateOutcome(models.TextChoices):
@@ -504,9 +516,15 @@ _RESOLVABLE_STATUSES_BEFORE_SUPPRESSION = frozenset(
 )
 
 
+class SignalReportState(models.TextChoices):
+    SUPPRESSED = "suppressed", "suppressed"
+    POTENTIAL = "potential", "potential"
+    RESOLVED = "resolved", "resolved"
+
+
 class SignalReportStateRequestSerializer(serializers.Serializer):
     state = serializers.ChoiceField(
-        choices=[("suppressed", "suppressed"), ("potential", "potential"), ("resolved", "resolved")],
+        choices=SignalReportState.choices,
         help_text=(
             "Target state for the report. Use 'suppressed' to dismiss the report from the inbox, "
             "'potential' to snooze/reopen it for later review, or 'resolved' when the work this report "
@@ -526,6 +544,21 @@ class SignalReportStateRequestSerializer(serializers.Serializer):
         max_length=SIGNAL_REPORT_DISMISSAL_NOTE_MAX_LENGTH,
         help_text="Optional free-form note explaining the dismissal. Capped at 4000 characters.",
     )
+    corrected_repository = serializers.CharField(
+        required=False,
+        allow_blank=False,
+        # min_length=1 (not just allow_blank=False) so the non-empty constraint surfaces as
+        # `minLength: 1` in the generated OpenAPI/Zod schema, not only as a server-side 400.
+        min_length=1,
+        max_length=_CORRECTED_REPOSITORY_MAX_LENGTH,
+        help_text=(
+            "Optional, only allowed with dismissal_reason='wrong_repo'. The repository this report "
+            "should have targeted, in 'owner/repo' format (case-insensitive). It is recorded with "
+            "the dismissal and fed into future repository selection for this project. When the "
+            "repository is connected to the project, it also becomes the report's corrected repo "
+            "selection, so restoring the report re-researches against it."
+        ),
+    )
     snooze_for = serializers.IntegerField(
         required=False,
         min_value=1,
@@ -537,6 +570,21 @@ class SignalReportStateRequestSerializer(serializers.Serializer):
         ),
     )
 
+    def validate_corrected_repository(self, value: str) -> str:
+        # Lowercased on the way in: repo-selection candidate lists, the heavy cache, and connected-repo
+        # checks all compare lowercased 'owner/repo' names.
+        value = value.strip().lower()
+        if not _CORRECTED_REPOSITORY_RE.match(value):
+            raise serializers.ValidationError("Must be in 'owner/repo' format.")
+        return value
+
+    def validate(self, attrs: dict) -> dict:
+        if attrs.get("corrected_repository") and attrs.get("dismissal_reason") != DISMISSAL_REASON_WRONG_REPO:
+            raise serializers.ValidationError(
+                {"corrected_repository": "Only allowed when dismissal_reason is 'wrong_repo'."}
+            )
+        return attrs
+
 
 class SignalReportBulkStateRequestSerializer(SignalReportStateRequestSerializer):
     ids = serializers.ListField(
@@ -547,7 +595,7 @@ class SignalReportBulkStateRequestSerializer(SignalReportStateRequestSerializer)
             "Report ids to transition to `state` in one call (1–"
             f"{SIGNAL_REPORT_BULK_STATE_MAX_IDS}). Duplicates are de-duplicated; each id is "
             "processed independently so one disallowed transition does not block the rest. "
-            "`dismissal_reason`, `dismissal_note` and `snooze_for` apply to every id."
+            "`dismissal_reason`, `dismissal_note`, `corrected_repository` and `snooze_for` apply to every id."
         ),
     )
 
@@ -780,12 +828,21 @@ class SignalReportViewSet(
     # Requires `latest_actionability_value` annotation to be applied first.
     _Q_READY_NOT_ACTIONABLE = Q(status=SignalReport.Status.READY) & Q(latest_actionability_value="not_actionable")
     _DEFAULT_SIGNAL_REPORT_ORDERING = "-is_suggested_reviewer,status,-updated_at"
+    _INBOX_SORT_ORDERINGS = {
+        "priority": "priority,status,-updated_at",
+        "last_updated": "-updated_at,status",
+        "newest": "-created_at,status,-updated_at",
+        "oldest": "created_at,status,-updated_at",
+    }
+    _INBOX_VIEWS = frozenset(
+        {"actionable", "needs_input", "monitoring", "resolved", "dismissed", "not_actionable", "all"}
+    )
     _SIGNAL_REPORT_ORDERING_FIELDS: dict[str, str] = {
         "status": "pipeline_status_rank",
         "is_suggested_reviewer": "is_suggested_reviewer",
         "signal_count": "signal_count",
         "total_weight": "total_weight",
-        "priority": "priority_rank",
+        "priority": "priority_sort_rank",
         "created_at": "created_at",
         "updated_at": "updated_at",
         "id": "id",
@@ -803,7 +860,7 @@ class SignalReportViewSet(
             qs = self._scope_signal_report_queryset(queryset)
             qs = self._exclude_deleted_signal_reports(qs)
             qs = self._apply_signal_report_status_filter(qs)
-            qs = self._annotate_latest_actionability_value(qs)
+            qs = self._annotate_latest_actionability(qs)
             qs = self._prefetch_signal_report_priority_artefacts(qs)
             qs = self._annotate_is_suggested_reviewer(qs)
             return annotate_first_billable_pr_run_at(qs)
@@ -819,9 +876,12 @@ class SignalReportViewSet(
         qs = self._apply_signal_report_implementation_pr_filter(qs)
         qs = self._apply_signal_report_channel_filter(qs)
         qs = self._apply_signal_report_suggested_reviewer_filter(qs)
+        qs = self._apply_signal_report_inbox_scope_filter(qs)
         qs = self._apply_signal_report_task_filter(qs)
-        qs = self._annotate_latest_actionability_value(qs)
+        qs = self._annotate_latest_actionability(qs)
         qs = self._apply_signal_report_actionability_filter(qs)
+        qs = self._apply_signal_report_already_addressed_filter(qs)
+        qs = self._apply_signal_report_inbox_view_filter(qs)
         qs = self._annotate_signal_report_status_rank(qs)
         qs = self._annotate_signal_report_priority(qs)
         qs = self._apply_signal_report_priority_filter(qs)
@@ -925,6 +985,8 @@ class SignalReportViewSet(
         if self.action in self._SUPPRESSED_VISIBLE_ACTIONS:
             return queryset
         if self._include_all_statuses_requested():
+            return queryset
+        if self.request.query_params.get("view") in {"dismissed", "all"}:
             return queryset
         return queryset.exclude(status=SignalReport.Status.SUPPRESSED)
 
@@ -1097,6 +1159,9 @@ class SignalReportViewSet(
             return queryset
 
         reviewer_user_uuids = [s.strip() for s in suggested_reviewer_filter.split(",") if s.strip()]
+        return self._filter_signal_reports_by_suggested_reviewers(queryset, reviewer_user_uuids)
+
+    def _filter_signal_reports_by_suggested_reviewers(self, queryset, reviewer_user_uuids: list[str]):
         try:
             reviewer_user_uuids = [str(uuid.UUID(user_uuid)) for user_uuid in reviewer_user_uuids]
         except (ValueError, AttributeError) as e:
@@ -1122,6 +1187,22 @@ class SignalReportViewSet(
             )
         )
 
+    def _apply_signal_report_inbox_scope_filter(self, queryset):
+        scope = self.request.query_params.get("scope")
+        if not scope or scope == "entire_project":
+            return queryset
+        if scope == "for_me":
+            user = cast(User, self.request.user)
+            return self._filter_signal_reports_by_suggested_reviewers(queryset, [str(user.uuid)])
+        if scope == "teammate":
+            teammate_uuid = (self.request.query_params.get("teammate_uuid") or "").strip()
+            if not teammate_uuid:
+                raise serializers.ValidationError({"teammate_uuid": "This field is required when scope is teammate."})
+            return self._filter_signal_reports_by_suggested_reviewers(queryset, [teammate_uuid])
+        raise serializers.ValidationError(
+            {"scope": f"Invalid value: {scope!r}. Allowed: for_me, entire_project, teammate."}
+        )
+
     def _apply_signal_report_task_filter(self, queryset):
         # Reports a given task is associated with — used by running agents ("which reports am I
         # working against?") and by the agent harness to fan commit artefacts out to them. Uses the
@@ -1140,6 +1221,20 @@ class SignalReportViewSet(
         # Filters on the `priority_rank` annotation, which must be applied first.
         # Reports without a priority artefact (coalesced to "~") are excluded when this filter is set.
         priority_filter = self.request.query_params.get("priority")
+        if not priority_filter and self.request.query_params.get("use_priority_preference", "false").lower() == "true":
+            user = cast(User, self.request.user)
+            personal_threshold = (
+                SignalUserAutonomyConfig.objects.filter(user=user).values_list("autostart_priority", flat=True).first()
+            )
+            project_threshold = (
+                SignalTeamConfig.objects.filter(team=self.team)
+                .values_list("default_autostart_priority", flat=True)
+                .first()
+                or AutonomyPriority.P4
+            )
+            threshold = personal_threshold or project_threshold
+            values = AutonomyPriority.values[: AutonomyPriority.values.index(threshold) + 1]
+            return queryset.filter(priority_rank__in=values)
         if not priority_filter:
             return queryset
 
@@ -1186,6 +1281,44 @@ class SignalReportViewSet(
 
         return queryset.filter(latest_actionability_value__in=values)
 
+    def _apply_signal_report_already_addressed_filter(self, queryset):
+        raw = self.request.query_params.get("already_addressed")
+        if raw is None or not raw.strip():
+            return queryset
+        value = raw.strip().lower()
+        if value in ("1", "true", "yes"):
+            return queryset.filter(latest_already_addressed_value="true")
+        if value in ("0", "false", "no"):
+            return queryset.exclude(latest_already_addressed_value="true")
+        raise serializers.ValidationError({"already_addressed": f"Invalid value: {raw!r}. Allowed: true, false."})
+
+    def _apply_signal_report_inbox_view_filter(self, queryset):
+        inbox_view = self.request.query_params.get("view")
+        if not inbox_view:
+            return queryset
+        if inbox_view not in self._INBOX_VIEWS:
+            allowed = ", ".join(sorted(self._INBOX_VIEWS))
+            raise serializers.ValidationError({"view": f"Invalid value: {inbox_view!r}. Allowed: {allowed}."})
+        if inbox_view == "actionable":
+            return queryset.filter(
+                status=SignalReport.Status.READY,
+                latest_actionability_value=ActionabilityChoice.IMMEDIATELY_ACTIONABLE.value,
+            ).exclude(self._implementation_pr_report_filter() | Q(latest_already_addressed_value="true"))
+        if inbox_view == "needs_input":
+            return queryset.filter(
+                status=SignalReport.Status.PENDING_INPUT,
+                latest_actionability_value=ActionabilityChoice.REQUIRES_HUMAN_INPUT.value,
+            )
+        if inbox_view == "monitoring":
+            return queryset.filter(status=SignalReport.Status.READY).filter(self._implementation_pr_report_filter())
+        if inbox_view == "resolved":
+            return queryset.filter(status=SignalReport.Status.RESOLVED)
+        if inbox_view == "dismissed":
+            return queryset.filter(status=SignalReport.Status.SUPPRESSED)
+        if inbox_view == "not_actionable":
+            return queryset.filter(latest_actionability_value=ActionabilityChoice.NOT_ACTIONABLE.value)
+        return queryset
+
     def _annotate_signal_report_status_rank(self, queryset):
         # `ordering=status` uses semantic stage rank (annotation), not lexicographic `status` column order.
         # `status=ready` splits into two virtual stages (requires `latest_actionability_value`):
@@ -1229,13 +1362,19 @@ class SignalReportViewSet(
             .values("_priority_val")[:1],
             output_field=CharField(),
         )
-        return queryset.annotate(
-            priority_rank=Coalesce(latest_priority, Value("~"), output_field=CharField()),
+        return queryset.annotate(priority_rank=latest_priority).annotate(
+            priority_sort_rank=Case(
+                *(
+                    When(priority_rank=priority, then=Value(index))
+                    for index, priority in enumerate(AutonomyPriority.values)
+                ),
+                default=Value(len(AutonomyPriority.values)),
+                output_field=IntegerField(),
+            )
         )
 
-    def _annotate_latest_actionability_value(self, queryset):
-        # Extract the "actionability" value from the latest actionability_judgment artefact.
-        latest_actionability = Subquery(
+    def _latest_actionability_field(self, field: str):
+        return Subquery(
             SignalReportArtefact.objects.filter(
                 report_id=OuterRef("id"),
                 type=SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT,
@@ -1245,7 +1384,7 @@ class SignalReportViewSet(
             .annotate(
                 _actionability_val=Func(
                     Cast(F("content"), output_field=JSONField()),
-                    Value("actionability"),
+                    Value(field),
                     function="jsonb_extract_path_text",
                     output_field=CharField(),
                 ),
@@ -1253,7 +1392,12 @@ class SignalReportViewSet(
             .values("_actionability_val")[:1],
             output_field=CharField(),
         )
-        return queryset.annotate(latest_actionability_value=latest_actionability)
+
+    def _annotate_latest_actionability(self, queryset):
+        return queryset.annotate(
+            latest_actionability_value=self._latest_actionability_field("actionability"),
+            latest_already_addressed_value=self._latest_actionability_field("already_addressed"),
+        )
 
     def _prefetch_signal_report_priority_artefacts(self, queryset):
         return queryset.prefetch_related(
@@ -1353,7 +1497,16 @@ class SignalReportViewSet(
         return self._parse_ordering_string(self._DEFAULT_SIGNAL_REPORT_ORDERING)
 
     def _parse_signal_report_ordering(self) -> list[str]:
-        raw = self.request.query_params.get("ordering", self._DEFAULT_SIGNAL_REPORT_ORDERING)
+        raw = self.request.query_params.get("ordering")
+        if raw is None:
+            inbox_sort = self.request.query_params.get("sort")
+            if inbox_sort:
+                raw = self._INBOX_SORT_ORDERINGS.get(inbox_sort)
+                if raw is None:
+                    allowed = ", ".join(sorted(self._INBOX_SORT_ORDERINGS))
+                    raise serializers.ValidationError({"sort": f"Invalid value: {inbox_sort!r}. Allowed: {allowed}."})
+            else:
+                raw = self._DEFAULT_SIGNAL_REPORT_ORDERING
         if not raw or not str(raw).strip():
             return self._default_signal_report_ordering_clauses
         clauses = self._parse_ordering_string(str(raw).strip())
@@ -1573,6 +1726,51 @@ class SignalReportViewSet(
                 ),
             ),
             OpenApiParameter(
+                name="actionability",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Comma-separated actionability judgments to include. Valid values: immediately_actionable, "
+                    "requires_human_input, not_actionable. Reports without a judgment are excluded."
+                ),
+            ),
+            OpenApiParameter(
+                name="already_addressed",
+                type=OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Filter by whether the latest actionability judgment says the issue is already being handled. "
+                    "False also includes older reports where that judgment did not record a value."
+                ),
+            ),
+            OpenApiParameter(
+                name="view",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Apply an inbox view: actionable, needs_input, monitoring, resolved, dismissed, "
+                    "not_actionable, or all. Each view applies the corresponding status, actionability, and "
+                    "implementation-PR filters."
+                ),
+            ),
+            OpenApiParameter(
+                name="scope",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=("Reviewer scope: for_me, entire_project, or teammate. Pass teammate_uuid with teammate."),
+            ),
+            OpenApiParameter(
+                name="teammate_uuid",
+                type=OpenApiTypes.UUID,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="PostHog user UUID used when scope=teammate.",
+            ),
+            OpenApiParameter(
                 name="priority",
                 type=OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
@@ -1580,6 +1778,25 @@ class SignalReportViewSet(
                 description=(
                     "Comma-separated list of priorities to include. Valid values: P0, P1, P2, P3, P4. "
                     "Reports without a priority assignment are excluded when this filter is set."
+                ),
+            ),
+            OpenApiParameter(
+                name="use_priority_preference",
+                type=OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "When true and priority is omitted, include priorities at or above the requesting user's "
+                    "personal PR-generation threshold, falling back to the project threshold."
+                ),
+            ),
+            OpenApiParameter(
+                name="sort",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Inbox sort preset: priority, last_updated, newest, or oldest. Ignored when ordering is supplied."
                 ),
             ),
             OpenApiParameter(
@@ -1848,15 +2065,18 @@ class SignalReportViewSet(
         Transition a report to a new state. The model validates allowed transitions.
 
         The request body is validated by SignalReportStateRequestSerializer — only the
-        fields it declares (state, dismissal_reason, dismissal_note, snooze_for) are read,
-        and only snooze_for is ever forwarded to transition_to. Any other key is ignored,
-        so internal transition_to kwargs (reset_weight, error, ...) can't be injected.
+        fields it declares (state, dismissal_reason, dismissal_note, corrected_repository,
+        snooze_for) are read, and only snooze_for is ever forwarded to transition_to. Any
+        other key is ignored, so internal transition_to kwargs (reset_weight, error, ...)
+        can't be injected.
 
         Body: {
             "state": "suppressed" | "potential" | "resolved",
             # Optional dismissal feedback (honored when state == "suppressed", "potential", or "resolved"):
             "dismissal_reason": "<canonical reason code, see SIGNAL_REPORT_DISMISSAL_REASON_CHOICES>",
             "dismissal_note": "free-form text",
+            # Optional, only allowed with dismissal_reason == "wrong_repo":
+            "corrected_repository": "owner/repo the report should have targeted",
             # Optional, only honored for state == "potential":
             "snooze_for": <number of additional signals before re-promotion>,
         }
@@ -1872,6 +2092,7 @@ class SignalReportViewSet(
             target=data["state"],
             dismissal_reason=data.get("dismissal_reason"),
             dismissal_note=data.get("dismissal_note"),
+            corrected_repository=data.get("corrected_repository"),
             snooze_for=data.get("snooze_for"),
         )
 
@@ -2023,6 +2244,80 @@ class SignalReportViewSet(
             self._cached_request_attribution = resolve_request_attribution(self.request, self.team.id)
         return self._cached_request_attribution
 
+    def _latest_selected_repository(self, report_id: str) -> str | None:
+        """The repository named by the report's latest repo_selection artefact, if any."""
+        artefact = (
+            SignalReportArtefact.objects.filter(
+                report_id=report_id, type=SignalReportArtefact.ArtefactType.REPO_SELECTION
+            )
+            .order_by("-created_at")
+            .first()
+        )
+        if artefact is None:
+            return None
+        try:
+            return RepoSelectionResult.model_validate_json(artefact.content).repository
+        except PydanticValidationError:
+            # Legacy or malformed rows degrade to "unknown" rather than failing the dismissal.
+            return None
+
+    def _connected_repositories(self) -> set[str]:
+        """Lowercased 'owner/repo' names connected to this team, cached for the request.
+
+        Cached because bulk_state calls the transition helper per report, and the underlying
+        lookup reads the integration's cached repository list.
+        """
+        if not hasattr(self, "_cached_connected_repositories"):
+            from products.tasks.backend.facade.repo_selection import (  # noqa: PLC0415 — keeps repo-selection agent imports off the API import path
+                list_team_connected_repositories,
+            )
+
+            self._cached_connected_repositories = set(list_team_connected_repositories(self.team.id))
+        return self._cached_connected_repositories
+
+    def _apply_wrong_repo_selection(self, report: SignalReport, corrected_repository: str | None) -> None:
+        """Persist a wrong-repo dismissal onto the report's repo_selection history, latest-wins.
+
+        Research reuses the report's newest repo_selection whenever it names a repository, so a
+        wrong-repo dismissal must not leave the rejected pick as that newest row. A correction
+        naming a connected repository becomes the new selection: the report's next research run
+        (once new signals re-promote it; restore itself does not re-research) targets it. Any
+        other wrong-repo dismissal (no correction named, or the named repository not connected;
+        research clones through the team integration, so an unconnected target would guarantee a
+        clone failure) clears the selection instead, so the next run re-selects from scratch with
+        the corrections feed in its prompt rather than reusing the rejected pick. The correction
+        itself is recorded on the dismissal artefact either way.
+        """
+        corrected_and_connected = (
+            corrected_repository is not None and corrected_repository in self._connected_repositories()
+        )
+        if not corrected_and_connected and self._latest_selected_repository(str(report.id)) is None:
+            # Nothing to clear: with no reusable selection, the next run re-selects anyway.
+            return
+        if corrected_and_connected:
+            content = RepoSelectionResult(
+                repository=corrected_repository,
+                reason="A reviewer dismissed this report as targeting the wrong repository and named this one instead.",
+                # A correction names the repo a person would target; it never signals PR intent, so
+                # it must not outrank an earlier selection's False stamp on the autostart path.
+                autostart_eligible=False,
+            )
+        else:
+            content = RepoSelectionResult(
+                repository=None,
+                reason=(
+                    "A reviewer dismissed this report as targeting the wrong repository; "
+                    "the selection is cleared so the next research run picks again."
+                ),
+                autostart_eligible=False,
+            )
+        SignalReportArtefact.append_status(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            content=content,
+            attribution=self._request_attribution(),
+        )
+
     def _transition_report_state(
         self,
         report: SignalReport,
@@ -2031,6 +2326,7 @@ class SignalReportViewSet(
         dismissal_reason: str | None,
         dismissal_note: str | None,
         snooze_for: int | None,
+        corrected_repository: str | None = None,
     ) -> "tuple[SignalReportBulkStateOutcome, str | None]":
         """
         Apply one report state transition (plus optional dismissal artefact) and return a
@@ -2045,6 +2341,11 @@ class SignalReportViewSet(
         `transition_to` kwarg (signals_at_run_increment, reset_weight, title, summary, error) is an
         internal pipeline concern and must never be reachable from this public API surface, so it is
         passed explicitly rather than splatting caller-supplied kwargs.
+
+        `corrected_repository` (validated upstream: wrong_repo dismissals only) is recorded on the
+        dismissal artefact; a wrong-repo dismissal also rewrites the report's newest repo_selection
+        artefact — the corrected repository when connected, cleared otherwise; see
+        `_apply_wrong_repo_selection`.
         """
         target_status = SignalReport.Status(target)
 
@@ -2133,17 +2434,30 @@ class SignalReportViewSet(
                 user = self.request.user
                 is_authenticated = getattr(user, "is_authenticated", False)
                 user_uuid = getattr(user, "uuid", None) if is_authenticated else None
+                is_wrong_repo = dismissal_reason == DISMISSAL_REASON_WRONG_REPO
+                # Denormalized so a wrong-repo dismissal is self-contained: the correction feed reads
+                # which repo was wrong straight off this artefact instead of joining the repo_selection
+                # history at selection time. Shape-checked because the persisted repo_selection value is
+                # unconstrained (writable through the generic artefacts API) while this field is capped,
+                # so an oversized or malformed value degrades to unknown rather than failing the dismissal.
+                selected_repository = (
+                    sanitized_repository(self._latest_selected_repository(str(report.id))) if is_wrong_repo else None
+                )
                 SignalReportArtefact.append_dismissal(
                     team_id=self.team.id,
                     report_id=str(report.id),
                     content=Dismissal(
                         reason=dismissal_reason,
                         note=dismissal_note,
+                        selected_repository=selected_repository,
+                        corrected_repository=corrected_repository if is_wrong_repo else None,
                         user_id=getattr(user, "id", None) if is_authenticated else None,
                         user_uuid=str(user_uuid) if user_uuid else None,
                     ),
                     attribution=self._request_attribution(),
                 )
+                if is_wrong_repo:
+                    self._apply_wrong_repo_selection(report, corrected_repository)
                 # The dismissal prefetch may have been evaluated before this artefact
                 # existed; drop the stale cache so a follow-up serializer re-reads the
                 # just-written reason/note instead of the previous (or empty) dismissal.
@@ -2177,6 +2491,7 @@ class SignalReportViewSet(
         target = data["state"]
         dismissal_reason = data.get("dismissal_reason")
         dismissal_note = data.get("dismissal_note")
+        corrected_repository = data.get("corrected_repository")
         snooze_for = data.get("snooze_for")
 
         # De-duplicate while preserving request order so the response lines up with what was asked.
@@ -2208,6 +2523,7 @@ class SignalReportViewSet(
                     target=target,
                     dismissal_reason=dismissal_reason,
                     dismissal_note=dismissal_note,
+                    corrected_repository=corrected_repository,
                     snooze_for=snooze_for,
                 )
                 report_status = report.status if outcome == SignalReportBulkStateOutcome.TRANSITIONED else None

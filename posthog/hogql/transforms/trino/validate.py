@@ -10,7 +10,10 @@ from posthog.hogql.printer.trino_functions import (
     TRINO_PASSTHROUGH_FUNCTIONS,
 )
 from posthog.hogql.transforms.trino.errors import TrinoLoweringError
+from posthog.hogql.transforms.trino.persons import is_internal_trino_logical_table
 from posthog.hogql.visitor import TraversingVisitor
+
+from posthog.schema_enums import PersonsOnEventsMode
 
 _SPECIAL_CALLS = frozenset(
     {
@@ -100,7 +103,27 @@ _SUPPORTED_CALLS = frozenset(
 )
 
 
+def validate_trino_context(context: HogQLContext) -> None:
+    mode = context.modifiers.personsOnEventsMode
+    if mode != PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS:
+        mode_name = mode.value if mode is not None else "unset"
+        raise TrinoLoweringError(
+            "TRINO_PERSONS_ON_EVENTS_MODE_UNSUPPORTED",
+            f"personsOnEventsMode={mode_name}",
+            detail=(
+                "Trino compilation supports only "
+                "personsOnEventsMode=person_id_override_properties_on_events. "
+                f"The effective mode is {mode_name}. Change the query or project setting before compiling."
+            ),
+        )
+
+
 class TrinoSourceValidator(TraversingVisitor):
+    def visit_join_expr(self, node: ast.JoinExpr) -> None:
+        if isinstance(node.table, ast.Field) and is_internal_trino_logical_table(node.table.chain):
+            raise TrinoLoweringError("TRINO_INTERNAL_TABLE_UNAVAILABLE", "internal Trino table", node)
+        super().visit_join_expr(node)
+
     def visit_select_query(self, node: ast.SelectQuery) -> None:
         if node.settings is not None:
             raise TrinoLoweringError("TRINO_SETTINGS_UNSUPPORTED", "SETTINGS", node)

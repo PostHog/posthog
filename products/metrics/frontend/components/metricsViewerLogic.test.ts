@@ -1,5 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { NEW_QUERY_STARTED_ERROR_MESSAGE } from 'lib/utils/kea-logic-builders'
 import { insightsApi } from 'scenes/insights/utils/api'
 
 import { NodeKind } from '~/queries/schema/schema-general'
@@ -22,7 +23,7 @@ import {
 } from 'products/metrics/frontend/generated/api'
 
 import { metricNamePickerLogic } from './metricNamePickerLogic'
-import { metricsViewerLogic, NEW_QUERY_STARTED_ERROR_MESSAGE } from './metricsViewerLogic'
+import { metricsViewerLogic } from './metricsViewerLogic'
 
 jest.mock('products/metrics/frontend/generated/api', () => ({
     ...jest.requireActual('products/metrics/frontend/generated/api'),
@@ -351,6 +352,40 @@ describe('metricsViewerLogic', () => {
     ])('maps filter bar chip (%s) to a backend matcher', (_name, propertyFilter, expected) => {
         logic.actions.setFilterGroup(filterGroupWith([propertyFilter]))
         expect(logic.values.queryFilters).toEqual([expected])
+    })
+
+    // The anomaly panel's one-click drilldown: clicking a label value that moved narrows the
+    // chart to it. Appending rather than replacing is the point — an investigation stacks
+    // findings, and replacing would silently drop the service the user had already pinned.
+    describe('addAttributeFilter', () => {
+        it('adds the label value as a chip alongside the existing filters', () => {
+            logic.actions.setFilterGroup(
+                filterGroupWith([{ key: 'service_name', operator: PropertyOperator.Exact, value: ['web'] }])
+            )
+
+            logic.actions.addAttributeFilter('pod', 'api-7f9')
+
+            expect(logic.values.queryFilters).toEqual([
+                { key: 'service_name', op: 'eq', value: 'web' },
+                { key: 'pod', op: 'eq', value: 'api-7f9' },
+            ])
+        })
+
+        it('does not stack a duplicate when the same value is clicked twice', () => {
+            logic.actions.addAttributeFilter('pod', 'api-7f9')
+            logic.actions.addAttributeFilter('pod', 'api-7f9')
+
+            expect(logic.values.queryFilters).toEqual([{ key: 'pod', op: 'eq', value: 'api-7f9' }])
+        })
+
+        it('widens the existing chip when a second value of the same key is picked', () => {
+            // Two chips on one key are ANDed, and no series can equal both values, so appending
+            // would blank the chart with no error rather than showing both pods.
+            logic.actions.addAttributeFilter('pod', 'api1')
+            logic.actions.addAttributeFilter('pod', 'api2')
+
+            expect(logic.values.queryFilters).toEqual([{ key: 'pod', op: 'regex', value: '^(?:api1|api2)$' }])
+        })
     })
 
     // Drives the metric picker's scope. Getting this wrong is silent: the picker

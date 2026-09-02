@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-09-01 10:05:45 UTC
+// Generated at: 2026-09-02 10:05:31 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -21,6 +21,7 @@ export type CanonicalProvider =
     | 'ambient-fp4'
     | 'ambient-fp8'
     | 'anthropic'
+    | 'anthropic-fast'
     | 'arcee-ai'
     | 'atlas-cloud-fp4'
     | 'atlas-cloud-fp8'
@@ -72,6 +73,7 @@ export type CanonicalProvider =
     | 'fireworks-us'
     | 'friendli'
     | 'gmicloud-bf16'
+    | 'gmicloud-fp4'
     | 'gmicloud-fp8'
     | 'google-ai-studio'
     | 'google-ai-studio-flex'
@@ -96,8 +98,10 @@ export type CanonicalProvider =
     | 'io-net-fp16'
     | 'io-net-fp8'
     | 'ionstream-fp4'
+    | 'ionstream-fp8'
     | 'liquid-fp8'
     | 'makora'
+    | 'makora-fp4'
     | 'mancer-fp4'
     | 'mancer-fp8'
     | 'mara'

@@ -21,7 +21,7 @@ from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.team.team import Team
 from posthog.temporal.oauth import PosthogMcpScopes
 
-from products.mcp_store.backend.facade.api import get_active_installations
+from products.mcp_store.backend.facade.api import resolve_agent_gateway_server_ids
 from products.slack_app.backend.facade.api import slack_channel_is_approved
 from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.slack_app.backend.slack_thread import SlackThreadContext
@@ -70,7 +70,7 @@ WORKFLOW_FRAMING_BLOCK = (
 class WorkflowTaskConnectorsInvalid(Exception):
     def __init__(self, invalid_ids: list[str]) -> None:
         self.invalid_ids = invalid_ids
-        super().__init__(f"MCP installation(s) not found or inactive: {invalid_ids}")
+        super().__init__(f"MCP server(s) not shared with the project or disabled: {invalid_ids}")
 
 
 class WorkflowTaskLimitExceeded(Exception):
@@ -116,25 +116,27 @@ def create_workflow_task(
     repository: str | None = None,
     model: str | None = None,
     reasoning_effort: str | None = None,
-    mcp_installation_ids: list[str] | None = None,
+    connector_ids: list[str] | None = None,
     posthog_mcp_scopes: PosthogMcpScopes = "read_only",
     max_parallel_tasks: int = 5,
     origin_key: str | None = None,
     event: dict[str, Any] | None = None,
     slack_context: contracts.WorkflowTaskSlackContext | None = None,
+    rate_limits: contracts.WorkflowTaskRateLimits | None = None,
 ) -> contracts.WorkflowTaskDTO:
     """Create a workflow-origin task and start its agent run.
 
     A repeated `origin_key` returns the existing task with `created=False`, before any
     other check so a retry always succeeds once the first attempt did. Raises
     `WorkflowTaskOriginKeyConflict` when the key belongs to a different workflow,
-    `WorkflowTaskConnectorsInvalid` when the requested connectors aren't ones the owner
-    can mount, `WorkflowTaskOwnerIneligible` when the owner lost access to the project,
+    `WorkflowTaskConnectorsInvalid` when a requested connector isn't an MCP server shared
+    with the whole project, `WorkflowTaskOwnerIneligible` when the owner lost access to the project,
     and `WorkflowTaskLimitExceeded` when the workflow already has `max_parallel_tasks`
     runs in flight. Also raises `WorkflowTaskUsageLimited` when the owner is over the
     AI usage limit, and `WorkflowTaskRateCapped` / `WorkflowTaskTeamRateCapped` when
     the workflow or its team reached the daily created-task cap. A replayed
-    `origin_key` bypasses the gate and every cap.
+    `origin_key` bypasses the gate and every cap. `rate_limits` can override either
+    product default for this project; a missing value keeps the default.
 
     `event` is rendered into the agent's prompt as data. The Slack thread binding decides
     the run's lifetime: a thread-bound run stays live until its inactivity timeout, so its
@@ -150,7 +152,18 @@ def create_workflow_task(
         observe_workflow_task_create(reason="replayed")
         return replay
 
-    validate_connectors(team.id, owner_id, mcp_installation_ids)
+    workflow_rate_cap = (
+        rate_limits.per_workflow
+        if rate_limits is not None and rate_limits.per_workflow is not None
+        else WORKFLOW_TASK_RATE_CAP_PER_DAY
+    )
+    team_rate_cap = (
+        rate_limits.per_team
+        if rate_limits is not None and rate_limits.per_team is not None
+        else WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY
+    )
+
+    gateway_server_ids = resolve_connectors(team.id, connector_ids)
 
     gate_owner = User.objects.filter(id=owner_id).first()
     if gate_owner is None:
@@ -169,12 +182,12 @@ def create_workflow_task(
         observe_workflow_task_create(reason="owner_ineligible")
         raise WorkflowTaskOwnerIneligible()
     daily_counts = _daily_task_counts(team.id, hog_flow_id)
-    if daily_counts.workflow >= WORKFLOW_TASK_RATE_CAP_PER_DAY:
+    if daily_counts.workflow >= workflow_rate_cap:
         observe_workflow_task_create(reason="rate_capped")
-        raise WorkflowTaskRateCapped(WORKFLOW_TASK_RATE_CAP_PER_DAY)
-    if daily_counts.team >= WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY:
+        raise WorkflowTaskRateCapped(workflow_rate_cap)
+    if daily_counts.team >= team_rate_cap:
         observe_workflow_task_create(reason="team_rate_capped")
-        raise WorkflowTaskTeamRateCapped(WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY)
+        raise WorkflowTaskTeamRateCapped(team_rate_cap)
 
     # The gate stays outside the transaction: it calls the LLM gateway (short timeout,
     # fails open), and holding the advisory locks across an external call would stall
@@ -184,13 +197,15 @@ def create_workflow_task(
         observe_workflow_task_create(reason="gate_blocked")
         raise WorkflowTaskUsageLimited()
 
-    # Snapshot the connector allowlist onto the run: the sandbox mounts only what's here
-    # (see loop_mcp_installation_allowlist), so a later edit of the workflow can't change
-    # what an already-queued run may reach.
+    # Snapshot the connector selection onto the run, next to the PostHog MCP scopes the token
+    # minter reads back. The mounts themselves follow the same list stamped on the task as its
+    # gateway server allowlist below, so a later edit of the workflow can't change what an
+    # already-queued run may reach. No installation ids on purpose: see
+    # loop_mcp_installation_allowlist for why that keeps the member path closed.
     extra_run_state = {
         "config_snapshot": {
             "connectors": {
-                "mcp_installation_ids": mcp_installation_ids or [],
+                "mcp_gateway_server_ids": gateway_server_ids,
                 "posthog_mcp_scopes": posthog_mcp_scopes,
             }
         },
@@ -241,12 +256,12 @@ def create_workflow_task(
             # create could have pushed the count over the cap since then. This locked
             # read is the one that decides.
             daily_counts = _daily_task_counts(team.id, hog_flow_id)
-            if daily_counts.workflow >= WORKFLOW_TASK_RATE_CAP_PER_DAY:
+            if daily_counts.workflow >= workflow_rate_cap:
                 observe_workflow_task_create(reason="rate_capped")
-                raise WorkflowTaskRateCapped(WORKFLOW_TASK_RATE_CAP_PER_DAY)
-            if daily_counts.team >= WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY:
+                raise WorkflowTaskRateCapped(workflow_rate_cap)
+            if daily_counts.team >= team_rate_cap:
                 observe_workflow_task_create(reason="team_rate_capped")
-                raise WorkflowTaskTeamRateCapped(WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY)
+                raise WorkflowTaskTeamRateCapped(team_rate_cap)
 
             in_flight = TaskRun.objects.filter(
                 task__team_id=team.id, task__hog_flow_id=hog_flow_id, status__in=ACTIVE_RUN_STATUSES
@@ -292,6 +307,14 @@ def create_workflow_task(
                 reasoning_effort=reasoning_effort,
                 slack_thread_context=thread_context,
                 interaction_origin=interaction_origin,
+                # The run mounts MCP servers as the workflow agent, like a scout does. No
+                # credential owner: a workflow is a team resource that anyone may edit, so
+                # its runs reach only the connections members shared with the whole project,
+                # never the creator's personal ones, and the selection means the same thing
+                # no matter who saved it.
+                mcp_builtin_agent_key="workflow",
+                mcp_credential_owner_id=None,
+                mcp_gateway_server_ids=gateway_server_ids,
             )
 
             if slack_binding is not None:
@@ -352,19 +375,28 @@ def _daily_task_counts(team_id: int, hog_flow_id: uuid.UUID) -> _DailyTaskCounts
     return _DailyTaskCounts(workflow=workflow_count, team=team_count)
 
 
-def validate_connectors(team_id: int, owner_id: int, mcp_installation_ids: list[str] | None) -> None:
-    """Raise `WorkflowTaskConnectorsInvalid` for any id the owner can't mount.
+def resolve_connectors(team_id: int, connector_ids: list[str] | None) -> list[str]:
+    """The gateway servers a "Create AI task" step's connector selection names, in order.
 
-    Called both when a run actually starts and, from the workflows product, when a
-    "Create AI task" action is saved - so a stale or foreign connector id fails at save
-    time instead of only on the workflow's next fire.
+    Raises `WorkflowTaskConnectorsInvalid` for any id that isn't an MCP server shared with
+    the whole project (a team-scoped grant to the workflow agent). Called both when a run
+    actually starts and, from the workflows product, when the action is saved - so a stale
+    connector fails at save time instead of only on the workflow's next fire.
     """
-    if not mcp_installation_ids:
-        return
-    valid_ids = {installation.id for installation in get_active_installations(team_id, owner_id, include_shared=True)}
-    invalid = sorted(set(mcp_installation_ids) - valid_ids)
+    if not connector_ids:
+        return []
+    resolved = resolve_agent_gateway_server_ids(
+        team_id, agent_key="workflow", credential_owner_id=None, connector_ids=connector_ids
+    )
+    invalid = sorted(connector_id for connector_id, server_id in resolved.items() if server_id is None)
     if invalid:
         raise WorkflowTaskConnectorsInvalid(invalid)
+    gateway_server_ids: list[str] = []
+    for connector_id in connector_ids:
+        server_id = resolved[connector_id]
+        if server_id is not None and server_id not in gateway_server_ids:
+            gateway_server_ids.append(server_id)
+    return gateway_server_ids
 
 
 def _render_run_message(prompt: str, event: dict[str, Any] | None) -> str:

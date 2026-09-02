@@ -219,19 +219,30 @@ describe("hasClaudeLogin", () => {
     ]);
   });
 
-  it("reports unknown when the status check times out", async () => {
-    vi.useFakeTimers();
-    try {
-      const result = hasClaudeLogin({
-        claudeCliPath: "/bundled/claude",
-        machineAuth: {},
-        timeoutMs: 100,
-      });
-      vi.advanceTimersByTime(200);
-      await expect(result).resolves.toBe("unknown");
-      expect(child.kill).toHaveBeenCalledWith("SIGTERM");
-    } finally {
-      vi.useRealTimers();
-    }
-  });
+  it.each([
+    { exitsAfterTerm: true, expectKill: false },
+    { exitsAfterTerm: false, expectKill: true },
+  ])(
+    "reports unknown on timeout and escalates to SIGKILL only if the CLI ignores SIGTERM (exitsAfterTerm: $exitsAfterTerm)",
+    async ({ exitsAfterTerm, expectKill }) => {
+      vi.useFakeTimers();
+      try {
+        const result = hasClaudeLogin({
+          claudeCliPath: "/bundled/claude",
+          machineAuth: {},
+          timeoutMs: 100,
+        });
+        vi.advanceTimersByTime(200);
+        await expect(result).resolves.toBe("unknown");
+        expect(child.kill).toHaveBeenCalledWith("SIGTERM");
+        if (exitsAfterTerm) child.emit("exit", null);
+        vi.advanceTimersByTime(5000);
+        expect(child.kill.mock.calls).toEqual(
+          expectKill ? [["SIGTERM"], ["SIGKILL"]] : [["SIGTERM"]],
+        );
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
 });

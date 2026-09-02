@@ -1,6 +1,7 @@
 import {
-  ArchiveIcon,
   ArrowSquareOutIcon,
+  CheckCircleIcon,
+  EyeSlashIcon,
   GitPullRequestIcon,
 } from "@phosphor-icons/react";
 import { Button } from "@posthog/quill";
@@ -35,8 +36,16 @@ function createPrActions(): React.JSX.Element {
         variant="outline"
         className="h-9 gap-2 px-4 text-[14px]"
       >
-        <ArchiveIcon />
-        Archive…
+        <CheckCircleIcon />
+        Resolve
+      </Button>
+      <Button
+        type="button"
+        variant="outline"
+        className="h-9 gap-2 px-4 text-[14px]"
+      >
+        <EyeSlashIcon />
+        Dismiss
       </Button>
       <Button
         type="button"
@@ -58,8 +67,16 @@ function openPrActions(): React.JSX.Element {
         variant="outline"
         className="h-9 gap-2 px-4 text-[14px]"
       >
-        <ArchiveIcon />
-        Archive…
+        <CheckCircleIcon />
+        Resolve
+      </Button>
+      <Button
+        type="button"
+        variant="outline"
+        className="h-9 gap-2 px-4 text-[14px]"
+      >
+        <EyeSlashIcon />
+        Dismiss
       </Button>
       <Button
         type="button"

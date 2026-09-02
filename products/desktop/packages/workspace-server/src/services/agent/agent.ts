@@ -81,6 +81,7 @@ import {
   type Adapter,
   type BedrockGatewayVariant,
   buildCloudTaskConfigOptions,
+  buildProviderModelGroups,
   type CloudRegion,
   type ExecutionMode,
   isAuthError,
@@ -2574,6 +2575,7 @@ For git operations while detached:
   async getPreviewConfigOptions(
     apiHost: string,
     adapter: Adapter = "claude",
+    allHarnessModels = false,
   ): Promise<SessionConfigOption[]> {
     const gatewayUrl = getLlmGatewayUrl(apiHost);
     const gatewayModels = await fetchGatewayModels({
@@ -2592,6 +2594,14 @@ For git operations while detached:
     );
     const resolvedModelId =
       modelOption?.type === "select" ? modelOption.currentValue : "";
+
+    if (allHarnessModels && modelOption?.type === "select") {
+      modelOption.options = buildProviderModelGroups(
+        gatewayModels,
+        adapter,
+        resolvedModelId,
+      );
+    }
 
     // The adapter-level effort options carry _meta (default notch, docs links)
     // that the shared cloud builder omits; the desktop picker needs them.

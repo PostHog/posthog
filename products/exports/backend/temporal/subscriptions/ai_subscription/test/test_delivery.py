@@ -16,11 +16,14 @@ from products.exports.backend.models.subscription import Subscription, Subscript
 from products.exports.backend.temporal.subscriptions.ai_subscription.delivery import (
     CHART_IMAGE_URL_TTL,
     SLACK_MRKDWN_SECTION_LIMIT,
+    TEAMS_REPORT_BLOCK_COUNT,
+    TEAMS_TEXT_BLOCK_LIMIT,
     _build_ai_slack_message,
     _last_scheduled_report_cutoff,
     _persist_ai_query_plan,
     _split_text_into_chunks,
     build_ai_subscription_report,
+    build_ai_teams_card,
     build_chart_image_urls,
     render_ai_email_html,
     send_email_ai_subscription_report,
@@ -31,6 +34,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
 from products.exports.backend.temporal.subscriptions.types import AI_REPORT_WINDOW_END_KEY, SubscriptionTriggerType
 
 from ee.tasks.subscriptions.slack_subscriptions import SlackMessage
+from ee.tasks.subscriptions.teams_subscriptions import TEAMS_CARD_TEXT_BUDGET
 
 _DELIVERY = "products.exports.backend.temporal.subscriptions.ai_subscription.delivery"
 
@@ -335,6 +339,49 @@ class TestBuildAISlackMessage:
         for thread_msg in message.thread_messages:
             for block in thread_msg["blocks"]:
                 assert block["text"]["text"].strip(), "thread section text must be non-empty"
+
+
+class TestBuildAITeamsCard:
+    def _body(self, markdown: str) -> list[dict]:
+        card = build_ai_teams_card(_mock_subscription(), markdown, delivery_id=_DELIVERY_ID)
+        return card["attachments"][0]["content"]["body"]
+
+    def test_long_report_is_split_across_text_blocks(self) -> None:
+        body = self._body("\n\n".join("x" * (TEAMS_TEXT_BLOCK_LIMIT - 50) for _ in range(3)))
+
+        report_blocks = [b for b in body if set(b["text"]) == {"x"}]
+        assert len(report_blocks) == 3
+        assert all(len(b["text"]) <= TEAMS_TEXT_BLOCK_LIMIT for b in report_blocks)
+
+    @pytest.mark.parametrize(
+        "filler",
+        [
+            "x",
+            # Three bytes per character, so a report that fits by character count is far over the
+            # byte count Teams measures the payload in.
+            "詳",
+        ],
+    )
+    def test_report_over_the_card_budget_is_shortened_with_a_link_out(self, filler: str) -> None:
+        body = self._body("\n\n".join(filler * (TEAMS_TEXT_BLOCK_LIMIT - 50) for _ in range(20)))
+
+        assert sum(len(b["text"].encode("utf-8")) for b in body) <= TEAMS_CARD_TEXT_BUDGET
+        assert len([b for b in body if set(b["text"]) == {filler}]) <= TEAMS_REPORT_BLOCK_COUNT
+        assert "This report was shortened to fit." in body[-2]["text"]
+
+    def test_external_links_in_the_report_are_stripped(self) -> None:
+        body = self._body("See [the docs](https://evil.example.com/x) for more.")
+
+        assert "evil.example.com" not in str(body)
+
+    def test_external_links_in_the_subscription_title_are_stripped(self) -> None:
+        subscription = _mock_subscription()
+        subscription.title = "[Open report](https://attacker.example/login)"
+
+        card = build_ai_teams_card(subscription, "A short report.", delivery_id=_DELIVERY_ID)
+        body = card["attachments"][0]["content"]["body"]
+
+        assert body[0]["text"] == "**Open report**"
 
 
 def _mock_integration(scopes: frozenset[str]) -> MagicMock:
