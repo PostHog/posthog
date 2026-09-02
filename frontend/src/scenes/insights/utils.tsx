@@ -742,6 +742,13 @@ export function crushDraftQueryForURL(query: Node<Record<string, any>>): string 
     return JSON.stringify(query)
 }
 
+/**
+ * Query plumbing rather than editor sections: the schema version stamp, the query log tags, the
+ * HogQL modifiers, and the typing-only response. A suggested query arrives without them, so
+ * comparing them reports a change nobody made.
+ */
+const IGNORED_SOURCE_FIELDS = ['version', 'tags', 'modifiers', 'response']
+
 const SOURCE_FIELD_LABELS: Record<string, string> = {
     breakdownFilter: 'Breakdowns',
     compareFilter: 'Compare filter',
@@ -780,15 +787,30 @@ function deepEqual(val1: any, val2: any): boolean {
     return equal(val1, val2)
 }
 
+/**
+ * Clean the source of an insight query for comparison. Handles both InsightVizNode (with source)
+ * and InsightQueryNode (without source). `cleanInsightQuery` only strips empty values one level
+ * deep, so it must run on the source — given the wrapping node it leaves `source.trendsFilter: {}`
+ * behind, which then reads as a changed section.
+ */
+function cleanSourceForComparison(node: any): Record<string, any> {
+    const withoutNullish = removeUndefinedAndNull(node)
+    const source = withoutNullish?.source ?? withoutNullish
+    if (!source || typeof source !== 'object') {
+        return {}
+    }
+    const cleaned = cleanInsightQuery(source) as Record<string, any>
+    for (const field of IGNORED_SOURCE_FIELDS) {
+        delete cleaned[field]
+    }
+    return cleaned
+}
+
 export function compareInsightTopLevelSections(obj1: any, obj2: any): string[] {
     const changedLabels = new Set<string>()
 
-    const cleanObj1 = cleanInsightQuery(removeUndefinedAndNull(obj1)) as Record<string, any>
-    const cleanObj2 = cleanInsightQuery(removeUndefinedAndNull(obj2)) as Record<string, any>
-
-    // Handle both InsightVizNode (with source) and InsightQueryNode (without source)
-    const source1 = cleanObj1.source || cleanObj1
-    const source2 = cleanObj2.source || cleanObj2
+    const source1 = cleanSourceForComparison(obj1)
+    const source2 = cleanSourceForComparison(obj2)
 
     if (!objectsEqual(source1, source2)) {
         const keys = new Set([...Object.keys(source1 || {}), ...Object.keys(source2 || {})])

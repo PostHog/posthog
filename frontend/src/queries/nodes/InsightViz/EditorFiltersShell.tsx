@@ -22,10 +22,11 @@ import {
     DataVisualizationNode,
     InsightQueryNode,
     InsightVizNode,
+    Node,
     NodeKind,
     QuerySchema,
 } from '~/queries/schema/schema-general'
-import { isHogQLQuery, isInsightQueryNode } from '~/queries/utils'
+import { isHogQLQuery, isInsightQueryNode, setLatestVersionsOnQuery } from '~/queries/utils'
 
 import { useAttachedContext, useMcpToolApplyBack } from 'products/posthog_ai/frontend/api/logics'
 
@@ -75,6 +76,19 @@ export function buildInsightNodeFromQueryTool(
     return { kind: NodeKind.InsightVizNode, source } satisfies InsightVizNode
 }
 
+/**
+ * Restore the query metadata a tool result can't carry: the query log tags of the query being
+ * edited, and the latest schema versions. Without the tags the applied query loses its product
+ * attribution, and without the versions the backend migrates a query that is already current.
+ */
+export function withCurrentQueryMetadata<T extends Node>(node: T, currentSource?: InsightQueryNode | null): T {
+    const stamped = setLatestVersionsOnQuery(node) as T & { source?: Record<string, unknown> }
+    if (!currentSource?.tags || !stamped.source) {
+        return stamped
+    }
+    return { ...stamped, source: { ...stamped.source, tags: currentSource.tags } }
+}
+
 export function EditorFiltersShell({ query, showing, embedded, children }: EditorFiltersShellProps): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { querySource, shouldShowSessionAnalysisWarning } = useValues(insightVizDataLogic(insightProps))
@@ -108,10 +122,11 @@ export function EditorFiltersShell({ query, showing, embedded, children }: Edito
             if (!maxToolActive || !innerInput) {
                 return
             }
-            const node = buildInsightNodeFromQueryTool(event.toolName, innerInput)
-            if (!node) {
+            const builtNode = buildInsightNodeFromQueryTool(event.toolName, innerInput)
+            if (!builtNode) {
                 return
             }
+            const node = withCurrentQueryMetadata(builtNode, querySource)
             handleInsightSuggested(node)
             setQuery(node)
         },
@@ -153,17 +168,18 @@ export function EditorFiltersShell({ query, showing, embedded, children }: Edito
                         if (!source) {
                             return
                         }
-                        let node: QuerySchema
+                        let builtNode: QuerySchema
                         if (isHogQLQuery(source)) {
-                            node = {
+                            builtNode = {
                                 kind: NodeKind.DataVisualizationNode,
                                 source,
                             } satisfies DataVisualizationNode
                         } else if (isInsightQueryNode(source)) {
-                            node = { kind: NodeKind.InsightVizNode, source } satisfies InsightVizNode
+                            builtNode = { kind: NodeKind.InsightVizNode, source } satisfies InsightVizNode
                         } else {
-                            node = source
+                            builtNode = source
                         }
+                        const node = withCurrentQueryMetadata(builtNode, querySource)
                         handleInsightSuggested(node)
                         setQuery(node)
                     }}
