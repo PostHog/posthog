@@ -23,12 +23,11 @@ from posthog.api.oauth.cimd import (
     CIMDValidationError,
     _fetch_lock_key,
     _resolve_scopes,
-    _update_cimd_application,
+    _resolve_verification_token,
     apply_provisioning_defaults,
     enqueue_cimd_refresh_if_stale,
     fetch_and_upsert_cimd_application,
     fetch_cimd_metadata,
-    get_application_by_client_id,
     get_or_create_cimd_application,
     is_cimd_client_id,
     refresh_cimd_metadata_task,
@@ -327,7 +326,6 @@ class TestFetchAndUpsertCimdApplication(APIBaseTest):
         self.assertTrue(app.is_cimd_client)
         self.assertFalse(app.is_dcr_client)
         self.assertEqual(app.client_id, VALID_CIMD_URL)
-        self.assertEqual(app.cimd_metadata_url, VALID_CIMD_URL)
         self.assertEqual(app.name, "Test MCP Client")
         self.assertEqual(app.redirect_uris, "http://127.0.0.1:3000/callback")
         self.assertEqual(app.logo_uri, "https://example.com/logo.png")
@@ -516,7 +514,7 @@ class TestGetOrCreateCimdApplication(APIBaseTest):
         mock_get.return_value = _mock_response(metadata2, headers={})
         refresh_cimd_metadata_task(VALID_CIMD_URL)
 
-        app = OAuthApplication.objects.get(cimd_metadata_url=VALID_CIMD_URL)
+        app = OAuthApplication.objects.get(client_id=VALID_CIMD_URL)
         self.assertEqual(app.name, "Updated Name")
         self.assertEqual(app.logo_uri, "https://example.com/new-logo.png")
 
@@ -553,7 +551,7 @@ class TestGetOrCreateCimdApplication(APIBaseTest):
             mock_get.return_value = _mock_response(_make_metadata(client_name=payload), headers={})
             refresh_cimd_metadata_task(VALID_CIMD_URL)
 
-        app = OAuthApplication.objects.get(cimd_metadata_url=VALID_CIMD_URL)
+        app = OAuthApplication.objects.get(client_id=VALID_CIMD_URL)
         self.assertEqual(app.name, escape(payload))
         self.assertNotIn("<", app.name)
 
@@ -566,7 +564,7 @@ class TestGetOrCreateCimdApplication(APIBaseTest):
         mock_get.side_effect = requests.ConnectionError("DNS failed")
         refresh_cimd_metadata_task(VALID_CIMD_URL)
 
-        app = OAuthApplication.objects.get(cimd_metadata_url=VALID_CIMD_URL)
+        app = OAuthApplication.objects.get(client_id=VALID_CIMD_URL)
         self.assertEqual(app.name, "Original Name")
 
     @patch("posthog.api.oauth.cimd.capture_exception")
@@ -584,46 +582,6 @@ class TestGetOrCreateCimdApplication(APIBaseTest):
         mock_fetch.side_effect = error
         refresh_cimd_metadata_task(VALID_CIMD_URL)
         mock_capture.assert_called_once_with(error)
-
-
-class TestGetApplicationByClientId(APIBaseTest):
-    def setUp(self):
-        super().setUp()
-        self.standard_app = OAuthApplication.objects.create(
-            name="Standard App",
-            client_id="standard-uuid-id",
-            client_secret="secret",
-            client_type=OAuthApplication.CLIENT_PUBLIC,
-            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-            redirect_uris="https://example.com/callback",
-            algorithm="RS256",
-        )
-        self.cimd_app = OAuthApplication.objects.create(
-            name="CIMD App",
-            client_secret="secret",
-            client_type=OAuthApplication.CLIENT_PUBLIC,
-            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-            redirect_uris="http://127.0.0.1:3000/callback",
-            algorithm="RS256",
-            is_cimd_client=True,
-            cimd_metadata_url=VALID_CIMD_URL,
-        )
-
-    def test_standard_uuid_lookup(self):
-        result = get_application_by_client_id("standard-uuid-id")
-        self.assertEqual(result.pk, self.standard_app.pk)
-
-    def test_cimd_url_lookup(self):
-        result = get_application_by_client_id(VALID_CIMD_URL)
-        self.assertEqual(result.pk, self.cimd_app.pk)
-
-    def test_standard_uuid_not_found(self):
-        with self.assertRaises(OAuthApplication.DoesNotExist):
-            get_application_by_client_id("nonexistent-uuid")
-
-    def test_cimd_url_not_found(self):
-        with self.assertRaises(OAuthApplication.DoesNotExist):
-            get_application_by_client_id("https://unknown.example.com/.well-known/oauth-client-metadata.json")
 
 
 @patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("93.184.216.34")})
@@ -847,7 +805,7 @@ class TestCIMDVerificationToken(APIBaseTest):
     def test_refresh_moves_the_tier_when_token_added_post_registration(self, mock_get, _url_mock):
         mock_get.return_value = _mock_response(_make_metadata(), headers={})
         _register_provisioning_partner()
-        app = OAuthApplication.objects.get(cimd_metadata_url=VALID_CIMD_URL)
+        app = OAuthApplication.objects.get(client_id=VALID_CIMD_URL)
         self.assertIsNone(app.organization_id)
         self.assertEqual(app.partner_tier, PartnerTier.PUBLIC)
 
@@ -873,7 +831,7 @@ class TestCIMDVerificationToken(APIBaseTest):
         )
         mock_get.return_value = _mock_response(_make_metadata(posthog_verification_token=plaintext), headers={})
         _register_provisioning_partner()
-        app = OAuthApplication.objects.get(cimd_metadata_url=VALID_CIMD_URL)
+        app = OAuthApplication.objects.get(client_id=VALID_CIMD_URL)
         self.assertEqual(app.organization_id, self.organization.id)
         self.assertEqual(app.partner_tier, PartnerTier.PUBLIC_ATTESTED)
 
@@ -889,7 +847,7 @@ class TestCIMDVerificationToken(APIBaseTest):
     def test_refresh_preserves_admin_custom_rate_limit(self, mock_get, _url_mock):
         mock_get.return_value = _mock_response(_make_metadata(), headers={})
         _register_provisioning_partner()
-        app = OAuthApplication.objects.get(cimd_metadata_url=VALID_CIMD_URL)
+        app = OAuthApplication.objects.get(client_id=VALID_CIMD_URL)
         app.update_provisioning_rate_limits(account_requests=250)
         _, plaintext = create_cimd_verification_token(
             organization=self.organization, label="Post-admin-override", cimd_url=VALID_CIMD_URL, created_by=self.user
@@ -1058,28 +1016,21 @@ class TestCIMDVerificationRejectedCaptureEvent(APIBaseTest):
         ]
         self.assertEqual(len(rejected), 1)
 
-    def test_empty_app_metadata_url_rejects_as_app_url_missing_not_mismatch(self, _url_mock):
+    def test_missing_app_url_rejects_as_app_url_missing_not_mismatch(self, _url_mock):
+        # url_mismatch is the copied-token signal, so a resolution with no URL to compare
+        # against has to report its own reason instead of landing in that metric.
         _, plaintext = create_cimd_verification_token(
             organization=self.organization, label="Bound", cimd_url=VALID_CIMD_URL, created_by=self.user
         )
-        app = OAuthApplication.objects.create(
-            name="CIMD App",
-            client_secret="",
-            client_type=OAuthApplication.CLIENT_PUBLIC,
-            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-            redirect_uris="http://127.0.0.1:3000/callback",
-            algorithm="RS256",
-            is_cimd_client=True,
-            cimd_metadata_url=None,
-        )
         mock_capture = MagicMock()
 
-        _update_cimd_application(
-            app,
+        resolved = _resolve_verification_token(
             cast(CIMDMetadataDocument, _make_metadata(posthog_verification_token=plaintext)),
+            "",
             capture_ph_event=mock_capture,
         )
 
+        self.assertIsNone(resolved)
         rejected = [
             call
             for call in mock_capture.call_args_list
@@ -1133,7 +1084,7 @@ class TestCIMDAuthorizeIntegration(APIBaseTest):
         response = self.client.get(url)
 
         self.assertEqual(response.status_code, 200)
-        app = OAuthApplication.objects.get(cimd_metadata_url=VALID_CIMD_URL)
+        app = OAuthApplication.objects.get(client_id=VALID_CIMD_URL)
         self.assertTrue(app.is_cimd_client)
         self.assertEqual(app.name, "Test MCP Client")
         self.assertEqual(len(_document_fetches(mock_get)), 1)
@@ -1152,7 +1103,7 @@ class TestCIMDAuthorizeIntegration(APIBaseTest):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(_document_fetches(mock_get), [])
-        self.assertEqual(OAuthApplication.objects.filter(cimd_metadata_url=VALID_CIMD_URL).count(), 1)
+        self.assertEqual(OAuthApplication.objects.filter(client_id=VALID_CIMD_URL).count(), 1)
 
     @patch("posthog.api.oauth.cimd.requests.Session.get")
     def test_cimd_fetch_failure_rejects_new_client(self, mock_get, _url_mock):
@@ -1246,7 +1197,7 @@ class TestCIMDAuthorizeIntegration(APIBaseTest):
 
         self.assertEqual(token_response.status_code, 200, token_response.json())
         self.assertIn("access_token", token_response.json())
-        app = OAuthApplication.objects.get(cimd_metadata_url=VALID_CIMD_URL)
+        app = OAuthApplication.objects.get(client_id=VALID_CIMD_URL)
         self.assertEqual(app.client_type, OAuthApplication.CLIENT_PUBLIC)
         # The jwks_uri is still stored, even though it did not promote client_type: if this
         # client starts signing, the token endpoint can verify it.
@@ -1520,7 +1471,7 @@ class TestCIMDComPostHogNamespace(APIBaseTest):
         with self.assertRaises(CIMDValidationError):
             fetch_and_upsert_cimd_application(VALID_CIMD_URL)
 
-        self.assertFalse(OAuthApplication.objects.filter(cimd_metadata_url=VALID_CIMD_URL).exists())
+        self.assertFalse(OAuthApplication.objects.filter(client_id=VALID_CIMD_URL).exists())
 
     # On refresh, a doc whose scopes all strip out is rejected and the existing ceiling is
     # left untouched (fail-closed) rather than widened to the default.

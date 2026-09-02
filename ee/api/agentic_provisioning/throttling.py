@@ -33,6 +33,7 @@ from rest_framework.throttling import BaseThrottle
 from rest_framework.views import APIView
 
 from posthog.api.oauth import cimd
+from posthog.models.oauth import OAuthApplication
 from posthog.rate_limit import IPThrottle
 
 from ee.api.agentic_provisioning.analytics import capture_provisioning_event
@@ -183,7 +184,7 @@ class CIMDRegistrationThrottle(BaseThrottle):
         client_id = request.data.get("client_id") or request.query_params.get("client_id")
         if not client_id or not cimd.is_cimd_client_id(client_id):
             return True
-        if cimd.find_cimd_application(client_id) is not None:
+        if OAuthApplication.objects.filter(client_id=client_id).exists():
             return True
 
         # Attribute access (not a from-import) so tests patching

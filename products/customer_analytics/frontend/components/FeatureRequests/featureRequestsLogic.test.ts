@@ -2,6 +2,7 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { ApiError } from 'lib/api'
 import * as uploadFiles from 'lib/hooks/useUploadFiles'
@@ -52,6 +53,7 @@ const createdRequest: FeatureRequestApi = {
             updated_at: '2026-01-01T00:00:00Z',
         },
     ],
+    evidence_count: 0,
     product_areas: [
         {
             id: 'area-1',
@@ -72,6 +74,7 @@ describe('featureRequestsLogic', () => {
     let logic: ReturnType<typeof featureRequestsLogic.build>
 
     beforeEach(() => {
+        localStorage.clear()
         useMocks({
             get: {
                 '/api/projects/:team_id/feature_requests/': { count: 0, next: null, previous: null, results: [] },
@@ -89,6 +92,7 @@ describe('featureRequestsLogic', () => {
     afterEach(() => {
         jest.restoreAllMocks()
         logic.unmount()
+        localStorage.clear()
     })
 
     it('keeps the request fields after a failed save so the editor can retry', async () => {
@@ -264,6 +268,46 @@ describe('featureRequestsLogic', () => {
             String(MOCK_DEFAULT_TEAM.id),
             expect.objectContaining({ created_by_ids: [1] })
         )
+    })
+
+    it('sorts requests by a selected table column', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        const captureSpy = jest.spyOn(posthog, 'capture')
+        const listSpy = jest.spyOn(generatedApi, 'featureRequestsList').mockResolvedValue({
+            count: 1,
+            next: null,
+            previous: null,
+            results: [createdRequest],
+        })
+
+        await expectLogic(logic, () =>
+            logic.actions.setTableSorting({ columnKey: 'evidence_count', order: -1 })
+        ).toFinishAllListeners()
+
+        expect(logic.values.requestOrdering).toBe('-evidence_count')
+        expect(logic.values.tableSorting).toEqual({ columnKey: 'evidence_count', order: -1 })
+        expect(captureSpy).toHaveBeenCalledWith('customer analytics feature requests sorted', {
+            column: 'evidence_count',
+            direction: 'desc',
+        })
+        expect(listSpy).toHaveBeenLastCalledWith(
+            String(MOCK_DEFAULT_TEAM.id),
+            expect.objectContaining({ request_ordering: '-evidence_count' })
+        )
+    })
+
+    it('keeps filter preferences when revisiting the list without filters in the URL', async () => {
+        await expectLogic(logic, () => logic.actions.setArchiveState('all')).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.setRequestOrdering('title')).toFinishAllListeners()
+        logic.unmount()
+        router.actions.push(urls.customerAnalyticsFeatureRequests())
+        logic = featureRequestsLogic()
+        logic.mount()
+
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.archiveState).toBe('all')
+        expect(logic.values.requestOrdering).toBe('title')
     })
 
     it('loads the requested page with 20 requests per page', async () => {

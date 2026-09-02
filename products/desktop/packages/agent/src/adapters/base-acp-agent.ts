@@ -16,7 +16,7 @@ import type {
   WriteTextFileRequest,
   WriteTextFileResponse,
 } from "@agentclientprotocol/sdk";
-import { restrictedModelMeta } from "@posthog/shared";
+import { isAnthropicModelId, restrictedModelMeta } from "@posthog/shared";
 import {
   compareModelsForPicker,
   DEFAULT_GATEWAY_MODEL,
@@ -140,6 +140,10 @@ export abstract class BaseAcpAgent implements Agent {
     throw new Error("Method not implemented.");
   }
 
+  protected usesMachineAuth(): boolean {
+    return false;
+  }
+
   async getModelConfigOptions(
     currentModelOverride?: string,
     gatewayUrl?: string,
@@ -190,6 +194,21 @@ export abstract class BaseAcpAgent implements Agent {
       isDeepseekModelId(modelId);
 
     let currentModelId = currentModelOverride ?? DEFAULT_GATEWAY_MODEL;
+
+    if (
+      this.usesMachineAuth() &&
+      currentModelId !== DEFAULT_GATEWAY_MODEL &&
+      !isAnthropicModelId(currentModelId)
+    ) {
+      this.logger.warn(
+        "Saved model is not available without the gateway; falling back to default",
+        {
+          requestedModel: currentModelId,
+          fallbackModel: DEFAULT_GATEWAY_MODEL,
+        },
+      );
+      currentModelId = DEFAULT_GATEWAY_MODEL;
+    }
 
     if (!options.some((opt) => opt.value === currentModelId)) {
       if (!isClaudeAdapterModelId(currentModelId)) {

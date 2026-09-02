@@ -23,6 +23,13 @@ export interface ExecuteSyncOptions {
     maxSteps?: number
 }
 
+export interface ExecuteBatchOptions {
+    /** Fan the batch out over a rayon thread pool instead of running sequentially. */
+    parallel?: boolean
+    /** Step budget per execution (the Rust VM has no wall-clock timeout). */
+    maxSteps?: number
+}
+
 /**
  * Load process-wide state for the transformation host functions. Idempotent; only the first call
  * takes effect.
@@ -35,3 +42,15 @@ export function init(options: InitOptions): void
  * exec, with no threadpool round-trip.
  */
 export function executeSync(program: unknown[], globals: unknown, options?: ExecuteSyncOptions): HogExecResult
+
+/**
+ * Run one Hog program (bytecode tokens) against many event-globals, off the JS event loop,
+ * crossing the FFI boundary once for the whole batch. Returns one result per event, in input
+ * order. An event whose globals can't be converted to JSON (e.g. NaN/Infinity numbers) gets a
+ * `marshal_error:`-prefixed error result instead of rejecting the whole call.
+ */
+export function executeBatch(
+    program: unknown[],
+    events: unknown[],
+    options?: ExecuteBatchOptions
+): Promise<HogExecResult[]>

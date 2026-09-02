@@ -16,7 +16,7 @@ describe("SOURCE_PRODUCT_OPTIONS", () => {
 
   it("keeps the native products", () => {
     const values = SOURCE_PRODUCT_OPTIONS.map((o) => o.value);
-    expect(values).toContain("session_replay");
+    expect(values).toContain("replay_vision");
     expect(values).toContain("signals_scout");
   });
 });
@@ -51,7 +51,7 @@ describe("narrowSourceProductOptions", () => {
 
   it("always keeps PostHog's own products", () => {
     const result = values([]);
-    expect(result).toContain("session_replay");
+    expect(result).toContain("replay_vision");
     expect(result).toContain("signals_scout");
     expect(result).not.toContain("github");
   });

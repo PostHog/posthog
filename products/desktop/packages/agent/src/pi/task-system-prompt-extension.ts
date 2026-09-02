@@ -39,7 +39,7 @@ function isTaskContext(value: unknown): value is TaskContext {
   );
 }
 
-export function readPersistedPiTaskContext(
+function readPersistedPiTaskContext(
   entries: SessionEntry[],
 ): TaskContext | null {
   for (let index = entries.length - 1; index >= 0; index -= 1) {

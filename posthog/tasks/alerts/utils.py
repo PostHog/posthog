@@ -64,6 +64,7 @@ WRAPPER_NODE_KINDS = [NodeKind.DATA_TABLE_NODE, NodeKind.DATA_VISUALIZATION_NODE
 NON_TIME_SERIES_DISPLAY_TYPES = {
     ChartDisplayType.BOLD_NUMBER,
     ChartDisplayType.ACTIONS_PIE,
+    ChartDisplayType.ACTIONS_DONUT,
     ChartDisplayType.ACTIONS_BAR_VALUE,
     ChartDisplayType.ACTIONS_TABLE,
     ChartDisplayType.WORLD_MAP,

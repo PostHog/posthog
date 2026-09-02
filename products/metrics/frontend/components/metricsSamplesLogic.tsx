@@ -1,12 +1,14 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { UniversalFiltersGroup } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, UniversalFiltersGroup } from '~/types'
 
-import { metricsSamplesCreate } from 'products/metrics/frontend/generated/api'
+import { metricsErrorSpikesRetrieve, metricsSamplesCreate } from 'products/metrics/frontend/generated/api'
 import type {
+    _MetricErrorSpikeApi,
     _MetricEventSampleApi,
     _MetricFilterApi,
     OtelMetricTypeEnumApi,
@@ -50,8 +52,11 @@ export interface metricsSamplesLogicValues {
     currentTeamId: number | null // teamLogic
     activeTab: MetricsPanelTab
     aggregateRows: MetricsAggregateRow[]
+    errorSpikes: _MetricErrorSpikeApi[]
+    errorSpikesLoading: boolean
     samples: _MetricEventSampleApi[]
     samplesLoading: boolean
+    showErrorSpikes: boolean
     traceExemplars: MetricsTraceExemplar[]
 }
 
@@ -79,6 +84,21 @@ export interface metricsSamplesLogicActions {
     setSelectedMetricType: (metricType: OtelMetricTypeEnumApi | null) => {
         metricType: OtelMetricTypeEnumApi | null
     } // metricsViewerLogic
+    loadErrorSpikes: (_: any) => any
+    loadErrorSpikesFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadErrorSpikesSuccess: (
+        errorSpikes: _MetricErrorSpikeApi[],
+        payload?: any
+    ) => {
+        errorSpikes: _MetricErrorSpikeApi[]
+        payload?: any
+    }
     loadSamples: (_: any) => any
     loadSamplesFailure: (
         error: string,
@@ -96,6 +116,9 @@ export interface metricsSamplesLogicActions {
     }
     setActiveTab: (activeTab: MetricsPanelTab) => {
         activeTab: MetricsPanelTab
+    }
+    toggleShowErrorSpikes: () => {
+        value: true
     }
 }
 
@@ -140,9 +163,11 @@ export const metricsSamplesLogic = kea<metricsSamplesLogicType>([
     })),
     actions({
         setActiveTab: (activeTab: MetricsPanelTab) => ({ activeTab }),
+        toggleShowErrorSpikes: true,
     }),
     reducers({
         activeTab: ['aggregates' as MetricsPanelTab, { setActiveTab: (_, { activeTab }) => activeTab }],
+        showErrorSpikes: [false, { toggleShowErrorSpikes: (state) => !state }],
     }),
     loaders(({ values }) => ({
         samples: [
@@ -168,6 +193,36 @@ export const metricsSamplesLogic = kea<metricsSamplesLogicType>([
                             ...(values.queryFilters.length ? { filters: values.queryFilters } : {}),
                             limit: SAMPLES_LIMIT,
                         },
+                    })
+                    breakpoint()
+                    return response.results
+                },
+            },
+        ],
+        errorSpikes: [
+            [] as _MetricErrorSpikeApi[],
+            {
+                loadErrorSpikes: async (_, breakpoint) => {
+                    // The single gate for the overlay's data: listeners dispatch this
+                    // unconditionally, and this guard decides — returning [] also clears
+                    // stale spikes when the toggle turns off. Error Tracking view access
+                    // is required because the response is that product's data.
+                    if (
+                        !canViewMetrics() ||
+                        !values.showErrorSpikes ||
+                        !userHasAccess(AccessControlResourceType.ErrorTracking, AccessControlLevel.Viewer)
+                    ) {
+                        return []
+                    }
+                    const dateFrom = resolveDate(values.dateFrom)
+                    if (!dateFrom) {
+                        return []
+                    }
+                    await breakpoint(300)
+                    const dateTo = resolveDate(values.dateTo) ?? undefined
+                    const response = await metricsErrorSpikesRetrieve(String(values.currentTeamId), {
+                        dateFrom,
+                        ...(dateTo ? { dateTo } : {}),
                     })
                     breakpoint()
                     return response.results
@@ -222,9 +277,15 @@ export const metricsSamplesLogic = kea<metricsSamplesLogicType>([
                 }
             },
             // The chart's exemplar overlay renders from these samples, so every chart
-            // redraw refreshes them.
+            // redraw refreshes them. Error spikes ride the same trigger, so both
+            // overlays stay in sync with the chart's own window. Both dispatches are
+            // unconditional — the loaders' own guards are the single gate.
             fetchQueryResultsSuccess: () => {
                 actions.loadSamples({})
+                actions.loadErrorSpikes({})
+            },
+            toggleShowErrorSpikes: () => {
+                actions.loadErrorSpikes({})
             },
             setMetricName: reloadWhenShown,
             setDateFrom: reloadWhenShown,

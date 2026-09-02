@@ -1,5 +1,4 @@
 from posthog.test.base import BaseTest
-from unittest.mock import patch
 
 from products.customer_analytics.backend.logic.account_property_projection import account_property_projection
 from products.customer_analytics.backend.models import CustomPropertySource, TargetType
@@ -12,12 +11,6 @@ class AccountPropertyProjectionTest(TeamScopedTestMixin, BaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.saved_query = create_saved_query(team_id=self.team.id)
-        flag_patch = patch(
-            "products.customer_analytics.backend.logic.account_property_projection.account_property_staging_enabled",
-            return_value=True,
-        )
-        flag_patch.start()
-        self.addCleanup(flag_patch.stop)
 
     def _source(self, name: str, key_column: str, source_column: str, *, is_enabled: bool = True) -> None:
         definition = create_custom_property_definition(

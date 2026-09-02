@@ -682,7 +682,6 @@ def _create_cimd_application(
         algorithm="RS256",
         skip_authorization=False,
         is_cimd_client=True,
-        cimd_metadata_url=url,
         cimd_metadata_last_fetched=timezone.now(),
         logo_uri=logo_uri,
         organization=verification.organization if verification else None,
@@ -769,7 +768,7 @@ def _update_cimd_application(
 
     # Re-evaluate verification on every refresh so a rotated/removed token
     # unlinks the app on the next fetch.
-    verification = _resolve_verification_token(metadata, app.cimd_metadata_url or "", capture_ph_event=capture_ph_event)
+    verification = _resolve_verification_token(metadata, app.client_id, capture_ph_event=capture_ph_event)
     new_org = verification.organization if verification else None
     update_fields = [
         "name",
@@ -800,7 +799,7 @@ def _update_cimd_application(
         app.full_clean()
         app.save(update_fields=update_fields)
     except ValidationError as e:
-        logger.warning("cimd_update_validation_failed", url=app.cimd_metadata_url, error=str(e))
+        logger.warning("cimd_update_validation_failed", url=app.client_id, error=str(e))
         capture_exception(e)
         # Refresh from DB so we don't return a mutated-but-unsaved object
         app.refresh_from_db()
@@ -817,10 +816,10 @@ def _update_cimd_application(
         # just buried in the generic refresh event.
         if old_org_id != new_org_id:
             capture_ph_event(
-                distinct_id=app.cimd_metadata_url or str(app.pk),
+                distinct_id=app.client_id,
                 event="cimd_application_org_changed",
                 properties={
-                    "cimd_url": app.cimd_metadata_url,
+                    "cimd_url": app.client_id,
                     "app_id": str(app.pk),
                     "old_organization_id": str(old_org_id) if old_org_id else None,
                     "new_organization_id": str(new_org_id) if new_org_id else None,
@@ -898,7 +897,7 @@ def fetch_and_upsert_cimd_application(
         metadata, cache_ttl = fetch_cimd_metadata(url)
         cache.set(_cache_key(url), True, timeout=cache_ttl)
 
-        app = find_cimd_application(url)
+        app = OAuthApplication.objects.filter(client_id=url).first()
         if app:
             updated = _update_cimd_application(
                 app,
@@ -949,7 +948,7 @@ def fetch_and_upsert_cimd_application(
             )
             return new_app
         except (IntegrityError, ValidationError):
-            app = find_cimd_application(url)
+            app = OAuthApplication.objects.filter(client_id=url).first()
             if app:
                 logger.debug("cimd_app_race_resolved", url=url, app_id=str(app.pk))
                 # The row a concurrent caller won the race with was written from this same
@@ -984,7 +983,7 @@ def get_or_create_cimd_application(url: str) -> OAuthApplication:
     - No app: fetch synchronously (must have the app before proceeding)
     """
     # Existing client: check cache freshness and if not fresh, fire refresh in the background, returning existing app immediately
-    if app := find_cimd_application(url):
+    if app := OAuthApplication.objects.filter(client_id=url).first():
         enqueue_cimd_refresh_if_stale(url)
         return app
 
@@ -996,7 +995,7 @@ def get_or_create_cimd_application(url: str) -> OAuthApplication:
     # Poll the DB until it appears or we give up.
     for _ in range(CIMD_FETCH_TIMEOUT_SECONDS + 1):
         time.sleep(1)
-        app = find_cimd_application(url)
+        app = OAuthApplication.objects.filter(client_id=url).first()
         if app:
             return app
 
@@ -1019,33 +1018,6 @@ def enqueue_cimd_refresh_if_stale(url: str) -> None:
     if not cache.add(f"{_cache_key(url)}:refresh-pending", True, timeout=CIMD_REFRESH_PENDING_TTL_SECONDS):
         return
     refresh_cimd_metadata_task.delay(url)
-
-
-def find_cimd_application(url: str) -> OAuthApplication | None:
-    """Resolve a CIMD URL-form client_id to its application, or None.
-
-    Reads ``client_id``, which is where a CIMD client's URL now lands on registration,
-    and falls back to ``cimd_metadata_url`` for the rows registered before that. Both
-    columns are written on create, so the fallback only ever serves older rows, until
-    the backfill moves them over."""
-    return (
-        OAuthApplication.objects.filter(client_id=url).first()
-        or OAuthApplication.objects.filter(cimd_metadata_url=url).first()
-    )
-
-
-def get_application_by_client_id(client_id: str) -> OAuthApplication:
-    """
-    Look up an OAuthApplication by client_id, supporting CIMD URL-form client_ids.
-
-    Raises OAuthApplication.DoesNotExist if not found.
-    """
-    if is_cimd_client_id(client_id):
-        app = find_cimd_application(client_id)
-        if app is None:
-            raise OAuthApplication.DoesNotExist
-        return app
-    return OAuthApplication.objects.get(client_id=client_id)
 
 
 def _cimd_provisioning_defaults_for(app: OAuthApplication) -> "ProvisioningConfig":
@@ -1116,10 +1088,10 @@ def apply_provisioning_defaults(app: OAuthApplication) -> OAuthApplication:
     # A partner appearing without an admin creating it is the event worth watching for abuse.
     # Only the promotion reaches here, so it fires on the transition and nowhere else.
     posthoganalytics.capture(
-        distinct_id=app.cimd_metadata_url or str(app.pk),
+        distinct_id=app.client_id,
         event="cimd_provisioning_partner_registered",
         properties={
-            "cimd_url": app.cimd_metadata_url,
+            "cimd_url": app.client_id,
             "client_name": app.name,
             "app_id": str(app.pk),
             "partner_tier": app.partner_tier,

@@ -1,5 +1,8 @@
 import os
+from typing import Literal
+from uuid import UUID
 
+from posthog.settings.base_variables import DEBUG, TEST
 from posthog.settings.utils import get_from_env, get_list, get_set
 from posthog.utils import str_to_bool
 
@@ -83,6 +86,18 @@ CAPTURE_V1_INTERNAL_RETRY_AFTER_CAP_SECONDS = get_from_env(
 # Chunk fan-out reuses CAPTURE_INTERNAL_MAX_WORKERS (above) for its thread pool.
 CAPTURE_INTERNAL_BATCH_CHUNK_SIZE = get_from_env("CAPTURE_INTERNAL_BATCH_CHUNK_SIZE", type_cast=int, default=200)
 
+# Outbound: where browsers send CSP violation and crash reports for pages this instance serves.
+# CSPMiddleware puts it in the `report-uri` directive and the `Reporting-Endpoints` header, and
+# picks the destination itself when this is unset. An empty value turns reporting off without
+# changing the policy, so it is a kill switch that needs no deploy.
+#
+# Read straight from the environment because `get_from_env` cannot tell an empty value from an unset
+# one, and the two mean different things here.
+#
+# An operator can point this at their own install, which already serves the receiving `/report/`
+# endpoint: CSP_REPORT_ENDPOINT="https://posthog.example.com/report/?token=<project token>&v=2"
+CSP_REPORT_ENDPOINT: str | None = os.getenv("CSP_REPORT_ENDPOINT")
+
 # Inbound bounds for /report/. The endpoint is unauthenticated and expands each CSP violation in
 # the body into its own event (a reports+json bundle may also carry other Reporting API types,
 # which are accepted but ignored), so without these the generic upload limit
@@ -122,3 +137,17 @@ NEW_ANALYTICS_CAPTURE_EXCLUDED_TEAM_IDS = get_set(os.getenv("NEW_ANALYTICS_CAPTU
 ELEMENT_CHAIN_AS_STRING_EXCLUDED_TEAMS = get_set(os.getenv("ELEMENT_CHAIN_AS_STRING_EXCLUDED_TEAMS", ""))
 
 DROP_EVENTS_BY_TOKEN_DISTINCT_ID = get_from_env("DROP_EVENTS_BY_TOKEN_DISTINCT_ID", None, type_cast=str, optional=True)
+
+# Organizations that see `posthog.billing_usage_records` in HogQL. The table carries usage for
+# every producer in a project, so this organization-level rollout lets the real-time usage page
+# query all of an organization's projects without exposing the table elsewhere.
+#
+# Local development enables the table for all organizations. Cloud and self-hosted deployments need explicit UUIDs.
+_BILLING_USAGE_RECORDS_DEFAULT_ORGANIZATION_IDS = "*" if DEBUG and not TEST else ""
+BILLING_USAGE_RECORDS_HOGQL_ORGANIZATION_IDS: set[UUID | Literal["*"]] = {
+    "*" if organization_id == "*" else UUID(organization_id)
+    for organization_id in get_set(
+        os.getenv("BILLING_USAGE_RECORDS_HOGQL_ORGANIZATION_IDS", _BILLING_USAGE_RECORDS_DEFAULT_ORGANIZATION_IDS)
+    )
+    if organization_id
+}

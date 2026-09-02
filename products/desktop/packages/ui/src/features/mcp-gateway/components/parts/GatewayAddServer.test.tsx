@@ -1,4 +1,3 @@
-import type { McpServiceAccount } from "@posthog/api-client/posthog-client";
 import { Theme } from "@radix-ui/themes";
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
@@ -15,37 +14,22 @@ vi.mock(
 
 import { GatewayAddServer } from "./GatewayAddServer";
 
-const account = {
-  id: "agent-1",
-  name: "Support agent",
-  description: "",
-  handle: "support-agent",
-  status: "active",
-  token_mask: "",
-  server_ids: [],
-  last_active_at: null,
-  created_at: "2026-07-23T12:00:00Z",
-  updated_at: "2026-07-23T12:00:00Z",
-} as McpServiceAccount;
-
 describe("GatewayAddServer", () => {
   it("keeps team and agent sharing without offering shared credentials", () => {
     render(
       <Theme>
-        <GatewayAddServer
-          isAdmin
-          canManageAgentAccess
-          accounts={[account]}
-          onNavigate={vi.fn()}
-        />
+        <GatewayAddServer isAdmin canManageAgentAccess onNavigate={vi.fn()} />
       </Theme>,
     );
 
     expect(
       screen.getByText("Enabled for your organization"),
     ).toBeInTheDocument();
-    expect(screen.getByText("Share with agents")).toBeInTheDocument();
-    expect(screen.getByText(account.name)).toBeInTheDocument();
+    expect(
+      screen.getByText("Who can use this connection?"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Everyone in this project")).toBeInTheDocument();
+    expect(screen.getByText("Only me")).toBeInTheDocument();
     expect(screen.queryByText("One shared credential")).not.toBeInTheDocument();
     expect(
       screen.queryByText("Allow personal connections"),

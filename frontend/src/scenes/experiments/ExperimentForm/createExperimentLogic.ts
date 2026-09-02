@@ -2,6 +2,7 @@ import { MakeLogicType, actions, connect, events, kea, key, listeners, path, pro
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
+import { ApiError } from 'lib/api-error'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -21,6 +22,7 @@ import {
 } from '~/queries/schema/schema-general'
 import type { Experiment, FeatureFlagFilters, MultivariateFlagVariant } from '~/types'
 
+import { NEW_EXPERIMENT } from 'products/experiments/frontend/constants'
 import { experimentsCreate } from 'products/experiments/frontend/generated/api'
 import type {
     ExperimentApi,
@@ -32,7 +34,6 @@ import { visionScannersCreate } from 'products/replay_vision/frontend/generated/
 import type { ProductCrossSellProperties, ProductIntentProperties } from '../../../lib/utils/product-intents'
 import type { ExperimentMetricUnion } from '../../../queries/schema/schema-general'
 import type { FeatureFlagType } from '../../../types'
-import { NEW_EXPERIMENT } from '../constants'
 import { FORM_MODES, experimentLogic } from '../experimentLogic'
 import { experimentSceneLogic } from '../experimentSceneLogic'
 import { experimentScannerBody, experimentScannerFilters } from '../replayVisionScanner'
@@ -542,9 +543,18 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                                 intent_context: ProductIntentContext.EXPERIMENT_REPLAY_VISION_SCANNER_CREATED,
                             })
                         } catch (scannerError) {
-                            // Captured rather than swallowed: a systematically failing create (quota, access)
-                            // is otherwise invisible, since the experiment itself still succeeds.
-                            posthog.captureException(scannerError)
+                            // A missing org AI consent is a user-correctable config state, not a defect, so it
+                            // stays out of error tracking. The checkbox gates on consent, but a stale client can
+                            // still reach here. Other failures (quota, access) are still captured. Without that,
+                            // a systematic break is invisible, because the experiment itself still succeeds.
+                            if (
+                                !(
+                                    scannerError instanceof ApiError &&
+                                    scannerError.code === 'ai_data_processing_not_approved'
+                                )
+                            ) {
+                                posthog.captureException(scannerError)
+                            }
                             replayScannerCreationFailed = true
                         }
                     }

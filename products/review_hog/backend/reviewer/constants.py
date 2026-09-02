@@ -28,6 +28,9 @@ REVIEW_INITIAL_PERMISSION_MODE = "full-access"
 # resolver, so this cannot break session mechanics. `user:read` is the MCP handshake: the MCP
 # server resolves the calling user (`/api/users/@me/`) when a session opens and refuses the whole
 # connection without it, so the agent never gets `skill-get` and silently reviews without its skill.
+# `project:read` is deliberately NOT granted: the handshake's project fetch is best-effort, so the
+# scope buys only analytics attribution, but `GET /api/projects/<id>/` returns the team's unmasked
+# `secret_api_token`, which an injected agent reading untrusted PR text must never be able to read.
 REVIEW_MCP_SCOPES: list[str] = ["llm_skill:read", "user:read"]
 
 

@@ -377,6 +377,9 @@ describe('Hono MCP analytics contexts', () => {
             // fields, so capturing the payload would put arbitrary third-party content in
             // analytics to serve evaluations that target PostHog's own tools.
             ['a proxied third-party tool', 'linear__create_issue', { title: 'Customer escalation' }, false],
+            // Its result is a live presigned S3 POST (policy, signature, credential) — output
+            // fields, not secret-shaped keys, so key-based redaction can't catch them.
+            ['the presigned upload tool', 'media-image-upload-start', { name: 'logo.png', purpose: 'email' }, false],
         ])('gates capture for %s', async (_case, toolName, input, captured) => {
             await trackToolSpan(toolName, makeState(), { durationMs: 100, isError: false, input, output: 'rows' })
 

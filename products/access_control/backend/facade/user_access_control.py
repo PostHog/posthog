@@ -16,6 +16,7 @@ from posthog.constants import AvailableFeature
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization, OrganizationMembership, Team, User
+from posthog.organization_caching import get_cached_organization_membership
 from posthog.scopes import API_SCOPE_OBJECTS, INTERNAL_API_SCOPE_OBJECTS, APIScopeObject
 from posthog.settings import EE_AVAILABLE
 
@@ -79,6 +80,7 @@ ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
     "revenue_analytics",
     "session_recording",
     "sharing_configuration",
+    "stamphog",
     "survey",
     "ticket",
     "web_analytics",
@@ -165,13 +167,16 @@ def get_field_access_control_map(model_class: type[Model]) -> dict[str, tuple[AP
     Dynamically retrieve field-level access control requirements from model fields.
     This function looks for fields decorated with @requires_access.
     """
-    field_access_map = {}
+    field_access_map: dict[str, tuple[APIScopeObject, AccessControlLevel]] = {}
 
     # Iterate through all fields in the model
     for field in model_class._meta.get_fields():
         # Check if the field has access control metadata
         if hasattr(field, "_access_control_resource") and hasattr(field, "_access_control_level"):
-            field_access_map[field.name] = (field._access_control_resource, field._access_control_level)
+            field_access_map[field.name] = (
+                cast(APIScopeObject, field._access_control_resource),
+                cast(AccessControlLevel, field._access_control_level),
+            )
 
     return field_access_map
 
@@ -193,6 +198,9 @@ def resource_to_display_name(resource: APIScopeObject) -> str:
     if resource == "llm_playground":
         # The playground is a single page, not a collection of objects
         return "LLM playground"
+    if resource == "stamphog":
+        # Product name: a proper noun, and it does not take a plural
+        return "Stamphog"
 
     # Default: replace underscores and add 's' for plural
     return f"{resource.replace('_', ' ')}s"
@@ -277,6 +285,9 @@ class ResolvedAccess:
     # (the source a table inherited from), so a display can name it. None when the rule is
     # resource-wide or no rule decided.
     source_resource_id: Optional[str] = None
+    # Display name of the member or role whose row decided. Enforcement never sets or reads
+    # it; the resolution preview fills it so explanations can name the deciding subject.
+    subject_name: Optional[str] = None
 
 
 def model_to_resource(model: Model) -> Optional[APIScopeObject]:
@@ -461,15 +472,9 @@ class UserAccessControl:
 
     @cached_property
     def _organization_membership(self) -> Optional[OrganizationMembership]:
-        # NOTE: This is optimized to reduce queries - we get the users membership _with_ the organization
-        try:
-            if not self._organization_id:
-                return None
-            return OrganizationMembership.objects.select_related("organization").get(
-                organization_id=self._organization_id, user=self._user
-            )
-        except OrganizationMembership.DoesNotExist:
+        if not self._organization_id:
             return None
+        return get_cached_organization_membership(self._organization_id, self._user)
 
     @cached_property
     def _organization(self) -> Optional[Organization]:
@@ -504,12 +509,9 @@ class UserAccessControl:
         """
         if not EE_AVAILABLE or not self._team:
             return []
-        # Annotate with team.organization_id only — avoids fetching the full ~150-column posthog_team row.
-        return list(
-            AccessControl.objects.annotate(_team_organization_id=F("team__organization_id")).filter(
-                self._filter_options({"team_id": self._team.id})
-            )
-        )
+        # No org-id annotation: this team-scoped pool is only ever matched on team_id (never
+        # team__organization_id), so `_row_matches` never reads that attribute off these rows.
+        return list(AccessControl.objects.filter(self._filter_options({"team_id": self._team.id})))
 
     @property
     def user(self) -> User:
@@ -559,6 +561,7 @@ class UserAccessControl:
         """
         Adds the 3 main filter options to the query
         """
+        filters = self._db_filters(filters)
         return (
             Q(  # Access controls applying to this team
                 **filters, organization_member=None, role=None
@@ -576,6 +579,18 @@ class UserAccessControl:
                 **filters, organization_member=None, role__in=self._user_role_ids
             )
         )
+
+    @staticmethod
+    def _db_filters(filters: dict[str, Any]) -> dict[str, Any]:
+        """Replace `team__organization_id` with `team_id__in` (the org's teams) for the DB query.
+        The org id is a posthog_team column, so as a join predicate it forces a scan over every
+        org's rows. A team_id predicate uses the index on ee_accesscontrol."""
+        organization_id = filters.get("team__organization_id")
+        if organization_id is None:
+            return filters
+        db_filters = {k: v for k, v in filters.items() if k != "team__organization_id"}
+        db_filters["team_id__in"] = Team.objects.filter(organization_id=organization_id).values("id")
+        return db_filters
 
     def _can_serve_from_preload(self, filters: dict) -> bool:
         """The preloaded set is `WHERE team_id = self._team.id` (+ the OR-3 precedence), so it
@@ -613,11 +628,9 @@ class UserAccessControl:
                 if isinstance(resource, str):
                     span.set_attribute("rbac.resource", resource)
                 span.set_attribute("rbac.has_resource_id", filters.get("resource_id") is not None)
-                self._cache[key] = list(
-                    AccessControl.objects.annotate(_team_organization_id=F("team__organization_id")).filter(
-                        self._filter_options(filters)
-                    )
-                )
+                # No org-id annotation here: these rows return straight to the caller and never
+                # reach `_row_matches`, so joining posthog_team for it would be wasted work.
+                self._cache[key] = list(AccessControl.objects.filter(self._filter_options(filters)))
                 span.set_attribute("rbac.row_count", len(self._cache[key]))
 
         return self._cache[key]

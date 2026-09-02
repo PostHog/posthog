@@ -30,6 +30,8 @@ const DEFAULT_INTERVAL = 'day'
 export type AppMetricsCommonParams = {
     appSource?: string
     appSourceId?: string
+    /** Match all app_source_ids starting with this prefix (e.g. `<hog flow id>/` for versioned hog flow metrics). */
+    appSourceIdPrefix?: string
     instanceId?: string
     metricName?: string | string[]
     metricKind?: string | string[]
@@ -79,6 +81,11 @@ export type AppMetricsTotalsResponse = Record<
     }
 >
 
+const appSourceIdPrefixPattern = (prefix: string): string => {
+    // Escape LIKE wildcards so the prefix matches literally.
+    return prefix.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_') + '%'
+}
+
 export const loadAppMetricsTotals = async (
     request: AppMetricsTotalsRequest,
     timezone: string
@@ -95,6 +102,10 @@ export const loadAppMetricsTotals = async (
 
     if (request.appSourceId) {
         query = (query + hogql`\nAND app_source_id = ${request.appSourceId}`) as HogQLQueryString
+    }
+    if (request.appSourceIdPrefix) {
+        query = (query +
+            hogql`\nAND app_source_id LIKE ${appSourceIdPrefixPattern(request.appSourceIdPrefix)}`) as HogQLQueryString
     }
     if (typeof request.instanceId === 'string') {
         query = (query + hogql`\nAND instance_id = ${request.instanceId}`) as HogQLQueryString
@@ -204,6 +215,10 @@ const loadAppMetricsTimeSeries = async (
 
     if (request.appSourceId) {
         query = (query + hogql`\nAND app_source_id = ${request.appSourceId}`) as HogQLQueryString
+    }
+    if (request.appSourceIdPrefix) {
+        query = (query +
+            hogql`\nAND app_source_id LIKE ${appSourceIdPrefixPattern(request.appSourceIdPrefix)}`) as HogQLQueryString
     }
     if (typeof request.instanceId === 'string') {
         query = (query + hogql`\nAND instance_id = ${request.instanceId}`) as HogQLQueryString

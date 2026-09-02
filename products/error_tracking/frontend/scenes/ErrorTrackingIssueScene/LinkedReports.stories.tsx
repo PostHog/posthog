@@ -76,6 +76,33 @@ export const SeveralReportsAcrossStates: Story = {
     ),
 }
 
+/**
+ * More reports than the pane has room for. The section stops at half the pane and scrolls, so the
+ * exception card below it keeps the other half.
+ */
+export const ManyReports: Story = {
+    render: () => (
+        // Two boxes, because the cap is a percentage and only resolves against a parent that has a
+        // height. The outer box stands in for the scene, the inner one for the pane, which takes its
+        // height from the scene rather than declaring one.
+        <div className="w-[700px] h-[400px] flex flex-col">
+            <div className="flex flex-col flex-1 min-h-0">
+                <LinkedReportsSection
+                    reports={Array.from({ length: 12 }, (_, index) =>
+                        makeReport({
+                            id: `019f9582-93e7-77c1-8912-4f541d70cb${String(index).padStart(2, '0')}`,
+                            title: `fix(replay): guard against a missing snapshot index (${index + 1})`,
+                        })
+                    )}
+                />
+                <div className="flex-1 min-h-0 border-t bg-surface-secondary px-2 py-1 text-xs text-muted">
+                    The exception card sits here
+                </div>
+            </div>
+        </div>
+    ),
+}
+
 /** The narrowest the pane gets, where the title and the fix state compete for width. */
 export const NarrowPane: Story = {
     render: () => (

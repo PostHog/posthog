@@ -1,12 +1,6 @@
 import { useSessionForTask } from "../sessions/useSession";
 import { useTasks } from "../tasks/useTasks";
-import {
-  resolveCloudPrSummaries,
-  resolveCloudPrUrl,
-  resolveCloudPrUrls,
-} from "./cloudPrUrl";
-
-export { resolveCloudPrUrl };
+import { resolveCloudPrSummaries, resolveCloudPrUrls } from "./cloudPrUrl";
 
 /** Hook wrapper for components that don't already have the task/session. */
 export function useCloudPrUrl(taskId: string): string | null {

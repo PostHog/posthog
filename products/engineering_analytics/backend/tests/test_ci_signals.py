@@ -71,12 +71,12 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSchema,
     ExternalDataSource,
 )
+from products.warehouse_sources.backend.facade.testing import create_data_warehouse_table_from_csv
 from products.warehouse_sources.backend.facade.types import (
     ExternalDataSchemaStatus,
     ExternalDataSourceStatus,
     ExternalDataSourceType,
 )
-from products.warehouse_sources.backend.test.utils import create_data_warehouse_table_from_csv
 
 _BY_DESIGN_JOB_NAMES = [entry.split("/", 2)[2] for entry in BY_DESIGN_FAILURES]
 

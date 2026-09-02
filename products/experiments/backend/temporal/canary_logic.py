@@ -335,7 +335,11 @@ def _execute_canary_run(
         # resolve warehouse tables here instead of failing closed.
         bypass_warehouse_access_control=True,
     )
-    with tags_context(client_query_id=query_id, trigger="experiment_precompute_canary"):
+    # team_id has to accompany client_query_id: internal sub-queries during SQL generation (e.g. the
+    # materialized-columns cache refresh) inherit these tags, and sync_execute rejects a client_query_id
+    # that arrives without a team_id. Web requests tag team_id at request start; temporal workers don't,
+    # so tag it here.
+    with tags_context(client_query_id=query_id, team_id=experiment.team_id, trigger="experiment_precompute_canary"):
         response = runner.calculate()
 
     stats_entries = [*([response.baseline] if response.baseline else []), *(response.variant_results or [])]

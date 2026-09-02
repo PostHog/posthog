@@ -50,13 +50,6 @@ function getHostedSurveyUrl(surveyId: string): string {
     return url.toString()
 }
 
-function moveQuestion(questions: SurveyQuestion[], from: number, to: number): SurveyQuestion[] {
-    const nextQuestions = [...questions]
-    const [question] = nextQuestions.splice(from, 1)
-    nextQuestions.splice(to, 0, question)
-    return nextQuestions.map((q) => ({ ...q }))
-}
-
 function HostedSurveyQuestionRail({
     id,
     survey,
@@ -407,6 +400,8 @@ export function HostedSurveyEdit({ id }: { id: string }): JSX.Element {
         deleteBranchingLogic,
         editingSurvey,
         loadSurvey,
+        moveQuestion,
+        removeQuestion,
         setSelectedPageIndex,
         setSurveyManualErrors,
         setSurveyValue,
@@ -440,29 +435,6 @@ export function HostedSurveyEdit({ id }: { id: string }): JSX.Element {
         setSelectedPageIndex(Math.max(survey.questions.length - 1, 0))
     }
 
-    const runAfterBranchingConfirmation = (action: () => void, description: JSX.Element): void => {
-        if (!hasBranchingLogic) {
-            action()
-            return
-        }
-
-        LemonDialog.open({
-            title: 'Your survey has active branching logic',
-            description,
-            primaryButton: {
-                children: 'Continue',
-                status: 'danger',
-                onClick: () => {
-                    deleteBranchingLogic()
-                    action()
-                },
-            },
-            secondaryButton: {
-                children: 'Cancel',
-            },
-        })
-    }
-
     const addQuestion = (type: SurveyQuestionType): void => {
         const newQuestion = { ...defaultSurveyFieldValues[type].questions[0] } as SurveyQuestion
         const existingLanguages = Object.keys(survey.translations || {})
@@ -486,26 +458,17 @@ export function HostedSurveyEdit({ id }: { id: string }): JSX.Element {
     }
 
     const moveSurveyQuestion = (from: number, to: number): void => {
-        runAfterBranchingConfirmation(
-            () => {
-                setSurveyValue('questions', moveQuestion(survey.questions, from, to))
-                setSelectedPageIndex(to)
-            },
-            <p className="py-2">Rearranging questions will remove your branching logic. Continue?</p>
-        )
+        // Reorder through surveyLogic's moveQuestion so branching targets are remapped
+        // to the new question indices instead of being wiped, matching the standard editor.
+        moveQuestion(from, to)
+        setSelectedPageIndex(to)
     }
 
     const deleteSurveyQuestion = (index: number): void => {
-        runAfterBranchingConfirmation(
-            () => {
-                setSurveyValue(
-                    'questions',
-                    survey.questions.filter((_, questionIndex) => questionIndex !== index)
-                )
-                setSelectedPageIndex(Math.max(index - 1, 0))
-            },
-            <p className="py-2">Deleting this question will remove your branching logic. Continue?</p>
-        )
+        // Delete through surveyLogic's removeQuestion so branching targets are remapped
+        // instead of being wiped, matching the standard editor.
+        setSelectedPageIndex(Math.max(index - 1, 0))
+        removeQuestion(index)
     }
 
     const handleCancelClick = (): void => {

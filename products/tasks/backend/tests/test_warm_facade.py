@@ -189,20 +189,40 @@ class TestWarmTaskSandbox(APIBaseTest):
             initial_permission_mode="plan",
         )
 
+    @parameterized.expand(
+        [
+            ("without_integration", False),
+            # The PostHog AI composer sends the team's integration even with no repo picked.
+            ("with_integration", True),
+        ]
+    )
     @patch("products.tasks.backend.presentation.views.api.TaskViewSet._warm_enabled", return_value=True)
     @patch("products.tasks.backend.facade.api.warm_task_sandbox")
-    def test_warm_endpoint_accepts_repo_less_request(self, mock_warm, _mock_warm_enabled):
+    def test_warm_endpoint_accepts_repo_less_request(self, _name, with_integration, mock_warm, _mock_warm_enabled):
         mock_warm.return_value = None
+        integration_id = self.integration.id if with_integration else None
 
         response = self.client.post(
             "/api/projects/@current/tasks/warm/",
-            {"repository": None, "github_integration": None, "branch": None},
+            {"repository": None, "github_integration": integration_id, "branch": None},
             format="json",
         )
 
         assert response.status_code == 200, response.content
         assert mock_warm.call_args.kwargs["repository"] is None
-        assert mock_warm.call_args.kwargs["github_integration_id"] is None
+        assert mock_warm.call_args.kwargs["github_integration_id"] == integration_id
+
+    @patch("products.tasks.backend.presentation.views.api.TaskViewSet._warm_enabled", return_value=True)
+    @patch("products.tasks.backend.facade.api.warm_task_sandbox")
+    def test_warm_endpoint_rejects_repository_without_integration(self, mock_warm, _mock_warm_enabled):
+        response = self.client.post(
+            "/api/projects/@current/tasks/warm/",
+            {"repository": "posthog/posthog", "github_integration": None, "branch": "main"},
+            format="json",
+        )
+
+        assert response.status_code == 400, response.content
+        mock_warm.assert_not_called()
 
     @patch("products.tasks.backend.presentation.views.api.TaskViewSet._warm_enabled", return_value=True)
     def test_warm_endpoint_rejects_duplicate_repositories(self, _mock_warm_enabled):
@@ -326,17 +346,25 @@ class TestWarmTaskSandbox(APIBaseTest):
         assert task.description == ""
         assert task.runs.filter(id=result.run_id).exists()
 
-    def test_births_repo_less_draft_and_returns_warm_dto(self):
+    @parameterized.expand(
+        [
+            ("without_integration", False),
+            ("with_integration", True),
+        ]
+    )
+    def test_births_repo_less_draft_and_returns_warm_dto(self, _name, with_integration):
         def fake_warm(self_warmer, **kwargs):
             run = self_warmer.task.create_run(mode="interactive", extra_state={"await_user_message": True})
             return WarmResult(run=run, just_created=True)
 
+        integration_id = self.integration.id if with_integration else None
         with patch(f"{WARM_SRC}.warm", autospec=True, side_effect=fake_warm):
-            result = self._warm(repository=None, github_integration_id=None, branch=None)
+            result = self._warm(repository=None, github_integration_id=integration_id, branch=None)
 
         assert result is not None
         task = Task.objects.get(id=result.task_id)
         assert task.repository is None
+        assert task.github_integration_id == integration_id
 
     def test_births_multi_repository_draft(self):
         def fake_warm(self_warmer, **kwargs):
@@ -504,6 +532,7 @@ class TestCreateTaskWarmReuse(APIBaseTest):
         created_by=None,
         extra_state: dict[str, Any] | None = None,
         origin_product=Task.OriginProduct.USER_CREATED,
+        github_integration: Integration | None = None,
     ) -> tuple[Task, TaskRun]:
         task = Task.objects.create(
             team=self.team,
@@ -513,7 +542,7 @@ class TestCreateTaskWarmReuse(APIBaseTest):
             created_by=created_by or self.user,
             repository=repository,
             repositories=repositories or ([repository] if repository else []),
-            github_integration=self.integration if repository else None,
+            github_integration=github_integration or (self.integration if repository else None),
         )
         run = task.create_run(
             mode="interactive",
@@ -661,10 +690,19 @@ class TestCreateTaskWarmReuse(APIBaseTest):
 
         assert str(dto.id) != str(warm_task.id)
 
-    def test_reuses_matching_repo_less_warm_task(self):
-        warm_task, run = self._warm_run(repository=None, branch=None)
+    @parameterized.expand(
+        [
+            ("without_integration", False),
+            # The PostHog AI composer submits a repo-less task with the team's integration attached;
+            # the warm it booted seconds earlier carries the same pair and must be the run it lands on.
+            ("with_integration", True),
+        ]
+    )
+    def test_reuses_matching_repo_less_warm_task(self, _name, with_integration):
+        integration = self.integration if with_integration else None
+        warm_task, run = self._warm_run(repository=None, branch=None, github_integration=integration)
         with patch(f"{FACADE}.signal_task_run_user_message", return_value=True):
-            dto = self._create(repository=None, github_integration=None, branch=None)
+            dto = self._create(repository=None, github_integration=integration, branch=None)
 
         assert str(dto.id) == str(warm_task.id)
         run.refresh_from_db()

@@ -290,6 +290,28 @@ class AggregationFinder(TraversingVisitor):
                 self.visit(arg)
 
 
+class WindowFunctionFinder(TraversingVisitor):
+    # Window functions evade the order_by and has_aggregation guards but must see every input row,
+    # so limit pushdowns bail on them too.
+    found: bool = False
+
+    def visit(self, node):
+        if not self.found:
+            super().visit(node)
+
+    def visit_select_query(self, node: ast.SelectQuery):
+        pass  # a window inside a scalar subquery doesn't change this query's rows
+
+    def visit_window_function(self, node: ast.WindowFunction):
+        self.found = True
+
+
+def has_window_function(expr: AST) -> bool:
+    finder = WindowFunctionFinder()
+    finder.visit(expr)
+    return finder.found
+
+
 def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team: Team) -> ValueT | bool:
     if value is True:
         value = "true"

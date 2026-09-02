@@ -498,6 +498,7 @@ const CANVAS_CHART_DISPLAY_TYPES = new Set<ChartDisplayType>([
     ChartDisplayType.ActionsStackedBar,
     ChartDisplayType.ActionsBarValue,
     ChartDisplayType.ActionsPie,
+    ChartDisplayType.ActionsDonut,
     ChartDisplayType.Metric,
     ChartDisplayType.BoxPlot,
     ChartDisplayType.SlopeGraph,
@@ -883,6 +884,24 @@ export function taxonomicPersonFilterToHogQL(
     if (groupType === TaxonomicFilterGroupType.HogQLExpression && value) {
         return String(value)
     }
+    return null
+}
+
+export function taxonomicSessionFilterToHogQL(
+    groupType: TaxonomicFilterGroupType,
+    value: TaxonomicFilterValue
+): string | null {
+    if (groupType === TaxonomicFilterGroupType.SessionProperties) {
+        return `session.${escapePropertyAsHogQLIdentifier(String(value))}`
+    }
+    if (groupType === TaxonomicFilterGroupType.PersonProperties) {
+        return `person.properties.${escapePropertyAsHogQLIdentifier(String(value))}`
+    }
+    if (groupType === TaxonomicFilterGroupType.HogQLExpression && value) {
+        return String(value)
+    }
+    // Event-scoped picks (e.g. a suggested or recent event property) have no
+    // equivalent on the sessions table — adding one would fail resolution.
     return null
 }
 

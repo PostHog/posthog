@@ -500,7 +500,6 @@ export const visualReviewFlakinessSceneLogic = kea<visualReviewFlakinessSceneLog
             try {
                 await visualReviewReposQuarantineExpireCreate(String(values.currentProjectId), props.repoId, runType, {
                     identifier,
-                    reason: '',
                 })
                 lemonToast.success('Quarantine lifted. Runs gate on this snapshot again.')
             } catch (e: any) {

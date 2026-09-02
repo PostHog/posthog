@@ -574,6 +574,11 @@
         "params": ["handle"],
         "scope": "project"
     },
+    "engineeringAnalyticsHealth": {
+        "template": "/engineering-analytics/health",
+        "params": [],
+        "scope": "project"
+    },
     "engineeringAnalyticsPullRequest": {
         "template": "/engineering-analytics/repos/{repoOwner}/{repoName}/pull-requests/{number}",
         "params": ["repoOwner", "repoName", "number"],
@@ -807,6 +812,11 @@
     "identityMatching": {
         "template": "/identity-matching",
         "params": [],
+        "scope": "project"
+    },
+    "identityProviderConfig": {
+        "template": "/settings/organization-authentication/{feature}/{configId}",
+        "params": ["feature", "configId"],
         "scope": "project"
     },
     "inbox": {
@@ -1049,6 +1059,11 @@
         "params": [],
         "scope": "project"
     },
+    "mcpAnalytics": {
+        "template": "/mcp-analytics",
+        "params": [],
+        "scope": "project"
+    },
     "mcpAnalyticsActivity": {
         "template": "/mcp-analytics/activity",
         "params": [],
@@ -1061,6 +1076,11 @@
     },
     "mcpAnalyticsIntentClustering": {
         "template": "/mcp-analytics/intent-clustering",
+        "params": [],
+        "scope": "project"
+    },
+    "mcpAnalyticsMissingCapabilities": {
+        "template": "/mcp-analytics/missing-capabilities",
         "params": [],
         "scope": "project"
     },
@@ -1156,6 +1176,11 @@
     },
     "organizationBilling": {
         "template": "/organization/billing",
+        "params": [],
+        "scope": "global"
+    },
+    "organizationBillingRealTimeUsage": {
+        "template": "/organization/billing/real-time-usage",
         "params": [],
         "scope": "global"
     },
@@ -1691,6 +1716,11 @@
     },
     "webAnalytics": {
         "template": "/web",
+        "params": [],
+        "scope": "project"
+    },
+    "webAnalyticsAgents": {
+        "template": "/web/agents",
         "params": [],
         "scope": "project"
     },

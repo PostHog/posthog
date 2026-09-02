@@ -365,52 +365,6 @@ if [[ "$_PHROCS_SKIP" -eq 0 ]]; then
   _BG_PHROCS_START=$(date +%s)
 fi
 
-# Greptile CLI: machine-global, version-addressed store. Greptile is not in
-# the flox catalog (proprietary npm package), and `hogli review` needs it.
-# Not a root devDependency on purpose: that would pull a review-only CLI into
-# every pnpm install, including CI and sandboxes that never review. One npm
-# install per machine per pinned version serves every checkout and survives
-# .flox/cache wipes; each activation only ensures the version and symlinks
-# the venv bin (Step 2b), so worktrees on different branches resolve their
-# own pin. A failed install must not break activation; the CLI is only needed
-# at PR-open time and `hogli review` prints install guidance when absent.
-_GREPTILE_VERSION="3.4.1"
-_GREPTILE_STORE="$HOME/.config/posthog/tools/greptile/$_GREPTILE_VERSION"
-_GREPTILE_BIN="$_GREPTILE_STORE/node_modules/.bin/greptile"
-_GREPTILE_STAMP="$_GREPTILE_STORE/.complete"
-
-_install_greptile() {
-  # Explicit `|| return`/`|| exit`: callers suppress errexit, so a failed
-  # install would otherwise fall through and stamp the broken state.
-  mkdir -p "$_GREPTILE_STORE" || return 1
-  (
-    # The store is shared across checkouts, so serialize concurrent
-    # activations (fresh worktrees) installing the same version.
-    flock 9 || exit 1
-    if [[ ! -x "$_GREPTILE_BIN" || ! -f "$_GREPTILE_STAMP" ]]; then
-      if [[ "$_DEV_SANDBOX_INSTALLS" -eq 1 ]]; then
-        # printf %q: dev-sandbox re-parses its command string, so the path
-        # must survive a $HOME with spaces or quotes.
-        "$FLOX_ENV_PROJECT/bin/dev-sandbox" "npm install --prefix $(printf '%q' "$_GREPTILE_STORE") --no-fund --no-audit greptile@$_GREPTILE_VERSION" || exit 1
-      else
-        npm install --prefix "$_GREPTILE_STORE" --no-fund --no-audit "greptile@$_GREPTILE_VERSION" || exit 1
-      fi
-      [[ -x "$_GREPTILE_BIN" ]] || exit 1
-      touch "$_GREPTILE_STAMP" || exit 1
-    fi
-  ) 9>"$_GREPTILE_STORE/.install.lock"
-}
-
-_GREPTILE_SKIP=0
-[[ -x "$_GREPTILE_BIN" && -f "$_GREPTILE_STAMP" ]] && _GREPTILE_SKIP=1
-if [[ "$_GREPTILE_SKIP" -eq 0 ]]; then
-  _BG_GREPTILE_LOG=$(mktemp)
-  _ACTIVATION_TMPFILES+=("$_BG_GREPTILE_LOG")
-  ( _install_greptile ) >"$_BG_GREPTILE_LOG" 2>&1 &
-  _BG_GREPTILE_PID=$!
-  _BG_GREPTILE_START=$(date +%s)
-fi
-
 # ── Step 1: Python packages (must run before hogli — it needs Click) ─
 if [[ "$_UV_SKIP" -eq 1 ]]; then
   done_step "Python packages (cached)"
@@ -461,17 +415,6 @@ if [[ "$_PNPM_SKIP" -eq 1 ]]; then
   done_step "Node packages (cached)"
 else
   wait_bg_step "Node packages" "$_BG_PNPM_PID" "$_BG_PNPM_START" "$_BG_PNPM_LOG"
-fi
-
-# ── Step 2b: Greptile CLI (reap; launched above with the other jobs) ──
-if [[ "$_GREPTILE_SKIP" -eq 1 ]]; then
-  done_step "Greptile CLI (cached)"
-else
-  wait_bg_step "Greptile CLI" "$_BG_GREPTILE_PID" "$_BG_GREPTILE_START" "$_BG_GREPTILE_LOG" \
-    || warn_step "Greptile CLI install failed  ${C_DIM}(hogli review prints manual install steps)${C_RESET}"
-fi
-if [[ -x "$_GREPTILE_BIN" && -d "$UV_PROJECT_ENVIRONMENT/bin" ]]; then
-  ln -sf "$_GREPTILE_BIN" "$UV_PROJECT_ENVIRONMENT/bin/greptile"
 fi
 
 # ── Step 3: /etc/hosts ──────────────────────────────────────────────

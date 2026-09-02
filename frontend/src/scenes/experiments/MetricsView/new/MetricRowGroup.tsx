@@ -13,7 +13,6 @@ import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
-import { isLaunched } from 'scenes/experiments/experimentStatus'
 import { VariantTag } from 'scenes/experiments/ExperimentView/VariantTag'
 import { MetricBreakdownError } from 'scenes/experiments/MetricBreakdowns/MetricBreakdownError'
 import { MetricBreakdowns } from 'scenes/experiments/MetricBreakdowns/MetricBreakdowns'
@@ -55,6 +54,8 @@ import {
     isWinning,
 } from '~/scenes/experiments/MetricsView/shared/utils'
 import { Experiment, InsightType, BreakdownAttributionType } from '~/types'
+
+import { isLaunched } from 'products/experiments/frontend/experimentStatus'
 
 import { ChartCell } from './ChartCell'
 import {

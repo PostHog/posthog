@@ -4,7 +4,6 @@ import { SortableContext, arrayMove, sortableKeyboardCoordinates, verticalListSo
 import { useActions, useValues } from 'kea'
 
 import { verticalSortableListCollisionDetection } from 'lib/sortable'
-import { isLaunched } from 'scenes/experiments/experimentStatus'
 import { experimentsConfigLogic } from 'scenes/settings/environment/experimentsConfigLogic'
 
 import {
@@ -14,6 +13,8 @@ import {
     NewExperimentQueryResponse,
 } from '~/queries/schema/schema-general'
 import { ExperimentStatsMethod, InsightType } from '~/types'
+
+import { isLaunched } from 'products/experiments/frontend/experimentStatus'
 
 import { experimentLogic } from '../../experimentLogic'
 import { experimentMetricsLogic } from '../../experimentMetricsLogic'

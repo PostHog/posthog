@@ -1,6 +1,6 @@
 import type { LemonTagType } from '@posthog/lemon-ui'
 
-import type { FeatureRequestStatusEnumApi, RequestPriorityEnumApi } from '../../generated/api.schemas'
+import type { FeatureRequestStatusEnumApi, FeatureRequestPriorityEnumApi } from '../../generated/api.schemas'
 
 export type FeatureRequestArchiveState = 'active' | 'archived' | 'all'
 export type FeatureRequestOrdering =
@@ -12,7 +12,22 @@ export type FeatureRequestOrdering =
     | 'priority'
     | 'title'
     | '-title'
-export type FeatureRequestPriorityFilter = RequestPriorityEnumApi | 'none'
+    | 'account'
+    | '-account'
+    | 'product_area'
+    | '-product_area'
+    | 'status'
+    | '-status'
+    | 'created_by'
+    | '-created_by'
+    | 'evidence_count'
+    | '-evidence_count'
+export type FeatureRequestPriorityFilter = FeatureRequestPriorityEnumApi | 'none'
+
+// Event names are consumed by product analytics, so changing one splits its historical data.
+export const FeatureRequestEvents = {
+    Sorted: 'customer analytics feature requests sorted',
+} as const
 
 export const FEATURE_REQUEST_STATUS_OPTIONS: { value: FeatureRequestStatusEnumApi; label: string }[] = [
     { value: 'requested', label: 'Requested' },
@@ -22,7 +37,7 @@ export const FEATURE_REQUEST_STATUS_OPTIONS: { value: FeatureRequestStatusEnumAp
     { value: 'duplicate', label: 'Duplicate' },
 ]
 
-export const FEATURE_REQUEST_PRIORITY_OPTIONS: { value: RequestPriorityEnumApi; label: string }[] = [
+export const FEATURE_REQUEST_PRIORITY_OPTIONS: { value: FeatureRequestPriorityEnumApi; label: string }[] = [
     { value: 'high', label: 'High' },
     { value: 'medium', label: 'Medium' },
     { value: 'low', label: 'Low' },
@@ -39,15 +54,25 @@ export const FEATURE_REQUEST_ARCHIVE_OPTIONS: { value: FeatureRequestArchiveStat
     { value: 'all', label: 'All requests' },
 ]
 
-export const FEATURE_REQUEST_ORDERING_OPTIONS: { value: FeatureRequestOrdering; label: string }[] = [
-    { value: '-updated_at', label: 'Recently updated' },
-    { value: 'updated_at', label: 'Least recently updated' },
-    { value: '-created_at', label: 'Newest created' },
-    { value: 'created_at', label: 'Oldest created' },
-    { value: '-priority', label: 'Highest priority' },
-    { value: 'priority', label: 'Lowest priority' },
-    { value: 'title', label: 'Title A to Z' },
-    { value: '-title', label: 'Title Z to A' },
+export const FEATURE_REQUEST_ORDERING_OPTIONS: FeatureRequestOrdering[] = [
+    '-updated_at',
+    'updated_at',
+    '-created_at',
+    'created_at',
+    '-priority',
+    'priority',
+    'title',
+    '-title',
+    'account',
+    '-account',
+    'product_area',
+    '-product_area',
+    'status',
+    '-status',
+    'created_by',
+    '-created_by',
+    'evidence_count',
+    '-evidence_count',
 ]
 
 export function featureRequestStatusLabel(status: FeatureRequestStatusEnumApi): string {
@@ -69,7 +94,7 @@ export function featureRequestStatusTagType(status: FeatureRequestStatusEnumApi)
     }
 }
 
-export function featureRequestPriorityLabel(priority: RequestPriorityEnumApi | null): string {
+export function featureRequestPriorityLabel(priority: FeatureRequestPriorityEnumApi | null): string {
     return priority
         ? (FEATURE_REQUEST_PRIORITY_OPTIONS.find((option) => option.value === priority)?.label ?? priority)
         : 'No priority'

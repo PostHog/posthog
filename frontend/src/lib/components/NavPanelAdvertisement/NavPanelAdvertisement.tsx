@@ -1,47 +1,33 @@
 import { useValues } from 'kea'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { dayjs } from 'lib/dayjs'
-import { featureFlagLogic, getFeatureFlagPayload } from 'lib/logic/featureFlagLogic'
+import { getFeatureFlagPayload } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 
-import { CampaignPayload, isCampaignPayload } from './navPanelAdShared'
-import { NavPanelCampaignAd } from './NavPanelCampaignAd'
-import { NavPanelCmdKAd } from './NavPanelCmdKAd'
+import { BroadcastPayload, isBroadcastPayload } from './navPanelAdShared'
+import { NavPanelBroadcastAd } from './NavPanelBroadcastAd'
 import { NavPanelProductPushAd } from './NavPanelProductPushAd'
 import { navPanelProductPushLogic } from './navPanelProductPushLogic'
-
-/** Give people a few days of real usage before nudging them about search - day-one users have nothing to search for yet. */
-const CMD_K_AD_MIN_DAYS_SINCE_JOINING = 3
 
 export function NavPanelAdvertisement(): JSX.Element | null {
     const { activeCampaign } = useValues(navPanelProductPushLogic)
     const { isLayoutNavCollapsed } = useValues(panelLayoutLogic)
     const { isCloudOrDev } = useValues(preflightLogic)
     const { user } = useValues(userLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
-    const campaignFlagPayload = getFeatureFlagPayload('nav-panel-campaign') as CampaignPayload | undefined
+    const broadcastPayload = getFeatureFlagPayload(FEATURE_FLAGS.NAV_PANEL_BROADCAST) as BroadcastPayload | undefined
 
     if (isLayoutNavCollapsed) {
         return null
     }
 
-    // Cmd+K experiment arm takes the slot ahead of campaigns so exposure stays consistent for the analysis
-    if (
-        featureFlags[FEATURE_FLAGS.CMD_K_NAV_EXPERIMENT] === 'footer-callout' &&
-        user?.date_joined &&
-        dayjs().diff(dayjs(user.date_joined), 'day') >= CMD_K_AD_MIN_DAYS_SINCE_JOINING
-    ) {
-        return <NavPanelCmdKAd />
-    }
-
-    // Campaign flag payload takes priority over product recommendations, but campaigns promote cloud features so are not shown on hobby
-    if (isCloudOrDev && isCampaignPayload(campaignFlagPayload)) {
-        return <NavPanelCampaignAd campaign={campaignFlagPayload} />
+    // A hand-authored broadcast outranks the scheduler, so a deliberate message is never preempted
+    // by an automated push. Both cards promote cloud features, so neither is shown on hobby.
+    if (isCloudOrDev && isBroadcastPayload(broadcastPayload)) {
+        return <NavPanelBroadcastAd broadcast={broadcastPayload} />
     }
 
     // The org-wide product push campaign, driven by the growth backend. Respects the

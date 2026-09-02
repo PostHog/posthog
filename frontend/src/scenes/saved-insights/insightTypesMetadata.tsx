@@ -558,6 +558,11 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconHogQL,
         inMenu: false,
     },
+    [NodeKind.MarketingAnalyticsRetentionQuery]: {
+        name: 'Marketing Analytics Retention',
+        icon: IconHogQL,
+        inMenu: false,
+    },
     [NodeKind.NonIntegratedConversionsTableQuery]: {
         name: 'Non-Integrated Conversions Table',
         icon: IconHogQL,
@@ -631,6 +636,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.MCPToolNeighborsQuery]: {
         name: 'MCP tool neighbors',
         description: 'Tools called adjacent to a single MCP tool within a conversation.',
+        icon: IconPieChart,
+        inMenu: false,
+    },
+    [NodeKind.MCPMissingCapabilitiesQuery]: {
+        name: 'MCP missing capabilities',
+        description: 'Capabilities agents asked an MCP server for and could not get.',
         icon: IconPieChart,
         inMenu: false,
     },

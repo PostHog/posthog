@@ -427,6 +427,23 @@ export function IconTableChart(props: LemonIconProps): JSX.Element {
     )
 }
 
+/** Donut chart. Built like `IconPieChart`, which sits next to it in the chart type picker: a thin
+ *  outlined body with a quarter cut out, and that quarter drawn again offset outwards.
+ *  `@posthog/icons` has no donut glyph. */
+export function IconDonutChart(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase {...props}>
+            <path
+                d="M18.5 13A7.5 7.5 0 1 1 11 5.5V9.6A3.4 3.4 0 1 0 14.4 13Z"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinejoin="round"
+            />
+            <path d="M12.7 3.8A7.5 7.5 0 0 1 20.2 11.3H16.1A3.4 3.4 0 0 0 12.7 7.9Z" fill="currentColor" />
+        </LemonIconBase>
+    )
+}
+
 /*
  * Insight type icon set. Drawn at the same visual weight as the left-nav icon family
  * (~1.5-1.75 unit strokes, slim bars). Series blue is the base color; glyphs with several

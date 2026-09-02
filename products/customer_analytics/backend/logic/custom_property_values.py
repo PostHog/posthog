@@ -12,6 +12,7 @@ from typing import Any
 from uuid import UUID
 
 from django.core.exceptions import ValidationError
+from django.core.validators import URLValidator
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
@@ -30,6 +31,7 @@ from products.customer_analytics.backend.models import (
 from products.customer_analytics.backend.models.custom_property_value import ACTIVE_VALUE_CONSTRAINT_NAME
 
 CoercedValue = float | bool | str | datetime
+_LINK_VALIDATOR = URLValidator(schemes=["http", "https"])
 
 
 class InvalidCustomPropertyValue(ValueError):
@@ -429,6 +431,15 @@ def _coerce_string(definition: CustomPropertyDefinition, value: Any) -> str:
     raise InvalidCustomPropertyValue(_expects(definition, "a text value"))
 
 
+def _coerce_link(definition: CustomPropertyDefinition, value: Any) -> str:
+    link = _coerce_string(definition, value)
+    try:
+        _LINK_VALIDATOR(link)
+    except ValidationError:
+        raise InvalidCustomPropertyValue(_expects(definition, "an HTTP or HTTPS URL"))
+    return link
+
+
 def _coerce_select(definition: CustomPropertyDefinition, value: Any) -> str:
     labels = [option["label"] for option in definition.options or []]
     if isinstance(value, str) and value in labels:
@@ -449,6 +460,8 @@ _HANDLER_BY_DATA_TYPE: dict[DataType, tuple[str, Callable[[CustomPropertyDefinit
 def _coerce_to_column(definition: CustomPropertyDefinition, value: Any) -> tuple[str, CoercedValue]:
     if definition.display_type == DisplayType.SELECT:
         return "value_str", _coerce_select(definition, value)
+    if definition.display_type == DisplayType.LINK:
+        return "value_str", _coerce_link(definition, value)
     column, coerce = _HANDLER_BY_DATA_TYPE[definition.data_type]
     return column, coerce(definition, value)
 

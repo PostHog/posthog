@@ -22,8 +22,8 @@ from products.engineering_analytics.backend.logic.sources import (
     GitHubTables,
 )
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.facade.testing import create_data_warehouse_table_from_csv
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
-from products.warehouse_sources.backend.test.utils import create_data_warehouse_table_from_csv
 
 TEST_BUCKET = "test_storage_bucket-posthog.products.engineering_analytics.github_fixtures"
 
@@ -71,6 +71,23 @@ def create_trunk_source(
         prefix=prefix,
         job_inputs={},
     )
+
+
+def _quarantined_row(*, file: str, name: str, classname: str, parent: str) -> dict[str, Any]:
+    return {
+        "file": file,
+        "name": name,
+        "labels": "[]",
+        "parent": parent,
+        "status": "FLAKY",
+        "variant": "",
+        "classname": classname,
+        "codeowners": "[]",
+        "test_case_id": f"case-{name}",
+        "quarantined_at": "2026-01-10T10:00:00.000Z",
+        "quarantine_setting": "AUTO_QUARANTINE",
+        "status_last_updated_at": "2026-01-10T10:00:00.000Z",
+    }
 
 
 def _trunk_queue_row(

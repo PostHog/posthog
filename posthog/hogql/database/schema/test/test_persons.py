@@ -244,6 +244,44 @@ class TestPersonsV2LimitPushDown(ClickhouseTestMixin, APIBaseTest):
         assert len(response.results) == 1
         assert response.results[0][1] == "cohort_member@example.com"
 
+    @parameterized.expand(
+        [
+            # (name, query, LIMIT that a wrongly pushed-down limit+offset+1 would print in the inner subquery)
+            ("aggregate", "SELECT count() FROM persons", "LIMIT 101"),
+            ("distinct", "SELECT DISTINCT is_identified FROM persons LIMIT 2", "LIMIT 3"),
+            ("window", "SELECT id, count() OVER () FROM persons LIMIT 10", "LIMIT 11"),
+            # HAVING acts as a post-dedup filter, like the WHERE case test_v2_cohort_where covers.
+            ("having", "SELECT id FROM persons HAVING is_identified = 0 LIMIT 5", "LIMIT 6"),
+        ]
+    )
+    @snapshot_clickhouse_queries
+    def test_v2_full_row_set_selects_do_not_push_limit_down(self, _name, query, pushed_down_limit):
+        response = execute_hogql_query(query, self.team, modifiers=self._v2_modifiers(), pretty=False)
+        assert response.clickhouse is not None
+        assert "in(tuple(person.id, person.version)" in response.clickhouse
+        assert pushed_down_limit not in response.clickhouse
+
+    @parameterized.expand(
+        [
+            # (name, query, pin v2 modifiers, index of the total in the result row)
+            ("count_v2", "SELECT count() FROM persons LIMIT 1", True, 0),
+            ("count_default", "SELECT count() FROM persons LIMIT 1", False, 0),
+            ("window_total_v2", "SELECT id, count() OVER () AS total FROM persons LIMIT 1", True, 1),
+        ]
+    )
+    def test_totals_over_persons_are_not_capped_by_limit(self, _name, query, pin_v2, result_index):
+        for i in range(3):
+            _create_person(team_id=self.team.pk, distinct_ids=[f"count_person_{i}"])
+        flush_persons_and_events()
+
+        response = execute_hogql_query(
+            query,
+            self.team,
+            modifiers=self._v2_modifiers() if pin_v2 else None,
+            pretty=False,
+        )
+        assert response.results[0][result_index] == 3
+
 
 class TestPersons(ClickhouseTestMixin, APIBaseTest):
     person_properties = {"$initial_referring_domain": "https://google.com"}

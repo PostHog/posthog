@@ -71,6 +71,7 @@ class TestSetCustomPropertyValue(BaseTest):
     @parameterized.expand(
         [
             ("text", DisplayType.TEXT, "enterprise", "value_str", "enterprise"),
+            ("link", DisplayType.LINK, "https://example.com/customer", "value_str", "https://example.com/customer"),
             ("number_int", DisplayType.NUMBER, 12, "value_num", 12.0),
             ("number_decimal", DisplayType.NUMBER, 9.99, "value_num", 9.99),
             ("number_string", DisplayType.NUMBER, "42", "value_num", 42.0),
@@ -123,6 +124,8 @@ class TestSetCustomPropertyValue(BaseTest):
             ("datetime_from_unparseable", DisplayType.DATETIME, "not a date"),
             ("datetime_from_number", DisplayType.DATETIME, 123),
             ("text_from_list", DisplayType.TEXT, ["nope"]),
+            ("link_with_unsafe_scheme", DisplayType.LINK, "javascript:alert(1)"),
+            ("link_without_url", DisplayType.LINK, "example.com"),
         ]
     )
     def test_rejects_values_that_do_not_match_the_type(self, _name, display_type, value):
@@ -659,7 +662,9 @@ class TestSetExternalAccountCustomProperties(BaseTest):
 class TestCustomPropertyDefinitionReferences(BaseTest):
     def _uac(self, *, can_read_workflows: bool = True) -> MagicMock:
         uac = MagicMock()
-        uac.check_access_level_for_resource.return_value = can_read_workflows
+        uac.filter_queryset_by_access_level.side_effect = lambda queryset: (
+            queryset if can_read_workflows else queryset.none()
+        )
         return uac
 
     def _create_workflow_setting(self, definition_id: str, *, name: str = "Onboarding", status: str = "active"):
@@ -692,9 +697,10 @@ class TestCustomPropertyDefinitionReferences(BaseTest):
         assert [(r.id, r.name, r.status, r.type) for r in by_id[plan.id].references] == [
             (str(workflow.id), "Onboarding", "active", "workflow")
         ]
-        # A definition no workflow references carries an empty list.
+        assert by_id[plan.id].has_workflow_reference is True
         unused = next(v for v in page if v.name == "Unused")
         assert unused.references == []
+        assert unused.has_workflow_reference is False
 
     def test_reference_matches_id_not_name(self):
         # A workflow keyed by a stale/foreign id must not attach to a same-named definition.
@@ -719,6 +725,28 @@ class TestCustomPropertyDefinitionReferences(BaseTest):
         assert [(r.id, r.name, r.status, r.type) for r in view.references] == [
             (str(workflow.id), "Onboarding", "active", "workflow")
         ]
+        assert view.has_workflow_reference is True
+
+    def test_update_attaches_workflow_references_for_workflow_viewers(self):
+        plan = create_custom_property_definition(team_id=self.team.id, name="Plan")
+        workflow = self._create_workflow_setting(str(plan.id))
+
+        with team_scope(self.team.id):
+            view = facade.update_custom_property_definition(
+                team_id=self.team.id,
+                definition_id=str(plan.id),
+                fields={"description": "Customer plan"},
+                organization_id=self.organization.id,
+                user=self.user,
+                was_impersonated=False,
+                user_access_control=self._uac(),
+            )
+
+        assert view is not None
+        assert [(r.id, r.name, r.status, r.type) for r in view.references] == [
+            (str(workflow.id), "Onboarding", "active", "workflow")
+        ]
+        assert view.has_workflow_reference is True
 
     def test_references_hidden_without_workflow_read_access(self):
         # references expose HogFlow metadata, so a caller without hog_flow read access sees none.
@@ -733,6 +761,28 @@ class TestCustomPropertyDefinitionReferences(BaseTest):
                 self.team.id, str(plan.id), user_access_control=self._uac(can_read_workflows=False)
             )
 
-        assert next(v for v in page if v.id == plan.id).references == []
+        list_view = next(v for v in page if v.id == plan.id)
+        assert list_view.references == []
+        assert list_view.has_workflow_reference is True
         assert view is not None
         assert view.references == []
+        assert view.has_workflow_reference is True
+
+    def test_update_preserves_workflow_reference_presence_when_details_are_hidden(self):
+        plan = create_custom_property_definition(team_id=self.team.id, name="Plan")
+        self._create_workflow_setting(str(plan.id))
+
+        with team_scope(self.team.id):
+            view = facade.update_custom_property_definition(
+                team_id=self.team.id,
+                definition_id=str(plan.id),
+                fields={"description": "Customer plan"},
+                organization_id=self.organization.id,
+                user=self.user,
+                was_impersonated=False,
+                user_access_control=self._uac(can_read_workflows=False),
+            )
+
+        assert view is not None
+        assert view.references == []
+        assert view.has_workflow_reference is True

@@ -21,6 +21,7 @@ export const archiveTaskInput = z.object({
   title: z.string().optional(),
   taskCreatedAt: z.string().optional(),
   repository: z.string().nullable().optional(),
+  serverArchiveScope: z.string().optional(),
 });
 
 export type ArchiveTaskInput = z.infer<typeof archiveTaskInput>;
@@ -29,8 +30,6 @@ export const unarchiveTaskInput = z.object({
   taskId: z.string(),
   recreateBranch: z.boolean().optional(),
 });
-
-export type UnarchiveTaskInput = z.infer<typeof unarchiveTaskInput>;
 
 export const archiveTaskOutput = archivedTaskSchema;
 
@@ -42,6 +41,10 @@ export const unarchiveTaskOutput = z.object({
 export const listArchivedTasksOutput = z.array(archivedTaskSchema);
 
 export const archivedTaskIdsOutput = z.array(z.string());
+
+export const archiveScopeInput = z.object({
+  serverArchiveScope: z.string().nullable(),
+});
 
 export const deleteArchivedTaskInput = z.object({
   taskId: z.string(),

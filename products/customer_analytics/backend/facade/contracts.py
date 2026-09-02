@@ -228,8 +228,27 @@ class AccountTableAssignedToFilter:
 
 
 @dataclass(frozen=True, kw_only=True)
+class AccountTableAssignedFilter:
+    pass
+
+
+@dataclass(frozen=True, kw_only=True)
 class AccountTableUnassignedFilter:
     pass
+
+
+class AccountTableRelationshipOperator(str, Enum):
+    EXACT = "exact"
+    IS_NOT = "is_not"
+    IS_SET = "is_set"
+    IS_NOT_SET = "is_not_set"
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTableRelationshipFilter:
+    definition_id: UUID
+    operator: AccountTableRelationshipOperator
+    user_ids: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -285,7 +304,9 @@ AccountTableFilter = (
     AccountTableSearchFilter
     | AccountTableTagsFilter
     | AccountTableAssignedToFilter
+    | AccountTableAssignedFilter
     | AccountTableUnassignedFilter
+    | AccountTableRelationshipFilter
     | AccountTableAccountIdFilter
     | AccountTableFieldFilter
     | AccountTableCustomPropertyFilter
@@ -706,6 +727,7 @@ class FeatureRequestView:
     can_update: bool = False
     account: FeatureRequestAccountView | None = None
     account_links: list[FeatureRequestAccountLinkView] = field(default_factory=list)
+    evidence_count: int = 0
     product_areas: list[FeatureRequestProductAreaView] = field(default_factory=list)
     created_by: int | None = None
     updated_by: int | None = None
@@ -890,6 +912,7 @@ class CustomPropertyDefinitionView:
     created_by: int | None = None
     updated_at: datetime | None = None
     references: list[CustomPropertyReference] = field(default_factory=list)
+    has_workflow_reference: bool = False
     source: "CustomPropertySourceView | None" = None
     options: list[CustomPropertyOption] | None = None
 

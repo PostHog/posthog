@@ -125,3 +125,58 @@ BALANCE_TRANSACTIONS = [
         "type": "charge",
     },
 ]
+
+
+# Customers for the fan-out tests. The balance column is what the sweep's skip predicate reads,
+# so the set deliberately covers every branch of it: a zero balance (skipped without a child
+# call), a credit (probed), and a null (probed, because an unexpected payload shape must never
+# silently drop data).
+CUSTOMERS: list[dict] = [
+    {"id": "cus_zero_1", "object": "customer", "balance": 0, "created": 1700000001},
+    {"id": "cus_credit_1", "object": "customer", "balance": -2500, "created": 1700000002},
+    {"id": "cus_zero_2", "object": "customer", "balance": 0, "created": 1700000003},
+    {"id": "cus_null_balance", "object": "customer", "balance": None, "created": 1700000004},
+    {"id": "cus_credit_2", "object": "customer", "balance": -100, "created": 1700000005},
+    {"id": "cus_gone", "object": "customer", "balance": -50, "created": 1700000006},
+]
+
+# Keyed by customer. `cus_gone` has none: it is in the snapshot but deleted upstream, so its
+# child call 404s the way a stale warehouse row does in production.
+CUSTOMER_BALANCE_TRANSACTIONS: dict[str, list[dict]] = {
+    "cus_credit_1": [
+        {
+            "id": "cbtxn_1",
+            "object": "customer_balance_transaction",
+            "customer": "cus_credit_1",
+            "amount": -2500,
+            "created": 1700000010,
+        },
+        {
+            "id": "cbtxn_2",
+            "object": "customer_balance_transaction",
+            "customer": "cus_credit_1",
+            "amount": 500,
+            "created": 1700000011,
+        },
+    ],
+    "cus_credit_2": [
+        {
+            "id": "cbtxn_3",
+            "object": "customer_balance_transaction",
+            "customer": "cus_credit_2",
+            "amount": -100,
+            "created": 1700000012,
+        },
+    ],
+    "cus_null_balance": [
+        {
+            "id": "cbtxn_4",
+            "object": "customer_balance_transaction",
+            "customer": "cus_null_balance",
+            "amount": -1,
+            "created": 1700000013,
+        },
+    ],
+}
+
+DELETED_CUSTOMER_IDS = {"cus_gone"}

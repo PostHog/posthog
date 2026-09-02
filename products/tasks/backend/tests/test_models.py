@@ -1506,7 +1506,6 @@ class TestTaskRun(TestCase):
         from django.core.cache import cache
 
         cache.delete(f"tasks:task_run:heartbeat:{run.id}:active")
-
         handle = mock_connect.return_value.get_workflow_handle.return_value
         handle.signal = AsyncMock()
 
@@ -1520,6 +1519,22 @@ class TestTaskRun(TestCase):
         self.assertEqual(handle.signal.call_args.kwargs, {"arg": True})
 
         cache.delete(f"tasks:task_run:heartbeat:{run.id}:active")
+
+    @parameterized.expand(["agent_command_dispatched", "agent_activity_observed"])
+    @patch("posthog.temporal.common.client.sync_connect")
+    def test_signal_agent_boot_milestone(self, milestone, mock_connect):
+        run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+        )
+        handle = mock_connect.return_value.get_workflow_handle.return_value
+        handle.signal = AsyncMock()
+
+        dispatched = run.signal_agent_boot_milestone(milestone)
+
+        self.assertTrue(dispatched)
+        handle.signal.assert_awaited_once_with(milestone)
 
 
 class TestSandboxSnapshot(TestCase):

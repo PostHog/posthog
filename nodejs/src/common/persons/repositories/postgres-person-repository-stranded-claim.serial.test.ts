@@ -15,11 +15,12 @@ import { TEST_TIMESTAMP, fetchDistinctIdValues, getFirstTeam } from './test-help
 
 jest.mock('~/common/utils/logger')
 
-// Production does NOT have the unique (team_id, uuid) index the tracked schema declares
-// (posthog_person_new_uuid_idx is non-unique in both prod regions), which is what lets
-// duplicate persons exist there at all. The tests below recreate that reality; with the
-// tracked schema's unique index in place, the duplicate scenarios cannot even be seeded
-// and every claim test would pass vacuously.
+// The tracked schema's UNIQUE (team_id, uuid) index blocks the duplicate rows these tests
+// seed, so the index is recreated non-unique for the fixture. Production enforces uniqueness,
+// which is why the claim path matters: a stranded person (one no distinct ID resolves to) still
+// holds its uuid, and a returning user derives that same uuid, so the insert hits a constraint
+// violation the claim path has to resolve. Without the fixture every claim test would pass
+// vacuously.
 async function makeUuidIndexNonUnique(postgres: PostgresRouter): Promise<void> {
     const { rows } = await postgres.query(
         PostgresUse.PERSONS_WRITE,

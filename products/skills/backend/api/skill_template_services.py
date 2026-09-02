@@ -163,6 +163,11 @@ def resolve_bindings(variables: list[TemplateVariable], supplied: dict[str, str]
             value = ""
         bindings[variable.name] = value
 
+    _check_binding_sizes(bindings)
+    return bindings
+
+
+def _check_binding_sizes(bindings: dict[str, str]) -> None:
     total = 0
     for name, value in bindings.items():
         size = len(value.encode("utf-8"))
@@ -171,7 +176,6 @@ def resolve_bindings(variables: list[TemplateVariable], supplied: dict[str, str]
         total += size
     if total > MAX_TEMPLATE_BINDINGS_BYTES:
         raise TemplateVariableTooLargeError("values in total", MAX_TEMPLATE_BINDINGS_BYTES)
-    return bindings
 
 
 def _validate_and_project(text: str, bindings: dict[str, str], binding_sizes: dict[str, int]) -> int:
@@ -194,6 +198,37 @@ def _validate_and_project(text: str, bindings: dict[str, str], binding_sizes: di
             raise UnknownTemplatePlaceholderError(name)
         projected += binding_sizes[name] - len(token.encode("utf-8"))
     return projected
+
+
+def _check_rendered_size(body: str, files: list[dict[str, str]], bindings: dict[str, str]) -> None:
+    """Size the whole skill before substituting any of it, so an amplifying template is rejected
+    rather than allocated: peak memory here is the aggregate cap, not the sum of the per-file ones.
+    """
+    binding_sizes = {name: len(value.encode("utf-8")) for name, value in bindings.items()}
+    total = _validate_and_project(body, bindings, binding_sizes)
+    if total > MAX_SKILL_BODY_BYTES:
+        raise TemplateRenderTooLargeError("skill body", MAX_SKILL_BODY_BYTES)
+    for file in files:
+        size = _validate_and_project(file["content"], bindings, binding_sizes)
+        if size > MAX_SKILL_FILE_BYTES:
+            raise TemplateRenderTooLargeError(f"file '{file['path']}'", MAX_SKILL_FILE_BYTES)
+        total += size
+        if total > MAX_RENDERED_SKILL_BYTES:
+            raise TemplateRenderTooLargeError("skill", MAX_RENDERED_SKILL_BYTES)
+
+
+def validate_template(*, variables: list[TemplateVariable], body: str, files: list[dict[str, str]]) -> None:
+    """Check a template installs with only its defaults: every placeholder is declared, every default
+    fits the value caps, and the rendered output fits the size limits.
+
+    For callers that check a template without rendering it, such as publishing. A required variable
+    with no default binds to the empty string here, so it cannot inflate the output; an installer's
+    own values are checked again at install. Raises the same TemplateRenderError subclasses as
+    `render_template_skill`.
+    """
+    bindings = {variable.name: variable.default for variable in variables}
+    _check_binding_sizes(bindings)
+    _check_rendered_size(body, files, bindings)
 
 
 def _substitute(text: str, bindings: dict[str, str]) -> str:
@@ -223,20 +258,7 @@ def render_template_skill(
     when a user-supplied value expands output past the size limit.
     """
     bindings = resolve_bindings(variables, supplied)
-    binding_sizes = {name: len(value.encode("utf-8")) for name, value in bindings.items()}
-
-    # Size the whole skill before substituting any of it, so an amplifying template is rejected
-    # rather than allocated: peak memory here is the aggregate cap, not the sum of the per-file ones.
-    total = _validate_and_project(body, bindings, binding_sizes)
-    if total > MAX_SKILL_BODY_BYTES:
-        raise TemplateRenderTooLargeError("skill body", MAX_SKILL_BODY_BYTES)
-    for file in files:
-        size = _validate_and_project(file["content"], bindings, binding_sizes)
-        if size > MAX_SKILL_FILE_BYTES:
-            raise TemplateRenderTooLargeError(f"file '{file['path']}'", MAX_SKILL_FILE_BYTES)
-        total += size
-        if total > MAX_RENDERED_SKILL_BYTES:
-            raise TemplateRenderTooLargeError("skill", MAX_RENDERED_SKILL_BYTES)
+    _check_rendered_size(body, files, bindings)
 
     rendered_files = [{**file, "content": _substitute(file["content"], bindings)} for file in files]
     return RenderedTemplate(body=_substitute(body, bindings), files=rendered_files, bindings=bindings)

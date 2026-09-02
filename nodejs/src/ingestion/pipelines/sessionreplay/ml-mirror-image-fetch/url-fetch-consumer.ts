@@ -17,6 +17,7 @@ import {
 import { FrontierDeadLetterReason, FrontierDeadLetterSink } from './frontier-dead-letter-sink'
 import { FrontierPublisher, RepublishBatch } from './frontier-publisher'
 import { ImageFetchConsumerMetrics, ImageFetchRequestMetrics } from './metrics'
+import { ImageFetchTopHogMetrics } from './tophog-metrics'
 
 const ONE_HOUR_MS = 60 * 60 * 1000
 const REPUBLISH_DEADLINE_FROM_BATCH_START_MS = 200_000
@@ -39,7 +40,8 @@ export class UrlFetchConsumer {
         private readonly publisher: FrontierPublisher,
         private readonly options: UrlFetchConsumerOptions,
         private readonly runner?: FetchPass,
-        private readonly deadLetters: FrontierDeadLetterSink | null = null
+        private readonly deadLetters: FrontierDeadLetterSink | null = null,
+        private readonly topHogMetrics?: ImageFetchTopHogMetrics
     ) {
         if (!Number.isInteger(options.seenTtlSeconds) || options.seenTtlSeconds < 60 * 60) {
             throw new Error('AI_RESEARCH_IMAGE_FETCH_CRAWL_HISTORY_TTL_SECONDS must be at least 3600')
@@ -71,6 +73,11 @@ export class UrlFetchConsumer {
                     continue
                 }
                 ImageFetchConsumerMetrics.observeRecord(parsed.urlCount)
+                ImageFetchConsumerMetrics.observePartitionRecord(
+                    message.partition,
+                    parsed.urlCount,
+                    parsed.candidates.length
+                )
                 if (parsed.rejected.length > 0) {
                     rejectedRecords.push({
                         message,
@@ -78,12 +85,16 @@ export class UrlFetchConsumer {
                     })
                 }
                 for (const candidate of parsed.candidates) {
-                    const existing = candidatesByRef.get(candidate.originalRef)
+                    const partitionCandidate = { ...candidate, sourcePartitions: [message.partition] }
+                    const existing = candidatesByRef.get(partitionCandidate.originalRef)
                     if (existing) {
                         dedupedInBatch += 1
-                        candidatesByRef.set(candidate.originalRef, mergeDuplicateFetchCandidates(existing, candidate))
+                        candidatesByRef.set(
+                            partitionCandidate.originalRef,
+                            mergeDuplicateFetchCandidates(existing, partitionCandidate)
+                        )
                     } else {
-                        candidatesByRef.set(candidate.originalRef, candidate)
+                        candidatesByRef.set(partitionCandidate.originalRef, partitionCandidate)
                     }
                 }
             }
@@ -91,6 +102,8 @@ export class UrlFetchConsumer {
             candidatesByRef.clear()
             const origins = new Map<string, number>()
             const registrableDomains = new Map<string, number>()
+            const partitionOrigins = new Map<number, Map<string, number>>()
+            const partitionRegistrableDomains = new Map<number, Map<string, number>>()
             for (const candidate of candidates) {
                 ImageFetchConsumerMetrics.observeAge(Math.max(0, nowMs - candidate.firstSeenAtMs) / 1000)
                 origins.set(candidate.origin, (origins.get(candidate.origin) ?? 0) + 1)
@@ -98,11 +111,23 @@ export class UrlFetchConsumer {
                     candidate.registrableDomain,
                     (registrableDomains.get(candidate.registrableDomain) ?? 0) + 1
                 )
+                for (const sourcePartition of candidate.sourcePartitions ?? []) {
+                    ImageFetchConsumerMetrics.incPartitionUrls(sourcePartition, 'unique', 1)
+                    incrementNestedCount(partitionOrigins, sourcePartition, candidate.origin)
+                    incrementNestedCount(partitionRegistrableDomains, sourcePartition, candidate.registrableDomain)
+                }
             }
             originCount = origins.size
             registrableDomainCount = registrableDomains.size
             originCandidateCounts = [...origins.values()]
             registrableDomainCandidateCounts = [...registrableDomains.values()]
+            for (const [partition, partitionOriginCounts] of partitionOrigins) {
+                ImageFetchConsumerMetrics.observePartitionBatchDiversity(
+                    partition,
+                    [...partitionOriginCounts.values()],
+                    [...(partitionRegistrableDomains.get(partition)?.values() ?? [])]
+                )
+            }
 
             if (this.options.dryRun || candidates.length === 0) {
                 await this.parkRejectedRecords(rejectedRecords, drops)
@@ -124,12 +149,21 @@ export class UrlFetchConsumer {
                 const history = stored.get(candidate.originalRef)
                 if (history?.kind === 'url' && history.nextFetchAtMs > nowMs) {
                     ImageFetchConsumerMetrics.incDeduped('store', 1)
+                    for (const sourcePartition of candidate.sourcePartitions ?? []) {
+                        ImageFetchConsumerMetrics.incPartitionUrls(sourcePartition, 'store_deduped', 1)
+                    }
                     continue
                 }
                 if (candidate.notBeforeMs > nowMs) {
                     notReady.push(candidate)
+                    for (const sourcePartition of candidate.sourcePartitions ?? []) {
+                        ImageFetchConsumerMetrics.incPartitionUrls(sourcePartition, 'not_ready', 1)
+                    }
                 } else {
                     fetchable.push(candidate)
+                    for (const sourcePartition of candidate.sourcePartitions ?? []) {
+                        ImageFetchConsumerMetrics.incPartitionUrls(sourcePartition, 'fetchable', 1)
+                    }
                 }
             }
             ImageFetchConsumerMetrics.incFetchable(fetchable.length)
@@ -152,14 +186,25 @@ export class UrlFetchConsumer {
                 await this.runCrawlHistoryOperation('write', updates.length, () => this.crawlHistory.write(updates))
             }
             const republishResult = await republishBatch.flush()
-            const lost = attempts.filter((attempt) => attempt.lost).length + republishResult.failedUrls
-            if (lost > 0) {
-                throw new Error(`the image fetch lane could not account for ${lost} URLs`)
-            }
             for (const attempt of attempts) {
+                if (attempt.lost || (!attempt.finished && republishResult.failedUrls > 0)) {
+                    continue
+                }
+                for (const sourcePartition of attempt.candidate.sourcePartitions ?? []) {
+                    ImageFetchRequestMetrics.incPartitionAttempt(
+                        sourcePartition,
+                        attempt.finished ? 'completed' : 'republished',
+                        attempt.outcome
+                    )
+                }
+                this.topHogMetrics?.recordAttempt(attempt)
                 if (!attempt.finished && isTransientOutcome(attempt.outcome)) {
                     ImageFetchRequestMetrics.incRetryCause(attempt.outcome)
                 }
+            }
+            const lost = attempts.filter((attempt) => attempt.lost).length + republishResult.failedUrls
+            if (lost > 0) {
+                throw new Error(`the image fetch lane could not account for ${lost} URLs`)
             }
             await this.parkRejectedRecords(rejectedRecords, drops)
         } finally {
@@ -299,8 +344,10 @@ export class UrlFetchConsumer {
             return this.terminalAttempt(candidate, HOPS_EXHAUSTED, nowMs)
         }
         const waitMs = candidate.notBeforeMs - nowMs
+        const blockingReason = candidate.lastBlockReason ?? 'unknown_backoff'
+        const republishedCandidate: FetchCandidate = { ...candidate, lastBlockReason: blockingReason }
         const result = await republishBatch.republish(
-            candidate,
+            republishedCandidate,
             {
                 currentUrl: candidate.currentUrl,
                 host: candidate.host,
@@ -314,10 +361,11 @@ export class UrlFetchConsumer {
             return this.terminalAttempt(candidate, DELAY_TOO_LONG, nowMs)
         }
         return {
-            candidate,
+            candidate: republishedCandidate,
             outcome: 'backoff',
             finished: false,
             lost: false,
+            block: { reason: blockingReason, waitMs },
             configurationUpdates: [],
         }
     }
@@ -374,4 +422,13 @@ export class UrlFetchConsumer {
             Number(process.hrtime.bigint() - startedAt) / 1e9
         )
     }
+}
+
+function incrementNestedCount(counts: Map<number, Map<string, number>>, partition: number, key: string): void {
+    let partitionCounts = counts.get(partition)
+    if (!partitionCounts) {
+        partitionCounts = new Map<string, number>()
+        counts.set(partition, partitionCounts)
+    }
+    partitionCounts.set(key, (partitionCounts.get(key) ?? 0) + 1)
 }

@@ -196,7 +196,7 @@ def start_campaign_batch_op(context: dagster.OpExecutionContext, spec: StartBatc
         context.log.info(
             f"Batch of {result.orgs_processed} orgs: {result.started} started, {result.would_start} would start, "
             f"{result.no_candidate} without candidate, {result.not_eligible} not eligible, "
-            f"{result.conflicts} conflicts"
+            f"{result.expired} expired before starting, {result.conflicts} conflicts"
         )
         return result
     except Exception as e:
@@ -233,6 +233,7 @@ def summarize_product_push_run_op(
             "campaigns_would_start": dagster.MetadataValue.int(would_start),
             "starts_not_eligible": dagster.MetadataValue.int(sum(r.not_eligible for r in start_results)),
             "starts_no_candidate": dagster.MetadataValue.int(sum(r.no_candidate for r in start_results)),
+            "starts_expired": dagster.MetadataValue.int(sum(r.expired for r in start_results)),
             "start_conflicts": dagster.MetadataValue.int(sum(r.conflicts for r in start_results)),
         }
     )

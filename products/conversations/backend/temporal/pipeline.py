@@ -106,7 +106,7 @@ class SupportReplyWorkflow:
                     retry_policy=RetryPolicy(maximum_attempts=3),
                 )
             except Exception:
-                workflow.logger.warning("support_reply: failed to record triage", status=patch.get("status"))
+                workflow.logger.warning("support_reply: failed to record triage", extra={"status": patch.get("status")})
 
         async def _persist_gaps(gap_missing: list[str], gap_ticket_type: str, gap_outcome: str) -> None:
             """Best-effort: record knowledge gaps without breaking the pipeline."""
@@ -163,8 +163,7 @@ class SupportReplyWorkflow:
             )
             if not safety_output.safe:
                 workflow.logger.info(
-                    "support_reply: ticket blocked by safety filter",
-                    threat_type=safety_output.threat_type,
+                    "support_reply: ticket blocked by safety filter", extra={"threat_type": safety_output.threat_type}
                 )
                 outcome = {"result": "blocked_unsafe"}
                 return "blocked_unsafe"
@@ -309,8 +308,7 @@ class SupportReplyWorkflow:
                     )
                     if not review_output.safe:
                         workflow.logger.info(
-                            "support_reply: reply blocked by output review",
-                            reason=review_output.reason,
+                            "support_reply: reply blocked by output review", extra={"reason": review_output.reason}
                         )
                         outcome = {
                             "result": "blocked_unsafe_reply",
@@ -373,8 +371,7 @@ class SupportReplyWorkflow:
                 )
                 if not review_output.safe:
                     workflow.logger.info(
-                        "support_reply: reply blocked by output review",
-                        reason=review_output.reason,
+                        "support_reply: reply blocked by output review", extra={"reason": review_output.reason}
                     )
                     outcome = {
                         "result": "blocked_unsafe_reply",

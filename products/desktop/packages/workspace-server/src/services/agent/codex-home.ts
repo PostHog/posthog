@@ -57,6 +57,22 @@ export async function cleanupCodexHome(
   }
 }
 
+export async function cleanupAllCodexHomes(appDataPath: string): Promise<void> {
+  const codexHomesDir = path.join(appDataPath, "codex-home");
+  let taskRunIds: string[];
+  try {
+    taskRunIds = await fs.promises.readdir(codexHomesDir);
+  } catch {
+    return;
+  }
+
+  await Promise.all(
+    taskRunIds
+      .filter(isSafePathSegment)
+      .map((taskRunId) => cleanupCodexHome(appDataPath, taskRunId)),
+  );
+}
+
 /**
  * Builds a private CODEX_HOME for PostHog's own Codex sessions, so they
  * load the bundled PostHog catalog and the user's `~/.claude/skills` — without

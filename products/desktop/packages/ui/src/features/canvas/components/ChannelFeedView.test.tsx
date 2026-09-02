@@ -84,6 +84,9 @@ vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
 vi.mock("@posthog/ui/features/canvas/hooks/useFileTaskToChannel", () => ({
   useFileTaskToChannel: () => vi.fn(),
 }));
+vi.mock("@posthog/ui/features/browser-tabs/useOpenBrowserTab", () => ({
+  useOpenBrowserTab: () => vi.fn(),
+}));
 vi.mock("@posthog/ui/features/browser-tabs/TaskTabIcon", () => ({
   TaskTabIcon: () => <span />,
 }));

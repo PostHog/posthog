@@ -491,8 +491,20 @@ class TestExternalMcpServersPromptSection(SimpleTestCase):
         assert "`Linear`" in mounted
         assert "`Notion`" in mounted
         assert "mcp__<server>__<tool>" in mounted
+        assert "mcp__Linear__<tool>" in mounted
         # The exec rule stays: external servers are a carve-out, not a replacement.
         assert "mcp__posthog__exec" in mounted
+        # A skill body can carry the member-only `<slug>__<tool>` exec spelling, which returns
+        # nothing for the service account; the carve-out has to say that spelling is stale.
+        assert "that text is stale" in mounted
+
+        # Runtimes key MCP servers by the sanitized name (chars outside [A-Za-z0-9_-] become "_"),
+        # so a punctuated display name must render the prefix the runtime actually creates; the raw
+        # spelling names a tool that cannot exist and reads as "didn't mount".
+        punctuated = self._prompt(["Datadog (EU)", "Notion"])
+        assert "`Datadog (EU)`" in punctuated
+        assert "mcp__Datadog__EU___<tool>" in punctuated
+        assert "mcp__Datadog (EU)__" not in punctuated
 
         for unmounted in (self._prompt(None), self._prompt([])):
             assert "mcp__<server>__<tool>" not in unmounted

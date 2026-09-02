@@ -1,5 +1,6 @@
 from typing import Any
 
+import pytest
 from unittest.mock import patch
 
 from prometheus_client import REGISTRY
@@ -8,6 +9,7 @@ from slack_sdk.http_retry.request import HttpRequest
 from slack_sdk.http_retry.response import HttpResponse
 from slack_sdk.http_retry.state import RetryState
 
+from posthog.egress.slack.async_client import SlackAsyncObservabilityHandler
 from posthog.egress.slack.client import SlackWebClient
 
 
@@ -66,3 +68,19 @@ def test_slack_web_client_records_each_retry_attempt() -> None:
         )
         is not None
     )
+
+
+@pytest.mark.asyncio
+async def test_async_slack_client_normalizes_external_upload_ticket() -> None:
+    handler = SlackAsyncObservabilityHandler(source="test", workspace_id="T123", app_id="posthog")
+    request = HttpRequest(
+        method="POST",
+        url="https://files.slack.com/upload/v1/unique-secret-ticket",
+        headers={},
+    )
+    response = HttpResponse(status_code=200, headers={}, body={})
+
+    with patch("posthog.egress.slack.async_client.record_slack_api_response") as record_response:
+        assert await handler.can_retry_async(state=RetryState(), request=request, response=response) is False
+
+    assert record_response.call_args.kwargs["endpoint"] == "files.uploadExternal.data"

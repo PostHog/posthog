@@ -18,8 +18,8 @@
     "@posthog/agent": "workspace:*",
     "@posthog/core": "workspace:*",
     "@posthog/di": "workspace:*",
-    "@posthog/host-router": "workspace:*",
     "@posthog/harness": "workspace:*",
+    "@posthog/host-router": "workspace:*",
     "@posthog/host-trpc": "workspace:*",
     "@posthog/platform": "workspace:*",
     "@posthog/shared": "workspace:*",
@@ -32,6 +32,7 @@
     "inversify": "^7.10.6",
     "react": "19.2.6",
     "react-dom": "19.2.6",
+    "react-hotkeys-hook": "^4.4.4",
     "reflect-metadata": "^0.2.2",
     "superjson": "catalog:",
     "zod": "^4.4.3"

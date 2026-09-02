@@ -169,7 +169,10 @@ class GetSandboxForRepositoryOutput:
     clone_ms: int | None = None
     checkout_ms: int | None = None
     launch_ms: int | None = None
+    agent_prepare_ms: int | None = None
+    agent_invoke_ms: int | None = None
     dev_stack_preview_sized: bool = False
+    agent_shadow_launched: bool = False
 
 
 @activity.defn

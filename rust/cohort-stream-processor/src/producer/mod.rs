@@ -40,7 +40,7 @@ pub use merge::{
 };
 pub use seed::{CaptureSeedTileSink, KafkaSeedTileSink, NoopSeedTileSink, SeedTileSink};
 
-/// One per-cohort membership change on `cohort_membership_changed_shadow`.
+/// One per-cohort membership change on the membership output topic.
 ///
 /// `origin`/`run_id` are additive and absent on the live path, so live emissions stay
 /// byte-identical to the pre-field contract.
@@ -321,7 +321,7 @@ mod tests {
             map_transition(&filters, &transition(lsk, TransitionKind::Entered), TS).collect();
         assert!(
             changes.is_empty(),
-            "a leaf owned only by a multi-leaf cohort produces no shadow output",
+            "a leaf owned only by a multi-leaf cohort produces no membership output",
         );
     }
 

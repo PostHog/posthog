@@ -124,7 +124,7 @@ class BingWebmasterToolsSource(SimpleSource[BingWebmasterToolsSourceConfig]):
 
 Generate an API key in [Bing Webmaster Tools](https://www.bing.com/webmasters) under **Settings > API access > API key**. The key is issued per user and covers every verified site on the account.
 """,
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             iconPath="/static/services/bing_webmaster_tools.png",
             docsUrl="https://posthog.com/docs/cdp/sources/bing-webmaster-tools",
             fields=cast(
