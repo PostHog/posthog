@@ -1117,6 +1117,13 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
             actions.updateCohortCount()
         },
         submitCohortFailure: () => {
+            const criteriaError = firstCohortCriteriaError(values.cohortErrors)
+            // The criteria tree stays mounted but hidden on the History tab. A criteria error there
+            // has no visible element to scroll to, so switch back to Overview first. Otherwise the
+            // scroll lands on a box-less node and the fallback toast never fires, a dead end.
+            if (criteriaError && values.activeTab !== 'overview') {
+                actions.setActiveTab('overview')
+            }
             scrollToFormError({
                 extraErrorSelectors: [
                     '.CohortCriteriaRow__Criteria--error',
@@ -1124,7 +1131,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                     '.CohortCriteriaGroups__matching-group--error',
                 ],
                 fallbackErrorMessage:
-                    firstCohortCriteriaError(values.cohortErrors) ??
+                    criteriaError ??
                     'There was an error submitting this cohort. Make sure the cohort filters are correct.',
                 fallbackToastId: 'cohort-save-error',
             })

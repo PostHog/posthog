@@ -75,6 +75,22 @@ describe('cohortEditLogic', () => {
                 })
         })
 
+        it('returns to the Overview tab so a hidden criteria error can be seen', async () => {
+            logic = cohortEditLogic({ id: 1 })
+            logic.mount()
+            // mockCohort's only criterion is an unbounded negated event, which fails validation.
+            // On the History tab that failing row is mounted but hidden, so the scroll target and
+            // fallback toast both go missing unless the tab switches back to Overview first.
+            logic.actions.setActiveTab('history')
+
+            await expectLogic(logic, () => {
+                logic.actions.setCohort({ ...mockCohort, id: 1 })
+                logic.actions.submitCohort()
+            }).toDispatchActions(['setCohort', 'submitCohort', 'submitCohortFailure', 'setActiveTab'])
+
+            expect(logic.values.activeTab).toBe('overview')
+        })
+
         it('allows submission when name is provided with static cohort and CSV', async () => {
             logic = cohortEditLogic({ id: 'new' })
             logic.mount()
