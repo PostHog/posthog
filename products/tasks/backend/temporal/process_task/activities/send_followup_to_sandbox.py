@@ -307,11 +307,16 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> str | None:
         # background-mode runs hang until the inactivity timeout because
         raise ApplicationError(f"send_followup failed: {error_msg}", non_retryable=True)
 
+    if (task_run.state or {}).get("cancel_requested_at"):
+        if peer_message_id is not None:
+            _mark_peer_delivery_outcome(
+                peer_message_id, AgentPeerMessage.Outcome.DELIVERY_FAILED, "run_stopping", RUN_STOPPING_MESSAGE
+            )
+            raise ApplicationError(f"peer message delivery failed: {RUN_STOPPING_MESSAGE}", non_retryable=True)
+        raise ApplicationError(RUN_STOPPING_MESSAGE, non_retryable=True)
+
     if peer_message_id is not None:
         return _deliver_peer_message(input, task_run, peer_message_id)
-
-    if (task_run.state or {}).get("cancel_requested_at"):
-        raise ApplicationError(RUN_STOPPING_MESSAGE, non_retryable=True)
 
     # Resolve credentials against this message's sender, not the run-state
     # actor a concurrent follow-up may have overwritten since queueing. Local
