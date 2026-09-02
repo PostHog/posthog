@@ -1,7 +1,6 @@
 import { MakeLogicType, afterMount, connect, kea, key, path, props } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import { chunk } from 'lib/utils/arrays'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { Group, GroupTypeIndex } from '~/types'
@@ -27,10 +26,6 @@ export function clearGroupLookupCache(): void {
     groupLookupCache.clear()
 }
 
-// `findGroups` is one request per key, so an "is one of" list of a hundred org ids
-// would otherwise open a hundred connections at once. Resolve in chunks instead.
-const FIND_GROUPS_CHUNK_SIZE = 10
-
 export async function cachedFindGroups(
     teamId: number | null,
     groupTypeIndex: GroupTypeIndex,
@@ -49,15 +44,13 @@ export async function cachedFindGroups(
             unresolved.add(groupKey)
         }
     }
-    for (const batch of chunk([...unresolved], FIND_GROUPS_CHUNK_SIZE)) {
-        const found = await findGroups(teamId, groupTypeIndex, batch)
-        // Only cache a definitive result (a group, or null for a 404 miss).
-        // Transient failures are absent from `found`, so we leave them uncached
-        // and the next lookup retries them.
-        for (const [groupKey, group] of Object.entries(found)) {
-            groupLookupCache.set(cacheKey(teamId, groupTypeIndex, groupKey), group)
-            resolved[groupKey] = group
-        }
+    // `findGroups` bounds its own request concurrency, so hand it every unresolved key at once.
+    const found = await findGroups(teamId, groupTypeIndex, [...unresolved])
+    // Only cache a definitive result (a group, or null for a 404 miss). Transient failures are
+    // absent from `found`, so we leave them uncached and the next lookup retries them.
+    for (const [groupKey, group] of Object.entries(found)) {
+        groupLookupCache.set(cacheKey(teamId, groupTypeIndex, groupKey), group)
+        resolved[groupKey] = group
     }
     return resolved
 }
