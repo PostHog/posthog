@@ -42,6 +42,7 @@ from llm_gateway.rate_limiting.runner import ThrottleRunner
 from llm_gateway.request_context import RequestContext, set_request_context
 from llm_gateway.services.billing_period_resolver import BillingPeriodResolver
 from llm_gateway.services.desktop_access_resolver import DesktopAccessResolver
+from llm_gateway.services.openai_credentials import verify_openai_credentials
 from llm_gateway.services.plan_resolver import PlanResolver
 from llm_gateway.services.quota_resolver import QuotaResolver
 
@@ -174,6 +175,7 @@ def export_provider_credentials(settings: Settings) -> None:
 async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     settings = get_settings()
     export_provider_credentials(settings)
+    await verify_openai_credentials(settings)
 
     logger.info("Initializing database pool...")
     app.state.db_pool = await init_db_pool(

@@ -1,5 +1,6 @@
 from unittest.mock import MagicMock, patch
 
+import httpx
 import pytest
 
 import llm_gateway.observability.error_tracking as error_tracking_module
@@ -18,6 +19,34 @@ def _make_settings(**overrides):
     return settings
 
 
+class _ProviderError(Exception):
+    def __init__(
+        self,
+        status_code: int,
+        code: str | None = None,
+        error_type: str | None = None,
+        response: httpx.Response | None = None,
+    ) -> None:
+        super().__init__("provider rejected the request")
+        self.status_code = status_code
+        self.code = code
+        self.type = error_type
+        self.response = response
+
+
+def _capture_properties(error: Exception, additional_properties: dict) -> dict:
+    with (
+        patch.object(error_tracking_module, "get_settings", return_value=_make_settings()),
+        patch.object(error_tracking_module, "posthoganalytics") as mock_ph,
+    ):
+        error_tracking_module.capture_exception(error, additional_properties=additional_properties)
+        return mock_ph.capture_exception.call_args[1]["properties"]
+
+
+def _fingerprint(error: Exception, provider: str) -> str:
+    return _capture_properties(error, {"provider": provider})["$exception_fingerprint"]
+
+
 class TestCaptureException:
     def test_uses_sdk_capture_exception(self):
         with (
@@ -29,6 +58,55 @@ class TestCaptureException:
 
             mock_ph.capture_exception.assert_called_once()
             mock_ph.capture.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "first,second",
+        [
+            (
+                (_ProviderError(400, code="unsupported_value"), "openai"),
+                (_ProviderError(401, code="invalid_organization"), "openai"),
+            ),
+            (
+                (_ProviderError(429, code="rate_limit_exceeded"), "openai"),
+                (_ProviderError(429, code="rate_limit_exceeded"), "anthropic"),
+            ),
+        ],
+    )
+    def test_separates_provider_errors_that_share_a_stack(self, first, second):
+        assert _fingerprint(*first) != _fingerprint(*second)
+
+    def test_keeps_one_failure_in_one_issue_across_models(self):
+        error = _ProviderError(401, code="invalid_organization")
+
+        gpt_5_mini = _capture_properties(error, {"provider": "openai", "model": "gpt-5-mini"})
+        gpt_5 = _capture_properties(error, {"provider": "openai", "model": "gpt-5"})
+
+        assert gpt_5_mini["$exception_fingerprint"] == gpt_5["$exception_fingerprint"]
+
+    @pytest.mark.parametrize(
+        "error,expected",
+        [
+            (_ProviderError(400, code="unsupported_value"), ":400:unsupported_value"),
+            (_ProviderError(400, error_type="invalid_request_error"), ":400:invalid_request_error"),
+            (
+                _ProviderError(401, response=httpx.Response(401, json={"error": {"code": "invalid_organization"}})),
+                ":401:invalid_organization",
+            ),
+            (_ProviderError(500), ":500:unknown"),
+        ],
+    )
+    def test_reads_the_code_wherever_litellm_leaves_it(self, error, expected):
+        assert _fingerprint(error, "openai").endswith(expected)
+
+    def test_truncates_a_provider_controlled_code(self):
+        error = _ProviderError(400, code="x" * 500)
+
+        assert len(_fingerprint(error, "openai")) < 200
+
+    def test_leaves_grouping_alone_without_a_provider_status(self):
+        properties = _capture_properties(ValueError("test"), {"callback": "posthog"})
+
+        assert "$exception_fingerprint" not in properties
 
     def test_passes_properties(self):
         with (
