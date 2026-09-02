@@ -5,6 +5,7 @@ Validate JSON via serializers, call facade methods,
 return serialized responses. No business logic here.
 """
 
+from collections.abc import Sequence
 from functools import cached_property
 from typing import Any
 from urllib.parse import quote
@@ -247,9 +248,32 @@ class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.GenericView
         code = request_serializer.validated_data["code"]
         state = request_serializer.validated_data["state"]
 
-        # First gate: the state token must be a fresh, validly-signed token minted for THIS team by
-        # install_info. This binds the callback to the team that started the flow, so a stolen
-        # installation_id + code can't be replayed against another logged-in member's session.
+        connected_by_user_id = self._verify_install_state(state, installation_id)
+
+        # Fail closed: no proven ownership, no binding. A missing OAuth token (bad/expired code or unset
+        # Stamphog OAuth creds) is a 400; a valid user who simply can't reach an installation is a 403.
+        user_token = exchange_oauth_code_for_user_token(code)
+        if user_token is None:
+            raise ValidationError({"code": "Could not verify GitHub authorization. Reinstall the app and try again."})
+
+        installation_ids, early_response = self._resolve_installation_ids(installation_id, user_token)
+        if early_response is not None:
+            return early_response
+
+        synced, skipped = self._sync_installations(installation_ids, user_token, connected_by_user_id)
+
+        data = StamphogSyncInstallationResponseSerializer(
+            {"synced": synced, "skipped": skipped, "app_not_installed": False, "installations": []}
+        ).data
+        return Response(data)
+
+    def _verify_install_state(self, state: str, installation_id: str) -> int:
+        """Validate the install-flow state token, returning the user id that started the flow.
+
+        The token must be a fresh, validly-signed token minted for THIS team and user by install_info.
+        This binds the callback to the team and member that started the flow, so a stolen
+        installation_id + code can't be replayed against another logged-in member's session.
+        """
         try:
             state_payload = signing.loads(state, salt=_INSTALL_STATE_SALT, max_age=_INSTALL_STATE_MAX_AGE_SECONDS)
         except signing.BadSignature:
@@ -263,7 +287,7 @@ class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.GenericView
                 team_id=self.team_id,
             )
             raise PermissionDenied("This installation link was started for a different project.")
-        connected_by_user_id = request.user.pk
+        connected_by_user_id = self.request.user.pk
         if connected_by_user_id is None:
             raise PermissionDenied("Log in to complete the installation.")
         # The token also binds the callback to the member who started the flow. Without this, one
@@ -276,13 +300,16 @@ class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.GenericView
                 team_id=self.team_id,
             )
             raise PermissionDenied("This installation link was started by a different user.")
+        return connected_by_user_id
 
-        # Fail closed: no proven ownership, no binding. A missing OAuth token (bad/expired code or unset
-        # Stamphog OAuth creds) is a 400; a valid user who simply can't reach an installation is a 403.
-        user_token = exchange_oauth_code_for_user_token(code)
-        if user_token is None:
-            raise ValidationError({"code": "Could not verify GitHub authorization. Reinstall the app and try again."})
+    # Sequence, not list: this class defines a `list` action, which shadows the builtin in every
+    # signature below it.
+    def _resolve_installation_ids(self, installation_id: str, user_token: str) -> tuple[Sequence[str], Response | None]:
+        """Resolve which installation ids to sync, or an early Response when the flow can't bind one.
 
+        The early Response covers the discovery-path outcomes that bind nothing: the App is not
+        installed anywhere the user can see, or the user can reach several installations and must pick.
+        """
         if installation_id:
             # Explicit-id path (fresh-install redirect): the id is caller-supplied, so verify the user can
             # actually reach exactly it before binding — otherwise a caller who learns another org's
@@ -303,36 +330,38 @@ class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.GenericView
                     team_id=self.team_id,
                 )
                 raise PermissionDenied("You do not have access to this GitHub App installation.")
-            installation_ids = [installation_id]
-        else:
-            # Discovery path (authorize-first redirect): GitHub returns only installations of THIS App the
-            # user can reach, so the list is itself the ownership proof — no per-id verification needed.
-            try:
-                discovered = list_user_installations(user_token)
-            except StamphogGitHubError:
-                logger.warning(
-                    "stamphog sync_installation: discovering user installations failed", team_id=self.team_id
-                )
-                raise ValidationError({"code": "Failed to discover GitHub App installations. Try again."})
-            if not discovered:
-                # The App isn't installed anywhere the user can see. Not an error: the frontend routes them
-                # to the GitHub install page (install_url) off app_not_installed.
-                data = StamphogSyncInstallationResponseSerializer(
-                    {"synced": [], "skipped": [], "app_not_installed": True, "installations": []}
-                ).data
-                return Response(data)
-            if len(discovered) > 1:
-                # Reachability is not intent: a user in several orgs that all carry the App must pick which
-                # installation this team binds — silently binding them all would attach foreign orgs' repos
-                # here, and via the oldest-wins webhook resolution even blackhole another team's future
-                # connect. Bind nothing; the frontend re-runs the flow with an explicit installation_id
-                # (which the explicit path above verifies).
-                data = StamphogSyncInstallationResponseSerializer(
-                    {"synced": [], "skipped": [], "app_not_installed": False, "installations": discovered}
-                ).data
-                return Response(data)
-            installation_ids = [discovered[0]["id"]]
+            return [installation_id], None
 
+        # Discovery path (authorize-first redirect): GitHub returns only installations of THIS App the
+        # user can reach, so the list is itself the ownership proof — no per-id verification needed.
+        try:
+            discovered = list_user_installations(user_token)
+        except StamphogGitHubError:
+            logger.warning("stamphog sync_installation: discovering user installations failed", team_id=self.team_id)
+            raise ValidationError({"code": "Failed to discover GitHub App installations. Try again."})
+        if not discovered:
+            # The App isn't installed anywhere the user can see. Not an error: the frontend routes them
+            # to the GitHub install page (install_url) off app_not_installed.
+            data = StamphogSyncInstallationResponseSerializer(
+                {"synced": [], "skipped": [], "app_not_installed": True, "installations": []}
+            ).data
+            return [], Response(data)
+        if len(discovered) > 1:
+            # Reachability is not intent: a user in several orgs that all carry the App must pick which
+            # installation this team binds — silently binding them all would attach foreign orgs' repos
+            # here, and via the oldest-wins webhook resolution even blackhole another team's future
+            # connect. Bind nothing; the frontend re-runs the flow with an explicit installation_id
+            # (which the explicit path above verifies).
+            data = StamphogSyncInstallationResponseSerializer(
+                {"synced": [], "skipped": [], "app_not_installed": False, "installations": discovered}
+            ).data
+            return [], Response(data)
+        return [discovered[0]["id"]], None
+
+    def _sync_installations(
+        self, installation_ids: Sequence[str], user_token: str, connected_by_user_id: int
+    ) -> tuple[Sequence[contracts.RepoConfigDTO], Sequence[str]]:
+        """Sync each installation's repositories, collecting the bound and skipped results."""
         synced: list[contracts.RepoConfigDTO] = []
         skipped: list[str] = []
         for one_installation_id in installation_ids:
@@ -352,11 +381,7 @@ class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.GenericView
                 raise ValidationError({"installation_id": "Failed to list accessible repositories. Try again."})
             synced.extend(installation_synced)
             skipped.extend(installation_skipped)
-
-        data = StamphogSyncInstallationResponseSerializer(
-            {"synced": synced, "skipped": skipped, "app_not_installed": False, "installations": []}
-        ).data
-        return Response(data)
+        return synced, skipped
 
 
 class ReviewRunViewSet(_StamphogTeamScopedViewSet, viewsets.GenericViewSet):
