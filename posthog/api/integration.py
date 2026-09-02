@@ -1426,8 +1426,12 @@ class IntegrationViewSet(
                     team=self.team,
                 )
                 response = redirect(auth_url)
+                # The state cookie must outlive a real consent flow. Meta Ads asks the user to log in,
+                # pick a business, pick ad accounts, and grant scopes, which often runs past five
+                # minutes, so a short life dropped legitimate connects on return. 30 minutes covers the
+                # flow while keeping the CSRF token short-lived.
                 # nosemgrep: python.django.security.audit.secure-cookies.django-secure-set-cookie (OAuth state, short-lived, needed for cross-site redirect)
-                response.set_cookie("ph_oauth_state", token, max_age=60 * 5)
+                response.set_cookie("ph_oauth_state", token, max_age=60 * 30)
 
                 return response
             except NotImplementedError:

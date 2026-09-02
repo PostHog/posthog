@@ -2,6 +2,7 @@ import { MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
@@ -219,6 +220,7 @@ describe('integrationsLogic', () => {
             // POST a create, so an expired (or forged) state can never link an integration.
             document.cookie = 'ph_oauth_state=a-different-token'
             const state = 'next=%2Fproject%2F228502%2Fsettings%2Fproject-integrations&token=csrf-tok'
+            const captureSpy = jest.spyOn(posthog, 'capture')
 
             await expectLogic(logic, () => {
                 logic.actions.handleOauthCallback('slack' as IntegrationKind, { state, code: 'oauth-code' })
@@ -226,7 +228,10 @@ describe('integrationsLogic', () => {
 
             expect(createSpy).not.toHaveBeenCalled()
             expect(router.values.location.pathname).toBe('/project/228502/settings/project-integrations')
+            // The expiry emits an event so the failure is countable.
+            expect(captureSpy).toHaveBeenCalledWith('integration authorize expired', { integration_kind: 'slack' })
 
+            captureSpy.mockRestore()
             document.cookie = 'ph_oauth_state=; expires=Thu, 01 Jan 1970 00:00:00 GMT'
         })
 
