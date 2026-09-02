@@ -57,7 +57,7 @@ def selection_matches(model_output: dict[str, Any], selection: dict[str, Any]) -
     """Python mirror of `apply_observation_predicate` for one in-memory model output.
 
     Keeps the hot success path free of per-alert single-row queries. Semantics must
-    stay aligned with the queryset version in vision_actions.synthesis.
+    stay aligned with the queryset version in observation_predicate.py.
     """
     verdicts = selection.get("verdict")
     if verdicts:

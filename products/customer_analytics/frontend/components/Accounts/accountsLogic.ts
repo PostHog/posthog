@@ -1249,7 +1249,6 @@ export const accountsLogic = kea<accountsLogicType>([
             if (
                 definition.is_canonical ||
                 definition.source ||
-                definition.references.length > 0 ||
                 values.isCustomPropertySaving(accountId, definition.id)
             ) {
                 return
@@ -1263,7 +1262,10 @@ export const accountsLogic = kea<accountsLogicType>([
                     definition: definition.id,
                     value,
                 })
-                posthog.capture(AccountsEvents.CustomPropertyUpdated, { display_type: definition.display_type })
+                posthog.capture(AccountsEvents.CustomPropertyUpdated, {
+                    display_type: definition.display_type,
+                    workflow_reference: definition.has_workflow_reference,
+                })
                 cache.awaitingCustomPropertyRefresh = true
                 dataNodeLogic.findMounted({ key: ACCOUNTS_TABLE_DATA_NODE_KEY })?.actions.loadData('force_async')
                 dataNodeLogic.findMounted({ key: ACCOUNTS_METRICS_DATA_NODE_KEY })?.actions.loadData('force_async')
