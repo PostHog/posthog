@@ -13,6 +13,10 @@ class Migration(migrations.Migration):
     operations = [
         SafeAddIndexConcurrently(
             model_name="datamodelingjob",
-            index=models.Index(fields=["team", "parent_workflow_id"], name="datamodelingjob_team_parentwf"),
+            index=models.Index(
+                fields=["team", "parent_workflow_id"],
+                name="datamodelingjob_team_parentwf",
+                condition=models.Q(parent_workflow_id__isnull=False),
+            ),
         ),
     ]
