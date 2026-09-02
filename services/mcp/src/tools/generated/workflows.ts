@@ -29,6 +29,9 @@ const workflowsCreate = (): ToolBase<ReturnType<typeof WorkflowsCreateSchema>, W
             if (params.status !== undefined) {
                 body['status'] = params.status
             }
+            if (params.origin_product !== undefined) {
+                body['origin_product'] = params.origin_product
+            }
             if (params.trigger_masking !== undefined) {
                 body['trigger_masking'] = params.trigger_masking
             }
@@ -184,6 +187,7 @@ const workflowsList = (): ToolBase<
                     id: params.id,
                     limit: params.limit,
                     offset: params.offset,
+                    origin_product: params.origin_product,
                     search: params.search,
                     status: params.status,
                     trigger: params.trigger,
@@ -463,7 +467,7 @@ const WorkflowsUpdateSchema = () => {
     return HogFlowsPartialUpdateParams.omit({ project_id: true }).extend(HogFlowsPartialUpdateBody.shape)
 }
 
-const workflowsUpdate = (): ToolBase<ReturnType<typeof WorkflowsUpdateSchema>, WithPostHogUrl<Schemas.HogFlow>> =>
+const workflowsUpdate = (): ToolBase<ReturnType<typeof WorkflowsUpdateSchema>, WithPostHogUrl<Schemas.HogFlowUpdate>> =>
     withUiApp('workflow', {
         name: 'workflows-update',
         schema: WorkflowsUpdateSchema(),
@@ -491,7 +495,7 @@ const workflowsUpdate = (): ToolBase<ReturnType<typeof WorkflowsUpdateSchema>, W
             if (params.variables !== undefined) {
                 body['variables'] = params.variables
             }
-            const result = await context.api.request<Schemas.HogFlow>({
+            const result = await context.api.request<Schemas.HogFlowUpdate>({
                 method: 'PATCH',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(params.id))}/`,
                 body,

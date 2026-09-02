@@ -2763,7 +2763,9 @@ export const alertsSimulateCreateBodyConfigOneFourTypeDefault = `MetricsAlertCon
 
 export const AlertsSimulateCreateBody = () =>
     zod.object({
-        insight: zod.number().describe('Insight ID to simulate the detector on.'),
+        insight: zod
+            .union([zod.number(), zod.string()])
+            .describe('Numeric insight ID or saved insight short ID to simulate the detector on.'),
         detector_config: zod
             .union([
                 zod.object({
@@ -3814,7 +3816,10 @@ export const AlertsSimulateCreateBody = () =>
                 }),
             ])
             .describe('Detector configuration types')
-            .describe('Detector configuration to simulate.'),
+            .optional()
+            .describe(
+                'Detector configuration to simulate. Omit it to use the default daily z-score detector (threshold 0.95, window 90, first-difference preprocessing).'
+            ),
         series_index: zod
             .number()
             .default(alertsSimulateCreateBodySeriesIndexDefault)

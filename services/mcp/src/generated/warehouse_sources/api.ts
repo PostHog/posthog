@@ -3,10 +3,47 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 26 enabled ops
+ * PostHog API - MCP 30 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
+
+/**
+ * Manage where warehouse sources write their synced rows.
+ *
+ * A destination can be attached to several sources, or to a single table on a source.
+ * Credentials come from an integration, so one connection can be reused across syncs.
+ */
+export const ExternalDataDestinationsListParams = () =>
+    zod.object({
+        project_id: zod
+            .string()
+            .describe(
+                "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+            ),
+    })
+
+export const ExternalDataDestinationsListQueryParams = () =>
+    zod.object({
+        limit: zod.number().optional().describe('Number of results to return per page.'),
+        offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    })
+
+/**
+ * Manage where warehouse sources write their synced rows.
+ *
+ * A destination can be attached to several sources, or to a single table on a source.
+ * Credentials come from an integration, so one connection can be reused across syncs.
+ */
+export const ExternalDataDestinationsRetrieveParams = () =>
+    zod.object({
+        id: zod.string().describe('A UUID string identifying this external data destination.'),
+        project_id: zod
+            .string()
+            .describe(
+                "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+            ),
+    })
 
 export const ExternalDataSchemasListParams = () =>
     zod.object({
@@ -171,6 +208,21 @@ export const ExternalDataSchemasCancelCreateParams = () =>
     })
 
 export const ExternalDataSchemasDeleteDataDestroyParams = () =>
+    zod.object({
+        id: zod.string().describe('A UUID string identifying this external data schema.'),
+        project_id: zod
+            .string()
+            .describe(
+                "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+            ),
+    })
+
+/**
+ * Read or replace this table's destination override.
+ *
+ * Send `destination_ids: null` to clear the override so the table follows its source again.
+ */
+export const ExternalDataSchemasDestinationsRetrieveParams = () =>
     zod.object({
         id: zod.string().describe('A UUID string identifying this external data schema.'),
         project_id: zod
@@ -1730,6 +1782,12 @@ export const ExternalDataSourcesCreateBody = () =>
             .describe(
                 'Whether a synced source should also be live-queryable via direct connection. Defaults to false; ignored for pure direct-query sources.'
             ),
+        destination_ids: zod
+            .array(zod.string())
+            .optional()
+            .describe(
+                'Destinations every table on this source writes to. Set here rather than afterwards, so the opening sync already carries them. Omit to write to the PostHog warehouse only.'
+            ),
     })
 
 /**
@@ -1964,6 +2022,21 @@ export const ExternalDataSourcesDeleteWebhookCreateBody = () =>
             job_inputs: zod.unknown().optional(),
         })
         .describe('Mixin for serializers to add user access control fields')
+
+/**
+ * Read or replace the destinations every table on this source syncs to.
+ *
+ * A table with its own override ignores this set until the override is cleared.
+ */
+export const ExternalDataSourcesDestinationsRetrieveParams = () =>
+    zod.object({
+        id: zod.string().describe('A UUID string identifying this external data source.'),
+        project_id: zod
+            .string()
+            .describe(
+                "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+            ),
+    })
 
 /**
  * Fetch current schema/table list from the source and create any new ExternalDataSchema rows (no data sync).

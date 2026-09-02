@@ -15,22 +15,27 @@
 //   Normal stream event  — no eventName, id = Redis stream ID
 //   Keepalive            — eventName='keepalive', data={"type":"keepalive"}
 //   Terminal             — eventName='stream-end',  data={"status":"complete"}
+//   Rotation             — eventName='end',          data={"type":"rotated"}
 //   Stream error         — eventName='error',        data={"error":"<msg>"}
 //   Stream unavailable   — eventName='error',        data={"error":"Stream not available"}
 
 import type { Redis } from 'ioredis'
 
 import {
+    CONNECTION_MAX_MS,
     KEEPALIVE_INTERVAL_MS,
+    SSE_EVENT_END,
     SSE_EVENT_ERROR,
     SSE_EVENT_KEEPALIVE,
     SSE_EVENT_STREAM_END,
     SSE_PAYLOAD_KEEPALIVE,
+    SSE_PAYLOAD_ROTATED,
     SSE_PAYLOAD_STREAM_END,
     WAIT_DELAY_INCREMENT_MS,
     WAIT_INITIAL_DELAY_MS,
     WAIT_MAX_DELAY_MS,
     WAIT_TIMEOUT_MS,
+    WATCHED_REFRESH_INTERVAL_MS,
     makeSseErrorPayload,
 } from '../lib/constants.js'
 import { logger } from '../lib/logging.js'
@@ -101,11 +106,13 @@ export async function* streamTaskRunEvents(
         originProduct?: string
         lastEventId?: string | null
         startLatest?: boolean
+        presenceGated?: boolean
     }
 ): AsyncGenerator<Buffer, void, unknown> {
     const originProduct = opts.originProduct ?? 'unknown'
     const lastEventId = opts.lastEventId ?? null
     const startLatest = opts.startLatest ?? false
+    const presenceGated = opts.presenceGated ?? false
 
     const redisStream = new TaskRunRedisStream(streamKey, redis)
     const connectionStartedAt = Date.now()
@@ -117,9 +124,27 @@ export async function* streamTaskRunEvents(
     // generator exits (completion, error, or client disconnect).
     let dedupRedis: Redis | undefined
 
+    let lastWatchedRefreshAt: number | null = null
+    const refreshWatched = async (now: number): Promise<void> => {
+        if (lastWatchedRefreshAt !== null && now - lastWatchedRefreshAt < WATCHED_REFRESH_INTERVAL_MS) {
+            return
+        }
+        try {
+            await redisStream.markWatched()
+            lastWatchedRefreshAt = now
+        } catch (err) {
+            logger.warn('stream:mark_watched_failed', {
+                streamKey,
+                error: err instanceof Error ? err.message : String(err),
+            })
+        }
+    }
+
     try {
         observeStreamConnectionOpened(originProduct)
         opened = true
+
+        await refreshWatched(Date.now())
 
         // -- Wait-for-stream loop --
         let delay = WAIT_INITIAL_DELAY_MS
@@ -127,12 +152,17 @@ export async function* streamTaskRunEvents(
         let lastKeepaliveAt = waitStartedAt
         let waitedForStream = false
         while (!(await redisStream.exists())) {
-            const now = Date.now()
-
             if (!waitedForStream) {
                 waitedForStream = true
                 logger.debug('stream:waiting', { streamKey })
             }
+
+            if (presenceGated) {
+                break
+            }
+
+            const now = Date.now()
+            await refreshWatched(now)
 
             if (now - waitStartedAt >= WAIT_TIMEOUT_MS) {
                 outcome = 'unavailable'
@@ -215,14 +245,21 @@ export async function* streamTaskRunEvents(
                 keepaliveIntervalMs: KEEPALIVE_INTERVAL_MS,
                 blockingRedis: dedupRedis,
             })) {
+                await refreshWatched(Date.now())
+
                 if (streamItem === null) {
                     // Idle keepalive signal from readStreamEntries
                     yield formatSseEvent(SSE_PAYLOAD_KEEPALIVE, { eventName: SSE_EVENT_KEEPALIVE })
-                    continue
+                } else {
+                    const [eventId, event] = streamItem
+                    yield formatSseEvent(event, { eventId })
                 }
 
-                const [eventId, event] = streamItem
-                yield formatSseEvent(event, { eventId })
+                if (Date.now() - connectionStartedAt >= CONNECTION_MAX_MS) {
+                    outcome = 'rotated'
+                    yield formatSseEvent(SSE_PAYLOAD_ROTATED, { eventName: SSE_EVENT_END })
+                    return
+                }
             }
 
             // Generator returned normally — completion sentinel was consumed.

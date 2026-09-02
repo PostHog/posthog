@@ -640,7 +640,7 @@ _SPAN_TEAMS: list[tuple[str, str, list[tuple[str, str, int, int]]]] = [
     ),
     (
         "team-product-analytics",  # mildly improving
-        "posthog/hogql_queries/insights/test",
+        "posthog/hogql_queries/insights/trends/test",
         [
             ("TestTrendsQueryRunner", "test_interval_boundary_timezone", 3, 2),
             ("TestFunnelCorrelation", "test_person_property_breakdown", 1, 1),

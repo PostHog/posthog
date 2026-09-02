@@ -6,8 +6,8 @@ import * as orvalSchemas from '@/generated/context_layer/api'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const ContextWikiChannelResolveSchema = () => {
-    const ContextLayerChannelPagesRetrieveParams = orvalSchemas.ContextLayerChannelPagesRetrieveParams()
-    return ContextLayerChannelPagesRetrieveParams.omit({ organization_id: true })
+    const ContextLayerAgentChannelPagesRetrieveParams = orvalSchemas.ContextLayerAgentChannelPagesRetrieveParams()
+    return ContextLayerAgentChannelPagesRetrieveParams.omit({ project_id: true })
 }
 
 const contextWikiChannelResolve = (): ToolBase<
@@ -17,28 +17,28 @@ const contextWikiChannelResolve = (): ToolBase<
     name: 'context-wiki-channel-resolve',
     schema: ContextWikiChannelResolveSchema(),
     handler: async (context: Context, params: z.infer<ReturnType<typeof ContextWikiChannelResolveSchema>>) => {
-        const orgId = await context.stateManager.getOrgID()
+        const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.ChannelWikiPage>({
             method: 'GET',
-            path: `/api/organizations/${encodeURIComponent(String(orgId))}/context_layer/channel-pages/${encodeURIComponent(String(params.channel_id))}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/context_layer/agent/channel-pages/${encodeURIComponent(String(params.channel_id))}/`,
         })
         return result
     },
 })
 
 const ContextWikiPageRetrieveSchema = () => {
-    const ContextLayerPagesRetrieveQueryParams = orvalSchemas.ContextLayerPagesRetrieveQueryParams()
-    return ContextLayerPagesRetrieveQueryParams
+    const ContextLayerAgentPagesRetrieveQueryParams = orvalSchemas.ContextLayerAgentPagesRetrieveQueryParams()
+    return ContextLayerAgentPagesRetrieveQueryParams
 }
 
 const contextWikiPageRetrieve = (): ToolBase<ReturnType<typeof ContextWikiPageRetrieveSchema>, Schemas.WikiPage> => ({
     name: 'context-wiki-page-retrieve',
     schema: ContextWikiPageRetrieveSchema(),
     handler: async (context: Context, params: z.infer<ReturnType<typeof ContextWikiPageRetrieveSchema>>) => {
-        const orgId = await context.stateManager.getOrgID()
+        const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.WikiPage>({
             method: 'GET',
-            path: `/api/organizations/${encodeURIComponent(String(orgId))}/context_layer/pages/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/context_layer/agent/pages/`,
             query: {
                 path: params.path,
             },
@@ -48,8 +48,8 @@ const contextWikiPageRetrieve = (): ToolBase<ReturnType<typeof ContextWikiPageRe
 })
 
 const ContextWikiPageUpdateSchema = () => {
-    const ContextLayerPagesUpdateBody = orvalSchemas.ContextLayerPagesUpdateBody()
-    return ContextLayerPagesUpdateBody
+    const ContextLayerAgentPagesUpdateBody = orvalSchemas.ContextLayerAgentPagesUpdateBody()
+    return ContextLayerAgentPagesUpdateBody
 }
 
 const contextWikiPageUpdate = (): ToolBase<
@@ -59,7 +59,7 @@ const contextWikiPageUpdate = (): ToolBase<
     name: 'context-wiki-page-update',
     schema: ContextWikiPageUpdateSchema(),
     handler: async (context: Context, params: z.infer<ReturnType<typeof ContextWikiPageUpdateSchema>>) => {
-        const orgId = await context.stateManager.getOrgID()
+        const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.path !== undefined) {
             body['path'] = params.path
@@ -72,7 +72,7 @@ const contextWikiPageUpdate = (): ToolBase<
         }
         const result = await context.api.request<Schemas.ContextLayerStatus>({
             method: 'PUT',
-            path: `/api/organizations/${encodeURIComponent(String(orgId))}/context_layer/pages/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/context_layer/agent/pages/`,
             body,
         })
         return result

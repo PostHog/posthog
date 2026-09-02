@@ -170,6 +170,9 @@ const inboxReportsBulkSetState = (): ToolBase<
         if (params.dismissal_note !== undefined) {
             body['dismissal_note'] = params.dismissal_note
         }
+        if (params.corrected_repository !== undefined) {
+            body['corrected_repository'] = params.corrected_repository
+        }
         if (params.snooze_for !== undefined) {
             body['snooze_for'] = params.snooze_for
         }
@@ -309,6 +312,9 @@ const inboxReportsSetState = (): ToolBase<
         }
         if (params.dismissal_note !== undefined) {
             body['dismissal_note'] = params.dismissal_note
+        }
+        if (params.corrected_repository !== undefined) {
+            body['corrected_repository'] = params.corrected_repository
         }
         if (params.snooze_for !== undefined) {
             body['snooze_for'] = params.snooze_for

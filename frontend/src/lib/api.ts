@@ -1729,6 +1729,10 @@ export class ApiRequest {
         return apiRequest
     }
 
+    public accountsTableQuery(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('accounts_table_query')
+    }
+
     public queryStatus(queryId: string, showProgress: boolean, teamId?: TeamType['id']): ApiRequest {
         const apiRequest = this.query(teamId).addPathComponent(queryId)
         if (showProgress) {
@@ -1945,7 +1949,7 @@ export class ApiRequest {
     }
 
     public messagingTemplates(): ApiRequest {
-        return this.environments().current().addPathComponent('messaging_templates')
+        return this.environmentsDetail().addPathComponent('messaging_templates')
     }
 
     public messagingTemplate(templateId: MessageTemplate['id']): ApiRequest {
@@ -1953,7 +1957,7 @@ export class ApiRequest {
     }
 
     public messagingCategories(): ApiRequest {
-        return this.environments().current().addPathComponent('messaging_categories')
+        return this.environmentsDetail().addPathComponent('messaging_categories')
     }
 
     public messagingCategory(categoryId: string): ApiRequest {
@@ -1989,29 +1993,23 @@ export class ApiRequest {
     }
 
     public messagingPreferences(): ApiRequest {
-        return this.environments().current().addPathComponent('messaging_preferences')
+        return this.environmentsDetail().addPathComponent('messaging_preferences')
     }
 
     public messagingPreferencesLink(): ApiRequest {
-        return this.environments().current().addPathComponent('messaging_preferences').addPathComponent('generate_link')
+        return this.messagingPreferences().addPathComponent('generate_link')
     }
 
     public messagingPreferencesExportOptOutsCsv(): ApiRequest {
-        return this.environments()
-            .current()
-            .addPathComponent('messaging_preferences')
-            .addPathComponent('export_opt_outs_csv')
+        return this.messagingPreferences().addPathComponent('export_opt_outs_csv')
     }
 
     public messagingPreferencesBulkAddOptOuts(): ApiRequest {
-        return this.environments()
-            .current()
-            .addPathComponent('messaging_preferences')
-            .addPathComponent('bulk_add_opt_outs')
+        return this.messagingPreferences().addPathComponent('bulk_add_opt_outs')
     }
 
     public hogFlows(): ApiRequest {
-        return this.environments().current().addPathComponent('hog_flows')
+        return this.environmentsDetail().addPathComponent('hog_flows')
     }
 
     public hogFlow(hogFlowId: HogFlow['id']): ApiRequest {
@@ -2019,7 +2017,7 @@ export class ApiRequest {
     }
 
     public hogFlowTemplates(): ApiRequest {
-        return this.environments().current().addPathComponent('hog_flow_templates')
+        return this.environmentsDetail().addPathComponent('hog_flow_templates')
     }
 
     public hogFlowTemplate(hogFlowTemplateId: HogFlowTemplate['id']): ApiRequest {
@@ -3640,7 +3638,7 @@ const api = {
         async listForOrg(
             organizationId: OrganizationType['id'],
             params: { limit?: number; offset?: number; search?: string } = {}
-        ): Promise<CountedPaginatedResponse<Pick<OrganizationMemberType, 'id' | 'user' | 'level'>>> {
+        ): Promise<CountedPaginatedResponse<Pick<OrganizationMemberType, 'id' | 'user' | 'level' | 'last_login'>>> {
             return await new ApiRequest()
                 .organizationMembersForAccount()
                 .withQueryString({ organization_id: organizationId, ...params })
@@ -6862,7 +6860,12 @@ const api = {
             throw new Error(`Query kind mismatch: path kind "${pathKind}" does not match body kind "${bodyKind}".`)
         }
 
-        return await new ApiRequest().query(undefined, bodyKind).create({
+        const apiRequest =
+            bodyKind === NodeKind.AccountsTableQuery
+                ? new ApiRequest().accountsTableQuery()
+                : new ApiRequest().query(undefined, bodyKind)
+
+        return await apiRequest.create({
             ...queryOptions?.requestOptions,
             data: {
                 query,
