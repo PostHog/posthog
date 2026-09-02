@@ -7,7 +7,7 @@ from posthog.models.integration import Integration
 from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
 
-from products.error_tracking.backend.models import ErrorTrackingAlert, ErrorTrackingAlertDestination
+from products.error_tracking.backend.models import ErrorTrackingAlert, ErrorTrackingAlertDestination, ErrorTrackingIssue
 
 # Sentinel swapped for a real integration id inside the test body; parameterized
 # cases are built before setUp so they cannot reference one directly.
@@ -329,3 +329,49 @@ class TestErrorTrackingAlerts(APIBaseTest):
 
         retrieve = self.client.get(f"/api/projects/{self.team.id}/error_tracking/alerts/{foreign_alert.id}/")
         assert retrieve.status_code == 404
+
+
+class TestErrorTrackingAlertPreview(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        flag_patcher = patch("products.error_tracking.backend.logic.alerts.feature_enabled_or_false", return_value=True)
+        flag_patcher.start()
+        self.addCleanup(flag_patcher.stop)
+
+    def test_preview_renders_the_thread_for_the_latest_issue(self):
+        ErrorTrackingIssue.objects.create(team=self.team, name="Old", description="older")
+        latest = ErrorTrackingIssue.objects.create(team=self.team, name="TypeError", description="boom")
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/error_tracking/alerts/preview/", {"trigger": "issue_reopened"}
+        )
+
+        assert response.status_code == 200, response.json()
+        body = response.json()
+        assert body["issue_id"] == str(latest.id)
+        kinds = [message["kind"] for message in body["messages"]]
+        assert kinds == ["root", "reply", "reply", "root_edit"]
+        root = body["messages"][0]
+        assert root["event"] == "$error_tracking_issue_reopened"
+        assert "TypeError" in root["text"]
+        assert root["blocks"][0]["type"] == "header"
+        assert body["messages"][2]["text"].startswith("✅ Resolved by")
+        assert "Resolved" in body["messages"][3]["text"] or any(
+            "Resolved" in element.get("text", "")
+            for block in body["messages"][3]["blocks"]
+            if block["type"] == "context"
+            for element in block["elements"]
+        )
+
+    def test_preview_without_issues_uses_a_sample(self):
+        response = self.client.get(f"/api/projects/{self.team.id}/error_tracking/alerts/preview/")
+
+        assert response.status_code == 200, response.json()
+        assert response.json()["issue_id"] is None
+        assert response.json()["messages"][0]["event"] == "$error_tracking_issue_created"
+
+    def test_preview_rejects_unknown_triggers(self):
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/error_tracking/alerts/preview/", {"trigger": "issue_deleted"}
+        )
+        assert response.status_code == 400
