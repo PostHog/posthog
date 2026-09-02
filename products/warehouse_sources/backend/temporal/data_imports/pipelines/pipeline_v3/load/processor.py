@@ -554,6 +554,20 @@ def _mark_job_completed(export_signal: ExportSignalMessage) -> bool:
     return job_completed
 
 
+def _finish_completed_job(export_signal: ExportSignalMessage, prepared_queryable_folder: str | None) -> None:
+    """Complete the job if this run was its last, and start what follows only if it was.
+
+    A job whose source feeds several tables has one run per table, so a final batch that arrives
+    while another run still owes work completes nothing — and must not register the table or start
+    post-import either.
+    """
+    if not _mark_job_completed(export_signal):
+        return
+    if prepared_queryable_folder:
+        _trigger_ducklake_register_data_imports(export_signal, prepared_queryable_folder)
+    _trigger_post_import_workflow(export_signal)
+
+
 def _is_retryable_temporal_rpc_error(exc: BaseException) -> bool:
     # These fire-and-forget starts run outside a Temporal workflow, so unlike
     # `workflow.start_child_workflow` they get none of the server-side retry a durable
@@ -901,10 +915,7 @@ def _process_message_reported(
             # completion promotes the cursor and releases the lock under a new owner.
             if verify_ownership is not None:
                 verify_ownership()
-            if _mark_job_completed(export_signal):
-                if prepared_queryable_folder:
-                    _trigger_ducklake_register_data_imports(export_signal, prepared_queryable_folder)
-                _trigger_post_import_workflow(export_signal)
+            _finish_completed_job(export_signal, prepared_queryable_folder)
             return
 
         logger.debug(
@@ -1107,11 +1118,7 @@ def _process_message_reported(
             if verify_ownership is not None:
                 verify_ownership()
 
-            if _mark_job_completed(export_signal):
-                if prepared_queryable_folder:
-                    _trigger_ducklake_register_data_imports(export_signal, prepared_queryable_folder)
-
-                _trigger_post_import_workflow(export_signal)
+            _finish_completed_job(export_signal, prepared_queryable_folder)
 
             logger.debug("post_load_operations_complete")
 

@@ -315,6 +315,14 @@ class PipelineV3(Generic[ResumableData]):
             models.schema.incremental_field_earliest_value, models.schema.incremental_field_type
         )
 
+    def _mark_lanes_first_ever_sync(self) -> None:
+        for writer in self._lane_writers:
+            writer.pg_producer.is_first_ever_sync = True
+
+    def _close_lane_producers(self) -> None:
+        for writer in self._lane_writers:
+            writer.pg_producer.close()
+
     async def run(self) -> PipelineResult:
         pa_memory_pool = pa.default_memory_pool()
 
@@ -395,8 +403,7 @@ class PipelineV3(Generic[ResumableData]):
 
             is_fresh_sync = self._delta_table_ref.is_first_sync or self._schema.table is None
             if is_fresh_sync:
-                for writer in self._lane_writers:
-                    writer.pg_producer.is_first_ever_sync = True
+                self._mark_lanes_first_ever_sync()
 
             # Defensive pre-write compaction so a sync that arrived at a fragmented Delta
             # target cleans up before adding more small files; see DeltaMaintenance.run_scheduled.
@@ -494,8 +501,7 @@ class PipelineV3(Generic[ResumableData]):
 
             self._logger.debug("V3 Pipeline: Cleaning up resources")
             del self._resource
-            for writer in self._lane_writers:
-                writer.pg_producer.close()
+            self._close_lane_producers()
             del self._lane_writers
             del self._s3_batch_writer
             del self._pg_producer
