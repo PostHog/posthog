@@ -2,11 +2,13 @@ from django.db import migrations
 
 import structlog
 
-from products.feature_flags.backend.variant_rollout import VARIANT_ROLLOUT_SUM_TOLERANCE
-
 logger = structlog.get_logger(__name__)
 
 BATCH_SIZE = 500
+
+# Frozen copy of variant_rollout.VARIANT_ROLLOUT_SUM_TOLERANCE: migrations must stay
+# self-contained, so a later rename or retune cannot change what this one already did.
+VARIANT_ROLLOUT_SUM_TOLERANCE = 1e-9
 
 
 def _clamped(rollouts: list[float]) -> list[float] | None:
@@ -16,7 +18,8 @@ def _clamped(rollouts: list[float]) -> list[float] | None:
     first whose running total passes the hash, which never exceeds 1.0. So a variant starting at
     or beyond 100 is unreachable and one straddling it only serves the remainder: 40/40/40 is
     already 40/40/20. Verified against the Rust server, plus the Python, Go, .NET and JS SDKs.
-    Whole numbers stay ints so the wire format keeps the shape #84957 restored."""
+    Whole numbers stay ints because the .NET and Java SDKs deserialize rollout percentages as
+    integers (#84957)."""
     if any(isinstance(r, bool) or not isinstance(r, int | float) for r in rollouts):
         return None
     total = sum(rollouts)
@@ -35,7 +38,24 @@ def _clamped(rollouts: list[float]) -> list[float] | None:
     return clamped
 
 
-def _clamp_filters(filters: dict) -> dict | None:
+def _flips_hash_dependence(rollouts: list) -> bool:
+    """Whether clamping would change how the Rust evaluator classifies this flag.
+
+    has_hash_dependent_variants (rust/feature-flags/src/flags/flag_operations.rs) returns false
+    when any variant sits at 100, even where an earlier smaller variant still takes the low
+    hashes. Clamping removes the 100 and flips it to true, which starts the experience-continuity
+    override lookup and can change which identifier is hashed. Only matters when continuity is
+    on: get_hash picks the override branch on has_experience_continuity, so with it off both
+    classifications hash the current distinct_id and the flag is safe to clamp."""
+    seen_partial = False
+    for rollout in rollouts:
+        if rollout >= 100:
+            return seen_partial
+        seen_partial = True
+    return False
+
+
+def _clamp_filters(filters: dict, has_continuity: bool) -> dict | None:
     """Idempotent transform; None means the flag is untouched."""
     variants = (
         (filters.get("multivariate") or {}).get("variants") if isinstance(filters.get("multivariate"), dict) else None
@@ -45,8 +65,11 @@ def _clamp_filters(filters: dict) -> dict | None:
     if any(not isinstance(variant, dict) for variant in variants):
         return None
 
-    clamped = _clamped([variant.get("rollout_percentage") for variant in variants])
+    rollouts = [variant.get("rollout_percentage") for variant in variants]
+    clamped = _clamped(rollouts)
     if clamped is None:
+        return None
+    if has_continuity and _flips_hash_dependence(rollouts):
         return None
 
     new_filters = dict(filters)
@@ -61,9 +84,13 @@ def _clamp_filters(filters: dict) -> dict | None:
 def clamp_rollout_percentages_over_100(apps, schema_editor):
     """One-time cleanup of multivariate flags whose variant percentages sum over 100 (#50084).
 
-    Only the over-100 case: the evaluators truncate it already, so rewriting it changes nothing
-    anyone can observe. A sum under 100 is left alone, because the shortfall is a slice of users
-    who match the flag and get no variant, and handing it to someone is the customer's call.
+    Only the over-100 case: the evaluators truncate it already, so rewriting it serves the same
+    variant for every hash below 1.0. The exception is a hash of exactly 1.0, which calculate_hash
+    can return: an over-100 flag still matched its last variant there, and a clamped one returns
+    no variant, exactly as a correctly summing flag always has. Odds are 1 in 2^60.
+
+    A sum under 100 is left alone, because the shortfall is a slice of users who match the flag
+    and get no variant, and handing it to someone is the customer's call.
 
     Percentages live in nested arrays that jsonb prefilters can't select cheaply, so this scans
     all flags read-only and writes only the ones that change. Soft-deleted and inactive flags
@@ -89,7 +116,7 @@ def clamp_rollout_percentages_over_100(apps, schema_editor):
         for flag in rows:
             if not isinstance(flag.filters, dict):
                 continue
-            new_filters = _clamp_filters(flag.filters)
+            new_filters = _clamp_filters(flag.filters, bool(flag.ensure_experience_continuity))
             if new_filters is None:
                 continue
             # Compare-and-swap on the value we read: a flag edited between the batch select and
