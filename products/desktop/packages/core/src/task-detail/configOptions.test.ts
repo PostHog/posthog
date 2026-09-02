@@ -5,6 +5,7 @@ import {
   flattenConfigValues,
   harnessForModelValue,
   modelOptionForHarness,
+  resolveAgentRuntime,
   syntheticPiModelSelection,
 } from "./configOptions";
 
@@ -99,6 +100,47 @@ describe("syntheticPiModelSelection", () => {
       thinkingLevels: [],
     });
   });
+});
+
+describe("resolveAgentRuntime", () => {
+  it.each([
+    {
+      label: "uses the saved choice over the default when Pi is enabled",
+      savedRuntime: "acp" as const,
+      defaultHarness: "pi" as const,
+      piHarnessEnabled: true,
+      expected: "acp",
+    },
+    {
+      label: "falls back to the fleet default without a saved choice",
+      savedRuntime: null,
+      defaultHarness: "pi" as const,
+      piHarnessEnabled: true,
+      expected: "pi",
+    },
+    {
+      label: "follows a rolled-back default of acp without a saved choice",
+      savedRuntime: null,
+      defaultHarness: "acp" as const,
+      piHarnessEnabled: true,
+      expected: "acp",
+    },
+    {
+      label:
+        "falls back to acp when the Pi kill switch is off, even with a saved pi choice",
+      savedRuntime: "pi" as const,
+      defaultHarness: "pi" as const,
+      piHarnessEnabled: false,
+      expected: "acp",
+    },
+  ])(
+    "$label",
+    ({ savedRuntime, defaultHarness, piHarnessEnabled, expected }) => {
+      expect(
+        resolveAgentRuntime(savedRuntime, defaultHarness, piHarnessEnabled),
+      ).toBe(expected);
+    },
+  );
 });
 
 describe("modelOptionForHarness", () => {
