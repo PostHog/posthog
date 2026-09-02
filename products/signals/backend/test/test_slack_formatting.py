@@ -175,6 +175,10 @@ class TestSplitMarkdownBySections(SimpleTestCase):
             ("em_dash", " — "),
             ("hyphen", " - "),
             ("colon", ": "),
+            # Repeated whitespace around the separator still marks a lead paragraph, so a doubled
+            # space after the colon or around the dash does not drop the section's seam.
+            ("colon_double_space", ":  "),
+            ("hyphen_double_spaces", "  -  "),
         ]
     )
     def test_bold_lead_paragraphs_are_seams(self, _name: str, separator: str) -> None:

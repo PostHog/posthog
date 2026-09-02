@@ -142,7 +142,7 @@ _BOLD_RUN_RE = re.compile(r"^[ ]{0,3}(?:\*\*(?!\s)((?:[^*\n]|\*(?!\*))+)\*\*|__(
 # What follows the bold run of a section label that carries its prose on the same line. A separator
 # is required, so a bold word that only opens a sentence (`**31** organizations reported …`) is
 # prose rather than a label.
-_BOLD_LEAD_SEPARATOR_RE = re.compile(r"(?::[ \t]|[ \t][-–—][ \t])\S")
+_BOLD_LEAD_SEPARATOR_RE = re.compile(r"(?::[ \t]+|[ \t]+[-–—][ \t]+)\S")
 # A bold seam ranks below every ATX heading, which stops at level 6, so a heading is always the
 # primary seam. A label alone on its line outranks one that shares the line with prose.
 _BOLD_LABEL_LEVEL = 7
