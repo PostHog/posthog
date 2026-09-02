@@ -1677,6 +1677,7 @@ export function TaskInput({
                         isLoading={isPreviewLoading}
                         modelAccess={composerModelAccess}
                         showBillingMenu
+                        workspaceMode={workspaceMode}
                       />
                     )
                   }
