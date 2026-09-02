@@ -101,7 +101,7 @@ function QuestionOptions({ question, onUpdate }: QuestionOptionsProps): JSX.Elem
                             </button>
                             <button
                                 type="button"
-                                aria-label="Numbers"
+                                aria-label="123, Numbers"
                                 aria-pressed={!isEmoji}
                                 title="Numbers"
                                 onClick={() => setDisplay('number')}
