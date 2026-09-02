@@ -1137,7 +1137,10 @@ export const LlmAnalyticsClusteringJobsCreateBody = () => zod.object({
     analysis_level: zod
         .enum(['trace', 'generation', 'evaluation'])
         .describe('\* `trace` - trace\n\* `generation` - generation\n\* `evaluation` - evaluation'),
-    event_filters: zod.unknown().optional(),
+    event_filters: zod
+        .array(zod.record(zod.string(), zod.unknown()))
+        .optional()
+        .describe('PostHog property filters that scope this clustering job. Empty array means no filters.'),
     enabled: zod.boolean().optional(),
 })
 
@@ -1173,7 +1176,10 @@ export const LlmAnalyticsClusteringJobsPartialUpdateBody = () => zod.object({
         .enum(['trace', 'generation', 'evaluation'])
         .optional()
         .describe('\* `trace` - trace\n\* `generation` - generation\n\* `evaluation` - evaluation'),
-    event_filters: zod.unknown().optional(),
+    event_filters: zod
+        .array(zod.record(zod.string(), zod.unknown()))
+        .optional()
+        .describe('PostHog property filters that scope this clustering job. Empty array means no filters.'),
     enabled: zod.boolean().optional(),
 })
 
