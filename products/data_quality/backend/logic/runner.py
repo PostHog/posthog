@@ -35,6 +35,8 @@ from .subjects import resolve_subject
 
 QUERY_TYPE = "data_quality_check"
 
+FAILING_STATUSES = (CheckRunStatus.FAILED, CheckRunStatus.ERRORED)
+
 STAGED_FILES_UNREADABLE = "The staged files could not be read, so this data was not audited."
 
 
@@ -344,13 +346,29 @@ def _record_run(
 
 
 def _update_check(check: DataQualityCheck, outcome: CheckOutcome) -> None:
+    ran_at = datetime.now(UTC)
     check.last_status = outcome.status
-    check.last_run_at = datetime.now(UTC)
+    check.last_run_at = ran_at
     updated = ["last_status", "last_run_at", "subject_name", "subject_status", "updated_at"]
     if outcome.status is CheckRunStatus.PASSED:
-        check.last_succeeded_at = check.last_run_at
+        check.last_succeeded_at = ran_at
+        check.failing_since = None
         # Written only by the run that earned it. A failing run holds whatever this row said when its
         # batch loaded it, so listing the column unconditionally would let it overwrite a success a
         # concurrent run committed in between.
-        updated.append("last_succeeded_at")
+        updated += ["last_succeeded_at", "failing_since"]
     check.save(update_fields=updated)
+    if outcome.status in FAILING_STATUSES:
+        _claim_failing_streak(check, ran_at)
+
+
+def _claim_failing_streak(check: DataQualityCheck, failed_at: datetime) -> None:
+    claimed = (
+        DataQualityCheck.objects.for_team(check.team_id)
+        .filter(id=check.id, failing_since__isnull=True)
+        .update(failing_since=failed_at)
+    )
+    if claimed:
+        check.failing_since = failed_at
+        return
+    check.refresh_from_db(fields=["failing_since"])

@@ -67,6 +67,12 @@ class DataQualityCheckSerializer(serializers.ModelSerializer):
         help_text="When the check last passed, so a failing check can say how long it has been failing. "
         "Null means it has not passed within the run retention window.",
     )
+    failing_since = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text="When the current streak of failing runs started, so a failing check can say how long "
+        "it has been failing. Null when the check is not failing.",
+    )
     subject_status = serializers.CharField(
         read_only=True,
         help_text="'orphaned' once the subject stops resolving. Orphaned checks are skipped, not deleted.",
@@ -94,6 +100,7 @@ class DataQualityCheckSerializer(serializers.ModelSerializer):
             "last_run_at",
             "last_status",
             "last_succeeded_at",
+            "failing_since",
             "fingerprint",
             "created_source",
             "ai_model",
@@ -110,6 +117,7 @@ class DataQualityCheckSerializer(serializers.ModelSerializer):
             "last_run_at",
             "last_status",
             "last_succeeded_at",
+            "failing_since",
             "fingerprint",
             "created_by",
             "created_at",

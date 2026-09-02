@@ -262,6 +262,35 @@ class TestCheckRunner(BaseTest):
         stale.refresh_from_db()
         assert stale.last_succeeded_at == succeeded_at
 
+    def test_the_failing_streak_starts_at_the_first_failure_and_a_pass_ends_it(self) -> None:
+        check = self._check()
+        failing = _Response(["failure_count", "observed_value"], [3, 3])
+
+        with patch(RUNNER_QUERY, return_value=failing):
+            run_check(check, self.suite_run, self.team)
+        check.refresh_from_db()
+        started_at = check.failing_since
+        assert started_at is not None
+
+        with patch(RUNNER_QUERY, return_value=failing):
+            run_check(check, self.suite_run, self.team)
+        check.refresh_from_db()
+        assert check.failing_since == started_at
+
+        with patch(RUNNER_QUERY, return_value=_Response(["failure_count", "observed_value"], [0, 0])):
+            run_check(check, self.suite_run, self.team)
+        check.refresh_from_db()
+        assert check.failing_since is None
+
+    def test_an_errored_run_starts_the_failing_streak_too(self) -> None:
+        check = self._check(check_type=CheckType.CUSTOM_SQL, column_name="", config={"query": "not a query at all"})
+
+        outcome = run_check(check, self.suite_run, self.team)
+
+        assert outcome.status == CheckRunStatus.ERRORED
+        check.refresh_from_db()
+        assert check.failing_since is not None
+
     def test_a_run_snapshots_the_definition_it_executed(self) -> None:
         # History has to keep reading as what actually ran, even after the definition is edited.
         check = self._check(

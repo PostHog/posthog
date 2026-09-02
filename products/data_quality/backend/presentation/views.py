@@ -49,7 +49,7 @@ from .serializers import (
 )
 
 _RECENT_RUNS_LIMIT = 50
-_LAST_RUN_FIELDS = ("last_status", "last_run_at", "last_succeeded_at")
+_LAST_RUN_FIELDS = ("last_status", "last_run_at", "last_succeeded_at", "failing_since")
 
 
 class _QualityGatedViewSet(TeamAndOrgViewSetMixin):
