@@ -310,9 +310,13 @@ def preview_alert_messages(team_id: int, trigger: str, actor_email: str | None) 
         raise AlertValidationError(f"Unknown trigger: {trigger}")
     opener_event = events_by_trigger[trigger]
 
-    issue = ErrorTrackingIssue.objects.filter(team_id=team_id).order_by("-created_at").first()
+    # Alerts are project-wide, so the sample comes from any of the project's environments.
+    # Issue ids are time-ordered UUIDs, so the primary key stands in for a created_at sort
+    # the table has no composite index for.
+    project_id = Team.objects.values_list("project_id", flat=True).get(id=team_id)
+    issue = ErrorTrackingIssue.objects.filter(team__project_id=project_id).order_by("-id").first()
     fingerprint = (
-        ErrorTrackingIssueFingerprintV2.objects.filter(team_id=team_id, issue_id=issue.id)
+        ErrorTrackingIssueFingerprintV2.objects.filter(team_id=issue.team_id, issue_id=issue.id)
         .values_list("fingerprint", flat=True)
         .first()
         if issue is not None
