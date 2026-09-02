@@ -426,7 +426,8 @@ export interface experimentReplayTabLogicMeta {
         ) => string | null
         effectiveExposureScope: (
             exposureScope: ExperimentReplayExposureScope,
-            exposureInSessionUnavailableReason: string | null
+            exposureInSessionUnavailableReason: string | null,
+            linkabilityLoaded: boolean
         ) => ExperimentReplayExposureScope
         metricOptions: (
             linkabilityLoaded: boolean,
@@ -780,12 +781,20 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
             },
         ],
         effectiveExposureScope: [
-            (s) => [s.exposureScope, s.exposureInSessionUnavailableReason],
+            (s) => [s.exposureScope, s.exposureInSessionUnavailableReason, s.linkabilityLoaded],
             (
                 exposureScope: ExperimentReplayExposureScope,
-                exposureInSessionUnavailableReason: string | null
+                exposureInSessionUnavailableReason: string | null,
+                linkabilityLoaded: boolean
             ): ExperimentReplayExposureScope =>
-                exposureInSessionUnavailableReason !== null ? 'all_exposed' : exposureScope,
+                // A failed linkability check leaves the refusal unknowable while
+                // seenTogetherMapLoading is already false, so a persisted or clicked in-session
+                // choice would otherwise reach the query and draw a backend 400 for a never-linked
+                // custom exposure. Hold at the all-sessions superset until the check confirms
+                // linkability; the query gate and the caption both read this, so they stay in step.
+                exposureInSessionUnavailableReason !== null || (exposureScope === 'in_session' && !linkabilityLoaded)
+                    ? 'all_exposed'
+                    : exposureScope,
         ],
         // Every uuid-carrying metric: inline primary + secondary, then saved/shared metrics (their
         // definition lives in `saved_metrics[].query`) — the same set the backend

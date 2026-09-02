@@ -284,6 +284,37 @@ describe('experimentReplayTabLogic', () => {
         customExposure.unmount()
     })
 
+    it('forces all sessions when the linkability check fails for a custom exposure event', async () => {
+        // A failed check leaves the refusal unknowable (linkabilityLoaded stays false) while
+        // seenTogetherMapLoading returns to false. Passing in_session through here would send it
+        // to the backend, which refuses a never-linked custom exposure with a 400 — the error the
+        // frontend mirror exists to prevent. Fail open to the all-sessions superset instead.
+        seenTogetherSpy.mockRejectedValue(new Error('network error'))
+        const failedCustom = experimentReplayTabLogic({
+            experiment: {
+                ...EXPERIMENT,
+                id: 54,
+                exposure_criteria: {
+                    exposure_config: {
+                        kind: 'ExperimentEventExposureConfig',
+                        event: 'backend_exposure',
+                        properties: [],
+                    },
+                },
+            } as unknown as Experiment,
+        })
+        failedCustom.mount()
+        await expectLogic(failedCustom).toFinishAllListeners()
+        failedCustom.actions.setExposureScope('in_session')
+
+        // No refusal reason, because the failed check can't tell whether the event is linkable —
+        // yet the scope still falls back, so in_session never reaches the query.
+        expect(failedCustom.values.exposureInSessionUnavailableReason).toBeNull()
+        expect(failedCustom.values.effectiveExposureScope).toBe('all_exposed')
+        expect(failedCustom.values.recordingsFilters.experiment_exposure).toEqual({ experiment_id: 54 })
+        failedCustom.unmount()
+    })
+
     it('forces all sessions for an activation experiment, whose exposure can span sessions', async () => {
         const activation = experimentReplayTabLogic({
             experiment: {
