@@ -17,6 +17,18 @@ export const SignalsReportsListParams = () => zod.object({
 })
 
 export const SignalsReportsListQueryParams = () => zod.object({
+    actionability: zod
+        .string()
+        .optional()
+        .describe(
+            'Comma-separated actionability judgments to include. Valid values: immediately_actionable, requires_human_input, not_actionable. Reports without a judgment are excluded.'
+        ),
+    already_addressed: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Filter by whether the latest actionability judgment says the issue is already being handled. False also includes older reports where that judgment did not record a value.'
+        ),
     channel_id: zod
         .string()
         .optional()
@@ -55,6 +67,10 @@ export const SignalsReportsListQueryParams = () => zod.object({
         .describe(
             'Comma-separated list of priorities to include. Valid values: P0, P1, P2, P3, P4. Reports without a priority assignment are excluded when this filter is set.'
         ),
+    scope: zod
+        .string()
+        .optional()
+        .describe('Reviewer scope: for_me, entire_project, or teammate. Pass teammate_uuid with teammate.'),
     scout: zod
         .string()
         .optional()
@@ -68,6 +84,10 @@ export const SignalsReportsListQueryParams = () => zod.object({
             'Scout skill_name prefix (e.g. signals-scout-customer-analytics). Reports are kept if at least one of their contributing signals was authored by a scout whose skill_name starts with this prefix — new scouts in the family match without callers listing every name. Combines with the other filters as an AND.'
         ),
     search: zod.string().optional().describe('Case-insensitive substring match against report title and summary.'),
+    sort: zod
+        .string()
+        .optional()
+        .describe('Inbox sort preset: priority, last_updated, newest, or oldest. Ignored when ordering is supplied.'),
     source_id: zod
         .string()
         .optional()
@@ -96,6 +116,19 @@ export const SignalsReportsListQueryParams = () => zod.object({
         .string()
         .optional()
         .describe("Only reports associated with this task (via the report's task associations)."),
+    teammate_uuid: zod.string().optional().describe('PostHog user UUID used when scope=teammate.'),
+    use_priority_preference: zod
+        .boolean()
+        .optional()
+        .describe(
+            "When true and priority is omitted, include priorities at or above the requesting user's personal PR-generation threshold, falling back to the project threshold."
+        ),
+    view: zod
+        .string()
+        .optional()
+        .describe(
+            'Apply an inbox view: actionable, needs_input, monitoring, resolved, dismissed, not_actionable, or all. Each view applies the corresponding status, actionability, and implementation-PR filters.'
+        ),
 })
 
 export const SignalsReportsRetrieveParams = () => zod.object({

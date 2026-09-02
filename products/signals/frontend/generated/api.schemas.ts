@@ -4246,6 +4246,14 @@ export type SignalsProcessingListParams = {
 
 export type SignalsReportsListParams = {
     /**
+     * Comma-separated actionability judgments to include. Valid values: immediately_actionable, requires_human_input, not_actionable. Reports without a judgment are excluded.
+     */
+    actionability?: string
+    /**
+     * Filter by whether the latest actionability judgment says the issue is already being handled. False also includes older reports where that judgment did not record a value.
+     */
+    already_addressed?: boolean
+    /**
      * Narrow to reports assigned to one space (channel). Absent or empty means all reports regardless of assignment.
      */
     channel_id?: string
@@ -4278,6 +4286,10 @@ export type SignalsReportsListParams = {
      */
     priority?: string
     /**
+     * Reviewer scope: for_me, entire_project, or teammate. Pass teammate_uuid with teammate.
+     */
+    scope?: string
+    /**
      * Comma-separated list of scout skill_name slugs (e.g. signals-scout-error-tracking). Reports are kept if at least one of their contributing signals was authored by one of these scouts. Combines with source_product as an AND.
      */
     scout?: string
@@ -4289,6 +4301,10 @@ export type SignalsReportsListParams = {
      * Case-insensitive substring match against report title and summary.
      */
     search?: string
+    /**
+     * Inbox sort preset: priority, last_updated, newest, or oldest. Ignored when ordering is supplied.
+     */
+    sort?: string
     /**
      * Comma-separated list of source record ids. Reports are kept if at least one of their contributing signals came from one of these records — e.g. pass a support ticket's UUID to see what the inbox already found for that ticket. Requires exactly one source_product, since a source id is only unique within its product.
      */
@@ -4309,6 +4325,18 @@ export type SignalsReportsListParams = {
      * Only reports associated with this task (via the report's task associations).
      */
     task_id?: string
+    /**
+     * PostHog user UUID used when scope=teammate.
+     */
+    teammate_uuid?: string
+    /**
+     * When true and priority is omitted, include priorities at or above the requesting user's personal PR-generation threshold, falling back to the project threshold.
+     */
+    use_priority_preference?: boolean
+    /**
+     * Apply an inbox view: actionable, needs_input, monitoring, resolved, dismissed, not_actionable, or all. Each view applies the corresponding status, actionability, and implementation-PR filters.
+     */
+    view?: string
 }
 
 export type SignalsReportArtefactsListParams = {
