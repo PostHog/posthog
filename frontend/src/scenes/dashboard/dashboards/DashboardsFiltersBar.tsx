@@ -12,8 +12,9 @@ interface DashboardsFiltersBarProps {
 }
 
 export function DashboardsFiltersBar({ extraActions }: DashboardsFiltersBarProps): JSX.Element {
-    const { filters, currentTab, filteredTags, tagSearch, showTagPopover } = useValues(dashboardsLogic)
-    const { setFilters, setTagSearch, setShowTagPopover, setSearch } = useActions(dashboardsLogic)
+    const { filters, currentTab, hasMoreTagResults, tagPageLoading, tagResults, tagSearch, showTagPopover } =
+        useValues(dashboardsLogic)
+    const { loadMoreTagResults, setFilters, setTagSearch, setShowTagPopover, setSearch } = useActions(dashboardsLogic)
 
     const createdByIds = filters.createdBy === 'All users' ? [] : filters.createdBy
     const handleTagToggle = (tag: string): void => {
@@ -60,7 +61,7 @@ export function DashboardsFiltersBar({ extraActions }: DashboardsFiltersBarProps
                                     className="max-w-full"
                                 />
                                 <ul className="deprecated-space-y-px">
-                                    {filteredTags.map((tag: string) => (
+                                    {tagResults.map((tag: string) => (
                                         <li key={tag}>
                                             <LemonButton
                                                 fullWidth
@@ -82,10 +83,27 @@ export function DashboardsFiltersBar({ extraActions }: DashboardsFiltersBarProps
                                             </LemonButton>
                                         </li>
                                     ))}
-                                    {filteredTags.length === 0 ? (
+                                    {tagPageLoading && tagResults.length === 0 ? (
+                                        <div className="p-2 text-secondary italic truncate border-t">Loading tags</div>
+                                    ) : null}
+                                    {!tagPageLoading && tagResults.length === 0 ? (
                                         <div className="p-2 text-secondary italic truncate border-t">
                                             {tagSearch ? <span>No matching tags</span> : <span>No tags</span>}
                                         </div>
+                                    ) : null}
+                                    {hasMoreTagResults ? (
+                                        <li>
+                                            <LemonButton
+                                                fullWidth
+                                                role="menuitem"
+                                                size="small"
+                                                loading={tagPageLoading}
+                                                onClick={loadMoreTagResults}
+                                                type="tertiary"
+                                            >
+                                                Load more tags
+                                            </LemonButton>
+                                        </li>
                                     ) : null}
                                     {(filters.tags?.length || 0) > 0 && (
                                         <>
