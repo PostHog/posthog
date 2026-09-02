@@ -6,6 +6,7 @@ import {
   EFFORT_LEVEL_DOCS_URLS,
   EFFORT_LEVEL_LABELS,
 } from "@posthog/shared/domain-types";
+import { reasoningEffortsForModel } from "@posthog/shared/model-catalog";
 import type { EffortLevel } from "../types";
 
 export const DEFAULT_MODEL = "opus";
@@ -74,32 +75,12 @@ export function getContextWindowOptions(
   ];
 }
 
-const STANDARD_EFFORT_LEVELS: readonly EffortLevel[] = [
-  "low",
-  "medium",
-  "high",
-];
-const EXTENDED_EFFORT_LEVELS: readonly EffortLevel[] = [
-  ...STANDARD_EFFORT_LEVELS,
-  "xhigh",
-  "max",
-  "ultracode",
-];
-const MODEL_EFFORT_LEVELS: Readonly<Record<string, readonly EffortLevel[]>> = {
-  "claude-opus-4-7": EXTENDED_EFFORT_LEVELS,
-  "claude-opus-4-8": EXTENDED_EFFORT_LEVELS,
-  "claude-opus-5": EXTENDED_EFFORT_LEVELS,
-  "claude-sonnet-4-6": STANDARD_EFFORT_LEVELS,
-  "claude-sonnet-5": EXTENDED_EFFORT_LEVELS,
-  "claude-fable-5": EXTENDED_EFFORT_LEVELS,
-  "claude-fable-5-1": EXTENDED_EFFORT_LEVELS,
-  "@cf/zai-org/glm-5.2": ["high", "max"],
-  "zai-org/glm-5.3": ["high", "max"],
-  "zai-org/glm-5.3-flash": ["high", "max"],
-};
+function effortLevelsFor(modelId: string): readonly EffortLevel[] {
+  return reasoningEffortsForModel("claude", modelId);
+}
 
 export function supportsEffort(modelId: string): boolean {
-  return MODEL_EFFORT_LEVELS[modelId] !== undefined;
+  return effortLevelsFor(modelId).length > 0;
 }
 
 export function resolveEffortForModel(
@@ -111,7 +92,7 @@ export function resolveEffortForModel(
 }
 
 export function supportsXhighEffort(modelId: string): boolean {
-  return MODEL_EFFORT_LEVELS[modelId]?.includes("xhigh") ?? false;
+  return effortLevelsFor(modelId).includes("xhigh");
 }
 
 const MODELS_TO_EXCLUDE_MCP_TOOLS = new Set(["claude-haiku-4-5"]);
@@ -162,15 +143,16 @@ function effortOptionMeta(
   return Object.keys(meta).length > 0 ? meta : undefined;
 }
 
+/** Null rather than an empty list for a model with no effort control, so the caller
+ * renders no dropdown instead of an empty one. */
 export function getEffortOptions(modelId: string): EffortOption[] | null {
-  const levels = MODEL_EFFORT_LEVELS[modelId];
-  return (
-    levels?.map((value) => ({
-      value,
-      name: EFFORT_LEVEL_LABELS[value],
-      _meta: effortOptionMeta(value),
-    })) ?? null
-  );
+  const levels = effortLevelsFor(modelId);
+  if (levels.length === 0) return null;
+  return levels.map((value) => ({
+    value,
+    name: EFFORT_LEVEL_LABELS[value],
+    _meta: effortOptionMeta(value),
+  }));
 }
 
 // Model alias resolution — lets callers use human-friendly aliases like
