@@ -41,6 +41,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.errors import (
     CORRUPTED_PARQUET_METADATA_MESSAGE,
     RAGGED_ROWS_MESSAGE,
+    CHQueryErrorRaggedFileRows,
     QueryErrorCategory,
     classify_query_error,
     wrap_clickhouse_query_error,
@@ -1084,6 +1085,15 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         # rewrite the message for some codes (e.g. STD_EXCEPTION), which would hide the substrings
         # we key on here.
         raw_message = err.message if isinstance(err, ClickHouseServerException) else str(err)
+
+        # sync_execute wraps the exception before this function receives it, so a ragged-CSV failure
+        # arrives as CHQueryErrorRaggedFileRows with its message already rewritten to RAGGED_ROWS_MESSAGE.
+        # The raw ClickHouse phrase the ExtractErrors loop keys on is gone, and re-wrapping below drops
+        # the class too, so recognize it here and surface its actionable message instead of blaming the
+        # bucket. A raw ServerException (not pre-wrapped) still matches through the loop on raw_message.
+        if isinstance(err, CHQueryErrorRaggedFileRows):
+            raise Exception(RAGGED_ROWS_MESSAGE)
+
         err = wrap_clickhouse_query_error(err)
 
         # Only ClickHouse ServerException-derived errors carry a `.message`. Everything else —
