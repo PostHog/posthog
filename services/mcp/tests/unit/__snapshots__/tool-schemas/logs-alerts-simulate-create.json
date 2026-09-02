@@ -2888,6 +2888,32 @@
             "enum": ["above", "below"],
             "type": "string"
         },
+        "trigger_config": {
+            "anyOf": [
+                {
+                    "properties": {
+                        "seed_lookback_days": {
+                            "default": 7,
+                            "description": "Only used with trigger_type=new_pattern. Days of history the alert's first check scans to seed its seen-set before it starts alerting, so pre-existing error shapes never fire.",
+                            "maximum": 30,
+                            "minimum": 1,
+                            "type": "number"
+                        }
+                    },
+                    "type": "object"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Same meaning as LogsAlertConfiguration.trigger_config. Only used with trigger_type=new_pattern."
+        },
+        "trigger_type": {
+            "default": "count",
+            "description": "Same meaning as LogsAlertConfiguration.trigger_type. Forces evaluation_periods and datapoints_to_alarm to 1 for a pattern trigger.\n\n* `count` - Count threshold\n* `new_pattern` - New pattern\n* `pattern_threshold` - Pattern threshold",
+            "enum": ["count", "new_pattern", "pattern_threshold"],
+            "type": "string"
+        },
         "window_minutes": {
             "description": "Window size in minutes — determines bucket interval.",
             "type": "number"
