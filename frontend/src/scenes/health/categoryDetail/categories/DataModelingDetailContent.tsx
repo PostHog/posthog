@@ -86,7 +86,7 @@ export default function DataModelingDetailContent({
             <div className="flex items-center gap-3 text-xs text-muted">
                 <Link to="https://posthog.com/docs/data-warehouse">Documentation</Link>
                 <span>&middot;</span>
-                <Link to="https://posthog.com/support">Contact support</Link>
+                <Link to="https://posthog.com/docs/support-options">Contact support</Link>
             </div>
         </div>
     )

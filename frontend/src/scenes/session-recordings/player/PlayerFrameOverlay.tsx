@@ -168,7 +168,7 @@ const PlayerFrameOverlayContent = (): JSX.Element | null => {
                 )}
                 <LemonButton
                     targetBlank
-                    to="https://posthog.com/support?utm_medium=in-product&utm_campaign=recording-not-found"
+                    to="https://posthog.com/docs/support-options?utm_medium=in-product&utm_campaign=recording-not-found"
                     type="secondary"
                     fullWidth
                     center
