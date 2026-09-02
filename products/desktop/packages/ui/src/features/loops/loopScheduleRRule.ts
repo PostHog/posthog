@@ -28,8 +28,9 @@ const KNOWN_RRULE_KEYS = new Set([
 ]);
 
 interface WallClock {
-  /** "HH:MM", 24-hour. */
-  time: string;
+  /** 0 to 23. */
+  hour: number;
+  minute: number;
   /** "0" (Sunday) to "6" (Saturday), matching cron and the loop picker. */
   weekday: string;
 }
@@ -68,7 +69,11 @@ function wallClock(instant: string, timezone: string): WallClock | null {
   const weekday = WEEKDAY_BY_SHORT_NAME[read("weekday") ?? ""];
   if (!hour || !minute || !weekday) return null;
   // Some engines render midnight as "24" under h23.
-  return { time: `${hour === "24" ? "00" : hour}:${minute}`, weekday };
+  return {
+    hour: hour === "24" ? 0 : Number(hour),
+    minute: Number(minute),
+    weekday,
+  };
 }
 
 function presetRRule(frequency: string, weekday: string): string {
@@ -150,7 +155,7 @@ export function hogFlowScheduleToScheduleConfig(schedule: {
 
   const clock = wallClock(schedule.starts_at, timezone);
   if (!clock) return null;
-  const [hour, minute] = clock.time.split(":").map(Number);
+  const { hour, minute } = clock;
   const cronTime = `${minute} ${hour}`;
 
   if (freq === "HOURLY") {
@@ -185,7 +190,8 @@ export function hogFlowScheduleToScheduleConfig(schedule: {
  * Whether an existing schedule row already expresses the desired cadence. A
  * preset compares the clock time `starts_at` encodes rather than the instant,
  * because rewriting the anchor makes the scheduler recompute `next_run_at`
- * and can skip an occurrence that was about to fire.
+ * and can skip an occurrence that was about to fire. An hourly rule fires
+ * every hour from its anchor, so only the anchor's minute carries cadence.
  */
 export function hogFlowScheduleMatches(
   existing: { rrule: string; starts_at: string; timezone?: string | null },
@@ -202,5 +208,8 @@ export function hogFlowScheduleMatches(
   }
   const before = wallClock(existing.starts_at, timezone);
   const after = wallClock(desired.starts_at, timezone);
-  return !!before && !!after && before.time === after.time;
+  if (!before || !after) return false;
+  if (before.minute !== after.minute) return false;
+  const hourly = parseRRule(desired.rrule)?.get("FREQ") === "HOURLY";
+  return hourly || before.hour === after.hour;
 }

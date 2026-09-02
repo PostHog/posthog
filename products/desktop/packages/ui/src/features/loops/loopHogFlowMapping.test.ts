@@ -371,6 +371,15 @@ describe("loopHogFlowMapping", () => {
         type: "event",
       },
     ],
+    [
+      "two event types",
+      {
+        key: "event_type",
+        value: ["pull_request", "issues"],
+        operator: "exact",
+        type: "event",
+      },
+    ],
   ])("marks a GitHub loop with %s as foreign", (_label, property) => {
     const flow = flowFromWrite(githubValues());
     const trigger = (flow.actions as Array<Record<string, unknown>>)[0];
@@ -387,40 +396,42 @@ describe("loopHogFlowMapping", () => {
   it.each([
     [
       "a running task",
-      "in_progress",
-      "cloud",
+      { status: "in_progress" },
       { status: "in_progress", completed_at: null },
     ],
     [
       "a legacy started status",
-      "started",
-      "cloud",
+      { status: "started" },
       { status: "in_progress", completed_at: null },
     ],
     [
-      "a finished task",
-      "completed",
-      "local",
+      "a finished task with no completion time",
+      { status: "completed", environment: "local" },
       {
         status: "completed",
         environment: "local",
         completed_at: "2026-09-02T09:05:00Z",
       },
     ],
-  ])("maps %s to a loop run", (_label, status, environment, expected) => {
+    [
+      "a finished task with its own completion time",
+      { status: "completed", completed_at: "2026-09-02T09:04:00Z" },
+      { status: "completed", completed_at: "2026-09-02T09:04:00Z" },
+    ],
+  ])("maps %s to a loop run", (_label, run, expected) => {
     const task = {
       id: "task-1",
       created_at: "2026-09-02T09:00:00Z",
       latest_run: {
         id: "run-1",
         task: "task-1",
-        status,
-        environment,
+        environment: "cloud",
         branch: "loop/run-1",
         error_message: null,
         output: null,
         created_at: "2026-09-02T09:00:30Z",
         updated_at: "2026-09-02T09:05:00Z",
+        ...run,
       },
     } as unknown as Schemas.TaskDetailDTO;
     expect(taskToLoopRun(task)).toMatchObject({
@@ -469,6 +480,52 @@ describe("loopHogFlowMapping", () => {
       type: "continue",
     });
     expect(isLoopShapedHogFlow(flow)).toBe(false);
+  });
+
+  it("marks a flow with a staged draft as foreign until it is published or discarded", () => {
+    const flow = flowFromWrite(scheduleValues());
+    expect(isLoopShapedHogFlow({ ...flow, draft: null })).toBe(true);
+    expect(
+      isLoopShapedHogFlow({
+        ...flow,
+        draft: { actions: flow.actions, edges: flow.edges },
+        draft_updated_at: "2026-09-02T09:00:00Z",
+      }),
+    ).toBe(false);
+  });
+
+  it("keeps step settings the form does not own when rewriting an existing flow", () => {
+    const existing = flowFromWrite(scheduleValues());
+    const actions = existing.actions as Array<Record<string, unknown>>;
+    Object.assign(taskAction(existing), {
+      name: "Open a triage task",
+      description: "Skips weekends",
+      on_error: "continue",
+      filters: { properties: [{ key: "weekday", value: "1", type: "event" }] },
+    });
+    actions[0].name = "Every weekday morning";
+
+    const { flow } = formValuesToHogFlowWrite(
+      scheduleValues({ instructions: "Updated prompt" }),
+      { enabled: true, existing },
+    );
+    expect(flow.actions[0]).toMatchObject({
+      id: "trigger",
+      name: "Every weekday morning",
+      config: { type: "schedule" },
+    });
+    expect(flow.actions[1]).toMatchObject({
+      id: "create_task",
+      name: "Open a triage task",
+      description: "Skips weekends",
+      on_error: "continue",
+      filters: { properties: [{ key: "weekday", value: "1", type: "event" }] },
+      config: {
+        template_id: "template-posthog-create-task",
+        inputs: { prompt: { value: "Updated prompt" } },
+      },
+    });
+    expect(flow.actions[2]).toEqual(actions[2]);
   });
 
   it("keeps task inputs the form does not manage when rewriting an existing flow", () => {

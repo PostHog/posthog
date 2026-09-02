@@ -170,6 +170,28 @@ describe("loopScheduleRRule", () => {
     ).toBe(false);
   });
 
+  it("treats an hourly preset as unchanged when only the anchor hour moves", () => {
+    const desired = must(
+      scheduleConfigToHogFlowSchedule(
+        { cron_expression: "0 * * * *", timezone: "Europe/Lisbon" },
+        NOW,
+      ),
+    );
+    expect(inZone(desired.starts_at, "Europe/Lisbon")).toBe("Wed 12:00");
+    expect(
+      hogFlowScheduleMatches(
+        { ...desired, starts_at: "2026-09-02T08:00:00Z" },
+        desired,
+      ),
+    ).toBe(true);
+    expect(
+      hogFlowScheduleMatches(
+        { ...desired, starts_at: "2026-09-02T08:30:00Z" },
+        desired,
+      ),
+    ).toBe(false);
+  });
+
   it("treats a one-off as changed when run_at moves", () => {
     const desired = must(
       scheduleConfigToHogFlowSchedule(

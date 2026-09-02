@@ -54,6 +54,10 @@ export interface LoopHogFlowSource {
   actions?: unknown;
   edges?: unknown;
   schedules?: Schemas.HogFlowSchedule[];
+  /** Staged edits the workflow editor holds back from the live graph. Only
+   * the detail carries it; a list row leaves it undefined. */
+  draft?: unknown;
+  draft_updated_at?: string | null;
 }
 
 /** Task inputs the form owns. Anything else on the step is left as found. */
@@ -160,63 +164,97 @@ function taskInputs(values: LoopFormValues): Json {
 
 /** Task inputs on an existing flow that the form does not manage, so a save
  * keeps what the workflow editor added (connectors, parallelism, a title). */
-function preservedTaskInputs(existing: LoopHogFlowSource | undefined): Json {
-  const parsed = existing ? parseLoopActions(existing.actions) : null;
-  if (!parsed) return {};
+function preservedTaskInputs(existing: ParsedLoopActions | null): Json {
+  if (!existing) return {};
   return Object.fromEntries(
-    Object.entries(parsed.taskInputs).filter(
+    Object.entries(existing.taskInputs).filter(
       ([key]) => !MANAGED_TASK_INPUTS.has(key),
     ),
   );
 }
 
+/** One of the three steps the loop form draws, as the API holds it. */
+interface LoopAction extends Schemas.HogFlowAction {
+  type: "trigger" | "function" | "exit";
+  config: Json;
+}
+
+function isLoopAction(value: unknown): value is LoopAction {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.name === "string" &&
+    isRecord(value.config) &&
+    (value.type === "trigger" ||
+      value.type === "function" ||
+      value.type === "exit")
+  );
+}
+
+const DEFAULT_TRIGGER_ACTION: LoopAction = {
+  id: TRIGGER_ACTION_ID,
+  name: "Trigger",
+  type: "trigger",
+  config: {},
+};
+
+const DEFAULT_TASK_ACTION: LoopAction = {
+  id: TASK_ACTION_ID,
+  name: "Create AI task",
+  type: "function",
+  config: {},
+};
+
+const DEFAULT_EXIT_ACTION: LoopAction = {
+  id: EXIT_ACTION_ID,
+  name: "Exit",
+  type: "exit",
+  config: { reason: "Task created" },
+};
+
 /**
  * The workflow a loop form saves as: one trigger, one "Create AI task" step,
  * one exit. `enabled` decides whether the flow is created live or as a draft.
- * Pass `existing` on an edit so task inputs the form does not own survive.
+ * Pass `existing` on an edit: the save then only replaces the fields the form
+ * owns (the trigger config, the task template and inputs), so step names,
+ * skip filters and error handling set in the workflow editor survive.
  */
 export function formValuesToHogFlowWrite(
   values: LoopFormValues,
   options: { enabled: boolean; existing?: LoopHogFlowSource },
 ): LoopHogFlowWrite {
   const trigger = triggerFromForm(values);
-  const name = values.name.trim();
+  const existing = options.existing
+    ? parseLoopActions(options.existing.actions)
+    : null;
+  const triggerAction = existing?.actions.trigger ?? DEFAULT_TRIGGER_ACTION;
+  const taskAction = existing?.actions.task ?? DEFAULT_TASK_ACTION;
+  const exitAction = existing?.actions.exit ?? DEFAULT_EXIT_ACTION;
   return {
     flow: {
-      name,
+      name: values.name.trim(),
       description: values.description.trim(),
       status: options.enabled ? "active" : "draft",
       origin_product: LOOPS_ORIGIN_PRODUCT,
       exit_condition: "exit_only_at_end",
       actions: [
+        { ...triggerAction, config: trigger.config },
         {
-          id: TRIGGER_ACTION_ID,
-          name: "Trigger",
-          type: "trigger",
-          config: trigger.config,
-        },
-        {
-          id: TASK_ACTION_ID,
-          name: "Create AI task",
-          type: "function",
+          ...taskAction,
           config: {
+            ...taskAction.config,
             template_id: CREATE_TASK_TEMPLATE_ID,
             inputs: {
-              ...preservedTaskInputs(options.existing),
+              ...preservedTaskInputs(existing),
               ...taskInputs(values),
             },
           },
         },
-        {
-          id: EXIT_ACTION_ID,
-          name: "Exit",
-          type: "exit",
-          config: { reason: "Task created" },
-        },
+        exitAction,
       ],
       edges: [
-        { from: TRIGGER_ACTION_ID, to: TASK_ACTION_ID, type: "continue" },
-        { from: TASK_ACTION_ID, to: EXIT_ACTION_ID, type: "continue" },
+        { from: triggerAction.id, to: taskAction.id, type: "continue" },
+        { from: taskAction.id, to: exitAction.id, type: "continue" },
       ],
     },
     schedule: trigger.schedule,
@@ -226,47 +264,36 @@ export function formValuesToHogFlowWrite(
 interface ParsedLoopActions {
   trigger: Json;
   taskInputs: Json;
-  ids: { trigger: string; task: string; exit: string | null };
+  actions: { trigger: LoopAction; task: LoopAction; exit: LoopAction | null };
 }
 
 /** The trigger and task step of a loop-shaped graph, or null when the graph
  * holds anything the loop form did not put there. */
 function parseLoopActions(actions: unknown): ParsedLoopActions | null {
   if (!Array.isArray(actions)) return null;
-  let trigger: { id: string; config: Json } | null = null;
-  let task: { id: string; inputs: Json } | null = null;
-  let exitId: string | null = null;
+  let trigger: LoopAction | null = null;
+  let task: LoopAction | null = null;
+  let exit: LoopAction | null = null;
   for (const action of actions) {
-    if (
-      !isRecord(action) ||
-      !isRecord(action.config) ||
-      typeof action.id !== "string"
-    ) {
-      return null;
-    }
+    if (!isLoopAction(action)) return null;
     if (action.type === "trigger") {
       if (trigger) return null;
-      trigger = { id: action.id, config: action.config };
+      trigger = action;
     } else if (action.type === "function") {
       if (task || action.config.template_id !== CREATE_TASK_TEMPLATE_ID) {
         return null;
       }
-      task = {
-        id: action.id,
-        inputs: isRecord(action.config.inputs) ? action.config.inputs : {},
-      };
-    } else if (action.type === "exit") {
-      if (exitId) return null;
-      exitId = action.id;
+      task = action;
     } else {
-      return null;
+      if (exit) return null;
+      exit = action;
     }
   }
   if (!trigger || !task) return null;
   return {
     trigger: trigger.config,
-    taskInputs: task.inputs,
-    ids: { trigger: trigger.id, task: task.id, exit: exitId },
+    taskInputs: isRecord(task.config.inputs) ? task.config.inputs : {},
+    actions: { trigger, task, exit },
   };
 }
 
@@ -275,10 +302,15 @@ function parseLoopActions(actions: unknown): ParsedLoopActions | null {
  * when a save rewrites the edges. */
 function hasLoopShapedEdges(
   edges: unknown,
-  ids: ParsedLoopActions["ids"],
+  actions: ParsedLoopActions["actions"],
 ): boolean {
   if (edges === undefined || edges === null) return true;
   if (!Array.isArray(edges)) return false;
+  const ids = {
+    trigger: actions.trigger.id,
+    task: actions.task.id,
+    exit: actions.exit?.id ?? null,
+  };
   const expected = [
     `${ids.trigger}>${ids.task}`,
     ...(ids.exit ? [`${ids.task}>${ids.exit}`] : []),
@@ -345,7 +377,8 @@ function githubConfigFromTrigger(
         return null;
     }
   }
-  if (!repository || !eventTypes || eventTypes.length === 0) return null;
+  // The form picks one event type; two would open as an invalid form.
+  if (!repository || !eventTypes || eventTypes.length !== 1) return null;
   // A trigger open to anyone is outside what a loop offers; editing it here
   // would silently narrow it back to write access.
   if (!trustedActorsOnly) return null;
@@ -413,10 +446,13 @@ export function hogFlowTeamSkills(flow: LoopHogFlowSource): string[] {
  * built elsewhere. A save writes the whole graph, so anything the form does
  * not model would be lost. */
 export function isLoopShapedHogFlow(flow: LoopHogFlowSource): boolean {
+  // A staged draft is edited work the live graph does not show; a save from
+  // here would land underneath it and the next publish would overwrite it.
+  if (flow.draft !== undefined && flow.draft !== null) return false;
   const parsed = parseLoopActions(flow.actions);
   return (
     parsed !== null &&
-    hasLoopShapedEdges(flow.edges, parsed.ids) &&
+    hasLoopShapedEdges(flow.edges, parsed.actions) &&
     loopTrigger(flow, parsed) !== null
   );
 }
@@ -517,7 +553,7 @@ export function taskToLoopRun(
     created_at: createdAt,
     completed_at:
       run && TERMINAL_RUN_STATUSES.has(status)
-        ? (run.updated_at ?? null)
+        ? (run.completed_at ?? run.updated_at ?? null)
         : null,
   };
 }
