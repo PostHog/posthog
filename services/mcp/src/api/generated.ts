@@ -1465,6 +1465,394 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export type AccountsTableQueryRequestVariablesOverride = {[key: string]: { [key: string]: unknown }} | null;
+
+    export type BreakdownType = typeof BreakdownType[keyof typeof BreakdownType];
+
+
+    export const BreakdownType = {
+      Cohort: 'cohort',
+      Person: 'person',
+      Event: 'event',
+      EventMetadata: 'event_metadata',
+      Group: 'group',
+      Session: 'session',
+      Hogql: 'hogql',
+      DataWarehouse: 'data_warehouse',
+      DataWarehousePersonProperty: 'data_warehouse_person_property',
+      RevenueAnalytics: 'revenue_analytics',
+    } as const;
+
+    export type MultipleBreakdownType = typeof MultipleBreakdownType[keyof typeof MultipleBreakdownType];
+
+
+    export const MultipleBreakdownType = {
+      Person: 'person',
+      Event: 'event',
+      EventMetadata: 'event_metadata',
+      Group: 'group',
+      Session: 'session',
+      Hogql: 'hogql',
+      Cohort: 'cohort',
+      RevenueAnalytics: 'revenue_analytics',
+      DataWarehouse: 'data_warehouse',
+      DataWarehousePersonProperty: 'data_warehouse_person_property',
+    } as const;
+
+    export interface Breakdown {
+      group_type_index?: number | null;
+      histogram_bin_count?: number | null;
+      normalize_url?: boolean | null;
+      property: string | number;
+      type?: MultipleBreakdownType | null;
+    }
+
+    export interface BreakdownFilter {
+      breakdown?: string | (string | number)[] | number | null;
+      breakdown_group_type_index?: number | null;
+      breakdown_hide_other_aggregation?: boolean | null;
+      breakdown_histogram_bin_count?: number | null;
+      breakdown_limit?: number | null;
+      breakdown_normalize_url?: boolean | null;
+      breakdown_path_cleaning?: boolean | null;
+      breakdown_type?: BreakdownType | null;
+      breakdowns?: Breakdown[] | null;
+    }
+
+    export type IntervalType = typeof IntervalType[keyof typeof IntervalType];
+
+
+    export const IntervalType = {
+      Second: 'second',
+      Minute: 'minute',
+      Hour: 'hour',
+      Day: 'day',
+      Week: 'week',
+      Month: 'month',
+      Quarter: 'quarter',
+      Year: 'year',
+    } as const;
+
+    export interface EventPropertyFilter {
+      key: string;
+      label?: string | null;
+      operator?: PropertyOperator | null;
+      /** Event properties */
+      type?: 'event';
+      value?: (string | number | boolean)[] | string | number | boolean | null;
+    }
+
+    export interface PersonPropertyFilter {
+      key: string;
+      label?: string | null;
+      operator: PropertyOperator;
+      /** Person properties */
+      type?: 'person';
+      value?: (string | number | boolean)[] | string | number | boolean | null;
+    }
+
+    export interface PersonMetadataPropertyFilter {
+      key: string;
+      label?: string | null;
+      operator: PropertyOperator;
+      /** Top-level columns on the persons table (e.g. created_at), not properties JSON */
+      type?: 'person_metadata';
+      value?: (string | number | boolean)[] | string | number | boolean | null;
+    }
+
+    export type Key10 = typeof Key10[keyof typeof Key10];
+
+
+    export const Key10 = {
+      TagName: 'tag_name',
+      Text: 'text',
+      Href: 'href',
+      Selector: 'selector',
+    } as const;
+
+    export interface ElementPropertyFilter {
+      key: Key10;
+      label?: string | null;
+      operator: PropertyOperator;
+      type?: 'element';
+      value?: (string | number | boolean)[] | string | number | boolean | null;
+    }
+
+    export interface EventMetadataPropertyFilter {
+      key: string;
+      label?: string | null;
+      operator: PropertyOperator;
+      type?: 'event_metadata';
+      value?: (string | number | boolean)[] | string | number | boolean | null;
+    }
+
+    export interface SessionPropertyFilter {
+      key: string;
+      label?: string | null;
+      operator: PropertyOperator;
+      type?: 'session';
+      value?: (string | number | boolean)[] | string | number | boolean | null;
+    }
+
+    export interface CohortPropertyFilter {
+      cohort_name?: string | null;
+      key?: 'id';
+      label?: string | null;
+      operator?: PropertyOperator | null;
+      type?: 'cohort';
+      value: number;
+    }
+
+    export type DurationType = typeof DurationType[keyof typeof DurationType];
+
+
+    export const DurationType = {
+      Duration: 'duration',
+      ActiveSeconds: 'active_seconds',
+      InactiveSeconds: 'inactive_seconds',
+    } as const;
+
+    export interface RecordingPropertyFilter {
+      key: DurationType | string;
+      label?: string | null;
+      operator: PropertyOperator;
+      type?: 'recording';
+      value?: (string | number | boolean)[] | string | number | boolean | null;
+    }
+
+    export interface LogEntryPropertyFilter {
+      key: string;
+      label?: string | null;
+      operator: PropertyOperator;
+      type?: 'log_entry';
+      value?: (string | number | boolean)[] | string | number | boolean | null;
+    }
+
+    export type GroupPropertyFilterGroupKeyNames = {[key: string]: string} | null;
+
+    export interface GroupPropertyFilter {
+      group_key_names?: GroupPropertyFilterGroupKeyNames;
+      group_type_index?: number | null;
+      key: string;
+      label?: string | null;
+      operator: PropertyOperator;
+      type?: 'group';
+      value?: (string | number | boolean)[] | string | number | boolean | null;
+    }
+
+    export interface FeaturePropertyFilter {
+      key: string;
+      label?: string | null;
+      operator: PropertyOperator;
+      /** Event property with "$feature/" prepended */
+      type?: 'feature';
+      value?: (string | number | boolean)[] | string | number | boolean | null;
+    }
+
+    export interface FlagPropertyFilter {
+      /** The key should be the flag ID */
+      key: string;
+      label?: string | null;
+      /** Only flag_evaluates_to operator is allowed for flag dependencies */
+      operator?: 'flag_evaluates_to';
+      /** Feature flag dependency */
+      type?: 'flag';
+      /** The value can be true, false, or a variant name */
+      value: boolean | string;
+    }
+
+    export interface HogQLPropertyFilter {
+      key: string;
+      label?: string | null;
+      type?: 'hogql';
+      value?: (string | number | boolean)[] | string | number | boolean | null;
+    }
+
+    export const EmptyPropertyFilterValue = {
+      type: 'empty',
+    } as const;
+    export type EmptyPropertyFilter = typeof EmptyPropertyFilterValue;
+
+    export interface DataWarehousePropertyFilter {
+      key: string;
+      label?: string | null;
+      operator: PropertyOperator;
+      type?: 'data_warehouse';
+      value?: (string | number | boolean)[] | string | number | boolean | null;
+    }
+
+    export interface DataWarehousePersonPropertyFilter {
+      key: string;
+      label?: string | null;
+      operator: PropertyOperator;
+      type?: 'data_warehouse_person_property';
+      value?: (string | number | boolean)[] | string | number | boolean | null;
+    }
+
+    export interface ErrorTrackingIssueFilter {
+      key: string;
+      label?: string | null;
+      operator: PropertyOperator;
+      type?: 'error_tracking_issue';
+      value?: (string | number | boolean)[] | string | number | boolean | null;
+    }
+
+    export type LogPropertyFilterType = typeof LogPropertyFilterType[keyof typeof LogPropertyFilterType];
+
+
+    export const LogPropertyFilterType = {
+      Log: 'log',
+      LogAttribute: 'log_attribute',
+      LogResourceAttribute: 'log_resource_attribute',
+    } as const;
+
+    export interface LogPropertyFilter {
+      key: string;
+      label?: string | null;
+      operator: PropertyOperator;
+      type: LogPropertyFilterType;
+      value?: (string | number | boolean)[] | string | number | boolean | null;
+    }
+
+    export interface MetricPropertyFilter {
+      key: string;
+      label?: string | null;
+      operator: PropertyOperator;
+      type?: 'metric_attribute';
+      value?: (string | number | boolean)[] | string | number | boolean | null;
+    }
+
+    export type SpanPropertyFilterType = typeof SpanPropertyFilterType[keyof typeof SpanPropertyFilterType];
+
+
+    export const SpanPropertyFilterType = {
+      Span: 'span',
+      SpanAttribute: 'span_attribute',
+      SpanResourceAttribute: 'span_resource_attribute',
+    } as const;
+
+    export interface SpanPropertyFilter {
+      key: string;
+      label?: string | null;
+      operator: PropertyOperator;
+      type: SpanPropertyFilterType;
+      value?: (string | number | boolean)[] | string | number | boolean | null;
+    }
+
+    export interface RevenueAnalyticsPropertyFilter {
+      key: string;
+      label?: string | null;
+      operator: PropertyOperator;
+      type?: 'revenue_analytics';
+      value?: (string | number | boolean)[] | string | number | boolean | null;
+    }
+
+    export interface WorkflowVariablePropertyFilter {
+      key: string;
+      label?: string | null;
+      operator: PropertyOperator;
+      type?: 'workflow_variable';
+      value?: (string | number | boolean)[] | string | number | boolean | null;
+    }
+
+    export type BehavioralEventSource = typeof BehavioralEventSource[keyof typeof BehavioralEventSource];
+
+
+    export const BehavioralEventSource = {
+      Events: 'events',
+      Actions: 'actions',
+    } as const;
+
+    export type TimeUnitType = typeof TimeUnitType[keyof typeof TimeUnitType];
+
+
+    export const TimeUnitType = {
+      Day: 'day',
+      Week: 'week',
+      Month: 'month',
+      Year: 'year',
+    } as const;
+
+    export type InlineBehavioralType = typeof InlineBehavioralType[keyof typeof InlineBehavioralType];
+
+
+    export const InlineBehavioralType = {
+      PerformedEvent: 'performed_event',
+      PerformedEventMultiple: 'performed_event_multiple',
+    } as const;
+
+    export interface BehavioralPropertyFilter {
+      /** Extra property filters the matching events must satisfy. Deliberately excludes nested behavioral/cohort filters and groups */
+      event_filters?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | FeaturePropertyFilter | HogQLPropertyFilter)[] | null;
+      event_type: BehavioralEventSource;
+      /** Absolute or relative (e.g. -30d) lower date bound — alternative to time_value/time_interval */
+      explicit_datetime?: string | null;
+      explicit_datetime_to?: string | null;
+      /** Event name, or action id when event_type is 'actions' */
+      key: string;
+      label?: string | null;
+      /** Match persons who did NOT satisfy the criterion. Not the same as a low count — zero-occurrence persons never match count operators */
+      negation?: boolean | null;
+      /** Count comparison for performed_event_multiple, defaults to exact */
+      operator?: PropertyOperator | null;
+      /** Count threshold for performed_event_multiple */
+      operator_value?: number | null;
+      time_interval?: TimeUnitType | null;
+      /** Relative time window size, paired with time_interval */
+      time_value?: number | null;
+      /** Person performed (or didn't perform) an event in a time window. ClickHouse-only — not evaluable by flags or CDP */
+      type?: 'behavioral';
+      value: InlineBehavioralType;
+    }
+
+    export interface DashboardFilter {
+      breakdown_filter?: BreakdownFilter | null;
+      date_from?: string | null;
+      date_to?: string | null;
+      explicitDate?: boolean | null;
+      /** Tri-state test-account override. Null/absent = inherit; true = force on; false = force off. */
+      filterTestAccounts?: boolean | null;
+      /** Time granularity forced onto every insight that supports one. Absent/null = inherit. */
+      interval?: IntervalType | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter | BehavioralPropertyFilter)[] | null;
+    }
+
+    export type LimitContext = typeof LimitContext[keyof typeof LimitContext];
+
+
+    export const LimitContext = {
+      PosthogAi: 'posthog_ai',
+    } as const;
+
+    export type RefreshType = typeof RefreshType[keyof typeof RefreshType];
+
+
+    export const RefreshType = {
+      Async: 'async',
+      AsyncExceptOnCacheMiss: 'async_except_on_cache_miss',
+      Blocking: 'blocking',
+      ForceAsync: 'force_async',
+      ForceBlocking: 'force_blocking',
+      ForceCache: 'force_cache',
+      LazyAsync: 'lazy_async',
+    } as const;
+
+    export interface AccountsTableQueryRequest {
+      async?: boolean | null;
+      /** Accounts table query to run. */
+      query: AccountsTableQuery;
+      /** Client-provided query ID for checking status or canceling an asynchronous query. */
+      client_query_id?: string | null;
+      filters_override?: DashboardFilter | null;
+      /** Limit context for the query. Only 'posthog_ai' is allowed as a client-provided value. */
+      limit_context?: LimitContext | null;
+      /** Name given to a query. It's used to identify the query in the UI. Up to 128 characters for a name. */
+      name?: string | null;
+      /** Cache and execution behavior for the query. */
+      refresh?: RefreshType;
+      variables_override?: AccountsTableQueryRequestVariablesOverride;
+    }
+
     /**
      * * `user` - user
      * * `team` - team
@@ -2130,278 +2518,6 @@ export namespace Schemas {
     } as const;
 
     export type ActionsNodeResponse = { [key: string]: unknown } | null;
-
-    export interface EventPropertyFilter {
-      key: string;
-      label?: string | null;
-      operator?: PropertyOperator | null;
-      /** Event properties */
-      type?: 'event';
-      value?: (string | number | boolean)[] | string | number | boolean | null;
-    }
-
-    export interface PersonPropertyFilter {
-      key: string;
-      label?: string | null;
-      operator: PropertyOperator;
-      /** Person properties */
-      type?: 'person';
-      value?: (string | number | boolean)[] | string | number | boolean | null;
-    }
-
-    export interface PersonMetadataPropertyFilter {
-      key: string;
-      label?: string | null;
-      operator: PropertyOperator;
-      /** Top-level columns on the persons table (e.g. created_at), not properties JSON */
-      type?: 'person_metadata';
-      value?: (string | number | boolean)[] | string | number | boolean | null;
-    }
-
-    export type Key10 = typeof Key10[keyof typeof Key10];
-
-
-    export const Key10 = {
-      TagName: 'tag_name',
-      Text: 'text',
-      Href: 'href',
-      Selector: 'selector',
-    } as const;
-
-    export interface ElementPropertyFilter {
-      key: Key10;
-      label?: string | null;
-      operator: PropertyOperator;
-      type?: 'element';
-      value?: (string | number | boolean)[] | string | number | boolean | null;
-    }
-
-    export interface EventMetadataPropertyFilter {
-      key: string;
-      label?: string | null;
-      operator: PropertyOperator;
-      type?: 'event_metadata';
-      value?: (string | number | boolean)[] | string | number | boolean | null;
-    }
-
-    export interface SessionPropertyFilter {
-      key: string;
-      label?: string | null;
-      operator: PropertyOperator;
-      type?: 'session';
-      value?: (string | number | boolean)[] | string | number | boolean | null;
-    }
-
-    export interface CohortPropertyFilter {
-      cohort_name?: string | null;
-      key?: 'id';
-      label?: string | null;
-      operator?: PropertyOperator | null;
-      type?: 'cohort';
-      value: number;
-    }
-
-    export type DurationType = typeof DurationType[keyof typeof DurationType];
-
-
-    export const DurationType = {
-      Duration: 'duration',
-      ActiveSeconds: 'active_seconds',
-      InactiveSeconds: 'inactive_seconds',
-    } as const;
-
-    export interface RecordingPropertyFilter {
-      key: DurationType | string;
-      label?: string | null;
-      operator: PropertyOperator;
-      type?: 'recording';
-      value?: (string | number | boolean)[] | string | number | boolean | null;
-    }
-
-    export interface LogEntryPropertyFilter {
-      key: string;
-      label?: string | null;
-      operator: PropertyOperator;
-      type?: 'log_entry';
-      value?: (string | number | boolean)[] | string | number | boolean | null;
-    }
-
-    export type GroupPropertyFilterGroupKeyNames = {[key: string]: string} | null;
-
-    export interface GroupPropertyFilter {
-      group_key_names?: GroupPropertyFilterGroupKeyNames;
-      group_type_index?: number | null;
-      key: string;
-      label?: string | null;
-      operator: PropertyOperator;
-      type?: 'group';
-      value?: (string | number | boolean)[] | string | number | boolean | null;
-    }
-
-    export interface FeaturePropertyFilter {
-      key: string;
-      label?: string | null;
-      operator: PropertyOperator;
-      /** Event property with "$feature/" prepended */
-      type?: 'feature';
-      value?: (string | number | boolean)[] | string | number | boolean | null;
-    }
-
-    export interface FlagPropertyFilter {
-      /** The key should be the flag ID */
-      key: string;
-      label?: string | null;
-      /** Only flag_evaluates_to operator is allowed for flag dependencies */
-      operator?: 'flag_evaluates_to';
-      /** Feature flag dependency */
-      type?: 'flag';
-      /** The value can be true, false, or a variant name */
-      value: boolean | string;
-    }
-
-    export interface HogQLPropertyFilter {
-      key: string;
-      label?: string | null;
-      type?: 'hogql';
-      value?: (string | number | boolean)[] | string | number | boolean | null;
-    }
-
-    export const EmptyPropertyFilterValue = {
-      type: 'empty',
-    } as const;
-    export type EmptyPropertyFilter = typeof EmptyPropertyFilterValue;
-
-    export interface DataWarehousePropertyFilter {
-      key: string;
-      label?: string | null;
-      operator: PropertyOperator;
-      type?: 'data_warehouse';
-      value?: (string | number | boolean)[] | string | number | boolean | null;
-    }
-
-    export interface DataWarehousePersonPropertyFilter {
-      key: string;
-      label?: string | null;
-      operator: PropertyOperator;
-      type?: 'data_warehouse_person_property';
-      value?: (string | number | boolean)[] | string | number | boolean | null;
-    }
-
-    export interface ErrorTrackingIssueFilter {
-      key: string;
-      label?: string | null;
-      operator: PropertyOperator;
-      type?: 'error_tracking_issue';
-      value?: (string | number | boolean)[] | string | number | boolean | null;
-    }
-
-    export type LogPropertyFilterType = typeof LogPropertyFilterType[keyof typeof LogPropertyFilterType];
-
-
-    export const LogPropertyFilterType = {
-      Log: 'log',
-      LogAttribute: 'log_attribute',
-      LogResourceAttribute: 'log_resource_attribute',
-    } as const;
-
-    export interface LogPropertyFilter {
-      key: string;
-      label?: string | null;
-      operator: PropertyOperator;
-      type: LogPropertyFilterType;
-      value?: (string | number | boolean)[] | string | number | boolean | null;
-    }
-
-    export interface MetricPropertyFilter {
-      key: string;
-      label?: string | null;
-      operator: PropertyOperator;
-      type?: 'metric_attribute';
-      value?: (string | number | boolean)[] | string | number | boolean | null;
-    }
-
-    export type SpanPropertyFilterType = typeof SpanPropertyFilterType[keyof typeof SpanPropertyFilterType];
-
-
-    export const SpanPropertyFilterType = {
-      Span: 'span',
-      SpanAttribute: 'span_attribute',
-      SpanResourceAttribute: 'span_resource_attribute',
-    } as const;
-
-    export interface SpanPropertyFilter {
-      key: string;
-      label?: string | null;
-      operator: PropertyOperator;
-      type: SpanPropertyFilterType;
-      value?: (string | number | boolean)[] | string | number | boolean | null;
-    }
-
-    export interface RevenueAnalyticsPropertyFilter {
-      key: string;
-      label?: string | null;
-      operator: PropertyOperator;
-      type?: 'revenue_analytics';
-      value?: (string | number | boolean)[] | string | number | boolean | null;
-    }
-
-    export interface WorkflowVariablePropertyFilter {
-      key: string;
-      label?: string | null;
-      operator: PropertyOperator;
-      type?: 'workflow_variable';
-      value?: (string | number | boolean)[] | string | number | boolean | null;
-    }
-
-    export type BehavioralEventSource = typeof BehavioralEventSource[keyof typeof BehavioralEventSource];
-
-
-    export const BehavioralEventSource = {
-      Events: 'events',
-      Actions: 'actions',
-    } as const;
-
-    export type TimeUnitType = typeof TimeUnitType[keyof typeof TimeUnitType];
-
-
-    export const TimeUnitType = {
-      Day: 'day',
-      Week: 'week',
-      Month: 'month',
-      Year: 'year',
-    } as const;
-
-    export type InlineBehavioralType = typeof InlineBehavioralType[keyof typeof InlineBehavioralType];
-
-
-    export const InlineBehavioralType = {
-      PerformedEvent: 'performed_event',
-      PerformedEventMultiple: 'performed_event_multiple',
-    } as const;
-
-    export interface BehavioralPropertyFilter {
-      /** Extra property filters the matching events must satisfy. Deliberately excludes nested behavioral/cohort filters and groups */
-      event_filters?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | FeaturePropertyFilter | HogQLPropertyFilter)[] | null;
-      event_type: BehavioralEventSource;
-      /** Absolute or relative (e.g. -30d) lower date bound — alternative to time_value/time_interval */
-      explicit_datetime?: string | null;
-      explicit_datetime_to?: string | null;
-      /** Event name, or action id when event_type is 'actions' */
-      key: string;
-      label?: string | null;
-      /** Match persons who did NOT satisfy the criterion. Not the same as a low count — zero-occurrence persons never match count operators */
-      negation?: boolean | null;
-      /** Count comparison for performed_event_multiple, defaults to exact */
-      operator?: PropertyOperator | null;
-      /** Count threshold for performed_event_multiple */
-      operator_value?: number | null;
-      time_interval?: TimeUnitType | null;
-      /** Relative time window size, paired with time_interval */
-      time_value?: number | null;
-      /** Person performed (or didn't perform) an event in a time window. ClickHouse-only — not evaluable by flags or CDP */
-      type?: 'behavioral';
-      value: InlineBehavioralType;
-    }
 
     export type BaseMathType = typeof BaseMathType[keyof typeof BaseMathType];
 
@@ -3211,58 +3327,6 @@ export namespace Schemas {
       Previous: 'previous',
     } as const;
 
-    export type BreakdownType = typeof BreakdownType[keyof typeof BreakdownType];
-
-
-    export const BreakdownType = {
-      Cohort: 'cohort',
-      Person: 'person',
-      Event: 'event',
-      EventMetadata: 'event_metadata',
-      Group: 'group',
-      Session: 'session',
-      Hogql: 'hogql',
-      DataWarehouse: 'data_warehouse',
-      DataWarehousePersonProperty: 'data_warehouse_person_property',
-      RevenueAnalytics: 'revenue_analytics',
-    } as const;
-
-    export type MultipleBreakdownType = typeof MultipleBreakdownType[keyof typeof MultipleBreakdownType];
-
-
-    export const MultipleBreakdownType = {
-      Person: 'person',
-      Event: 'event',
-      EventMetadata: 'event_metadata',
-      Group: 'group',
-      Session: 'session',
-      Hogql: 'hogql',
-      Cohort: 'cohort',
-      RevenueAnalytics: 'revenue_analytics',
-      DataWarehouse: 'data_warehouse',
-      DataWarehousePersonProperty: 'data_warehouse_person_property',
-    } as const;
-
-    export interface Breakdown {
-      group_type_index?: number | null;
-      histogram_bin_count?: number | null;
-      normalize_url?: boolean | null;
-      property: string | number;
-      type?: MultipleBreakdownType | null;
-    }
-
-    export interface BreakdownFilter {
-      breakdown?: string | (string | number)[] | number | null;
-      breakdown_group_type_index?: number | null;
-      breakdown_hide_other_aggregation?: boolean | null;
-      breakdown_histogram_bin_count?: number | null;
-      breakdown_limit?: number | null;
-      breakdown_normalize_url?: boolean | null;
-      breakdown_path_cleaning?: boolean | null;
-      breakdown_type?: BreakdownType | null;
-      breakdowns?: Breakdown[] | null;
-    }
-
     export interface CalendarHeatmapFilter {
       /** When true and the series math is `dau`/`unique_users`, each user contributes to the (day-of-week, hour) bucket of their session's first event only — matching the web overview session-start attribution. When false (default), the user contributes to every bucket they have any event in. No effect on `total` math (event counts are unchanged either way). */
       bucketBySessionStart?: boolean | null;
@@ -3305,20 +3369,6 @@ export namespace Schemas {
       /** Whether the date_from and date_to should be used verbatim. Disables rounding to the start and end of period. */
       explicitDate?: boolean | null;
     }
-
-    export type IntervalType = typeof IntervalType[keyof typeof IntervalType];
-
-
-    export const IntervalType = {
-      Second: 'second',
-      Minute: 'minute',
-      Hour: 'hour',
-      Day: 'day',
-      Week: 'week',
-      Month: 'month',
-      Quarter: 'quarter',
-      Year: 'year',
-    } as const;
 
     export interface PropertyGroupFilter {
       type: FilterLogicalOperator;
@@ -8883,18 +8933,6 @@ export namespace Schemas {
       Number21: 21,
       Number37: 37,
     } as const;
-
-    export interface DashboardFilter {
-      breakdown_filter?: BreakdownFilter | null;
-      date_from?: string | null;
-      date_to?: string | null;
-      explicitDate?: boolean | null;
-      /** Tri-state test-account override. Null/absent = inherit; true = force on; false = force off. */
-      filterTestAccounts?: boolean | null;
-      /** Time granularity forced onto every insight that supports one. Absent/null = inherit. */
-      interval?: IntervalType | null;
-      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter | BehavioralPropertyFilter)[] | null;
-    }
 
     export interface TileFilters {
       breakdown_filter?: BreakdownFilter | null;
@@ -47700,13 +47738,6 @@ export namespace Schemas {
       Incompatible: 'incompatible',
     } as const;
 
-    export type LimitContext = typeof LimitContext[keyof typeof LimitContext];
-
-
-    export const LimitContext = {
-      PosthogAi: 'posthog_ai',
-    } as const;
-
     /**
      * * `burst` - burst
      * * `sustained` - sustained
@@ -71114,19 +71145,6 @@ export namespace Schemas {
       /** version of the node, used for schema migrations */
       version?: number | null;
     }
-
-    export type RefreshType = typeof RefreshType[keyof typeof RefreshType];
-
-
-    export const RefreshType = {
-      Async: 'async',
-      AsyncExceptOnCacheMiss: 'async_except_on_cache_miss',
-      Blocking: 'blocking',
-      ForceAsync: 'force_async',
-      ForceBlocking: 'force_blocking',
-      ForceCache: 'force_cache',
-      LazyAsync: 'lazy_async',
-    } as const;
 
     export interface QueryRequest {
       async?: boolean | null;

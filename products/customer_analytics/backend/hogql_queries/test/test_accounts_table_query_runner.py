@@ -1085,6 +1085,38 @@ class TestAccountsTableQueryAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
+    def test_accounts_table_query_endpoint_requires_account_scope_and_dispatches(self) -> None:
+        account = create_account(team_id=self.team.id, name="Acme")
+        endpoint = f"/api/projects/{self.team.id}/accounts_table_query/"
+        accounts_query = AccountsTableQuery(columns=[], filters=[]).model_dump()
+        payload = {"query": accounts_query, "refresh": "force_blocking"}
+
+        denied = self.client.post(
+            endpoint,
+            payload,
+            format="json",
+            headers={"authorization": f"Bearer {self._token(['query:read'])}"},
+        )
+        assert denied.status_code == status.HTTP_403_FORBIDDEN
+
+        allowed = self.client.post(
+            endpoint,
+            payload,
+            format="json",
+            headers={"authorization": f"Bearer {self._token(['account:read'])}"},
+        )
+        assert allowed.status_code == status.HTTP_200_OK, allowed.content
+        assert [row["id"] for row in allowed.json()["results"]] == [str(account.id)]
+
+    def test_accounts_table_query_endpoint_rejects_other_query_kinds(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/accounts_table_query/",
+            {"query": {"kind": "HogQLQuery", "query": "SELECT 1"}},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
     def test_query_endpoint_requires_account_scope_and_dispatches(self) -> None:
         account = create_account(team_id=self.team.id, name="Acme")
         endpoint = f"/api/projects/{self.team.id}/query/"
