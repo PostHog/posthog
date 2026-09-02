@@ -13,6 +13,12 @@ turns generated output into a diff. Objects are written one property per line, w
 formatters preserve regardless of width; arrays and unions are wrapped against the target
 width, because both formatters collapse those whenever they fit.
 
+Emitting that shape rather than shelling out to each formatter is a deliberate trade. It
+costs a small amount of formatter emulation here, and it buys a ``render()`` whose output
+is byte-exact, which is what lets the drift test compare the checked-in files against this
+module with no Node in the loop. ``check_fits`` is the guard on that bargain: a line the
+target formatter would rewrap fails the build instead of drifting silently.
+
 Only data is generated. The lookup built on it lives in
 ``products/desktop/packages/shared/src/model-catalog.ts`` and, for Python, in the source
 module itself — behavior stays hand-written and tested, while the table that actually
@@ -87,19 +93,21 @@ BIOME = Style(indent=" " * 2, quote='"', semi=";", width=80)
 
 def render(catalog: dict[str, Any], style: Style) -> str:
     i, semi = style.indent, style.semi
-    adapters: tuple[str, ...] = catalog["runtime_adapters"]()
+    adapters: tuple[str, ...] = catalog["RUNTIME_ADAPTERS"]
     providers: dict[str, str] = catalog["PROVIDER_BY_RUNTIME_ADAPTER"]
     defaults: dict[str, str] = catalog["DEFAULT_MODEL_BY_RUNTIME_ADAPTER"]
     fallbacks: dict[str, tuple[str, ...]] = catalog["FALLBACK_REASONING_EFFORTS_BY_RUNTIME_ADAPTER"]
-    efforts: tuple[str, ...] = tuple(catalog[name] for name in ("LOW", "MEDIUM", "HIGH", "XHIGH", "MAX", "ULTRACODE"))
+    families: tuple[tuple[str, str, tuple[str, ...]], ...] = catalog["FAMILY_REASONING_EFFORTS"]
+    models: tuple[Any, ...] = catalog["MODELS"]
+    efforts: tuple[str, ...] = catalog["REASONING_EFFORTS"]
 
-    models = "\n".join(
+    model_entries = "\n".join(
         f"{i}{{\n"
         f"{i}{i}id: {style.s(model.id)},\n"
         f"{i}{i}runtimeAdapter: {style.s(model.runtime_adapter)},\n"
         f"{style.array(model.reasoning_efforts, prefix='reasoningEfforts: ', suffix=',', depth=2)}\n"
         f"{i}}},"
-        for model in catalog["MODELS"]
+        for model in models
     )
     provider_entries = "\n".join(f"{i}{adapter}: {style.s(providers[adapter])}," for adapter in adapters)
     default_entries = "\n".join(f"{i}{adapter}: {style.s(defaults[adapter])}," for adapter in adapters)
@@ -114,7 +122,7 @@ def render(catalog: dict[str, Any], style: Style) -> str:
         f"{i}{i}prefix: {style.s(prefix)},\n"
         f"{style.array(family_efforts, prefix='reasoningEfforts: ', suffix=',', depth=2)}\n"
         f"{i}}},"
-        for adapter, prefix, family_efforts in catalog["FAMILY_REASONING_EFFORTS"]
+        for adapter, prefix, family_efforts in families
     )
 
     return f"""{HEADER}
@@ -147,7 +155,7 @@ export const PROVIDER_BY_RUNTIME_ADAPTER: ByRuntimeAdapter<string> = {{
 {style.array(adapters, prefix="export const RUNTIME_ADAPTERS: readonly RuntimeAdapter[] = ", suffix=semi, depth=0)}
 
 export const MODELS: readonly CatalogModel[] = [
-{models}
+{model_entries}
 ]{semi}
 
 /** The model a run uses when it pins none. */
