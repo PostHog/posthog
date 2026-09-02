@@ -54,7 +54,7 @@ from posthog.api.services.query import process_query_dict, process_query_model
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.api.sharing_publish_gate import blocked_access_for_user, is_publicly_shared
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
-from posthog.api.utils import action, format_paginated_url
+from posthog.api.utils import action, format_paginated_url, safe_order_by
 from posthog.auth import (
     PersonalAPIKeyAuthentication,
     SessionAuthentication,
@@ -1942,7 +1942,7 @@ class InsightViewSet(
         if order == "last_viewed_at":
             return queryset.order_by(F("last_viewed_at").asc(nulls_first=True))
 
-        return queryset.order_by(order)
+        return safe_order_by(queryset, order)
 
     @action(methods=["GET"], detail=False)
     def my_last_viewed(self, request: request.Request, *args, **kwargs) -> Response:

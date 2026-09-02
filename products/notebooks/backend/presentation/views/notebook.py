@@ -38,7 +38,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.sharing_publish_gate import blocked_access_in_notebook_edit, is_publicly_shared
 from posthog.api.streaming import sse_streaming_response
-from posthog.api.utils import action
+from posthog.api.utils import action, safe_order_by
 from posthog.auth import SessionAuthentication
 from posthog.constants import AvailableFeature
 from posthog.exceptions import Conflict
@@ -1116,7 +1116,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
 
         order = self.request.GET.get("order", None)
         if order:
-            queryset = queryset.order_by(order)
+            queryset = safe_order_by(queryset, order)
         else:
             queryset = queryset.order_by("-last_modified_at")
 

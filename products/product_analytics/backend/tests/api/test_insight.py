@@ -982,6 +982,10 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "explicit order=-id should override relevance ranking and put newer insight first"
         )
 
+    def test_list_bad_order_field_returns_400(self):
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/", {"order": "updated_at_desc"})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
     def test_list_filter_by_search_hides_similar_matches_when_exact_matches_exist(self):
         for name in ("dashboard overview", "sales dashboard", "dahsboard metrics", "Engineering metrics"):
             Insight.objects.create(name=name, team=self.team, filters={"events": [{"id": "$pageview"}]})

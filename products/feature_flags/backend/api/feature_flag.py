@@ -40,7 +40,7 @@ from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.services.flags_service import RETRYABLE_FLAGS_SERVICE_EXCEPTIONS, get_flags_from_service
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
-from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, ErrorResponseSerializer, action
+from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, ErrorResponseSerializer, action, safe_order_by
 from posthog.auth import (
     IDJagAccessTokenAuthentication,
     OAuthAccessTokenAuthentication,
@@ -3162,7 +3162,7 @@ class FeatureFlagViewSet(
 
         order = self.request.GET.get("order", None)
         if order:
-            queryset = queryset.order_by(order)
+            queryset = safe_order_by(queryset, order)
         else:
             queryset = queryset.order_by("-created_at")
 

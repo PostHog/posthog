@@ -10,7 +10,7 @@ from typing import Any, Optional, Union, cast
 from urllib.parse import urlparse
 from uuid import UUID
 
-from django.core.exceptions import RequestDataTooBig
+from django.core.exceptions import FieldError, RequestDataTooBig
 from django.db.models import QuerySet
 from django.http import HttpRequest
 
@@ -429,6 +429,25 @@ def parse_bool(value: Union[str, list[str]]) -> bool:
     if value == "true":
         return True
     return False
+
+
+def safe_order_by(queryset: QuerySet, order: str) -> QuerySet:
+    """Apply a client-supplied `order` to a queryset, turning a bad field into a 400.
+
+    Django raises `FieldError` when `order` is not a valid model field. Without this,
+    that error escapes as a 500. Here it becomes a `ValidationError` so the client
+    learns the value was wrong.
+    """
+    try:
+        ordered = queryset.order_by(order)
+        # order_by() validates only single-segment names eagerly. A bad suffix on a
+        # relation path (e.g. created_by__nonsense) raises FieldError only when the query
+        # compiles, which happens after this returns. Compile the ordering on a throwaway
+        # queryset now so that value also fails here as a 400, not later as a 500.
+        queryset.order_by(order).query.get_compiler(using=queryset.db).get_order_by()
+        return ordered
+    except FieldError:
+        raise ValidationError({"order": f"Invalid ordering field: '{order}'"})
 
 
 def raise_if_user_provided_url_unsafe(url: str):

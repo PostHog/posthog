@@ -124,6 +124,16 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         response = self.client.post(f"/api/projects/{self.team.id}/feature_flags/{flag_id}/dashboard")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
+    def test_list_bad_order_field_returns_400(self):
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags", {"order": "nonsense_field_xyz"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_list_bad_order_relation_suffix_returns_400(self):
+        # A bad suffix on a valid relation (created_by is a User FK; User has no `name`)
+        # is not caught eagerly by order_by(); without safe_order_by it would 500 at query time.
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags", {"order": "created_by__name"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
     def test_cant_create_flag_with_duplicate_key(self):
         FeatureFlag.objects.create(team=self.team, created_by=self.user, key="red_button")
         count = FeatureFlag.objects.count()
