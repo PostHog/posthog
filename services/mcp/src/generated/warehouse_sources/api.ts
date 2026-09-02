@@ -3,12 +3,18 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 26 enabled ops
+ * PostHog API - MCP 30 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
 
-export const ExternalDataSchemasListParams = /* @__PURE__ */ zod.object({
+/**
+ * Manage where warehouse sources write their synced rows.
+ *
+ * A destination can be attached to several sources, or to a single table on a source.
+ * Credentials come from an integration, so one connection can be reused across syncs.
+ */
+export const ExternalDataDestinationsListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -16,13 +22,41 @@ export const ExternalDataSchemasListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const ExternalDataSchemasListQueryParams = /* @__PURE__ */ zod.object({
+export const ExternalDataDestinationsListQueryParams = () => zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+})
+
+/**
+ * Manage where warehouse sources write their synced rows.
+ *
+ * A destination can be attached to several sources, or to a single table on a source.
+ * Credentials come from an integration, so one connection can be reused across syncs.
+ */
+export const ExternalDataDestinationsRetrieveParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this external data destination.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const ExternalDataSchemasListParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const ExternalDataSchemasListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     search: zod.string().optional().describe('A search term.'),
 })
 
-export const ExternalDataSchemasRetrieveParams = /* @__PURE__ */ zod.object({
+export const ExternalDataSchemasRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this external data schema.'),
     project_id: zod
         .string()
@@ -31,7 +65,7 @@ export const ExternalDataSchemasRetrieveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const ExternalDataSchemasPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const ExternalDataSchemasPartialUpdateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this external data schema.'),
     project_id: zod
         .string()
@@ -45,7 +79,7 @@ export const externalDataSchemasPartialUpdateBodyIncrementalFieldLookbackSeconds
 
 export const externalDataSchemasPartialUpdateBodyApiVersionMax = 128
 
-export const ExternalDataSchemasPartialUpdateBody = /* @__PURE__ */ zod
+export const ExternalDataSchemasPartialUpdateBody = () => zod
     .object({
         should_sync: zod.boolean().optional(),
         sync_type: zod
@@ -141,7 +175,7 @@ export const ExternalDataSchemasPartialUpdateBody = /* @__PURE__ */ zod
     })
     .describe('A schema of an external data source: its sync configuration and the warehouse table it syncs into.')
 
-export const ExternalDataSchemasCancelCreateParams = /* @__PURE__ */ zod.object({
+export const ExternalDataSchemasCancelCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this external data schema.'),
     project_id: zod
         .string()
@@ -150,7 +184,7 @@ export const ExternalDataSchemasCancelCreateParams = /* @__PURE__ */ zod.object(
         ),
 })
 
-export const ExternalDataSchemasDeleteDataDestroyParams = /* @__PURE__ */ zod.object({
+export const ExternalDataSchemasDeleteDataDestroyParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this external data schema.'),
     project_id: zod
         .string()
@@ -159,7 +193,21 @@ export const ExternalDataSchemasDeleteDataDestroyParams = /* @__PURE__ */ zod.ob
         ),
 })
 
-export const ExternalDataSchemasIncrementalFieldsCreateParams = /* @__PURE__ */ zod.object({
+/**
+ * Read or replace this table's destination override.
+ *
+ * Send `destination_ids: null` to clear the override so the table follows its source again.
+ */
+export const ExternalDataSchemasDestinationsRetrieveParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this external data schema.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const ExternalDataSchemasIncrementalFieldsCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this external data schema.'),
     project_id: zod
         .string()
@@ -173,7 +221,7 @@ export const externalDataSchemasIncrementalFieldsCreateBodyIncrementalFieldLookb
 
 export const externalDataSchemasIncrementalFieldsCreateBodyApiVersionMax = 128
 
-export const ExternalDataSchemasIncrementalFieldsCreateBody = /* @__PURE__ */ zod
+export const ExternalDataSchemasIncrementalFieldsCreateBody = () => zod
     .object({
         should_sync: zod.boolean().optional(),
         sync_type: zod
@@ -269,7 +317,7 @@ export const ExternalDataSchemasIncrementalFieldsCreateBody = /* @__PURE__ */ zo
     })
     .describe('A schema of an external data source: its sync configuration and the warehouse table it syncs into.')
 
-export const ExternalDataSchemasReloadCreateParams = /* @__PURE__ */ zod.object({
+export const ExternalDataSchemasReloadCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this external data schema.'),
     project_id: zod
         .string()
@@ -278,7 +326,7 @@ export const ExternalDataSchemasReloadCreateParams = /* @__PURE__ */ zod.object(
         ),
 })
 
-export const ExternalDataSchemasResyncCreateParams = /* @__PURE__ */ zod.object({
+export const ExternalDataSchemasResyncCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this external data schema.'),
     project_id: zod
         .string()
@@ -290,7 +338,7 @@ export const ExternalDataSchemasResyncCreateParams = /* @__PURE__ */ zod.object(
 /**
  * Create, Read, Update and Delete External data Sources.
  */
-export const ExternalDataSourcesListParams = /* @__PURE__ */ zod.object({
+export const ExternalDataSourcesListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -298,7 +346,7 @@ export const ExternalDataSourcesListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const ExternalDataSourcesListQueryParams = /* @__PURE__ */ zod.object({
+export const ExternalDataSourcesListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     search: zod.string().optional().describe('A search term.'),
@@ -307,7 +355,7 @@ export const ExternalDataSourcesListQueryParams = /* @__PURE__ */ zod.object({
 /**
  * Create, Read, Update and Delete External data Sources.
  */
-export const ExternalDataSourcesCreateParams = /* @__PURE__ */ zod.object({
+export const ExternalDataSourcesCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -322,7 +370,7 @@ export const externalDataSourcesCreateBodyDescriptionMax = 400
 export const externalDataSourcesCreateBodyAccessMethodDefault = `warehouse`
 export const externalDataSourcesCreateBodyDirectQueryEnabledDefault = false
 
-export const ExternalDataSourcesCreateBody = /* @__PURE__ */ zod.object({
+export const ExternalDataSourcesCreateBody = () => zod.object({
     source_type: zod
         .enum([
             'Ashby',
@@ -1687,12 +1735,18 @@ export const ExternalDataSourcesCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Whether a synced source should also be live-queryable via direct connection. Defaults to false; ignored for pure direct-query sources.'
         ),
+    destination_ids: zod
+        .array(zod.string())
+        .optional()
+        .describe(
+            'Destinations every table on this source writes to. Set here rather than afterwards, so the opening sync already carries them. Omit to write to the PostHog warehouse only.'
+        ),
 })
 
 /**
  * Create, Read, Update and Delete External data Sources.
  */
-export const ExternalDataSourcesRetrieveParams = /* @__PURE__ */ zod.object({
+export const ExternalDataSourcesRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this external data source.'),
     project_id: zod
         .string()
@@ -1704,7 +1758,7 @@ export const ExternalDataSourcesRetrieveParams = /* @__PURE__ */ zod.object({
 /**
  * Create, Read, Update and Delete External data Sources.
  */
-export const ExternalDataSourcesPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const ExternalDataSourcesPartialUpdateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this external data source.'),
     project_id: zod
         .string()
@@ -1721,7 +1775,7 @@ export const externalDataSourcesPartialUpdateBodyAutoSyncSchemaPatternsItemMax =
 
 export const externalDataSourcesPartialUpdateBodyAutoSyncSchemaPatternsMax = 100
 
-export const ExternalDataSourcesPartialUpdateBody = /* @__PURE__ */ zod
+export const ExternalDataSourcesPartialUpdateBody = () => zod
     .object({
         created_via: zod
             .union([
@@ -1771,7 +1825,7 @@ export const ExternalDataSourcesPartialUpdateBody = /* @__PURE__ */ zod
 /**
  * Create, Read, Update and Delete External data Sources.
  */
-export const ExternalDataSourcesDestroyParams = /* @__PURE__ */ zod.object({
+export const ExternalDataSourcesDestroyParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this external data source.'),
     project_id: zod
         .string()
@@ -1783,7 +1837,7 @@ export const ExternalDataSourcesDestroyParams = /* @__PURE__ */ zod.object({
 /**
  * Create, Read, Update and Delete External data Sources.
  */
-export const ExternalDataSourcesCreateWebhookCreateParams = /* @__PURE__ */ zod.object({
+export const ExternalDataSourcesCreateWebhookCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this external data source.'),
     project_id: zod
         .string()
@@ -1800,7 +1854,7 @@ export const externalDataSourcesCreateWebhookCreateBodyAutoSyncSchemaPatternsIte
 
 export const externalDataSourcesCreateWebhookCreateBodyAutoSyncSchemaPatternsMax = 100
 
-export const ExternalDataSourcesCreateWebhookCreateBody = /* @__PURE__ */ zod
+export const ExternalDataSourcesCreateWebhookCreateBody = () => zod
     .object({
         created_via: zod
             .union([
@@ -1850,7 +1904,7 @@ export const ExternalDataSourcesCreateWebhookCreateBody = /* @__PURE__ */ zod
 /**
  * Create, Read, Update and Delete External data Sources.
  */
-export const ExternalDataSourcesDeleteWebhookCreateParams = /* @__PURE__ */ zod.object({
+export const ExternalDataSourcesDeleteWebhookCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this external data source.'),
     project_id: zod
         .string()
@@ -1867,7 +1921,7 @@ export const externalDataSourcesDeleteWebhookCreateBodyAutoSyncSchemaPatternsIte
 
 export const externalDataSourcesDeleteWebhookCreateBodyAutoSyncSchemaPatternsMax = 100
 
-export const ExternalDataSourcesDeleteWebhookCreateBody = /* @__PURE__ */ zod
+export const ExternalDataSourcesDeleteWebhookCreateBody = () => zod
     .object({
         created_via: zod
             .union([
@@ -1915,9 +1969,23 @@ export const ExternalDataSourcesDeleteWebhookCreateBody = /* @__PURE__ */ zod
     .describe('Mixin for serializers to add user access control fields')
 
 /**
+ * Read or replace the destinations every table on this source syncs to.
+ *
+ * A table with its own override ignores this set until the override is cleared.
+ */
+export const ExternalDataSourcesDestinationsRetrieveParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this external data source.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
  * Fetch current schema/table list from the source and create any new ExternalDataSchema rows (no data sync).
  */
-export const ExternalDataSourcesRefreshSchemasCreateParams = /* @__PURE__ */ zod.object({
+export const ExternalDataSourcesRefreshSchemasCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this external data source.'),
     project_id: zod
         .string()
@@ -1930,7 +1998,7 @@ export const externalDataSourcesRefreshSchemasCreateBodyAutoSyncSchemaPatternsIt
 
 export const externalDataSourcesRefreshSchemasCreateBodyAutoSyncSchemaPatternsMax = 100
 
-export const ExternalDataSourcesRefreshSchemasCreateBody = /* @__PURE__ */ zod
+export const ExternalDataSourcesRefreshSchemasCreateBody = () => zod
     .object({
         created_via: zod
             .union([
@@ -1975,7 +2043,7 @@ export const ExternalDataSourcesRefreshSchemasCreateBody = /* @__PURE__ */ zod
 /**
  * Create, Read, Update and Delete External data Sources.
  */
-export const ExternalDataSourcesReloadCreateParams = /* @__PURE__ */ zod.object({
+export const ExternalDataSourcesReloadCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this external data source.'),
     project_id: zod
         .string()
@@ -1988,7 +2056,7 @@ export const externalDataSourcesReloadCreateBodyAutoSyncSchemaPatternsItemMax = 
 
 export const externalDataSourcesReloadCreateBodyAutoSyncSchemaPatternsMax = 100
 
-export const ExternalDataSourcesReloadCreateBody = /* @__PURE__ */ zod
+export const ExternalDataSourcesReloadCreateBody = () => zod
     .object({
         created_via: zod
             .union([
@@ -2042,7 +2110,7 @@ export const ExternalDataSourcesReloadCreateBody = /* @__PURE__ */ zod
  * Idempotent: safe to retry after a partial failure. Concurrent repairs of the same
  * source are rejected with a 409.
  */
-export const ExternalDataSourcesRepairCdcCreateParams = /* @__PURE__ */ zod.object({
+export const ExternalDataSourcesRepairCdcCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this external data source.'),
     project_id: zod
         .string()
@@ -2054,7 +2122,7 @@ export const ExternalDataSourcesRepairCdcCreateParams = /* @__PURE__ */ zod.obje
 /**
  * Create, Read, Update and Delete External data Sources.
  */
-export const ExternalDataSourcesUpdateWebhookInputsCreateParams = /* @__PURE__ */ zod.object({
+export const ExternalDataSourcesUpdateWebhookInputsCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this external data source.'),
     project_id: zod
         .string()
@@ -2071,7 +2139,7 @@ export const externalDataSourcesUpdateWebhookInputsCreateBodyAutoSyncSchemaPatte
 
 export const externalDataSourcesUpdateWebhookInputsCreateBodyAutoSyncSchemaPatternsMax = 100
 
-export const ExternalDataSourcesUpdateWebhookInputsCreateBody = /* @__PURE__ */ zod
+export const ExternalDataSourcesUpdateWebhookInputsCreateBody = () => zod
     .object({
         created_via: zod
             .union([
@@ -2121,7 +2189,7 @@ export const ExternalDataSourcesUpdateWebhookInputsCreateBody = /* @__PURE__ */ 
 /**
  * Create, Read, Update and Delete External data Sources.
  */
-export const ExternalDataSourcesWebhookInfoRetrieveParams = /* @__PURE__ */ zod.object({
+export const ExternalDataSourcesWebhookInfoRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this external data source.'),
     project_id: zod
         .string()
@@ -2136,7 +2204,7 @@ export const ExternalDataSourcesWebhookInfoRetrieveParams = /* @__PURE__ */ zod.
  * Used by the source wizard to surface ✅/❌ checks before source creation,
  * and by the self-managed setup popup to verify user-created publications.
  */
-export const ExternalDataSourcesCheckCdcPrerequisitesCreateParams = /* @__PURE__ */ zod.object({
+export const ExternalDataSourcesCheckCdcPrerequisitesCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -2152,7 +2220,7 @@ export const ExternalDataSourcesCheckCdcPrerequisitesCreateParams = /* @__PURE__
  * secrets never pass through the agent, and the agent finishes setup afterwards by passing the stored
  * credential id to data-warehouse-source-setup.
  */
-export const ExternalDataSourcesConnectLinkRetrieveParams = /* @__PURE__ */ zod.object({
+export const ExternalDataSourcesConnectLinkRetrieveParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -2160,7 +2228,7 @@ export const ExternalDataSourcesConnectLinkRetrieveParams = /* @__PURE__ */ zod.
         ),
 })
 
-export const ExternalDataSourcesConnectLinkRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const ExternalDataSourcesConnectLinkRetrieveQueryParams = () => zod.object({
     source_type: zod
         .string()
         .describe("The source type to generate a connect link for (e.g. 'Stripe', 'Postgres', 'Hubspot')."),
@@ -2169,7 +2237,7 @@ export const ExternalDataSourcesConnectLinkRetrieveQueryParams = /* @__PURE__ */
 /**
  * Create, Read, Update and Delete External data Sources.
  */
-export const ExternalDataSourcesConnectionsListParams = /* @__PURE__ */ zod.object({
+export const ExternalDataSourcesConnectionsListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -2188,7 +2256,7 @@ export const ExternalDataSourcesConnectionsListParams = /* @__PURE__ */ zod.obje
  * defaults stay in place. For fine-grained table/sync control, use the lower-level
  * `database_schema` + `create` flow instead.
  */
-export const ExternalDataSourcesSetupCreateParams = /* @__PURE__ */ zod.object({
+export const ExternalDataSourcesSetupCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -2202,7 +2270,7 @@ export const externalDataSourcesSetupCreateBodyDescriptionMax = 400
 
 export const externalDataSourcesSetupCreateBodyDirectQueryEnabledDefault = false
 
-export const ExternalDataSourcesSetupCreateBody = /* @__PURE__ */ zod.object({
+export const ExternalDataSourcesSetupCreateBody = () => zod.object({
     source_type: zod
         .enum([
             'Ashby',
@@ -3572,7 +3640,7 @@ export const ExternalDataSourcesSetupCreateBody = /* @__PURE__ */ zod.object({
  * they expire. Newest first, so after a user confirms they've finished the connect page, the
  * first entry for the source type is the one to pass to `setup`.
  */
-export const ExternalDataSourcesStoredCredentialsListParams = /* @__PURE__ */ zod.object({
+export const ExternalDataSourcesStoredCredentialsListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -3580,7 +3648,7 @@ export const ExternalDataSourcesStoredCredentialsListParams = /* @__PURE__ */ zo
         ),
 })
 
-export const ExternalDataSourcesStoredCredentialsListQueryParams = /* @__PURE__ */ zod.object({
+export const ExternalDataSourcesStoredCredentialsListQueryParams = () => zod.object({
     search: zod.string().optional().describe('A search term.'),
     source_type: zod
         .string()
@@ -3591,7 +3659,7 @@ export const ExternalDataSourcesStoredCredentialsListQueryParams = /* @__PURE__ 
 /**
  * Create, Read, Update and Delete External data Sources.
  */
-export const ExternalDataSourcesWizardRetrieveParams = /* @__PURE__ */ zod.object({
+export const ExternalDataSourcesWizardRetrieveParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -3599,7 +3667,7 @@ export const ExternalDataSourcesWizardRetrieveParams = /* @__PURE__ */ zod.objec
         ),
 })
 
-export const ExternalDataSourcesWizardRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const ExternalDataSourcesWizardRetrieveQueryParams = () => zod.object({
     source_type: zod
         .string()
         .optional()

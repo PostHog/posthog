@@ -2,23 +2,22 @@
 import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
-import {
-    MetricsCharacterizeCreateBody,
-    MetricsQueryCreateBody,
-    MetricsValuesRetrieveQueryParams,
-} from '@/generated/metrics/api'
+import * as orvalSchemas from '@/generated/metrics/api'
 import { pickResponseFields } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const CharacterizeMetricAnomalySchema = MetricsCharacterizeCreateBody
+const CharacterizeMetricAnomalySchema = () => {
+    const MetricsCharacterizeCreateBody = orvalSchemas.MetricsCharacterizeCreateBody()
+    return MetricsCharacterizeCreateBody
+}
 
 const characterizeMetricAnomaly = (): ToolBase<
-    typeof CharacterizeMetricAnomalySchema,
+    ReturnType<typeof CharacterizeMetricAnomalySchema>,
     Schemas._MetricAnomalyReport
 > => ({
     name: 'characterize-metric-anomaly',
-    schema: CharacterizeMetricAnomalySchema,
-    handler: async (context: Context, params: z.infer<typeof CharacterizeMetricAnomalySchema>) => {
+    schema: CharacterizeMetricAnomalySchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof CharacterizeMetricAnomalySchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.query !== undefined) {
@@ -33,12 +32,15 @@ const characterizeMetricAnomaly = (): ToolBase<
     },
 })
 
-const MetricNamesListSchema = MetricsValuesRetrieveQueryParams
+const MetricNamesListSchema = () => {
+    const MetricsValuesRetrieveQueryParams = orvalSchemas.MetricsValuesRetrieveQueryParams()
+    return MetricsValuesRetrieveQueryParams
+}
 
-const metricNamesList = (): ToolBase<typeof MetricNamesListSchema, Schemas._MetricNamesResponse> => ({
+const metricNamesList = (): ToolBase<ReturnType<typeof MetricNamesListSchema>, Schemas._MetricNamesResponse> => ({
     name: 'metric-names-list',
-    schema: MetricNamesListSchema,
-    handler: async (context: Context, params: z.infer<typeof MetricNamesListSchema>) => {
+    schema: MetricNamesListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof MetricNamesListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas._MetricNamesResponse>({
             method: 'GET',
@@ -54,12 +56,15 @@ const metricNamesList = (): ToolBase<typeof MetricNamesListSchema, Schemas._Metr
     },
 })
 
-const QueryMetricsSchema = MetricsQueryCreateBody
+const QueryMetricsSchema = () => {
+    const MetricsQueryCreateBody = orvalSchemas.MetricsQueryCreateBody()
+    return MetricsQueryCreateBody
+}
 
-const queryMetrics = (): ToolBase<typeof QueryMetricsSchema, Schemas._MetricQueryResponse> => ({
+const queryMetrics = (): ToolBase<ReturnType<typeof QueryMetricsSchema>, Schemas._MetricQueryResponse> => ({
     name: 'query-metrics',
-    schema: QueryMetricsSchema,
-    handler: async (context: Context, params: z.infer<typeof QueryMetricsSchema>) => {
+    schema: QueryMetricsSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof QueryMetricsSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.query !== undefined) {
