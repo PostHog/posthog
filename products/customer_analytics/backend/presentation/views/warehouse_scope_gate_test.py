@@ -4,7 +4,7 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from products.customer_analytics.backend.presentation.views.views import _WarehouseScopeGatedAccessControl
+from products.customer_analytics.backend.presentation.views.views import _ScopeGatedAccessControl
 
 
 class _Meta:
@@ -17,11 +17,11 @@ class _FakeModel:
         self._meta = _Meta(model_name)
 
 
-class TestWarehouseScopeGatedAccessControl(SimpleTestCase):
-    def _gate(self, scopes: list[str]) -> tuple[_WarehouseScopeGatedAccessControl, MagicMock]:
+class TestScopeGatedAccessControl(SimpleTestCase):
+    def _gate(self, scopes: list[str]) -> tuple[_ScopeGatedAccessControl, MagicMock]:
         inner = MagicMock()
         inner.check_access_level_for_object.return_value = True
-        return _WarehouseScopeGatedAccessControl(inner, scopes), inner
+        return _ScopeGatedAccessControl(inner, scopes), inner
 
     @parameterized.expand(
         [
