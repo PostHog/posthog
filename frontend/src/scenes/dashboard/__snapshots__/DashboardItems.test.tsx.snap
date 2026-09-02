@@ -3,6 +3,7 @@
 exports[`DashboardItems matches snapshot in edit mode with layout zoom enabled 1`] = `
 <div
   class="dashboard-items-wrapper"
+  data-attr="dashboard-image-capture"
 >
   <div
     class="relative"

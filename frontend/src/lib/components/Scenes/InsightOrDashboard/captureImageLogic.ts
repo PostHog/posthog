@@ -50,7 +50,12 @@ function toFile(target: CaptureImageTarget, blob: Blob): File {
     return new File([blob], `${name || 'export'}.png`, { type: 'image/png' })
 }
 
-function editImageButton(target: CaptureImageTarget, blob: Blob): ToastButton {
+function editImageButton(target: CaptureImageTarget, blob: Blob): ToastButton | undefined {
+    // Only offer the edit action where a screenshot editor is mounted for this key. Dashboard surfaces
+    // capture images without one, so their toast just confirms the copy or download.
+    if (!takeScreenshotLogic.findMounted({ screenshotKey: target.screenshotKey })) {
+        return undefined
+    }
     return {
         label: 'Edit image',
         action: () => openScreenshotEditor(target.screenshotKey, blob),

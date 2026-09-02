@@ -11,6 +11,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { DashboardMode, DashboardPlacement } from '~/types'
 
+import { DASHBOARD_CONTENT_DATA_ATTR } from './dashboardImageCapture'
 import { DashboardItems } from './DashboardItems'
 
 jest.mock('kea', () => ({
@@ -282,6 +283,13 @@ describe('DashboardItems', () => {
     it('matches snapshot in edit mode with layout zoom enabled', () => {
         const { container } = render(<DashboardItems />)
         expect(container.firstChild).toMatchSnapshot()
+    })
+
+    it('marks the grid wrapper with the capture anchor the browser PNG export targets', () => {
+        // The dashboard PNG capture resolves the grid through this data-attr, so losing it breaks the
+        // export silently. A named assertion survives a snapshot --updateSnapshot run.
+        const { container } = render(<DashboardItems />)
+        expect(container.firstChild).toHaveAttribute('data-attr', DASHBOARD_CONTENT_DATA_ATTR)
     })
 
     it.each([

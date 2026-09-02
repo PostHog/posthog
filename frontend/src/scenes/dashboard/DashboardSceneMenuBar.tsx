@@ -7,6 +7,7 @@ import {
     IconCopy,
     IconDownload,
     IconGraph,
+    IconImage,
     IconNotebook,
     IconPalette,
     IconPulse,
@@ -18,6 +19,7 @@ import { Button } from '@posthog/quill'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { metalyticsLogic } from 'lib/components/Metalytics/metalyticsLogic'
+import { captureImageLogic } from 'lib/components/Scenes/InsightOrDashboard/captureImageLogic'
 import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
 import { SceneTagsCombobox } from 'lib/components/Scenes/SceneTagsCombobox'
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
@@ -50,6 +52,7 @@ import { AccessControlLevel, AccessControlResourceType, DashboardMode, ExporterF
 
 import { urlForSubscriptions } from 'products/subscriptions/frontend/components/Subscriptions/utils'
 
+import { DASHBOARD_CONTENT_SELECTOR, DASHBOARD_SCREENSHOT_KEY } from './dashboardImageCapture'
 import { dashboardInsightColorsModalLogic } from './dashboardInsightColorsModalLogic'
 import { dashboardLogic } from './dashboardLogic'
 import { dashboardTemplateModalLogic } from './dashboards/templates/dashboardTemplateModalLogic'
@@ -76,10 +79,13 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
         effectiveEditBarFilters,
         effectiveDashboardVariableOverrides,
         tiles,
-        apiUrl,
+        itemsLoading,
+        dashboardFailedToLoad,
     } = useValues(dashboardLogic)
     const { setDashboardMode, updateDashboardTags, togglePinned, setTerraformModalOpen } = useActions(dashboardLogic)
     const { startExport } = useActions(exportsLogic)
+    const { copyImage, downloadImage } = useActions(captureImageLogic)
+    const { isCapturing: isCapturingImage } = useValues(captureImageLogic)
     const { createNotebookFromDashboard } = useActions(notebooksModel)
     const { showInsightColorsModal } = useActions(dashboardInsightColorsModalLogic)
     const { setScenePanelOpen } = useActions(sceneLayoutLogic)
@@ -102,11 +108,20 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
     }
 
     const canShowDelete = canEditDashboard
-    // Creating an export requires editor access to the export resource.
-    const exportAccessControlDisabledReason = getAccessControlDisabledReason(
-        AccessControlResourceType.Export,
-        AccessControlLevel.Editor
-    )
+    const captureTarget = {
+        selector: DASHBOARD_CONTENT_SELECTOR,
+        screenshotKey: DASHBOARD_SCREENSHOT_KEY,
+        name: dashboard?.name || undefined,
+    }
+    // A browser capture takes whatever is on screen, so only offer it once the dashboard has finished
+    // loading and has tiles to render — otherwise it rasterizes spinners or empty cards.
+    const captureDisabledReason = itemsLoading
+        ? 'Wait for the dashboard to finish loading'
+        : dashboardFailedToLoad
+          ? 'The dashboard failed to load'
+          : tiles.length === 0
+            ? 'The dashboard has no tiles to capture'
+            : undefined
     const customerTemplateEditorAccess = userHasAccess(AccessControlResourceType.Dashboard, AccessControlLevel.Editor)
     const customerTemplateDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.Dashboard,
@@ -172,6 +187,15 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
                         </SceneMenuBarItem>
                     )}
                     <SceneMenuBarItem
+                        onClick={() => copyImage(captureTarget)}
+                        disabled={isCapturingImage || !!captureDisabledReason}
+                        tooltip={captureDisabledReason}
+                        data-attr={`${RESOURCE_TYPE}-menubar-copy-image`}
+                    >
+                        <IconImage />
+                        Copy as PNG
+                    </SceneMenuBarItem>
+                    <SceneMenuBarItem
                         opensFloatingUi
                         onClick={() => setTerraformModalOpen(true)}
                         data-attr={`${RESOURCE_TYPE}-menubar-terraform`}
@@ -205,18 +229,9 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
                     {canEditDashboard && (
                         <SceneMenuBarSubMenu label="Export">
                             <SceneMenuBarItem
-                                disabled={!!exportAccessControlDisabledReason}
-                                tooltip={exportAccessControlDisabledReason ?? undefined}
-                                onClick={() =>
-                                    startExport({
-                                        export_format: ExporterFormat.PNG,
-                                        dashboard: dashboard.id,
-                                        export_context: {
-                                            path: apiUrl(),
-                                            variables_override: effectiveDashboardVariableOverrides,
-                                        },
-                                    })
-                                }
+                                disabled={isCapturingImage || !!captureDisabledReason}
+                                tooltip={captureDisabledReason}
+                                onClick={() => downloadImage(captureTarget)}
                                 data-attr={`${RESOURCE_TYPE}-menubar-export-png`}
                             >
                                 <IconDownload />

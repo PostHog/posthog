@@ -4,6 +4,8 @@ import { router } from 'kea-router'
 import { IconCode2, IconCopy, IconNotebook, IconPalette, IconTrash } from '@posthog/icons'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { captureImageLogic } from 'lib/components/Scenes/InsightOrDashboard/captureImageLogic'
+import { SceneCopyImageButton } from 'lib/components/Scenes/InsightOrDashboard/SceneCopyImageButton'
 import { SceneExportDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneExportDropdownMenu'
 import { SceneDuplicate } from 'lib/components/Scenes/SceneDuplicate'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
@@ -33,6 +35,7 @@ import { notebooksModel } from '~/models/notebooksModel'
 import { tagsModel } from '~/models/tagsModel'
 import { AccessControlLevel, AccessControlResourceType, DashboardMode, ExporterFormat } from '~/types'
 
+import { DASHBOARD_CONTENT_SELECTOR, DASHBOARD_SCREENSHOT_KEY } from './dashboardImageCapture'
 import { dashboardInsightColorsModalLogic } from './dashboardInsightColorsModalLogic'
 import { dashboardLogic } from './dashboardLogic'
 import { DashboardTemplateModal } from './dashboards/templates/DashboardTemplateModal'
@@ -51,8 +54,12 @@ export function DashboardScenePanel(): JSX.Element | null {
         effectiveDashboardVariableOverrides,
         apiUrl,
         tiles,
+        itemsLoading,
+        dashboardFailedToLoad,
     } = useValues(dashboardLogic)
     const { setDashboardMode, updateDashboardTags, togglePinned, setTerraformModalOpen } = useActions(dashboardLogic)
+    const { downloadImage } = useActions(captureImageLogic)
+    const { isCapturing } = useValues(captureImageLogic)
     const { createNotebookFromDashboard } = useActions(notebooksModel)
     const { showInsightColorsModal } = useActions(dashboardInsightColorsModalLogic)
     const { showDuplicateDashboardModal } = useActions(duplicateDashboardLogic)
@@ -64,6 +71,21 @@ export function DashboardScenePanel(): JSX.Element | null {
     const hasDashboardColors = useFeatureFlag('PRODUCT_ANALYTICS_DASHBOARD_COLORS')
 
     const { push } = useActions(router)
+
+    const captureTarget = {
+        selector: DASHBOARD_CONTENT_SELECTOR,
+        screenshotKey: DASHBOARD_SCREENSHOT_KEY,
+        name: dashboard?.name || undefined,
+    }
+    // A browser capture takes whatever is on screen, so only offer it once the dashboard has finished
+    // loading and has tiles to render — otherwise it rasterizes spinners or empty cards.
+    const captureDisabledReasons = {
+        'Wait for the dashboard to finish loading': itemsLoading,
+        'The dashboard failed to load': dashboardFailedToLoad,
+        'The dashboard has no tiles to capture': !itemsLoading && !dashboardFailedToLoad && tiles.length === 0,
+        // Match SceneCopyImageButton so the Export item also blocks a second capture while one is running.
+        'Copying…': isCapturing,
+    }
 
     return (
         <ScenePanel>
@@ -111,6 +133,11 @@ export function DashboardScenePanel(): JSX.Element | null {
                             }}
                             isFullscreen={dashboardMode === DashboardMode.Fullscreen}
                         />
+                        <SceneCopyImageButton
+                            target={captureTarget}
+                            dataAttrKey={RESOURCE_TYPE}
+                            disabledReasons={captureDisabledReasons}
+                        />
                     </>
                 )}
 
@@ -147,6 +174,8 @@ export function DashboardScenePanel(): JSX.Element | null {
                                         variables_override: effectiveDashboardVariableOverrides,
                                     },
                                     dataAttr: `${RESOURCE_TYPE}-export-png`,
+                                    onClick: () => downloadImage(captureTarget),
+                                    disabledReasons: captureDisabledReasons,
                                 },
                                 ...(user?.is_staff
                                     ? [

@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 
-import { IconInfo, IconPulse, IconThumbsDown, IconThumbsUp, IconWarning } from '@posthog/icons'
+import { IconImage, IconInfo, IconPulse, IconThumbsDown, IconThumbsUp, IconWarning } from '@posthog/icons'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { CardMeta } from 'lib/components/Cards/CardMeta'
@@ -12,6 +12,7 @@ import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+import { captureImageLogic } from 'lib/components/Scenes/InsightOrDashboard/captureImageLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { IconLink } from 'lib/lemon-ui/icons'
@@ -34,6 +35,7 @@ import { getEffectiveDateOverride } from 'scenes/dashboard/dashboardUtils'
 import { dataRetentionBannerLogic } from 'scenes/insights/dataRetention/dataRetentionBannerLogic'
 import { exceedsRetention } from 'scenes/insights/dataRetention/exceedsRetention'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { INSIGHT_GRAPH_SELECTOR } from 'scenes/insights/insightImageCapture'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
@@ -47,7 +49,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { useInsightDisplayOptions } from '~/queries/nodes/InsightViz/insightDisplayOptions'
 import { Node, ProductKey } from '~/queries/schema/schema-general'
-import { isDataVisualizationNode } from '~/queries/utils'
+import { isDataVisualizationNode, isInsightVizNode } from '~/queries/utils'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -109,6 +111,8 @@ interface InsightMetaProps extends Pick<
     onCreateAlert?: () => void
     onEditAlert?: (alertId: AlertType['id']) => void
     onCreateAnomalyAlert?: () => void
+    /** The card shows a blocking empty/error state instead of the chart, so there is nothing to capture. */
+    hasBlockingEmptyState?: boolean
 }
 
 export function InsightMeta({
@@ -143,6 +147,7 @@ export function InsightMeta({
     onCreateAlert,
     onEditAlert,
     onCreateAnomalyAlert,
+    hasBlockingEmptyState,
 }: InsightMetaProps): JSX.Element {
     const { short_id, name, next_allowed_client_refresh: nextAllowedClientRefresh } = insight
     const tileFiltersOverride = tile?.filters_overrides
@@ -158,6 +163,8 @@ export function InsightMeta({
     const { insightFeedback } = useValues(insightLogic(insightLogicProps))
     const { setInsightFeedback } = useActions(insightLogic(insightLogicProps))
     const { exportContext, insightData, query } = useValues(insightDataLogic(insightLogicProps))
+    const { copyImage, downloadImage } = useActions(captureImageLogic)
+    const { isCapturing } = useValues(captureImageLogic)
     const [isManageAlertsModalOpen, setIsManageAlertsModalOpen] = useState(false)
     const { loadAlerts: loadDeferredInsightAlerts } = useActions(
         insightAlertsLogic({
@@ -190,6 +197,24 @@ export function InsightMeta({
         placement === DashboardPlacement.Public ||
         placement === DashboardPlacement.Builtin
     const isSqlInsight = isDataVisualizationNode(insight.query)
+    // Only a chart tile renders the results card the browser-side capture targets. Anything else still
+    // goes through the server-side PNG render.
+    const canCaptureImage = isInsightVizNode(query)
+    const captureTarget = {
+        selector: `[data-insight-short-id="${short_id}"] ${INSIGHT_GRAPH_SELECTOR}`,
+        screenshotKey: 'insight-tile',
+        name: name || insight.derived_name || undefined,
+    }
+    // The capture anchor lives inside the results card; a blocking empty/error state renders instead of it,
+    // so a browser capture would dead-end on a missing target. Disable it and say why.
+    const captureDisabledReason =
+        loading || loadingQueued
+            ? 'Wait for the tile to finish loading'
+            : hasBlockingEmptyState
+              ? 'The insight has no results to capture'
+              : isCapturing
+                ? 'Copying…'
+                : undefined
     const showCompactHeading = !showCompactTile || !isSqlInsight
 
     const ignoresDashboardFilters = !!tileFiltersOverride?.ignoreDashboardFilters
@@ -605,29 +630,42 @@ export function InsightMeta({
                         )}
 
                         {/* Data related */}
+                        {(canCaptureImage || exportContext) && <LemonDivider />}
+                        {canCaptureImage && (
+                            <LemonButton
+                                fullWidth
+                                icon={<IconImage />}
+                                onClick={() => copyImage(captureTarget)}
+                                disabledReason={captureDisabledReason}
+                                data-attr="insight-card-copy-image"
+                            >
+                                Copy as PNG
+                            </LemonButton>
+                        )}
                         {exportContext ? (
-                            <>
-                                <LemonDivider />
-                                <ExportButton
-                                    fullWidth
-                                    items={[
-                                        {
-                                            export_format: ExporterFormat.PNG,
-                                            insight: insight.id,
-                                            dashboard: insightLogicProps.dashboardId,
-                                            export_context: exportContext,
-                                        },
-                                        {
-                                            export_format: ExporterFormat.CSV,
-                                            export_context: exportContext,
-                                        },
-                                        {
-                                            export_format: ExporterFormat.XLSX,
-                                            export_context: exportContext,
-                                        },
-                                    ]}
-                                />
-                            </>
+                            <ExportButton
+                                fullWidth
+                                items={[
+                                    {
+                                        export_format: ExporterFormat.PNG,
+                                        insight: insight.id,
+                                        dashboard: insightLogicProps.dashboardId,
+                                        export_context: exportContext,
+                                        ...(canCaptureImage && {
+                                            onClick: () => downloadImage(captureTarget),
+                                            disabledReason: captureDisabledReason,
+                                        }),
+                                    },
+                                    {
+                                        export_format: ExporterFormat.CSV,
+                                        export_context: exportContext,
+                                    },
+                                    {
+                                        export_format: ExporterFormat.XLSX,
+                                        export_context: exportContext,
+                                    },
+                                ]}
+                            />
                         ) : null}
                         {refresh && (
                             <DashboardTileRefreshDataButton
