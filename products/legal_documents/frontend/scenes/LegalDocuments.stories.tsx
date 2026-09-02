@@ -35,6 +35,18 @@ const LEGAL_DOCUMENT_LIST = [
     },
 ]
 
+const listDecorator = (results: Record<string, any>[]): ReturnType<typeof mswDecorator> =>
+    mswDecorator({
+        get: {
+            '/api/organizations/:org_id/legal_documents': {
+                count: results.length,
+                results,
+                next: null,
+                previous: null,
+            },
+        },
+    })
+
 /**
  * Mounts the legal documents scene(s) against a mocked API. A single shared
  * decorator is enough because the list endpoint is the only API call the
@@ -95,6 +107,7 @@ export const NewBAA: Story = {
                 },
             },
         }),
+        listDecorator([]),
     ],
 }
 
@@ -128,6 +141,7 @@ export const NewBAATrial: Story = {
                 },
             },
         }),
+        listDecorator([]),
     ],
 }
 
@@ -161,6 +175,7 @@ export const NewBAAEnterpriseTrial: Story = {
                 },
             },
         }),
+        listDecorator([]),
     ],
 }
 
@@ -172,6 +187,52 @@ export const NewDPAPretty: Story = {
     parameters: {
         pageUrl: urls.legalDocumentNew('DPA'),
     },
+    decorators: [listDecorator([])],
+}
+
+/**
+ * Submitting the DPA form with every field empty. The button is only disabled
+ * for policy blocks, so the submit goes through, fails validation, and each
+ * required field shows its own error.
+ */
+export const NewDPAValidationErrors: Story = {
+    parameters: {
+        pageUrl: urls.legalDocumentNew('DPA'),
+    },
+    decorators: [listDecorator([])],
+    play: async ({ canvasElement }) => {
+        const submit = await waitFor(
+            () => {
+                const button = canvasElement.querySelector<HTMLButtonElement>('[data-attr="legal-documents-submit"]')
+                if (!button) {
+                    throw new Error('Submit button not yet rendered')
+                }
+                return button
+            },
+            { timeout: 3000 }
+        )
+        await userEvent.click(submit)
+    },
+}
+
+/**
+ * New-document page for a DPA when the organization already signed one. The
+ * banner explains that support replaces signed documents, so the page no
+ * longer dead-ends on a disabled button.
+ */
+export const NewDPAAlreadySigned: Story = {
+    parameters: {
+        pageUrl: urls.legalDocumentNew('DPA'),
+    },
+    decorators: [
+        listDecorator([
+            {
+                ...LEGAL_DOCUMENT_LIST[1],
+                status: 'signed',
+                signed_pdf_stored: true,
+            },
+        ]),
+    ],
 }
 
 /**
@@ -181,6 +242,7 @@ export const NewDPALawyer: Story = {
     parameters: {
         pageUrl: urls.legalDocumentNew('DPA'),
     },
+    decorators: [listDecorator([])],
     play: async ({ canvasElement }) => {
         await selectDpaMode(canvasElement, 'lawyer')
     },
@@ -194,6 +256,7 @@ export const NewDPAFairytale: Story = {
     parameters: {
         pageUrl: urls.legalDocumentNew('DPA'),
     },
+    decorators: [listDecorator([])],
     play: async ({ canvasElement }) => {
         await selectDpaMode(canvasElement, 'fairytale')
     },
@@ -206,6 +269,7 @@ export const NewDPATSwift: Story = {
     parameters: {
         pageUrl: urls.legalDocumentNew('DPA'),
     },
+    decorators: [listDecorator([])],
     play: async ({ canvasElement }) => {
         await selectDpaMode(canvasElement, 'tswift')
     },

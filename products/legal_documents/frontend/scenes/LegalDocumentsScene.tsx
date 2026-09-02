@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconBalance, IconDownload, IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDialog, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 
+import { supportLogic } from 'lib/components/Support/supportLogic'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -15,13 +16,10 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { getLegalDocumentsDownloadRetrieveUrl } from '../generated/api'
+import { alreadyExistsReason, replaceDocumentSupportForm } from './legalDocumentsConstants'
 import { LegalDocument, LegalDocumentType, legalDocumentsLogic } from './legalDocumentsLogic'
 
-function buildNewMenuItems(existingTypes: Set<LegalDocumentType>): LemonMenuItems {
-    const alreadyExistsReason = (type: LegalDocumentType): string | undefined =>
-        existingTypes.has(type)
-            ? `Your organization already has a ${type}. Contact support if you need a new one.`
-            : undefined
+function buildNewMenuItems(existingDocumentsByType: Partial<Record<LegalDocumentType, LegalDocument>>): LemonMenuItems {
     return [
         {
             title: 'Document types',
@@ -36,7 +34,7 @@ function buildNewMenuItems(existingTypes: Set<LegalDocumentType>): LemonMenuItem
                         </div>
                     ),
                     to: urls.legalDocumentNew('DPA'),
-                    disabledReason: alreadyExistsReason('DPA'),
+                    disabledReason: alreadyExistsReason(existingDocumentsByType.DPA),
                     'data-attr': 'new-legal-document-menu-dpa',
                 },
                 {
@@ -49,7 +47,7 @@ function buildNewMenuItems(existingTypes: Set<LegalDocumentType>): LemonMenuItem
                         </div>
                     ),
                     to: urls.legalDocumentNew('BAA'),
-                    disabledReason: alreadyExistsReason('BAA'),
+                    disabledReason: alreadyExistsReason(existingDocumentsByType.BAA),
                     'data-attr': 'new-legal-document-menu-baa',
                 },
                 {
@@ -75,8 +73,10 @@ export const scene: SceneExport = {
 }
 
 export function LegalDocumentsScene(): JSX.Element {
-    const { legalDocuments, legalDocumentsLoading, existingDocumentTypes, deletingId } = useValues(legalDocumentsLogic)
+    const { legalDocuments, legalDocumentsLoading, existingDocumentsByType, deletingId } =
+        useValues(legalDocumentsLogic)
     const { deleteLegalDocument } = useActions(legalDocumentsLogic)
+    const { openSupportForm } = useActions(supportLogic)
     const { isAdminOrOwner, currentOrganizationId } = useValues(organizationLogic)
     const { isCloudOrDev } = useValues(preflightLogic)
 
@@ -120,7 +120,7 @@ export function LegalDocumentsScene(): JSX.Element {
                 description={sceneConfigurations[Scene.LegalDocuments].description}
                 resourceType={{ type: 'default_icon_type', forceIcon: <IconBalance /> }}
                 actions={
-                    <LemonMenu items={buildNewMenuItems(existingDocumentTypes)} placement="bottom-end">
+                    <LemonMenu items={buildNewMenuItems(existingDocumentsByType)} placement="bottom-end">
                         <LemonButton
                             type="primary"
                             icon={<IconPlusSmall />}
@@ -195,9 +195,19 @@ export function LegalDocumentsScene(): JSX.Element {
                     },
                     {
                         title: '',
-                        width: 48,
+                        width: 150,
                         render: (_: any, row: LegalDocument) =>
-                            row.status === 'submitted_for_signature' ? (
+                            row.status === 'signed' ? (
+                                <LemonButton
+                                    size="small"
+                                    type="tertiary"
+                                    data-attr={`legal-document-support-${row.id}`}
+                                    tooltip={`Signed documents stay on your organization's record. Support can replace this ${row.document_type} if your company or signer changed.`}
+                                    onClick={() => openSupportForm(replaceDocumentSupportForm(row))}
+                                >
+                                    Contact support
+                                </LemonButton>
+                            ) : (
                                 <LemonButton
                                     icon={<IconTrash />}
                                     status="danger"
@@ -231,7 +241,7 @@ export function LegalDocumentsScene(): JSX.Element {
                                         })
                                     }
                                 />
-                            ) : null,
+                            ),
                     },
                 ]}
             />

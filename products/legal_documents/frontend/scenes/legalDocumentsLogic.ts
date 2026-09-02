@@ -66,8 +66,7 @@ export interface legalDocumentsLogicValues {
     currentOrganizationId: string // organizationLogic
     isAdminOrOwner: boolean | null // organizationLogic
     deletingId: string | null
-    existingDocumentOfCurrentType: LegalDocument | null
-    existingDocumentTypes: Set<LegalDocumentType>
+    existingDocumentsByType: Partial<Record<LegalDocumentType, LegalDocument>>
     hasQualifyingBaaAddon: boolean
     isDpaModeSubmittable: boolean
     isLegalDocumentSubmitting: boolean
@@ -172,11 +171,7 @@ export interface legalDocumentsLogicMeta {
         isOnQualifyingAddonTrial: (billing: BillingType | null) => boolean
         isOnEnterpriseStandardTrial: (billing: BillingType | null) => boolean
         isDpaModeSubmittable: (legalDocument: LegalDocumentFormValues) => boolean
-        existingDocumentTypes: (legalDocuments: LegalDocument[]) => Set<LegalDocumentType>
-        existingDocumentOfCurrentType: (
-            legalDocument: LegalDocumentFormValues,
-            legalDocuments: LegalDocument[]
-        ) => LegalDocument | null
+        existingDocumentsByType: (legalDocuments: LegalDocument[]) => Partial<Record<LegalDocumentType, LegalDocument>>
     }
 }
 
@@ -357,14 +352,10 @@ export const legalDocumentsLogic = kea<legalDocumentsLogicType>([
             (s) => [s.legalDocument],
             (form: LegalDocumentFormValues): boolean => DPA_SUBMITTABLE_MODES.has(form.dpa_mode as DPAMode),
         ],
-        existingDocumentTypes: [
+        existingDocumentsByType: [
             (s) => [s.legalDocuments],
-            (documents: LegalDocument[]): Set<LegalDocumentType> => new Set(documents.map((doc) => doc.document_type)),
-        ],
-        existingDocumentOfCurrentType: [
-            (s) => [s.legalDocument, s.legalDocuments],
-            (form: LegalDocumentFormValues, documents: LegalDocument[]): LegalDocument | null =>
-                documents.find((doc) => doc.document_type === form.document_type) ?? null,
+            (documents: LegalDocument[]): Partial<Record<LegalDocumentType, LegalDocument>> =>
+                Object.fromEntries(documents.map((doc) => [doc.document_type, doc])),
         ],
     }),
     urlToAction(({ actions }) => ({

@@ -16,26 +16,22 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { LegalDocumentsPreview } from '../components/LegalDocumentsPreview'
-import { FIELD_IDS } from './legalDocumentsConstants'
-import { DPAMode, LegalDocumentType, legalDocumentsLogic } from './legalDocumentsLogic'
+import { FIELD_IDS, alreadyExistsReason, replaceDocumentSupportForm } from './legalDocumentsConstants'
+import { DPAMode, LegalDocument, LegalDocumentType, legalDocumentsLogic } from './legalDocumentsLogic'
 
 function buildDocumentTypeOptions(
-    existingTypes: Set<LegalDocumentType>
+    existingDocumentsByType: Partial<Record<LegalDocumentType, LegalDocument>>
 ): { value: LegalDocumentType; label: string; disabledReason?: string }[] {
-    const alreadyExistsReason = (type: LegalDocumentType): string | undefined =>
-        existingTypes.has(type)
-            ? `Your organization already has a ${type}. Contact support if you need a new one.`
-            : undefined
     return [
         {
             value: 'DPA',
             label: 'Data Processing Agreement (DPA)',
-            disabledReason: alreadyExistsReason('DPA'),
+            disabledReason: alreadyExistsReason(existingDocumentsByType.DPA),
         },
         {
             value: 'BAA',
             label: 'Business Associate Agreement (BAA)',
-            disabledReason: alreadyExistsReason('BAA'),
+            disabledReason: alreadyExistsReason(existingDocumentsByType.BAA),
         },
     ]
 }
@@ -71,14 +67,12 @@ export const scene: SceneExport = {
 export function LegalDocumentNewScene(): JSX.Element {
     const {
         legalDocument,
-        legalDocumentHasErrors,
         isLegalDocumentSubmitting,
         hasQualifyingBaaAddon,
         isOnQualifyingAddonTrial,
         isOnEnterpriseStandardTrial,
         isDpaModeSubmittable,
-        existingDocumentOfCurrentType,
-        existingDocumentTypes,
+        existingDocumentsByType,
     } = useValues(legalDocumentsLogic)
     const { isAdminOrOwner } = useValues(organizationLogic)
     const { isCloudOrDev } = useValues(preflightLogic)
@@ -127,19 +121,20 @@ export function LegalDocumentNewScene(): JSX.Element {
     }
 
     const documentType = legalDocument.document_type
+    const existingDocument = existingDocumentsByType[documentType]
     const baaBlocked = documentType === 'BAA' && !hasQualifyingBaaAddon
     const headingLabel = documentType === 'BAA' ? 'New Business Associate Agreement' : 'New Data Processing Agreement'
+    // Only policy blocks disable the button. Missing or malformed fields must let
+    // the submit through so kea-forms reveals the per-field errors.
     const submitDisabledReason = isLegalDocumentSubmitting
         ? 'Creating the PandaDoc envelope…'
-        : existingDocumentOfCurrentType
-          ? `Your organization already has a ${documentType}. Contact support if you need a new one.`
+        : existingDocument
+          ? alreadyExistsReason(existingDocument)
           : baaBlocked
             ? 'Subscribe to Boost, Scale, or Enterprise to generate a BAA'
             : documentType === 'DPA' && !isDpaModeSubmittable
               ? 'Switch to one of the legally binding formats to submit for signature'
-              : legalDocumentHasErrors
-                ? 'Fill in all required fields before submitting'
-                : undefined
+              : undefined
 
     return (
         <SceneContent>
@@ -172,12 +167,38 @@ export function LegalDocumentNewScene(): JSX.Element {
                     <Form logic={legalDocumentsLogic} formKey="legalDocument" enableFormOnSubmit className="space-y-4">
                         <LemonField name="document_type" label="Document type">
                             <LemonSelect
-                                options={buildDocumentTypeOptions(existingDocumentTypes)}
+                                options={buildDocumentTypeOptions(existingDocumentsByType)}
                                 value={documentType}
                                 onChange={(value) => setDocumentType(value as LegalDocumentType)}
                                 fullWidth
                             />
                         </LemonField>
+
+                        {existingDocument && (
+                            <LemonBanner type="warning">
+                                {existingDocument.status === 'signed' ? (
+                                    <>
+                                        Your organization already has a signed {documentType}. To sign a new one, for
+                                        example under a different company or signer,{' '}
+                                        <Link
+                                            to=""
+                                            onClick={() =>
+                                                openSupportForm(replaceDocumentSupportForm(existingDocument))
+                                            }
+                                        >
+                                            contact support
+                                        </Link>
+                                        .
+                                    </>
+                                ) : (
+                                    <>
+                                        Your organization already has a {documentType} waiting for signature. Delete it
+                                        on the <Link to={urls.legalDocuments()}>legal documents page</Link> to start a
+                                        new one.
+                                    </>
+                                )}
+                            </LemonBanner>
+                        )}
 
                         {baaBlocked && (
                             <LemonBanner type="warning">
