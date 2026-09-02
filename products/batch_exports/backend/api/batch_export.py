@@ -885,8 +885,8 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text=(
             "ID of a team-scoped Integration providing credentials, for destinations that authenticate "
-            "through one. Required for all of those except Snowflake and Redshift, which still support "
-            "inline credentials."
+            "through one. Required for all of those except Snowflake, which still supports inline "
+            "credentials."
         ),
     )
 

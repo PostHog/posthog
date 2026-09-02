@@ -1984,7 +1984,7 @@ export const BatchExportsPauseCreateBody = /* @__PURE__ */ zod
                     .number()
                     .nullish()
                     .describe(
-                        'ID of a team-scoped Integration providing credentials, for destinations that authenticate through one. Required for all of those except Snowflake and Redshift, which still support inline credentials.'
+                        'ID of a team-scoped Integration providing credentials, for destinations that authenticate through one. Required for all of those except Snowflake, which still supports inline credentials.'
                     ),
             })
             .describe(
@@ -2429,7 +2429,7 @@ export const BatchExportsRunTestStepCreateBody = /* @__PURE__ */ zod
                     .number()
                     .nullish()
                     .describe(
-                        'ID of a team-scoped Integration providing credentials, for destinations that authenticate through one. Required for all of those except Snowflake and Redshift, which still support inline credentials.'
+                        'ID of a team-scoped Integration providing credentials, for destinations that authenticate through one. Required for all of those except Snowflake, which still supports inline credentials.'
                     ),
             })
             .describe(
@@ -2863,7 +2863,7 @@ export const BatchExportsUnpauseCreateBody = /* @__PURE__ */ zod
                     .number()
                     .nullish()
                     .describe(
-                        'ID of a team-scoped Integration providing credentials, for destinations that authenticate through one. Required for all of those except Snowflake and Redshift, which still support inline credentials.'
+                        'ID of a team-scoped Integration providing credentials, for destinations that authenticate through one. Required for all of those except Snowflake, which still supports inline credentials.'
                     ),
             })
             .describe(
@@ -3318,7 +3318,7 @@ export const BatchExportsRunTestStepNewCreateBody = /* @__PURE__ */ zod
                     .number()
                     .nullish()
                     .describe(
-                        'ID of a team-scoped Integration providing credentials, for destinations that authenticate through one. Required for all of those except Snowflake and Redshift, which still support inline credentials.'
+                        'ID of a team-scoped Integration providing credentials, for destinations that authenticate through one. Required for all of those except Snowflake, which still supports inline credentials.'
                     ),
             })
             .describe(

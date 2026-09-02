@@ -12214,7 +12214,7 @@ export namespace Schemas {
          */
       integration?: number | null;
       /**
-         * ID of a team-scoped Integration providing credentials, for destinations that authenticate through one. Required for all of those except Snowflake and Redshift, which still support inline credentials.
+         * ID of a team-scoped Integration providing credentials, for destinations that authenticate through one. Required for all of those except Snowflake, which still supports inline credentials.
          * @nullable
          */
       integration_id?: number | null;
