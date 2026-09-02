@@ -244,8 +244,8 @@ def _notify_dag_materialization_failures(inputs: NotifyDAGMaterializationFailure
     # A manually triggered run can reuse its workflow id, so matching the parent alone would sweep
     # in an earlier run's failures. Every child of this run ends its id with this run's start time,
     # which the run itself generated — no clock comparison, so no skew to get wrong.
-    # `team_id` leads because neither workflow column is indexed, and the suffix match can only ever
-    # be a post-filter; it puts the `(team, status)` index in front of a table that only grows.
+    # `(team, parent_workflow_id)` is indexed, so this reads only this run's children; the suffix
+    # match can never seek, and stays a filter over those few rows.
     failed_jobs = DataModelingJob.objects.filter(
         team_id=inputs.team_id,
         parent_workflow_id=inputs.parent_workflow_id,
