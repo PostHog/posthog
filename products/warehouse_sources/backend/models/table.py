@@ -481,8 +481,21 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         except:
             return False
 
+    # chdb failures the ClickHouse fallback below handles on its own. Capturing them sends one
+    # exception per affected read to error tracking, where nothing is actionable, because the read
+    # still returns. The fallback keeps its own capture, so a genuine failure is still reported.
+    _SUPPRESSED_CHDB_ERROR_SUBSTRINGS = (
+        "unsupported deltalake type: timestamp_ntz",
+        # A source added a column mid-stream, so the parquet parts under one table disagree on
+        # column count. ClickHouse reads the same files fine; only chdb refuses the mixed set.
+        "reading from files with different schema is not possible",
+    )
+
     def _is_suppressed_chdb_error(self, err: Exception) -> bool:
-        return isinstance(err, RuntimeError) and "unsupported deltalake type: timestamp_ntz" in str(err).lower()
+        if not isinstance(err, RuntimeError):
+            return False
+        message = str(err).lower()
+        return any(substring in message for substring in self._SUPPRESSED_CHDB_ERROR_SUBSTRINGS)
 
     def set_columns(self, columns: dict[str, Any]) -> None:
         """Assign ``columns`` and record its order together.
