@@ -2060,18 +2060,26 @@ def _route_reaction_added(
     """
     # Everything up to the workspace lookup is free, and most reactions fail it: only a
     # thumb on a message is a rating candidate.
-    if (
-        turn_feedback.reaction_sentiment(event.get("reaction")) is None
-        or (event.get("item") or {}).get("type") != "message"
-    ):
+    item = event.get("item") or {}
+    channel = item.get("channel")
+    message_ts = item.get("ts")
+    if turn_feedback.reaction_sentiment(event.get("reaction")) is None or item.get("type") != "message":
         return ROUTE_HANDLED_LOCALLY
 
-    # Same candidate loading as the mention pipeline, so broken-token installs are
-    # filtered out: with none left the event defers to the other region, whose healthy
-    # install can still serve a rating this region cannot.
-    workspace_integration = load_integrations(
-        slack_team_id=slack_team_id, kinds=[SLACK_INTEGRATION_KIND]
-    ).resolved_or_first()
+    # Same candidate loading as the mention pipeline: broken-token installs are filtered
+    # out (with none left the event defers to the other region, whose healthy install can
+    # still serve a rating this region cannot), and the resolver ladder picks the install
+    # the same way a mention would. A reaction carries no thread_ts, so the message ts
+    # stands in; it only matches a thread mapping when the reacted message opened the
+    # thread, and the resolver falls through to the defaults otherwise.
+    workspace_result = load_integrations(
+        slack_team_id=slack_team_id,
+        kinds=[SLACK_INTEGRATION_KIND],
+        slack_user_id=str(event.get("user") or ""),
+        channel=channel if isinstance(channel, str) else None,
+        thread_ts=message_ts if isinstance(message_ts, str) else None,
+    )
+    workspace_integration = workspace_result.resolved_or_first()
     if workspace_integration is None:
         return _route_to_other_region_or_drop(request, slack_team_id, proxied=proxied, other_domain=other_domain)
 
