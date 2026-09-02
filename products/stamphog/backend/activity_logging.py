@@ -9,8 +9,12 @@ connection's commit, and it must be dropped when that connection rolls back.
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
+from django.conf import settings
 from django.db import router
 
+import structlog
+
+from posthog.exceptions_capture import capture_exception
 from posthog.models.activity_logging.activity_log import (
     AuditableScope,
     Detail,
@@ -28,6 +32,8 @@ from products.stamphog.backend.models import StamphogRepoConfig
 
 if TYPE_CHECKING:
     from posthog.models.user import User
+
+logger = structlog.get_logger(__name__)
 
 # The fields a webhook disable changes on a repo config. A caller reads them from the writer
 # before the update, so the logged change list carries the real previous values.
@@ -55,22 +61,37 @@ def handle_stamphog_repo_config_change(
     if instance is None:
         return
 
-    changes = changes_between(scope, previous=before_update, current=after_update)
-    if activity == "updated" and not changes:
-        # log_activity drops an update that moved nothing, so the organization lookup is wasted.
-        return
+    # The receiver runs inside save(), after the row is committed on the product database. An error
+    # here must not escape: the caller's post-save work (superseding in-flight runs on a disable)
+    # would be skipped for a row that is already written.
+    try:
+        changes = changes_between(scope, previous=before_update, current=after_update)
+        if activity == "updated" and not changes:
+            # log_activity drops an update that moved nothing, so the organization lookup is wasted.
+            return
 
-    log_activity(
-        organization_id=_organization_id_for_team(instance.team_id),
-        team_id=instance.team_id,
-        user=user,
-        was_impersonated=was_impersonated,
-        item_id=instance.id,
-        scope=scope,
-        activity=activity,
-        detail=Detail(changes=changes, name=instance.repository),
-        using=router.db_for_write(StamphogRepoConfig),
-    )
+        log_activity(
+            organization_id=_organization_id_for_team(instance.team_id),
+            team_id=instance.team_id,
+            user=user,
+            was_impersonated=was_impersonated,
+            item_id=instance.id,
+            scope=scope,
+            activity=activity,
+            # A row created by the API carries no installation until a sync binds it, so the describer
+            # must not call it connected.
+            detail=Detail(
+                changes=changes,
+                name=instance.repository,
+                type="connected" if instance.installation_id else "placeholder",
+            ),
+            using=router.db_for_write(StamphogRepoConfig),
+        )
+    except Exception as e:
+        logger.warning("stamphog_activity_log_failed", team_id=instance.team_id, item_id=str(instance.id), exception=e)
+        capture_exception(e)
+        if settings.TEST:
+            raise
 
 
 def log_repo_config_bulk_update(

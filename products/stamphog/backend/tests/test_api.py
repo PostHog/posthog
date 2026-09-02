@@ -75,6 +75,8 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
 
     def test_toggling_enabled_writes_an_activity_log_row(self) -> None:
         created = self.client.post(self.url, {"repository": "PostHog/posthog", "enabled": True}, format="json").json()
+        # Review history hangs off the config as a reverse relation; the diff must leave it out.
+        PullRequest.objects.create(team_id=self.team.id, repo_config_id=created["id"], pr_number=1)
         self.client.patch(f"{self.url}{created['id']}/", {"enabled": False}, format="json")
 
         log = ActivityLog.objects.get(scope="StamphogRepoConfig", item_id=created["id"], activity="updated")
@@ -82,8 +84,7 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         assert log.user == self.user
         assert log.detail is not None
         assert log.detail["name"] == "PostHog/posthog"
-        enabled_changes = [change for change in log.detail["changes"] if change["field"] == "enabled"]
-        assert enabled_changes == [
+        assert log.detail["changes"] == [
             {"type": "StamphogRepoConfig", "action": "changed", "field": "enabled", "before": True, "after": False}
         ]
 

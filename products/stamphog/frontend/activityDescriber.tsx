@@ -61,10 +61,12 @@ export function stamphogRepoConfigActivityDescriber(
     const repository = <strong>{logItem.detail.name || 'a repository'}</strong>
 
     if (logItem.activity === 'created') {
+        // A row created through the API has no installation until a sync binds it.
+        const verb = logItem.detail.type === 'connected' ? 'connected' : 'added'
         return {
             description: (
                 <>
-                    {actor} connected {repository}
+                    {actor} {verb} {repository}
                 </>
             ),
         }
