@@ -108,6 +108,12 @@
                     "order": {
                         "type": "number"
                     },
+                    "secret_keys": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array"
+                    },
                     "templating": {
                         "description": "* `hog` - hog\n* `liquid` - liquid",
                         "enum": ["hog", "liquid"],
@@ -160,6 +166,10 @@
                         "type": "boolean"
                     },
                     "secret": {
+                        "default": false,
+                        "type": "boolean"
+                    },
+                    "secret_entries": {
                         "default": false,
                         "type": "boolean"
                     },
@@ -282,6 +292,12 @@
                                         "order": {
                                             "type": "number"
                                         },
+                                        "secret_keys": {
+                                            "items": {
+                                                "type": "string"
+                                            },
+                                            "type": "array"
+                                        },
                                         "templating": {
                                             "description": "* `hog` - hog\n* `liquid` - liquid",
                                             "enum": ["hog", "liquid"],
@@ -332,6 +348,10 @@
                                             "type": "boolean"
                                         },
                                         "secret": {
+                                            "default": false,
+                                            "type": "boolean"
+                                        },
+                                        "secret_entries": {
                                             "default": false,
                                             "type": "boolean"
                                         },
