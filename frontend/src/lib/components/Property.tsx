@@ -16,7 +16,14 @@ export function Property({ value, propertyKey }: { value: any; propertyKey?: str
             valueString = String(value)
             valueComponent = (
                 <span className="line-clamp-3 whitespace-normal">
-                    <Link to={externalUrl} target="_blank" className="value-link font-medium">
+                    <Link
+                        to={externalUrl}
+                        target="_blank"
+                        className="value-link font-medium"
+                        // The events table wraps the cell in a link that toggles a property filter,
+                        // and that link cancels the click. Keep the two apart.
+                        onClick={(e) => e.stopPropagation()}
+                    >
                         {stringWithWBR(valueString, 20)}
                     </Link>
                 </span>

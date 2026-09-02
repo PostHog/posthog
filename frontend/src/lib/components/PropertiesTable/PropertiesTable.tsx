@@ -130,7 +130,14 @@ function ValueDisplay({
             {!externalUrl ? (
                 <span>{valueString}</span>
             ) : (
-                <Link to={externalUrl} target="_blank" className="value-link" targetBlankIcon>
+                <Link
+                    to={externalUrl}
+                    target="_blank"
+                    className="value-link"
+                    targetBlankIcon
+                    // The cell around the value starts inline editing on click, so keep the two apart
+                    onClick={(e) => e.stopPropagation()}
+                >
                     {valueString}
                 </Link>
             )}
