@@ -2279,6 +2279,34 @@ class TestTicketMessagesAPI(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("full_name", "Ada", "Lovelace", "Ada Lovelace"),
+            ("first_name_only", "Ada", "", "Ada"),
+            ("last_name_only", "", "Lovelace", "Lovelace"),
+            # Empty expected_name means "falls back to the user's email"
+            ("email_fallback", "", "", ""),
+        ]
+    )
+    def test_messages_staff_author_name_uses_full_name(
+        self, mock_on_commit, _name, first_name, last_name, expected_name
+    ):
+        self.user.first_name = first_name
+        self.user.last_name = last_name
+        self.user.save(update_fields=["first_name", "last_name"])
+        Comment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            scope="conversations_ticket",
+            item_id=str(self.ticket.id),
+            content="msg",
+            item_context={"author_type": "support"},
+        )
+
+        response = self.client.get(self.url)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["results"][0]["author_name"] == (expected_name or self.user.email)
+
+    @parameterized.expand(
+        [
             ("real_true", True, True),
             ("string_false_is_not_private", "false", False),
             ("string_true_is_not_private", "true", False),
@@ -2383,7 +2411,7 @@ class TestTicketReplyAPI(APIBaseTest):
         assert body["content"] == "A reply"
         assert body["author_type"] == "support"
         assert body["is_private"] is is_private
-        assert body["author_name"] == (self.user.first_name or self.user.email)
+        assert body["author_name"] == (f"{self.user.first_name} {self.user.last_name}".strip() or self.user.email)
 
         comment = Comment.objects.get(id=body["id"])
         assert comment.created_by == self.user

@@ -1297,7 +1297,10 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         )
 
         if comment.created_by:
-            author_name = comment.created_by.first_name or comment.created_by.email
+            # Full name, so two teammates who share a first name stay distinguishable
+            # in the agent-facing thread.
+            created_by = comment.created_by
+            author_name = f"{created_by.first_name} {created_by.last_name}".strip() or created_by.email
         elif author_type == "AI":
             author_name = "PostHog Assistant"
         elif context_author_name:
