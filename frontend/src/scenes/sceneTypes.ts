@@ -172,6 +172,9 @@ export enum Scene {
     Coupons = 'Coupons',
     Sources = 'Sources',
     StartupProgram = 'StartupProgram',
+    Stamphog = 'Stamphog',
+    StamphogRuns = 'StamphogRuns',
+    StamphogDigests = 'StamphogDigests',
     Survey = 'Survey',
     SurveyWizard = 'SurveyWizard',
     SurveyFormBuilder = 'SurveyFormBuilder',
@@ -404,6 +407,11 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
     [Scene.ErrorTrackingFingerprint]: AccessControlResourceType.ErrorTracking,
     [Scene.ErrorTrackingIssue]: AccessControlResourceType.ErrorTracking,
     [Scene.ErrorTrackingIssueFingerprints]: AccessControlResourceType.ErrorTracking,
+
+    // Stamphog
+    [Scene.Stamphog]: AccessControlResourceType.Stamphog,
+    [Scene.StamphogRuns]: AccessControlResourceType.Stamphog,
+    [Scene.StamphogDigests]: AccessControlResourceType.Stamphog,
 
     // Surveys
     [Scene.Survey]: AccessControlResourceType.Survey,

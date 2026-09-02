@@ -65,7 +65,7 @@ logger = structlog.get_logger(__name__)
 _INSTALL_STATE_SALT = "stamphog-install-state"
 _INSTALL_STATE_MAX_AGE_SECONDS = 60 * 60
 
-# These decide whether a pull request gets reviewed, so changing them takes the manager level.
+# These decide whether a pull request gets reviewed, so writing any of them takes the manager level.
 REVIEW_GATE_FIELDS = ("enabled", "review_mode", "trigger_label")
 
 
@@ -222,10 +222,10 @@ class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.GenericView
             context=self.get_serializer_context(),
         )
         serializer.is_valid(raise_exception=True)
-        if any(
-            field in serializer.validated_data and serializer.validated_data[field] != getattr(current, field)
-            for field in REVIEW_GATE_FIELDS
-        ):
+        # A supplied gate field always takes manager, even when it matches what `current` holds:
+        # that snapshot was read before the facade refetches and saves, so a value that looks
+        # unchanged can still overwrite a manager's decision made in between.
+        if any(field in serializer.validated_data for field in REVIEW_GATE_FIELDS):
             self._require_review_gate_manager(request)
         config = facade_api.update_repo_config(self.canonical_team_id, str(pk), **serializer.validated_data)
         return Response(self.get_serializer(config).data)
