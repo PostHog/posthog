@@ -17,6 +17,7 @@ from posthog.models import Team
 
 from products.approvals.backend.actions.registry import get_action
 from products.approvals.backend.exceptions import ApprovalRequired, PolicyConflict
+from products.approvals.backend.exemptions import is_exempt_write
 from products.approvals.backend.models import ChangeRequest, ChangeRequestState
 from products.approvals.backend.notifications import send_approval_requested_notification
 from products.approvals.backend.policies import PolicyDecision, PolicyEngine
@@ -486,27 +487,22 @@ def approval_gate(action_refs: Union[type, str, list]):
             if not actions:
                 return method(self, *args, **kwargs)
 
-            # The approved change is applied through this same serializer; re-gating it
-            # here would block (or duplicate) a change that is already approved.
-            if isinstance(getattr(self, "context", None), dict) and self.context.get("approval_apply"):
-                return method(self, *args, **kwargs)
-
             is_serializer = hasattr(self, "context") and isinstance(self.context, dict) and "request" in self.context
 
             if is_serializer:
-                request, team, organization = _extract_context(self)
+                request = self.context.get("request")
             else:
                 request = args[0] if args else kwargs.get("request")
-                _, team, organization = _extract_context(self, request)
 
-            # System writes (facade calls from tasks or service code) bypass the gate:
-            # approval policies target human-driven changes, and a ChangeRequest cannot
-            # exist without a requester to attribute it to. Only a request explicitly
-            # declaring itself a system write takes this path (`is True` so mocks and
-            # attribute-forwarding proxies can't) — a merely user-less request, e.g. a
-            # pre-auth HttpRequest, still engages the gate.
-            if getattr(request, "is_system", False) is True:
+            # is_exempt_write owns every reason a write skips the gate. Ask it before resolving
+            # team and organization, so an exempt write costs no queries.
+            if is_exempt_write(self, request):
                 return method(self, *args, **kwargs)
+
+            if is_serializer:
+                _, team, organization = _extract_context(self)
+            else:
+                _, team, organization = _extract_context(self, request)
 
             if not team or not organization:
                 logger.warning(

@@ -68,6 +68,8 @@ from products.access_control.backend.presentation.access_control import (
 )
 from products.actions.backend.api.action import ActionSerializer, ActionStepJSONSerializer
 from products.actions.backend.models.action import Action
+from products.approvals.backend.exemptions import internal_write_context
+from products.approvals.backend.mixins import ApprovalHandlingMixin
 from products.feature_flags.backend.api.feature_flag import (
     BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
     FeatureFlagSerializer,
@@ -1830,7 +1832,12 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         }
 
         instance.internal_response_sampling_flag = self._create_or_update_targeting_flag(
-            None, sampling_filters, instance.name, bool(instance.start_date), flag_name_suffix="-sampling"
+            None,
+            sampling_filters,
+            instance.name,
+            bool(instance.start_date),
+            flag_name_suffix="-sampling",
+            internal=True,
         )
         instance.save()
 
@@ -1931,7 +1938,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             serialized_data_filters = {**existing_targeting_flag.filters, **user_submitted_dismissed_filter}
 
             internal_targeting_flag = self._create_or_update_targeting_flag(
-                instance.internal_targeting_flag, serialized_data_filters, flag_name_suffix="-custom"
+                instance.internal_targeting_flag, serialized_data_filters, flag_name_suffix="-custom", internal=True
             )
 
             internal_targeting_flag.active = should_flag_be_active
@@ -1947,13 +1954,19 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 instance.name,
                 should_flag_be_active,
                 flag_name_suffix="-custom",
+                internal=True,
             )
             instance.internal_targeting_flag_id = new_flag.id
             instance.save()
 
     def _create_or_update_targeting_flag(
-        self, existing_flag=None, filters=None, name=None, active=False, flag_name_suffix=None
+        self, existing_flag=None, filters=None, name=None, active=False, flag_name_suffix=None, internal=False
     ):
+        # A survey mints three flags. Only `targeting_flag` carries filters that a person wrote,
+        # so only it reaches the approval gate. The dismissal and sampling flags are product
+        # plumbing that always rolls out at 100%. approvals owns what that distinction means.
+        context = {**self.context, **internal_write_context()} if internal else self.context
+
         with create_flag_with_survey_errors():
             # Ensure the request method is set correctly for validation
             if existing_flag:
@@ -1962,7 +1975,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                     existing_flag,
                     data={"filters": filters},
                     partial=True,
-                    context=self.context,
+                    context=context,
                 )
                 existing_flag_serializer.is_valid(raise_exception=True)
                 return existing_flag_serializer.save()
@@ -1978,7 +1991,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                         "active": active,
                         "creation_context": "surveys",
                     },
-                    context=self.context,
+                    context=context,
                 )
 
                 feature_flag_serializer.is_valid(raise_exception=True)
@@ -2133,7 +2146,16 @@ class SurveyFilterSet(FilterSet):
         ],
     ),
 )
-class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
+class SurveyViewSet(
+    # Converts the ApprovalRequired that FeatureFlagSerializer raises, when a policy gates the
+    # user-authored targeting flag, into a 409 carrying the pending change_request_id.
+    ApprovalHandlingMixin,
+    TeamAndOrgViewSetMixin,
+    AccessControlViewSetMixin,
+    viewsets.ModelViewSet,
+):
+    """Create, read, update, and manage surveys and their targeting."""
+
     scope_object = "survey"
     queryset = Survey.objects.select_related(
         "linked_flag", "linked_insight", "targeting_flag", "internal_targeting_flag"

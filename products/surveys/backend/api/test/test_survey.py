@@ -32,6 +32,7 @@ from posthog.test.persons import create_person
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.models.action import Action
+from products.approvals.backend.models import ApprovalPolicy, ChangeRequest
 from products.cohorts.backend.models.cohort import Cohort
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_analytics.backend.facade.models import Insight
@@ -7981,3 +7982,91 @@ class TestSurveyFeatureFlagScopeEnforcement(PersonalAPIKeysBaseTest, APIBaseTest
             format="json",
         )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+
+class TestSurveyApprovalGate(APIBaseTest):
+    ROLLOUT_CONDITION: dict[str, Any] = {
+        "type": "before_after",
+        "field": "rollout_percentage",
+        "operator": ">",
+        "value": 0,
+    }
+    TARGETING_FILTERS: dict[str, Any] = {"groups": [{"variant": None, "rollout_percentage": 50, "properties": []}]}
+
+    def setUp(self):
+        super().setUp()
+        patcher = patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _policy(self, action_key: str, conditions: Optional[dict[str, Any]] = None) -> None:
+        ApprovalPolicy.objects.create(
+            organization=self.organization,
+            team=self.team,
+            action_key=action_key,
+            conditions=conditions or {},
+            approver_config={"quorum": 1, "users": [self.user.id]},
+            created_by=self.user,
+        )
+
+    @parameterized.expand(
+        [
+            ("rollout policy", "feature_flag.update", ROLLOUT_CONDITION, {}),
+            ("enable policy", "feature_flag.enable", None, {"start_date": "2026-01-01T00:00:00Z"}),
+        ]
+    )
+    def test_survey_create_is_unaffected_by_flag_policies(self, _name, action_key, conditions, extra):
+        self._policy(action_key, conditions)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={"name": "survey", "type": "popover", **extra},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        survey = Survey.objects.get(team=self.team, name="survey")
+        assert survey.internal_targeting_flag_id is not None
+
+    def test_repeated_survey_creates_are_unaffected(self):
+        self._policy("feature_flag.update", self.ROLLOUT_CONDITION)
+
+        for name in ("first", "second"):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/surveys/",
+                data={"name": name, "type": "popover"},
+                format="json",
+            )
+            assert response.status_code == status.HTTP_201_CREATED
+
+    def test_user_authored_targeting_flag_still_requires_approval_on_create(self):
+        self._policy("feature_flag.update", self.ROLLOUT_CONDITION)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={"name": "targeted", "type": "popover", "targeting_flag_filters": self.TARGETING_FILTERS},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_409_CONFLICT
+        assert response.json()["code"] == "approval_required"
+        assert response.json()["change_request_id"]
+        assert not Survey.objects.filter(team=self.team, name="targeted").exists()
+
+    def test_user_authored_targeting_flag_still_requires_approval_on_update(self):
+        created = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={"name": "later targeted", "type": "popover"},
+            format="json",
+        )
+        assert created.status_code == status.HTTP_201_CREATED
+        self._policy("feature_flag.update", self.ROLLOUT_CONDITION)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{created.json()['id']}/",
+            data={"targeting_flag_filters": self.TARGETING_FILTERS},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_409_CONFLICT
+        assert ChangeRequest.objects.filter(id=response.json()["change_request_id"]).exists()
