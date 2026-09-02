@@ -230,6 +230,7 @@ export interface ChatMessage {
     /** Imported from an external tool (e.g. Zendesk). Such content is untrusted, so its Markdown
      * is rendered with external image auto-loading disabled. */
     fromZendesk?: boolean
+    hasFullEmailContent?: boolean
 }
 
 export const statusOptions: { value: TicketStatus | 'all'; label: string }[] = [

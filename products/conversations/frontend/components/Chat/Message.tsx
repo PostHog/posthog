@@ -31,6 +31,8 @@ export interface MessageProps {
     onSubmitAiReplyFeedback?: (rating: AiReplyFeedbackRating, feedbackText?: string) => void
     onEdit?: () => void
     onDelete?: () => void
+    fullEmailLoading?: boolean
+    onViewFullEmail?: () => void
 }
 
 export function Message({
@@ -43,6 +45,8 @@ export function Message({
     onSubmitAiReplyFeedback,
     onEdit,
     onDelete,
+    fullEmailLoading = false,
+    onViewFullEmail,
 }: MessageProps): JSX.Element {
     const isAgent = message.authorType === 'AI'
     const profileType = isAgent ? 'bot' : 'person'
@@ -179,6 +183,19 @@ export function Message({
                                 <SupportMarkdown className="text-sm" disableImages>
                                     {message.content}
                                 </SupportMarkdown>
+                            )}
+                            {message.hasFullEmailContent && onViewFullEmail && (
+                                <div className="mt-2">
+                                    <LemonButton
+                                        type="tertiary"
+                                        size="xsmall"
+                                        onClick={onViewFullEmail}
+                                        loading={fullEmailLoading}
+                                        data-attr="support-ticket-view-full-email"
+                                    >
+                                        View full email
+                                    </LemonButton>
+                                </div>
                             )}
                         </div>
                         {showAiReplyFeedback && (

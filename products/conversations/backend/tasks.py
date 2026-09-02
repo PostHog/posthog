@@ -757,7 +757,10 @@ def _process_outbox_row(outbox: EmailOutboxMessage) -> None:
 
     # Build threading headers from the latest inbound message on this ticket
     latest_mapping = (
-        EmailMessageMapping.objects.filter(ticket_id=ticket.id, team_id=outbox.team_id).order_by("-created_at").first()
+        EmailMessageMapping.objects.filter(ticket_id=ticket.id, team_id=outbox.team_id)
+        .only("message_id")
+        .order_by("-created_at")
+        .first()
     )
     headers: dict[str, str] = {"Message-ID": outbox.message_id}
     if latest_mapping:

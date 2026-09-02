@@ -70,6 +70,8 @@ export interface ChatViewProps {
     onEditMessage?: (message: ChatMessage) => void
     onDeleteMessage?: (messageId: string) => void
     onCancelEdit?: () => void
+    fullEmailLoadingMessageId?: string | null
+    onViewFullEmail?: (messageId: string) => void
 }
 
 export function ChatView({
@@ -111,6 +113,8 @@ export function ChatView({
     onEditMessage,
     onDeleteMessage,
     onCancelEdit,
+    fullEmailLoadingMessageId,
+    onViewFullEmail,
 }: ChatViewProps): JSX.Element {
     const listMinHeight = minHeight ?? '400px'
     const listMaxHeight = maxHeight ?? '600px'
@@ -139,6 +143,8 @@ export function ChatView({
                 canEditTicket={canEditTicket}
                 onEditMessage={onEditMessage}
                 onDeleteMessage={onDeleteMessage}
+                fullEmailLoadingMessageId={fullEmailLoadingMessageId}
+                onViewFullEmail={onViewFullEmail}
             />
             <div className="border-t pt-3">
                 <MessageInput

@@ -3,6 +3,8 @@ import { MOCK_DEFAULT_USER } from '~/lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { commentsLogic } from 'scenes/comments/commentsLogic'
@@ -62,6 +64,7 @@ jest.mock('products/business_knowledge/frontend/generated/api', () => ({
 }))
 
 jest.mock('products/conversations/frontend/generated/api', () => ({
+    conversationsTicketsMessagesFullEmailRetrieve: jest.fn().mockResolvedValue({ content: 'Full email body' }),
     conversationsTicketsNotesPartialUpdate: jest.fn().mockResolvedValue(undefined),
     conversationsTicketsNotesDestroy: jest.fn().mockResolvedValue(undefined),
     conversationsTicketsPartialUpdate: jest.fn(),
@@ -70,11 +73,13 @@ jest.mock('products/conversations/frontend/generated/api', () => ({
 import api from '~/lib/api'
 
 import {
+    conversationsTicketsMessagesFullEmailRetrieve,
     conversationsTicketsNotesPartialUpdate,
     conversationsTicketsPartialUpdate,
 } from 'products/conversations/frontend/generated/api'
 
 const submitAiFeedbackMock = api.conversationsTickets.submitAiFeedback as jest.Mock
+const fullEmailRetrieveMock = conversationsTicketsMessagesFullEmailRetrieve as jest.Mock
 
 function makeAiComment(id: string, isPrivate: boolean = true): CommentType {
     return {
@@ -225,11 +230,12 @@ function makeCustomerComment(id: string, itemContext: Record<string, any> = {}):
     } as unknown as CommentType
 }
 
-describe('supportTicketSceneLogic chatMessages author attribution', () => {
+describe('supportTicketSceneLogic chatMessages mapping', () => {
     let logic: ReturnType<typeof supportTicketSceneLogic.build>
 
     beforeEach(() => {
         initKeaTests()
+        fullEmailRetrieveMock.mockClear()
         logic = supportTicketSceneLogic({ id: 'new' })
         logic.mount()
         logic.actions.setTicket({ ...makeTicket(), anonymous_traits: { name: 'Mark' } } as Ticket)
@@ -244,6 +250,29 @@ describe('supportTicketSceneLogic chatMessages author attribution', () => {
     ])('%s', (_name, itemContext, expectedName) => {
         logic.actions.setMessages([makeCustomerComment('msg-1', itemContext)])
         expect(logic.values.chatMessages[0].authorName).toBe(expectedName)
+    })
+
+    it('loads the full email when the inbound message retained one', async () => {
+        logic.actions.setMessages([makeCustomerComment('msg-1', { has_full_email_content: true })])
+        expect(logic.values.chatMessages[0].hasFullEmailContent).toBe(true)
+
+        logic.actions.loadFullEmail('msg-1')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(fullEmailRetrieveMock).toHaveBeenCalledWith(expect.any(String), 'ticket-1', 'msg-1')
+        expect(logic.values.fullEmailContent).toBe('Full email body')
+    })
+
+    it('closes the full email modal and shows a retry message when loading fails', async () => {
+        const errorToast = jest.spyOn(lemonToast, 'error').mockReturnValue('' as never)
+        fullEmailRetrieveMock.mockRejectedValueOnce(new Error('Network failure'))
+
+        logic.actions.loadFullEmail('msg-1')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.fullEmailMessageId).toBeNull()
+        expect(errorToast).toHaveBeenCalledWith("Couldn't load the full email. Try again.")
+        errorToast.mockRestore()
     })
 })
 

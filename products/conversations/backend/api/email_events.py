@@ -97,6 +97,7 @@ def _find_thread_ticket(
                 message_id=in_reply_to,
                 team_id=team_id,
             )
+            .defer("full_body_plain")
             .select_related("ticket")
             .first()
         )
@@ -110,7 +111,9 @@ def _find_thread_ticket(
             for m in EmailMessageMapping.objects.filter(
                 message_id__in=references,
                 team_id=team_id,
-            ).select_related("ticket")
+            )
+            .defer("full_body_plain")
+            .select_related("ticket")
         }
         for ref_id in reversed(references):
             if ref_id in mapping_by_id:
@@ -542,6 +545,13 @@ def _process_support_email(
     )
 
     body = email.body_with_matching_html(prefer_stripped=bool(existing_ticket))
+    normalized_body_plain = email.body_plain.replace("\r\n", "\n").replace("\r", "\n").strip()
+    normalized_display_body = body.text.replace("\r\n", "\n").replace("\r", "\n").strip()
+    full_body_plain = (
+        recover_links_from_html(email.body_plain, email.body_html)
+        if normalized_body_plain and normalized_body_plain != normalized_display_body
+        else None
+    )
     content = recover_links_from_html(body.text, body.html)
 
     posthog_user = _resolve_team_member(sender_email, team) if email.sender_authenticated else None
@@ -598,6 +608,7 @@ def _process_support_email(
                 "email_from_name": sender_name,
                 "email_message_id": email.message_id,
                 "email_attachments": attachments if attachments else None,
+                "has_full_email_content": full_body_plain is not None,
             }
 
             comment = Comment.objects.create(
@@ -632,6 +643,7 @@ def _process_support_email(
                 team=team,
                 ticket=ticket,
                 comment=comment,
+                full_body_plain=full_body_plain,
             )
     except IntegrityError:
         logger.info("email_inbound_duplicate_race", message_id=email.message_id)
