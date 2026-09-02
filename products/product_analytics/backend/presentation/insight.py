@@ -706,11 +706,16 @@ class InsightSerializer(InsightBasicSerializer):
             "timezone",
             "refreshing",
             "is_cached",
+            # A read still serves the stored filters of an insight written before queries.
+            "filters",
         )
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         query = attrs.get("query") if "query" in attrs else None
-        using_legacy_filters = "filters" in attrs and attrs.get("filters") is not None and query in (None, {})
+        # `filters` is read-only, so DRF drops it before validation. The raw payload is the only
+        # place a legacy write still shows up, and it has to be answered rather than ignored.
+        sent_filters = self.initial_data.get("filters")
+        using_legacy_filters = sent_filters is not None and query in (None, {})
         if using_legacy_filters:
             # Opens with the sentence the deprecation notice told these callers to expect.
             raise PermissionDenied(
@@ -727,7 +732,8 @@ class InsightSerializer(InsightBasicSerializer):
 
         validate_insight_write(
             query=query,
-            filters=attrs.get("filters"),
+            # No write reaches the stored filters, so only the query needs judging.
+            filters=None,
             # A write that omits `query` keeps the stored one, which is still what renders.
             unchanged_query=None if "query" in attrs else getattr(self.instance, "query", None),
             team=self.context["get_team"](),
