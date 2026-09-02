@@ -495,6 +495,41 @@ async def test_ready_report_re_promotes_only_on_a_bucket(
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("signals_at_run", "starting_signal_count", "expected_promoted"),
+    [
+        # Researched before the column existed: the count the last run started on is read back from
+        # its signals_at_run stamp. Reading the null column as 0 would put the whole READY backlog
+        # at bucket 1 and re-research it on its next signal.
+        (13, 12, False),
+        (10, 8, False),
+        (10, 9, True),
+        (4, 1, True),
+        # Created READY outside the summary workflow, with no run stamp at all.
+        (0, 0, True),
+    ],
+)
+async def test_ready_report_without_a_recorded_pass_reads_the_run_stamp(
+    ateam, signals_at_run: int, starting_signal_count: int, expected_promoted: bool
+):
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam,
+        status=SignalReport.Status.READY,
+        total_weight=2.0,
+        signal_count=starting_signal_count,
+        signals_at_run=signals_at_run,
+        run_count=1,
+        signals_researched=None,
+    )
+    input_ = _build_input(ateam.id, _existing_match(str(report.id)), weight=0.5)
+
+    result = await assign_and_emit_signal_activity(input_)
+
+    assert result.promoted is expected_promoted
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
 async def test_signal_between_buckets_is_still_assigned(ateam, patch_side_effects):
     """Withholding research must not withhold the signal: it is still counted, weighted, and emitted
     to ClickHouse (not marked deleted), so the next bucket can be reached."""

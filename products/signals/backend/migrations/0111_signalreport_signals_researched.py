@@ -10,6 +10,6 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="signalreport",
             name="signals_researched",
-            field=models.IntegerField(db_default=0, default=0),
+            field=models.IntegerField(blank=True, null=True),
         ),
     ]

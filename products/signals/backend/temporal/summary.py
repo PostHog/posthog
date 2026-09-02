@@ -29,7 +29,7 @@ from posthog.temporal.common.utils import close_db_connections
 
 from products.signals.backend.auto_start import maybe_autostart_from_report_artefacts
 from products.signals.backend.daily_limit import capture_signal_report_daily_limit_paused, daily_report_limit_gate
-from products.signals.backend.models import SignalReport, SignalTeamConfig
+from products.signals.backend.models import SIGNALS_AT_RUN_INCREMENT, SignalReport, SignalTeamConfig
 from products.signals.backend.quota import (
     capture_signal_report_quota_paused,
     record_quota_check_failed_open,
@@ -720,7 +720,9 @@ async def mark_report_in_progress_activity(input: MarkReportInProgressInput) -> 
             report = SignalReport.objects.select_for_update().get(id=input.report_id, team_id=input.team_id)
             if report.status == SignalReport.Status.IN_PROGRESS:
                 return report.run_count, True
-            updated_fields = report.transition_to(SignalReport.Status.IN_PROGRESS, signals_at_run_increment=3)
+            updated_fields = report.transition_to(
+                SignalReport.Status.IN_PROGRESS, signals_at_run_increment=SIGNALS_AT_RUN_INCREMENT
+            )
             report.save(update_fields=updated_fields)
             return report.run_count, False
 
@@ -807,7 +809,7 @@ async def mark_report_ready_activity(input: MarkReportReadyInput) -> bool:
             # mid-run is researched on the schedule it would have had if it had landed after. The
             # bucket is strictly above what this run processed, so reaching it also means new
             # signals arrived.
-            bucket = next_research_bucket(report.signals_researched)
+            bucket = next_research_bucket(report.researched_signal_count)
             has_new_signals = bucket is not None and report.signal_count >= bucket
             if has_new_signals:
                 # If more signals arrived while the report was being processed, we want to

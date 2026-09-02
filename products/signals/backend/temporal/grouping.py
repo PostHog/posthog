@@ -801,12 +801,13 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
             #   collected, not researched.
             # - CANDIDATE: re-promote to self-heal failed spawns (uncapped; concurrent runs blocked by Temporal).
             #
-            # The bucket is measured against `signals_researched`, what the last completed pass
-            # actually covered, so a bucket the report is already past is skipped rather than firing
-            # a pass immediately on top of the previous one. Testing the reached count against that
-            # bucket, rather than the crossing itself, is what lets a report still claim a bucket it
-            # reached while promotion was suppressed.
-            bucket = next_research_bucket(report.signals_researched)
+            # The bucket is measured against what the last completed pass actually covered, so a
+            # bucket the report is already past is skipped rather than firing a pass immediately on
+            # top of the previous one. Testing the reached count against that bucket, rather than
+            # the crossing itself, is what lets a report still claim a bucket it reached while
+            # promotion was suppressed.
+            signals_researched = report.researched_signal_count
+            bucket = next_research_bucket(signals_researched)
             is_reresearch = report.status == SignalReport.Status.READY
             reresearch_capped = is_reresearch and (bucket is None or report.signal_count < bucket)
             if (
@@ -872,7 +873,7 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                 report_signal_count=report.signal_count,
                 promotion_suppressed=promotion_suppressed,
                 next_research_bucket=bucket,
-                report_signals_researched=report.signals_researched,
+                report_signals_researched=signals_researched,
             )
 
     try:
