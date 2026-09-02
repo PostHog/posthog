@@ -7668,6 +7668,22 @@ snapshots:
         hash: v1.k794b7964.204bddb0ec47c7a02409a9f49859ba7043d999b47fd909ac945277859bac2d0a.OGBvspVEX9BnlqZ6lq0amBQE5_vNK0DQ4VaUcdwtBtY
     scenes-app-mcp-analytics-tool-quality-charts--settled-window--light:
         hash: v1.k794b7964.d6be31937ca7321d00b299c38f6ba24480b8f1db772edce08c5c501d03694892.aSRmrM3xFQg0JNbAWh8tsjnN1GKBG1QlMLGOTK67oPo
+    scenes-app-mcp-servers-connect-server-modal--catalog-api-key-template--dark:
+        hash: v1.k794b7964.88b9762624eed0dad1e68107a83d764446614ec109f78047d3cb7932cbf8512c.1zVCJCmQ7XSt2Cw7Yz8Lqv_GPYFPE8PL0k8tHi_b6Lc
+    scenes-app-mcp-servers-connect-server-modal--catalog-api-key-template--light:
+        hash: v1.k794b7964.b705f5e8ab7938b793f4f633caed7a25a60413a781f95f1b788ec92aed1ae79a.z45sCOBKWiu6mwRvUunSPy_iLvYMTJbE81sVaw9cM7E
+    scenes-app-mcp-servers-connect-server-modal--custom-server-added-with-api-key--dark:
+        hash: v1.k794b7964.5d24904ab52b9c1dbd8703f26e8c2546af8285668759da5e479b7af1f23b861b.gpKmZAnQoYxVs3-lxCISOCriOUzOFfeBbPUYXkt0vUM
+    scenes-app-mcp-servers-connect-server-modal--custom-server-added-with-api-key--light:
+        hash: v1.k794b7964.94e4938f1f553657d1659aecb8b4cb6fb4eb7b5aeb2c5d7ba28e922f11fdca2a.If3EXAGE_yuYk4MQH1_6xGpfentsdZF-9gZjYq2tQm4
+    scenes-app-mcp-servers-connect-server-modal--custom-server-added-with-o-auth--dark:
+        hash: v1.k794b7964.848ede74b10c9c077e587ee1870e858179d21e1ee800000fe62ca222281818e2.g0JG4PbFojPv0ZJIef2RKVteHXT5JQJrgXur7YdKTp4
+    scenes-app-mcp-servers-connect-server-modal--custom-server-added-with-o-auth--light:
+        hash: v1.k794b7964.f0bddf2130b941ba3c8f42e811fda8950c0d0f3fed684e4937f28502b231a877.DCxDyW6MJcd3ZeQQgErTOJgiBhGrRSWnGA1ZGxWfMrQ
+    scenes-app-mcp-servers-connect-server-modal--custom-server-without-recorded-auth-type--dark:
+        hash: v1.k794b7964.4faa82bf59db418403a0b28d8124704b9c85fcc2a2bec5972a908634df209e84.Eu4aIjVfV37IpoHd8CVf9q8l5gi81p8rAy5bPHScb1s
+    scenes-app-mcp-servers-connect-server-modal--custom-server-without-recorded-auth-type--light:
+        hash: v1.k794b7964.db5fa21534ba04f6a8f5b352da7f7c2fe04d8f8fc3027093dc3157d30c25ce51.pFkNBfksp7dVX80g7MyMlD9ypiUajQ_mQ4ASWjTPrrc
     scenes-app-notebooks--bullet-list--dark:
         hash: v1.k794b7964.5122612e1f1257f266064fbfa67da4c92ba7d8668d79a368bbb6f8f2fe280e3f.gLB6PS_LpzmNHo6fU2VPQGcfR7NTJLUS8zO06U9b62s
     scenes-app-notebooks--bullet-list--light:
