@@ -5,7 +5,13 @@ export type GetHelpAction = () => void
  * The docs page lists the channels open to each plan; posthog.com/support sells the support product.
  */
 export const openSupportOptions: GetHelpAction = () => {
-    window.open('https://posthog.com/docs/support-options?utm_medium=in-product&utm_campaign=error-toast', '_blank')
+    // `noopener` because window.open, unlike an <a target="_blank">, leaves window.opener reachable
+    // by the opened page.
+    window.open(
+        'https://posthog.com/docs/support-options?utm_medium=in-product&utm_campaign=error-toast',
+        '_blank',
+        'noopener'
+    )
 }
 
 let getHelpAction: GetHelpAction = openSupportOptions
