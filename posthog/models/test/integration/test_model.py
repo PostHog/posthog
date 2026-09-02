@@ -147,6 +147,27 @@ class TestPinterestAdsIntegrationDisplayName(BaseTest):
         assert integration.display_name == expected
 
 
+class TestOauthIntegrationDisplayName(BaseTest):
+    @parameterized.expand(
+        [
+            ("app_configured", "atlassian-client-id", "atlassian-secret", "acme"),
+            ("app_not_configured", "", "", "cloud-id-1"),
+        ]
+    )
+    def test_display_name_survives_a_missing_oauth_app(
+        self, _name: str, client_id: str, client_secret: str, expected: str
+    ) -> None:
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="jira",
+            config={"site_name": "acme"},
+            integration_id="cloud-id-1",
+        )
+
+        with self.settings(ATLASSIAN_APP_CLIENT_ID=client_id, ATLASSIAN_APP_CLIENT_SECRET=client_secret):
+            assert integration.display_name == expected
+
+
 class TestTikTokAdsIntegrationDisplayName(BaseTest):
     @parameterized.expand(
         [
