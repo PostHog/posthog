@@ -233,6 +233,12 @@ export type CommonConfig = BaseServerConfig & {
     // executeSync on the JS thread.
     CDP_HOG_RUST_VM_BATCH_EXECUTION_ENABLED: boolean
 
+    // Timeout for the internal audience-resolution calls a batch workflow makes while paging its
+    // target audience. These run ClickHouse queries that routinely take longer than the 3s
+    // EXTERNAL_REQUEST_TIMEOUT_MS inter-service budget, so they get a larger one of their own —
+    // without it, resolving a non-trivial audience always times out and the whole batch run fails.
+    CDP_HOG_FLOW_BATCH_AUDIENCE_FETCH_TIMEOUT_MS: number
+
     /** Per-function wall-clock budget for an event transformation, enforced by the HogVM. */
     TRANSFORMATIONS_HOG_TIMEOUT_MS: number
 
@@ -421,6 +427,7 @@ export function getDefaultCommonConfig(): CommonConfig {
         // Shared between ingestion and CDP
         CDP_HOG_RUST_VM_EXECUTION_ENABLED: false,
         CDP_HOG_RUST_VM_BATCH_EXECUTION_ENABLED: false,
+        CDP_HOG_FLOW_BATCH_AUDIENCE_FETCH_TIMEOUT_MS: 30_000,
         TRANSFORMATIONS_HOG_TIMEOUT_MS: 300,
 
         // Event loop yield helper

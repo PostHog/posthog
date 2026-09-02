@@ -20,6 +20,8 @@ const createFetchResponse = (status: number, body: unknown): { status: number; t
     }
 }
 
+const AUDIENCE_FETCH_TIMEOUT_MS = 30_000
+
 describe('HogFlowBatchPersonQueryService', () => {
     const team = { id: 123 } as Team
     const filters = { properties: [], filter_test_accounts: true }
@@ -31,7 +33,7 @@ describe('HogFlowBatchPersonQueryService', () => {
     })
 
     const createService = (): HogFlowBatchPersonQueryService => {
-        return new HogFlowBatchPersonQueryService({ fetch: fetchMock } as any)
+        return new HogFlowBatchPersonQueryService({ fetch: fetchMock } as any, AUDIENCE_FETCH_TIMEOUT_MS)
     }
 
     describe('getBlastRadius', () => {
@@ -51,6 +53,7 @@ describe('HogFlowBatchPersonQueryService', () => {
                 urlPath: '/api/projects/123/internal/hog_flows/user_blast_radius',
                 fetchParams: {
                     method: 'POST',
+                    timeoutMs: AUDIENCE_FETCH_TIMEOUT_MS,
                     body: JSON.stringify({
                         filters,
                         group_type_index: 1,
@@ -73,6 +76,7 @@ describe('HogFlowBatchPersonQueryService', () => {
                 urlPath: '/api/projects/123/internal/hog_flows/user_blast_radius',
                 fetchParams: {
                     method: 'POST',
+                    timeoutMs: AUDIENCE_FETCH_TIMEOUT_MS,
                     body: JSON.stringify({
                         filters,
                         group_type_index: undefined,
@@ -139,6 +143,7 @@ describe('HogFlowBatchPersonQueryService', () => {
                 urlPath: '/api/projects/123/internal/hog_flows/user_blast_radius_persons',
                 fetchParams: {
                     method: 'POST',
+                    timeoutMs: AUDIENCE_FETCH_TIMEOUT_MS,
                     body: JSON.stringify({
                         filters,
                         group_type_index: 2,
@@ -151,6 +156,7 @@ describe('HogFlowBatchPersonQueryService', () => {
                 urlPath: '/api/projects/123/internal/hog_flows/user_blast_radius_persons',
                 fetchParams: {
                     method: 'POST',
+                    timeoutMs: AUDIENCE_FETCH_TIMEOUT_MS,
                     body: JSON.stringify({
                         filters,
                         group_type_index: 2,
@@ -182,6 +188,7 @@ describe('HogFlowBatchPersonQueryService', () => {
                 urlPath: '/api/projects/123/internal/hog_flows/user_blast_radius_persons',
                 fetchParams: {
                     method: 'POST',
+                    timeoutMs: AUDIENCE_FETCH_TIMEOUT_MS,
                     body: JSON.stringify({
                         filters,
                         group_type_index: undefined,
@@ -240,6 +247,7 @@ describe('HogFlowBatchPersonQueryService', () => {
                 urlPath: '/api/projects/123/internal/hog_flows/account_audience',
                 fetchParams: {
                     method: 'POST',
+                    timeoutMs: AUDIENCE_FETCH_TIMEOUT_MS,
                     body: JSON.stringify({
                         filters: accountFilters,
                         cursor: 'abc',

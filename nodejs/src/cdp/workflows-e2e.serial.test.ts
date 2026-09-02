@@ -3994,7 +3994,10 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
               } as unknown as CyclotronV2Worker)
             : cyclotronWorker
         const internalFetchService = new InternalFetchService(hub.INTERNAL_API_BASE_URL, hub.INTERNAL_API_SECRET)
-        const queryService = new HogFlowBatchPersonQueryService(internalFetchService)
+        const queryService = new HogFlowBatchPersonQueryService(
+            internalFetchService,
+            hub.CDP_HOG_FLOW_BATCH_AUDIENCE_FETCH_TIMEOUT_MS
+        )
         return new CdpCyclotronWorkerBatchResolve(hub, deps, workerForConsumer, queryService, internalFetchService)
     }
 

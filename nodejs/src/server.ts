@@ -404,7 +404,10 @@ export class PluginServer implements NodeServer {
                     this.config.INTERNAL_API_BASE_URL,
                     this.config.INTERNAL_API_SECRET
                 )
-                const hogFlowBatchPersonQueryService = new HogFlowBatchPersonQueryService(internalFetchService)
+                const hogFlowBatchPersonQueryService = new HogFlowBatchPersonQueryService(
+                    internalFetchService,
+                    this.config.CDP_HOG_FLOW_BATCH_AUDIENCE_FETCH_TIMEOUT_MS
+                )
                 const consumer = new CdpCyclotronWorkerBatchResolve(
                     this.config,
                     cdpDeps!,
