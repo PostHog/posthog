@@ -72,9 +72,9 @@ Read-only-on-push does not make running fork code safe. `gh pr checkout` of a fo
 
 ## Evidence Upload Approval
 
-Evidence upload publishes local-stack screenshots, demo reels, and demo videos to the public `PostHog/pr-assets` repo via `hogli pr:upload-image` and `hogli pr:upload-video`. Uploads are public and permanent: URLs are SHA-pinned and keep serving even after the file is deleted, so an upload cannot be taken back. Pixels are not scrubbed: a screenshot can include emails, workspace names, dashboard contents, rendered tokens, or admin UI not intended for public viewing.
+Evidence upload publishes local-stack screenshots, demo reels, and demo videos to GitHub through `gh pr comment --attach`. Uploads are public and permanent: the attachment URL keeps serving even after the comment is edited or deleted, so an upload cannot be taken back. Pixels are not scrubbed: a screenshot can include emails, workspace names, dashboard contents, rendered tokens, or admin UI not intended for public viewing.
 
-Get explicit approval for the upload set in the same gate as the PR comment. Show the user the list of files about to be uploaded and what each one shows. Do not upload first and ask later; the upload is the disclosure. The command's `--yes` flag exists as a speed bump for exactly this reason - passing it is a statement that the user approved this exact upload set.
+Get explicit approval for the upload set in the same gate as the PR comment. Show the user the list of files about to be attached and what each one shows. Do not attach first and ask later; the upload is the disclosure. `--attach` has no confirmation prompt, and it uploads and posts in the same command, so that approval is the only gate there is.
 
 ## Autonomous Fix Bounds
 

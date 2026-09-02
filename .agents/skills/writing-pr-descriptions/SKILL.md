@@ -78,7 +78,24 @@ No PR needs every form. Reach for one because it makes review faster, never as d
 
 ### Screenshots
 
-Upload with `hogli pr:upload-image <file>` and paste the markdown it prints. The first run only warns; re-run with `--yes`. The assets are public forever, so never upload customer data, customer names, secrets, or internal info.
+Write the body against the local file, then let `gh` upload it and rewrite the reference in place:
+
+```bash
+gh pr create --draft --body-file body.md --attach './before.png#Empty state today' --attach ./after.png
+gh pr edit 12345 --attach ./flow.mp4
+```
+
+`--attach` repeats, up to 50 files per command, and works on `gh pr create`, `gh pr edit`, and `gh pr comment`.
+A `![Empty state today](./before.png)` already in the body becomes the uploaded asset and keeps its alt text.
+A file the body never mentions is appended to the end instead.
+Alt text for an image follows the path after `#`; without it `gh` uses the filename.
+Video (mp4, mov, webm) renders as a player and takes no alt text.
+Accepts png, jpg, gif, webp, svg, and video, up to 10 MB.
+
+`--attach` needs gh 2.99.0 or later (`gh --version`) and write access to the repo.
+On older gh, upload with `hogli pr:upload-image <file>` and paste the markdown it prints, re-running with `--yes` to confirm.
+
+Attachments are public and permanent, so never attach customer data, customer names, secrets, or internal info.
 
 Touching UI code without a visible change is common, and the mandate has to be dischargeable. When nothing looks different, say so in one line. A reviewer cannot tell that case from a missing screenshot, and silence reads as the second.
 

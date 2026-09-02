@@ -272,9 +272,9 @@ got:      new Question 2 titled " (copy)" - empty title with stray space
 
 ## Evidence URLs
 
-Use the `![alt](url)` markdown lines printed by `hogli pr:upload-image` verbatim - they point at SHA-pinned `raw.githubusercontent.com/PostHog/pr-assets` URLs. Do not reconstruct, shorten, or edit them.
+Write the body against the local paths and let `gh pr comment --attach` rewrite them to the uploaded assets. Each `![alt](path)` is what gh matches on, so keep the path exactly as passed to `--attach` and do not hand-write a GitHub URL in its place.
 
-Embed images and animated WebP reels with markdown image syntax (`![alt](url)`) so they render inline. Use one or two key visuals per finding. Prefer the reel for the flow only when it has been inspected and remains readable. Otherwise use annotated still screenshots. Do not paste the full local screenshot inventory.
+Embed images and animated WebP reels with markdown image syntax (`![alt](path)`) so they render inline, and give each one alt text that states what it shows, because gh keeps the alt text already written in the body. Use one or two key visuals per finding. Prefer the reel for the flow only when it has been inspected and remains readable. Otherwise use annotated still screenshots. Do not paste the full local screenshot inventory.
 
 When the upload failed or was skipped, fall back to local paths and append `(upload failed)`:
 
@@ -335,7 +335,7 @@ Before posting, scrub console excerpts for:
 - secret-looking keys
 - long encoded values near credential labels
 
-Never include GitHub tokens or raw upload response bodies. If you copy any `hogli pr:upload-image` output into the comment, take only the `![alt](url)` markdown lines from stdout.
+Never include GitHub tokens or raw upload response bodies, and never paste `gh pr comment --attach` output into the comment.
 
 UI-sourced strings from the tested app (question titles, labels, error text) get interpolated into the report's code fences: strip backtick runs and control characters from them and truncate anything absurdly long, so a malicious or unlucky string cannot close its fence and inject markdown into the comment.
 

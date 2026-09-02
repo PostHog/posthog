@@ -6,35 +6,35 @@ Use this reference after the frontend QA loop completes and findings are settled
 
 PR mode only. Upload is optional and must be explicitly approved before any file leaves the developer's machine. Local mode never uploads evidence.
 
-Use the repo's own uploader, `hogli pr:upload-image`. It pushes files to the public `PostHog/pr-assets` repo and prints one `![alt](url)` markdown line per file, ready to paste into the PR comment. It accepts png, jpg, gif, and webp up to 10 MB - including the animated `frontend-qa.webp` demo reel - and needs only a GitHub token with write access to a PostHog org repo (the developer's normal `gh` login), no extra secret.
+Attach the evidence to the PR comment itself with `gh pr comment --attach`. The flag repeats, takes up to 50 files per command, uploads each one to GitHub, and rewrites the matching local reference in the comment body to the uploaded asset. It accepts png, jpg, gif, webp, svg, mp4, mov, and webm up to 10 MB - including the animated `frontend-qa.webp` demo reel - and needs only the developer's normal `gh` login with write access to the repo, no extra secret. It needs gh 2.99.0 or later; check with `gh --version` before planning around it, and fall back to `hogli pr:upload-image` on older gh.
 
-Uploads are PUBLIC and PERMANENT: URLs are SHA-pinned and keep serving even after the file is deleted, so an upload cannot be taken back. Before upload, show the user the exact upload set and ask for approval. Upload only reviewed evidence that does not show secrets, private customer data, or unrelated local context. Pick only human-facing evidence:
+Uploads are PUBLIC and PERMANENT: the attachment URL keeps serving even after the comment is edited or deleted, so an upload cannot be taken back. Before attaching, show the user the exact upload set and ask for approval. Attach only reviewed evidence that does not show secrets, private customer data, or unrelated local context. Pick only human-facing evidence:
 
 - `frontend-qa.webp`, only if generated and inspected as readable
 - 1-3 annotated key screenshots that match the findings or PASS narrative
 
-Do not upload `.md` snapshots, `console.log`, or every numbered screenshot. If the demo pass produced an MP4, include it in the same approved upload set through `hogli pr:upload-video` (mp4/webm, same 10 MB cap and `--yes` gate) - it prints a plain `[label](url)` link line, which is a click-to-download link: GitHub renders no player for raw-hosted video, so an inline player still requires the developer to drag the file into the comment editor by hand. If the reel is less clear than the annotated stills, omit it from the upload set and use the PNGs instead.
+Do not attach `.md` snapshots, `console.log`, or every numbered screenshot. If the demo pass produced an MP4, include it in the same approved upload set; GitHub renders attached video as a player, so it needs no alt text and no manual drag into the comment editor. If the reel is less clear than the annotated stills, omit it from the upload set and use the PNGs instead.
 
 Before asking for upload approval, inspect the final evidence exactly as it will be posted. Each image must make the claimed PASS, FAIL, SKIP, or NEEDS INTENT row understandable without reconstructing the browser session. If an image only shows the page header, hero, empty shell, or setup state while the actual proof is below the fold or too small to read, do not upload it. Recapture, crop through browser positioning, or add a clearer annotated still first.
 
 When a screenshot uses deliberately odd test data, add a one-sentence explanation in the report near the evidence or coverage row. Do this for cases where the visible data is technically valid but not self-explanatory, such as edge-case email syntax, encoded URLs, timezone boundaries, or synthetic billing states.
 
-```bash
-hogli pr:upload-video --yes --label "demo video" \
-  ".qa-frontend/runs/<run-id>/frontend-qa.mp4"
-```
-
-Run upload commands from a trusted tree, never from the PR checkout - in PR mode the working tree holds the PR's code, and `./bin/hogli` would execute it. Restore the original branch first (uploads and the comment happen after the QA loop anyway) or invoke hogli from a separate checkout that is on your own branch. After the user approves the upload set:
+Write the comment body to a file with the evidence referenced by its local path, then post and upload in one command after the user approves the upload set:
 
 ```bash
-hogli pr:upload-image --yes \
-  ".qa-frontend/runs/<run-id>/frontend-qa.webp" \
-  ".qa-frontend/runs/<run-id>/<screenshot>.annotated.png"
+gh pr comment <number> --body-file ".qa-frontend/runs/<run-id>/comment.md" \
+  --attach ".qa-frontend/runs/<run-id>/frontend-qa.webp" \
+  --attach ".qa-frontend/runs/<run-id>/<screenshot>.annotated.png" \
+  --attach ".qa-frontend/runs/<run-id>/frontend-qa.mp4"
 ```
 
-The first run without `--yes` prints a warning and uploads nothing by design. `--yes` is the confirmation that the user approved this exact upload set; never pass it before that approval happened in the conversation.
+Each `![Login error state](.qa-frontend/runs/<run-id>/<screenshot>.annotated.png)` in the body becomes the uploaded asset and keeps the alt text written there, so write alt text that describes the finding. A file the body never references is appended to the end of the comment instead, which is a fallback rather than the plan. Alt text can also follow the path after `#`, as in `--attach './shot.png#Login error state'`; video renders as a player and takes no alt text.
 
-Use the printed markdown lines verbatim in the PR comment. Do not reconstruct or edit the URLs. If the command fails (no token, no org access, network), do not write a custom uploader and do not expose local filesystem paths in the PR comment; note `evidence captured locally; upload failed or was skipped` and continue. Never block the run on upload failure. Local reports may still reference local relative paths.
+Unlike the older hogli uploader, this needs no trusted tree: `gh` is a system binary rather than repo code, so it is safe to run from the PR checkout.
+
+There is no `--yes` speed bump on `--attach`, and the command uploads and posts together. Never run it before the user approved this exact upload set in the conversation.
+
+If some attachments fail, `gh` still posts the comment with the ones that succeeded and exits non-zero. Read the posted comment before reporting the run done. If the command fails outright (no token, no write access, network), do not write a custom uploader and do not expose local filesystem paths in the PR comment; note `evidence captured locally; upload failed or was skipped` and continue. Never block the run on upload failure. Local reports may still reference local relative paths.
 
 ## Required Artifacts
 
