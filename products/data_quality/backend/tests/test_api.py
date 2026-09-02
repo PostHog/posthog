@@ -965,6 +965,49 @@ class TestDataQualityCheckAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert [row["check_type"] for row in response.json()] == [CheckType.CUSTOM_SQL]
 
+    def test_a_readable_run_does_not_name_a_check_the_member_may_no_longer_see(self) -> None:
+        # The run pinned an allowed view, so its history stays readable -- but the name on its check
+        # is present tense, and the check now reads the denied "orders". Serving the name hands over
+        # what a teammate called a check this member is no longer shown.
+        allowed = self._make_view("customers")
+        check = DataQualityCheck.objects.for_team(self.team.id).create(
+            team=self.team,
+            name="nightly_customers_audit",
+            subject_type=SubjectType.VIEW,
+            saved_query_id=allowed.id,
+            subject_name="customers",
+            check_type=CheckType.CUSTOM_SQL,
+            config={"query": "SELECT 1 FROM customers"},
+            fingerprint=uuid4().hex,
+        )
+        suite = DataQualitySuiteRun.objects.for_team(self.team.id).create(
+            team=self.team, trigger="manual", subject_type=SubjectType.VIEW, subject_uuid=allowed.id
+        )
+        api.record_check_run(
+            self.team.id,
+            suite_run=suite,
+            quality_check=check,
+            subject_type=SubjectType.VIEW,
+            subject_uuid=allowed.id,
+            subject_name="customers",
+            check_type=CheckType.CUSTOM_SQL,
+            check_config={"query": "SELECT 1 FROM customers"},
+            referenced_subjects=self._pinned(allowed),
+            check_fingerprint=check.fingerprint,
+            status=CheckRunStatus.FAILED,
+            failed_row_count=3,
+        )
+        DataQualityCheck.objects.for_team(self.team.id).filter(id=check.id).update(
+            config={"query": "SELECT 1 FROM orders"}
+        )
+        self._deny_the_view()
+
+        response = self.client.get(f"{self._suite_runs_url(allowed.id)}/{suite.id}/check_runs/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [row["check_type"] for row in response.json()] == [CheckType.CUSTOM_SQL]
+        assert [row["check_name"] for row in response.json()] == [None]
+
     def test_a_deleted_declared_subject_withholds_its_history_from_a_restricted_member(self) -> None:
         # Deleting a subject takes its denial with it, so nothing left can show the caller was
         # allowed it. The run, its suite, and the check all fall out until retention deletes them.

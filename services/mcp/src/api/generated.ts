@@ -21663,7 +21663,7 @@ export namespace Schemas {
          */
       readonly quality_check: string | null;
       /**
-         * Name the check carries now, so a run can be told from the others in its suite. Null when the check is unnamed or has been hard deleted -- describe the run by check_type and column_name instead.
+         * Name the check carries now, so a run can be told from the others in its suite. Null when the check is unnamed, has been hard deleted, or is out of your reach today -- describe the run by check_type and column_name instead.
          * @nullable
          */
       readonly check_name: string | null;

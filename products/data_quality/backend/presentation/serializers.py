@@ -255,15 +255,18 @@ class DataQualityCheckRunSerializer(serializers.ModelSerializer):
     )
     check_name = serializers.SerializerMethodField(
         help_text="Name the check carries now, so a run can be told from the others in its suite. "
-        "Null when the check is unnamed or has been hard deleted -- describe the run by check_type "
-        "and column_name instead."
+        "Null when the check is unnamed, has been hard deleted, or is out of your reach today -- "
+        "describe the run by check_type and column_name instead."
     )
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_check_name(self, obj: DataQualityCheckRun) -> str | None:
-        if not obj.quality_check:
+        # A surface that serves runs from several checks passes the ones it may not name; a surface
+        # that already authorized the single check it serves passes nothing and names it.
+        check = obj.quality_check
+        if not check or check.id in self.context.get("unnamable_check_ids", frozenset()):
             return None
-        return obj.quality_check.name or None
+        return check.name or None
 
     class Meta:
         model = DataQualityCheckRun
