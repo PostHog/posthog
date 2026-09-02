@@ -31,7 +31,7 @@ export const getGoogleADKSteps = (ctx: OnboardingComponentsContext): StepDefinit
                     <CodeBlock
                         language="bash"
                         code={dedent`
-                            npm install @posthog/ai posthog-node @google/adk
+                            npm install @posthog/ai posthog-node @google/adk zod
                         `}
                     />
                 </>
@@ -44,23 +44,33 @@ export const getGoogleADKSteps = (ctx: OnboardingComponentsContext): StepDefinit
                 <>
                     <Markdown>
                         Create a PostHog client and register `PostHogADKPlugin` on your ADK `Runner`. The plugin hooks
-                        the model-call lifecycle and captures one `$ai_generation` event per model call. It **does not**
-                        proxy your calls.
+                        the run, agent, tool, and model callbacks and captures the full hierarchy: an `$ai_trace` per
+                        invocation, `$ai_span` events for agent runs and tool calls, and one `$ai_generation` per model
+                        call. It **does not** proxy your calls.
                     </Markdown>
 
                     <CodeBlock
                         language="typescript"
                         code={dedent`
-                            import { InMemorySessionService, LlmAgent, Runner } from '@google/adk'
+                            import { FunctionTool, InMemorySessionService, LlmAgent, Runner } from '@google/adk'
                             import { PostHogADKPlugin } from '@posthog/ai/adk'
                             import { PostHog } from 'posthog-node'
+                            import { z } from 'zod'
 
                             const posthog = new PostHog('<ph_project_token>', { host: '<ph_client_api_host>' })
 
+                            const getWeather = new FunctionTool({
+                              name: 'get_weather',
+                              description: 'Get the current weather for a city.',
+                              parameters: z.object({ city: z.string() }),
+                              execute: ({ city }) => \`The weather in \${city} is sunny, 72F\`,
+                            })
+
                             const agent = new LlmAgent({
                               name: 'assistant',
-                              model: 'gemini-2.5-flash',
+                              model: 'gemini-3.6-flash',
                               instruction: 'You are a helpful assistant.',
+                              tools: [getWeather],
                             })
 
                             const sessionService = new InMemorySessionService()
@@ -110,6 +120,17 @@ export const getGoogleADKSteps = (ctx: OnboardingComponentsContext): StepDefinit
                             }
                         `}
                     />
+
+                    <Markdown>
+                        {dedent`
+                            The question above makes the agent call the tool, so this run captures:
+
+                            - a trace for the invocation
+                            - a span for the \`assistant\` agent run
+                            - a span for the \`get_weather\` tool call
+                            - a generation for each of the two model calls (the tool request, then the answer)
+                        `}
+                    </Markdown>
 
                     <Markdown>
                         Call `await posthog.shutdown()` before your process exits so batched events are flushed.
