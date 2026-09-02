@@ -2,22 +2,19 @@
 import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
-import {
-    ProxyRecordsCreateBody,
-    ProxyRecordsDestroyParams,
-    ProxyRecordsDiagnoseCreateParams,
-    ProxyRecordsRetrieveParams,
-    ProxyRecordsRetryCreateParams,
-} from '@/generated/proxy-records/api'
+import * as orvalSchemas from '@/generated/proxy-records/api'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const ProxyCreateSchema = ProxyRecordsCreateBody
+const ProxyCreateSchema = () => {
+    const ProxyRecordsCreateBody = orvalSchemas.ProxyRecordsCreateBody()
+    return ProxyRecordsCreateBody
+}
 
-const proxyCreate = (): ToolBase<typeof ProxyCreateSchema, Schemas.ProxyRecord> => ({
+const proxyCreate = (): ToolBase<ReturnType<typeof ProxyCreateSchema>, Schemas.ProxyRecord> => ({
     name: 'proxy-create',
-    schema: ProxyCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof ProxyCreateSchema>) => {
+    schema: ProxyCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ProxyCreateSchema>>) => {
         const orgId = await context.stateManager.getOrgID()
         const body: Record<string, unknown> = {}
         if (params.domain !== undefined) {
@@ -32,12 +29,15 @@ const proxyCreate = (): ToolBase<typeof ProxyCreateSchema, Schemas.ProxyRecord> 
     },
 })
 
-const ProxyDeleteSchema = ProxyRecordsDestroyParams.omit({ organization_id: true })
+const ProxyDeleteSchema = () => {
+    const ProxyRecordsDestroyParams = orvalSchemas.ProxyRecordsDestroyParams()
+    return ProxyRecordsDestroyParams.omit({ organization_id: true })
+}
 
-const proxyDelete = (): ToolBase<typeof ProxyDeleteSchema, unknown> => ({
+const proxyDelete = (): ToolBase<ReturnType<typeof ProxyDeleteSchema>, unknown> => ({
     name: 'proxy-delete',
-    schema: ProxyDeleteSchema,
-    handler: async (context: Context, params: z.infer<typeof ProxyDeleteSchema>) => {
+    schema: ProxyDeleteSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ProxyDeleteSchema>>) => {
         const orgId = await context.stateManager.getOrgID()
         const result = await context.api.request<unknown>({
             method: 'DELETE',
@@ -47,12 +47,15 @@ const proxyDelete = (): ToolBase<typeof ProxyDeleteSchema, unknown> => ({
     },
 })
 
-const ProxyDiagnoseSchema = ProxyRecordsDiagnoseCreateParams.omit({ organization_id: true })
+const ProxyDiagnoseSchema = () => {
+    const ProxyRecordsDiagnoseCreateParams = orvalSchemas.ProxyRecordsDiagnoseCreateParams()
+    return ProxyRecordsDiagnoseCreateParams.omit({ organization_id: true })
+}
 
-const proxyDiagnose = (): ToolBase<typeof ProxyDiagnoseSchema, Schemas.DiagnosticReport> => ({
+const proxyDiagnose = (): ToolBase<ReturnType<typeof ProxyDiagnoseSchema>, Schemas.DiagnosticReport> => ({
     name: 'proxy-diagnose',
-    schema: ProxyDiagnoseSchema,
-    handler: async (context: Context, params: z.infer<typeof ProxyDiagnoseSchema>) => {
+    schema: ProxyDiagnoseSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ProxyDiagnoseSchema>>) => {
         const orgId = await context.stateManager.getOrgID()
         const result = await context.api.request<Schemas.DiagnosticReport>({
             method: 'POST',
@@ -62,12 +65,15 @@ const proxyDiagnose = (): ToolBase<typeof ProxyDiagnoseSchema, Schemas.Diagnosti
     },
 })
 
-const ProxyGetSchema = ProxyRecordsRetrieveParams.omit({ organization_id: true })
+const ProxyGetSchema = () => {
+    const ProxyRecordsRetrieveParams = orvalSchemas.ProxyRecordsRetrieveParams()
+    return ProxyRecordsRetrieveParams.omit({ organization_id: true })
+}
 
-const proxyGet = (): ToolBase<typeof ProxyGetSchema, Schemas.ProxyRecord> => ({
+const proxyGet = (): ToolBase<ReturnType<typeof ProxyGetSchema>, Schemas.ProxyRecord> => ({
     name: 'proxy-get',
-    schema: ProxyGetSchema,
-    handler: async (context: Context, params: z.infer<typeof ProxyGetSchema>) => {
+    schema: ProxyGetSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ProxyGetSchema>>) => {
         const orgId = await context.stateManager.getOrgID()
         const result = await context.api.request<Schemas.ProxyRecord>({
             method: 'GET',
@@ -77,13 +83,15 @@ const proxyGet = (): ToolBase<typeof ProxyGetSchema, Schemas.ProxyRecord> => ({
     },
 })
 
-const ProxyListSchema = z.object({})
+const ProxyListSchema = () => z.object({})
 
-const proxyList = (): ToolBase<typeof ProxyListSchema, WithPostHogUrl<Schemas.ProxyRecordListResponse>> => ({
+const proxyList = (): ToolBase<
+    ReturnType<typeof ProxyListSchema>,
+    WithPostHogUrl<Schemas.ProxyRecordListResponse>
+> => ({
     name: 'proxy-list',
-    schema: ProxyListSchema,
-    // eslint-disable-next-line no-unused-vars
-    handler: async (context: Context, params: z.infer<typeof ProxyListSchema>) => {
+    schema: ProxyListSchema(),
+    handler: async (context: Context, _params: z.infer<ReturnType<typeof ProxyListSchema>>) => {
         const orgId = await context.stateManager.getOrgID()
         const result = await context.api.request<Schemas.ProxyRecordListResponse>({
             method: 'GET',
@@ -93,12 +101,15 @@ const proxyList = (): ToolBase<typeof ProxyListSchema, WithPostHogUrl<Schemas.Pr
     },
 })
 
-const ProxyRetrySchema = ProxyRecordsRetryCreateParams.omit({ organization_id: true })
+const ProxyRetrySchema = () => {
+    const ProxyRecordsRetryCreateParams = orvalSchemas.ProxyRecordsRetryCreateParams()
+    return ProxyRecordsRetryCreateParams.omit({ organization_id: true })
+}
 
-const proxyRetry = (): ToolBase<typeof ProxyRetrySchema, Schemas.ProxyRecord> => ({
+const proxyRetry = (): ToolBase<ReturnType<typeof ProxyRetrySchema>, Schemas.ProxyRecord> => ({
     name: 'proxy-retry',
-    schema: ProxyRetrySchema,
-    handler: async (context: Context, params: z.infer<typeof ProxyRetrySchema>) => {
+    schema: ProxyRetrySchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ProxyRetrySchema>>) => {
         const orgId = await context.stateManager.getOrgID()
         const result = await context.api.request<Schemas.ProxyRecord>({
             method: 'POST',
