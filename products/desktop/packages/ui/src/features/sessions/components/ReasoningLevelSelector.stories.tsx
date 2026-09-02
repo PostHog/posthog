@@ -111,29 +111,38 @@ function contextWindowOption(): SessionConfigOption {
 function Harness({
   workspaceMode,
   subscriptionOn = false,
+  billingAdapter = "claude",
 }: {
   workspaceMode?: WorkspaceModeForAccess;
   /** Provider picked in the Billing menu; true reveals the logged-out login note. */
   subscriptionOn?: boolean;
+  /** Adapter whose Billing submenu is shown. */
+  billingAdapter?: AgentAdapter;
 }): ReactElement {
-  const [adapter, setAdapter] = useState<AgentAdapter>("claude");
+  const [, setAdapter] = useState<AgentAdapter>("claude");
   const [model, setModel] = useState("claude-opus-5");
   const [effort, setEffort] = useState("medium");
 
   // The submenu reads the real useAdapterSubscription hook, which reads the
   // settings store; the modelAccess prop below only gates the model list.
-  useSettingsStore
-    .getState()
-    .setClaudeModelAccess(
-      subscriptionOn ? "own-subscription" : "posthog-gateway",
-    );
+  const store = useSettingsStore.getState();
+  store.setClaudeModelAccess(
+    billingAdapter === "claude" && subscriptionOn
+      ? "own-subscription"
+      : "posthog-gateway",
+  );
+  store.setCodexModelAccess(
+    billingAdapter === "codex" && subscriptionOn
+      ? "own-subscription"
+      : "posthog-gateway",
+  );
 
   return (
     <div className="flex h-[520px] items-end p-2">
       <ReasoningLevelSelector
         thoughtOption={effortOption(effort)}
         modelOption={groupedModelOption(model)}
-        adapter={adapter}
+        adapter={billingAdapter}
         contextWindowOption={contextWindowOption()}
         onChange={setEffort}
         onModelChange={setModel}
@@ -205,7 +214,11 @@ async function openBillingSubmenu(
   await userEvent.click(
     canvas.getByRole("button", { name: /Model and reasoning/ }),
   );
-  await userEvent.click(await body.findByRole("button", { name: "Advanced" }));
+  // An off-ladder combo opens straight on the Advanced view, with no toggle.
+  const advanced = body.queryByRole("button", { name: "Advanced" });
+  if (advanced) {
+    await userEvent.click(advanced);
+  }
   await userEvent.click(await body.findByRole("menuitem", { name: /Billing/ }));
 }
 
@@ -236,8 +249,34 @@ export const LoginPromptBilling: StoryObj<typeof BillingHarnessLoginPrompt> = {
   play: async ({ canvas, canvasElement, userEvent }): Promise<void> => {
     await openBillingSubmenu(canvas, canvasElement, userEvent);
     const body = within(canvasElement.ownerDocument.body);
-    await body.findByText(/Log in to Claude Code to use Anthropic billing/);
-    await body.findByRole("button", { name: "Log in" });
+    await body.findByRole("button", { name: "Log in to Claude Code" });
+    await body.findByText(
+      (_, element) =>
+        element?.textContent ===
+        "Log in to Claude Code to use Anthropic billing.",
+    );
+  },
+};
+
+function BillingHarnessCodexLoginPrompt(): ReactElement {
+  return (
+    <Harness workspaceMode="local" subscriptionOn billingAdapter="codex" />
+  );
+}
+
+export const LoginPromptBillingCodex: StoryObj<
+  typeof BillingHarnessCodexLoginPrompt
+> = {
+  render: () => <BillingHarnessCodexLoginPrompt />,
+  play: async ({ canvas, canvasElement, userEvent }): Promise<void> => {
+    await openBillingSubmenu(canvas, canvasElement, userEvent);
+    const body = within(canvasElement.ownerDocument.body);
+    await body.findByRole("menuitemradio", { name: "OpenAI" });
+    await body.findByRole("button", { name: "Connect ChatGPT" });
+    await body.findByText(
+      (_, element) =>
+        element?.textContent === "Connect ChatGPT to use OpenAI billing.",
+    );
   },
 };
 

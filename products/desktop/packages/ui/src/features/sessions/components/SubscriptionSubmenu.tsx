@@ -22,9 +22,15 @@ const PROVIDER_LABEL: Record<Adapter, string> = {
   codex: "OpenAI",
 };
 
-const LOGIN_NOTE: Record<Adapter, string> = {
-  claude: "Log in to Claude Code to use Anthropic billing.",
-  codex: "Connect ChatGPT to use OpenAI billing.",
+const LOGIN_NOTE: Record<Adapter, { link: string; rest: string }> = {
+  claude: {
+    link: "Log in to Claude Code",
+    rest: " to use Anthropic billing.",
+  },
+  codex: {
+    link: "Connect ChatGPT",
+    rest: " to use OpenAI billing.",
+  },
 };
 
 export const SUBSCRIPTION_LOGIN_ACTION: Record<Adapter, string> = {
@@ -133,17 +139,17 @@ export function SubscriptionSubmenu({
             // login, and sessions keep running on PostHog until the login
             // completes. Unknown status counts as not logged in, so the note
             // stays reachable when the status check cannot run or is pending.
-            <div className="flex flex-col gap-1 px-2 py-1.5 text-muted-foreground text-xs">
-              <span>{LOGIN_NOTE[adapter]}</span>
+            <div className="px-2 py-1.5 text-muted-foreground text-xs">
               <button
                 type="button"
-                className="self-start underline underline-offset-2 hover:text-foreground"
+                className="underline underline-offset-2 hover:text-foreground"
                 onClick={() =>
                   openSettings("harness", SUBSCRIPTION_LOGIN_ACTION[adapter])
                 }
               >
-                Log in
+                {LOGIN_NOTE[adapter].link}
               </button>
+              {LOGIN_NOTE[adapter].rest}
             </div>
           )}
       </DropdownMenuSubContent>

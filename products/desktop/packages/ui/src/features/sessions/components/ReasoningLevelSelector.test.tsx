@@ -955,10 +955,15 @@ describe("ReasoningLevelSelector", () => {
     await openAdvanced(user);
     await openSub(user, /^Billing/);
     expect(
-      await screen.findByText(
-        "Log in to Claude Code to use Anthropic billing.",
+      await screen.findByRole("button", { name: "Log in to Claude Code" }),
+    ).toBeInTheDocument();
+    // One sentence, no separate "Log in" row: the link carries the whole note.
+    expect(
+      screen.getByText(
+        (_, element) =>
+          element?.textContent ===
+          "Log in to Claude Code to use Anthropic billing.",
       ),
     ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Log in" })).toBeInTheDocument();
   }, 20000);
 });
