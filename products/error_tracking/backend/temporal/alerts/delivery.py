@@ -30,6 +30,7 @@ from temporalio.exceptions import ApplicationError
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.redis import get_client
 
+from products.error_tracking.backend.logic.alerts import MAX_THROTTLE_SECONDS
 from products.error_tracking.backend.models import (
     ErrorTrackingAlert,
     ErrorTrackingAlertDestination,
@@ -103,10 +104,10 @@ SLACK_TERMINAL_ERRORS = frozenset(
         "ekm_access_denied",
         "restricted_action",
         "team_access_not_granted",
+        # token_expired is deliberately absent: Slack is an OAuth integration here and
+        # the periodic refresh sweep replaces expired tokens, so a retry can succeed.
     }
 )
-# Longest a per-issue throttle key may live in shared Redis, whatever the alert says.
-MAX_THROTTLE_TTL = timedelta(days=30)
 
 
 class AlertDeliveryError(ApplicationError):
@@ -308,7 +309,9 @@ def _opener_throttle_allows(alert: ErrorTrackingAlert, inputs: AlertDeliveryWork
     key = f"{ALERT_THROTTLE_KEY_PREFIX}:{alert.id}:{inputs.issue_id}"
     try:
         client = get_client()
-        ttl = min(alert.throttle_seconds, int(MAX_THROTTLE_TTL.total_seconds()))
+        # The API rejects longer windows; the clamp keeps shared Redis safe from rows
+        # that predate that limit.
+        ttl = min(alert.throttle_seconds, MAX_THROTTLE_SECONDS)
         if client.set(key, inputs.notification_id, nx=True, ex=ttl):
             return True
         holder = client.get(key)

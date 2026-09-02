@@ -21,6 +21,10 @@ logger = structlog.get_logger(__name__)
 
 NATIVE_ALERTS_FLAG = "error-tracking-native-alerts"
 
+# Longest throttle window an alert may configure. Per-issue throttle claims live in
+# shared Redis for exactly this long, so the API and delivery must agree on it.
+MAX_THROTTLE_SECONDS = 30 * 24 * 60 * 60
+
 
 def native_alerts_enabled(team_id: int) -> bool:
     try:
