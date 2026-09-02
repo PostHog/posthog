@@ -5,8 +5,9 @@ name: Desktop Warm Caches
 # they restore. Saves are allowed here because the triggers are
 # default-branch-scoped (push to master + manual dispatch).
 #
-# Turbo artifacts are not seeded here: Depot runners preset TURBO_API, so
-# every desktop job reads and writes Depot Cache directly as turbo's remote cache.
+# Turbo artifacts are not seeded here. Depot runners preset TURBO_API, which
+# points turbo at Depot Cache as its remote cache. Turbo runs fetch and store
+# task outputs there on their own.
 
 on:
     push:
