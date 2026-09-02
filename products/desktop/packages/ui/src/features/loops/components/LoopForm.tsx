@@ -4,6 +4,7 @@ import {
   CaretRight,
   Check,
 } from "@phosphor-icons/react";
+import { requestErrorStatus } from "@posthog/api-client/fetcher";
 import { hogFlowRequestDetail } from "@posthog/api-client/hogFlowLoops";
 import { type LoopSchemas, LoopsApiError } from "@posthog/api-client/loops";
 import { channelDisplayLabel } from "@posthog/core/canvas/channelName";
@@ -23,7 +24,7 @@ import {
 } from "@posthog/ui/router/navigationBridge";
 import { track } from "@posthog/ui/shell/analytics";
 import { Box, Flex, Text, TextArea, TextField } from "@radix-ui/themes";
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { useAuthStateValue } from "../../auth/store";
 import { useLoopHogFlow } from "../hooks/useLoop";
 import {
@@ -45,7 +46,7 @@ import {
   formValuesToLoopWrite,
   isAutoFixEnabled,
   isLoopFormValid,
-  isTriggerDraftValid,
+  isTriggerListValid,
   LOOPS_API_RULES,
   type LoopContextTargetDraft,
   type LoopFormValues,
@@ -55,9 +56,13 @@ import {
 } from "../loopFormTypes";
 import {
   hogFlowTeamSkills,
+  isLoopShapedHogFlow,
   UnsupportedLoopShapeError,
 } from "../loopHogFlowMapping";
-import { LoopScheduleSaveError } from "../loopHogFlowWrites";
+import {
+  LoopForeignWorkflowError,
+  LoopScheduleSaveError,
+} from "../loopHogFlowWrites";
 import { formatLoopModel } from "../loopModels";
 import { buildSkillInstructions, loopSkillBundles } from "../loopSkill";
 import { WORKFLOW_TRIGGER_LIMITS } from "../loopTriggerLimits";
@@ -142,6 +147,17 @@ export function LoopForm({
     [hogFlow],
   );
   const rules = workflowBacked ? WORKFLOW_RULES : LOOPS_API_RULES;
+  // One-shot prefill from the landing prompt, a template, or a space; merged
+  // over the blank defaults. Read (not consumed) here, then cleared in the
+  // effect below so the manual "New loop" button always opens a blank form.
+  const [prefill] = useState(() =>
+    loop ? null : useLoopDraftStore.getState().prefill,
+  );
+  // A workflow has nowhere to keep a space attachment, so a loop started from
+  // a space opens detached and the form says so instead of dropping it quietly.
+  const detachedSpace = workflowBacked
+    ? (prefill?.contextTarget ?? null)
+    : null;
   const [values, setValues] = useState<LoopFormValues>(() => {
     if (loop) {
       return normalizeLoopFormValues({
@@ -149,13 +165,10 @@ export function LoopForm({
         teamSkills,
       });
     }
-    // One-shot prefill from the landing prompt or a template; merged over the
-    // blank defaults. Read (not consumed) here, then cleared in the effect
-    // below so the manual "New loop" button always opens a blank form.
-    const prefill = useLoopDraftStore.getState().prefill;
     return normalizeLoopFormValues({
       ...emptyLoopFormValues(),
       ...(prefill ?? {}),
+      ...(workflowBacked ? { contextTarget: null } : {}),
     });
   });
   const [step, setStep] = useState(0);
@@ -163,6 +176,11 @@ export function LoopForm({
     loop ? buildLoopFormBaseline(loop, teamSkills) : null,
   );
   const [hasRemoteUpdate, setHasRemoteUpdate] = useState(false);
+  // `updated_at` of a write this form made. When the loop with that stamp
+  // arrives, the baseline moves onto it without treating it as someone
+  // else's change, so a partial save (graph stuck, schedule did not) can be
+  // saved again.
+  const ownWriteUpdatedAtRef = useRef<string | null>(null);
   // Open when editing a loop that already pins a model, so the pinned value
   // is visible without hunting for it.
   const [showAdvanced, setShowAdvanced] = useState(
@@ -185,7 +203,20 @@ export function LoopForm({
       return;
     }
 
-    if (nextBaseline.updatedAt === baseline.updatedAt) return;
+    // A schedule row edit moves only the row's own `updated_at`, so the
+    // cadence is compared through the serialized values as well.
+    if (
+      nextBaseline.updatedAt === baseline.updatedAt &&
+      nextBaseline.serialized === baseline.serialized
+    ) {
+      return;
+    }
+
+    if (nextBaseline.updatedAt === ownWriteUpdatedAtRef.current) {
+      ownWriteUpdatedAtRef.current = null;
+      setBaseline(nextBaseline);
+      return;
+    }
 
     if (isDirty) {
       setHasRemoteUpdate(true);
@@ -255,16 +286,17 @@ export function LoopForm({
   const stepComplete = [
     !!values.name.trim() &&
       (values.skill !== null || !!values.instructions.trim()),
-    values.triggers.every((trigger) => isTriggerDraftValid(trigger, rules)),
+    isTriggerListValid(values.triggers, rules),
     true,
     isLoopFormValid(values, rules),
   ];
   const isLastStep = step === STEPS.length - 1;
 
-  // Building a loop for a space keeps a way back to it; without one the header
-  // still names the scene, it just has no parent to offer.
+  // Building a loop for a space keeps a way back to it, attached or not;
+  // without one the header still names the scene, it just has no parent to
+  // offer.
   const spacesLayout = useChannelsLayout();
-  const contextTarget = values.contextTarget;
+  const contextTarget = values.contextTarget ?? detachedSpace;
   const headerLeaf = isEdit ? loop.name : "New loop";
   useSetHeaderContent(
     useMemo(
@@ -302,6 +334,13 @@ export function LoopForm({
     }
   };
 
+  const reportForeignWorkflow = () => {
+    toast.error("This loop was changed in the workflow editor", {
+      description:
+        "Open it in PostHog to change it. Saving here would replace those changes.",
+    });
+  };
+
   const submitWorkflowLoop = async () => {
     if (isEdit && !hogFlow) {
       toast.error("Loop is still loading", {
@@ -309,11 +348,18 @@ export function LoopForm({
       });
       return;
     }
+    // The detail page checks the shape when it renders; a reshaped flow can
+    // still arrive while the form is open, or the form can open by URL.
+    if (isEdit && hogFlow && !isLoopShapedHogFlow(hogFlow)) {
+      reportForeignWorkflow();
+      return;
+    }
     try {
       const saved =
         isEdit && hogFlow
           ? await updateHogFlowLoop.mutateAsync({ values, existing: hogFlow })
           : await createHogFlowLoop.mutateAsync({ values, enabled: true });
+      ownWriteUpdatedAtRef.current = saved.updated_at;
       track(
         isEdit ? ANALYTICS_EVENTS.LOOP_UPDATED : ANALYTICS_EVENTS.LOOP_CREATED,
         buildLoopSavedProps(saved),
@@ -327,6 +373,7 @@ export function LoopForm({
       if (error instanceof LoopScheduleSaveError) {
         // Keep the form open with its state intact: saving again retries the
         // schedule write against the graph that already stuck.
+        ownWriteUpdatedAtRef.current = error.flow.updated_at;
         toast.error("Loop saved, but its schedule didn't update", {
           description: [
             hogFlowRequestDetail(error.cause),
@@ -334,6 +381,19 @@ export function LoopForm({
           ]
             .filter(Boolean)
             .join(" "),
+        });
+        return;
+      }
+      if (error instanceof LoopForeignWorkflowError) {
+        reportForeignWorkflow();
+        return;
+      }
+      if (requestErrorStatus(error) === 409) {
+        // The server refused a write based on an older version of the loop.
+        setHasRemoteUpdate(true);
+        toast.error("Loop changed elsewhere", {
+          description:
+            "Cancel and reopen editing to see the latest version before saving.",
         });
         return;
       }
@@ -380,6 +440,7 @@ export function LoopForm({
       const saved = isEdit
         ? await updateLoop.mutateAsync(body)
         : await createLoop.mutateAsync(body);
+      ownWriteUpdatedAtRef.current = saved.updated_at;
       track(
         isEdit ? ANALYTICS_EVENTS.LOOP_UPDATED : ANALYTICS_EVENTS.LOOP_CREATED,
         buildLoopSavedProps(saved),
@@ -459,6 +520,10 @@ export function LoopForm({
         gap="4"
         className="rounded-(--radius-2) border border-border bg-(--gray-1) p-4"
       >
+        {detachedSpace ? (
+          <DetachedSpaceNotice spaceName={detachedSpace.name} />
+        ) : null}
+
         <Step
           title="Prompt"
           description="Name it and write the prompt the agent runs each time."
@@ -500,7 +565,11 @@ export function LoopForm({
 
         <Step
           title="When"
-          description="Add automatic triggers, or leave this manual-only."
+          description={
+            workflowBacked
+              ? "Pick a schedule or a GitHub event. Every loop has one trigger."
+              : "Add automatic triggers, or leave this manual-only."
+          }
         >
           <LoopTriggerEditor
             triggers={values.triggers}
@@ -706,6 +775,12 @@ export function LoopForm({
         </Box>
 
         <Box className="min-h-0 flex-1 overflow-y-auto px-6 py-6">
+          {detachedSpace ? (
+            <div className="mb-4">
+              <DetachedSpaceNotice spaceName={detachedSpace.name} />
+            </div>
+          ) : null}
+
           {step === 0 ? (
             <Step
               title="What should this loop do?"
@@ -1075,6 +1150,20 @@ function Step({
 
 function Divider() {
   return <Box className="h-px bg-(--gray-4)" />;
+}
+
+function DetachedSpaceNotice({ spaceName }: { spaceName: string }) {
+  return (
+    <div className="flex flex-col gap-1 rounded-(--radius-2) border border-(--amber-6) bg-(--amber-2) px-3 py-2">
+      <span className="font-medium text-(--amber-12) text-[12.5px]">
+        This loop won't be attached to {channelDisplayLabel(spaceName)}
+      </span>
+      <span className="text-(--amber-11) text-[12px] leading-snug">
+        Attaching loops to a space isn't available yet. You'll find it in the
+        Loops list instead.
+      </span>
+    </div>
+  );
 }
 
 function ReviewList({

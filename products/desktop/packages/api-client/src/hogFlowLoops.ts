@@ -25,6 +25,13 @@ export interface HogFlowLoopBody {
   edges: Schemas.HogFlowEdge[];
 }
 
+/** Optimistic-concurrency fields a patch may carry beside the loop body.
+ * `base_updated_at` is the `updated_at` the client last loaded; the server
+ * answers 409 when the workflow moved past it, instead of taking the write. */
+export interface HogFlowPatchOptions {
+  base_updated_at?: string;
+}
+
 export interface HogFlowScheduleWrite {
   rrule: string;
   starts_at: string;
@@ -73,7 +80,7 @@ export async function patchHogFlow(
   client: ApiClient,
   projectId: string,
   hogFlowId: string,
-  body: Partial<HogFlowLoopBody>,
+  body: Partial<HogFlowLoopBody> & HogFlowPatchOptions,
 ): Promise<Schemas.HogFlow> {
   return client.patch("/api/projects/{project_id}/hog_flows/{id}/", {
     path: { project_id: projectId, id: hogFlowId },
@@ -164,6 +171,9 @@ export async function listHogFlowTasks(
       hog_flow_id: hogFlowId,
       limit: options.limit,
       ordering: "-created_at",
+      // Run history is an audit trail; archiving a task tidies the task list
+      // and must not rewrite what the loop did.
+      archived: "all",
     },
   });
 }

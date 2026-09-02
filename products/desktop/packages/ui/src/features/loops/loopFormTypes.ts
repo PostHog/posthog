@@ -370,15 +370,22 @@ export function isLoopFormValid(
   if (values.contextTarget && values.visibility !== "team") {
     return false;
   }
+  return isTriggerListValid(values.triggers, rules);
+}
+
+/** Whether the trigger list can be saved: the loops API takes any list, an
+ * empty one included, and a workflow needs exactly one enabled trigger. */
+export function isTriggerListValid(
+  triggers: LoopTriggerDraft[],
+  rules: LoopFormRules = LOOPS_API_RULES,
+): boolean {
   if (rules.backend === "workflow") {
-    const [trigger, ...rest] = values.triggers;
+    const [trigger, ...rest] = triggers;
     if (!trigger || rest.length > 0 || !trigger.enabled) {
       return false;
     }
   }
-  return values.triggers.every((trigger) =>
-    isTriggerDraftValid(trigger, rules),
-  );
+  return triggers.every((trigger) => isTriggerDraftValid(trigger, rules));
 }
 
 export function isTriggerDraftValid(

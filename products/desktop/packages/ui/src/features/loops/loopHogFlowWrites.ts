@@ -9,18 +9,36 @@ import {
   updateHogFlowSchedule,
 } from "@posthog/api-client/hogFlowLoops";
 import type { LoopSchemas } from "@posthog/api-client/loops";
-import type { LoopHogFlowWrite } from "./loopHogFlowMapping";
+import {
+  isLoopShapedHogFlow,
+  type LoopHogFlowSource,
+  type LoopHogFlowWrite,
+} from "./loopHogFlowMapping";
 import { hogFlowScheduleMatches } from "./loopScheduleRRule";
 
 /** The graph saved but the schedule row did not follow. The loop is live with
- * its old cadence (or none), so the person has to save again. */
+ * its old cadence (or none), so the person has to save again. `flow` is the
+ * workflow as the server returned it from the graph write. */
 export class LoopScheduleSaveError extends Error {
   readonly cause: unknown;
+  readonly flow: Schemas.HogFlow;
 
-  constructor(cause: unknown) {
+  constructor(cause: unknown, flow: Schemas.HogFlow) {
     super("Loop saved, but its schedule didn't update.");
     this.name = "LoopScheduleSaveError";
     this.cause = cause;
+    this.flow = flow;
+  }
+}
+
+/** The workflow no longer has the shape the form writes. A save would replace
+ * steps or triggers someone built in the workflow editor, so nothing is sent. */
+export class LoopForeignWorkflowError extends Error {
+  constructor() {
+    super(
+      "This loop was changed in the workflow editor. Open it in PostHog to change it.",
+    );
+    this.name = "LoopForeignWorkflowError";
   }
 }
 
@@ -72,9 +90,14 @@ export async function createLoopHogFlow(
 export async function updateLoopHogFlow(
   client: ApiClient,
   projectId: string,
-  existing: Pick<Schemas.HogFlow, "id" | "schedules">,
+  existing: LoopHogFlowSource,
   write: LoopHogFlowWrite,
 ): Promise<Schemas.HogFlow> {
+  // Every caller's render-time guard can be stale by the time the save runs,
+  // so the shape is rechecked against the flow the write is based on.
+  if (!isLoopShapedHogFlow(existing)) {
+    throw new LoopForeignWorkflowError();
+  }
   // Status is owned by the enable toggle, the origin tag is immutable after
   // create, and the exit condition may have been changed in the workflow
   // editor, so none of them travel with an edit.
@@ -84,18 +107,21 @@ export async function updateLoopHogFlow(
     exit_condition: _exit,
     ...content
   } = write.flow;
-  const flow = await patchHogFlow(client, projectId, existing.id, content);
+  const flow = await patchHogFlow(client, projectId, existing.id, {
+    ...content,
+    base_updated_at: existing.updated_at,
+  });
   try {
     return await reconcileSchedule(client, projectId, existing, flow, write);
   } catch (error) {
-    throw new LoopScheduleSaveError(error);
+    throw new LoopScheduleSaveError(error, flow);
   }
 }
 
 async function reconcileSchedule(
   client: ApiClient,
   projectId: string,
-  existing: Pick<Schemas.HogFlow, "id" | "schedules">,
+  existing: Pick<LoopHogFlowSource, "id" | "schedules">,
   flow: Schemas.HogFlow,
   write: LoopHogFlowWrite,
 ): Promise<Schemas.HogFlow> {

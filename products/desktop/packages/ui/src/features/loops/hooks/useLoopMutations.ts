@@ -17,6 +17,7 @@ import type { LoopFormValues } from "../loopFormTypes";
 import { formValuesToHogFlowWrite, hogFlowToLoop } from "../loopHogFlowMapping";
 import {
   createLoopHogFlow,
+  LoopScheduleSaveError,
   runLoopHogFlow,
   setLoopHogFlowEnabled,
   updateLoopHogFlow,
@@ -141,16 +142,25 @@ export function useUpdateLoopHogFlow(loopId: string) {
   >({
     mutationFn: async ({ values, existing }) => {
       if (!loopsClient) throw new Error("Not authenticated");
-      const flow = await updateLoopHogFlow(
-        loopsClient.client,
-        loopsClient.projectId,
-        existing,
-        formValuesToHogFlowWrite(values, {
-          enabled: existing.status === "active",
+      try {
+        const flow = await updateLoopHogFlow(
+          loopsClient.client,
+          loopsClient.projectId,
           existing,
-        }),
-      );
-      return applyHogFlowToCache(queryClient, loopsClient, flow);
+          formValuesToHogFlowWrite(values, {
+            enabled: existing.status === "active",
+            existing,
+          }),
+        );
+        return applyHogFlowToCache(queryClient, loopsClient, flow);
+      } catch (error) {
+        // The graph is live with a new `updated_at`; caching it keeps the
+        // retry's `base_updated_at` current instead of refused as stale.
+        if (error instanceof LoopScheduleSaveError) {
+          applyHogFlowToCache(queryClient, loopsClient, error.flow);
+        }
+        throw error;
+      }
     },
     onSettled: () => {
       // A partial failure (graph saved, schedule not) leaves the cache behind

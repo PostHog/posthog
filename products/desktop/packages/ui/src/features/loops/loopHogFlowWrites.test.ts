@@ -6,9 +6,14 @@ import {
 } from "@posthog/api-client/generated";
 import { describe, expect, it, vi } from "vitest";
 import { emptyLoopFormValues } from "./loopFormTypes";
-import { formValuesToHogFlowWrite } from "./loopHogFlowMapping";
+import {
+  formValuesToHogFlowWrite,
+  type LoopHogFlowSource,
+  type LoopHogFlowWrite,
+} from "./loopHogFlowMapping";
 import {
   createLoopHogFlow,
+  LoopForeignWorkflowError,
   LoopScheduleSaveError,
   updateLoopHogFlow,
 } from "./loopHogFlowWrites";
@@ -42,6 +47,7 @@ function scriptedClient(
 }
 
 const FLOW = { id: "flow-1", status: "active", schedules: [] };
+const BASE_UPDATED_AT = "2026-09-02T08:00:00Z";
 const SCHEDULE_ROW = {
   id: "sched-1",
   rrule: "FREQ=DAILY;INTERVAL=1",
@@ -52,6 +58,22 @@ const SCHEDULE_ROW = {
   created_at: "",
   updated_at: "",
 } as const;
+
+/** The workflow a save is based on: the graph the form itself wrote, plus
+ * whichever schedule rows the case starts from. */
+function existingFlow(
+  write: LoopHogFlowWrite,
+  schedules: LoopHogFlowSource["schedules"] = [],
+): LoopHogFlowSource {
+  return {
+    id: "flow-1",
+    created_at: BASE_UPDATED_AT,
+    updated_at: BASE_UPDATED_AT,
+    actions: write.flow.actions,
+    edges: write.flow.edges,
+    schedules,
+  };
+}
 
 function scheduleWrite(cron = "0 9 * * *") {
   return formValuesToHogFlowWrite(
@@ -165,12 +187,29 @@ describe("loopHogFlowWrites", () => {
     await updateLoopHogFlow(
       client,
       "7",
-      { id: "flow-1", schedules: [...existing] },
+      existingFlow(write, [...existing]),
       write,
     );
     expect(calls.map((call) => `${call.method} ${call.path}`)).toEqual(
       expected,
     );
+  });
+
+  it("refuses to write over a workflow the form did not shape", async () => {
+    const { client, calls } = scriptedClient(() => ({
+      status: 200,
+      body: FLOW,
+    }));
+    const write = scheduleWrite();
+    await expect(
+      updateLoopHogFlow(
+        client,
+        "7",
+        { ...existingFlow(write), actions: [], edges: [] },
+        write,
+      ),
+    ).rejects.toBeInstanceOf(LoopForeignWorkflowError);
+    expect(calls).toEqual([]);
   });
 
   it("does not send status or the origin tag with an edit", async () => {
@@ -190,11 +229,12 @@ describe("loopHogFlowWrites", () => {
       { fetch: fetchMock as unknown as Fetcher["fetch"] },
       "https://us.posthog.com",
     );
+    const write = scheduleWrite();
     await updateLoopHogFlow(
       client,
       "7",
-      { id: "flow-1", schedules: [SCHEDULE_ROW] },
-      scheduleWrite(),
+      existingFlow(write, [SCHEDULE_ROW]),
+      write,
     );
     const keys = Object.keys(patched ?? {});
     expect(keys).toContain("actions");
@@ -202,6 +242,7 @@ describe("loopHogFlowWrites", () => {
     expect(keys).not.toContain("origin_product");
     expect(keys).not.toContain("exit_condition");
     expect(patched?.actions).toHaveLength(3);
+    expect(patched?.base_updated_at).toBe(BASE_UPDATED_AT);
   });
 
   it("reports a schedule that failed after the graph saved as its own error", async () => {
@@ -210,14 +251,19 @@ describe("loopHogFlowWrites", () => {
         ? { status: 400, body: { rrule: ["Invalid RRULE."] } }
         : { status: 200, body: { ...FLOW, schedules: [SCHEDULE_ROW] } },
     );
-    await expect(
-      updateLoopHogFlow(
-        client,
-        "7",
-        { id: "flow-1", schedules: [SCHEDULE_ROW] },
-        scheduleWrite("0 17 * * *"),
-      ),
-    ).rejects.toBeInstanceOf(LoopScheduleSaveError);
+    const write = scheduleWrite("0 17 * * *");
+    const error = await updateLoopHogFlow(
+      client,
+      "7",
+      existingFlow(write, [SCHEDULE_ROW]),
+      write,
+    ).catch((thrown: unknown) => thrown);
+    expect(error).toBeInstanceOf(LoopScheduleSaveError);
+    // The patched graph rides on the error so the form can rebase on it.
+    expect((error as LoopScheduleSaveError).flow).toEqual({
+      ...FLOW,
+      schedules: [SCHEDULE_ROW],
+    });
     expect(calls.map((call) => `${call.method} ${call.path}`)).toEqual([
       "patch /api/projects/7/hog_flows/flow-1/",
       "patch /api/projects/7/hog_flows/flow-1/schedules/sched-1/",

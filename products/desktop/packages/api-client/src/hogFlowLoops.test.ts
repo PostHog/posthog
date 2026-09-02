@@ -81,6 +81,17 @@ describe("hogFlowLoops requests", () => {
       body: { status: "draft" },
     },
     {
+      name: "patches a workflow against the version it last loaded",
+      call: (client: ApiClient) =>
+        patchHogFlow(client, "7", "flow-1", {
+          name: "Renamed",
+          base_updated_at: "2026-09-02T08:00:00Z",
+        }),
+      method: "patch",
+      url: "https://us.posthog.com/api/projects/7/hog_flows/flow-1/",
+      body: { name: "Renamed", base_updated_at: "2026-09-02T08:00:00Z" },
+    },
+    {
       name: "deletes a workflow",
       call: (client: ApiClient) => deleteHogFlow(client, "7", "flow-1"),
       method: "delete",
@@ -115,7 +126,7 @@ describe("hogFlowLoops requests", () => {
         listHogFlowTasks(client, "7", "flow-1", { limit: 10 }),
       method: "get",
       url: "https://us.posthog.com/api/projects/7/tasks/",
-      query: "hog_flow_id=flow-1&limit=10&ordering=-created_at",
+      query: "hog_flow_id=flow-1&limit=10&ordering=-created_at&archived=all",
     },
   ])("$name", async ({ call, method, url, query, body }) => {
     const { client, fetchMock } = fakeClient();
