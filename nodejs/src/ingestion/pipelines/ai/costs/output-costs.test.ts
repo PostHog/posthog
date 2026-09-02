@@ -1,4 +1,6 @@
 import { calculateOutputCost } from './output-costs'
+import { resolveModelCostForProvider } from './provider-matching'
+import { openRouterCostsByModel } from './providers'
 import { ResolvedModelCost } from './providers/types'
 import { createAIEvent } from './test-helpers'
 
@@ -448,6 +450,24 @@ describe('calculateOutputCost()', () => {
 
             // Expected: (10 * 0.0000025) + (3870 * 0.00003) = 0.000025 + 0.1161 = 0.116125
             expectCost(result, 0.116125, 6)
+        })
+    })
+
+    describe('committed cost data - image output regression', () => {
+        it('bills gemini-3-pro-image-preview image output on the default variant at the image rate, not the completion fallback', () => {
+            const row = openRouterCostsByModel['google/gemini-3-pro-image-preview']
+
+            const event = createAIEvent({
+                $ai_provider: 'unmatched-provider',
+                $ai_model: 'gemini-3-pro-image-preview',
+                $ai_output_tokens: 1000,
+                $ai_image_output_tokens: 1000,
+            })
+            const resolved = resolveModelCostForProvider(row.cost, event.properties.$ai_provider, row.model)!
+
+            const result = calculateOutputCost(event, resolved)
+
+            expectCost(result, 0.12)
         })
     })
 
