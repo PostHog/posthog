@@ -1,4 +1,5 @@
 from ipaddress import IPv4Address, IPv6Address
+from typing import Any
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -6,7 +7,7 @@ from unittest.mock import MagicMock, patch
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.client.execute import query_with_columns, sync_execute
 from posthog.clickhouse.client.limit import ConcurrencySlot, RateLimit, get_llm_analytics_rate_limiter
-from posthog.clickhouse.query_tagging import AccessMethod, Product, tags_context
+from posthog.clickhouse.query_tagging import AccessMethod, Feature, Product, tags_context
 
 
 @pytest.fixture
@@ -71,26 +72,69 @@ def test_endpoints_tag_workload_routing(client_from_pool, workload, expected_wor
 
 
 @pytest.mark.parametrize(
-    "product,kind,tag_id,requested_ch_user,expected_ch_user",
+    "product,kind,feature,tag_id,requested_ch_user,expected_ch_user",
     [
-        (Product.LLM_ANALYTICS, "temporal", "llma-eval-reports", ClickHouseUser.DEFAULT, ClickHouseUser.LLM_ANALYTICS),
-        (Product.LLM_ANALYTICS, "request", "api/projects/2/llm_analytics", ClickHouseUser.DEFAULT, ClickHouseUser.APP),
-        (Product.EXPERIMENTS, "temporal", "experiment-recalc", ClickHouseUser.DEFAULT, ClickHouseUser.EXPERIMENTS),
+        (
+            Product.LLM_ANALYTICS,
+            "temporal",
+            None,
+            "llma-eval-reports",
+            ClickHouseUser.DEFAULT,
+            ClickHouseUser.LLM_ANALYTICS,
+        ),
+        (
+            Product.LLM_ANALYTICS,
+            "request",
+            None,
+            "api/projects/2/llm_analytics",
+            ClickHouseUser.DEFAULT,
+            ClickHouseUser.APP,
+        ),
+        (
+            Product.EXPERIMENTS,
+            "temporal",
+            None,
+            "experiment-recalc",
+            ClickHouseUser.DEFAULT,
+            ClickHouseUser.EXPERIMENTS,
+        ),
+        # Experiment recalculation tags CACHE_WARMUP alongside the product, so the generic warmer
+        # routing claims the query first; the temporal map must still hand it the experiments user.
+        (
+            Product.EXPERIMENTS,
+            "temporal",
+            Feature.CACHE_WARMUP,
+            "experiment-recalc",
+            ClickHouseUser.DEFAULT,
+            ClickHouseUser.EXPERIMENTS,
+        ),
         # A background job with no dedicated user still has to stay off DEFAULT, whose slots
         # customer-facing queries need.
-        (Product.WAREHOUSE, "temporal", "data-imports", ClickHouseUser.DEFAULT, ClickHouseUser.BACKGROUND),
-        (None, "temporal", "some-sweep", ClickHouseUser.DEFAULT, ClickHouseUser.BACKGROUND),
+        (Product.WAREHOUSE, "temporal", None, "data-imports", ClickHouseUser.DEFAULT, ClickHouseUser.BACKGROUND),
+        (None, "temporal", None, "some-sweep", ClickHouseUser.DEFAULT, ClickHouseUser.BACKGROUND),
         # The AI observability usage reports carry this product tag from Celery. The budget is sized
         # for the per-team Temporal fan-out, so they stay off it.
-        (Product.LLM_ANALYTICS, "celery", "posthog.tasks.usage_report", ClickHouseUser.DEFAULT, ClickHouseUser.DEFAULT),
+        (
+            Product.LLM_ANALYTICS,
+            "celery",
+            None,
+            "posthog.tasks.usage_report",
+            ClickHouseUser.DEFAULT,
+            ClickHouseUser.DEFAULT,
+        ),
         # HogQL's materialized-column lookups name their own user, and must keep it rather than
         # spending a slot of the concurrency budget sized for real queries.
-        (Product.LLM_ANALYTICS, "temporal", "llma-eval-reports", ClickHouseUser.HOGQL, ClickHouseUser.HOGQL),
-        (Product.LLM_ANALYTICS, "temporal", "llma-eval-reports", ClickHouseUser.META, ClickHouseUser.META),
+        (Product.LLM_ANALYTICS, "temporal", None, "llma-eval-reports", ClickHouseUser.HOGQL, ClickHouseUser.HOGQL),
+        (Product.LLM_ANALYTICS, "temporal", None, "llma-eval-reports", ClickHouseUser.META, ClickHouseUser.META),
     ],
 )
-def test_background_ch_user_routing(client_from_pool, product, kind, tag_id, requested_ch_user, expected_ch_user):
-    with tags_context(product=product, kind=kind, id=tag_id):
+def test_background_ch_user_routing(
+    client_from_pool, product, kind, feature, tag_id, requested_ch_user, expected_ch_user
+):
+    tags: dict[str, Any] = {"product": product, "kind": kind, "id": tag_id}
+    if feature is not None:
+        tags["feature"] = feature
+    with tags_context(**tags):
         sync_execute("SELECT 1", flush=False, ch_user=requested_ch_user)
 
     assert client_from_pool.call_args[0][3] == expected_ch_user

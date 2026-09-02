@@ -463,10 +463,15 @@ def sync_execute(
 
     # A background job must never share DEFAULT's ClickHouse slots with customer-facing queries.
     # Callers name a user, and the map covers the ones that reach ClickHouse through shared helpers.
-    # BACKGROUND is the fail-safe for the rest; the counter names who still has to move.
-    if ch_user == ClickHouseUser.DEFAULT and tags.kind == "temporal":
-        ch_user = _TEMPORAL_PRODUCT_CH_USERS.get(tags.product or "", ClickHouseUser.BACKGROUND)
-        if ch_user == ClickHouseUser.BACKGROUND:
+    # A mapped product takes its user even when the generic cache-warmup routing already claimed the
+    # query, so experiment recalculation uses the experiments user rather than the shared warmer
+    # budget. BACKGROUND is the fail-safe for the rest; the counter names who still has to move.
+    if tags.kind == "temporal":
+        mapped_user = _TEMPORAL_PRODUCT_CH_USERS.get(tags.product or "")
+        if mapped_user is not None and ch_user in (ClickHouseUser.DEFAULT, ClickHouseUser.CACHE_WARMUP):
+            ch_user = mapped_user
+        elif ch_user == ClickHouseUser.DEFAULT:
+            ch_user = ClickHouseUser.BACKGROUND
             activity_type = tags.temporal.activity_type if tags.temporal else None
             BACKGROUND_QUERY_WITHOUT_USER_COUNTER.labels(
                 product=tags.product or "unknown", activity_type=activity_type or "unknown"
