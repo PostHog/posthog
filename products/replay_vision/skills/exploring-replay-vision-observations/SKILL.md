@@ -61,10 +61,20 @@ Pick the axis that matches the question:
   and success rate, distinct sessions covered, rating totals, and the per-type distributions (monitor verdict
   counts, classifier tag rankings, scorer score summary and histogram) without paging through observations.
 - **Has something already summarized this?** → if the scanner has digests or alerts attached, read them instead of
-  re-deriving the pattern: `vision-actions-list` (`?scanner=<id>`, or `vision-actions-retrieve` for one
-  action's selection and cadence), then `vision-actions-runs-list` and
-  `vision-actions-runs-retrieve` for a run's `synthesized_markdown`. The report cites its sources inline as
-  `[obs N]`, matching `observations[N-1]`, so you can check each claim against the observation it came from.
+  re-deriving the pattern. Start with `vision-actions-list` (`?scanner=<id>`, or `vision-actions-retrieve` for one
+  action's selection and cadence). How you read the run history depends on which kind of action you got back:
+  - **Scout-backed group summaries** (the default after the August 2026 migration to Signals scouts).
+    `vision-actions-list` returns each scout as a group-summary action whose `id` is the scout config ID. The
+    `vision-actions-runs-*` endpoints do not resolve that ID, so they return no history for it. Take the action's
+    `name` as the scout skill name, list its runs with `scout-runs-list` (`skill_name=<name>`), then read one run
+    with `scout-runs-retrieve`. These scouts author the group summary as an inbox report, so the run carries
+    its report IDs directly: read `emitted_report_ids` (reports the run wrote) and `edited_report_ids` (reports
+    it updated), then fetch each with `inbox-reports-retrieve`. Don't use `scout-runs-emission-reports` here — it
+    resolves only signal-channel findings (`emit_signal`), so it returns nothing for a report-authoring scout.
+  - **Legacy actions** (created before the migration). Read a run's `synthesized_markdown` with
+    `vision-actions-runs-list` and `vision-actions-runs-retrieve`. These endpoints serve pre-migration history only.
+    The report cites its sources inline as `[obs N]`, matching `observations[N-1]`, so you can check each claim
+    against the observation it came from.
 - **The full detail of one finding** → `vision-scanners-observations-get` or `vision-observations-retrieve` —
   returns the frozen `scanner_snapshot` (config at run time) and the complete `scanner_result`, including any
   event citations that link the finding back to specific events in the recording.
