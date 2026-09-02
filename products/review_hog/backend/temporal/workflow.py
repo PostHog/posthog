@@ -57,6 +57,7 @@ from products.review_hog.backend.temporal.activities import (
     SyncReviewSkillsInput,
     TrackReviewCompletedInput,
     TrackReviewFailedInput,
+    TrackReviewStartedInput,
     ValidateChunkInput,
     ValidateChunkResult,
     ValidateIntegrationInput,
@@ -80,6 +81,7 @@ from products.review_hog.backend.temporal.activities import (
     sync_review_skills_activity,
     track_review_completed_activity,
     track_review_failed_activity,
+    track_review_started_activity,
     validate_chunk_activity,
     validate_github_integration_activity,
 )
@@ -482,6 +484,25 @@ class ReviewPRWorkflow:
             workflow.logger.info(f"Acting user {acting.acting_user_id} has inbox reviews turned off; skipping review")
             return report_id
         acting_user_id = acting.acting_user_id
+
+        # The turn passed every gate and is about to spend sandboxes: one started event per turn,
+        # the counterpart of the completed/failed pair below. Best-effort like both of them.
+        if workflow.patched("track-review-started-2026-09"):
+            try:
+                await workflow.execute_activity(
+                    track_review_started_activity,
+                    TrackReviewStartedInput(
+                        team_id=inputs.team_id,
+                        report_id=report_id,
+                        head_sha=head_sha,
+                        run_index=meta.run_index,
+                        turn_trigger_source=inputs.trigger_source,
+                    ),
+                    start_to_close_timeout=_QUICK_TIMEOUT,
+                    retry_policy=_RETRY,
+                )
+            except ActivityError:
+                workflow.logger.warning("Could not capture the review-started analytics event")
 
         # One gate, three consumers: the status comment, finalize's deferred idle write, and the
         # stage-7 publish dispatch all key off "this run publishes to a PR".

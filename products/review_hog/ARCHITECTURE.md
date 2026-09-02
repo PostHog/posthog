@@ -338,9 +338,15 @@ pr_metadata.head_branch` is threaded (as explicit kwargs, alongside `team_id` / 
     whose threshold it was (the author's / the requester's / the default, from `resolved_from`) plus a
     "View them in PostHog" deep link to the exact report (`/project/<team>/code-review?review=<report id>`,
     a **permanent public contract** — the frontend URL sync and `report_deep_link` must keep agreeing on it).
-    After the publish stage the workflow captures a **`reviewhog_review_completed`** product-analytics event —
-    one per finalized turn (published or stored), carrying repository / PR / trigger / finding-count / PR-size
-    properties (`track_review_completed_activity`). Best-effort: telemetry can never fail a review.
+    The workflow captures one **`reviewhog_review_started`** product-analytics event per turn that passed every
+    gate (`track_review_started_activity`) and, after the publish stage, one **`reviewhog_review_completed`** per
+    finalized turn (published or stored), carrying repository / PR / trigger / finding-count / PR-size properties
+    (`track_review_completed_activity`); a dead turn gets `reviewhog_review_failed` instead. All three, and the
+    per-finding `reviewhog_finding_outcome`, carry `review_routing_properties` (`reviewer/telemetry.py`): the tier,
+    the reviewer arm as resolved for that report, and the validator / resolver pins, so every event says which
+    model and effort the review spent. Started carries the arm as the turn began; completed the arm at the end,
+    which differs when a person's trigger lifted the tier mid-turn or, rarely, when the registry dropped the
+    arm's model mid-turn (`review_arm_fallback`). Best-effort: telemetry can never fail a review.
 
 ---
 

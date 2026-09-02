@@ -44,6 +44,7 @@ from products.review_hog.backend.temporal.activities import (
     SyncReviewSkillsInput,
     TrackReviewCompletedInput,
     TrackReviewFailedInput,
+    TrackReviewStartedInput,
     ValidateChunkInput,
     ValidateChunkResult,
     ValidateIntegrationInput,
@@ -279,10 +280,11 @@ async def _run_full_review_pr_workflow(
         return None
 
     # Records the analytics events' run_index and the turn's trigger — the completion-rate
-    # denominator and the per-tier split rely on them; both captures are swallowed best-effort in
-    # the workflow, so without these stubs deleting either would leave every test green.
+    # denominator and the per-tier split rely on them; all three captures are swallowed best-effort
+    # in the workflow, so without these stubs deleting any of them would leave every test green.
     track_failed_calls: list[tuple[int, str | None]] = []
     track_completed_calls: list[tuple[int, str | None]] = []
+    track_started_calls: list[tuple[int, str | None]] = []
 
     @activity.defn(name="track_review_failed_activity")
     async def track_failed(input: TrackReviewFailedInput) -> None:
@@ -292,6 +294,11 @@ async def _run_full_review_pr_workflow(
     @activity.defn(name="track_review_completed_activity")
     async def track_completed(input: TrackReviewCompletedInput) -> None:
         track_completed_calls.append((input.run_index, input.turn_trigger_source))
+        return None
+
+    @activity.defn(name="track_review_started_activity")
+    async def track_started(input: TrackReviewStartedInput) -> None:
+        track_started_calls.append((input.run_index, input.turn_trigger_source))
         return None
 
     result: str | None = None
@@ -330,6 +337,7 @@ async def _run_full_review_pr_workflow(
                 fail_status,
                 track_failed,
                 track_completed,
+                track_started,
             ],
             workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
         ):
@@ -381,6 +389,7 @@ async def _run_full_review_pr_workflow(
         "finalize_status": finalize_status_calls,
         "track_failed": track_failed_calls,
         "track_completed": track_completed_calls,
+        "track_started": track_started_calls,
         "resolve_dispatches": list(StubResolvePRWorkflow.dispatches),
     }
 
@@ -534,6 +543,7 @@ async def test_review_pr_workflow_early_exits_when_already_published():
     assert recorded["review"] == []
     assert recorded["validate"] == []
     assert recorded["publish"] == []
+    assert recorded["track_started"] == []  # a skipped turn never counts as started
 
 
 @pytest.mark.asyncio
@@ -546,6 +556,7 @@ async def test_review_pr_workflow_skips_when_author_maps_to_no_user():
     assert recorded["review"] == []
     assert recorded["validate"] == []
     assert recorded["publish"] == []
+    assert recorded["track_started"] == []
 
 
 @parameterized.expand(
@@ -584,11 +595,14 @@ async def test_review_pr_workflow_trigger_aware_gates(
     if expect_ran:
         assert recorded["split"] == [1]
         assert recorded["receipts"] == [("stored", None)]
+        assert recorded["track_started"] == [(1, trigger_source)]
     else:
         assert recorded["split"] == []
         assert recorded["review"] == []
         assert recorded["publish"] == []
         assert recorded["receipts"] == []
+        # The started event counts turns that passed every gate, so a gated-off turn must not fire it.
+        assert recorded["track_started"] == []
 
 
 @pytest.mark.asyncio
@@ -602,6 +616,7 @@ async def test_review_pr_workflow_appends_published_receipt_with_review_url():
     assert recorded["receipts"] == [("published", _REVIEW_URL)]
     assert recorded["track_failed"] == []  # a completed turn must not also count as failed
     assert recorded["track_completed"] == [(1, "inbox")]  # this turn's trigger, not the report's
+    assert recorded["track_started"] == [(1, "inbox")]  # once, after the gates, before any sandbox
 
 
 @pytest.mark.asyncio
@@ -622,6 +637,9 @@ async def test_review_pr_workflow_appends_failed_receipt_and_still_fails():
     # rate's denominator; it is best-effort-swallowed in the workflow, so only this assert guards it.
     assert recorded["track_failed"] == [(1, "inbox")]
     assert recorded["track_completed"] == []
+    # The turn had started (the gates passed) before dedup killed it, so started + failed is the
+    # honest pair for an abandoned turn.
+    assert recorded["track_started"] == [(1, "inbox")]
 
 
 @pytest.mark.asyncio
@@ -673,6 +691,7 @@ async def test_review_pr_workflow_early_exits_on_empty_branch_diff():
     assert recorded["split"] == []
     assert recorded["review"] == []
     assert recorded["receipts"] == []
+    assert recorded["track_started"] == []
 
 
 def test_review_pr_workflow_inputs_deserialize_old_payloads():
