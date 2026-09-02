@@ -500,14 +500,29 @@ async fn write_event_properties_batch(
     let mut fk_strips: u64 = 0;
 
     loop {
+        // Almost every row here is a key posthog_eventproperty already holds, so the statement
+        // spends its time probing the unique index and throwing the result away. SELECT DISTINCT ON
+        // cuts that two ways, and mirrors what the event- and property-definition writes already do.
+        //
+        // It collapses rows that share the ON CONFLICT key before they reach the insert. The
+        // environments of one project share a project_id, so the same event and property seen in
+        // two of them is one row of the index, probed twice.
+        //
+        // The ORDER BY it requires also hands the insert its rows in index order, so the probes
+        // that remain walk the index instead of jumping around it.
         let result = sqlx::query(
             r#"
             INSERT INTO posthog_eventproperty (event, property, team_id, project_id)
-                (SELECT * FROM UNNEST(
+                SELECT DISTINCT ON (COALESCE(project_id, team_id::bigint), event, property)
+                    event, property, team_id, project_id
+                FROM UNNEST(
                     $1::text[],
                     $2::text[],
                     $3::int[],
-                    $4::bigint[])) ON CONFLICT DO NOTHING"#,
+                    $4::bigint[])
+                    AS t(event, property, team_id, project_id)
+                ORDER BY COALESCE(project_id, team_id::bigint), event, property
+                ON CONFLICT DO NOTHING"#,
         )
         .bind(&batch.event_names)
         .bind(&batch.property_names)

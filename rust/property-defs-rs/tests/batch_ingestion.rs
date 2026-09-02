@@ -615,6 +615,52 @@ async fn test_event_definitions_dedupe_within_batch(db: PgPool) {
     );
 }
 
+fn event_prop(team_id: i32, project_id: i64, event: &str, property: &str) -> Update {
+    Update::EventProperty(property_defs_rs::types::EventProperty {
+        team_id,
+        project_id,
+        event: event.to_string(),
+        property: property.to_string(),
+    })
+}
+
+#[sqlx::test(migrations = "./tests/test_migrations")]
+async fn test_event_properties_dedupe_within_batch(db: PgPool) {
+    // The unique key is (coalesce(project_id, team_id), event, property), and the environments of
+    // one project share a project_id. So `$pageview`/`path` from two of them is one row of the
+    // index that the insert used to probe twice. The collapse must not reach the rows that differ
+    // on that key: a different property, a different event, or a different project.
+    let config = Config::init_with_defaults().unwrap();
+    let cache = setup_cache(&config);
+
+    let batch = vec![
+        event_prop(111, 111, "$pageview", "path"),
+        event_prop(222, 111, "$pageview", "path"),
+        event_prop(111, 111, "$pageview", "browser"),
+        event_prop(111, 111, "$autocapture", "path"),
+        event_prop(333, 333, "$pageview", "path"),
+    ];
+    process_batch(&config, cache, &db, batch, &test_lifecycle_handle()).await;
+
+    let written: Vec<(i64, String, String)> = sqlx::query_as(
+        r#"SELECT project_id, event, property FROM posthog_eventproperty
+           ORDER BY project_id, event, property"#,
+    )
+    .fetch_all(&db)
+    .await
+    .unwrap();
+
+    assert_eq!(
+        written,
+        vec![
+            (111, "$autocapture".to_string(), "path".to_string()),
+            (111, "$pageview".to_string(), "browser".to_string()),
+            (111, "$pageview".to_string(), "path".to_string()),
+            (333, "$pageview".to_string(), "path".to_string()),
+        ]
+    );
+}
+
 fn gen_updates_for_team(team_id: i32, event_name: &str, num_props: usize) -> Vec<Update> {
     let mut properties = HashMap::<String, Value>::new();
     for i in 0..num_props {
