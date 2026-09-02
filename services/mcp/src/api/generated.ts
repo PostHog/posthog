@@ -35761,6 +35761,64 @@ export namespace Schemas {
     }
 
     /**
+     * * `PostHogWarehouse` - PostHog warehouse
+     * * `Redshift` - Redshift
+     * * `Snowflake` - Snowflake
+     * * `BigQuery` - BigQuery
+     * * `Postgres` - Postgres
+     * * `Databricks` - Databricks
+     * * `AzureBlob` - Azure Blob
+     * * `S3` - S3
+     */
+    export type ExternalDataDestinationTypeEnum = typeof ExternalDataDestinationTypeEnum[keyof typeof ExternalDataDestinationTypeEnum];
+
+
+    export const ExternalDataDestinationTypeEnum = {
+      PostHogWarehouse: 'PostHogWarehouse',
+      Redshift: 'Redshift',
+      Snowflake: 'Snowflake',
+      BigQuery: 'BigQuery',
+      Postgres: 'Postgres',
+      Databricks: 'Databricks',
+      AzureBlob: 'AzureBlob',
+      S3: 'S3',
+    } as const;
+
+    export interface ExternalDataDestination {
+      readonly id: string;
+      /** Where synced rows are written. The PostHog warehouse is managed for you, so you cannot create one here.
+       *
+       * * `PostHogWarehouse` - PostHog warehouse
+       * * `Redshift` - Redshift
+       * * `Snowflake` - Snowflake
+       * * `BigQuery` - BigQuery
+       * * `Postgres` - Postgres
+       * * `Databricks` - Databricks
+       * * `AzureBlob` - Azure Blob
+       * * `S3` - S3 */
+      type: ExternalDataDestinationTypeEnum;
+      /**
+         * Human-readable name shown when picking destinations for a source or table.
+         * @maxLength 400
+         */
+      name: string;
+      /** Settings for this destination: target database, schema or dataset, bucket and prefix, file format. Credentials are not stored here. They live on the linked integration. */
+      config?: unknown;
+      /**
+         * Integration holding this destination's credentials. Required for every type except the PostHog warehouse.
+         * @nullable
+         */
+      integration?: number | null;
+      /** Whether this is the managed PostHog warehouse destination. */
+      readonly is_posthog_warehouse: boolean;
+      readonly created_at: string;
+      /** @nullable */
+      readonly created_by: number | null;
+      /** @nullable */
+      readonly updated_at: string | null;
+    }
+
+    /**
      * @nullable
      */
     export type ExternalDataSchemaTable = { [key: string]: unknown } | null;
@@ -38809,6 +38867,8 @@ export namespace Schemas {
       created_via?: ExternalDataSourceCreateCreatedViaEnum;
       /** Whether a synced source should also be live-queryable via direct connection. Defaults to false; ignored for pure direct-query sources. */
       direct_query_enabled?: boolean;
+      /** Destinations every table on this source writes to. Set here rather than afterwards, so the opening sync already carries them. Omit to write to the PostHog warehouse only. */
+      destination_ids?: string[];
     }
 
     export interface ExternalDataSourceCreateResponse {
@@ -41849,6 +41909,16 @@ export namespace Schemas {
       Archived: 'archived',
     } as const;
 
+    /**
+     * * `loops` - Loops
+     */
+    export type HogFlowOriginProductEnum = typeof HogFlowOriginProductEnum[keyof typeof HogFlowOriginProductEnum];
+
+
+    export const HogFlowOriginProductEnum = {
+      Loops: 'loops',
+    } as const;
+
     export interface HogFlowMasking {
       /**
          * Seconds (60 to ~94M / 3y) to suppress repeat firings of the same hash.
@@ -42149,6 +42219,10 @@ export namespace Schemas {
        * * `active` - Active
        * * `archived` - Archived */
       status?: HogFlowStateEnum;
+      /** Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.
+       *
+       * * `loops` - Loops */
+      origin_product?: HogFlowOriginProductEnum | null;
       readonly created_at: string;
       readonly created_by: UserBasic;
       readonly updated_at: string;
@@ -42331,6 +42405,7 @@ export namespace Schemas {
       readonly description: string;
       readonly version: number;
       readonly status: HogFlowStateEnum;
+      readonly origin_product: HogFlowOriginProductEnum | null;
       readonly created_at: string;
       readonly created_by: UserBasic;
       readonly updated_at: string;
@@ -42561,6 +42636,88 @@ export namespace Schemas {
          */
       abort_action?: string | null;
       variables?: HogFlowTemplateVariablesItem[];
+    }
+
+    /**
+     * Variable: {key, type: string|number|boolean, default}.
+     */
+    export type HogFlowUpdateVariablesItem = {[key: string]: string};
+
+    /**
+     * Skip-forward map for deleted steps: {deleted_action_id: next surviving action_id}. Maintained automatically when a live graph edit deletes actions, so in-flight runs parked on a deleted step continue at its surviving successor instead of exiting. Null when no live deletions have occurred.
+     * @nullable
+     */
+    export type HogFlowUpdateActionRedirects = {[key: string]: string} | null;
+
+    /**
+     * Mixin for serializers to add user access control fields
+     */
+    export interface HogFlowUpdate {
+      readonly id: string;
+      /**
+         * Workflow name.
+         * @maxLength 400
+         * @nullable
+         */
+      name?: string | null;
+      /** Optional description. */
+      description?: string;
+      readonly version: number;
+      /** draft (no execution), active (live), archived (disabled).
+       *
+       * * `draft` - Draft
+       * * `active` - Active
+       * * `archived` - Archived */
+      status?: HogFlowStateEnum;
+      /** Product surface that owns this workflow. This value cannot change after creation.
+       *
+       * * `loops` - Loops */
+      readonly origin_product: HogFlowOriginProductEnum | null;
+      readonly created_at: string;
+      readonly created_by: UserBasic;
+      readonly updated_at: string;
+      readonly trigger: unknown;
+      /** Optional dedup/throttle on an already-matched trigger: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Without threshold: fire once per hash, then suppress repeats within ttl (hash '{person.id}' = once per person per ttl). With threshold N: fire once per N matches of the same hash — a sampler, the 1st then every Nth. Throttles an already-qualifying trigger; it doesn't decide who enters. Server compiles bytecode from hash; omit to disable. */
+      trigger_masking?: HogFlowMasking | null;
+      /** Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window_minutes: minutes after entry. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
+      conversion?: HogFlowConversion | null;
+      /** exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion').
+       *
+       * * `exit_on_conversion` - Conversion
+       * * `exit_on_trigger_not_matched` - Trigger Not Matched
+       * * `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion
+       * * `exit_only_at_end` - Only At End */
+      exit_condition?: ExitConditionEnum;
+      /** Optional email pacing for deliverability: {count, period: 'minute' | 'hour'}. The email worker spreads this workflow's sends to stay under the limit; over-limit sends wait for capacity instead of failing. Null disables pacing. */
+      email_sending_rate_limit?: HogFlowEmailSendingRateLimit | null;
+      /** Graph edges: [{from, to, type: 'continue'|'branch', index?}]. 'continue' = fall-through (sequential, or no-match path of conditional_branch). 'branch' requires 'index': matches config.conditions[index] on conditional_branch / wait_until_condition. Every non-exit action needs a reachable next action ('No next action found' otherwise). */
+      edges?: HogFlowEdge[];
+      /** Ordered action nodes. Exactly one type='trigger' required. Typically one type='exit' too. */
+      actions: HogFlowAction[];
+      /** @nullable */
+      readonly abort_action: string | null;
+      /** Workflow vars (key, type, default). Total <5KB. */
+      variables?: HogFlowUpdateVariablesItem[];
+      readonly billable_action_types: unknown;
+      /** Recurring schedules attached to this workflow (read-only here; manage via the schedules sub-resource). A batch/schedule workflow only fires when it's active AND has an active schedule. Empty for non-scheduled workflows. */
+      readonly schedules: readonly HogFlowSchedule[];
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level: string | null;
+      /** Staged content changes awaiting publish — a full snapshot of the workflow's actions, edges and settings. Null when there's nothing staged. Test it with a use_draft test run, then promote it with the publish endpoint or throw it away with discard_draft. */
+      readonly draft: unknown;
+      /**
+         * When the draft was last written; null when there's no staged draft. Pass this to publish (and as base_updated_at on further draft edits) so a concurrent editor's changes aren't clobbered — a mismatch returns 409.
+         * @nullable
+         */
+      readonly draft_updated_at: string | null;
+      /**
+         * Skip-forward map for deleted steps: {deleted_action_id: next surviving action_id}. Maintained automatically when a live graph edit deletes actions, so in-flight runs parked on a deleted step continue at its surviving successor instead of exiting. Null when no live deletions have occurred.
+         * @nullable
+         */
+      readonly action_redirects: HogFlowUpdateActionRedirects;
     }
 
     /**
@@ -54344,6 +54501,15 @@ export namespace Schemas {
       results: ExportedAsset[];
     }
 
+    export interface PaginatedExternalDataDestinationList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ExternalDataDestination[];
+    }
+
     export interface PaginatedExternalDataSchemaList {
       count: number;
       /** @nullable */
@@ -61314,6 +61480,14 @@ export namespace Schemas {
       operations?: DesignOperation[];
     }
 
+    export interface PatchedDestinationLink {
+      /**
+         * Destinations to sync to. On a table, null clears the override so the table follows its source again.
+         * @nullable
+         */
+      destination_ids?: string[] | null;
+    }
+
     /**
      * Feature flag payload for this early access feature
      */
@@ -62233,6 +62407,40 @@ export namespace Schemas {
       readonly user_access_level?: string | null;
     }
 
+    export interface PatchedExternalDataDestination {
+      readonly id?: string;
+      /** Where synced rows are written. The PostHog warehouse is managed for you, so you cannot create one here.
+       *
+       * * `PostHogWarehouse` - PostHog warehouse
+       * * `Redshift` - Redshift
+       * * `Snowflake` - Snowflake
+       * * `BigQuery` - BigQuery
+       * * `Postgres` - Postgres
+       * * `Databricks` - Databricks
+       * * `AzureBlob` - Azure Blob
+       * * `S3` - S3 */
+      type?: ExternalDataDestinationTypeEnum;
+      /**
+         * Human-readable name shown when picking destinations for a source or table.
+         * @maxLength 400
+         */
+      name?: string;
+      /** Settings for this destination: target database, schema or dataset, bucket and prefix, file format. Credentials are not stored here. They live on the linked integration. */
+      config?: unknown;
+      /**
+         * Integration holding this destination's credentials. Required for every type except the PostHog warehouse.
+         * @nullable
+         */
+      integration?: number | null;
+      /** Whether this is the managed PostHog warehouse destination. */
+      readonly is_posthog_warehouse?: boolean;
+      readonly created_at?: string;
+      /** @nullable */
+      readonly created_by?: number | null;
+      /** @nullable */
+      readonly updated_at?: string | null;
+    }
+
     /**
      * @nullable
      */
@@ -62823,84 +63031,6 @@ export namespace Schemas {
       readonly resolved_at?: string | null;
     }
 
-    /**
-     * Variable: {key, type: string|number|boolean, default}.
-     */
-    export type PatchedHogFlowVariablesItem = {[key: string]: string};
-
-    /**
-     * Skip-forward map for deleted steps: {deleted_action_id: next surviving action_id}. Maintained automatically when a live graph edit deletes actions, so in-flight runs parked on a deleted step continue at its surviving successor instead of exiting. Null when no live deletions have occurred.
-     * @nullable
-     */
-    export type PatchedHogFlowActionRedirects = {[key: string]: string} | null;
-
-    /**
-     * Mixin for serializers to add user access control fields
-     */
-    export interface PatchedHogFlow {
-      readonly id?: string;
-      /**
-         * Workflow name.
-         * @maxLength 400
-         * @nullable
-         */
-      name?: string | null;
-      /** Optional description. */
-      description?: string;
-      readonly version?: number;
-      /** draft (no execution), active (live), archived (disabled).
-       *
-       * * `draft` - Draft
-       * * `active` - Active
-       * * `archived` - Archived */
-      status?: HogFlowStateEnum;
-      readonly created_at?: string;
-      readonly created_by?: UserBasic;
-      readonly updated_at?: string;
-      readonly trigger?: unknown;
-      /** Optional dedup/throttle on an already-matched trigger: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Without threshold: fire once per hash, then suppress repeats within ttl (hash '{person.id}' = once per person per ttl). With threshold N: fire once per N matches of the same hash — a sampler, the 1st then every Nth. Throttles an already-qualifying trigger; it doesn't decide who enters. Server compiles bytecode from hash; omit to disable. */
-      trigger_masking?: HogFlowMasking | null;
-      /** Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window_minutes: minutes after entry. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
-      conversion?: HogFlowConversion | null;
-      /** exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion').
-       *
-       * * `exit_on_conversion` - Conversion
-       * * `exit_on_trigger_not_matched` - Trigger Not Matched
-       * * `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion
-       * * `exit_only_at_end` - Only At End */
-      exit_condition?: ExitConditionEnum;
-      /** Optional email pacing for deliverability: {count, period: 'minute' | 'hour'}. The email worker spreads this workflow's sends to stay under the limit; over-limit sends wait for capacity instead of failing. Null disables pacing. */
-      email_sending_rate_limit?: HogFlowEmailSendingRateLimit | null;
-      /** Graph edges: [{from, to, type: 'continue'|'branch', index?}]. 'continue' = fall-through (sequential, or no-match path of conditional_branch). 'branch' requires 'index': matches config.conditions[index] on conditional_branch / wait_until_condition. Every non-exit action needs a reachable next action ('No next action found' otherwise). */
-      edges?: HogFlowEdge[];
-      /** Ordered action nodes. Exactly one type='trigger' required. Typically one type='exit' too. */
-      actions?: HogFlowAction[];
-      /** @nullable */
-      readonly abort_action?: string | null;
-      /** Workflow vars (key, type, default). Total <5KB. */
-      variables?: PatchedHogFlowVariablesItem[];
-      readonly billable_action_types?: unknown;
-      /** Recurring schedules attached to this workflow (read-only here; manage via the schedules sub-resource). A batch/schedule workflow only fires when it's active AND has an active schedule. Empty for non-scheduled workflows. */
-      readonly schedules?: readonly HogFlowSchedule[];
-      /**
-         * The effective access level the user has for this object
-         * @nullable
-         */
-      readonly user_access_level?: string | null;
-      /** Staged content changes awaiting publish — a full snapshot of the workflow's actions, edges and settings. Null when there's nothing staged. Test it with a use_draft test run, then promote it with the publish endpoint or throw it away with discard_draft. */
-      readonly draft?: unknown;
-      /**
-         * When the draft was last written; null when there's no staged draft. Pass this to publish (and as base_updated_at on further draft edits) so a concurrent editor's changes aren't clobbered — a mismatch returns 409.
-         * @nullable
-         */
-      readonly draft_updated_at?: string | null;
-      /**
-         * Skip-forward map for deleted steps: {deleted_action_id: next surviving action_id}. Maintained automatically when a live graph edit deletes actions, so in-flight runs parked on a deleted step continue at its surviving successor instead of exiting. Null when no live deletions have occurred.
-         * @nullable
-         */
-      readonly action_redirects?: PatchedHogFlowActionRedirects;
-    }
-
     export interface PatchedHogFlowActionEmailUpdate {
       /** Optimistic concurrency: the updated_at (or draft_updated_at) last loaded. If the stored workflow is newer, the patch is rejected with 409 instead of clobbering a concurrent edit. */
       base_updated_at?: string;
@@ -62987,6 +63117,88 @@ export namespace Schemas {
          */
       abort_action?: string | null;
       variables?: PatchedHogFlowTemplateVariablesItem[];
+    }
+
+    /**
+     * Variable: {key, type: string|number|boolean, default}.
+     */
+    export type PatchedHogFlowUpdateVariablesItem = {[key: string]: string};
+
+    /**
+     * Skip-forward map for deleted steps: {deleted_action_id: next surviving action_id}. Maintained automatically when a live graph edit deletes actions, so in-flight runs parked on a deleted step continue at its surviving successor instead of exiting. Null when no live deletions have occurred.
+     * @nullable
+     */
+    export type PatchedHogFlowUpdateActionRedirects = {[key: string]: string} | null;
+
+    /**
+     * Mixin for serializers to add user access control fields
+     */
+    export interface PatchedHogFlowUpdate {
+      readonly id?: string;
+      /**
+         * Workflow name.
+         * @maxLength 400
+         * @nullable
+         */
+      name?: string | null;
+      /** Optional description. */
+      description?: string;
+      readonly version?: number;
+      /** draft (no execution), active (live), archived (disabled).
+       *
+       * * `draft` - Draft
+       * * `active` - Active
+       * * `archived` - Archived */
+      status?: HogFlowStateEnum;
+      /** Product surface that owns this workflow. This value cannot change after creation.
+       *
+       * * `loops` - Loops */
+      readonly origin_product?: HogFlowOriginProductEnum | null;
+      readonly created_at?: string;
+      readonly created_by?: UserBasic;
+      readonly updated_at?: string;
+      readonly trigger?: unknown;
+      /** Optional dedup/throttle on an already-matched trigger: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Without threshold: fire once per hash, then suppress repeats within ttl (hash '{person.id}' = once per person per ttl). With threshold N: fire once per N matches of the same hash — a sampler, the 1st then every Nth. Throttles an already-qualifying trigger; it doesn't decide who enters. Server compiles bytecode from hash; omit to disable. */
+      trigger_masking?: HogFlowMasking | null;
+      /** Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window_minutes: minutes after entry. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
+      conversion?: HogFlowConversion | null;
+      /** exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion').
+       *
+       * * `exit_on_conversion` - Conversion
+       * * `exit_on_trigger_not_matched` - Trigger Not Matched
+       * * `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion
+       * * `exit_only_at_end` - Only At End */
+      exit_condition?: ExitConditionEnum;
+      /** Optional email pacing for deliverability: {count, period: 'minute' | 'hour'}. The email worker spreads this workflow's sends to stay under the limit; over-limit sends wait for capacity instead of failing. Null disables pacing. */
+      email_sending_rate_limit?: HogFlowEmailSendingRateLimit | null;
+      /** Graph edges: [{from, to, type: 'continue'|'branch', index?}]. 'continue' = fall-through (sequential, or no-match path of conditional_branch). 'branch' requires 'index': matches config.conditions[index] on conditional_branch / wait_until_condition. Every non-exit action needs a reachable next action ('No next action found' otherwise). */
+      edges?: HogFlowEdge[];
+      /** Ordered action nodes. Exactly one type='trigger' required. Typically one type='exit' too. */
+      actions?: HogFlowAction[];
+      /** @nullable */
+      readonly abort_action?: string | null;
+      /** Workflow vars (key, type, default). Total <5KB. */
+      variables?: PatchedHogFlowUpdateVariablesItem[];
+      readonly billable_action_types?: unknown;
+      /** Recurring schedules attached to this workflow (read-only here; manage via the schedules sub-resource). A batch/schedule workflow only fires when it's active AND has an active schedule. Empty for non-scheduled workflows. */
+      readonly schedules?: readonly HogFlowSchedule[];
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level?: string | null;
+      /** Staged content changes awaiting publish — a full snapshot of the workflow's actions, edges and settings. Null when there's nothing staged. Test it with a use_draft test run, then promote it with the publish endpoint or throw it away with discard_draft. */
+      readonly draft?: unknown;
+      /**
+         * When the draft was last written; null when there's no staged draft. Pass this to publish (and as base_updated_at on further draft edits) so a concurrent editor's changes aren't clobbered — a mismatch returns 409.
+         * @nullable
+         */
+      readonly draft_updated_at?: string | null;
+      /**
+         * Skip-forward map for deleted steps: {deleted_action_id: next surviving action_id}. Maintained automatically when a live graph edit deletes actions, so in-flight runs parked on a deleted step continue at its surviving successor instead of exiting. Null when no live deletions have occurred.
+         * @nullable
+         */
+      readonly action_redirects?: PatchedHogFlowUpdateActionRedirects;
     }
 
     /**
@@ -76317,6 +76529,21 @@ export namespace Schemas {
       by_type: ScannerStatsByType;
     }
 
+    /**
+     * Response shape for a table's destination override.
+     */
+    export interface SchemaDestinations {
+      /**
+         * The table's own destinations, or null when it follows its source.
+         * @nullable
+         */
+      destination_ids: string[] | null;
+      /** Whether this table follows its source rather than having its own destinations. */
+      inherits_from_source: boolean;
+      /** Where the table actually syncs, after inheritance is resolved. */
+      effective_destination_ids?: string[];
+    }
+
     export interface ScoreDefinitionCreate {
       /**
          * Human-readable scorer name.
@@ -79264,6 +79491,14 @@ export namespace Schemas {
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
+    }
+
+    /**
+     * Response shape for a source's destination set.
+     */
+    export interface SourceDestinations {
+      /** Destinations every table on this source syncs to. */
+      destination_ids: string[];
     }
 
     export interface SourceMappingSuggestion {
@@ -93926,6 +94161,17 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type ExternalDataDestinationsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type ExternalDataSchemasListParams = {
     /**
      * Number of results to return per page.
@@ -94817,6 +95063,10 @@ export namespace Schemas {
      */
     offset?: number;
     /**
+     * Filter to workflows owned by a product surface, e.g. `loops` for Desktop loops.
+     */
+    origin_product?: HogFlowsListOriginProduct;
+    /**
      * Case-insensitive search across workflow name and description.
      */
     search?: string;
@@ -94836,6 +95086,13 @@ export namespace Schemas {
     type?: HogFlowsListType;
     updated_at?: string;
     };
+
+    export type HogFlowsListOriginProduct = typeof HogFlowsListOriginProduct[keyof typeof HogFlowsListOriginProduct];
+
+
+    export const HogFlowsListOriginProduct = {
+      Loops: 'loops',
+    } as const;
 
     export type HogFlowsListStatus = typeof HogFlowsListStatus[keyof typeof HogFlowsListStatus];
 
