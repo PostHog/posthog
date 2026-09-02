@@ -425,9 +425,10 @@ pub const FLAG_CONDITION_SKIPPED_COUNTER: &str = "flags_condition_skipped_total"
 // warn log, not in metric labels (cardinality).
 pub const FLAG_MALFORMED_FILTER_COUNTER: &str = "flags_flag_malformed_filter_total";
 // Incremented once per team read that left out at least one flag for the reason
-// above. FLAG_MALFORMED_FILTER_COUNTER divided by this gives the flags lost per
-// affected read, which says whether the loss is thin and wide or deep in a few
-// teams. Read the log to get the team identities.
+// above. FLAG_MALFORMED_FILTER_COUNTER divided by this gives the mean flags
+// dropped per affected read. It does not measure how many teams are affected,
+// because neither counter carries a team label and one team read many times
+// inflates this denominator. Read the warn log for team identity and breadth.
 pub const FLAG_MALFORMED_FILTER_READ_COUNTER: &str = "flags_flag_malformed_filter_reads_total";
 
 // Tombstone metric for tracking "impossible" failures that should never happen in production
