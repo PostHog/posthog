@@ -18,6 +18,7 @@ from pymongo.server_description import ServerDescription
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import DEFAULT_CHUNK_SIZE
 from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mongo import (
     MONGO_DOCUMENT_MISSING_ID_ERROR,
+    MONGO_KEYS_UNAVAILABLE_ERROR,
     MONGO_MAX_CHUNK_ROWS,
     MONGO_MIN_CHUNK_ROWS,
     _adaptive_chunk_size,
@@ -504,6 +505,14 @@ class TestGetRetryableErrors(SimpleTestCase):
             f"MongoDB connection pool paused should be classified retryable: {error_msg}"
         )
 
+    def test_signing_keys_unavailable_is_classified_retryable(self):
+        # mongo.py rewrites OperationFailure code 211 (KeyNotFound) to this message, so it is the
+        # text that reaches classification. Without a match the run reports as a bug nobody can act
+        # on, because the cluster clears a key rotation on its own.
+        assert any(pattern in MONGO_KEYS_UNAVAILABLE_ERROR for pattern in self.retryable), (
+            f"MongoDB signing keys unavailable should be classified retryable: {MONGO_KEYS_UNAVAILABLE_ERROR}"
+        )
+
 
 class TestGetRowsToSync(SimpleTestCase):
     """rows_to_sync is a best-effort progress estimate; a failed count must degrade to
@@ -608,12 +617,14 @@ class _FakeCollection:
         self,
         docs: list[dict[str, Any]],
         error: Exception | None = None,
+        error_after: int = 0,
         fallback_docs: list[dict[str, Any]] | None = None,
         fallback_error: Exception | None = None,
         fallback_error_after: int = 0,
     ) -> None:
         self._docs = docs
         self._error = error
+        self._error_after = error_after
         # Docs returned by a second find() call made without no_cursor_timeout, simulating the
         # fallback path taken when the tier rejects that option.
         self._fallback_docs = fallback_docs
@@ -634,7 +645,7 @@ class _FakeCollection:
         self.find_calls.append(kwargs)
         self.find_queries.append(query)
         if kwargs.get("no_cursor_timeout"):
-            cursor = _FakeCursor(self._docs, self._error)
+            cursor = _FakeCursor(self._docs, self._error, self._error_after)
         else:
             docs = self._fallback_docs if self._fallback_docs is not None else self._docs
             resume_after = _resume_after(query)
@@ -744,6 +755,25 @@ class TestMongoSourceCursorLifecycle(SimpleTestCase):
         assert "no_cursor_timeout" not in collection.find_calls[1]
         assert collection.cursors[0].closed is True
         assert collection.cursors[1].closed is True
+
+    def test_key_rotation_failure_reports_a_message_without_the_server_response(self):
+        # A cluster mid key rotation fails a getMore with code 211 part way through the read, and
+        # pymongo's str() appends the whole server response, which must not reach the customer's
+        # sync error. The rewrite must also come before the no_cursor_timeout fallback check, which
+        # re-raises everything once a document was read.
+        raw_error = OperationFailure(
+            "No keys found for HMAC that is valid for time: { ts: Timestamp(1756713600, 4) } with id: "
+            "7300000000000000001, full error: {'ok': 0.0, 'errmsg': 'No keys found for HMAC', 'code': 211, "
+            "'codeName': 'KeyNotFound'}",
+            211,
+        )
+        collection = _FakeCollection([{"_id": "1"}, {"_id": "2"}], error=raw_error, error_after=1)
+
+        with self.assertRaises(OperationFailure) as ctx:
+            self._run_get_rows(collection)
+
+        assert str(ctx.exception) == MONGO_KEYS_UNAVAILABLE_ERROR
+        assert ctx.exception.__cause__ is raw_error
 
     def test_other_operation_failures_are_not_retried(self):
         # The fallback must be scoped to the specific tier-limitation error, not OperationFailure

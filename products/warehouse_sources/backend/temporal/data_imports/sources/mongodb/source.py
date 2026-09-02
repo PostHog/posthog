@@ -184,7 +184,16 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
         # from the persistent "Topology Description:" server-selection failures above. Match the
         # fixed "connection pool paused" phrase pymongo always uses for this state, not the
         # surrounding host/timeout values.
-        return {"The resolution lifetime expired", "connection pool paused"}
+        #
+        # A cluster that is rotating its signing keys fails a command with OperationFailure code 211
+        # (KeyNotFound), which it clears on its own, so Temporal retrying the activity recovers.
+        # mongo.py rewrites that failure to MONGO_KEYS_UNAVAILABLE_ERROR, so match our own stable
+        # phrase — pymongo's text appends the whole server response instead.
+        return {
+            "The resolution lifetime expired",
+            "connection pool paused",
+            "the cluster's signing keys were briefly unavailable",
+        }
 
     def get_schemas(
         self,
