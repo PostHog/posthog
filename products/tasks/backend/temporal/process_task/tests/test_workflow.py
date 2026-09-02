@@ -1273,7 +1273,7 @@ async def test_sandbox_started_carries_run_attribution(origin_product, team_id, 
                 health_poll_ms=None,
                 ready_wait_ms=None,
                 session_init_ms=None,
-                boot_phases_ms={},
+                boot_phases_ms={"launcher_to_process": 7},
                 shadow_launched=False,
             )
         ),
@@ -1291,6 +1291,7 @@ async def test_sandbox_started_carries_run_attribution(origin_product, team_id, 
     assert sandbox_started["origin_product"] == origin_product
     assert sandbox_started["team_id"] == team_id
     assert sandbox_started["task_run_id"] == "run-id"
+    assert sandbox_started["agent_launcher_to_process_ms"] == 7
 
 
 @pytest.mark.django_db
