@@ -448,6 +448,45 @@ describe('tracingDataLogic', () => {
         })
     })
 
+    describe('refresh', () => {
+        // The sparkline, count and heatmap skip their fetch while the scope key is unchanged. A
+        // relative range ('-30M') holds that key identical however far the window has moved, so
+        // the refresh button reloaded the list while the chart and the "N traces" label stayed put.
+        // The default range is relative and open-ended ('-1h'), which is the case that broke.
+        it('refetches the count and sparkline when the user refreshes an unchanged relative range', async () => {
+            logic = mountWithSpans([])
+            const listSpansSpy = jest.spyOn(api.tracing, 'listSpans').mockResolvedValue({ results: [], hasMore: false })
+            const countSpy = jest.spyOn(api.tracing, 'count').mockResolvedValue({ count: 1, traceCount: 1 })
+            const sparklineSpy = jest.spyOn(api.tracing, 'sparkline').mockResolvedValue({ results: [] })
+
+            try {
+                await expectLogic(logic, () => {
+                    logic.actions.runQuery()
+                }).toFinishAllListeners()
+                expect(countSpy).toHaveBeenCalled()
+                countSpy.mockClear()
+                sparklineSpy.mockClear()
+
+                // A sort or view-mode toggle re-runs the query without changing scope — still skipped.
+                await expectLogic(logic, () => {
+                    logic.actions.runQuery()
+                }).toFinishAllListeners()
+                expect(countSpy).not.toHaveBeenCalled()
+                expect(sparklineSpy).not.toHaveBeenCalled()
+
+                await expectLogic(logic, () => {
+                    logic.actions.runQuery(true)
+                }).toFinishAllListeners()
+                expect(countSpy).toHaveBeenCalled()
+                expect(sparklineSpy).toHaveBeenCalled()
+            } finally {
+                listSpansSpy.mockRestore()
+                countSpy.mockRestore()
+                sparklineSpy.mockRestore()
+            }
+        })
+    })
+
     describe('deferred filter refresh', () => {
         // The trace drawer's attribute buttons call addFilter, which sets skipQuery so the list
         // doesn't reload behind the open drawer. Losing that gate means every attribute click
