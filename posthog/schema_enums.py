@@ -2631,6 +2631,9 @@ class ExternalDataSourceType(StrEnum):
     COOLIFY = "Coolify"
     SOCIAL_PILOT = "SocialPilot"
     ROKT_ADS = "RoktAds"
+    MEDUSA = "Medusa"
+    MEMBRAIN = "Membrain"
+    RECALL_AI = "RecallAI"
 
 
 class ExternalQueryErrorCode(StrEnum):

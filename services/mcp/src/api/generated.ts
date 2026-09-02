@@ -24196,6 +24196,9 @@ export namespace Schemas {
      * * `Anvil` - Anvil
      * * `Coolify` - Coolify
      * * `SocialPilot` - SocialPilot
+     * * `Medusa` - Medusa
+     * * `Membrain` - Membrain
+     * * `RecallAI` - RecallAI
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -25526,6 +25529,9 @@ export namespace Schemas {
       Anvil: 'Anvil',
       Coolify: 'Coolify',
       SocialPilot: 'SocialPilot',
+      Medusa: 'Medusa',
+      Membrain: 'Membrain',
+      RecallAI: 'RecallAI',
     } as const;
 
     /**
@@ -26869,7 +26875,10 @@ export namespace Schemas {
        * * `Lovable` - Lovable
        * * `Anvil` - Anvil
        * * `Coolify` - Coolify
-       * * `SocialPilot` - SocialPilot */
+       * * `SocialPilot` - SocialPilot
+       * * `Medusa` - Medusa
+       * * `Membrain` - Membrain
+       * * `RecallAI` - RecallAI */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -28925,7 +28934,10 @@ export namespace Schemas {
        * * `Lovable` - Lovable
        * * `Anvil` - Anvil
        * * `Coolify` - Coolify
-       * * `SocialPilot` - SocialPilot */
+       * * `SocialPilot` - SocialPilot
+       * * `Medusa` - Medusa
+       * * `Membrain` - Membrain
+       * * `RecallAI` - RecallAI */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -37474,7 +37486,10 @@ export namespace Schemas {
        * * `Lovable` - Lovable
        * * `Anvil` - Anvil
        * * `Coolify` - Coolify
-       * * `SocialPilot` - SocialPilot */
+       * * `SocialPilot` - SocialPilot
+       * * `Medusa` - Medusa
+       * * `Membrain` - Membrain
+       * * `RecallAI` - RecallAI */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -38838,7 +38853,10 @@ export namespace Schemas {
        * * `Lovable` - Lovable
        * * `Anvil` - Anvil
        * * `Coolify` - Coolify
-       * * `SocialPilot` - SocialPilot */
+       * * `SocialPilot` - SocialPilot
+       * * `Medusa` - Medusa
+       * * `Membrain` - Membrain
+       * * `RecallAI` - RecallAI */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
       payload: ExternalDataSourceCreatePayload;
@@ -57407,7 +57425,7 @@ export namespace Schemas {
          * @nullable
          */
       count?: number | null;
-      /** When to start delivering (ISO 8601 datetime). */
+      /** When to start delivering (ISO 8601 datetime). The date anchors the recurrence and may be in the past. Deliveries run on half-hour cycles at :00 and :30. Other minute values are accepted for backward compatibility, but delivery happens during the next cycle instead of at that exact minute. */
       start_date: string;
       /**
          * When to stop delivering (ISO 8601 datetime). Null for indefinite.
@@ -66432,7 +66450,7 @@ export namespace Schemas {
          * @nullable
          */
       count?: number | null;
-      /** When to start delivering (ISO 8601 datetime). */
+      /** When to start delivering (ISO 8601 datetime). The date anchors the recurrence and may be in the past. Deliveries run on half-hour cycles at :00 and :30. Other minute values are accepted for backward compatibility, but delivery happens during the next cycle instead of at that exact minute. */
       start_date?: string;
       /**
          * When to stop delivering (ISO 8601 datetime). Null for indefinite.
@@ -79487,7 +79505,10 @@ export namespace Schemas {
        * * `Lovable` - Lovable
        * * `Anvil` - Anvil
        * * `Coolify` - Coolify
-       * * `SocialPilot` - SocialPilot */
+       * * `SocialPilot` - SocialPilot
+       * * `Medusa` - Medusa
+       * * `Membrain` - Membrain
+       * * `RecallAI` - RecallAI */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -80867,7 +80888,10 @@ export namespace Schemas {
        * * `Lovable` - Lovable
        * * `Anvil` - Anvil
        * * `Coolify` - Coolify
-       * * `SocialPilot` - SocialPilot */
+       * * `SocialPilot` - SocialPilot
+       * * `Medusa` - Medusa
+       * * `Membrain` - Membrain
+       * * `RecallAI` - RecallAI */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -82229,7 +82253,10 @@ export namespace Schemas {
        * * `Lovable` - Lovable
        * * `Anvil` - Anvil
        * * `Coolify` - Coolify
-       * * `SocialPilot` - SocialPilot */
+       * * `SocialPilot` - SocialPilot
+       * * `Medusa` - Medusa
+       * * `Membrain` - Membrain
+       * * `RecallAI` - RecallAI */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -85459,6 +85486,95 @@ export namespace Schemas {
          * @nullable
          */
       channel?: string | null;
+    }
+
+    /**
+     * The default AI run triple stored at team or user level.
+     *
+     * Write payload for the tasks config endpoints and the `ai_run_preferences` block of
+     * their responses. `runtime_adapter` and `model` must be set together; send all three
+     * as null to clear a stored preference.
+     */
+    export interface TasksAIRunPreferences {
+      /** Default agent runtime adapter for new task runs. Use 'claude' for the Claude runtime or 'codex' for the Codex runtime. Must be set together with `model`.
+       *
+       * * `claude` - claude
+       * * `codex` - codex */
+      runtime_adapter?: RuntimeAdapterEnum | null;
+      /**
+         * Default LLM model identifier for new task runs. Must be set together with `runtime_adapter`.
+         * @nullable
+         */
+      model?: string | null;
+      /** Default reasoning effort for models that expose an effort control.
+       *
+       * * `low` - low
+       * * `medium` - medium
+       * * `high` - high
+       * * `xhigh` - xhigh
+       * * `max` - max
+       * * `ultracode` - ultracode */
+      reasoning_effort?: ReasoningEffortEnum | null;
+    }
+
+    /**
+     * * `user` - user
+     * * `team` - team
+     * * `none` - none
+     */
+    export type TasksResolvedAIRunDefaultsSourceEnum = typeof TasksResolvedAIRunDefaultsSourceEnum[keyof typeof TasksResolvedAIRunDefaultsSourceEnum];
+
+
+    export const TasksResolvedAIRunDefaultsSourceEnum = {
+      User: 'user',
+      Team: 'team',
+      None: 'none',
+    } as const;
+
+    /**
+     * The AI run triple a new run will effectively use when the caller pins nothing,
+     * plus which preference level supplied it.
+     */
+    export interface TasksResolvedAIRunDefaults {
+      /**
+         * Effective default runtime adapter, or null when no preference is stored.
+         * @nullable
+         */
+      runtime_adapter: string | null;
+      /**
+         * Effective default model identifier, or null when no preference is stored.
+         * @nullable
+         */
+      model: string | null;
+      /**
+         * Effective default reasoning effort, or null when unset or unsupported.
+         * @nullable
+         */
+      reasoning_effort: string | null;
+      /** Preference level that supplied the default: the caller's own per-project preference ('user'), the project default ('team'), or 'none'.
+       *
+       * * `user` - user
+       * * `team` - team
+       * * `none` - none */
+      source: TasksResolvedAIRunDefaultsSourceEnum;
+    }
+
+    /**
+     * Team-level tasks configuration.
+     */
+    export interface TasksTeamConfigResponse {
+      /** Project-wide default AI run triple; all fields null when unset. */
+      ai_run_preferences: TasksAIRunPreferences;
+    }
+
+    /**
+     * The requesting user's per-project tasks configuration.
+     */
+    export interface TasksUserConfigResponse {
+      /** The requesting user's per-project default AI run triple; all fields null when unset. */
+      ai_run_preferences: TasksAIRunPreferences;
+      /** The defaults a new run will use when no explicit runtime selection is sent. */
+      resolved_ai_run_defaults: TasksResolvedAIRunDefaults;
     }
 
     export interface TeachingCanvas {
@@ -99646,6 +99762,28 @@ export namespace Schemas {
     };
 
     export type TasksThreadMessagesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type TasksMeConfigListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type TasksConfigListParams = {
     /**
      * Number of results to return per page.
      */
