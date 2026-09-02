@@ -6,7 +6,7 @@ import { ActivityScope, InsightShortId, PersonType, UserBasicType } from '~/type
 
 export interface ActivityChange {
     type: ActivityScope
-    action: 'changed' | 'created' | 'deleted' | 'exported' | 'split' | 'copied'
+    action: 'changed' | 'created' | 'deleted' | 'exported' | 'split' | 'merged' | 'copied'
     field?: string
     before?: string | number | any[] | Record<string, any> | boolean | null
     after?: string | number | any[] | Record<string, any> | boolean | null
