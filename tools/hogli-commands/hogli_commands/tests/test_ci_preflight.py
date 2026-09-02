@@ -7,6 +7,8 @@ from unittest.mock import MagicMock, patch
 
 from click.testing import CliRunner
 from hogli.cli import cli
+from hogli.manifest import REPO_ROOT
+from hogli_commands.change_detection import matches_globs
 from hogli_commands.ci_preflight import (
     COMPANION_CHECKS,
     DIFF_CHECKS,
@@ -124,6 +126,94 @@ class TestStrictAndFixContracts:
         # Giving the check a `verify` would tax every push with a repo-wide mypy run.
         ran = [arg for call in mock_run.call_args_list for arg in call.args[0]]
         assert "mypy" not in ran
+
+
+class TestTaxonomyDriftCheck:
+    @pytest.mark.parametrize(
+        "changed",
+        [
+            "posthog/taxonomy/taxonomy.py",
+            "bin/build-taxonomy-json.py",
+            "frontend/src/taxonomy/core-filter-definitions-by-group.json",
+        ],
+    )
+    def test_every_side_of_the_drift_relation_triggers(self, changed: str) -> None:
+        check = next(chk for chk in DIFF_CHECKS if chk.key == "taxonomy")
+        assert matches_globs(changed, check.triggers)
+
+    def test_concrete_triggers_still_point_at_real_files(self) -> None:
+        check = next(chk for chk in DIFF_CHECKS if chk.key == "taxonomy")
+        # Renaming the generator or its output leaves these triggers matching nothing,
+        # and preflight stops catching a hand-edit with nothing else to notice.
+        concrete = [trigger for trigger in check.triggers if "*" not in trigger]
+        assert concrete, "the generator and its output are no longer triggers"
+        # Every check carrying a hardcoded path has that same failure mode. Glob
+        # triggers cannot be checked this way, because matches_globs uses fnmatch,
+        # where `*` spans `/`, while Path.glob does not.
+        missing = {
+            chk.key: gone
+            for chk in DIFF_CHECKS
+            if (gone := [t for t in chk.triggers if "*" not in t and not (REPO_ROOT / t).exists()])
+        }
+        assert not missing, f"triggers no longer on disk: {missing}"
+
+    @patch("hogli_commands.ci_preflight._emit_telemetry")
+    @patch("hogli_commands.ci_preflight._capability_met", return_value=False)
+    @patch("hogli_commands.ci_preflight._staleness", return_value=("pass", "even with master", {}))
+    @patch("hogli_commands.ci_preflight._fetch_master")
+    @patch("hogli_commands.ci_preflight.subprocess.run")
+    @patch(
+        "hogli_commands.ci_preflight.changed_files",
+        return_value=["frontend/src/taxonomy/core-filter-definitions-by-group.json"],
+    )
+    def test_missing_project_env_skips_instead_of_failing(
+        self,
+        mock_changed: MagicMock,
+        mock_run: MagicMock,
+        mock_fetch: MagicMock,
+        mock_stale: MagicMock,
+        mock_capability: MagicMock,
+        mock_emit: MagicMock,
+    ) -> None:
+        result = runner.invoke(cli, ["ci:preflight", "--strict"])
+
+        # The generator imports Django, so a bare checkout cannot run it. Without the
+        # capability gate the run would exit ModuleNotFoundError, and --strict would
+        # block the push on a failure the diff did not cause.
+        assert result.exit_code == 0
+        assert "needs python-env" in result.output
+        ran = [arg for call in mock_run.call_args_list for arg in call.args[0]]
+        assert "build:taxonomy-json" not in ran
+
+    @patch("hogli_commands.ci_preflight._emit_telemetry")
+    @patch("hogli_commands.ci_preflight._staleness", return_value=("pass", "even with master", {}))
+    @patch("hogli_commands.ci_preflight._fetch_master")
+    @patch("hogli_commands.ci_preflight.shutil.which", return_value="/usr/bin/hogli")
+    @patch("hogli_commands.ci_preflight.subprocess.run")
+    @patch("hogli_commands.ci_preflight._project_python_ready", return_value=True)
+    @patch(
+        "hogli_commands.ci_preflight.changed_files",
+        return_value=["frontend/src/taxonomy/core-filter-definitions-by-group.json"],
+    )
+    def test_present_project_env_verifies_without_writing(
+        self,
+        mock_changed: MagicMock,
+        mock_ready: MagicMock,
+        mock_run: MagicMock,
+        mock_which: MagicMock,
+        mock_fetch: MagicMock,
+        mock_stale: MagicMock,
+        mock_emit: MagicMock,
+    ) -> None:
+        mock_run.return_value = MagicMock(returncode=1, stdout="taxonomy json is out of date", stderr="")
+
+        result = runner.invoke(cli, ["ci:preflight", "--strict"])
+
+        # Without --check the verify command is the write path, which rewrites the JSON
+        # and exits 0, so a drifted push would report pass instead of blocking.
+        assert result.exit_code == 1
+        dispatched = [call.args[0] for call in mock_run.call_args_list]
+        assert ["hogli", "build:taxonomy-json", "--check"] in dispatched
 
 
 class TestStalenessRisks:
