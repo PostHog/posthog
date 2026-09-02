@@ -53,7 +53,7 @@ describe("GatewayConnectDialog", () => {
         "This server uses an API key. Enter your own key to connect.",
       ),
     ).toBeInTheDocument();
-    await user.type(screen.getByPlaceholderText("sk-…"), "sk-mine");
+    await user.type(screen.getByPlaceholderText("Enter API key"), "sk-mine");
     await user.click(screen.getByRole("button", { name: "Connect" }));
 
     expect(onSubmit).toHaveBeenCalledWith({
@@ -102,7 +102,7 @@ describe("GatewayConnectDialog", () => {
     const connect = screen.getByRole("button", { name: "Connect" });
     expect(connect).toBeDisabled();
 
-    await user.type(screen.getByPlaceholderText("sk-…"), "sk-secret");
+    await user.type(screen.getByPlaceholderText("Enter API key"), "sk-secret");
     await user.click(connect);
 
     expect(onSubmit).toHaveBeenCalledWith({
