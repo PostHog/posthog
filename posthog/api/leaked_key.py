@@ -3,7 +3,6 @@ from hashlib import sha256
 import posthoganalytics
 from drf_spectacular.utils import OpenApiResponse
 from rest_framework import serializers
-from rest_framework.parsers import JSONParser
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -16,6 +15,7 @@ from posthog.api.secret_revocation import (
     CANONICAL_PROJECT_SECRET_API_KEY,
     revoke_leaked_secret,
 )
+from posthog.parsers import SafeJSONParser
 from posthog.rate_limit import LeakedKeyReportThrottle
 from posthog.utils import get_instance_region
 
@@ -62,7 +62,7 @@ class PublicLeakedKeyReport(APIView):
     authentication_classes = []
     permission_classes = [AllowAny]
     throttle_classes = [LeakedKeyReportThrottle]
-    parser_classes = [JSONParser]
+    parser_classes = [SafeJSONParser]
 
     # No scope_object: this endpoint is intentionally public and unscoped, not tied to
     # a team/org resource, so APIScopePermission's scope model doesn't apply here. It

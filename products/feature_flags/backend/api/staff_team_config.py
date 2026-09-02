@@ -7,13 +7,13 @@ from drf_spectacular.utils import OpenApiResponse, extend_schema_serializer
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
-from rest_framework.parsers import JSONParser
 from rest_framework.permissions import IsAuthenticated
 
 from posthog.api.mixins import validated_request
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models.team import Team
 from posthog.models.team.extensions import get_or_create_team_extension
+from posthog.parsers import SafeJSONParser
 from posthog.permissions import IsStaffUser
 
 from products.feature_flags.backend.api.staff_cache import _team_ids_field
@@ -150,7 +150,7 @@ class FeatureFlagsStaffTeamConfigViewSet(viewsets.ViewSet):
     # materializes an absent field as False for form-encoded bodies (see default_empty_html in
     # rest_framework/fields.py). Under FormParser a request meaning to set only the flag limit
     # would therefore also switch minimal_flag_called_events off, so restrict this to JSON.
-    parser_classes = [JSONParser]
+    parser_classes = [SafeJSONParser]
 
     @validated_request(
         query_serializer=StaffTeamConfigQuerySerializer,

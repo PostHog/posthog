@@ -11,7 +11,6 @@ from rest_framework import (
     exceptions as drf_exceptions,
     status,
 )
-from rest_framework.parsers import JSONParser
 from rest_framework.renderers import JSONRenderer
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -23,6 +22,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, log_activity
 from posthog.models.identity_provider_config import IdentityProviderConfig
+from posthog.parsers import SafeJSONParser
 
 from products.access_control.backend.models.role import Role
 
@@ -184,7 +184,7 @@ SCIM_GROUP_ATTR_MAP = {
 }
 
 
-class SCIMJSONParser(JSONParser):
+class SCIMJSONParser(SafeJSONParser):
     media_type = "application/scim+json"
 
 
@@ -199,7 +199,7 @@ class SCIMBaseView(APIView):
 
     authentication_classes = [SCIMBearerTokenAuthentication]
     renderer_classes = [SCIMJSONRenderer, JSONRenderer]
-    parser_classes = [SCIMJSONParser, JSONParser]
+    parser_classes = [SCIMJSONParser, SafeJSONParser]
 
     def dispatch(self, request, *args, **kwargs):
         start = time.monotonic()

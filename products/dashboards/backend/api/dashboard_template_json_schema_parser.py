@@ -5,12 +5,13 @@ from pathlib import Path
 import jsonschema
 from jsonschema.exceptions import SchemaError
 from rest_framework.exceptions import ValidationError
-from rest_framework.parsers import JSONParser
+
+from posthog.parsers import SafeJSONParser
 
 dashboard_template_schema = json.loads((Path(__file__).parent / "dashboard_template_schema.json").read_text())
 
 
-class DashboardTemplateCreationJSONSchemaParser(JSONParser):
+class DashboardTemplateCreationJSONSchemaParser(SafeJSONParser):
     """On DashboardTemplate creation, validate the JSON against a JSON schema.
     The template is sent in the "template" key"""
 

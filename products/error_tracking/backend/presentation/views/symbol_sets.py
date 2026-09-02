@@ -2,7 +2,7 @@ import posthoganalytics
 from drf_spectacular.utils import extend_schema
 from rest_framework import pagination, serializers, status, viewsets
 from rest_framework.exceptions import NotFound, ValidationError
-from rest_framework.parsers import FileUploadParser, JSONParser, MultiPartParser
+from rest_framework.parsers import FileUploadParser, MultiPartParser
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework_dataclasses.serializers import DataclassSerializer
@@ -10,6 +10,7 @@ from rest_framework_dataclasses.serializers import DataclassSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.event_usage import groups
+from posthog.parsers import SafeJSONParser
 from posthog.rate_limit import SymbolSetUploadBurstRateThrottle, SymbolSetUploadSustainedRateThrottle
 
 from products.error_tracking.backend.facade import (
@@ -218,7 +219,7 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     @extend_schema(request=ErrorTrackingSymbolSetBulkDeleteSerializer)
-    @action(methods=["POST"], detail=False, parser_classes=[JSONParser])
+    @action(methods=["POST"], detail=False, parser_classes=[SafeJSONParser])
     def bulk_delete(self, request: Request, **kwargs) -> Response:
         ids = request.data.get("ids", [])
         if not ids:
@@ -229,7 +230,7 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
         return Response({"deleted": deleted_count}, status=status.HTTP_200_OK)
 
     @extend_schema(responses={200: _SymbolSetDownloadResponseSerializer})
-    @action(methods=["GET"], detail=True, parser_classes=[JSONParser])
+    @action(methods=["GET"], detail=True, parser_classes=[SafeJSONParser])
     def download(self, request: Request, *args, pk=None, **kwargs) -> Response:
         """Return a presigned URL for downloading the symbol set's source map."""
         try:
@@ -296,7 +297,7 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
         )
 
     @extend_schema(request=ErrorTrackingSymbolSetFinishUploadSerializer)
-    @action(methods=["PUT"], detail=True, parser_classes=[JSONParser])
+    @action(methods=["PUT"], detail=True, parser_classes=[SafeJSONParser])
     def finish_upload(self, request: Request, *args, pk=None, **kwargs) -> Response:
         content_hash = request.data.get("content_hash")
 
@@ -317,7 +318,7 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
         request=ErrorTrackingSymbolSetBulkStartUploadSerializer,
         responses={201: ErrorTrackingSymbolSetBulkStartUploadResponseSerializer},
     )
-    @action(methods=["POST"], detail=False, parser_classes=[JSONParser])
+    @action(methods=["POST"], detail=False, parser_classes=[SafeJSONParser])
     def bulk_start_upload(self, request: Request, **kwargs) -> Response:
         if request.user.pk:
             posthoganalytics.identify_context(str(request.user.pk))
@@ -361,7 +362,7 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
         return Response({"id_map": id_map}, status=status.HTTP_201_CREATED)
 
     @extend_schema(request=ErrorTrackingSymbolSetBulkFinishUploadSerializer)
-    @action(methods=["POST"], detail=False, parser_classes=[JSONParser])
+    @action(methods=["POST"], detail=False, parser_classes=[SafeJSONParser])
     def bulk_finish_upload(self, request: Request, **kwargs) -> Response:
         if request.user.pk:
             posthoganalytics.identify_context(str(request.user.pk))
