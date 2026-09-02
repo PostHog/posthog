@@ -33,12 +33,18 @@ from posthog.test.persons import create_person
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.role import Role
+from products.conversations.backend import reply_dedupe
 from products.conversations.backend.api.ticket_filters import query_params_to_view_filters
 from products.conversations.backend.api.tickets import TicketReplyRequestSerializer
 from products.conversations.backend.models import EmailChannel, EmailChannelKind, Ticket, TicketAssignment, TicketView
 from products.conversations.backend.models.constants import Channel, ChannelDetail, Priority, Status
 from products.conversations.backend.person_lookup import PERSON_EMAIL_LOOKUP_QUERY, _get_persons_by_email
-from products.conversations.backend.reply_dedupe import REPLY_IN_PROGRESS_ERROR_TYPE, ReplyFingerprint, reserve
+from products.conversations.backend.reply_dedupe import (
+    REPLY_IN_PROGRESS_ERROR_TYPE,
+    ComposeFingerprint,
+    ReplyFingerprint,
+    reserve,
+)
 
 from ee.clickhouse.materialized_columns.columns import get_bloom_filter_lower_index_name
 
@@ -1836,6 +1842,9 @@ class TestComposeTicketAPI(APIBaseTest):
             domain_verified=True,
             inbound_token="test-token-compose",
         )
+        # fakeredis keeps one FakeServer per process, so dedupe reservations would otherwise leak
+        # between tests.
+        get_client().flushall()
 
     def _compose(self, data):
         return self.client.post(
@@ -1989,6 +1998,118 @@ class TestComposeTicketAPI(APIBaseTest):
         )
         assert search.status_code == status.HTTP_200_OK
         assert [t["id"] for t in search.json()["results"]] == [str(ticket.id)]
+
+    def test_compose_identical_request_is_idempotent(self, mock_on_commit):
+        # A caller that retries a slow compose (e.g. a workflow webhook whose fetch timed out) must
+        # get the same ticket back, not a second one — and the customer must not be emailed twice.
+        payload = {
+            "recipient_email": "pitch@test.com",
+            "email_config_id": str(self.email_config.id),
+            "email_subject": "Thanks for your pitch",
+            "message": "Great idea, we logged it.",
+        }
+
+        first = self._compose(payload)
+        second = self._compose(payload)
+
+        assert first.status_code == status.HTTP_201_CREATED
+        assert second.status_code == status.HTTP_200_OK
+        assert first.json() == second.json()
+        assert Ticket.objects.filter(team=self.team).count() == 1
+        assert Comment.objects.filter(scope="conversations_ticket", item_id=first.json()["id"]).count() == 1
+
+    def test_compose_recovers_the_existing_ticket_when_the_reservation_is_lost(self, mock_on_commit):
+        # The Redis reservation can vanish (eviction, restart) after a ticket commits. A retry then
+        # reserves cleanly and must recover the existing ticket from the database — via
+        # find_persisted_match — instead of opening a second one and re-emailing the customer.
+        payload = {
+            "recipient_email": "pitch@test.com",
+            "email_config_id": str(self.email_config.id),
+            "email_subject": "Thanks for your pitch",
+            "message": "Great idea, we logged it.",
+        }
+
+        first = self._compose(payload)
+        assert first.status_code == status.HTTP_201_CREATED
+        get_client().flushall()
+
+        second = self._compose(payload)
+
+        assert second.status_code == status.HTTP_200_OK
+        assert second.json() == first.json()
+        assert Ticket.objects.filter(team=self.team).count() == 1
+
+    def test_compose_distinct_messages_are_not_deduplicated(self, mock_on_commit):
+        base = {
+            "recipient_email": "pitch@test.com",
+            "email_config_id": str(self.email_config.id),
+        }
+
+        first = self._compose({**base, "message": "First idea"})
+        second = self._compose({**base, "message": "Second, different idea"})
+
+        assert first.status_code == status.HTTP_201_CREATED
+        assert second.status_code == status.HTTP_201_CREATED
+        assert first.json()["id"] != second.json()["id"]
+        assert Ticket.objects.filter(team=self.team).count() == 2
+
+    def test_compose_same_message_to_different_persons_is_not_deduplicated(self, mock_on_commit):
+        # Two people can share one email address (person merging leaves this common). A compose to
+        # each — same subject and body, different recipient_distinct_id — is two distinct tickets,
+        # each linked to its own person. The fingerprint must not collapse them onto one.
+        _create_person(
+            team=self.team,
+            distinct_ids=["person-a"],
+            properties={"email": "shared@test.com"},
+            immediate=True,
+        )
+        _create_person(
+            team=self.team,
+            distinct_ids=["person-b"],
+            properties={"email": "shared@test.com"},
+            immediate=True,
+        )
+        base = {
+            "recipient_email": "shared@test.com",
+            "email_config_id": str(self.email_config.id),
+            "message": "Same body",
+        }
+
+        first = self._compose({**base, "recipient_distinct_id": "person-a"})
+        second = self._compose({**base, "recipient_distinct_id": "person-b"})
+
+        assert first.status_code == status.HTTP_201_CREATED
+        assert second.status_code == status.HTTP_201_CREATED
+        assert first.json()["id"] != second.json()["id"]
+        assert Ticket.objects.filter(team=self.team).count() == 2
+        assert Ticket.objects.get(pk=first.json()["id"]).distinct_id == "person-a"
+        assert Ticket.objects.get(pk=second.json()["id"]).distinct_id == "person-b"
+
+    def test_compose_conflicts_while_an_identical_request_is_in_flight(self, mock_on_commit):
+        payload = {
+            "recipient_email": "pitch@test.com",
+            "email_config_id": str(self.email_config.id),
+            "message": "Great idea, we logged it.",
+        }
+        fingerprint = ComposeFingerprint.build(
+            team_id=self.team.id,
+            email_config_id=str(self.email_config.id),
+            recipient_email="pitch@test.com",
+            email_subject="",
+            message="Great idea, we logged it.",
+            rich_content=None,
+            distinct_id="pitch@test.com",
+        )
+        assert fingerprint is not None
+        # Another request holds the reservation and hasn't finished creating yet.
+        held = reply_dedupe.reserve(fingerprint)
+        assert held.state is reply_dedupe.ReservationState.ACQUIRED
+
+        response = self._compose(payload)
+
+        assert response.status_code == status.HTTP_409_CONFLICT
+        assert response.json()["error_type"] == reply_dedupe.COMPOSE_IN_PROGRESS_ERROR_TYPE
+        assert not Ticket.objects.filter(team=self.team).exists()
 
 
 class TestTicketPersonalAPIKeyScopes(APIBaseTest):
