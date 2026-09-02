@@ -15,9 +15,9 @@ class Command(BaseCommand):
         "Move conversion.window_minutes onto conversion.window, the duration-string form. "
         "Only converts values the matcher already honors in full (at or under the legacy ceiling of "
         f"{MAX_LEGACY_WINDOW_MINUTES} minutes), which is a representation change with no effect on any "
-        "conversion rate. A larger value is reported and left alone: those are minutes fields holding "
-        "second counts, so converting one either way changes what the workflow measures, and which "
-        "reading is right needs a person. Default dry-run; pass --live-run to apply."
+        "conversion rate. A larger value is reported and left alone: it can be a real minute count or a "
+        "seconds count in a minutes field, and either reading changes what the workflow measures, so "
+        "which one is right needs a person. Default dry-run; pass --live-run to apply."
     )
 
     def add_arguments(self, parser):
