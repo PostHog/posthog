@@ -11375,7 +11375,7 @@
         }
     },
     "vision-observations-retrieve": {
-        "description": "Get a single replay vision observation, scoped to the scanners the caller can read. `id` is the *observation* id, not a session id and not a scanner id. Returns the full `scanner_snapshot` (the scanner's configuration at run time) and `scanner_result` (the LLM output, with any event citations). If you only have a session id — a `$recording_observed` event row carries no observation id — call `vision-observations-list` with that `session_id` first and take `id` off the row you want.",
+        "description": "Get a single replay vision observation, scoped to the scanners the caller can read. `id` is the *observation* id, not a session id and not a scanner id. Returns the full `scanner_snapshot` (the scanner's configuration at run time) and `scanner_result` (the LLM output, with any event citations). A `$recording_observed` event row's `uuid` is the observation id, so pass `toString(uuid)` as `id`. If you only have a session id, call `vision-observations-list` with that `session_id` first and take `id` off the row you want.",
         "category": "Replay vision",
         "feature": "replay_vision",
         "summary": "Get a replay vision observation",
