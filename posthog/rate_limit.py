@@ -147,18 +147,22 @@ def hashed_personal_api_key_for_throttling(request: "Request") -> str | None:
     """
     Return a hash of the personal API key that authenticated this request, or None.
 
-    `find_key_with_source` gets an empty body on purpose. Reading `request.data` here consumes the
-    stream and leaves `request.body` unreadable for downstream signature verification. That hides a
-    key sent in the body, so fall back to the authenticator, which already resolved the key and
-    stored its hash. Without the fallback a body-supplied key looks like no key at all, and the
-    caller below skips throttling for it.
-    """
-    key_with_source = PersonalAPIKeyAuthentication.find_key_with_source(request, request_data={})
-    if key_with_source is not None:
-        return hash_key_value(key_with_source[0])
+    The authenticator comes first because it holds the key that actually passed validation.
+    Scraping the request instead would trust whichever candidate `find_key_with_source` reaches
+    first, and that is not always the one that authenticated: the search stops at the header, then
+    the body, then the query string, so a request carrying a real key in its body never validates
+    the query string. Bucketing on an unvalidated value lets a caller pick its own bucket.
 
+    The scrape stays as a fallback for requests no personal-key authenticator handled. It gets an
+    empty body on purpose, because reading `request.data` here consumes the stream and leaves
+    `request.body` unreadable for downstream signature verification.
+    """
     key_hash = getattr(getattr(request, "successful_authenticator", None), "personal_api_key_hash", None)
-    return key_hash if isinstance(key_hash, str) else None
+    if isinstance(key_hash, str):
+        return key_hash
+
+    key_with_source = PersonalAPIKeyAuthentication.find_key_with_source(request, request_data={})
+    return hash_key_value(key_with_source[0]) if key_with_source is not None else None
 
 
 class PersonalApiKeyRateThrottle(SimpleRateThrottle):

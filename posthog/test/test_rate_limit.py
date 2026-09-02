@@ -212,6 +212,29 @@ class TestUserAPI(APIBaseTest):
         response = requests[1]()
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS, response.content)
 
+    @patch("posthog.rate_limit.BurstRateThrottle.rate", new="5/minute")
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    def test_burst_rate_limit_ignores_an_unvalidated_query_string_key(self, rate_limit_enabled_mock):
+        # Authentication reads the header, then the body, then the query string, and stops at the
+        # first hit. A request that authenticates on its body key never validates the query string,
+        # so bucketing on that value would let a caller mint a fresh budget on every request.
+        self.client.logout()
+
+        for index in range(5):
+            response = self.client.post(
+                f"/api/projects/{self.team.pk}/feature_flags/?personal_api_key=junk-{index}",
+                {"personal_api_key": self.personal_api_key},
+                format="json",
+            )
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/feature_flags/?personal_api_key=junk-5",
+            {"personal_api_key": self.personal_api_key},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS, response.content)
+
     @patch("posthog.rate_limit.SustainedRateThrottle.rate", new="5/hour")
     @patch("posthog.rate_limit.statsd.incr")
     @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
