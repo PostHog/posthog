@@ -26,6 +26,7 @@ surface, aggregates only (SPEC §6). Deploy counts are repo events and ignore th
 team filter by design.
 """
 
+import re
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -60,6 +61,10 @@ _MERGE_SCAN_LOOKBACK = timedelta(days=30)
 # outcome lands inside it. A week covers even a badly stalled rollout; the deploy tables are
 # per-repo and small enough that the wider floor costs nothing measurable.
 _DEPLOY_SCAN_SLACK = timedelta(days=7)
+
+# `prod`, `production`, and their regional/suffixed forms (`prod-us`, `Production-EU`), any case.
+# Anchored so `preview-pr-123` and `reproduction` do not read as production.
+_PRODUCTION_NAME_PATTERN = re.compile(r"^prod(uction)?([-_.].*)?$", re.IGNORECASE)
 
 _ENVIRONMENTS_LIMIT = 100
 _TEAMS_LIMIT = 500
@@ -342,11 +347,15 @@ def _resolve_environment_scope(
     environments_filter: list[str] | None, environments: list[tuple[str, bool]]
 ) -> _EnvironmentScope:
     """Pick the deploy population: the caller's exact environment(s) when given; otherwise the
-    single busiest environment GitHub marks production; otherwise the single busiest persistent
-    environment, so a repo that never sets the production flag still gets numbers instead of a
-    false zero. Busiest-single, not every-matching: a multi-region repo deploys each merge to
-    several production and persistent environments (and to dev, package registries, ...), which
-    would multiply every deploy count and hand lead time to whichever region deploys first.
+    single busiest environment GitHub marks production; otherwise the busiest environment whose
+    NAME says production; otherwise the single busiest persistent environment, so a repo that
+    never sets the production flag still gets numbers instead of a false zero.
+    The name tier exists because the ``production_environment`` flag is optional and widely
+    unset, and a dev or staging environment can deploy more often than production, which would
+    put every default DORA figure on that environment.
+    Busiest-single, not every-matching: a multi-region repo deploys each merge to several
+    production and persistent environments (and to dev, package registries, ...), which would
+    multiply every deploy count and hand lead time to whichever region deploys first.
     'persistent' survives only when the window has no persistent environment at all. Transient
     environments never join a default scope: they are ephemeral per-PR previews, and on this
     repo they outnumber real deploys by an order of magnitude."""
@@ -356,16 +365,20 @@ def _resolve_environment_scope(
             predicate="d.environment IN {environments}",
             values=environments_filter,
         )
-    production = [name for name, is_production in environments if is_production]
-    if production:
-        return _EnvironmentScope(
-            scope=production[0], predicate="d.environment IN {environments}", values=[production[0]]
-        )
+    # ``environments`` arrives busiest-first, so the first match in each tier is the busiest match.
+    production = next((name for name, is_production in environments if is_production), None)
+    if production is not None:
+        return _single_environment_scope(production)
+    named = next((name for name, _ in environments if _PRODUCTION_NAME_PATTERN.match(name)), None)
+    if named is not None:
+        return _single_environment_scope(named)
     if environments:
-        return _EnvironmentScope(
-            scope=environments[0][0], predicate="d.environment IN {environments}", values=[environments[0][0]]
-        )
+        return _single_environment_scope(environments[0][0])
     return _EnvironmentScope(scope="persistent", predicate="NOT d.is_transient_environment", values=None)
+
+
+def _single_environment_scope(name: str) -> _EnvironmentScope:
+    return _EnvironmentScope(scope=name, predicate="d.environment IN {environments}", values=[name])
 
 
 def _empty_overview(

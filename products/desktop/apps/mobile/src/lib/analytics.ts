@@ -1,4 +1,8 @@
-import type { AgentTurnFeedbackProperties } from "@posthog/shared";
+import type {
+  AgentTurnFeedbackProperties,
+  InboxTriageEndedProperties,
+  InboxTriageStartedProperties,
+} from "@posthog/shared";
 import { ANALYTICS_EVENTS as SHARED_ANALYTICS_EVENTS } from "@posthog/shared";
 import { type PostHog, usePostHog } from "posthog-react-native";
 import { useEffect, useMemo } from "react";
@@ -15,6 +19,8 @@ export const ANALYTICS_EVENTS = {
   INBOX_REPORT_ACTION: "Inbox report action",
   INBOX_REPORT_FEEDBACK: "Inbox report feedback",
   INBOX_REPORT_FEEDBACK_NOTE: "Inbox report feedback note",
+  INBOX_TRIAGE_STARTED: SHARED_ANALYTICS_EVENTS.INBOX_TRIAGE_STARTED,
+  INBOX_TRIAGE_ENDED: SHARED_ANALYTICS_EVENTS.INBOX_TRIAGE_ENDED,
   SIGN_IN_STARTED: "Sign in started",
   SIGN_IN_COMPLETED: "Sign in completed",
   SIGN_IN_FAILED: "Sign in failed",
@@ -83,7 +89,8 @@ export type InboxReportActionSurface =
   | "detail_footer"
   | "toolbar"
   | "keyboard"
-  | "list_row";
+  | "list_row"
+  | "triage";
 
 /** Sentiment captured by the report usefulness thumbs. */
 export type InboxReportFeedbackSentiment = "positive" | "negative";
@@ -226,6 +233,8 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.INBOX_REPORT_ACTION]: InboxReportActionProperties;
   [ANALYTICS_EVENTS.INBOX_REPORT_FEEDBACK]: InboxReportFeedbackProperties;
   [ANALYTICS_EVENTS.INBOX_REPORT_FEEDBACK_NOTE]: InboxReportFeedbackNoteProperties;
+  [ANALYTICS_EVENTS.INBOX_TRIAGE_STARTED]: InboxTriageStartedProperties;
+  [ANALYTICS_EVENTS.INBOX_TRIAGE_ENDED]: InboxTriageEndedProperties;
   [ANALYTICS_EVENTS.SIGN_IN_STARTED]: SignInStartedProperties;
   [ANALYTICS_EVENTS.SIGN_IN_COMPLETED]: SignInCompletedProperties;
   [ANALYTICS_EVENTS.SIGN_IN_FAILED]: SignInFailedProperties;
@@ -256,6 +265,8 @@ export const INBOX_ANALYTICS_EVENT_NAMES: ReadonlySet<string> = new Set([
   ANALYTICS_EVENTS.INBOX_REPORT_ACTION,
   ANALYTICS_EVENTS.INBOX_REPORT_FEEDBACK,
   ANALYTICS_EVENTS.INBOX_REPORT_FEEDBACK_NOTE,
+  ANALYTICS_EVENTS.INBOX_TRIAGE_STARTED,
+  ANALYTICS_EVENTS.INBOX_TRIAGE_ENDED,
 ]);
 
 export function useAnalytics(): Analytics {

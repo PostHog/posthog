@@ -1015,7 +1015,7 @@ class SnowflakeClient:
         file_stream: io.BufferedReader | io.BytesIO
         if isinstance(file, BatchExportTemporaryFile):
             file.rewind()
-            file_stream = io.BufferedReader(file)  # ty: ignore[invalid-assignment]
+            file_stream = io.BufferedReader(file)
         else:
             file.seek(0)
             file_stream = file

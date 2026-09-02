@@ -1216,7 +1216,7 @@ function TraceSidebar({
                         topLevelTrace={trace}
                         node={{
                             event: trace,
-                            displayTotalCost: trace.totalCost || 0,
+                            displayTotalCost: trace.totalCost ?? null,
                             displayLatency: trace.totalLatency || 0,
                             displayUsage: formatLLMUsage(trace),
                         }}
@@ -1275,7 +1275,7 @@ const TreeNode = React.memo(function TraceNode({
     topLevelTrace: LLMTrace
     node:
         | EnrichedTraceTreeNode
-        | { event: LLMTrace; displayTotalCost: number; displayLatency: number; displayUsage: string | null }
+        | { event: LLMTrace; displayTotalCost: number | null; displayLatency: number; displayUsage: string | null }
     isSelected: boolean
     searchQuery?: string
     showBillingInfo?: boolean
@@ -1634,7 +1634,7 @@ const EventContent = React.memo(
                                 <div className="flex flex-col gap-1">
                                     {aggregation && (
                                         <div className="flex flex-row flex-wrap items-center gap-2">
-                                            {aggregation.totalCost > 0 && (
+                                            {aggregation.totalCost !== null && aggregation.totalCost > 0 && (
                                                 <LemonTag type="muted" size="small">
                                                     Total Cost: {formatLLMCost(aggregation.totalCost)}
                                                 </LemonTag>
@@ -1736,14 +1736,21 @@ const EventContent = React.memo(
                                         <>
                                             {isTopLevelTraceWithoutContent ? (
                                                 <InsightEmptyState
-                                                    heading="No top-level trace event"
+                                                    heading="No trace-level input and output captured"
                                                     detail={
                                                         <>
-                                                            This trace doesn't have an associated <code>$ai_trace</code>{' '}
-                                                            event.
+                                                            This trace's content is on the events in the tree. Select an
+                                                            event to view its input and output.
                                                             <br />
-                                                            Click on individual generations in the tree to view their
-                                                            content.
+                                                            To show a conversation here, capture a{' '}
+                                                            <Link
+                                                                to="https://posthog.com/docs/ai-observability/traces"
+                                                                target="_blank"
+                                                            >
+                                                                <code>$ai_trace</code> event
+                                                            </Link>{' '}
+                                                            with <code>$ai_input_state</code> and{' '}
+                                                            <code>$ai_output_state</code> properties.
                                                         </>
                                                     }
                                                 />

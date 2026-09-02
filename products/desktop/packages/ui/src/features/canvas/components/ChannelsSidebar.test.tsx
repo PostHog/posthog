@@ -333,6 +333,17 @@ describe("ChannelsSidebar", () => {
       expect(screen.getByTestId("channel-sidebar").textContent).toBe(ME.id);
     });
 
+    // The pane carries the space's own tabs, so holding it back until the space
+    // list lands left a cold load with nothing to switch between.
+    it("opens the route's channel before the channel list lands", () => {
+      mocks.routeChannelId = ENG.id;
+      mocks.channels = [];
+      mocks.channelsLoading = true;
+      renderSidebar();
+      expect(screen.getByTestId("channel-sidebar").textContent).toBe(ENG.id);
+      expect(listIsInteractive()).toBe(false);
+    });
+
     it("stays on the list while no channel resolves", () => {
       mocks.channels = [ENG];
       renderSidebar();

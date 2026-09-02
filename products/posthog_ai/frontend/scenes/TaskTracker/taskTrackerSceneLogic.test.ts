@@ -6,7 +6,7 @@ import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { RuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
+import { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import { attachedContextLogic } from '../../api/logics'
 import { composerSeedLogic } from '../../logics/composerSeedLogic'
@@ -21,7 +21,7 @@ const buildTask = (overrides: Partial<Task> = {}): Task => ({
     title: 'Some task',
     description: 'do the thing',
     origin_product: OriginProduct.POSTHOG_AI,
-    runtime: RuntimeEnumApi.Acp,
+    runtime: TaskRuntimeEnumApi.Acp,
     repository: null,
     github_integration: null,
     signal_report: null,
@@ -45,6 +45,7 @@ describe('taskTrackerSceneLogic', () => {
         runBody = null
         useMocks({
             get: {
+                '/api/code/invites/check-access/': { has_access: true, has_loops_access: false },
                 '/api/projects/:team/tasks/': { results: [], count: 0 },
                 '/api/projects/:team/tasks/repositories/': { repositories: [] },
                 '/api/environments/:team/integrations/': { results: [] },
@@ -74,6 +75,16 @@ describe('taskTrackerSceneLogic', () => {
     afterEach(() => {
         logic?.unmount()
         toolEvents?.unmount()
+    })
+
+    it('loads PostHog Desktop access and exposes it to the task UI', async () => {
+        logic.mount()
+
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.hasDesktopAccess).toBe(true)
+
+        logic.actions.loadDesktopAccessSuccess({ has_access: false, has_loops_access: false })
+        expect(logic.values.hasDesktopAccess).toBe(false)
     })
 
     // PostHog AI can run without a repo: a description-only submit must still create and run the task with a

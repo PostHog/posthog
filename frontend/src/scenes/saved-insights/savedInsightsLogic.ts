@@ -162,6 +162,7 @@ export interface savedInsightsLogicValues {
     draftQuery: DraftInsightQuery | null
     filters: SavedInsightFilters
     insights: InsightsResult
+    insightsLoadFailed: boolean
     insightsLoading: boolean
     pagination: PaginationManual
     paramsFromFilters: Record<string, any>
@@ -480,6 +481,14 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                         // Reset page on filter change EXCEPT if it's page that's being updated
                         ...('page' in filters ? {} : { page: 1 }),
                     }),
+            },
+        ],
+        insightsLoadFailed: [
+            false,
+            {
+                loadInsights: () => false,
+                loadInsightsSuccess: () => false,
+                loadInsightsFailure: () => true,
             },
         ],
         dashboardUpdatesInProgress: [

@@ -1,4 +1,6 @@
+from datetime import datetime
 from functools import lru_cache
+from typing import TYPE_CHECKING, Optional
 
 from posthog.hogql import ast
 from posthog.hogql.base import Expr
@@ -25,12 +27,16 @@ from posthog.hogql.database.models import (
     UUIDDatabaseField,
 )
 from posthog.hogql.database.postgres_table import PostgresTable
+from posthog.hogql.database.schema.activity_log_visibility import CANVASES_TABLE, activity_visibility_predicates
 from posthog.hogql.database.schema.information_schema import information_schema_node
 from posthog.hogql.errors import ResolutionError
 from posthog.hogql.parser import parse_expr, parse_select
 
 from posthog.constants import AvailableFeature
 from posthog.scopes import APIScopeObject
+
+if TYPE_CHECKING:
+    from posthog.models.team.team import Team
 
 from products.customer_analytics.backend.facade.hogql import (
     account_channel_summaries,
@@ -285,7 +291,9 @@ alerts: PostgresTable = PostgresTable(
             name="insight_id", description="Insight the alert watches; joins to insights.id."
         ),
         "enabled": BooleanDatabaseField(name="enabled", description="Whether the alert is active."),
-        "state": StringDatabaseField(name="state", description="Current alert state, e.g. 'firing' or 'not_firing'."),
+        "state": StringDatabaseField(
+            name="state", description="Current alert state: 'Firing', 'Not firing', 'Errored', or 'Snoozed'."
+        ),
         "calculation_interval": StringDatabaseField(
             name="calculation_interval", description="How often the alert is evaluated, e.g. 'daily'."
         ),
@@ -684,7 +692,8 @@ data_warehouse_sources: PostgresTable = PostgresTable(
             name="source_type", description="Source connector type, e.g. 'Stripe', 'Postgres', 'Hubspot'."
         ),
         "status": StringDatabaseField(
-            name="status", description="Latest source-level status, e.g. Running, Paused, Error, Completed."
+            name="status",
+            description="Legacy source-level status, deprecated in favour of per-schema status in source_schemas.status; may be stale.",
         ),
         "access_method": StringDatabaseField(
             name="access_method",
@@ -918,7 +927,7 @@ endpoint_versions: PostgresTable = PostgresTable(
         "is_active": ExpressionField(
             name="is_active",
             expr=ast.Call(name="toInt", args=[ast.Field(chain=["_is_active"])]),
-            description="1 if this is the currently served version, 0 otherwise.",
+            description="1 if this version can be executed, 0 if inactive; independent of the endpoint's current_version.",
         ),
         "columns": StringJSONDatabaseField(name="columns", description="JSON schema of the version's output columns."),
     },
@@ -1318,12 +1327,33 @@ file_system: PostgresTable = PostgresTable(
     },
 )
 
-activity_logs: PostgresTable = PostgresTable(
+
+class _ActivityLogsTable(PostgresTable):
+    """Compiles its visibility rules on first use rather than at import: the rule list lives under
+    `posthog.models`, and this module keeps the ORM off its import path."""
+
+    def get_predicates(self, context: Optional[HogQLContext] = None) -> list[Expr]:
+        # The Canvas rule reads `system.canvases`, which access control removes from the schema for a
+        # caller denied the canvas resource; without the table it drops Canvas rows instead.
+        canvases_readable = (
+            context is not None and context.database is not None and context.database.has_table(CANVASES_TABLE)
+        )
+        return list(activity_visibility_predicates(canvases_readable))
+
+    def retention_start(self, team: Optional["Team"], team_id: Optional[int]) -> Optional[datetime]:
+        from posthog.models.activity_logging.retention import activity_log_retention_start_for_team  # noqa: PLC0415
+
+        return activity_log_retention_start_for_team(team, team_id)
+
+
+activity_logs: _ActivityLogsTable = _ActivityLogsTable(
     name="activity_logs",
     postgres_table_name="posthog_activitylog",
     access_scope="activity_log",
     # Matches `premium_feature_on_cloud` on the REST activity-log viewsets, which gate the same rows.
     required_feature_on_cloud=AvailableFeature.AUDIT_LOGS,
+    # Same lookback the REST viewsets apply, so the SQL surface can't read past the plan's window.
+    retention_field="created_at",
     description="Audit trail of changes to objects (insights, flags, dashboards, etc.); one row per logged activity.",
     fields={
         "id": StringDatabaseField(name="id", description="Activity log entry UUID."),
@@ -1380,7 +1410,8 @@ annotations: PostgresTable = PostgresTable(
         "team_id": IntegerDatabaseField(name="team_id"),
         "content": StringDatabaseField(name="content", nullable=True, description="Annotation text."),
         "scope": StringDatabaseField(
-            name="scope", description="Where the annotation applies, e.g. 'project', 'dashboard', 'insight'."
+            name="scope",
+            description="Where the annotation applies: 'project', 'organization', 'dashboard', 'dashboard_item' (insight), or 'recording'.",
         ),
         "creation_type": StringDatabaseField(
             name="creation_type", description="How the annotation was created, e.g. user-created vs GitHub."
@@ -1620,7 +1651,8 @@ notebooks: PostgresTable = PostgresTable(
             description="1 if the notebook has been deleted, 0 otherwise.",
         ),
         "visibility": StringDatabaseField(
-            name="visibility", description="Visibility setting, e.g. 'private' or shared."
+            name="visibility",
+            description="Visibility: 'default' (normal notebook) or 'internal' (system-generated, hidden from the main list).",
         ),
         "version": IntegerDatabaseField(name="version", description="Notebook version number."),
         "created_by_id": IntegerDatabaseField(
@@ -2172,7 +2204,9 @@ support_tickets: PostgresTable = PostgresTable(
         "distinct_id": StringDatabaseField(
             name="distinct_id", description="Distinct id of the person who opened the ticket."
         ),
-        "status": StringDatabaseField(name="status", description="Ticket status, e.g. 'open', 'pending', 'closed'."),
+        "status": StringDatabaseField(
+            name="status", description="Ticket status: 'new', 'open', 'pending', 'on_hold', or 'resolved'."
+        ),
         "priority": StringDatabaseField(
             name="priority", nullable=True, description="Ticket priority, e.g. 'low', 'high'."
         ),
@@ -2493,12 +2527,11 @@ usage_metrics: PostgresTable = PostgresTable(
         "id": StringDatabaseField(name="id", description="Usage metric UUID."),
         "team_id": IntegerDatabaseField(name="team_id"),
         "group_type_index": IntegerDatabaseField(
-            name="group_type_index", description="Group type the metric applies to (0-4)."
+            name="group_type_index",
+            description="Legacy; the query runner ignores it and evaluates every metric regardless. Don't filter on it.",
         ),
         "name": StringDatabaseField(name="name", description="Metric name."),
-        "format": StringDatabaseField(
-            name="format", description="Display format, e.g. 'numeric', 'currency', 'percentage'."
-        ),
+        "format": StringDatabaseField(name="format", description="Display format: 'numeric' or 'currency'."),
         "interval": IntegerDatabaseField(
             name="interval", description="Rolling window length, in days, the metric is computed over."
         ),
@@ -2506,9 +2539,12 @@ usage_metrics: PostgresTable = PostgresTable(
             name="display", description="How the metric is visualized, e.g. 'number' or 'sparkline'."
         ),
         "filters": StringJSONDatabaseField(
-            name="filters", description="JSON event filters defining what the metric counts."
+            name="filters",
+            description='JSON event/action filters ({"events": [...], "actions": [...], "properties": [...]}) or data warehouse filters ({"source": "data_warehouse", "table_name": "...", "timestamp_field": "...", "key_field": "..."}).',
         ),
-        "math": StringDatabaseField(name="math", description="Aggregation applied, e.g. 'total', 'unique', 'sum'."),
+        "math": StringDatabaseField(
+            name="math", description="Aggregation: 'count' or 'sum'; 'sum' aggregates math_property."
+        ),
         "math_property": StringDatabaseField(
             name="math_property",
             nullable=True,

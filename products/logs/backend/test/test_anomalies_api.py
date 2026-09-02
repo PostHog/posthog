@@ -198,6 +198,8 @@ class TestLogsSeriesBandsAPI(APIBaseTest):
                     severity="error",
                     total_count=25,
                     baseline_weeks=5,
+                    history_start=T0 - dt.timedelta(weeks=5),
+                    band_ready_at=None,
                     buckets=[BandBucket(time=T0 - dt.timedelta(hours=1), observed=25, lower=9.0, upper=57.0)],
                 )
             ],
@@ -216,6 +218,8 @@ class TestLogsSeriesBandsAPI(APIBaseTest):
         series = data["series"][0]
         assert (series["namespace"], series["environment"], series["severity"]) == ("ns", "prod", "error")
         assert series["baseline_weeks"] == 5
+        assert series["history_start"] == (T0 - dt.timedelta(weeks=5)).isoformat().replace("+00:00", "Z")
+        assert series["band_ready_at"] is None
         assert series["buckets"][0] == {
             "time": (T0 - dt.timedelta(hours=1)).isoformat().replace("+00:00", "Z"),
             "observed": 25,

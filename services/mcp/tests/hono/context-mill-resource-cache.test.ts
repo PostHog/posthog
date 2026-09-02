@@ -319,6 +319,36 @@ describe('ContextMillResourceCache', () => {
         }
     })
 
+    it('degrades to background_error when the lock acquire fails, without an unhandled rejection', async () => {
+        const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+        const unhandled = vi.fn()
+        process.on('unhandledRejection', unhandled)
+        try {
+            const cache = new TestContextMillResourceCache(redis, async () => [makeEntry('a')], {
+                freshSeconds: 0,
+                waitIntervalMs: 5,
+                waitTimeoutMs: 100,
+            })
+            await cache.loadOrRefresh()
+            cache.setLoader(async () => [makeEntry('b')])
+            redis.set = vi.fn(async () => {
+                throw new Error('Command timed out')
+            })
+
+            const stale = await cache.loadOrRefresh()
+            expect(stale.result).toBe('stale_hit')
+
+            await new Promise((r) => setTimeout(r, 30))
+
+            expect(mockCacheEventsInc).toHaveBeenCalledWith({ event: 'background_error' })
+            expect(redis._store.has(MANIFEST_LOCK_KEY)).toBe(false)
+            expect(unhandled).not.toHaveBeenCalled()
+        } finally {
+            process.off('unhandledRejection', unhandled)
+            consoleError.mockRestore()
+        }
+    })
+
     it('falls back to a direct load when the writer never publishes', async () => {
         redis._store.set(MANIFEST_LOCK_KEY, 'someone-else')
         const entries = [makeEntry('fallback')]

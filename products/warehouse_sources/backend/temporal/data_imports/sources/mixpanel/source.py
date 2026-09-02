@@ -171,6 +171,12 @@ Authenticate with a [Mixpanel Service Account](https://developer.mixpanel.com/re
                 "The Mixpanel service account does not have access to this project or resource. Grant it "
                 "access to the project and reconnect."
             ),
+            # Mixpanel returns 402 when the project's plan does not include the data export API or the
+            # account is in a payment-overdue state. Retrying cannot resolve a billing issue.
+            "402 Client Error: Payment Required": (
+                "Mixpanel requires a paid plan that includes the data export API. Check your Mixpanel "
+                "plan and billing status, then try again."
+            ),
         }
 
     def get_retryable_errors(self) -> set[str]:

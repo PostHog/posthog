@@ -4,7 +4,9 @@ import { memo } from 'react'
 import { LemonBanner, LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
+import { dayjs } from 'lib/dayjs'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import type { LogMessage } from '~/queries/schema/schema-general'
 
@@ -96,7 +98,11 @@ function SeriesBands(): JSX.Element {
                 </div>
             ) : null}
             {visibleSeries.map((series) => (
-                <SeriesCard key={`${series.namespace}/${series.environment}/${series.severity}`} series={series} />
+                <SeriesCard
+                    key={`${series.namespace}/${series.environment}/${series.severity}`}
+                    series={series}
+                    windowEnd={seriesBands.window_end}
+                />
             ))}
             {hiddenSeriesCount > 0 ? (
                 <LemonButton type="secondary" center onClick={showMoreSeries} data-attr="logs-anomalies-show-more">
@@ -107,23 +113,42 @@ function SeriesBands(): JSX.Element {
     )
 }
 
+export function learningBaselineLabel(bandReadyAt: string, windowEnd: string): string {
+    // Round up: a wait of just over two days still needs a third day of data.
+    const days = Math.max(1, Math.ceil(dayjs(bandReadyAt).diff(windowEnd, 'day', true)))
+    return `Learning baseline · ${days} more ${days === 1 ? 'day' : 'days'}`
+}
+
+function formatDay(timestamp: string): string {
+    return dayjs(timestamp).format('MMM D, YYYY')
+}
+
 // "Show more" grows the visible slice without touching the cards already on screen, so the charts
 // they hold should not reconcile again.
-const SeriesCard = memo(function SeriesCard({ series }: { series: LogsSeriesBandSeriesApi }): JSX.Element {
+const SeriesCard = memo(function SeriesCard({
+    series,
+    windowEnd,
+}: {
+    series: LogsSeriesBandSeriesApi
+    windowEnd: string
+}): JSX.Element {
     const { openLogsForBucket } = useActions(logsAnomaliesLogic)
-    // A banded series carries a band on every bucket, so their absence is the backend's own
-    // "still learning" verdict. Restating its week threshold here would let the two drift.
-    const learning = series.buckets.length > 0 && series.buckets.every((bucket) => bucket.lower == null)
+    // The backend dates the wait, so its history threshold stays out of here and the two cannot drift.
+    const bandReadyAt = series.band_ready_at
     return (
         <div className="rounded border bg-surface-primary p-3" data-attr="logs-anomalies-series">
             <div className="mb-2 flex items-center gap-2">
                 <LogTag level={series.severity as LogMessage['severity_text']} />
                 {series.namespace ? <LemonTag>{series.namespace}</LemonTag> : null}
                 {series.environment ? <LemonTag>{series.environment}</LemonTag> : null}
-                {learning ? (
-                    <LemonTag type="caution" title="This series has too little history for an expected range yet.">
-                        Learning baseline
-                    </LemonTag>
+                {bandReadyAt ? (
+                    <Tooltip
+                        title={`First seen ${formatDay(series.history_start)}. The expected range starts ${formatDay(
+                            bandReadyAt
+                        )}.`}
+                    >
+                        <LemonTag type="caution">{learningBaselineLabel(bandReadyAt, windowEnd)}</LemonTag>
+                    </Tooltip>
                 ) : null}
             </div>
             <AnomalyBandChart

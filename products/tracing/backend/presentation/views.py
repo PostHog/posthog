@@ -13,6 +13,8 @@ No business logic here - that belongs in logic.py via the facade.
 import json
 import base64
 
+from django.db import models
+
 from drf_spectacular.utils import extend_schema
 from pydantic import ValidationError
 from rest_framework import serializers, status, viewsets
@@ -364,10 +366,16 @@ class _TracingAttributesResponseSerializer(serializers.Serializer):
     count = serializers.IntegerField(help_text="Total attribute keys matched (lower bound when searching values).")
 
 
+class SpanPropertyType(models.TextChoices):
+    SPAN = "span", "span"
+    SPAN_ATTRIBUTE = "span_attribute", "span_attribute"
+    SPAN_RESOURCE_ATTRIBUTE = "span_resource_attribute", "span_resource_attribute"
+
+
 class _TracingValuesQuerySerializer(serializers.Serializer):
     key = serializers.CharField(help_text="The attribute key to get values for.")
     attribute_type = serializers.ChoiceField(
-        choices=["span", "span_attribute", "span_resource_attribute"],
+        choices=SpanPropertyType.choices,
         required=False,
         help_text='Type of attribute: "span" for built-in span fields (e.g. name), "span_attribute" for span-level attributes, "span_resource_attribute" for resource-level attributes.',
     )
@@ -474,7 +482,7 @@ class _TracingAttributeBreakdownQueryBodySerializer(serializers.Serializer):
         help_text='Attribute key to group by (e.g. "server.address", "http.response.status_code"). Discover keys with apm-attributes-list. For the "span" breakdown type, must be one of the allowlisted top-level columns: "service_name", "status_code".',
     )
     breakdownType = serializers.ChoiceField(
-        choices=["span", "span_attribute", "span_resource_attribute"],
+        choices=SpanPropertyType.choices,
         help_text='Where the key lives: "span" for allowlisted top-level span columns, "span_attribute" for span-level attributes, "span_resource_attribute" for resource-level attributes.',
     )
     excludeBreakdownFilter = serializers.BooleanField(

@@ -52,6 +52,17 @@ export const DEFAULT_FILTERS: DashboardsFilters = {
     folder: null,
 }
 
+export function hasDashboardFilters(filters: DashboardsFilters): boolean {
+    return Boolean(
+        filters.search ||
+        filters.pinned ||
+        filters.shared ||
+        (filters.createdBy !== 'All users' && filters.createdBy.length > 0) ||
+        filters.tags?.length ||
+        filters.folder != null
+    )
+}
+
 function moveTargetFor(dashboard: DashboardBasicType | undefined): FileSystemEntry | null {
     if (!dashboard?.file_system_id || !dashboard.file_system_path) {
         return null
@@ -336,15 +347,7 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
     }),
 
     selectors({
-        isFiltering: [
-            (s) => [s.filters],
-            (filters: DashboardsFilters) => {
-                return Object.keys(filters).some((key) => {
-                    const filterKey = key as keyof DashboardsFilters
-                    return filters[filterKey] !== DEFAULT_FILTERS[filterKey]
-                })
-            },
-        ],
+        isFiltering: [(s) => [s.filters], (filters: DashboardsFilters) => hasDashboardFilters(filters)],
         filteredTags: [
             (s) => [s.tags, s.tagSearch],
             (tags: string[], search: string) => {
@@ -476,6 +479,10 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
             const { createdBy, pinned, shared, tags } = values.filters
             const searchParams: Record<string, any> = { ...router.values.searchParams }
 
+            if (searchParams['tab'] === DashboardsTab.Pinned) {
+                delete searchParams['tab']
+            }
+
             if (createdBy !== DEFAULT_FILTERS.createdBy) {
                 searchParams['created_by'] = createdBy
             } else {
@@ -515,14 +522,15 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
     })),
     urlToAction(({ actions, values }) => ({
         '/dashboard': (_, searchParams) => {
-            const tab = (searchParams['tab'] as DashboardsTab | undefined) || DashboardsTab.All
+            const requestedTab = (searchParams['tab'] as DashboardsTab | undefined) || DashboardsTab.All
+            const tab = requestedTab === DashboardsTab.Pinned ? DashboardsTab.All : requestedTab
             if (values.currentTab !== tab) {
                 actions.setCurrentTab(tab)
             }
 
-            const hasFilterParams = ['created_by', 'pinned', 'shared', 'tags', 'folder', 'search'].some(
-                (key) => key in searchParams
-            )
+            const hasFilterParams =
+                requestedTab === DashboardsTab.Pinned ||
+                ['created_by', 'pinned', 'shared', 'tags', 'folder', 'search'].some((key) => key in searchParams)
             if (tab === DashboardsTab.Yours && values.filters.createdBy !== DEFAULT_FILTERS.createdBy) {
                 actions.setFilters({ createdBy: DEFAULT_FILTERS.createdBy })
             }
@@ -558,7 +566,10 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
                   : []
             const nextFilters = {
                 createdBy: createdByIds.length > 0 ? createdByIds : DEFAULT_FILTERS.createdBy,
-                pinned: searchParams['pinned'] === true || searchParams['pinned'] === 'true',
+                pinned:
+                    requestedTab === DashboardsTab.Pinned ||
+                    searchParams['pinned'] === true ||
+                    searchParams['pinned'] === 'true',
                 shared: searchParams['shared'] === true || searchParams['shared'] === 'true',
                 tags: Array.isArray(searchParams['tags']) ? searchParams['tags'] : DEFAULT_FILTERS.tags,
                 folder: 'folder' in searchParams ? urlSearchParamToString(searchParams['folder']) : null,

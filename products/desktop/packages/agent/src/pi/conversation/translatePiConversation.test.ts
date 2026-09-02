@@ -626,7 +626,7 @@ describe("createPiConversationTranslator", () => {
         args: { command: "printf hello" },
         partialResult: {
           content: [{ type: "text", text: "hel" }],
-          details: undefined,
+          details: { phase: "running" },
         },
       }),
     ).toEqual([
@@ -637,6 +637,7 @@ describe("createPiConversationTranslator", () => {
           id: "tool-1",
           status: "in_progress",
           rawOutput: [{ type: "text", text: "hel" }],
+          details: { phase: "running" },
           content: [
             {
               type: "content",
@@ -706,6 +707,7 @@ describe("createPiConversationTranslator", () => {
           timestamp: 10,
           toolCall: {
             id: "tool-1",
+            name: "bash",
             title: "bash",
             kind: "execute",
             status: "pending",

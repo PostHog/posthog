@@ -62,6 +62,12 @@ const SCHEDULED_RUN_INDEX_MAX_LAG_MINUTES = 360
 const SCHEDULED_LANE_LABEL = '(scheduled)'
 const STALE_PAGE_RETRIES = 2
 const STALE_PAGE_RETRY_DELAY_MS = 15000
+// The workflow behind the webhook reads `properties.channel` and `properties.ts` to reply in the
+// alert thread, so dropping either from the payload leaves the agent's answer with nowhere to land.
+const INCIDENT_OPENED_EVENT = 'master_ci_incident_opened'
+const WEBHOOK_ATTEMPTS = 3
+const WEBHOOK_RETRY_DELAY_MS = 2000
+const WEBHOOK_TIMEOUT_MS = 10000
 
 const defaultSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
@@ -337,6 +343,33 @@ function defaultSlackClient(token, fetchImpl) {
     }
 }
 
+// Only an incident's first tick calls this, so a start lost here is never retried by a later tick.
+async function startDiagnosisAgent({ url, fetchImpl, sleep, core }, payload) {
+    if (!url) {return false}
+    // The url is the only thing guarding the endpoint, and a variable is not masked in this public
+    // repo's logs, so register it before any code path can print it.
+    core.setSecret(url)
+    const doFetch = fetchImpl || fetch
+    let lastError = 'unknown'
+    for (let attempt = 1; attempt <= WEBHOOK_ATTEMPTS; attempt++) {
+        try {
+            const res = await doFetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+                signal: AbortSignal.timeout(WEBHOOK_TIMEOUT_MS),
+            })
+            if (res.ok) {return true}
+            lastError = `HTTP ${res.status}`
+        } catch (err) {
+            lastError = err.message
+        }
+        if (attempt < WEBHOOK_ATTEMPTS) {await sleep(WEBHOOK_RETRY_DELAY_MS * attempt)}
+    }
+    core.setFailed(`Could not start the diagnosis agent after ${WEBHOOK_ATTEMPTS} attempts: ${lastError}`)
+    return false
+}
+
 // The bot's own open incident, identified purely by message metadata — no other
 // app sets this event_type, so it is unambiguous without knowing our bot id.
 async function findActiveIncident(slack, channel) {
@@ -601,6 +634,22 @@ module.exports = async ({ context, github, core }, { now: _now, slack: _slack, f
                 thread_ts: posted.ts,
                 text: buildThreadReply({ created: workflows, commitStarted: commitActive }),
             })
+            await startDiagnosisAgent(
+                { url: process.env.DIAGNOSIS_WEBHOOK_URL, fetchImpl: _fetch, sleep, core },
+                {
+                    event: INCIDENT_OPENED_EVENT,
+                    distinct_id: 'ci-alerts-devex',
+                    properties: {
+                        channel,
+                        ts: posted.ts,
+                        workflows: workflows.map((w) => w.name),
+                        commit_streak: commitActive ? commitStreakCount : 0,
+                        since,
+                        latest_commit_sha: latestCommit?.sha || '',
+                        all_failing_runs_url: allFailingRunsUrl,
+                    },
+                }
+            )
             action = 'create'
         } else {
             await slack.update({ channel, ts: active.ts, ...message, metadata, unfurl_links: false })

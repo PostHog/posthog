@@ -91,7 +91,8 @@ function ServiceFilterInner({
     selectionMode: 'multi' | 'single'
     emptyButtonLabel: string
 }): JSX.Element {
-    const { serviceNames, allServiceNames, allServiceNamesLoading, search } = useValues(serviceFilterLogic)
+    const { serviceNames, allServiceNames, allServiceNamesLoading, search, serviceNamesError } =
+        useValues(serviceFilterLogic)
     const { setSearch } = useActions(serviceFilterLogic)
 
     const selected = value ?? []
@@ -139,6 +140,8 @@ function ServiceFilterInner({
                     <div>
                         {allServiceNamesLoading && allServiceNames.length === 0 ? (
                             <div className="p-2 text-muted text-center text-xs">Loading...</div>
+                        ) : serviceNamesError && allServiceNames.length === 0 ? (
+                            <div className="p-2 text-danger text-center text-xs">{serviceNamesError}</div>
                         ) : serviceNames.length === 0 ? (
                             <div className="p-2 text-muted text-center text-xs">
                                 {search ? 'No matching services' : 'No services found'}

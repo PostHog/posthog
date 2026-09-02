@@ -132,11 +132,13 @@ class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig
             **missing_scope_errors,
             "missing or invalid refresh token": "Your HubSpot connection is invalid or expired. Please reconnect it.",
             "missing or unknown hub id": None,
-            # HubSpot's CRM API returns 401/403 when the OAuth grant can't read the requested object
-            # (token revoked, or the connected app is missing a scope like `crm.objects.companies.read`).
-            # `fetch_data` already refreshes the access token once on a 401; if the retried request is
-            # still rejected, the credentials genuinely lack access and retrying can't recover. Match the
-            # stable host, not the per-object URL path (companies/deals/contacts/...), which varies.
+            # Raised by helpers._get after tenacity exhausts all 5 retry attempts where every attempt
+            # got a 401: the code refreshes the access token each time but HubSpot keeps rejecting it.
+            # A persistent 401 after token refresh means the OAuth grant is fundamentally broken
+            # (revoked, app deleted, permissions withdrawn) — Temporal retrying the activity can't help.
+            "Hubspot API 401 - refreshed token, retrying:": "Your HubSpot credentials are no longer authorized. Please reconnect your HubSpot account and ensure it has the required permissions, then try again.",
+            # HubSpot's CRM API may also surface 401 through raise_for_status() in other fetch paths.
+            # Match the stable host prefix, not the per-object URL path, which varies by endpoint.
             "401 Client Error: Unauthorized for url: https://api.hubapi.com": "Your HubSpot credentials are no longer authorized. Please reconnect your HubSpot account and ensure it has the required permissions, then try again.",
             "403 Client Error: Forbidden for url: https://api.hubapi.com": "Your HubSpot credentials do not have permission to access this data. Please reconnect your HubSpot account and ensure it has the required permissions, then try again.",
             # Raised by source_for_pipeline when the source config carries no refresh token at all
