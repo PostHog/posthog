@@ -1683,8 +1683,10 @@ class TestEmailInboundContent(BaseTest):
 
         comment = Comment.objects.get(team=self.team, scope="conversations_ticket")
         mapping = EmailMessageMapping.objects.get(comment=comment)
+        item_context = comment.item_context
+        assert item_context is not None
         assert comment.content == expected_content
-        assert comment.item_context["has_full_email_content"] is False
+        assert item_context["has_full_email_content"] is False
         assert mapping.full_body_plain is None
 
     @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
@@ -1768,8 +1770,10 @@ class TestEmailInboundContent(BaseTest):
         ticket = Ticket.objects.get(team=self.team)
         reply = Comment.objects.filter(team=self.team, scope="conversations_ticket").order_by("created_at")[1]
         mapping = EmailMessageMapping.objects.get(comment=reply)
+        item_context = reply.item_context
+        assert item_context is not None
         assert reply.content == stripped_text
-        assert reply.item_context["has_full_email_content"] is (expected_full_body is not None)
+        assert item_context["has_full_email_content"] is (expected_full_body is not None)
         assert mapping.full_body_plain == expected_full_body
 
         self.client.force_login(self.user)
