@@ -44,6 +44,7 @@ class InMemoryStorage:
     def delete_objects(self, keys):
         for key in keys:
             self.objects.pop(key, None)
+        return []
 
 
 class CanvasAPIBaseTest(APIBaseTest):

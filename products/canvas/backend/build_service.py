@@ -288,6 +288,8 @@ def validate_builder_output(
 # lifetime; artifacts are bounded.
 FAILED_BUILD_RETENTION = timedelta(hours=24)
 SUCCESSFUL_BUILD_RETENTION = timedelta(days=30)
+# Build rows the retention sweep loads per keyset page.
+CLEANUP_PAGE_SIZE = 500
 BUILD_LEASE_DURATION = timedelta(minutes=5)
 # A queued build no worker has claimed after this long is presumed lost
 # (dropped broker message) and re-delivered by the sweeper.
@@ -1337,58 +1339,69 @@ def cleanup_canvas_builds() -> int:
     """
     now = timezone.now()
     pruned = 0
-    pending_keys: list[str] = []
-    pending_build_ids: list[UUID] = []
-
-    def flush() -> None:
-        # Clear prefixes only after their batch's delete succeeds — a storage
-        # failure must leave the rows pointing at their (surviving) artifacts.
-        nonlocal pruned
-        if pending_keys:
-            object_storage.delete_objects(pending_keys)
-        if pending_build_ids:
-            # nosemgrep: idor-lookup-without-team (cross-team retention sweep; ids collected from DB rows above, no user input)
-            CanvasBuild.objects.unscoped().filter(id__in=pending_build_ids).update(artifact_object_prefix=None)
-        pruned += len(pending_build_ids)
-        pending_keys.clear()
-        pending_build_ids.clear()
-
-    stale = (
-        CanvasBuild.objects.unscoped()
-        .filter(pinned=False, artifact_object_prefix__isnull=False)
-        .filter(
-            Q(status=CanvasBuild.STATUS_FAILED, finished_at__lt=now - FAILED_BUILD_RETENTION)
-            | Q(status=CanvasBuild.STATUS_READY, finished_at__lt=now - SUCCESSFUL_BUILD_RETENTION)
-        )
-        .select_related("canvas")
-        .order_by("canvas_id", "-created_at")
-    )
     protected: dict[str, set[str]] = {}
-    for build in stale.iterator(chunk_size=500):
-        canvas_key = str(build.canvas_id)
-        if canvas_key not in protected:
-            keep = {str(build.canvas.published_build_id) if build.canvas.published_build_id else None}
-            rollback = (
-                CanvasBuild.objects.unscoped()
-                .filter(
-                    canvas_id=build.canvas_id,
-                    status=CanvasBuild.STATUS_READY,
-                    artifact_object_prefix__isnull=False,
-                )
-                .exclude(id__in=[identifier for identifier in keep if identifier])
-                .order_by("-created_at")
-                .values_list("id", flat=True)
-                .first()
-            )
-            keep.add(str(rollback) if rollback else None)
-            protected[canvas_key] = {identifier for identifier in keep if identifier}
-        if str(build.id) in protected[canvas_key]:
-            continue
 
-        assets = (build.manifest or {}).get("assets", [])
-        pending_keys.extend(f"{build.artifact_object_prefix}/{asset['path']}" for asset in assets)
-        pending_build_ids.append(build.id)
-        if len(pending_keys) >= 1000:
-            flush()
-    flush()
+    # Keyset-paginate over ordered build ids instead of iterating a server-side
+    # cursor. The sweep runs storage deletes and an UPDATE between fetches; each
+    # transaction boundary destroys a named portal, which aborts the next cursor
+    # fetch and ends the whole pass. Per-page deletes and UPDATE hold no cursor.
+    # The sweep stays outside a transaction on purpose: wrapping it would hold
+    # one open across the object-storage deletes.
+    last_id: UUID | None = None
+    while True:
+        page_query = (
+            CanvasBuild.objects.unscoped()
+            .filter(pinned=False, artifact_object_prefix__isnull=False)
+            .filter(
+                Q(status=CanvasBuild.STATUS_FAILED, finished_at__lt=now - FAILED_BUILD_RETENTION)
+                | Q(status=CanvasBuild.STATUS_READY, finished_at__lt=now - SUCCESSFUL_BUILD_RETENTION)
+            )
+            .select_related("canvas")
+            .order_by("id")
+        )
+        if last_id is not None:
+            page_query = page_query.filter(id__gt=last_id)
+        page = list(page_query[:CLEANUP_PAGE_SIZE])
+        if not page:
+            break
+        last_id = page[-1].id
+
+        build_keys: dict[UUID, list[str]] = {}
+        for build in page:
+            canvas_key = str(build.canvas_id)
+            if canvas_key not in protected:
+                keep = {str(build.canvas.published_build_id) if build.canvas.published_build_id else None}
+                rollback = (
+                    CanvasBuild.objects.unscoped()
+                    .filter(
+                        canvas_id=build.canvas_id,
+                        status=CanvasBuild.STATUS_READY,
+                        artifact_object_prefix__isnull=False,
+                    )
+                    .exclude(id__in=[identifier for identifier in keep if identifier])
+                    .order_by("-created_at")
+                    .values_list("id", flat=True)
+                    .first()
+                )
+                keep.add(str(rollback) if rollback else None)
+                protected[canvas_key] = {identifier for identifier in keep if identifier}
+            if str(build.id) in protected[canvas_key]:
+                continue
+
+            assets = (build.manifest or {}).get("assets", [])
+            build_keys[build.id] = [f"{build.artifact_object_prefix}/{asset['path']}" for asset in assets]
+
+        # Clear prefixes only after the delete succeeds — a storage failure must
+        # leave the rows pointing at their (surviving) artifacts. delete_objects
+        # never raises; it returns the keys it could not remove, so a build with
+        # any failed key keeps its prefix and the next (idempotent) sweep retries
+        # it instead of orphaning the surviving objects.
+        pending_keys = [key for keys in build_keys.values() for key in keys]
+        failed_keys = set(object_storage.delete_objects(pending_keys)) if pending_keys else set()
+        pruned_build_ids = [build_id for build_id, keys in build_keys.items() if failed_keys.isdisjoint(keys)]
+        if pruned_build_ids:
+            # nosemgrep: idor-lookup-without-team (cross-team retention sweep; ids collected from DB rows above, no user input)
+            CanvasBuild.objects.unscoped().filter(id__in=pruned_build_ids).update(artifact_object_prefix=None)
+        pruned += len(pruned_build_ids)
+
     return pruned
