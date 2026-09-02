@@ -120,20 +120,18 @@ _OBJECT_WRITE_LEVEL = "editor"
 _ICON_DOMAIN_VALIDATOR = DomainNameValidator(accept_idna=False)
 
 
-# The warehouse resources a person/group-property source can bind to: the import source behind a
-# table, or a materialized view. Each needs its own API-token scope folded into the object check.
-_WAREHOUSE_SCOPE_GATED_RESOURCES = frozenset({"external_data_source", "warehouse_view"})
+# Custom-property responses can include metadata from these resources. Token scopes must apply even
+# though the endpoint itself is authorized as an account resource.
+_SCOPE_GATED_RESOURCES = frozenset({"external_data_source", "warehouse_view", "hog_flow"})
 
 
-class _WarehouseScopeGatedAccessControl:
-    """Wraps ``UserAccessControl`` so object-level warehouse access additionally requires the request
-    token to carry the matching scope for that resource (``read`` for viewer, ``write`` for editor) —
-    ``external_data_source`` for a table binding, ``warehouse_view`` for a view binding.
-    Person-property sources gate all warehouse read/write through ``check_access_level_for_object`` on
-    the bound warehouse object, so folding the token scope in here enforces the cross-resource scope on
-    every path without threading it through the facade. Session auth (no token scopes) and ``*`` tokens
-    are unaffected — API scopes never gate session requests, which stay RBAC-only. Everything else
-    delegates to the wrapped instance."""
+class _ScopeGatedAccessControl:
+    """Wraps ``UserAccessControl`` so cross-resource reads require the matching token scope.
+
+    Custom-property sources and workflow references resolve through object access checks and queryset
+    filtering. Applying token scopes here keeps those secondary resources from leaking through an
+    account-scoped endpoint. Session auth and ``*`` tokens keep the wrapped access-control behavior.
+    """
 
     def __init__(self, inner: UserAccessControl, token_scopes: list[str]) -> None:
         self._inner = inner
@@ -143,27 +141,31 @@ class _WarehouseScopeGatedAccessControl:
         return getattr(self._inner, name)
 
     def check_access_level_for_object(self, obj: Any, required_level: Any, *args: Any, **kwargs: Any) -> bool:
-        if self._token_lacks_scope_for(obj, required_level):
+        if self._token_lacks_scope_for_resource(model_to_resource(obj), required_level):
             return False
         return self._inner.check_access_level_for_object(obj, required_level, *args, **kwargs)
 
-    def _token_lacks_scope_for(self, obj: Any, required_level: Any) -> bool:
+    def filter_queryset_by_access_level(self, queryset: Any, *args: Any, **kwargs: Any) -> Any:
+        resource = kwargs.get("resource") or model_to_resource(queryset.model)
+        if self._token_lacks_scope_for_resource(resource, "viewer"):
+            return queryset.none()
+        return self._inner.filter_queryset_by_access_level(queryset, *args, **kwargs)
+
+    def _token_lacks_scope_for_resource(self, resource: str | None, required_level: Any) -> bool:
         scopes = self._token_scopes
-        resource = model_to_resource(obj)
-        if "*" in scopes or resource not in _WAREHOUSE_SCOPE_GATED_RESOURCES:
+        if "*" in scopes or resource not in _SCOPE_GATED_RESOURCES:
             return False
         if f"{resource}:write" in scopes:
-            return False  # write implies read, so it satisfies both viewer and editor
+            return False
         return not (required_level == "viewer" and f"{resource}:read" in scopes)
 
 
 def _warehouse_scoped_uac(view: Any) -> UserAccessControl:
-    """The view's ``UserAccessControl``, additionally gating warehouse object access on the request
-    token's scope for that resource. A no-op for session/other non-token auth (no token scopes)."""
+    """The view's ``UserAccessControl``, with token scopes applied to secondary resource reads."""
     scopes = get_authenticator_scopes(getattr(view.request, "successful_authenticator", None))
     if scopes is None:
         return view.user_access_control
-    return cast(UserAccessControl, _WarehouseScopeGatedAccessControl(view.user_access_control, scopes))
+    return cast(UserAccessControl, _ScopeGatedAccessControl(view.user_access_control, scopes))
 
 
 # drf-spectacular auto-describes the pk path param for a model-backed viewset as
@@ -980,10 +982,7 @@ class CustomPropertyDefinitionViewSet(
 
     def _guard_group_definition(self, request: Request, definition_id) -> None:
         # Group-target definitions gate the group-writing pipeline, so mutating one needs group scope.
-        definition = api.get_custom_property_definition(
-            self.team_id, definition_id, user_access_control=self.user_access_control
-        )
-        if definition is not None and definition.target_type == _GROUP_TARGET_TYPE:
+        if api.get_custom_property_definition_target_type(self.team_id, definition_id) == _GROUP_TARGET_TYPE:
             _assert_group_scope(request, write=True)
 
     def update(self, request: Request, *args, **kwargs) -> Response:
@@ -1532,7 +1531,11 @@ class AccountViewSet(
                 type=OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
                 required=False,
-                description="Case-insensitive substring search across account name and external ID.",
+                description=(
+                    "Case-insensitive substring search across account name and external ID. "
+                    "A query holding an email address also matches accounts that list it as a known "
+                    "email, and a query holding a domain matches accounts that own that email domain."
+                ),
             ),
             OpenApiParameter(
                 name="tags",

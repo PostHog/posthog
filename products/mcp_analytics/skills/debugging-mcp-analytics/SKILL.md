@@ -167,18 +167,22 @@ tools. They are declared in `products/mcp_analytics/mcp/tools.yaml`.
 
 **Harness** is the friendly label for the calling client (Claude Code, Cursor, ChatGPT,
 Windsurf, and ~30 other buckets). It is resolved at query time only, with no stored column:
-`mcp_harness.py::HARNESS_TOKEN_SQL` picks the strongest available signal in priority order
-(`mcp_vendor_client` -> Claude Code user-agent surface -> Grok user-agent -> `$mcp_client_name`
--> `mcp_session_client_name` -> generic user-agent token -> `$mcp_oauth_client_name`), then
+`mcp_harness.py::HARNESS_TOKEN_SQL` picks the strongest available signal in priority order,
+over exactly three properties — the ones the SDK schemas can emit
+(`$mcp_vendor_client`, with the legacy non-`$` `mcp_vendor_client` coalesced for historical
+rows -> Claude Code user-agent surface -> Grok user-agent -> `$mcp_client_name` -> generic
+user-agent token, both from `$mcp_client_user_agent`), then
 `harness_label_sql()` buckets it (or `harness_label_or_token_sql()`, which names an
 unrecognized client verbatim instead of collapsing it into "Other" — use it for ranked
 top-N lists, never where labels feed an array or unbounded GROUP BY).
 
 **`$mcp_client_name` is one mid-priority input, not a synonym for harness** — grouping by
-it directly gives a different, messier answer. It rides on the session's `initialize` and
-is absent from the tool calls that follow, so on its own it leaves most traffic
-unattributed; `mcp_session_client_name` is the session-pinned fallback the token chain
-reaches for next.
+it directly gives a different, messier answer: on old SDK versions it rode only on the
+session's `initialize`, and Anthropic's pooled surfaces self-report a generic
+`Anthropic/ClaudeAI` that only the vendor header can disambiguate. The dogfood-only
+`mcp_session_client_name` and `$mcp_oauth_client_name` are **no longer read** by harness
+resolution — the server folds the session-pinned name into per-event `$mcp_client_name`,
+and neither property ever resolved an event alone.
 
 For hand-written SQL, [`models-mcp.md`](../../../posthog_ai/skills/querying-posthog-data/references/models-mcp.md)
 carries the property reference and worked query examples.
@@ -325,10 +329,9 @@ query runners, the demo seeder, and exec-mode inner-tool breakout (Hard rule 1).
 
 What still lags, all checkable in this repo: the `services/mcp` alias pin is `0.10.2` against a
 0.11.7 SDK (Hard rule 5 — no 0.11.x SDK-side fix or SDK-emitted property reaches dogfood data,
-though the server independently stamps `$mcp_client_user_agent` and the non-`$`
-`mcp_vendor_client` regardless of the pin);
-harness resolution does not read the SDK-emitted `$mcp_vendor_client` yet (`HARNESS_TOKEN_SQL`
-consumes `$mcp_client_user_agent`, but its top-priority vendor signal is still the
-server-stamped non-`$` `mcp_vendor_client`); the exec-property emitter is still absent from
+though the server independently stamps `$mcp_client_user_agent` and the legacy non-`$`
+`mcp_vendor_client` regardless of the pin; harness resolution reads the SDK-emitted
+`$mcp_vendor_client` first and coalesces the legacy name for those rows);
+the exec-property emitter is still absent from
 master (Hard rule 1); the clustering schedule still covers only `GUARANTEED_TEAM_IDS = [2]`;
 and the product remains behind the `mcp-analytics` flag, so a project without it sees nothing.
