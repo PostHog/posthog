@@ -13,7 +13,7 @@ imports on every request.
 from django.db import IntegrityError, router, transaction
 from django.utils import timezone
 
-from posthog.models.activity_logging.model_activity import get_current_user
+from posthog.models.activity_logging.model_activity import get_current_user, get_was_impersonated
 
 from products.stamphog.backend.activity_logging import log_repo_config_bulk_update
 from products.stamphog.backend.facade import contracts
@@ -149,6 +149,7 @@ def sync_installation_repositories(
             ],
             {"connected_by_user_id": connected_by_user_id},
             user=get_current_user(),
+            was_impersonated=get_was_impersonated(),
         )
 
     return [_repo_config_to_dto(c) for c in synced], skipped

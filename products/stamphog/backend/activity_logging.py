@@ -79,6 +79,7 @@ def log_repo_config_bulk_update(
     after_values: dict[str, Any],
     *,
     user: "User | None" = None,
+    was_impersonated: bool = False,
     trigger: Trigger | None = None,
 ) -> None:
     """Log a queryset update of repo configs, which the model signal cannot see.
@@ -106,7 +107,7 @@ def log_repo_config_bulk_update(
                 scope="StamphogRepoConfig",
                 activity="updated",
                 detail=Detail(changes=changes, name=row["repository"], trigger=trigger),
-                was_impersonated=False,
+                was_impersonated=was_impersonated,
             )
         )
 
