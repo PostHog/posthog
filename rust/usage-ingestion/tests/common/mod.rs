@@ -119,6 +119,7 @@ impl Service {
             Arc::new(FixedResolver(organization_id)),
             max_batch_size,
             topic(),
+            None,
         );
 
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();

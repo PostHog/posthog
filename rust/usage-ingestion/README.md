@@ -30,6 +30,25 @@ organization lookups in its process-local cache for five minutes.
 When `DEBUG` is set, the service writes readable, colorized logs for local
 development. It uses structured JSON logs otherwise.
 
+## Redis usage counters
+
+Set `USAGE_INGESTION_REDIS_URL` to a dedicated Valkey Cluster endpoint to
+enable the lossy hourly and daily counter projection. It is disabled when the
+URL is empty, so Kafka and ClickHouse remain the only required dependencies.
+`USAGE_INGESTION_REDIS_FLUSH_INTERVAL_SECONDS` defaults to `15`.
+
+The local cluster endpoint is `redis://127.0.0.1:6390`. Start it and run its
+integration test with:
+
+```sh
+docker compose -f docker-compose.dev.yml up -d valkey-cluster
+flox activate -- bash -c 'cd rust && cargo test -p usage-ingestion --test counters -- --ignored --nocapture'
+```
+
+The test writes 1,024 independent team scopes plus one organization scope,
+checks the hour and day keys share a cluster slot, and proves cluster routing
+still rejects an intentionally cross-slot transaction.
+
 ## Where it runs
 
 | Resource | Placement |

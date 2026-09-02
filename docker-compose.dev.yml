@@ -433,7 +433,9 @@ services:
             - /bin/sh
             - -ec
             - |
-                valkey-server --cluster-enabled yes --cluster-config-file /tmp/nodes.conf --cluster-node-timeout 5000 &
+                # The host exposes this single-node cluster on 6390. Without these announcements,
+                # cluster-aware local clients follow CLUSTER SLOTS to an unrelated localhost:6379.
+                valkey-server --cluster-enabled yes --cluster-config-file /tmp/nodes.conf --cluster-node-timeout 5000 --cluster-announce-ip 127.0.0.1 --cluster-announce-port 6390 &
                 pid=$$!
                 until valkey-cli ping >/dev/null 2>&1; do sleep 0.1; done
                 valkey-cli cluster addslots $$(seq 0 16383)

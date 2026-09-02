@@ -14,6 +14,7 @@ use usage_ingestion_proto::usage_ingestion::v1::{
 };
 use uuid::Uuid;
 
+use crate::counters::CounterAccumulator;
 use crate::record::KafkaBillingUsageRecord;
 use crate::resolver::{OrganizationResolver, ResolveError};
 
@@ -22,6 +23,7 @@ pub struct UsageIngestionService {
     resolver: Arc<dyn OrganizationResolver>,
     max_batch_size: usize,
     topic: String,
+    counters: Option<Arc<CounterAccumulator>>,
 }
 
 impl UsageIngestionService {
@@ -30,12 +32,14 @@ impl UsageIngestionService {
         resolver: Arc<dyn OrganizationResolver>,
         max_batch_size: usize,
         topic: String,
+        counters: Option<Arc<CounterAccumulator>>,
     ) -> Self {
         Self {
             producer,
             resolver,
             max_batch_size,
             topic,
+            counters,
         }
     }
 
@@ -95,8 +99,8 @@ impl UsageIngestion for UsageIngestionService {
             .map(|record| record.record_id.clone())
             .collect::<Vec<_>>();
         // No key: nothing downstream reads per-team order, and a team key crowds one partition.
-        let payloads = prepared.into_iter().map(|record| {
-            serde_json::to_vec(&record)
+        let payloads = prepared.iter().map(|record| {
+            serde_json::to_vec(record)
                 .map(|payload| (None, payload))
                 .map_err(|error| {
                     Status::internal(format!("failed to encode usage record: {error}"))
@@ -117,6 +121,14 @@ impl UsageIngestion for UsageIngestionService {
             return Err(Status::unavailable(
                 "Kafka did not confirm every usage record; retry with the same record IDs",
             ));
+        }
+
+        if let Some(counters) = &self.counters {
+            metrics::histogram!("usage_ingestion_distinct_scopes_per_request")
+                .record(CounterAccumulator::scope_count_for_records(&prepared) as f64);
+            for record in &prepared {
+                counters.add_record(record);
+            }
         }
 
         Ok(Response::new(IngestBillingUsageResponse {
@@ -175,6 +187,7 @@ mod tests {
             Arc::new(FixedResolver),
             500,
             "test-topic".to_string(),
+            None,
         )
     }
 

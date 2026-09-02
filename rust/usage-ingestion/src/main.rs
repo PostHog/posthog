@@ -15,6 +15,9 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{EnvFilter, Layer};
 use usage_ingestion::config::Config;
+use usage_ingestion::counters::{
+    spawn_flush_task, CounterAccumulator, CounterStore, RedisCounterStore,
+};
 use usage_ingestion::resolver::PostgresOrganizationResolver;
 use usage_ingestion::service::UsageIngestionService;
 use usage_ingestion_proto::usage_ingestion::v1::usage_ingestion_server::UsageIngestionServer;
@@ -75,14 +78,38 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .register("kafka_producer".to_string(), Duration::from_secs(30))
         .await;
     let producer = create_kafka_producer(&kafka_config, producer_liveness).await?;
+    let counters = if config.redis_url.is_empty() {
+        None
+    } else {
+        match RedisCounterStore::connect(&config.redis_url).await {
+            Ok(store) => {
+                let store: Arc<dyn CounterStore> = Arc::new(store);
+                Some((Arc::new(CounterAccumulator::default()), store))
+            }
+            Err(error) => {
+                tracing::warn!(%error, "usage counter Redis is unavailable; projection disabled");
+                None
+            }
+        }
+    };
     let service = UsageIngestionService::new(
         producer,
         resolver,
         config.max_batch_size,
         config.topic.clone(),
+        counters
+            .as_ref()
+            .map(|(accumulator, _)| Arc::clone(accumulator)),
     );
 
     let metrics_handle = PrometheusBuilder::new().install_recorder()?;
+    if let Some((accumulator, store)) = counters {
+        spawn_flush_task(
+            accumulator,
+            store,
+            Duration::from_secs(config.redis_flush_interval_seconds),
+        );
+    }
     let metrics_address = config.metrics_address.clone();
     let health_for_routes = health.clone();
     tokio::spawn(async move {
