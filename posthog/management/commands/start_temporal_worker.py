@@ -193,8 +193,6 @@ from products.engineering_analytics.backend.facade.temporal import (
 )
 from products.error_tracking.backend.facade.temporal import (
     ACTIVITIES as ERROR_TRACKING_ACTIVITIES,
-    ALERT_ACTIVITIES as ERROR_TRACKING_ALERT_ACTIVITIES,
-    ALERT_WORKFLOWS as ERROR_TRACKING_ALERT_WORKFLOWS,
     LIFECYCLE_ACTIVITIES as ERROR_TRACKING_LIFECYCLE_ACTIVITIES,
     LIFECYCLE_WORKFLOWS as ERROR_TRACKING_LIFECYCLE_WORKFLOWS,
     WORKFLOWS as ERROR_TRACKING_WORKFLOWS,
@@ -507,13 +505,6 @@ _task_queue_specs = [
         settings.ERROR_TRACKING_LIFECYCLE_TASK_QUEUE,
         ERROR_TRACKING_LIFECYCLE_WORKFLOWS,
         ERROR_TRACKING_LIFECYCLE_ACTIVITIES,
-    ),
-    (
-        # Defaults to the general-purpose queue (folded into that registration by the
-        # defaultdict merge below); the env override routes it to a dedicated worker.
-        settings.ERROR_TRACKING_ALERTS_TASK_QUEUE,
-        ERROR_TRACKING_ALERT_WORKFLOWS,
-        ERROR_TRACKING_ALERT_ACTIVITIES,
     ),
     (
         settings.EVENT_SCREENSHOTS_TASK_QUEUE,
