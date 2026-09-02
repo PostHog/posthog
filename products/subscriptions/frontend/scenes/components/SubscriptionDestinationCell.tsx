@@ -3,25 +3,20 @@ import { LemonMenu, LemonTag } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { parseCommaSeparatedSlackTargetDisplayLabels } from 'lib/utils/slackChannelValue'
 
-import { SubscriptionTargetEnumApi, type SubscriptionApi } from 'products/subscriptions/frontend/generated/api.schemas'
+import type { SubscriptionDestination } from './subscriptionDestination'
 
-function parseEmailRecipients(targetValue: string): string[] {
-    return targetValue
-        .split(',')
-        .map((e) => e.trim())
-        .filter(Boolean)
-}
+export function SubscriptionDestinationCell({ destination }: { destination: SubscriptionDestination }): JSX.Element {
+    const { parts, copyDescription } = destination
 
-function truncateWebhookUrl(url: string): string {
-    if (url.length > 48) {
-        return `${url.slice(0, 24)}…${url.slice(-12)}`
+    if (copyDescription === null) {
+        return (
+            <span className="text-secondary max-w-md truncate block" title={parts[0]}>
+                {parts[0]}
+            </span>
+        )
     }
-    return url
-}
 
-function DestinationListCell({ parts, copyDescription }: { parts: string[]; copyDescription: string }): JSX.Element {
     if (parts.length === 0) {
         return <span className="text-secondary">—</span>
     }
@@ -64,53 +59,6 @@ function DestinationListCell({ parts, copyDescription }: { parts: string[]; copy
                     <IconChevronDown className="w-4 h-4" />
                 </LemonTag>
             </LemonMenu>
-        </span>
-    )
-}
-
-export function SubscriptionDestinationCell({ sub }: { sub: SubscriptionApi }): JSX.Element {
-    if (sub.target_type === SubscriptionTargetEnumApi.Email) {
-        const emails = parseEmailRecipients(sub.target_value)
-        return <DestinationListCell parts={emails} copyDescription="email recipient" />
-    }
-
-    if (sub.target_type === SubscriptionTargetEnumApi.Slack) {
-        const parts = parseCommaSeparatedSlackTargetDisplayLabels(sub.target_value)
-        return <DestinationListCell parts={parts} copyDescription="Slack destination" />
-    }
-
-    const text = truncateWebhookUrl(sub.target_value)
-    return (
-        <span className="text-secondary max-w-md truncate block" title={sub.target_value}>
-            {text}
-        </span>
-    )
-}
-
-/** Same destination UI as {@link SubscriptionDestinationCell}, for snapshot `target_type` / `target_value` (e.g. delivery history rows). */
-export function SubscriptionDeliveryDestinationCell({
-    targetType,
-    targetValue,
-}: {
-    targetType: string
-    targetValue: string
-}): JSX.Element {
-    const kind = targetType.toLowerCase()
-    if (kind === SubscriptionTargetEnumApi.Email) {
-        return <DestinationListCell parts={parseEmailRecipients(targetValue)} copyDescription="email recipient" />
-    }
-    if (kind === SubscriptionTargetEnumApi.Slack) {
-        return (
-            <DestinationListCell
-                parts={parseCommaSeparatedSlackTargetDisplayLabels(targetValue)}
-                copyDescription="Slack destination"
-            />
-        )
-    }
-    const text = truncateWebhookUrl(targetValue)
-    return (
-        <span className="text-secondary max-w-md truncate block" title={targetValue}>
-            {text}
         </span>
     )
 }
