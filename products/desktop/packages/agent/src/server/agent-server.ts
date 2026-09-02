@@ -647,7 +647,11 @@ export class AgentServer {
 
   constructor(config: AgentServerConfig) {
     this.config = config;
-    this.bootTracker = new AgentBootTracker(config.runId);
+    this.bootTracker = new AgentBootTracker(
+      config.runId,
+      undefined,
+      config.launcherToProcessMs,
+    );
     this.posthogExecPermissionRegexSource =
       config.posthogExecPermissionRegex ??
       DEFAULT_POSTHOG_EXEC_PERMISSION_REGEX_SOURCE;
@@ -1715,6 +1719,7 @@ export class AgentServer {
     this.bootTracker = new AgentBootTracker(
       payload.run_id,
       this.httpReadyBootMs,
+      this.config.launcherToProcessMs,
     );
     this.initializationPromise = this._doInitializeSession(
       payload,
