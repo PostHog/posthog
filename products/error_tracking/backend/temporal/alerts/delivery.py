@@ -373,6 +373,15 @@ def _deliver_one(delivery: PlannedDelivery, inputs: AlertDeliveryWorkflowInputs)
         # Everything below reads row state written by whoever held the claim last.
         thread.refresh_from_db()
         posted = _post_claimed(client, thread, delivery, inputs, claimed_at)
+    except SlackApiError as error:
+        if _slack_error_code(error) in SLACK_TERMINAL_ERRORS:
+            # Nothing to retry for this destination, so the notification counts as
+            # handled here: an activity retry for a sibling destination's transient
+            # failure must not call Slack for this one again.
+            _finalize_thread(thread, inputs, claimed_at)
+        else:
+            _release_thread(thread, inputs, claimed_at)
+        raise
     except Exception:
         # A failed post frees the thread for whoever comes next; this notification's
         # retry then lands wherever the thread is by that time.
@@ -417,17 +426,33 @@ def _post_claimed(
         client.chat_postMessage(channel=external_ref["channel"], thread_ts=external_ref["ts"], text=reply)
         _maybe_edit_root(client, thread, inputs)
 
+    _finalize_thread(thread, inputs, claimed_at, external_ref=external_ref, root_headline=root_headline)
+    _record_delivery_outcome(delivery.destination, error=None)
+    return True
+
+
+def _finalize_thread(
+    thread: ErrorTrackingAlertThread,
+    inputs: AlertDeliveryWorkflowInputs,
+    claimed_at: datetime,
+    *,
+    external_ref: dict | None = None,
+    root_headline: str | None = None,
+) -> None:
+    """Record the notification as handled on the thread and release the claim.
+
+    Fenced on the claim time: a holder that outlived the TTL and was superseded must
+    not overwrite the successor's state or clear the successor's claim.
+    """
     delivered_ids = [*(thread.delivered_notification_ids or []), inputs.notification_id][
         -DELIVERED_NOTIFICATION_IDS_CAP:
     ]
-    # Fenced on the claim time: a holder that outlived the TTL and was superseded
-    # must not overwrite the successor's state or clear the successor's claim.
     finalized = (
         ErrorTrackingAlertThread.objects.for_team(thread.team_id, canonical=True)
         .filter(id=thread.id, pending_notification_id=inputs.notification_id, pending_claimed_at=claimed_at)
         .update(
-            external_ref=external_ref,
-            root_headline=root_headline,
+            external_ref=external_ref if external_ref is not None else thread.external_ref,
+            root_headline=root_headline if root_headline is not None else thread.root_headline,
             delivered_notification_ids=delivered_ids,
             pending_notification_id=None,
             pending_claimed_at=None,
@@ -440,8 +465,6 @@ def _post_claimed(
             thread_id=str(thread.id),
             notification_id=inputs.notification_id,
         )
-    _record_delivery_outcome(delivery.destination, error=None)
-    return True
 
 
 def _claim_thread(thread: ErrorTrackingAlertThread, inputs: AlertDeliveryWorkflowInputs) -> datetime:

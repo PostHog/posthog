@@ -506,6 +506,31 @@ class TestSlackThreadDelivery(AlertTestMixin):
         assert destination.consecutive_failures == 1
         assert thread.pending_notification_id is None
 
+    def test_terminal_failure_is_not_recalled_when_a_sibling_destination_retries(self):
+        # Destination A is terminal, destination B is rate limited: the activity retries
+        # for B, and that retry must not call Slack for A again.
+        client = self._mock_slack()
+        alert = self._create_alert(triggers=["issue_created"])
+        with team_scope(self.team.id):
+            alert.destinations.create(
+                team=self.team, channel_type="slack", integration=self.integration, config={"channel": "C0456"}
+            )
+        client.chat_postMessage.side_effect = [
+            self._slack_error("not_in_channel"),
+            self._slack_error("ratelimited", 429, {"Retry-After": "1"}),
+            {"channel": "C0456", "ts": "333.444"},
+        ]
+        inputs = self._inputs("$error_tracking_issue_created")
+
+        with self.assertRaises(AlertDeliveryError):
+            deliver_alert_notifications(inputs)
+        assert deliver_alert_notifications(inputs) == 1
+
+        channels = [c.kwargs["channel"] for c in client.chat_postMessage.call_args_list]
+        terminal_channel, retried_channel = channels[0], channels[1]
+        assert terminal_channel != retried_channel
+        assert channels == [terminal_channel, retried_channel, retried_channel]
+
     def test_rate_limited_slack_call_retries_after_the_window(self):
         client = self._mock_slack()
         client.chat_postMessage.side_effect = self._slack_error("ratelimited", 429, {"Retry-After": "30"})
