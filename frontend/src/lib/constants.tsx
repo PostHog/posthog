@@ -484,10 +484,8 @@ export const FEATURE_FLAGS = {
     REPLAY_PLAYLIST_SURFACING_SCORE: 'replay-playlist-surfacing-score', // owner: #team-replay
     REPLAY_TRIGGERS_V2: 'replay-triggers-v2', // owner: #team-replay
     REPLAY_UI_REDESIGN_2026: 'replay-ui-redesign-2026', // owner: #team-replay, New UI layout for replay
-    REPLAY_VISION_ALERTS: 'replay-vision-alerts', // owner: #team-replay, scanner alerts on the shared alerts platform replacing legacy vision-action alerts
     REPLAY_VISION_ANALYSIS_NUDGE: 'replay-vision-analysis-nudge', // owner: #team-replay, in-player nudge offering an AI-drafted scanner after analyzing several recordings
     REPLAY_VISION_MODEL_TIER_NAMING_EXPERIMENT: 'replay-vision-model-tier-naming-experiment', // owner: #team-replay multivariate=control,test,lite-standard-pro
-    REPLAY_VISION_SCOUT_DIGESTS: 'replay-vision-scout-digests', // owner: #team-replay, scanner digests backed by Signals scouts instead of vision actions
     REVAMPED_PY_NOTEBOOKS: 'revamped-py-notebooks', // owner: #team-data-tools
     REVENUE_FIELDS_IN_POWER_USERS_TABLE: 'revenue-fields-in-power-users-table', // owner: @arthurdedeus #team-customer-analytics
     REVIEW_HOG: 'review-hog', // owner: #team-devex, gates the Code review menu entry and scene (staff bypass the flag)
