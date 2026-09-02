@@ -117,6 +117,7 @@ cd "$DOTCOM_DIR" && pnpm install
 - The external survey template is in the main repo at `posthog/templates/surveys/public_survey.html`
 - This template is served from the backend at `posthog/api/survey.py`
   - Look for function: `public_survey_page(request, survey_id: str)`
+- Production deployments can set `SURVEYS_PUBLIC_URL` to serve hosted surveys from a cookie-isolated origin. Use a different registrable domain from `SITE_URL`, not another subdomain of the app domain.
 
 **How to test**
 

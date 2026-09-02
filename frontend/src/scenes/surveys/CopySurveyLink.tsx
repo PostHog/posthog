@@ -3,9 +3,10 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { IconLink } from 'lib/lemon-ui/icons'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { getAppContext } from 'lib/utils/getAppContext'
 
 export function getSurveyUrl(surveyId: string): string {
-    const url = new URL(window.location.origin)
+    const url = new URL(getAppContext()?.preflight?.surveys_public_url || window.location.origin)
     url.pathname = `/external_surveys/${surveyId}`
     return url.toString()
 }

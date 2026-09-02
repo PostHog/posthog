@@ -15,6 +15,7 @@ from parameterized import parameterized
 from products.surveys.backend.models import Survey
 
 EXTERNAL_SITE_URL = "https://app.posthog-test.example"
+DEDICATED_SURVEY_URL = "https://surveys.example.net"
 
 
 class TestExternalSurveys(APIBaseTest):
@@ -179,6 +180,35 @@ class TestExternalSurveys(APIBaseTest):
         assert response["X-Frame-Options"] == "DENY"
         assert "Cache-Control" in response
         assert "Vary" in response
+
+    @override_settings(SURVEYS_PUBLIC_URL=DEDICATED_SURVEY_URL)
+    def test_app_origin_redirects_to_dedicated_survey_origin_before_rendering(self):
+        survey = self.create_external_survey(name="Content that must not render on the app origin")
+
+        response = self.client.get(
+            f"/external_surveys/{survey.id}/?campaign=launch",
+            HTTP_HOST="app.example.com",
+        )
+
+        assert response.status_code == 302
+        assert response.headers["Location"] == (f"{DEDICATED_SURVEY_URL}/external_surveys/{survey.id}/?campaign=launch")
+        assert survey.name not in response.content.decode()
+
+    @override_settings(SURVEYS_PUBLIC_URL=DEDICATED_SURVEY_URL)
+    def test_dedicated_survey_origin_renders_without_setting_cookies(self):
+        survey = self.create_external_survey()
+
+        response = self.client.get(
+            f"/external_surveys/{survey.id}/",
+            HTTP_HOST="surveys.example.net",
+            secure=True,
+        )
+
+        assert response.status_code == 200
+        assert not response.cookies
+        project_config = self.get_json_script_value(response.content.decode(), "project-config")
+        assert isinstance(project_config, dict)
+        assert project_config["api_host"] == DEDICATED_SURVEY_URL
 
     def test_iframe_embedding_enabled_removes_x_frame_options(self):
         """Test that X-Frame-Options is removed when iframe embedding is enabled"""
