@@ -16,6 +16,7 @@ from posthog.constants import AvailableFeature
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization, OrganizationMembership, Team, User
+from posthog.organization_caching import get_cached_organization_membership
 from posthog.scopes import API_SCOPE_OBJECTS, INTERNAL_API_SCOPE_OBJECTS, APIScopeObject
 from posthog.settings import EE_AVAILABLE
 
@@ -467,15 +468,9 @@ class UserAccessControl:
 
     @cached_property
     def _organization_membership(self) -> Optional[OrganizationMembership]:
-        # NOTE: This is optimized to reduce queries - we get the users membership _with_ the organization
-        try:
-            if not self._organization_id:
-                return None
-            return OrganizationMembership.objects.select_related("organization").get(
-                organization_id=self._organization_id, user=self._user
-            )
-        except OrganizationMembership.DoesNotExist:
+        if not self._organization_id:
             return None
+        return get_cached_organization_membership(self._organization_id, self._user)
 
     @cached_property
     def _organization(self) -> Optional[Organization]:

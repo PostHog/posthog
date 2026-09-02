@@ -254,6 +254,16 @@ def is_cimd_url_blocked(url: str) -> bool:
     return blocked
 
 
+def cimd_block_cache_state(url: str) -> bool | None:
+    """Read the cached verdict for a URL without the read-through write.
+
+    ``is_cimd_url_blocked`` re-warms the cache on a miss, so a caller that wants to report
+    the current state would change it by looking. Returns None when nothing is cached.
+    """
+    cached = cache.get(_blocked_key(url))
+    return None if cached is None else bool(cached)
+
+
 def _parse_cache_ttl(response: requests.Response) -> int:
     """Extract cache TTL from HTTP headers, clamped to [min, max]."""
     cache_control = response.headers.get("Cache-Control", "")

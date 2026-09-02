@@ -723,10 +723,10 @@ class TestActivityOverview(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin
         assert overview.clients == [contracts.ActivityClientRow(client="Claude Code", calls=6)]
 
     def test_counts_one_client_reached_by_two_identity_signals_once(self) -> None:
-        # Codex arrives both as a session-pinned clientInfo name and as a user-agent
-        # surface. Those are two different tokens but one client, so counting tokens
+        # Codex arrives both as a clientInfo name and as a user-agent surface.
+        # Those are two different tokens but one client, so counting tokens
         # would report "2 clients" next to a Clients card showing a single row.
-        self._emit_call({"mcp_session_client_name": "codex-mcp-client"}, count=3)
+        self._emit_call({"$mcp_client_name": "codex-mcp-client"}, count=3)
         self._emit_call({"$mcp_client_user_agent": "openai-mcp/1.0.0 (Codex)"}, count=2)
 
         overview = api.get_activity_overview(self.team)
@@ -736,26 +736,34 @@ class TestActivityOverview(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin
 
     @parameterized.expand(
         [
-            # `$mcp_client_name` rides on `initialize` only, so a mid-session tool call
-            # carries the session-pinned name instead. Reading the raw property alone left
-            # every one of these unattributed.
-            ("session_pinned_name", {"mcp_session_client_name": "codex-mcp-client"}, "OpenAI Codex"),
+            ("client_name", {"$mcp_client_name": "codex-mcp-client"}, "OpenAI Codex"),
             # Codex's other spelling: the User-Agent surface. The generic `openai-mcp`
             # prefix used to swallow this and report it as plain "OpenAI".
             ("codex_user_agent_surface", {"$mcp_client_user_agent": "openai-mcp/1.0 (Codex)"}, "OpenAI Codex"),
-            ("vendor_header", {"mcp_vendor_client": "ClaudeCode"}, "Claude Code"),
-            ("oauth_client_name", {"$mcp_oauth_client_name": "cursor-vscode"}, "Cursor"),
+            # The vendor header resolves from both wire keys it is captured under:
+            # $mcp_vendor_client (SDKs) and the unprefixed mcp_vendor_client
+            # (PostHog's own server).
+            ("sdk_vendor_header", {"$mcp_vendor_client": "ClaudeCode"}, "Claude Code"),
+            ("legacy_vendor_header", {"mcp_vendor_client": "ClaudeCode"}, "Claude Code"),
             # An unrecognized client is still named — its own self-report beats "Other".
             ("unrecognized_named_verbatim", {"$mcp_client_name": "openclaw-bundle-mcp"}, "openclaw-bundle-mcp"),
             # ...and keeps its own capitalization: matching lower-cases the token, but the
             # name shown back is the one the client reported.
             ("unrecognized_keeps_casing", {"$mcp_client_name": "NexusAgent"}, "NexusAgent"),
-            (
-                "unrecognized_keeps_casing_via_session",
-                {"mcp_session_client_name": "Concept Connectors"},
-                "Concept Connectors",
-            ),
             ("no_identity_at_all", {}, mcp_harness.UNIDENTIFIED_HARNESS_LABEL),
+            # Not resolution signals: the SDKs never emit these properties and the
+            # server folds the session-pinned name into per-event $mcp_client_name,
+            # so on their own they attribute nothing.
+            (
+                "session_name_no_longer_read",
+                {"mcp_session_client_name": "codex-mcp-client"},
+                mcp_harness.UNIDENTIFIED_HARNESS_LABEL,
+            ),
+            (
+                "oauth_name_no_longer_read",
+                {"$mcp_oauth_client_name": "cursor-vscode"},
+                mcp_harness.UNIDENTIFIED_HARNESS_LABEL,
+            ),
         ]
     )
     def test_attributes_clients_from_every_identity_signal(
