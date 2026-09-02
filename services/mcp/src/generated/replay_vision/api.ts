@@ -16,7 +16,7 @@ import * as zod from 'zod'
  * response contract stays exactly as documented here, but nothing reads or writes VisionAction
  * rows anymore. The runs endpoints keep serving the pre-migration run history.
  */
-export const VisionActionsListParams = /* @__PURE__ */ zod.object({
+export const VisionActionsListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -24,7 +24,7 @@ export const VisionActionsListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const VisionActionsListQueryParams = /* @__PURE__ */ zod.object({
+export const VisionActionsListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     scanner: zod.string().optional().describe('Filter to the actions belonging to one scanner.'),
@@ -38,7 +38,7 @@ export const VisionActionsListQueryParams = /* @__PURE__ */ zod.object({
  * response contract stays exactly as documented here, but nothing reads or writes VisionAction
  * rows anymore. The runs endpoints keep serving the pre-migration run history.
  */
-export const VisionActionsCreateParams = /* @__PURE__ */ zod.object({
+export const VisionActionsCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -56,7 +56,7 @@ export const visionActionsCreateBodyAlertConfigOneMetricDefault = `count`
 export const visionActionsCreateBodyAlertConfigOneDirectionDefault = `above`
 export const visionActionsCreateBodyAlertConfigOneIncludeReasoningDefault = false
 
-export const VisionActionsCreateBody = /* @__PURE__ */ zod
+export const VisionActionsCreateBody = () => zod
     .object({
         name: zod
             .string()
@@ -237,7 +237,7 @@ export const VisionActionsCreateBody = /* @__PURE__ */ zod
  * response contract stays exactly as documented here, but nothing reads or writes VisionAction
  * rows anymore. The runs endpoints keep serving the pre-migration run history.
  */
-export const VisionActionsRetrieveParams = /* @__PURE__ */ zod.object({
+export const VisionActionsRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this vision action.'),
     project_id: zod
         .string()
@@ -254,7 +254,7 @@ export const VisionActionsRetrieveParams = /* @__PURE__ */ zod.object({
  * response contract stays exactly as documented here, but nothing reads or writes VisionAction
  * rows anymore. The runs endpoints keep serving the pre-migration run history.
  */
-export const VisionActionsPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const VisionActionsPartialUpdateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this vision action.'),
     project_id: zod
         .string()
@@ -273,7 +273,7 @@ export const visionActionsPartialUpdateBodyAlertConfigOneMetricDefault = `count`
 export const visionActionsPartialUpdateBodyAlertConfigOneDirectionDefault = `above`
 export const visionActionsPartialUpdateBodyAlertConfigOneIncludeReasoningDefault = false
 
-export const VisionActionsPartialUpdateBody = /* @__PURE__ */ zod
+export const VisionActionsPartialUpdateBody = () => zod
     .object({
         name: zod
             .string()
@@ -456,7 +456,7 @@ export const VisionActionsPartialUpdateBody = /* @__PURE__ */ zod
  * response contract stays exactly as documented here, but nothing reads or writes VisionAction
  * rows anymore. The runs endpoints keep serving the pre-migration run history.
  */
-export const VisionActionsDestroyParams = /* @__PURE__ */ zod.object({
+export const VisionActionsDestroyParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this vision action.'),
     project_id: zod
         .string()
@@ -468,7 +468,7 @@ export const VisionActionsDestroyParams = /* @__PURE__ */ zod.object({
 /**
  * Read-only run history for a single vision action (nested under /vision/actions/{action_id}/runs/).
  */
-export const VisionActionsRunsListParams = /* @__PURE__ */ zod.object({
+export const VisionActionsRunsListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -477,7 +477,7 @@ export const VisionActionsRunsListParams = /* @__PURE__ */ zod.object({
     vision_action_id: zod.string(),
 })
 
-export const VisionActionsRunsListQueryParams = /* @__PURE__ */ zod.object({
+export const VisionActionsRunsListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
@@ -485,7 +485,7 @@ export const VisionActionsRunsListQueryParams = /* @__PURE__ */ zod.object({
 /**
  * Read-only run history for a single vision action (nested under /vision/actions/{action_id}/runs/).
  */
-export const VisionActionsRunsRetrieveParams = /* @__PURE__ */ zod.object({
+export const VisionActionsRunsRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this vision action run.'),
     project_id: zod
         .string()
@@ -499,7 +499,7 @@ export const VisionActionsRunsRetrieveParams = /* @__PURE__ */ zod.object({
  * A session's observations across every scanner the caller can read, plus the team-level semantic
  * `search` action, which resolves its own scanner scope instead of this queryset.
  */
-export const VisionObservationsListParams = /* @__PURE__ */ zod.object({
+export const VisionObservationsListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -507,7 +507,7 @@ export const VisionObservationsListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const VisionObservationsListQueryParams = /* @__PURE__ */ zod.object({
+export const VisionObservationsListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     order_by: zod
@@ -522,7 +522,7 @@ export const VisionObservationsListQueryParams = /* @__PURE__ */ zod.object({
 /**
  * Retrieve one observation. Any list filters passed along (status, tags, order_by, …) scope the `previous_observation_id`/`next_observation_id` navigation to the matching, identically-ordered set — so prev/next from a filtered table stays within that filtered list.
  */
-export const VisionObservationsRetrieveParams = /* @__PURE__ */ zod.object({
+export const VisionObservationsRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this replay observation.'),
     project_id: zod
         .string()
@@ -531,7 +531,7 @@ export const VisionObservationsRetrieveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const VisionObservationsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const VisionObservationsRetrieveQueryParams = () => zod.object({
     backfill_id: zod.string().optional().describe('Only observations dispatched by this backfill.'),
     date_from: zod
         .string()
@@ -599,7 +599,7 @@ export const VisionObservationsRetrieveQueryParams = /* @__PURE__ */ zod.object(
 /**
  * Set or update the observation's shared label: whether the scanner scored the session correctly, plus optional feedback on what it got wrong. One label per observation, shared across the team; these labels feed prompt improvement. Requires editor access to the scanner.
  */
-export const VisionObservationsLabelCreateParams = /* @__PURE__ */ zod.object({
+export const VisionObservationsLabelCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this replay observation.'),
     project_id: zod
         .string()
@@ -611,7 +611,7 @@ export const VisionObservationsLabelCreateParams = /* @__PURE__ */ zod.object({
 export const visionObservationsLabelCreateBodyFeedbackDefault = ``
 export const visionObservationsLabelCreateBodyFeedbackMax = 5000
 
-export const VisionObservationsLabelCreateBody = /* @__PURE__ */ zod
+export const VisionObservationsLabelCreateBody = () => zod
     .object({
         is_correct: zod.boolean().describe('True if the scanner scored this session correctly, false if not.'),
         feedback: zod
@@ -627,7 +627,7 @@ export const VisionObservationsLabelCreateBody = /* @__PURE__ */ zod
 /**
  * Remove the observation's shared label. Requires editor access to the scanner.
  */
-export const VisionObservationsLabelDestroyParams = /* @__PURE__ */ zod.object({
+export const VisionObservationsLabelDestroyParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this replay observation.'),
     project_id: zod
         .string()
@@ -640,7 +640,7 @@ export const VisionObservationsLabelDestroyParams = /* @__PURE__ */ zod.object({
  * Rank observations by semantic similarity to the search text, optionally filtered by exact outcome
  * (verdict, score, tags).
  */
-export const VisionObservationsSearchRetrieveParams = /* @__PURE__ */ zod.object({
+export const VisionObservationsSearchRetrieveParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -653,7 +653,7 @@ export const visionObservationsSearchRetrieveQueryLimitMax = 50
 
 export const visionObservationsSearchRetrieveQueryQMax = 2000
 
-export const VisionObservationsSearchRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const VisionObservationsSearchRetrieveQueryParams = () => zod.object({
     limit: zod
         .number()
         .min(1)
@@ -685,7 +685,7 @@ export const VisionObservationsSearchRetrieveQueryParams = /* @__PURE__ */ zod.o
         .describe('Comma-separated monitor verdicts to keep, e.g. `yes,inconclusive`.'),
 })
 
-export const EnvironmentVisionQuotaRetrieveParams = /* @__PURE__ */ zod.object({
+export const EnvironmentVisionQuotaRetrieveParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -696,7 +696,7 @@ export const EnvironmentVisionQuotaRetrieveParams = /* @__PURE__ */ zod.object({
 /**
  * CRUD for Replay Vision scanners.
  */
-export const VisionScannersListParams = /* @__PURE__ */ zod.object({
+export const VisionScannersListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -704,7 +704,7 @@ export const VisionScannersListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const VisionScannersListQueryParams = /* @__PURE__ */ zod.object({
+export const VisionScannersListQueryParams = () => zod.object({
     created_by: zod.string().optional().describe('Filter to scanners created by the given user IDs (comma-separated).'),
     emits_signals: zod.boolean().optional().describe('Filter to scanners that emit Signals.'),
     enabled: zod
@@ -737,7 +737,7 @@ export const VisionScannersListQueryParams = /* @__PURE__ */ zod.object({
 /**
  * CRUD for Replay Vision scanners.
  */
-export const VisionScannersCreateParams = /* @__PURE__ */ zod.object({
+export const VisionScannersCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -760,7 +760,7 @@ export const visionScannersCreateBodyCreditLimitMax = 2147483647
 
 export const visionScannersCreateBodyExperimentTargetingOneVariantMax = 400
 
-export const VisionScannersCreateBody = /* @__PURE__ */ zod
+export const VisionScannersCreateBody = () => zod
     .object({
         name: zod
             .string()
@@ -874,7 +874,7 @@ export const VisionScannersCreateBody = /* @__PURE__ */ zod
 /**
  * CRUD for Replay Vision scanners.
  */
-export const VisionScannersRetrieveParams = /* @__PURE__ */ zod.object({
+export const VisionScannersRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this replay scanner.'),
     project_id: zod
         .string()
@@ -886,7 +886,7 @@ export const VisionScannersRetrieveParams = /* @__PURE__ */ zod.object({
 /**
  * CRUD for Replay Vision scanners.
  */
-export const VisionScannersPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const VisionScannersPartialUpdateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this replay scanner.'),
     project_id: zod
         .string()
@@ -910,7 +910,7 @@ export const visionScannersPartialUpdateBodyCreditLimitMax = 2147483647
 
 export const visionScannersPartialUpdateBodyExperimentTargetingOneVariantMax = 400
 
-export const VisionScannersPartialUpdateBody = /* @__PURE__ */ zod
+export const VisionScannersPartialUpdateBody = () => zod
     .object({
         name: zod
             .string()
@@ -1028,7 +1028,7 @@ export const VisionScannersPartialUpdateBody = /* @__PURE__ */ zod
 /**
  * CRUD for Replay Vision scanners.
  */
-export const VisionScannersDestroyParams = /* @__PURE__ */ zod.object({
+export const VisionScannersDestroyParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this replay scanner.'),
     project_id: zod
         .string()
@@ -1040,7 +1040,7 @@ export const VisionScannersDestroyParams = /* @__PURE__ */ zod.object({
 /**
  * Save the users this scanner matched as a static cohort, for surveys, funnels, and retention analysis.
  */
-export const VisionScannersAffectedCohortCreateParams = /* @__PURE__ */ zod.object({
+export const VisionScannersAffectedCohortCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this replay scanner.'),
     project_id: zod
         .string()
@@ -1054,7 +1054,7 @@ export const visionScannersAffectedCohortCreateBodyWindowDaysMax = 90
 
 export const visionScannersAffectedCohortCreateBodyTagMax = 100
 
-export const VisionScannersAffectedCohortCreateBody = /* @__PURE__ */ zod
+export const VisionScannersAffectedCohortCreateBody = () => zod
     .object({
         window_days: zod
             .number()
@@ -1085,7 +1085,7 @@ export const VisionScannersAffectedCohortCreateBody = /* @__PURE__ */ zod
 /**
  * Affected sessions and users for this scanner over the trailing window.
  */
-export const VisionScannersImpactRetrieveParams = /* @__PURE__ */ zod.object({
+export const VisionScannersImpactRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this replay scanner.'),
     project_id: zod
         .string()
@@ -1099,7 +1099,7 @@ export const visionScannersImpactRetrieveQueryTagMax = 100
 export const visionScannersImpactRetrieveQueryWindowDaysDefault = 30
 export const visionScannersImpactRetrieveQueryWindowDaysMax = 90
 
-export const VisionScannersImpactRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const VisionScannersImpactRetrieveQueryParams = () => zod.object({
     max_score: zod.number().nullish().describe('Scorer scanners only: count sessions scoring at or below this value.'),
     min_score: zod
         .number()
@@ -1125,7 +1125,7 @@ export const VisionScannersImpactRetrieveQueryParams = /* @__PURE__ */ zod.objec
 /**
  * Apply this scanner to one specific session, on demand. Returns 202 with the workflow handle.
  */
-export const VisionScannersObserveCreateParams = /* @__PURE__ */ zod.object({
+export const VisionScannersObserveCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this replay scanner.'),
     project_id: zod
         .string()
@@ -1136,7 +1136,7 @@ export const VisionScannersObserveCreateParams = /* @__PURE__ */ zod.object({
 
 export const visionScannersObserveCreateBodySessionIdMax = 128
 
-export const VisionScannersObserveCreateBody = /* @__PURE__ */ zod
+export const VisionScannersObserveCreateBody = () => zod
     .object({
         session_id: zod
             .string()
@@ -1148,7 +1148,7 @@ export const VisionScannersObserveCreateBody = /* @__PURE__ */ zod
 /**
  * Read-only access to observations produced by a scanner.
  */
-export const VisionScannersObservationsListParams = /* @__PURE__ */ zod.object({
+export const VisionScannersObservationsListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -1157,7 +1157,7 @@ export const VisionScannersObservationsListParams = /* @__PURE__ */ zod.object({
     scanner_id: zod.string(),
 })
 
-export const VisionScannersObservationsListQueryParams = /* @__PURE__ */ zod.object({
+export const VisionScannersObservationsListQueryParams = () => zod.object({
     backfill_id: zod.string().optional().describe('Only observations dispatched by this backfill.'),
     date_from: zod
         .string()
@@ -1227,7 +1227,7 @@ export const VisionScannersObservationsListQueryParams = /* @__PURE__ */ zod.obj
 /**
  * Retrieve one observation. Any list filters passed along (status, tags, order_by, …) scope the `previous_observation_id`/`next_observation_id` navigation to the matching, identically-ordered set — so prev/next from a filtered table stays within that filtered list.
  */
-export const VisionScannersObservationsRetrieveParams = /* @__PURE__ */ zod.object({
+export const VisionScannersObservationsRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this replay observation.'),
     project_id: zod
         .string()
@@ -1237,7 +1237,7 @@ export const VisionScannersObservationsRetrieveParams = /* @__PURE__ */ zod.obje
     scanner_id: zod.string(),
 })
 
-export const VisionScannersObservationsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const VisionScannersObservationsRetrieveQueryParams = () => zod.object({
     backfill_id: zod.string().optional().describe('Only observations dispatched by this backfill.'),
     date_from: zod
         .string()
@@ -1305,7 +1305,7 @@ export const VisionScannersObservationsRetrieveQueryParams = /* @__PURE__ */ zod
 /**
  * Aggregate counts and per-scanner-type distributions over the filtered observation set. Same filters as the list endpoint apply.
  */
-export const VisionScannersObservationsStatsRetrieveParams = /* @__PURE__ */ zod.object({
+export const VisionScannersObservationsStatsRetrieveParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -1314,7 +1314,7 @@ export const VisionScannersObservationsStatsRetrieveParams = /* @__PURE__ */ zod
     scanner_id: zod.string(),
 })
 
-export const VisionScannersObservationsStatsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const VisionScannersObservationsStatsRetrieveQueryParams = () => zod.object({
     backfill_id: zod.string().optional().describe('Only observations dispatched by this backfill.'),
     date_from: zod
         .string()
@@ -1382,7 +1382,7 @@ export const VisionScannersObservationsStatsRetrieveQueryParams = /* @__PURE__ *
 /**
  * Apply this suggestion: write a config to the scanner (the prompt plus any type-specific config such as classifier tags or the monitor allow_inconclusive flag), bumping the scanner version, and mark the suggestion applied. Pass `config` to apply an edited subset of the recommendation; omit it to apply the full suggested config. Only the current pending suggestion can be applied. Requires session recording edit access.
  */
-export const VisionScannersPromptSuggestionsApplyCreateParams = /* @__PURE__ */ zod.object({
+export const VisionScannersPromptSuggestionsApplyCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this replay scanner prompt suggestion.'),
     project_id: zod
         .string()
@@ -1392,7 +1392,7 @@ export const VisionScannersPromptSuggestionsApplyCreateParams = /* @__PURE__ */ 
     scanner_id: zod.string(),
 })
 
-export const VisionScannersPromptSuggestionsApplyCreateBody = /* @__PURE__ */ zod.object({
+export const VisionScannersPromptSuggestionsApplyCreateBody = () => zod.object({
     config: zod
         .unknown()
         .optional()
@@ -1404,7 +1404,7 @@ export const VisionScannersPromptSuggestionsApplyCreateBody = /* @__PURE__ */ zo
 /**
  * Dismiss this suggestion without applying it. Only the current pending suggestion can be dismissed. Requires editor access to the scanner.
  */
-export const VisionScannersPromptSuggestionsDismissCreateParams = /* @__PURE__ */ zod.object({
+export const VisionScannersPromptSuggestionsDismissCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this replay scanner prompt suggestion.'),
     project_id: zod
         .string()
@@ -1417,7 +1417,7 @@ export const VisionScannersPromptSuggestionsDismissCreateParams = /* @__PURE__ *
 /**
  * The scanner's newest prompt suggestion plus whether it is stale (the ratings changed since it was generated) and how many rated observations are available.
  */
-export const VisionScannersPromptSuggestionsCurrentRetrieveParams = /* @__PURE__ */ zod.object({
+export const VisionScannersPromptSuggestionsCurrentRetrieveParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -1429,7 +1429,7 @@ export const VisionScannersPromptSuggestionsCurrentRetrieveParams = /* @__PURE__
 /**
  * Generate a fresh prompt suggestion from the team's current ratings. The previous pending suggestion becomes history (superseded). Requires at least one rated observation and editor access to the scanner.
  */
-export const VisionScannersPromptSuggestionsGenerateCreateParams = /* @__PURE__ */ zod.object({
+export const VisionScannersPromptSuggestionsGenerateCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -1441,7 +1441,7 @@ export const VisionScannersPromptSuggestionsGenerateCreateParams = /* @__PURE__ 
 /**
  * Estimate the observation volume a proposed scanner would generate, for the pre-save cost preview.
  */
-export const VisionScannersEstimateCreateParams = /* @__PURE__ */ zod.object({
+export const VisionScannersEstimateCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -1457,7 +1457,7 @@ export const visionScannersEstimateCreateBodySamplingModeDefault = `comprehensiv
 export const visionScannersEstimateCreateBodyModelDefault = `gemini-3-flash-preview`
 export const visionScannersEstimateCreateBodyExperimentTargetingOneVariantMax = 400
 
-export const VisionScannersEstimateCreateBody = /* @__PURE__ */ zod
+export const VisionScannersEstimateCreateBody = () => zod
     .object({
         query: zod
             .unknown()
@@ -1525,7 +1525,7 @@ export const VisionScannersEstimateCreateBody = /* @__PURE__ */ zod
  * The config resolves to a scanner minted on first use, so asking the same question twice reuses
  * the observations it already has, while a different question about the same session gets its own.
  */
-export const VisionScannersInlineScanCreateParams = /* @__PURE__ */ zod.object({
+export const VisionScannersInlineScanCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -1542,7 +1542,7 @@ export const visionScannersInlineScanCreateBodyPromptMax = 20000
 export const visionScannersInlineScanCreateBodyScannerTypeDefault = `monitor`
 export const visionScannersInlineScanCreateBodyModelDefault = `gemini-3-flash-preview`
 
-export const VisionScannersInlineScanCreateBody = /* @__PURE__ */ zod
+export const VisionScannersInlineScanCreateBody = () => zod
     .object({
         session_ids: zod
             .array(zod.string().max(visionScannersInlineScanCreateBodySessionIdsItemMax))
