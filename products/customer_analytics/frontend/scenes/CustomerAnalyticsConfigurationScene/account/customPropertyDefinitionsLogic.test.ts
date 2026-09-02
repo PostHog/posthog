@@ -57,6 +57,7 @@ const buildDefinition = (overrides: Partial<CustomPropertyDefinitionApi> = {}): 
         is_big_number: true,
         source: null,
         references: [],
+        has_workflow_reference: false,
         created_at: '2026-01-01T00:00:00Z',
         created_by: 1,
         updated_at: '2026-01-01T00:00:00Z',
@@ -175,9 +176,13 @@ describe('customPropertyDefinitionsLogic', () => {
     it.each([
         [
             'workflow references',
-            { references: [{ id: 'flow-1', name: 'Flow', status: 'draft', type: 'workflow' }] },
+            {
+                has_workflow_reference: true,
+                references: [{ id: 'flow-1', name: 'Flow', status: 'draft', type: 'workflow' }],
+            },
             'workflow',
         ],
+        ['a redacted workflow reference', { has_workflow_reference: true }, 'workflow'],
         ['no source or references', {}, 'manual'],
     ] as [string, Partial<CustomPropertyDefinitionApi>, string][])(
         'derives the source mode when editing a definition with %s',
