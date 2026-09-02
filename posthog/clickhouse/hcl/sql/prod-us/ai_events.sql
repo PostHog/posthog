@@ -86,7 +86,7 @@ CREATE TABLE posthog.kafka_ai_events_json_ws (
   person_properties String,
   person_created_at DateTime64(3),
   person_mode Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2)
-) ENGINE = Kafka() SETTINGS kafka_broker_list = 'warpstream_ingestion', kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'clickhouse_ai_events_ws\'', kafka_max_block_size = 5000, kafka_num_consumers = 16, kafka_poll_timeout_ms = 10000, kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_topic_list = 'kafka_topic_list = \'clickhouse_ai_events_json\'';
+) ENGINE = Kafka(warpstream_ingestion) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_ai_events_ws', kafka_max_block_size = 5000, kafka_num_consumers = 16, kafka_poll_timeout_ms = 10000, kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_topic_list = 'clickhouse_ai_events_json';
 CREATE TABLE posthog.person (
   id UUID,
   created_at DateTime64(3),

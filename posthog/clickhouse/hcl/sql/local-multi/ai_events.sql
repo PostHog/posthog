@@ -14,7 +14,7 @@ CREATE TABLE posthog.kafka_ai_events_json (
   person_properties String,
   person_created_at DateTime64(3),
   person_mode Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2)
-) ENGINE = Kafka() SETTINGS kafka_broker_list = 'msk_cluster', kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'group1\'', kafka_topic_list = 'kafka_topic_list = \'clickhouse_ai_events_json\'';
+) ENGINE = Kafka(msk_cluster) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'group1', kafka_topic_list = 'clickhouse_ai_events_json';
 CREATE TABLE posthog.person (
   id UUID,
   created_at DateTime64(3),

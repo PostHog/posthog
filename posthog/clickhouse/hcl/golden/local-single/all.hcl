@@ -2521,10 +2521,10 @@ database "posthog" {
       type = "Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2)"
     }
     engine "kafka" {
-      broker_list = "msk_cluster"
-      topic_list  = "kafka_topic_list = 'clickhouse_ai_events_json'"
-      group_name  = "kafka_group_name = 'group1'"
-      format      = "kafka_format = 'JSONEachRow'"
+      collection = "msk_cluster"
+      topic_list = "clickhouse_ai_events_json"
+      group_name = "group1"
+      format     = "JSONEachRow"
     }
   }
 
@@ -2564,10 +2564,10 @@ database "posthog" {
       codec = "ZSTD(3)"
     }
     engine "kafka" {
-      broker_list = "msk_cluster"
-      topic_list  = "kafka_topic_list = 'clickhouse_app_metrics'"
-      group_name  = "kafka_group_name = 'group1'"
-      format      = "kafka_format = 'JSONEachRow'"
+      collection = "msk_cluster"
+      topic_list = "clickhouse_app_metrics"
+      group_name = "group1"
+      format     = "JSONEachRow"
     }
   }
 
@@ -2597,10 +2597,10 @@ database "posthog" {
       type = "Int64"
     }
     engine "kafka" {
-      broker_list = "msk_cluster"
-      topic_list  = "kafka_topic_list = 'clickhouse_app_metrics2'"
-      group_name  = "kafka_group_name = 'group1'"
-      format      = "kafka_format = 'JSONEachRow'"
+      collection = "msk_cluster"
+      topic_list = "clickhouse_app_metrics2"
+      group_name = "group1"
+      format     = "JSONEachRow"
     }
   }
 
@@ -2630,10 +2630,10 @@ database "posthog" {
       type = "Int64"
     }
     engine "kafka" {
-      broker_list = "warpstream_ingestion"
-      topic_list  = "kafka_topic_list = 'clickhouse_app_metrics2'"
-      group_name  = "kafka_group_name = 'clickhouse_app_metrics2_ws'"
-      format      = "kafka_format = 'JSONEachRow'"
+      collection = "warpstream_ingestion"
+      topic_list = "clickhouse_app_metrics2"
+      group_name = "clickhouse_app_metrics2_ws"
+      format     = "JSONEachRow"
     }
   }
 
@@ -2672,10 +2672,10 @@ database "posthog" {
       type = "DateTime64(6, 'UTC')"
     }
     engine "kafka" {
-      broker_list = "warpstream_ingestion"
-      topic_list  = "kafka_topic_list = 'clickhouse_billing_usage_records'"
-      group_name  = "kafka_group_name = 'clickhouse_billing_usage_records'"
-      format      = "kafka_format = 'JSONEachRow'"
+      collection = "warpstream_ingestion"
+      topic_list = "clickhouse_billing_usage_records"
+      group_name = "clickhouse_billing_usage_records"
+      format     = "JSONEachRow"
     }
   }
 
@@ -2696,10 +2696,10 @@ database "posthog" {
       type = "DateTime64(6)"
     }
     engine "kafka" {
-      broker_list = "msk_cluster"
-      topic_list  = "kafka_topic_list = 'cohort_membership_changed'"
-      group_name  = "kafka_group_name = 'clickhouse_cohort_membership_changed'"
-      format      = "kafka_format = 'JSONEachRow'"
+      collection = "msk_cluster"
+      topic_list = "cohort_membership_changed"
+      group_name = "clickhouse_cohort_membership_changed"
+      format     = "JSONEachRow"
     }
   }
 
@@ -2714,10 +2714,10 @@ database "posthog" {
       type = "DateTime64(6, 'UTC')"
     }
     engine "kafka" {
-      broker_list          = "warpstream_ingestion"
-      topic_list           = "kafka_topic_list = 'distinct_id_usage_events_json'"
-      group_name           = "kafka_group_name = 'clickhouse_distinct_id_usage'"
-      format               = "kafka_format = 'JSONEachRow'"
+      collection           = "warpstream_ingestion"
+      topic_list           = "distinct_id_usage_events_json"
+      group_name           = "clickhouse_distinct_id_usage"
+      format               = "JSONEachRow"
       skip_broken_messages = 100
     }
   }
@@ -2772,10 +2772,10 @@ database "posthog" {
       type = "DateTime64(3, 'UTC')"
     }
     engine "kafka" {
-      broker_list = "msk_cluster"
-      topic_list  = "kafka_topic_list = 'clickhouse_ingestion_events_duplicates'"
-      group_name  = "kafka_group_name = 'clickhouse_duplicate_events'"
-      format      = "kafka_format = 'JSONEachRow'"
+      collection = "msk_cluster"
+      topic_list = "clickhouse_ingestion_events_duplicates"
+      group_name = "clickhouse_duplicate_events"
+      format     = "JSONEachRow"
     }
   }
 
@@ -2817,10 +2817,10 @@ database "posthog" {
       type = "Int64"
     }
     engine "kafka" {
-      broker_list = "msk_cluster"
-      topic_list  = "kafka_topic_list = 'clickhouse_error_tracking_fingerprint_issue_state'"
-      group_name  = "kafka_group_name = 'clickhouse-error-tracking-fingerprint-issue-state'"
-      format      = "kafka_format = 'JSONEachRow'"
+      collection = "msk_cluster"
+      topic_list = "clickhouse_error_tracking_fingerprint_issue_state"
+      group_name = "clickhouse-error-tracking-fingerprint-issue-state"
+      format     = "JSONEachRow"
     }
   }
 
@@ -2844,10 +2844,10 @@ database "posthog" {
       type = "Array(Float64)"
     }
     engine "kafka" {
-      broker_list = "msk_cluster"
-      topic_list  = "kafka_topic_list = 'clickhouse_error_tracking_issue_fingerprint_embeddings'"
-      group_name  = "kafka_group_name = 'clickhouse_error_tracking_fingerprint_embeddings'"
-      format      = "kafka_format = 'JSONEachRow'"
+      collection = "msk_cluster"
+      topic_list = "clickhouse_error_tracking_issue_fingerprint_embeddings"
+      group_name = "clickhouse_error_tracking_fingerprint_embeddings"
+      format     = "JSONEachRow"
     }
   }
 
@@ -2868,10 +2868,10 @@ database "posthog" {
       type = "Int64"
     }
     engine "kafka" {
-      broker_list = "msk_cluster"
-      topic_list  = "kafka_topic_list = 'clickhouse_error_tracking_issue_fingerprint'"
-      group_name  = "kafka_group_name = 'clickhouse-error-tracking-issue-fingerprint-overrides'"
-      format      = "kafka_format = 'JSONEachRow'"
+      collection = "msk_cluster"
+      topic_list = "clickhouse_error_tracking_issue_fingerprint"
+      group_name = "clickhouse-error-tracking-issue-fingerprint-overrides"
+      format     = "JSONEachRow"
     }
   }
 
@@ -2925,10 +2925,10 @@ database "posthog" {
       type = "Array(String)"
     }
     engine "kafka" {
-      broker_list          = "msk_cluster"
-      topic_list           = "kafka_topic_list = 'events_dead_letter_queue'"
-      group_name           = "kafka_group_name = 'group1'"
-      format               = "kafka_format = 'JSONEachRow'"
+      collection           = "msk_cluster"
+      topic_list           = "events_dead_letter_queue"
+      group_name           = "group1"
+      format               = "JSONEachRow"
       skip_broken_messages = 1000
     }
   }
@@ -3041,10 +3041,10 @@ database "posthog" {
       type = "Nullable(String)"
     }
     engine "kafka" {
-      broker_list          = "msk_cluster"
-      topic_list           = "kafka_topic_list = 'clickhouse_events_json'"
-      group_name           = "kafka_group_name = 'group1'"
-      format               = "kafka_format = 'JSONEachRow'"
+      collection           = "msk_cluster"
+      topic_list           = "clickhouse_events_json"
+      group_name           = "group1"
+      format               = "JSONEachRow"
       skip_broken_messages = 100
     }
   }
@@ -3157,10 +3157,10 @@ database "posthog" {
       type = "Nullable(String)"
     }
     engine "kafka" {
-      broker_list          = "msk_cluster"
-      topic_list           = "kafka_topic_list = 'clickhouse_events_json'"
-      group_name           = "kafka_group_name = 'clickhouse_events_json_native_json'"
-      format               = "kafka_format = 'JSONEachRow'"
+      collection           = "msk_cluster"
+      topic_list           = "clickhouse_events_json"
+      group_name           = "clickhouse_events_json_native_json"
+      format               = "JSONEachRow"
       skip_broken_messages = 100
     }
   }
@@ -3212,10 +3212,10 @@ database "posthog" {
       type = "DateTime64(6, 'UTC')"
     }
     engine "kafka" {
-      broker_list          = "warpstream_ingestion"
-      topic_list           = "kafka_topic_list = 'clickhouse_flag_evaluations'"
-      group_name           = "kafka_group_name = 'clickhouse_flag_evaluations'"
-      format               = "kafka_format = 'JSONEachRow'"
+      collection           = "warpstream_ingestion"
+      topic_list           = "clickhouse_flag_evaluations"
+      group_name           = "clickhouse_flag_evaluations"
+      format               = "JSONEachRow"
       skip_broken_messages = 100
     }
   }
@@ -3237,10 +3237,10 @@ database "posthog" {
       type = "String"
     }
     engine "kafka" {
-      broker_list = "msk_cluster"
-      topic_list  = "kafka_topic_list = 'clickhouse_groups'"
-      group_name  = "kafka_group_name = 'group1'"
-      format      = "kafka_format = 'JSONEachRow'"
+      collection = "msk_cluster"
+      topic_list = "clickhouse_groups"
+      group_name = "group1"
+      format     = "JSONEachRow"
     }
   }
 
@@ -3282,10 +3282,10 @@ database "posthog" {
       type = "LowCardinality(String)"
     }
     engine "kafka" {
-      broker_list = "msk_cluster"
-      topic_list  = "kafka_topic_list = 'clickhouse_heatmap_events'"
-      group_name  = "kafka_group_name = 'group1'"
-      format      = "kafka_format = 'JSONEachRow'"
+      collection = "msk_cluster"
+      topic_list = "clickhouse_heatmap_events"
+      group_name = "group1"
+      format     = "JSONEachRow"
     }
   }
 
@@ -3354,10 +3354,10 @@ database "posthog" {
       type = "UInt8"
     }
     engine "kafka" {
-      broker_list          = "warpstream_cyclotron"
-      topic_list           = "kafka_topic_list = 'clickhouse_hog_invocation_results'"
-      group_name           = "kafka_group_name = 'clickhouse_hog_invocation_results'"
-      format               = "kafka_format = 'JSONEachRow'"
+      collection           = "warpstream_cyclotron"
+      topic_list           = "clickhouse_hog_invocation_results"
+      group_name           = "clickhouse_hog_invocation_results"
+      format               = "JSONEachRow"
       skip_broken_messages = 100
     }
   }
@@ -3380,10 +3380,10 @@ database "posthog" {
       type = "DateTime64(6, 'UTC')"
     }
     engine "kafka" {
-      broker_list = "msk_cluster"
-      topic_list  = "kafka_topic_list = 'clickhouse_ingestion_warnings'"
-      group_name  = "kafka_group_name = 'group1'"
-      format      = "kafka_format = 'JSONEachRow'"
+      collection = "msk_cluster"
+      topic_list = "clickhouse_ingestion_warnings"
+      group_name = "group1"
+      format     = "JSONEachRow"
     }
   }
 
@@ -3404,10 +3404,10 @@ database "posthog" {
       type = "DateTime64(6, 'UTC')"
     }
     engine "kafka" {
-      broker_list = "warpstream_ingestion"
-      topic_list  = "kafka_topic_list = 'clickhouse_ingestion_warnings'"
-      group_name  = "kafka_group_name = 'clickhouse_ingestion_warnings_v2'"
-      format      = "kafka_format = 'JSONEachRow'"
+      collection = "warpstream_ingestion"
+      topic_list = "clickhouse_ingestion_warnings"
+      group_name = "clickhouse_ingestion_warnings_v2"
+      format     = "JSONEachRow"
     }
   }
 
@@ -3434,10 +3434,10 @@ database "posthog" {
       type = "String"
     }
     engine "kafka" {
-      broker_list          = "msk_cluster"
-      topic_list           = "kafka_topic_list = 'log_entries'"
-      group_name           = "kafka_group_name = 'clickhouse_log_entries'"
-      format               = "kafka_format = 'JSONEachRow'"
+      collection           = "msk_cluster"
+      topic_list           = "log_entries"
+      group_name           = "clickhouse_log_entries"
+      format               = "JSONEachRow"
       skip_broken_messages = 100
     }
   }
@@ -3465,10 +3465,10 @@ database "posthog" {
       type = "String"
     }
     engine "kafka" {
-      broker_list          = "warpstream_ingestion"
-      topic_list           = "kafka_topic_list = 'log_entries'"
-      group_name           = "kafka_group_name = 'clickhouse_log_entries_ws'"
-      format               = "kafka_format = 'JSONEachRow'"
+      collection           = "warpstream_ingestion"
+      topic_list           = "log_entries"
+      group_name           = "clickhouse_log_entries_ws"
+      format               = "JSONEachRow"
       skip_broken_messages = 100
     }
   }
@@ -3529,10 +3529,10 @@ database "posthog" {
       type = "Nullable(Int32)"
     }
     engine "kafka" {
-      broker_list          = "warpstream_logs"
-      topic_list           = "kafka_topic_list = 'clickhouse_logs'"
-      group_name           = "kafka_group_name = 'clickhouse-logs-avro-new'"
-      format               = "kafka_format = 'Avro'"
+      collection           = "warpstream_logs"
+      topic_list           = "clickhouse_logs"
+      group_name           = "clickhouse-logs-avro-new"
+      format               = "Avro"
       num_consumers        = 8
       skip_broken_messages = 100
       poll_timeout_ms      = 3000
@@ -3591,10 +3591,10 @@ database "posthog" {
       type = "String"
     }
     engine "kafka" {
-      broker_list          = "warpstream_cyclotron"
-      topic_list           = "kafka_topic_list = 'clickhouse_message_assets'"
-      group_name           = "kafka_group_name = 'clickhouse_message_assets'"
-      format               = "kafka_format = 'JSONEachRow'"
+      collection           = "warpstream_cyclotron"
+      topic_list           = "clickhouse_message_assets"
+      group_name           = "clickhouse_message_assets"
+      format               = "JSONEachRow"
       skip_broken_messages = 100
     }
   }
@@ -3661,10 +3661,10 @@ database "posthog" {
       type = "Nullable(Int64)"
     }
     engine "kafka" {
-      broker_list          = "warpstream_metrics"
-      topic_list           = "kafka_topic_list = 'clickhouse_metrics'"
-      group_name           = "kafka_group_name = 'clickhouse-metrics-avro-new'"
-      format               = "kafka_format = 'Avro'"
+      collection           = "warpstream_metrics"
+      topic_list           = "clickhouse_metrics"
+      group_name           = "clickhouse-metrics-avro-new"
+      format               = "Avro"
       num_consumers        = 8
       skip_broken_messages = 100
       poll_timeout_ms      = 3000
@@ -3816,10 +3816,10 @@ database "posthog" {
       type = "Float64"
     }
     engine "kafka" {
-      broker_list = "msk_cluster"
-      topic_list  = "kafka_topic_list = 'clickhouse_performance_events'"
-      group_name  = "kafka_group_name = 'group1'"
-      format      = "kafka_format = 'JSONEachRow'"
+      collection = "msk_cluster"
+      topic_list = "clickhouse_performance_events"
+      group_name = "group1"
+      format     = "JSONEachRow"
     }
   }
 
@@ -3849,10 +3849,10 @@ database "posthog" {
       type = "Nullable(DateTime64(3))"
     }
     engine "kafka" {
-      broker_list = "msk_cluster"
-      topic_list  = "kafka_topic_list = 'clickhouse_person'"
-      group_name  = "kafka_group_name = 'group1'"
-      format      = "kafka_format = 'JSONEachRow'"
+      collection = "msk_cluster"
+      topic_list = "clickhouse_person"
+      group_name = "group1"
+      format     = "JSONEachRow"
     }
   }
 
@@ -3873,10 +3873,10 @@ database "posthog" {
       type = "Nullable(Int8)"
     }
     engine "kafka" {
-      broker_list = "msk_cluster"
-      topic_list  = "kafka_topic_list = 'clickhouse_person_unique_id'"
-      group_name  = "kafka_group_name = 'group1'"
-      format      = "kafka_format = 'JSONEachRow'"
+      collection = "msk_cluster"
+      topic_list = "clickhouse_person_unique_id"
+      group_name = "group1"
+      format     = "JSONEachRow"
     }
   }
 
@@ -3897,10 +3897,10 @@ database "posthog" {
       type = "Int64"
     }
     engine "kafka" {
-      broker_list = "msk_cluster"
-      topic_list  = "kafka_topic_list = 'clickhouse_person_distinct_id'"
-      group_name  = "kafka_group_name = 'group1'"
-      format      = "kafka_format = 'JSONEachRow'"
+      collection = "msk_cluster"
+      topic_list = "clickhouse_person_distinct_id"
+      group_name = "group1"
+      format     = "JSONEachRow"
     }
   }
 
@@ -3921,10 +3921,10 @@ database "posthog" {
       type = "Int64"
     }
     engine "kafka" {
-      broker_list = "msk_cluster"
-      topic_list  = "kafka_topic_list = 'clickhouse_person_distinct_id'"
-      group_name  = "kafka_group_name = 'clickhouse-person-distinct-id-overrides'"
-      format      = "kafka_format = 'JSONEachRow'"
+      collection = "msk_cluster"
+      topic_list = "clickhouse_person_distinct_id"
+      group_name = "clickhouse-person-distinct-id-overrides"
+      format     = "JSONEachRow"
     }
   }
 
@@ -3984,10 +3984,10 @@ database "posthog" {
       type = "UUID"
     }
     engine "kafka" {
-      broker_list = "msk_cluster"
-      topic_list  = "kafka_topic_list = 'plugin_log_entries'"
-      group_name  = "kafka_group_name = 'group1'"
-      format      = "kafka_format = 'JSONEachRow'"
+      collection = "msk_cluster"
+      topic_list = "plugin_log_entries"
+      group_name = "group1"
+      format     = "JSONEachRow"
     }
   }
 
@@ -4026,10 +4026,10 @@ database "posthog" {
       type = "Array(Float64)"
     }
     engine "kafka" {
-      broker_list = "msk_cluster"
-      topic_list  = "kafka_topic_list = 'clickhouse_document_embeddings'"
-      group_name  = "kafka_group_name = 'clickhouse_document_embeddings'"
-      format      = "kafka_format = 'JSONEachRow'"
+      collection = "msk_cluster"
+      topic_list = "clickhouse_document_embeddings"
+      group_name = "clickhouse_document_embeddings"
+      format     = "JSONEachRow"
     }
   }
 
@@ -4056,10 +4056,10 @@ database "posthog" {
       type = "String"
     }
     engine "kafka" {
-      broker_list          = "msk_cluster"
-      topic_list           = "kafka_topic_list = 'clickhouse_prefiltered_events'"
-      group_name           = "kafka_group_name = 'clickhouse_prefiltered_events'"
-      format               = "kafka_format = 'JSONEachRow'"
+      collection           = "msk_cluster"
+      topic_list           = "clickhouse_prefiltered_events"
+      group_name           = "clickhouse_prefiltered_events"
+      format               = "JSONEachRow"
       num_consumers        = 1
       max_block_size       = 1000000
       skip_broken_messages = 100
@@ -4089,10 +4089,10 @@ database "posthog" {
       type = "String"
     }
     engine "kafka" {
-      broker_list          = "msk_cluster"
-      topic_list           = "kafka_topic_list = 'clickhouse_precalculated_person_properties'"
-      group_name           = "kafka_group_name = 'clickhouse_precalculated_person_properties'"
-      format               = "kafka_format = 'JSONEachRow'"
+      collection           = "msk_cluster"
+      topic_list           = "clickhouse_precalculated_person_properties"
+      group_name           = "clickhouse_precalculated_person_properties"
+      format               = "JSONEachRow"
       num_consumers        = 1
       max_block_size       = 1000000
       skip_broken_messages = 100
@@ -4119,10 +4119,10 @@ database "posthog" {
       type = "UInt64"
     }
     engine "kafka" {
-      broker_list         = "warpstream_ingestion"
-      topic_list          = "kafka_topic_list = 'clickhouse_property_values'"
-      group_name          = "kafka_group_name = 'clickhouse_property_values'"
-      format              = "kafka_format = 'JSONEachRow'"
+      collection          = "warpstream_ingestion"
+      topic_list          = "clickhouse_property_values"
+      group_name          = "clickhouse_property_values"
+      format              = "JSONEachRow"
       num_consumers       = 8
       thread_per_consumer = true
     }
@@ -4208,10 +4208,10 @@ database "posthog" {
       type = "Nullable(Float32)"
     }
     engine "kafka" {
-      broker_list = "msk_cluster"
-      topic_list  = "kafka_topic_list = 'clickhouse_session_replay_events'"
-      group_name  = "kafka_group_name = 'group1'"
-      format      = "kafka_format = 'JSONEachRow'"
+      collection = "msk_cluster"
+      topic_list = "clickhouse_session_replay_events"
+      group_name = "group1"
+      format     = "JSONEachRow"
     }
   }
 
@@ -4424,10 +4424,10 @@ database "posthog" {
       type = "UInt8"
     }
     engine "kafka" {
-      broker_list = "msk_cluster"
-      topic_list  = "kafka_topic_list = 'clickhouse_session_replay_features'"
-      group_name  = "kafka_group_name = 'group1'"
-      format      = "kafka_format = 'JSONEachRow'"
+      collection = "msk_cluster"
+      topic_list = "clickhouse_session_replay_features"
+      group_name = "group1"
+      format     = "JSONEachRow"
     }
   }
 
@@ -4463,10 +4463,10 @@ database "posthog" {
       type = "Map(LowCardinality(String), String)"
     }
     engine "kafka" {
-      broker_list          = "msk_cluster"
-      topic_list           = "kafka_topic_list = 'clickhouse_tophog'"
-      group_name           = "kafka_group_name = 'clickhouse_tophog'"
-      format               = "kafka_format = 'JSONEachRow'"
+      collection           = "msk_cluster"
+      topic_list           = "clickhouse_tophog"
+      group_name           = "clickhouse_tophog"
+      format               = "JSONEachRow"
       skip_broken_messages = 100
     }
   }
@@ -4503,10 +4503,10 @@ database "posthog" {
       type = "Map(LowCardinality(String), String)"
     }
     engine "kafka" {
-      broker_list          = "warpstream_ingestion"
-      topic_list           = "kafka_topic_list = 'clickhouse_tophog'"
-      group_name           = "kafka_group_name = 'clickhouse_tophog_ws'"
-      format               = "kafka_format = 'JSONEachRow'"
+      collection           = "warpstream_ingestion"
+      topic_list           = "clickhouse_tophog"
+      group_name           = "clickhouse_tophog_ws"
+      format               = "JSONEachRow"
       skip_broken_messages = 100
     }
   }
@@ -4576,10 +4576,10 @@ database "posthog" {
       type = "Int32"
     }
     engine "kafka" {
-      broker_list          = "warpstream_traces"
-      topic_list           = "kafka_topic_list = 'clickhouse_traces'"
-      group_name           = "kafka_group_name = 'clickhouse-traces-avro'"
-      format               = "kafka_format = 'Avro'"
+      collection           = "warpstream_traces"
+      topic_list           = "clickhouse_traces"
+      group_name           = "clickhouse-traces-avro"
+      format               = "Avro"
       num_consumers        = 8
       skip_broken_messages = 100
       poll_timeout_ms      = 3000
@@ -4612,10 +4612,10 @@ database "posthog" {
       type = "Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2)"
     }
     engine "kafka" {
-      broker_list          = "warpstream_ingestion"
-      topic_list           = "kafka_topic_list = 'clickhouse_events_json'"
-      group_name           = "kafka_group_name = 'clickhouse_usage_report_events_preagg'"
-      format               = "kafka_format = 'JSONEachRow'"
+      collection           = "warpstream_ingestion"
+      topic_list           = "clickhouse_events_json"
+      group_name           = "clickhouse_usage_report_events_preagg"
+      format               = "JSONEachRow"
       num_consumers        = 1
       skip_broken_messages = 100
       thread_per_consumer  = true
@@ -23726,4 +23726,40 @@ SQL
     layout "hashed" {
     }
   }
+}
+
+named_collection "msk_cluster" {
+  external = true
+}
+
+named_collection "warpstream_calculated_events" {
+  external = true
+}
+
+named_collection "warpstream_cyclotron" {
+  external = true
+}
+
+named_collection "warpstream_ingestion" {
+  external = true
+}
+
+named_collection "warpstream_logs" {
+  external = true
+}
+
+named_collection "warpstream_metrics" {
+  external = true
+}
+
+named_collection "warpstream_replay" {
+  external = true
+}
+
+named_collection "warpstream_shared" {
+  external = true
+}
+
+named_collection "warpstream_traces" {
+  external = true
 }

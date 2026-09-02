@@ -17,10 +17,10 @@ database "posthog" {
   # dev batches metrics ingest harder than the prods do.
   patch_table "kafka_metrics_avro" {
     engine "kafka" {
-      broker_list          = "warpstream_metrics"
-      topic_list           = "kafka_topic_list = 'clickhouse_metrics'"
-      group_name           = "kafka_group_name = 'clickhouse-metrics-avro-new'"
-      format               = "kafka_format = 'Avro'"
+      collection           = "warpstream_metrics"
+      topic_list           = "clickhouse_metrics"
+      group_name           = "clickhouse-metrics-avro-new"
+      format               = "Avro"
       num_consumers        = 8
       max_block_size       = 65536
       skip_broken_messages = 100
