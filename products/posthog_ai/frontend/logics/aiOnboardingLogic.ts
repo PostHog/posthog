@@ -6,6 +6,7 @@ import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import { ProductKey } from '~/queries/schema/schema-general'
 import type { IntegrationType, TeamPublicType, TeamType, UserType } from '~/types'
 
 import {
@@ -16,11 +17,8 @@ import {
 } from '../components/onboarding/onboardingSteps'
 import { type ComposerSeed, composerSeedLogic } from './composerSeedLogic'
 
-/**
- * Key into `user.has_seen_product_intro_for`. That map is a plain `Record<string, boolean>` end to end, so a
- * non-`ProductKey` key is fine — web analytics already stores its own composed key there the same way.
- */
-export const POSTHOG_AI_ONBOARDING_SEEN_KEY = 'posthog_ai_onboarding'
+/** Key into `user.has_seen_product_intro_for`. Named here because it reads better at the call sites. */
+export const POSTHOG_AI_ONBOARDING_SEEN_KEY = ProductKey.POSTHOG_AI_ONBOARDING
 
 export interface AiOnboardingLogicProps {
     /** The embedded composer's panel key, so a chosen starter prompt reaches the right composer. */

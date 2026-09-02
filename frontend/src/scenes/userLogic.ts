@@ -267,10 +267,10 @@ export interface userLogicActions {
         teamId: number
     }
     updateHasSeenProductIntroFor: (
-        productKey: ProductKey | (string & {}),
+        productKey: ProductKey,
         value?: boolean
     ) => {
-        productKey: ProductKey | (string & {})
+        productKey: ProductKey
         value: boolean
     }
     updateMemberJoinEmailForAllOrganizations: (
@@ -428,12 +428,7 @@ export const userLogic = kea<userLogicType>([
         }),
         cancelEmailChangeRequest: true,
         setUserScenePersonalisation: (scene: DashboardCompatibleScenes, dashboard: number) => ({ scene, dashboard }),
-        // `string & {}` keeps autocomplete on ProductKey while accepting the keys that aren't products.
-        // PostHog AI stores one for its onboarding takeover, and the map already holds keys composed per team.
-        updateHasSeenProductIntroFor: (productKey: ProductKey | (string & {}), value: boolean = true) => ({
-            productKey,
-            value,
-        }),
+        updateHasSeenProductIntroFor: (productKey: ProductKey, value: boolean = true) => ({ productKey, value }),
         switchTeam: (teamId: string | number, destination?: string) => ({ teamId, destination }),
         deleteUser: true,
         updateWeeklyDigestForTeam: (teamId: number, enabled: boolean) => ({ teamId, enabled }),
