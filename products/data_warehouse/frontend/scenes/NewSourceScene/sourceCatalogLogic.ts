@@ -1273,6 +1273,7 @@ export interface sourceCatalogLogicMeta {
                       | 'Stigg'
                       | 'StockData'
                       | 'Stockx'
+                      | 'Strato'
                       | 'Strava'
                       | 'StreamElements'
                       | 'Streamlabs'

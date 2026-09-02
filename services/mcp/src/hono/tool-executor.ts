@@ -178,12 +178,13 @@ export class ToolExecutor {
             return { content: [{ type: 'text', text: `Tool ${toolName} not found` }], isError: true }
         }
 
+        const tool = preBuilt.build()
         return this.callTool(
             {
                 name: toolName,
-                schema: preBuilt.base.schema,
-                handler: (ctx, args) => preBuilt.base.handler(ctx, args),
-                _meta: preBuilt.base._meta,
+                schema: tool.schema,
+                handler: (ctx, args) => tool.handler(ctx, args),
+                _meta: tool._meta,
             },
             callParams,
             state,

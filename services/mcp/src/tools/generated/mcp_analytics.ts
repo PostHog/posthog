@@ -2,30 +2,23 @@
 import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
-import {
-    McpAnalyticsFeedbackCreateBody,
-    McpAnalyticsIntentClustersRetrieveQueryParams,
-    McpAnalyticsMissingCapabilitiesCreateBody,
-    McpAnalyticsSessionsGenerateIntentParams,
-    McpAnalyticsSessionsGenerateIntentQueryParams,
-    McpAnalyticsSessionsListQueryParams,
-    McpAnalyticsSessionsToolCallsParams,
-    McpAnalyticsSessionsToolCallsQueryParams,
-} from '@/generated/mcp_analytics/api'
+import * as orvalSchemas from '@/generated/mcp_analytics/api'
 import { createQueryWrapper } from '@/tools/query-wrapper-factory'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const McpAnalyticsIntentClustersRecomputeSchema = z.object({})
+const McpAnalyticsIntentClustersRecomputeSchema = () => z.object({})
 
 const mcpAnalyticsIntentClustersRecompute = (): ToolBase<
-    typeof McpAnalyticsIntentClustersRecomputeSchema,
+    ReturnType<typeof McpAnalyticsIntentClustersRecomputeSchema>,
     unknown
 > => ({
     name: 'mcp-analytics-intent-clusters-recompute',
-    schema: McpAnalyticsIntentClustersRecomputeSchema,
-    // eslint-disable-next-line no-unused-vars
-    handler: async (context: Context, params: z.infer<typeof McpAnalyticsIntentClustersRecomputeSchema>) => {
+    schema: McpAnalyticsIntentClustersRecomputeSchema(),
+    handler: async (
+        context: Context,
+        _params: z.infer<ReturnType<typeof McpAnalyticsIntentClustersRecomputeSchema>>
+    ) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'POST',
@@ -35,15 +28,18 @@ const mcpAnalyticsIntentClustersRecompute = (): ToolBase<
     },
 })
 
-const McpAnalyticsIntentClustersRetrieveSchema = McpAnalyticsIntentClustersRetrieveQueryParams
+const McpAnalyticsIntentClustersRetrieveSchema = () => {
+    const McpAnalyticsIntentClustersRetrieveQueryParams = orvalSchemas.McpAnalyticsIntentClustersRetrieveQueryParams()
+    return McpAnalyticsIntentClustersRetrieveQueryParams
+}
 
 const mcpAnalyticsIntentClustersRetrieve = (): ToolBase<
-    typeof McpAnalyticsIntentClustersRetrieveSchema,
+    ReturnType<typeof McpAnalyticsIntentClustersRetrieveSchema>,
     Schemas.MCPIntentClusterSnapshot[]
 > => ({
     name: 'mcp-analytics-intent-clusters-retrieve',
-    schema: McpAnalyticsIntentClustersRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof McpAnalyticsIntentClustersRetrieveSchema>) => {
+    schema: McpAnalyticsIntentClustersRetrieveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof McpAnalyticsIntentClustersRetrieveSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.MCPIntentClusterSnapshot[]>({
             method: 'GET',
@@ -56,17 +52,21 @@ const mcpAnalyticsIntentClustersRetrieve = (): ToolBase<
     },
 })
 
-const McpAnalyticsSessionsGenerateIntentSchema = McpAnalyticsSessionsGenerateIntentParams.omit({
-    project_id: true,
-}).extend(McpAnalyticsSessionsGenerateIntentQueryParams.shape)
+const McpAnalyticsSessionsGenerateIntentSchema = () => {
+    const McpAnalyticsSessionsGenerateIntentParams = orvalSchemas.McpAnalyticsSessionsGenerateIntentParams()
+    const McpAnalyticsSessionsGenerateIntentQueryParams = orvalSchemas.McpAnalyticsSessionsGenerateIntentQueryParams()
+    return McpAnalyticsSessionsGenerateIntentParams.omit({ project_id: true }).extend(
+        McpAnalyticsSessionsGenerateIntentQueryParams.shape
+    )
+}
 
 const mcpAnalyticsSessionsGenerateIntent = (): ToolBase<
-    typeof McpAnalyticsSessionsGenerateIntentSchema,
+    ReturnType<typeof McpAnalyticsSessionsGenerateIntentSchema>,
     Schemas.MCPSessionIntent
 > => ({
     name: 'mcp-analytics-sessions-generate-intent',
-    schema: McpAnalyticsSessionsGenerateIntentSchema,
-    handler: async (context: Context, params: z.infer<typeof McpAnalyticsSessionsGenerateIntentSchema>) => {
+    schema: McpAnalyticsSessionsGenerateIntentSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof McpAnalyticsSessionsGenerateIntentSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.MCPSessionIntent>({
             method: 'POST',
@@ -79,15 +79,18 @@ const mcpAnalyticsSessionsGenerateIntent = (): ToolBase<
     },
 })
 
-const McpAnalyticsSessionsListSchema = McpAnalyticsSessionsListQueryParams
+const McpAnalyticsSessionsListSchema = () => {
+    const McpAnalyticsSessionsListQueryParams = orvalSchemas.McpAnalyticsSessionsListQueryParams()
+    return McpAnalyticsSessionsListQueryParams
+}
 
 const mcpAnalyticsSessionsList = (): ToolBase<
-    typeof McpAnalyticsSessionsListSchema,
+    ReturnType<typeof McpAnalyticsSessionsListSchema>,
     WithPostHogUrl<Schemas.PaginatedMCPSessionList>
 > => ({
     name: 'mcp-analytics-sessions-list',
-    schema: McpAnalyticsSessionsListSchema,
-    handler: async (context: Context, params: z.infer<typeof McpAnalyticsSessionsListSchema>) => {
+    schema: McpAnalyticsSessionsListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof McpAnalyticsSessionsListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedMCPSessionList>({
             method: 'GET',
@@ -105,17 +108,21 @@ const mcpAnalyticsSessionsList = (): ToolBase<
     },
 })
 
-const McpAnalyticsSessionsToolCallsSchema = McpAnalyticsSessionsToolCallsParams.omit({ project_id: true }).extend(
-    McpAnalyticsSessionsToolCallsQueryParams.shape
-)
+const McpAnalyticsSessionsToolCallsSchema = () => {
+    const McpAnalyticsSessionsToolCallsParams = orvalSchemas.McpAnalyticsSessionsToolCallsParams()
+    const McpAnalyticsSessionsToolCallsQueryParams = orvalSchemas.McpAnalyticsSessionsToolCallsQueryParams()
+    return McpAnalyticsSessionsToolCallsParams.omit({ project_id: true }).extend(
+        McpAnalyticsSessionsToolCallsQueryParams.shape
+    )
+}
 
 const mcpAnalyticsSessionsToolCalls = (): ToolBase<
-    typeof McpAnalyticsSessionsToolCallsSchema,
+    ReturnType<typeof McpAnalyticsSessionsToolCallsSchema>,
     WithPostHogUrl<Schemas.PaginatedMCPToolCallList>
 > => ({
     name: 'mcp-analytics-sessions-tool-calls',
-    schema: McpAnalyticsSessionsToolCallsSchema,
-    handler: async (context: Context, params: z.infer<typeof McpAnalyticsSessionsToolCallsSchema>) => {
+    schema: McpAnalyticsSessionsToolCallsSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof McpAnalyticsSessionsToolCallsSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedMCPToolCallList>({
             method: 'GET',
@@ -130,19 +137,22 @@ const mcpAnalyticsSessionsToolCalls = (): ToolBase<
     },
 })
 
-const McpFeedbackSubmitSchema = McpAnalyticsFeedbackCreateBody.omit({
-    mcp_client_name: true,
-    mcp_client_version: true,
-    mcp_protocol_version: true,
-    mcp_transport: true,
-    mcp_session_id: true,
-    mcp_trace_id: true,
-})
+const McpFeedbackSubmitSchema = () => {
+    const McpAnalyticsFeedbackCreateBody = orvalSchemas.McpAnalyticsFeedbackCreateBody()
+    return McpAnalyticsFeedbackCreateBody.omit({
+        mcp_client_name: true,
+        mcp_client_version: true,
+        mcp_protocol_version: true,
+        mcp_transport: true,
+        mcp_session_id: true,
+        mcp_trace_id: true,
+    })
+}
 
-const mcpFeedbackSubmit = (): ToolBase<typeof McpFeedbackSubmitSchema, Schemas.MCPAnalyticsSubmission> => ({
+const mcpFeedbackSubmit = (): ToolBase<ReturnType<typeof McpFeedbackSubmitSchema>, Schemas.MCPAnalyticsSubmission> => ({
     name: 'mcp-feedback-submit',
-    schema: McpFeedbackSubmitSchema,
-    handler: async (context: Context, params: z.infer<typeof McpFeedbackSubmitSchema>) => {
+    schema: McpFeedbackSubmitSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof McpFeedbackSubmitSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.attempted_tool !== undefined) {
@@ -166,22 +176,25 @@ const mcpFeedbackSubmit = (): ToolBase<typeof McpFeedbackSubmitSchema, Schemas.M
     },
 })
 
-const McpMissingCapabilityReportSchema = McpAnalyticsMissingCapabilitiesCreateBody.omit({
-    mcp_client_name: true,
-    mcp_client_version: true,
-    mcp_protocol_version: true,
-    mcp_transport: true,
-    mcp_session_id: true,
-    mcp_trace_id: true,
-})
+const McpMissingCapabilityReportSchema = () => {
+    const McpAnalyticsMissingCapabilitiesCreateBody = orvalSchemas.McpAnalyticsMissingCapabilitiesCreateBody()
+    return McpAnalyticsMissingCapabilitiesCreateBody.omit({
+        mcp_client_name: true,
+        mcp_client_version: true,
+        mcp_protocol_version: true,
+        mcp_transport: true,
+        mcp_session_id: true,
+        mcp_trace_id: true,
+    })
+}
 
 const mcpMissingCapabilityReport = (): ToolBase<
-    typeof McpMissingCapabilityReportSchema,
+    ReturnType<typeof McpMissingCapabilityReportSchema>,
     Schemas.MCPAnalyticsSubmission
 > => ({
     name: 'mcp-missing-capability-report',
-    schema: McpMissingCapabilityReportSchema,
-    handler: async (context: Context, params: z.infer<typeof McpMissingCapabilityReportSchema>) => {
+    schema: McpMissingCapabilityReportSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof McpMissingCapabilityReportSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.attempted_tool !== undefined) {
