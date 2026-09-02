@@ -309,11 +309,18 @@ describe('replayScannerLogic', () => {
             }
         )
 
-        it('does not preserve old prompt across type changes', async () => {
-            logic.actions.setScannerValues({ scanner_config: { prompt: 'Was there a refund?' } })
+        it('keeps the typed prompt and resets only type-specific fields across type changes', async () => {
+            logic.actions.setScannerType('classifier')
+            logic.actions.setScannerValues({
+                scanner_config: {
+                    prompt: 'Was there a refund?',
+                    tags: ['refund'],
+                    multi_label: true,
+                } as ClassifierScanner['scanner_config'],
+            })
             await expectLogic(logic, () => logic.actions.setScannerType('summarizer')).toMatchValues({
                 scanner: expect.objectContaining({
-                    scanner_config: { prompt: '', length: 'medium' },
+                    scanner_config: { prompt: 'Was there a refund?', length: 'medium' },
                 }),
             })
         })

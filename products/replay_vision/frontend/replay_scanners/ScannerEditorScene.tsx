@@ -361,19 +361,6 @@ function ConfigureStep(): JSX.Element {
                             if (next === scanner.scanner_type) {
                                 return
                             }
-                            if (scanner.scanner_config?.prompt?.trim()) {
-                                LemonDialog.open({
-                                    title: 'Switch scanner type?',
-                                    description:
-                                        'Your prompt and type-specific settings will reset to defaults for the new type.',
-                                    primaryButton: {
-                                        children: 'Switch and reset',
-                                        onClick: () => setScannerType(next),
-                                    },
-                                    secondaryButton: { children: 'Keep current' },
-                                })
-                                return
-                            }
                             setScannerType(next)
                         }}
                         options={SCANNER_TYPE_OPTIONS.map((opt) => ({
