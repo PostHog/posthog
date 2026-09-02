@@ -10128,10 +10128,10 @@ export namespace Schemas {
     }
 
     export interface AlertSimulate {
-      /** Insight ID to simulate the detector on. */
-      insight: number;
-      /** Detector configuration to simulate. */
-      detector_config: DetectorConfig;
+      /** Numeric insight ID or saved insight short ID to simulate the detector on. */
+      insight: number | string;
+      /** Detector configuration to simulate. Omit it to use the default daily z-score detector (threshold 0.95, window 90, first-difference preprocessing). */
+      detector_config?: DetectorConfig;
       /** Zero-based index of the series to analyze (trends insights only). */
       series_index?: number;
       /**
