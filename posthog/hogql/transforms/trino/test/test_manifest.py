@@ -35,6 +35,7 @@ def test_transpiles_core_table_with_values_without_django_queries(
             "SELECT event FROM events WHERE event = {event}",
             manifest=_manifest(_events()),
             values={"event": "signup"},
+            include_hogql=True,
         )
 
     assert result.sql == (
@@ -43,6 +44,7 @@ def test_transpiles_core_table_with_values_without_django_queries(
         'WHERE ("org_catalog"."posthog"."events_production"."event" = %(hogql_val_0)s) LIMIT 50000'
     )
     assert result.values == {"hogql_val_0": "signup"}
+    assert result.hogql == "SELECT event FROM events WHERE equals(event, 'signup') LIMIT 50000"
 
 
 def test_transpiles_manifest_table_without_django_queries(django_assert_num_queries: Any) -> None:

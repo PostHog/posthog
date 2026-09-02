@@ -32,7 +32,7 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.placeholders import find_placeholders
 from posthog.hogql.printer.utils import prepare_and_print_ast
 from posthog.hogql.transforms.trino.errors import TrinoLoweringError
-from posthog.hogql.visitor import TraversingVisitor
+from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
 from posthog.dataclasses import frozen
 from posthog.schema_enums import DatabaseSerializedFieldType, PersonsOnEventsMode
@@ -64,6 +64,7 @@ class TrinoCatalogManifest:
 class TrinoManifestTranspilerResult:
     sql: str
     values: dict[str, Any]
+    hogql: str | None = None
 
 
 _CORE_TABLES = frozenset({"events", "persons"})
@@ -152,7 +153,7 @@ def build_trino_manifest_database(manifest: TrinoCatalogManifest) -> tuple[Datab
             detail="Manifest logical table names must be unique.",
         )
 
-    core_tables = _CORE_TABLES.intersection(logical_names)
+    core_tables = set(_CORE_TABLES.intersection(logical_names))
     database.prune_to_table_names(core_tables)
     if "events" in core_tables:
         _configure_events_for_trino(database)
@@ -216,8 +217,11 @@ def transpile_hogql_to_trino(
     limit_top_select: bool = True,
     limit_context: LimitContext | None = None,
     pretty: bool = False,
+    include_hogql: bool = False,
 ) -> TrinoManifestTranspilerResult:
-    placeholders = {key: ast.Constant(value=value) for key, value in values.items()} if values else None
+    placeholders: dict[str, ast.Expr] | None = (
+        {key: ast.Constant(value=value) for key, value in values.items()} if values else None
+    )
     node = parse_select(query, placeholders=placeholders)
     unsupported_placeholders = find_placeholders(node)
     if (
@@ -234,22 +238,29 @@ def transpile_hogql_to_trino(
     _UnsupportedSemanticFeatureFinder().visit(node)
 
     database, locators = build_trino_manifest_database(manifest)
-    context = HogQLContext(
-        database=database,
-        team_id=None,
-        team=None,
-        user=None,
-        enable_select_queries=True,
-        limit_top_select=limit_top_select,
-        limit_context=limit_context,
-        modifiers=HogQLQueryModifiers(
-            personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
-            convertToProjectTimezone=convert_to_project_timezone,
-        ),
-        restricted_properties=set(),
-        trino_table_locators=locators,
-        timezone=manifest.timezone,
-        week_start_day=manifest.week_start_day,
-    )
+
+    def create_context() -> HogQLContext:
+        return HogQLContext(
+            database=database,
+            team_id=None,
+            team=None,
+            user=None,
+            enable_select_queries=True,
+            limit_top_select=limit_top_select,
+            limit_context=limit_context,
+            modifiers=HogQLQueryModifiers(
+                personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
+                convertToProjectTimezone=convert_to_project_timezone,
+            ),
+            restricted_properties=set(),
+            trino_table_locators=locators,
+            timezone=manifest.timezone,
+            week_start_day=manifest.week_start_day,
+        )
+
+    context = create_context()
+    hogql: str | None = None
+    if include_hogql:
+        hogql, _ = prepare_and_print_ast(clone_expr(node), create_context(), dialect="hogql")
     sql, _ = prepare_and_print_ast(node, context, dialect="trino", pretty=pretty)
-    return TrinoManifestTranspilerResult(sql=sql, values=dict(context.values))
+    return TrinoManifestTranspilerResult(sql=sql, values=dict(context.values), hogql=hogql)
