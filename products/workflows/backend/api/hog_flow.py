@@ -112,7 +112,7 @@ from products.messaging.backend.models import MessageTemplate
 from products.messaging.backend.unlayer import UnlayerNotConfiguredError, UnlayerRenderError, render_design_html
 from products.notifications.backend.facade.api import publish_resource_edited
 from products.tasks.backend.facade.model_catalogue import TASK_RUN_GATEWAY_PRODUCT, available_model_choices
-from products.tasks.backend.facade.workflow_tasks import WorkflowTaskConnectorsInvalid, validate_connectors
+from products.tasks.backend.facade.workflow_tasks import WorkflowTaskConnectorsInvalid, resolve_connectors
 from products.workflows.backend.api.action_redirects import compute_action_redirects
 from products.workflows.backend.api.graph_operations import _deep_merge, apply_graph_operations
 from products.workflows.backend.api.graph_validation import validate_graph
@@ -1310,15 +1310,20 @@ class HogFlowActionSerializer(serializers.Serializer):
         connectors = (inputs.get("connectors") or {}).get("value")
         if connectors:
             get_team = self.context.get("get_team")
-            owner_id = self.context.get("workflow_owner_id")
-            # No team/owner to check against outside a request (internal re-saves) - nothing
-            # new is being authored there, so there is nothing to validate.
-            if get_team is not None and owner_id is not None:
+            # No team to check against outside a request (internal re-saves) - nothing new is
+            # being authored there, so there is nothing to validate.
+            if get_team is not None:
                 try:
-                    validate_connectors(get_team().id, owner_id, connectors)
+                    resolve_connectors(get_team().id, connectors)
                 except WorkflowTaskConnectorsInvalid as e:
                     raise serializers.ValidationError(
-                        {"inputs": {"connectors": f"MCP installation(s) not found or inactive: {e.invalid_ids}"}}
+                        {
+                            "inputs": {
+                                "connectors": (
+                                    f"MCP server(s) not shared with the project or disabled: {e.invalid_ids}"
+                                )
+                            }
+                        }
                     )
 
         repository = (inputs.get("repository") or {}).get("value")
@@ -2370,6 +2375,7 @@ class HogFlowMinimalSerializer(UserAccessControlSerializerMixin, serializers.Mod
             "description",
             "version",
             "status",
+            "origin_product",
             "created_at",
             "created_by",
             "updated_at",
@@ -2431,6 +2437,7 @@ class HogFlowSummarySerializer(HogFlowMinimalSerializer):
             "description",
             "version",
             "status",
+            "origin_product",
             "created_at",
             "created_by",
             "updated_at",
@@ -2441,6 +2448,13 @@ class HogFlowSummarySerializer(HogFlowMinimalSerializer):
 
 
 class HogFlowSerializer(HogFlowMinimalSerializer):
+    origin_product = serializers.ChoiceField(
+        choices=HogFlow.OriginProduct.choices,
+        required=False,
+        allow_null=True,
+        help_text="Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when "
+        "creating a workflow. Filter the list with `?origin_product=`.",
+    )
     name = serializers.CharField(
         max_length=400, required=False, allow_null=True, allow_blank=True, help_text="Workflow name."
     )
@@ -2556,17 +2570,6 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         # binds `self.instance`, so fall back to the flow passed in via context so recovery still works.
         instance = cast(Optional[HogFlow], self.instance) or self.context.get("instance")
 
-        # Who a "Create AI task" step runs as: the existing creator for an update, or the
-        # requesting user for a brand-new flow (matches the `created_by` a create() actually
-        # writes). None outside a request (internal re-saves), where connector checks are skipped.
-        owner = instance.created_by if instance else None
-        if owner is None:
-            request = self.context.get("request")
-            user = getattr(request, "user", None)
-            if user is not None and getattr(user, "is_authenticated", False):
-                owner = user
-        self.context["workflow_owner_id"] = owner.id if owner else None
-
         # Wait conditions the live flow already carries, so per-action validation can tell a newly
         # introduced clock condition from one we have been storing all along. Seeded here because
         # nested action validation runs during field processing, before validate() is reached.
@@ -2642,6 +2645,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "description",
             "version",
             "status",
+            "origin_product",
             "created_at",
             "created_by",
             "updated_at",
@@ -2846,6 +2850,26 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
     def update(self, instance, validated_data):
         self._strip_secret_inputs(validated_data)
         return super().update(instance, validated_data)
+
+
+class HogFlowUpdateSerializer(HogFlowSerializer):
+    origin_product = serializers.ChoiceField(
+        choices=HogFlow.OriginProduct.choices,
+        read_only=True,
+        allow_null=True,
+        help_text="Product surface that owns this workflow. This value cannot change after creation.",
+    )
+
+    def validate(self, data: dict) -> dict:
+        instance = cast(Optional[HogFlow], self.instance)
+        submitted_origin_product = self.initial_data.get("origin_product", serializers.empty)
+        if (
+            instance is not None
+            and submitted_origin_product is not serializers.empty
+            and submitted_origin_product != instance.origin_product
+        ):
+            raise serializers.ValidationError({"origin_product": "origin_product is set on create and cannot change."})
+        return super().validate(data)
 
 
 GRAPH_OPERATION_TYPES = [
@@ -3348,6 +3372,12 @@ def mint_audience_confirm_token(
                 description="Filter by workflow type. `messaging` returns workflows with an email, SMS, or push action; `automation` returns the rest.",
             ),
             OpenApiParameter(
+                "origin_product",
+                OpenApiTypes.STR,
+                enum=HogFlow.OriginProduct.values,
+                description="Filter to workflows owned by a product surface, e.g. `loops` for Desktop loops.",
+            ),
+            OpenApiParameter(
                 "trigger",
                 OpenApiTypes.STR,
                 description='Filter by trigger config as a JSON object. Returns workflows whose trigger contains the given object, e.g. {"type": "event"}.',
@@ -3454,6 +3484,8 @@ class HogFlowViewSet(
             if self.request is not None and self._is_mcp_request(self.request):
                 return HogFlowSummarySerializer
             return HogFlowMinimalSerializer
+        if self.action in ("update", "partial_update"):
+            return HogFlowUpdateSerializer
         return HogFlowSerializer
 
     def get_serializer_context(self) -> dict:
@@ -3500,6 +3532,14 @@ class HogFlowViewSet(
                 queryset = (
                     queryset.filter(messaging_q) if workflow_type == "messaging" else queryset.exclude(messaging_q)
                 )
+
+            origin_product = self.request.GET.get("origin_product")
+            if origin_product:
+                if origin_product not in HogFlow.OriginProduct.values:
+                    raise exceptions.ValidationError(
+                        {"origin_product": f"Must be one of: {', '.join(HogFlow.OriginProduct.values)}"}
+                    )
+                queryset = queryset.filter(origin_product=origin_product)
 
         if self.request.GET.get("trigger"):
             try:

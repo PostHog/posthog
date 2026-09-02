@@ -566,6 +566,7 @@ export const ChannelHomeComposer = forwardRef<
                 workspaceMode,
               )}
               showBillingMenu
+              workspaceMode={workspaceMode}
               disabled={isBusy}
               isLoading={isLoading}
             />

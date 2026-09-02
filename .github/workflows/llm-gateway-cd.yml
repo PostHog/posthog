@@ -61,6 +61,7 @@ jobs:
                   platforms: linux/amd64,linux/arm64
                   tags: ${{ steps.docker-meta.outputs.tags }}
                   labels: ${{ steps.docker-meta.outputs.labels }}
+                  annotations: ${{ steps.docker-meta.outputs.annotations }}
                   project: 90mkjhdrjz # llm-gateway depot project
 
     deploy:

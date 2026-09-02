@@ -942,9 +942,10 @@ describe('Tool Filtering - Feature Flags', () => {
                 'data-warehouse-scene',
                 'data-quality-checks',
                 'context-layer',
+                'warehouse-multi-destination',
             ])
         )
-        expect(flags).toHaveLength(33)
+        expect(flags).toHaveLength(34)
     })
 
     it('every loops tool is gated on the loops flag', () => {
