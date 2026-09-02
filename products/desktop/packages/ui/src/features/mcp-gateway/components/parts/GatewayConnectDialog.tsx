@@ -106,7 +106,7 @@ export function GatewayConnectDialog({
                   value={values.apiKey}
                   onChange={(e) => set("apiKey", e.target.value)}
                   type={showKey ? "text" : "password"}
-                  placeholder="sk-…"
+                  placeholder="Enter API key"
                   spellCheck={false}
                   autoFocus
                   className="font-mono"
