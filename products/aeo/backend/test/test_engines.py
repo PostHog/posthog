@@ -110,26 +110,26 @@ EXA_BODY = {
 
 
 def test_parse_anthropic_citations() -> None:
-    answer, cited, retrieved, queries = parse_anthropic_citations(ANTHROPIC_BODY)
-    assert answer == "PostHog offers session replay and other tools exist too."
-    assert cited == ["https://posthog.com/session-replay", "https://example.com/reviews"]
-    assert retrieved == ["https://example.com/reviews", "https://posthog.com/session-replay"]
-    assert queries == ["best open source session replay tool"]
+    parsed = parse_anthropic_citations(ANTHROPIC_BODY)
+    assert parsed.answer_text == "PostHog offers session replay and other tools exist too."
+    assert parsed.cited_urls == ["https://posthog.com/session-replay", "https://example.com/reviews"]
+    assert parsed.retrieved_urls == ["https://example.com/reviews", "https://posthog.com/session-replay"]
+    assert parsed.search_queries == ["best open source session replay tool"]
 
 
 def test_parse_anthropic_error_result_is_skipped() -> None:
-    answer, cited, retrieved, queries = parse_anthropic_citations(ANTHROPIC_ERROR_RESULT_BODY)
-    assert answer == "I could not search."
-    assert cited == []
-    assert retrieved == []
-    assert queries == ["q"]
+    parsed = parse_anthropic_citations(ANTHROPIC_ERROR_RESULT_BODY)
+    assert parsed.answer_text == "I could not search."
+    assert parsed.cited_urls == []
+    assert parsed.retrieved_urls == []
+    assert parsed.search_queries == ["q"]
 
 
 def test_parse_openai_responses_citations() -> None:
-    answer, cited, queries = parse_openai_responses_citations(OPENAI_RESPONSES_BODY)
-    assert answer == "Several tools offer feature flags."
-    assert cited == ["https://posthog.com/feature-flags", "https://example.com/flags"]
-    assert queries == ["feature flag tools comparison"]
+    parsed = parse_openai_responses_citations(OPENAI_RESPONSES_BODY)
+    assert parsed.answer_text == "Several tools offer feature flags."
+    assert parsed.cited_urls == ["https://posthog.com/feature-flags", "https://example.com/flags"]
+    assert parsed.search_queries == ["feature flag tools comparison"]
 
 
 OPENAI_INCOMPLETE_BODY = {
@@ -207,10 +207,10 @@ def test_openai_engine_run_wires_response_error(_name: str, body: dict, expected
 
 
 def test_parse_exa_citations() -> None:
-    answer, cited, cost = parse_exa_citations(EXA_BODY)
-    assert answer == "PostHog is one option."
-    assert cited == ["https://example.com/a", "https://docs.posthog.com/x"]
-    assert cost == 0.005
+    parsed = parse_exa_citations(EXA_BODY)
+    assert parsed.answer_text == "PostHog is one option."
+    assert parsed.cited_urls == ["https://example.com/a", "https://docs.posthog.com/x"]
+    assert parsed.cost_usd == 0.005
 
 
 def test_is_target_url() -> None:

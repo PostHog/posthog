@@ -63,6 +63,21 @@ class CitationCheck:
     error: str | None = None
 
 
+@frozen
+class ParsedAnswer:
+    """What one engine's raw response yields once parsed.
+
+    Each engine fills only the fields its API exposes: the Responses API has no
+    retrieved-result list, and only Exa reports a per-call cost.
+    """
+
+    answer_text: str = ""
+    cited_urls: list[str] = field(default_factory=list)
+    retrieved_urls: list[str] = field(default_factory=list)
+    search_queries: list[str] = field(default_factory=list)
+    cost_usd: float | None = None
+
+
 class CitationEngine(Protocol):
     name: str
     model: str
@@ -101,10 +116,9 @@ def _dedupe_urls(urls: list[str]) -> list[str]:
     return result
 
 
-def parse_anthropic_citations(body: dict[str, Any]) -> tuple[str, list[str], list[str], list[str]]:
+def parse_anthropic_citations(body: dict[str, Any]) -> ParsedAnswer:
     """Parse a non-streaming Anthropic Messages response with web search.
 
-    Returns (answer_text, cited_urls, retrieved_urls, search_queries).
     Cited = citation entries attached to text blocks (what the answer relies
     on); retrieved = web_search_tool_result entries (what the model saw).
     """
@@ -133,14 +147,19 @@ def parse_anthropic_citations(body: dict[str, Any]) -> tuple[str, list[str], lis
                     if isinstance(result, dict) and result.get("url"):
                         retrieved.append(str(result["url"]))
 
-    return "".join(answer_parts), _dedupe_urls(cited), _dedupe_urls(retrieved), queries
+    return ParsedAnswer(
+        answer_text="".join(answer_parts),
+        cited_urls=_dedupe_urls(cited),
+        retrieved_urls=_dedupe_urls(retrieved),
+        search_queries=queries,
+    )
 
 
-def parse_openai_responses_citations(body: dict[str, Any]) -> tuple[str, list[str], list[str]]:
+def parse_openai_responses_citations(body: dict[str, Any]) -> ParsedAnswer:
     """Parse a non-streaming OpenAI Responses API response with web search.
 
-    Returns (answer_text, cited_urls, search_queries). The Responses API does
-    not expose the retrieved result list, only url_citation annotations.
+    The Responses API does not expose the retrieved result list, only
+    url_citation annotations.
     """
     answer_parts: list[str] = []
     cited: list[str] = []
@@ -162,7 +181,7 @@ def parse_openai_responses_citations(body: dict[str, Any]) -> tuple[str, list[st
                     if annotation.get("type") == "url_citation" and annotation.get("url"):
                         cited.append(str(annotation["url"]))
 
-    return "".join(answer_parts), _dedupe_urls(cited), queries
+    return ParsedAnswer(answer_text="".join(answer_parts), cited_urls=_dedupe_urls(cited), search_queries=queries)
 
 
 def openai_response_error(body: dict[str, Any]) -> str | None:
@@ -190,13 +209,16 @@ def anthropic_truncated_error(body: dict[str, Any], cited_urls: list[str]) -> st
     return None
 
 
-def parse_exa_citations(body: dict[str, Any]) -> tuple[str, list[str], float | None]:
-    """Parse an Exa /answer response. Returns (answer_text, cited_urls, cost_usd)."""
+def parse_exa_citations(body: dict[str, Any]) -> ParsedAnswer:
+    """Parse an Exa /answer response."""
     cited = [str(c["url"]) for c in body.get("citations") or [] if isinstance(c, dict) and c.get("url")]
     cost = body.get("costDollars")
-    cost_usd = cost.get("total") if isinstance(cost, dict) else None
     answer = body.get("answer")
-    return answer if isinstance(answer, str) else "", _dedupe_urls(cited), cost_usd
+    return ParsedAnswer(
+        answer_text=answer if isinstance(answer, str) else "",
+        cited_urls=_dedupe_urls(cited),
+        cost_usd=cost.get("total") if isinstance(cost, dict) else None,
+    )
 
 
 def is_target_url(url: str, target_domains: list[str]) -> bool:
@@ -313,16 +335,16 @@ class ClaudeWebSearchEngine:
             body = gateway_post_json(self._session, self._gateway.url.rstrip("/") + "/messages", headers, payload)
         except requests.RequestException as e:
             return CitationCheck(engine=self.name, model=self.model, trace_id=trace_id, error=_request_error(e))
-        _, cited_urls, retrieved_urls, search_queries = parse_anthropic_citations(body)
-        if (truncated := anthropic_truncated_error(body, cited_urls)) is not None:
+        parsed = parse_anthropic_citations(body)
+        if (truncated := anthropic_truncated_error(body, parsed.cited_urls)) is not None:
             return CitationCheck(engine=self.name, model=self.model, trace_id=trace_id, error=truncated)
         return CitationCheck(
             engine=self.name,
             model=self.model,
             trace_id=trace_id,
-            cited_urls=cited_urls,
-            retrieved_urls=retrieved_urls,
-            search_queries=search_queries,
+            cited_urls=parsed.cited_urls,
+            retrieved_urls=parsed.retrieved_urls,
+            search_queries=parsed.search_queries,
         )
 
 
@@ -356,13 +378,13 @@ class OpenAIWebSearchEngine:
             return CitationCheck(engine=self.name, model=self.model, trace_id=trace_id, error=_request_error(e))
         if (error := openai_response_error(body)) is not None:
             return CitationCheck(engine=self.name, model=self.model, trace_id=trace_id, error=error)
-        _, cited_urls, search_queries = parse_openai_responses_citations(body)
+        parsed = parse_openai_responses_citations(body)
         return CitationCheck(
             engine=self.name,
             model=self.model,
             trace_id=trace_id,
-            cited_urls=cited_urls,
-            search_queries=search_queries,
+            cited_urls=parsed.cited_urls,
+            search_queries=parsed.search_queries,
         )
 
 
@@ -393,8 +415,8 @@ class ExaAnswerEngine:
             )
         except requests.RequestException as e:
             return CitationCheck(engine=self.name, model=self.model, error=_request_error(e))
-        _, cited_urls, cost_usd = parse_exa_citations(body)
-        return CitationCheck(engine=self.name, model=self.model, cited_urls=cited_urls, cost_usd=cost_usd)
+        parsed = parse_exa_citations(body)
+        return CitationCheck(engine=self.name, model=self.model, cited_urls=parsed.cited_urls, cost_usd=parsed.cost_usd)
 
 
 def available_engines() -> list[CitationEngine]:

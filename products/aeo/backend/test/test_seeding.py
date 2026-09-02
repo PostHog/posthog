@@ -1,11 +1,15 @@
 from pathlib import Path
 from types import SimpleNamespace
+from typing import cast
 
 from unittest.mock import patch
 
-from products.aeo.backend.seeding import collect_candidates
+from posthog.models.team import Team
 
-TEAM = SimpleNamespace(id=1)
+from products.aeo.backend.seeding import MAX_PROMPT_LENGTH, collect_candidates
+
+# Only the id is read by the code under test, so a stub keeps these cases off the database.
+TEAM = cast(Team, SimpleNamespace(id=1))
 
 
 def _csv(tmp_path: Path) -> str:
@@ -40,3 +44,14 @@ def test_failing_expansion_does_not_abort_csv_import(tmp_path: Path) -> None:
 
     assert "What is the best web analytics tool?" in [c.text for c in candidates]
     assert any("ai_entry_pages_expand source unavailable, skipped" in note for note in notes)
+
+
+def test_oversized_candidate_is_dropped(tmp_path: Path) -> None:
+    path = tmp_path / "oversized.csv"
+    path.write_text(f"prompt\nWhat is the best web analytics tool?\n{'a' * (MAX_PROMPT_LENGTH + 1)}\n")
+
+    with patch("products.aeo.backend.seeding.execute_hogql_query", side_effect=RuntimeError("clickhouse down")):
+        candidates, notes = collect_candidates(TEAM, source="all", csv_path=str(path), expand=False)
+
+    assert [c.text for c in candidates] == ["What is the best web analytics tool?"]
+    assert any("over 500 characters" in note for note in notes)

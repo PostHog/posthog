@@ -17,6 +17,7 @@ from celery import shared_task
 from posthog.celery_queues import CeleryQueue
 from posthog.models.team import Team
 from posthog.ph_client import feature_enabled_or_false
+from posthog.scoping_audit import skip_team_scope_audit
 
 from products.aeo.backend.runner import run_citation_checks
 
@@ -49,6 +50,7 @@ def _citation_tracking_enabled(team: Team) -> bool:
 
 
 @shared_task(ignore_result=True)
+@skip_team_scope_audit  # Team is the tenant, not tenant data; the per-team gate scopes what follows
 def run_aeo_citation_checks_task() -> None:
     """Beat entrypoint: fan out one runner task per allowlisted, flag-enabled team."""
     for raw_team_id in settings.AEO_CITATION_TEAM_IDS:
@@ -69,6 +71,7 @@ def run_aeo_citation_checks_task() -> None:
     soft_time_limit=RUN_SOFT_TIME_LIMIT_SECONDS,
     time_limit=RUN_TIME_LIMIT_SECONDS,
 )
+@skip_team_scope_audit  # Team is the tenant, not tenant data; prompts are read via AEOPrompt.objects.for_team
 def run_aeo_citation_checks_for_team_task(team_id: int) -> None:
     try:
         team = Team.objects.get(id=team_id)

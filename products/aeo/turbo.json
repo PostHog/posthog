@@ -2,7 +2,7 @@
     "extends": ["//"],
     "tasks": {
         "backend:contract-check": {
-            "inputs": ["backend/facade/**", "backend/tasks/**"],
+            "inputs": ["backend/facade/**", "backend/tasks/**", "backend/models.py", "backend/migrations/**"],
             "outputs": [],
             "cache": true
         }
