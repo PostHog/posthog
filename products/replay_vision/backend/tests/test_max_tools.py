@@ -14,20 +14,16 @@ from parameterized import parameterized
 from posthog.models.team import Team
 
 import products.replay_vision.backend.max_tools as max_tools_module
-from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.max_tools import (
     AnalyzeReplayVisionImpactTool,
-    CreateReplayVisionActionTool,
     CreateReplayVisionScannerTool,
     DeleteReplayVisionScannerTool,
     DraftReplayVisionScannerPromptTool,
     GetReplayVisionQuotaTool,
     LabelReplayVisionObservationTool,
     ListReplayVisionScannersTool,
-    ReadReplayVisionActionsTool,
     RetryReplayVisionObservationTool,
-    RunReplayVisionActionTool,
     ScanReplayVisionSessionsTool,
     SearchReplayVisionObservationsTool,
     SummarizeReplayVisionSummariesTool,
@@ -40,12 +36,6 @@ from products.replay_vision.backend.models.replay_observation import (
 )
 from products.replay_vision.backend.models.replay_observation_label import ReplayObservationLabel
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerOrigin, ScannerType
-from products.replay_vision.backend.models.vision_action import (
-    ActionMode,
-    VisionAction,
-    VisionActionRun,
-    VisionActionRunStatus,
-)
 from products.replay_vision.backend.scanner_config import MAX_PROMPT_LENGTH
 from products.replay_vision.backend.scanning import MAX_SESSIONS_PER_SCAN
 from products.replay_vision.backend.tags import slugify_tag
@@ -474,9 +464,6 @@ class TestReplayVisionChargeConfirmation(BaseTest):
             (ScanReplayVisionSessionsTool, {"session_ids": ["s1"], "prompt": "did it fail?"}),
             (RetryReplayVisionObservationTool, {"observation_id": str(uuid.uuid4())}),
             (CreateReplayVisionScannerTool, {"enabled": True}),
-            # No Replay Vision credits, but each run bills the team's AI credits, on a schedule
-            # that continues until someone disables it.
-            (CreateReplayVisionActionTool, {}),
         ]
         for tool_cls, kwargs in cases:
             assert await self._tool(tool_cls).is_dangerous_operation(**kwargs) is True, tool_cls.__name__
@@ -651,9 +638,9 @@ class TestCreateReplayVisionScannerTool(BaseTest):
     @pytest.mark.django_db
     @pytest.mark.asyncio
     async def test_scanner_gets_everything_the_api_gives_it(self):
-        # Going direct to ReplayScanner.objects.create skipped the estimate refresh, the built-in daily
-        # digest and the lifecycle event, so a Max-made scanner was a second-class one. Routing through
-        # the serializer is what keeps them the same object.
+        # Going direct to ReplayScanner.objects.create skipped the estimate refresh and the lifecycle
+        # event, so a Max-made scanner was a second-class one. Routing through the serializer is what
+        # keeps them the same object.
         with (
             patch("products.replay_vision.backend.api.scanners._refresh_estimate_fail_soft") as refresh,
             patch("products.replay_vision.backend.api.scanners.report_user_action") as report,
@@ -675,75 +662,6 @@ class TestCreateReplayVisionScannerTool(BaseTest):
 
         assert artifact["error"] == "invalid_config"
         assert not await sync_to_async(ReplayScanner.objects.filter(name="too-sparse").exists)()
-
-
-class TestCreateReplayVisionActionTool(BaseTest):
-    def _tool(self) -> CreateReplayVisionActionTool:
-        config: RunnableConfig = {"configurable": {"team": self.team, "user": self.user}}
-        return CreateReplayVisionActionTool(team=self.team, user=self.user, config=config)
-
-    def _scanner(self) -> ReplayScanner:
-        return ReplayScanner.objects.create(
-            team=self.team,
-            name="my-scanner",
-            scanner_type=ScannerType.MONITOR,
-            scanner_config={"prompt": "did the user check out?"},
-            model=ScannerModel.GEMINI_3_7_FLASH,
-        )
-
-    @parameterized.expand([("daily",), ("weekly",)])
-    @pytest.mark.django_db
-    @pytest.mark.asyncio
-    async def test_creates_a_summary_on_the_given_cadence(self, cadence):
-        # The scanner field is team-scoped and fails safe to .none() without team_id in the serializer
-        # context, so without it every call failed validation and the tool could never create anything.
-        scanner = await sync_to_async(self._scanner)()
-        content, artifact = await self._tool()._arun_impl(
-            scanner_id=str(scanner.id), name=f"{cadence}-summary", cadence=cadence
-        )
-
-        assert "error" not in artifact, artifact
-        action = await sync_to_async(
-            lambda: VisionAction.objects.for_team(self.team.id).get(id=artifact["vision_action_id"])
-        )()
-        assert action.scanner_id == scanner.id
-        # An hour is pinned so it fires at a stable time, like every UI-created action and the digest.
-        assert "BYHOUR" in action.trigger_config["rrule"]
-        assert cadence in content
-
-    @pytest.mark.django_db
-    @pytest.mark.asyncio
-    async def test_rejects_a_scanner_from_another_team(self):
-        other_team = await sync_to_async(Team.objects.create)(organization=self.organization, name="other")
-        scanner = await sync_to_async(ReplayScanner.objects.create)(
-            team=other_team,
-            name="theirs",
-            scanner_type=ScannerType.MONITOR,
-            scanner_config={"prompt": "p"},
-            model=ScannerModel.GEMINI_3_7_FLASH,
-        )
-        _, artifact = await self._tool()._arun_impl(scanner_id=str(scanner.id), name="cross-team")
-
-        assert artifact["error"] == "not_found"
-
-    @pytest.mark.django_db
-    @pytest.mark.asyncio
-    async def test_requires_editor_on_the_scanner_not_just_viewer(self):
-        # An action is automation bound to the scanner. The API object-checks it at editor level, so
-        # viewer here would let a per-scanner restriction be walked around through Max.
-        scanner = await sync_to_async(self._scanner)()
-        tool = self._tool()
-
-        with (
-            patch.object(type(tool), "user_access_control", new_callable=PropertyMock) as uac,
-        ):
-            # Viewer yes, editor no: exactly the grant the API refuses.
-            uac.return_value = MagicMock(
-                check_access_level_for_object=MagicMock(side_effect=lambda _s, level: level == "viewer")
-            )
-            _, artifact = await tool._arun_impl(scanner_id=str(scanner.id), name="viewer-only")
-
-        assert artifact["error"] == "not_found"
 
 
 class TestReplayVisionToolAuthorization(BaseTest):
@@ -1051,12 +969,8 @@ class TestEveryReplayVisionToolDeclaresItsCost(BaseTest):
         # Spend Replay Vision observation credits.
         "scan_replay_vision_sessions": True,
         "retry_replay_vision_observation": True,
-        # Spend the project's AI credits, on a schedule or immediately.
-        "create_replay_vision_action": True,
-        "run_replay_vision_action": True,
         # Destroy history irreversibly.
         "delete_replay_vision_scanner": True,
-        "delete_replay_vision_action": True,
         # Read-only, or write nothing that costs.
         "list_replay_vision_scanners": False,
         "estimate_replay_vision_scanner": False,
@@ -1067,11 +981,9 @@ class TestEveryReplayVisionToolDeclaresItsCost(BaseTest):
         "label_replay_vision_observation": False,
         "analyze_replay_vision_impact": None,  # only when it creates a cohort
         "suggest_replay_vision_tags": False,
-        "read_replay_vision_actions": False,
         # Argument-dependent, so they override is_dangerous_operation rather than the flag.
         "create_replay_vision_scanner": None,
         "update_replay_vision_scanner": None,
-        "update_replay_vision_action": None,
     }
 
     def _tools(self) -> dict[str, Any]:
@@ -1226,81 +1138,6 @@ class TestReplayVisionLifecycleTools(BaseTest):
         assert "cohort_id" not in artifact
         assert artifact["affected_sessions"] == 0
 
-
-class TestReplayVisionActionScannerAccess(BaseTest):
-    """A per-scanner restriction has to reach the action tools, not just the API.
-
-    Both holes these cover shipped in review-clean code: the object check on the action row passes even
-    when the user can't read the scanner, because `vision_action` inherits the `replay_scanner` resource
-    rather than any one scanner's ACL.
-    """
-
-    def _tool(self, tool_cls):
-        config: RunnableConfig = {"configurable": {"team": self.team, "user": self.user}}
-        return tool_cls(team=self.team, user=self.user, config=config)
-
-    def _action_on_unreadable_scanner(self) -> VisionAction:
-        scanner = ReplayScanner.objects.create(
-            team=self.team,
-            name="private",
-            scanner_type=ScannerType.MONITOR,
-            scanner_config={"prompt": "did they check out?"},
-            model=ScannerModel.GEMINI_3_7_FLASH,
-        )
-        return VisionAction.all_teams.create(
-            team=self.team,
-            scanner=scanner,
-            name="weekly digest",
-            mode=ActionMode.GROUP_SUMMARY,
-            trigger_config={"rrule": "FREQ=WEEKLY;BYDAY=MO;BYHOUR=8"},
-        )
-
-    def _deny_scanners(self):
-        # Deny the scanner object while leaving the action row readable, which is the shape that slipped through.
-        return patch.object(
-            UserAccessControl,
-            "check_access_level_for_object",
-            side_effect=lambda obj, level, **kw: not isinstance(obj, ReplayScanner),
-        )
-
-    @pytest.mark.django_db
-    @pytest.mark.asyncio
-    async def test_running_a_summary_needs_access_to_its_scanner(self):
-        action = await sync_to_async(self._action_on_unreadable_scanner)()
-
-        with self._deny_scanners():
-            _, artifact = await self._tool(RunReplayVisionActionTool)._arun_impl(action_id=str(action.id))
-
-        assert artifact["error"] == "not_found"
-
-    @pytest.mark.django_db
-    @pytest.mark.asyncio
-    async def test_listing_hides_actions_on_scanners_the_user_cannot_read(self):
-        # The queryset filter alone leaves these listed, along with the reports derived from them.
-        await sync_to_async(self._action_on_unreadable_scanner)()
-
-        with (
-            patch.object(
-                UserAccessControl,
-                "filter_queryset_by_access_level",
-                side_effect=lambda qs, **kw: qs.none() if qs.model is ReplayScanner else qs,
-            ),
-        ):
-            _, artifact = await self._tool(ReadReplayVisionActionsTool)._arun_impl()
-
-        assert artifact["actions"] == []
-
-    @pytest.mark.django_db
-    @pytest.mark.asyncio
-    async def test_alerts_cannot_be_run_on_demand(self):
-        # The API rejects this; alerts fire from their own trigger, so a manual run would bill for nothing.
-        action = await sync_to_async(self._action_on_unreadable_scanner)()
-        action.mode = ActionMode.ALERT
-        await sync_to_async(action.save)(update_fields=["mode"])
-        _, artifact = await self._tool(RunReplayVisionActionTool)._arun_impl(action_id=str(action.id))
-
-        assert artifact["error"] == "not_runnable"
-
     @pytest.mark.django_db
     @pytest.mark.asyncio
     async def test_impact_reports_a_bad_filter_instead_of_crashing(self):
@@ -1316,23 +1153,3 @@ class TestReplayVisionActionScannerAccess(BaseTest):
         _, artifact = await self._tool(AnalyzeReplayVisionImpactTool)._arun_impl(scanner_id=str(scanner.id))
 
         assert artifact["error"] == "invalid_filters"
-
-    @pytest.mark.django_db
-    @pytest.mark.asyncio
-    async def test_reading_one_actions_runs_returns_its_reports(self):
-        # The runs branch was unexercised, which is how a fail-closed manager call that raises rather
-        # than returning empty reached a reviewer instead of a test.
-        action = await sync_to_async(self._action_on_unreadable_scanner)()
-        await sync_to_async(VisionActionRun.all_teams.create)(
-            team=self.team,
-            vision_action=action,
-            status=VisionActionRunStatus.COMPLETED,
-            scheduled_at=timezone.now(),
-            synthesized_markdown="Checkout dropped off at payment.",
-            observation_count=3,
-        )
-        _, artifact = await self._tool(ReadReplayVisionActionsTool)._arun_impl(action_id=str(action.id))
-
-        assert "error" not in artifact, artifact
-        assert len(artifact["runs"]) == 1
-        assert "Checkout dropped off" in artifact["runs"][0]["report"]
