@@ -27358,7 +27358,10 @@
                 "Coolify",
                 "SocialPilot",
                 "RoktAds",
-                "Strato"
+                "Strato",
+                "Medusa",
+                "Membrain",
+                "RecallAI"
             ],
             "type": "string"
         },
