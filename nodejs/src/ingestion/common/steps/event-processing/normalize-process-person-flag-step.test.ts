@@ -27,7 +27,7 @@ describe('normalizeProcessPersonFlagStep', () => {
     const normalizeStep = createNormalizeProcessPersonFlagStep()
 
     describe('$process_person_profile=false', () => {
-        it.each(['$identify', '$create_alias', '$merge_dangerously', '$groupidentify'])(
+        it.each(['$identify', '$create_alias', '$merge_dangerously'])(
             'drops event %s when $process_person_profile=false',
             async (eventName) => {
                 const input: StepInput = {
@@ -55,25 +55,30 @@ describe('normalizeProcessPersonFlagStep', () => {
             }
         )
 
-        it('allows regular events when $process_person_profile=false', async () => {
-            const input: StepInput = {
-                ...baseInput,
-                event: {
-                    ...baseEvent,
-                    event: '$pageview',
-                    properties: { $process_person_profile: false },
-                },
-            }
+        // $groupidentify writes group properties, so it must pass through with person processing
+        // off — the groups API captures it that way.
+        it.each(['$pageview', '$groupidentify'])(
+            'allows event %s when $process_person_profile=false',
+            async (eventName) => {
+                const input: StepInput = {
+                    ...baseInput,
+                    event: {
+                        ...baseEvent,
+                        event: eventName,
+                        properties: { $process_person_profile: false },
+                    },
+                }
 
-            const result = await normalizeStep(input)
+                const result = await normalizeStep(input)
 
-            expect(result.type).toBe(PipelineResultType.OK)
-            if (result.type === PipelineResultType.OK) {
-                expect(result.value.processPerson).toBe(false)
-                expect(result.value.processPersonExplicitlyTrue).toBe(false)
-                expect(result.value.forceDisablePersonProcessing).toBe(false)
+                expect(result.type).toBe(PipelineResultType.OK)
+                if (result.type === PipelineResultType.OK) {
+                    expect(result.value.processPerson).toBe(false)
+                    expect(result.value.processPersonExplicitlyTrue).toBe(false)
+                    expect(result.value.forceDisablePersonProcessing).toBe(false)
+                }
             }
-        })
+        )
 
         it('adds warning for invalid $process_person_profile values', async () => {
             const input: StepInput = {

@@ -48,6 +48,8 @@ export function createProcessGroupsStep<TInput extends ProcessGroupsStepInput>(
         }
 
         if (processPerson) {
+            // $group_N columns enrich the event for person-on-events, so they only apply when
+            // person processing is on.
             preparedEvent.properties = await addGroupProperties(
                 team.id,
                 team.project_id,
@@ -55,21 +57,23 @@ export function createProcessGroupsStep<TInput extends ProcessGroupsStepInput>(
                 groupTypeManager,
                 DateTime.fromISO(preparedEvent.timestamp)
             )
+        }
 
-            if (preparedEvent.event === '$groupidentify') {
-                const invalidGroupSetWarning = validateGroupSet(preparedEvent)
-                if (invalidGroupSetWarning) {
-                    return drop('invalid_group_set', [], [invalidGroupSetWarning])
-                }
-                await upsertGroup(
-                    groupTypeManager,
-                    groupStoreForBatch,
-                    team.id,
-                    team.project_id,
-                    preparedEvent.properties,
-                    DateTime.fromISO(preparedEvent.timestamp)
-                )
+        // A $groupidentify writes group properties regardless of person processing, so the upsert
+        // runs even when the flag is off. The groups API relies on this to persist group updates.
+        if (preparedEvent.event === '$groupidentify') {
+            const invalidGroupSetWarning = validateGroupSet(preparedEvent)
+            if (invalidGroupSetWarning) {
+                return drop('invalid_group_set', [], [invalidGroupSetWarning])
             }
+            await upsertGroup(
+                groupTypeManager,
+                groupStoreForBatch,
+                team.id,
+                team.project_id,
+                preparedEvent.properties,
+                DateTime.fromISO(preparedEvent.timestamp)
+            )
         }
 
         return ok(input)
