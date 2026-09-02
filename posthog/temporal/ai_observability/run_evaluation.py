@@ -263,6 +263,7 @@ class RunEvaluationWorkflow(PostHogWorkflow):
         # emits its event — three Temporal Cloud actions become one on ~90% of evaluation volume.
         # Pre-patch histories replay the separate fetch/execute/emit commands below.
         result: EvaluationActivityResult | None = None
+        emitted_in_activity = False
         if temporalio.workflow.patched("merge-local-eval-activities-2026-09"):
             outcome = await temporalio.workflow.execute_activity(
                 run_local_evaluation_activity,
@@ -272,10 +273,15 @@ class RunEvaluationWorkflow(PostHogWorkflow):
                     start_time=start_time,
                 ),
                 start_to_close_timeout=timedelta(seconds=120),
+                # Total deadline including queue wait: without it a task stuck in the queue keeps
+                # the workflow RUNNING forever, and USE_EXISTING then blocks every later trigger
+                # for this (evaluation, event) pair.
+                schedule_to_close_timeout=timedelta(minutes=8),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
             evaluation = outcome.evaluation
             result = outcome.result
+            emitted_in_activity = outcome.emitted
         else:
             evaluation = await temporalio.workflow.execute_activity(
                 fetch_evaluation_activity,
@@ -285,7 +291,6 @@ class RunEvaluationWorkflow(PostHogWorkflow):
             )
 
         evaluation_type = evaluation.get("evaluation_type", "llm_judge")
-        emitted_in_activity = result is not None
 
         if result is None:
             if evaluation_type == "hog":

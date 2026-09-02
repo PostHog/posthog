@@ -1,6 +1,7 @@
 import json
+import uuid
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 
 from django.conf import settings
@@ -19,7 +20,7 @@ from posthog.temporal.ai_observability.evaluation_hog import run_hog_eval_for_ev
 from posthog.temporal.ai_observability.evaluation_llm_judge import DEFAULT_JUDGE_MODEL
 from posthog.temporal.ai_observability.evaluation_sentiment import run_sentiment_eval
 from posthog.temporal.ai_observability.evaluation_types import EvaluationActivityResult
-from posthog.temporal.ai_observability.metrics import increment_emit_event_outcome
+from posthog.temporal.ai_observability.metrics import increment_emit_event_outcome, increment_errors
 from posthog.temporal.ai_observability.team_capture import capture_internal_for_team
 
 from products.ai_observability.backend.models.evaluations import Evaluation, EvaluationStatus
@@ -278,15 +279,25 @@ def build_evaluation_event_properties(
     return properties
 
 
-async def emit_generation_evaluation_event(
-    evaluation: dict[str, Any],
-    event_data: dict[str, Any],
-    result: EvaluationActivityResult,
-    start_time: datetime,
-) -> None:
+def _evaluation_event_uuid() -> str | None:
+    """One workflow run emits one $ai_evaluation, so its uuid derives from the run id. Activity
+    retries reuse it, letting ingestion deduplicate a re-emit after a lost activity completion."""
+    if not temporalio.activity.in_activity():
+        return None
+    run_id = temporalio.activity.info().workflow_run_id
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"posthog://ai-evaluation/{run_id}"))
+
+
+async def emit_generation_evaluation_event(inputs: EmitEvaluationEventInputs) -> None:
     """Emit the $ai_evaluation event via capture_internal so it routes through the ingestion
     pipeline for cost calculation. A billing-limited capture drops the event without failing
-    the caller."""
+    the caller. The event timestamp is the workflow start time, not emit time: ingestion dedup
+    keys on (timestamp, event, distinct_id, token), so only a stable timestamp lets a retried
+    emit collapse into the original."""
+    evaluation = inputs.evaluation
+    event_data = inputs.event_data
+    result = inputs.result
+    start_time = inputs.start_time
 
     def _emit() -> None:
         source_props = (
@@ -316,8 +327,9 @@ async def emit_generation_evaluation_event(
             event_name="$ai_evaluation",
             event_source="llm_analytics_evaluation",
             distinct_id=event_data["distinct_id"],
-            timestamp=datetime.now(UTC),
+            timestamp=start_time,
             properties=properties,
+            event_uuid=_evaluation_event_uuid(),
         )
 
     try:
@@ -338,7 +350,7 @@ async def emit_generation_evaluation_event(
 @temporalio.activity.defn
 async def emit_evaluation_event_activity(inputs: EmitEvaluationEventInputs) -> None:
     """Emit $ai_evaluation event via capture_internal so it routes through the ingestion pipeline for cost calculation."""
-    await emit_generation_evaluation_event(inputs.evaluation, inputs.event_data, inputs.result, inputs.start_time)
+    await emit_generation_evaluation_event(inputs)
 
 
 @dataclass
@@ -407,13 +419,13 @@ class LocalEvaluationOutcome:
     """What `run_local_evaluation_activity` handled.
 
     `result` is None when the evaluation runs on an LLM judge: the activity only fetched the
-    config, and the workflow must run the judge with its own timeout and retry policy. A non-None
-    result means the evaluation executed here, and unless it is a terminal user error, its
-    $ai_evaluation event was already emitted.
+    config, and the workflow must run the judge with its own timeout and retry policy. `emitted`
+    says whether the $ai_evaluation event was sent here, so the workflow never emits a second one.
     """
 
     evaluation: dict[str, Any]
     result: EvaluationActivityResult | None
+    emitted: bool
 
 
 @temporalio.activity.defn
@@ -432,8 +444,22 @@ async def run_local_evaluation_activity(inputs: RunLocalEvaluationInputs) -> Loc
     elif evaluation_type == "sentiment":
         result = await run_sentiment_eval(evaluation, inputs.event_data)
     else:
-        return LocalEvaluationOutcome(evaluation=evaluation, result=None)
+        return LocalEvaluationOutcome(evaluation=evaluation, result=None, emitted=False)
 
+    emitted = False
     if not is_terminal_user_error_result(result):
-        await emit_generation_evaluation_event(evaluation, inputs.event_data, result, inputs.start_time)
-    return LocalEvaluationOutcome(evaluation=evaluation, result=result)
+        try:
+            await emit_generation_evaluation_event(
+                EmitEvaluationEventInputs(
+                    evaluation=evaluation,
+                    event_data=inputs.event_data,
+                    result=result,
+                    start_time=inputs.start_time,
+                )
+            )
+        except Exception:
+            # Feeds llma_eval_errors, the numerator of the LLMAEvalsHighErrorRate alert.
+            increment_errors("emit_evaluation_event_failed", provider=result.get("provider"))
+            raise
+        emitted = True
+    return LocalEvaluationOutcome(evaluation=evaluation, result=result, emitted=emitted)

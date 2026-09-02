@@ -200,6 +200,7 @@ class TestRunEvaluationWorkflow:
                     "team_id": 1,
                 },
                 result=None,
+                emitted=False,
             )
 
         original_patched = run_evaluation_module.temporalio.workflow.patched
@@ -731,6 +732,7 @@ class TestRunEvaluationWorkflow:
                     "terminal_user_error": True,
                     "status_reason": "hog_error",
                 },
+                emitted=False,
             )
 
         @activity.defn(name="disable_evaluation_activity")
@@ -789,6 +791,55 @@ class TestRunEvaluationWorkflow:
         assert result["message"] == "Must return boolean, got int: 42"
 
     @pytest.mark.asyncio
+    async def test_merged_local_eval_result_is_not_emitted_again_by_the_workflow(self):
+        @activity.defn(name="run_local_evaluation_activity")
+        async def mock_run_local_evaluation(inputs: RunLocalEvaluationInputs) -> LocalEvaluationOutcome:
+            return LocalEvaluationOutcome(
+                evaluation={
+                    "id": inputs.evaluation_id,
+                    "name": "Hog eval",
+                    "evaluation_type": "hog",
+                    "evaluation_config": {},
+                    "output_type": "boolean",
+                    "output_config": {},
+                    "team_id": 1,
+                },
+                result={
+                    "result_type": "boolean",
+                    "verdict": True,
+                    "reasoning": "",
+                    "allows_na": False,
+                },
+                emitted=True,
+            )
+
+        @activity.defn(name="emit_evaluation_event_activity")
+        async def mock_emit_evaluation_event(inputs: EmitEvaluationEventInputs) -> None:
+            raise AssertionError("the merged activity already emitted; the workflow must not emit again")
+
+        task_queue = str(uuid.uuid4())
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            async with Worker(
+                env.client,
+                task_queue=task_queue,
+                workflows=[RunEvaluationWorkflow],
+                activities=[mock_run_local_evaluation, mock_emit_evaluation_event],
+                workflow_runner=UnsandboxedWorkflowRunner(),
+            ):
+                result: WorkflowResult = await env.client.execute_workflow(
+                    RunEvaluationWorkflow.run,
+                    RunEvaluationInputs(
+                        evaluation_id=str(uuid.uuid4()),
+                        event_data=create_mock_event_data(team_id=1),
+                    ),
+                    id=str(uuid.uuid4()),
+                    task_queue=task_queue,
+                )
+
+        assert result["verdict"] is True
+        assert result["skipped"] is False
+
+    @pytest.mark.asyncio
     async def test_terminal_user_error_does_not_email_when_evaluation_was_already_disabled(self):
         calls: list[str] = []
 
@@ -815,6 +866,7 @@ class TestRunEvaluationWorkflow:
                     "terminal_user_error": True,
                     "status_reason": "hog_error",
                 },
+                emitted=False,
             )
 
         @activity.defn(name="disable_evaluation_activity")
@@ -2373,7 +2425,8 @@ class TestRunLocalEvaluationActivity:
         capture_kwargs = mock_capture.call_args.kwargs
         assert capture_kwargs["event_name"] == "$ai_evaluation"
         assert capture_kwargs["properties"]["$ai_evaluation_result"] is True
-        assert capture_kwargs["properties"]["$ai_evaluation_start_time"] == start_time.isoformat()
+        # A retried emit only deduplicates when the timestamp is stable across attempts.
+        assert capture_kwargs["timestamp"] == start_time
 
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
@@ -2442,3 +2495,24 @@ class TestRunLocalEvaluationActivity:
         assert outcome.result["skip_reason"] == "no_user_messages"
         mock_capture.assert_called_once()
         assert mock_capture.call_args.kwargs["properties"]["$ai_evaluation_skipped"] is True
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    async def test_emit_event_uuid_is_stable_across_activity_attempts(self, setup_data):
+        from temporalio.testing import ActivityEnvironment
+
+        team = setup_data["team"]
+        evaluation = await sync_to_async(self._create_hog_evaluation)(team, "return true")
+        inputs = self._inputs(evaluation, team, datetime.now(UTC))
+
+        env = ActivityEnvironment()
+        with patch(
+            "posthog.temporal.ai_observability.evaluation_workflow_activities.capture_internal_for_team"
+        ) as mock_capture:
+            await env.run(run_local_evaluation_activity, inputs)
+            await env.run(run_local_evaluation_activity, inputs)
+
+        first_uuid = mock_capture.call_args_list[0].kwargs["event_uuid"]
+        second_uuid = mock_capture.call_args_list[1].kwargs["event_uuid"]
+        assert first_uuid is not None
+        assert first_uuid == second_uuid
