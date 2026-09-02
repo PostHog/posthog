@@ -1128,6 +1128,7 @@ from .statuspage.source import StatuspageSource
 from .stigg.source import StiggSource
 from .stockdata.source import StockDataSource
 from .stockx.source import StockxSource
+from .strato.source import StratoSource
 from .strava.source import StravaSource
 from .streamelements.source import StreamElementsSource
 from .streamlabs.source import StreamlabsSource

@@ -1,0 +1,65 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "limit": {
+            "default": 10,
+            "maximum": 10,
+            "minimum": 1,
+            "type": "integer"
+        },
+        "offset": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+        },
+        "priorities": {
+            "description": "Priorities to include. When omitted, uses the requesting user's personal PR-generation threshold, falling back to the project threshold.",
+            "items": {
+                "enum": ["P0", "P1", "P2", "P3", "P4"],
+                "type": "string"
+            },
+            "type": "array"
+        },
+        "scope": {
+            "default": "entire_project",
+            "description": "Limit results by suggested reviewer, or search the entire project.",
+            "enum": ["for_me", "entire_project", "teammate"],
+            "type": "string"
+        },
+        "scouts": {
+            "description": "Scout skill_name slugs to include.",
+            "items": {
+                "type": "string"
+            },
+            "type": "array"
+        },
+        "search": {
+            "description": "Case-insensitive substring match against report title and summary.",
+            "type": "string"
+        },
+        "sort": {
+            "default": "priority",
+            "enum": ["priority", "last_updated", "newest", "oldest"],
+            "type": "string"
+        },
+        "source_products": {
+            "items": {
+                "type": "string"
+            },
+            "type": "array"
+        },
+        "teammate_uuid": {
+            "description": "PostHog user UUID required when scope is teammate.",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+            "type": "string"
+        },
+        "view": {
+            "default": "actionable",
+            "description": "Inbox section to return. Defaults to actionable reports that are ready to pick up.",
+            "enum": ["actionable", "needs_input", "monitoring", "resolved", "dismissed", "not_actionable", "all"],
+            "type": "string"
+        }
+    },
+    "type": "object"
+}
