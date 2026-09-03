@@ -8641,6 +8641,21 @@
             "readOnlyHint": false
         }
     },
+    "notebooks-widget-attach": {
+        "description": "Attach a reusable widget to an existing Widget node in a notebook. First save a `<Widget nodeId=\"...\" />` element in the notebook markdown, then pass that node_id here. Map every logical input slot from the widget contract to a dataframe in this notebook with `{source: \"dataframe_name\"}`. When source columns do not match the contract, add a pure Hog expression in `hog` that receives `rows`, `columns`, and `frame` and returns a list of objects with the contract's columns. Omit version_id or pass null to follow the latest shared version; pass a version UUID to pin this placement.",
+        "category": "Notebooks",
+        "feature": "notebooks",
+        "summary": "Add reusable widget to notebook",
+        "title": "Add reusable widget to notebook",
+        "required_scopes": ["notebook:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "notebook-generated-widgets"
+    },
     "opt-outs-add": {
         "description": "Opt one or more recipients (up to 1000 per call) out of marketing messages. Each entry can name its own message category via category_key; entries without one use the request-level category_key, or all marketing messages if omitted. Importing only ever opts recipients out, so repeating a call is safe.",
         "category": "Messaging",
@@ -9713,6 +9728,36 @@
             "openWorldHint": true,
             "readOnlyHint": true
         }
+    },
+    "reusable-widgets-list": {
+        "description": "Search the project's curated reusable widget catalog by name, description, or tag. Check this catalog before generating a new visualization. Results include stable widget IDs, current version IDs, tags, and usage counts. This is a curated API shape rather than a general database table so it is available in both MCP modes.",
+        "category": "Notebooks",
+        "feature": "notebooks",
+        "summary": "Search reusable notebook widgets",
+        "title": "Search reusable notebook widgets",
+        "required_scopes": ["notebook:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "notebook-generated-widgets"
+    },
+    "reusable-widgets-retrieve": {
+        "description": "Get a reusable widget's current version and input contract before adding it to a notebook. The contract lists logical slots and required output columns. Use notebooks-widget-attach to bind those slots to local notebook dataframes; add a Hog mapping when names, argument order, or shape differ.",
+        "category": "Notebooks",
+        "feature": "notebooks",
+        "summary": "Get reusable notebook widget",
+        "title": "Get reusable notebook widget",
+        "required_scopes": ["notebook:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "notebook-generated-widgets"
     },
     "review-hog-reviews-get": {
         "description": "Fetch one completed ReviewHog review by `id` (from `review-hog-reviews-list`), including the latest turn's validated `findings` (each with file, line ranges, priority, and the suggested fix), the `dismissed_findings` the validator dropped and why, and the `report_markdown` published to the PR. A first review still in flight has no detail yet — poll `review-hog-reviews-list` until it completes.",

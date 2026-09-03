@@ -26,6 +26,7 @@ import type {
 import {
     formatWidgetElapsed,
     getWidgetDataDependencies,
+    getWidgetSourceFrameNames,
     getWidgetWorkingStatus,
     notebookNodeGeneratedWidgetLogic,
 } from './notebookNodeGeneratedWidgetLogic'
@@ -47,12 +48,16 @@ function status(overrides: Partial<WidgetStatusApi> = {}): WidgetStatusApi {
         error_detail: null,
         artifact_url: null,
         frame_names: [],
+        input_bindings: {},
+        input_contract: [],
         current_version_id: null,
+        pinned_version_id: null,
         widget_id: null,
         instance_id: null,
         has_versions: false,
         active_job: null,
         security_review: null,
+        is_reusable: false,
         build_hash: null,
         ...overrides,
     }
@@ -721,6 +726,15 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
             missingFrameNames: [],
             nodeIds: ['source', 'transform'],
         })
+    })
+
+    it('uses notebook-local dataframe names when resolving reusable widget dependencies', () => {
+        expect(
+            getWidgetSourceFrameNames(['customers', 'revenue'], {
+                customers: { source: 'enterprise_accounts' },
+                revenue: { source: 'monthly_revenue', hog: 'return rows' },
+            })
+        ).toEqual(['enterprise_accounts', 'monthly_revenue'])
     })
 
     it('does not run a partial data chain when a widget frame has no matching cell', async () => {

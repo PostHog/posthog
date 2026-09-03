@@ -121,6 +121,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
     McpGatewayAgent: () => import('../../products/mcp_store/frontend/gateway/GatewayAgentScene'),
     McpGatewayMember: () => import('../../products/mcp_store/frontend/gateway/GatewayMemberScene'),
     Metrics: () => import('../../products/metrics/frontend/MetricsScene'),
+    ReusableWidget: () => import('../../products/notebooks/frontend/ReusableWidget/ReusableWidgetScene'),
     TaskTracker: () => import('../../products/posthog_ai/frontend/scenes/TaskTracker/TaskTracker'),
     Pulse: () => import('../../products/pulse/frontend/PulseScene'),
     ReplayVision: () => import('../../products/replay_vision/frontend/replay_scanners/ReplayScannersScene'),
