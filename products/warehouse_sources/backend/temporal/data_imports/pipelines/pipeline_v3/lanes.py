@@ -16,6 +16,8 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING
 
+from django.utils import timezone
+
 import pyarrow as pa
 from structlog.types import FilteringBoundLogger
 
@@ -235,6 +237,37 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
             if writer.job is not None:
                 await self._record_companion_rows(writer)
         return schema_path
+
+    async def _finalize(self, row_count: int) -> None:
+        # After the base, so a lane that did stage batches has already sent its final one. Runs on
+        # the zero-batch path too, which returns before `_send_final_batches` is ever reached.
+        await super()._finalize(row_count)
+        for writer in self._lane_writers:
+            if not writer.batch_results:
+                await self._finish_empty_companion(writer)
+
+    async def _finish_empty_companion(self, writer: _LaneWriter) -> None:
+        """Complete a companion job whose table already held everything this run read.
+
+        The loader completes a job when its final batch lands, and a lane that staged nothing
+        sends none. Its own workflow cannot finalize it either — it only knows the schema's job —
+        and the stranded sweep finds runs by their queued batches, so this one has nothing to be
+        found by. Left alone it stays Running for good, and for a schema whose deletion proof
+        waits on every table of a run, that also stops the buffer ever being cleaned up.
+        """
+        if writer.job is None:
+            return
+        from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+
+        job_id = writer.job.id
+        try:
+            await database_sync_to_async_pool(
+                lambda: ExternalDataJob.objects.filter(id=job_id, status=ExternalDataJob.Status.RUNNING).update(
+                    status=ExternalDataJob.Status.COMPLETED, rows_synced=0, finished_at=timezone.now()
+                )
+            )()
+        except Exception:
+            await self._logger.awarning("companion_job_not_completed", companion_job_id=str(job_id), exc_info=True)
 
     async def _record_companion_rows(self, writer: _LaneWriter) -> None:
         """Count what a companion wrote onto its own job, as the workflow does for the first."""

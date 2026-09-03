@@ -576,6 +576,40 @@ class TestCompanionJob:
         companion = pipeline._lane_writers[1].job
         assert companion is not None and companion.id == "companion-job"
 
+    def test_a_companion_that_staged_nothing_is_completed_not_left_running(self) -> None:
+        """Its table already held the whole read, so it sends no final batch.
+
+        Nothing else would finish it: the loader completes a job on its final batch, this job's
+        own workflow only knows the schema's job, and the stranded sweep finds runs by their
+        queued batches. Left Running it also blocks the buffer's deletion proof for ever.
+        """
+        pipeline = _build_laned(
+            [
+                OutputLane(name="users", cdc_write_mode="incremental_merge"),
+                OutputLane(name="users_cdc", cdc_write_mode="scd2_append"),
+            ]
+        )
+        pipeline._lane_writers.append(
+            _LaneWriter(
+                lane=pipeline._output_lanes[1],
+                s3_batch_writer=MagicMock(),
+                pg_producer=MagicMock(),
+                job=MagicMock(id="companion-job"),
+            )
+        )
+        jobs = MagicMock()
+
+        with (
+            patch(
+                f"{_LANES}.database_sync_to_async_pool", lambda fn: AsyncMock(side_effect=lambda *a, **k: fn(*a, **k))
+            ),
+            patch("products.warehouse_sources.backend.models.external_data_job.ExternalDataJob.objects", jobs),
+        ):
+            async_to_sync(pipeline._finish_empty_companion)(pipeline._lane_writers[1])
+
+        assert jobs.filter.call_args.kwargs["id"] == "companion-job"
+        assert jobs.filter.return_value.update.call_args.kwargs["status"] == "Completed"
+
     def test_a_failed_run_takes_its_companion_job_terminal(self) -> None:
         # Nothing else would: the stranded sweep finds runs by their queued batches, so a
         # companion that failed before staging anything has none to be found by.
