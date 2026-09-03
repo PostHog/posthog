@@ -6,18 +6,50 @@ import type {
   SDKAssistantMessage,
   SDKModelRefusalFallbackMessage,
   SDKPartialAssistantMessage,
+  SDKResultMessage,
   SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import { describe, expect, it } from "vitest";
 import { Logger } from "../../../utils/logger";
 import type { Session } from "../types";
 import {
+  handleResultMessage,
   handleStreamEvent,
   handleSystemMessage,
   handleUserAssistantMessage,
   type MessageHandlerContext,
   stripMarkerTags,
 } from "./sdk-to-acp";
+
+describe("handleResultMessage error text", () => {
+  it("shows a subscription usage-limit result as-is, without an 'Internal error:' prefix", () => {
+    const message = {
+      subtype: "success",
+      is_error: true,
+      result: "Claude AI usage limit reached. Your limit will reset at 3pm.",
+    } as unknown as SDKResultMessage;
+
+    const { error } = handleResultMessage(message);
+
+    expect(error?.message).toBe(
+      "Claude AI usage limit reached. Your limit will reset at 3pm.",
+    );
+  });
+
+  it("keeps the 'Internal error:' prefix for other agent errors", () => {
+    const message = {
+      subtype: "success",
+      is_error: true,
+      result: "API Error: 500 something broke",
+    } as unknown as SDKResultMessage;
+
+    const { error } = handleResultMessage(message);
+
+    expect(error?.message).toBe(
+      "Internal error: API Error: 500 something broke",
+    );
+  });
+});
 
 describe("stripMarkerTags", () => {
   it("strips a single marker and keeps surrounding prose", () => {
@@ -109,6 +141,7 @@ function assistantMessage(
   apiId: string,
   content: Array<Record<string, unknown>>,
   parentToolUseId: string | null = null,
+  isApiErrorMessage?: boolean,
 ): SDKAssistantMessage {
   return {
     type: "assistant",
@@ -120,6 +153,7 @@ function assistantMessage(
       role: "assistant",
       content,
     },
+    isApiErrorMessage,
   } as unknown as SDKAssistantMessage;
 }
 
@@ -160,6 +194,34 @@ describe("assembled assistant text fallback", () => {
     );
     expect(chunkTexts(updates, "agent_message_chunk")).toEqual(["full answer"]);
   });
+
+  it.each([
+    { isApiErrorMessage: true, expected: [] },
+    {
+      isApiErrorMessage: false,
+      expected: ["API Error: Content block is not a thinking block"],
+    },
+  ])(
+    "filters SDK API error messages when marked $isApiErrorMessage",
+    async ({ isApiErrorMessage, expected }) => {
+      const { context, updates } = createHandlerContext();
+      await handleUserAssistantMessage(
+        assistantMessage(
+          "msg_1",
+          [
+            {
+              type: "text",
+              text: "API Error: Content block is not a thinking block",
+            },
+          ],
+          null,
+          isApiErrorMessage,
+        ),
+        context,
+      );
+      expect(chunkTexts(updates, "agent_message_chunk")).toEqual(expected);
+    },
+  );
 
   it("drops assembled text that already streamed live", async () => {
     const { context, updates } = createHandlerContext();

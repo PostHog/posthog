@@ -4,6 +4,10 @@ name: Desktop Warm Caches
 # and the desktop PR workflows are restore-only. This job seeds every cache
 # they restore. Saves are allowed here because the triggers are
 # default-branch-scoped (push to master + manual dispatch).
+#
+# Turbo artifacts are not seeded here. Depot runners preset TURBO_API, which
+# points turbo at Depot Cache as its remote cache. Turbo runs fetch and store
+# task outputs there on their own.
 
 on:
     push:
@@ -55,23 +59,10 @@ jobs:
                   key: desktop-pnpm-${{ runner.os }}-${{ hashFiles('products/desktop/pnpm-lock.yaml') }}
                   restore-keys: desktop-pnpm-${{ runner.os }}-
 
-            # No restore-keys: a fresh save per commit keeps the cache from growing
-            # forever, at the cost of a cold build on every master push.
-            - name: Cache turbo artifacts
-              uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-              with:
-                  path: products/desktop/.turbo/cache
-                  key: desktop-turbo-${{ github.sha }}
-
             - name: Install dependencies
               run: pnpm install --frozen-lockfile
               env:
                   SKIP_ELECTRON_REBUILD: '1'
-
-            - name: Seed turbo cache (build + typecheck)
-              run: |
-                  pnpm run build:deps
-                  pnpm run typecheck
 
     macos:
         runs-on: depot-macos-26

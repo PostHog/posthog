@@ -352,6 +352,37 @@ describe("useAutofillCommandCenter", () => {
     ]);
   });
 
+  it("removes a persisted sandbox prompt task without refilling the grid", () => {
+    useCommandCenterStore.setState({
+      cells: ["sandbox-task", "existing", null, null],
+      activeTaskId: "sandbox-task",
+      hasAutofilled: true,
+    });
+    setQueries({
+      tasks: [
+        makeTask({
+          id: "sandbox-task",
+          title: "[sandbox_prompt:repo_selection] Choose a repository",
+        }),
+        makeTask({ id: "visible-task" }),
+      ],
+      workspaces: {
+        "sandbox-task": makeWorkspace("sandbox-task"),
+        "visible-task": makeWorkspace("visible-task"),
+      },
+    });
+
+    renderHook(() => useAutofillCommandCenter());
+
+    expect(useCommandCenterStore.getState().cells).toEqual([
+      null,
+      "existing",
+      null,
+      null,
+    ]);
+    expect(useCommandCenterStore.getState().activeTaskId).toBeNull();
+  });
+
   it("marks autofilled when the grid is already full so removals do not refill", () => {
     useCommandCenterStore.setState({ cells: ["a", "b", "c", "d"] });
     setQueries({
