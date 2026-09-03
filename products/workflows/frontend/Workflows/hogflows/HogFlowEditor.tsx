@@ -12,6 +12,7 @@ import {
     useNodesInitialized,
     useReactFlow,
 } from '@xyflow/react'
+import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect, useMemo, useRef } from 'react'
 
@@ -21,6 +22,7 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 import { workflowLogic } from '../workflowLogic'
 import { hogFlowEditorLogic } from './hogFlowEditorLogic'
+import { HogFlowLinearEditor } from './HogFlowLinearEditor'
 import { HogFlowEditorPanel } from './panel/HogFlowEditorPanel'
 import { LOW_DETAIL_ZOOM, MIN_ZOOM } from './react_flow_utils/constants'
 import { REACT_FLOW_EDGE_TYPES } from './react_flow_utils/SmartEdge'
@@ -28,7 +30,7 @@ import { REACT_FLOW_NODE_TYPES } from './steps/Nodes'
 import { HogFlowActionEdge, HogFlowActionNode } from './types'
 
 // Inner component that encapsulates React Flow
-function HogFlowEditorContent(): JSX.Element {
+function HogFlowEditorContent({ isSimpleLayout }: { isSimpleLayout: boolean }): JSX.Element {
     const { isDarkModeOn } = useValues(themeLogic)
 
     const { nodes, edges, dropzoneNodes, isMovingNode, isCopyingNode, isZoomedOutFar } = useValues(hogFlowEditorLogic)
@@ -38,7 +40,6 @@ function HogFlowEditorContent(): JSX.Element {
         setSelectedNodeId,
         setReactFlowInstance,
         onNodesDelete,
-        showDropzones,
         onDragOver,
         onDrop,
         setReactFlowWrapper,
@@ -73,61 +74,74 @@ function HogFlowEditorContent(): JSX.Element {
     )
 
     return (
-        <div ref={reactFlowWrapper} className="flex flex-col grow w-full" data-attr="workflow-editor">
-            <ReactFlow<HogFlowActionNode, HogFlowActionEdge>
-                className="grow"
-                fitView
-                minZoom={MIN_ZOOM}
-                // Only dispatched when the detail tier flips, so panning and zooming don't put a
-                // Redux action on every animation frame.
-                onMove={(_, viewport) => {
-                    const zoomedOutFar = viewport.zoom < LOW_DETAIL_ZOOM
-                    if (zoomedOutFar !== isZoomedOutFar) {
-                        setIsZoomedOutFar(zoomedOutFar)
-                    }
-                }}
-                nodes={nodesWithDropzones}
-                edges={edges}
-                onNodesChange={onNodesChange}
-                onEdgesChange={onEdgesChange}
-                onNodesDelete={onNodesDelete}
-                onDragStart={showDropzones}
-                onDragOver={onDragOver}
-                onDrop={onDrop}
-                onNodeClick={(_, node) => node.selectable && setSelectedNodeId(node.id)}
-                nodeTypes={REACT_FLOW_NODE_TYPES as NodeTypes}
-                edgeTypes={REACT_FLOW_EDGE_TYPES as EdgeTypes}
-                nodesDraggable={false}
-                colorMode={isDarkModeOn ? 'dark' : 'light'}
-                onPaneClick={handlePaneClick}
-            >
-                <Background gap={36} variant={BackgroundVariant.Dots} />
-
-                {(isMovingNode || isCopyingNode) && (
-                    <Panel position="bottom-left">
-                        {/* Offset right of the zoom controls so the hint sits beside them */}
-                        <div className="flex items-center gap-1.5 ml-12 px-3 py-1.5 rounded border shadow-sm bg-surface-primary text-sm">
-                            <IconInfo className="text-base text-muted shrink-0" />
-                            <span>Click a highlighted spot to {isMovingNode ? 'move' : 'copy'} this step</span>
-                            <span className="text-muted">· press Esc to cancel</span>
-                        </div>
-                    </Panel>
+        <div
+            ref={reactFlowWrapper}
+            className="relative flex min-h-0 flex-1 overflow-hidden"
+            data-attr="workflow-editor"
+        >
+            <div
+                className={clsx(
+                    'flex min-h-0 min-w-0 grow',
+                    isSimpleLayout && 'absolute inset-0 pointer-events-none opacity-0'
                 )}
+                aria-hidden={isSimpleLayout}
+                {...(isSimpleLayout ? { inert: '' } : {})}
+            >
+                <ReactFlow<HogFlowActionNode, HogFlowActionEdge>
+                    className="grow"
+                    fitView
+                    minZoom={MIN_ZOOM}
+                    // Only dispatched when the detail tier flips, so panning and zooming don't put a
+                    // Redux action on every animation frame.
+                    onMove={(_, viewport) => {
+                        const zoomedOutFar = viewport.zoom < LOW_DETAIL_ZOOM
+                        if (zoomedOutFar !== isZoomedOutFar) {
+                            setIsZoomedOutFar(zoomedOutFar)
+                        }
+                    }}
+                    nodes={nodesWithDropzones}
+                    edges={edges}
+                    onNodesChange={onNodesChange}
+                    onEdgesChange={onEdgesChange}
+                    onNodesDelete={onNodesDelete}
+                    onDragOver={onDragOver}
+                    onDrop={onDrop}
+                    onNodeClick={(_, node) => node.selectable && setSelectedNodeId(node.id)}
+                    nodeTypes={REACT_FLOW_NODE_TYPES as NodeTypes}
+                    edgeTypes={REACT_FLOW_EDGE_TYPES as EdgeTypes}
+                    nodesDraggable={false}
+                    colorMode={isDarkModeOn ? 'dark' : 'light'}
+                    onPaneClick={handlePaneClick}
+                >
+                    <Background gap={36} variant={BackgroundVariant.Dots} />
 
-                <Controls showInteractive={false} />
+                    {(isMovingNode || isCopyingNode) && (
+                        <Panel position="bottom-left">
+                            {/* Offset right of the zoom controls so the hint sits beside them */}
+                            <div className="flex items-center gap-1.5 ml-12 px-3 py-1.5 rounded border shadow-sm bg-surface-primary text-sm">
+                                <IconInfo className="text-base text-muted shrink-0" />
+                                <span>Click a highlighted spot to {isMovingNode ? 'move' : 'copy'} this step</span>
+                                <span className="text-muted">· press Esc to cancel</span>
+                            </div>
+                        </Panel>
+                    )}
 
-                <HogFlowEditorPanel />
-            </ReactFlow>
+                    <Controls showInteractive={false} />
+                </ReactFlow>
+            </div>
+
+            {isSimpleLayout && <HogFlowLinearEditor />}
+            <HogFlowEditorPanel layout={isSimpleLayout ? 'panel' : 'floating'} />
         </div>
     )
 }
 
-export function HogFlowEditor(): JSX.Element {
+export function HogFlowEditor({ isSimpleLayout }: { isSimpleLayout: boolean }): JSX.Element {
     const { logicProps } = useValues(workflowLogic)
     return (
         <ReactFlowProvider>
             <BindLogic logic={hogFlowEditorLogic} props={logicProps}>
-                <HogFlowEditorContent />
+                <HogFlowEditorContent isSimpleLayout={isSimpleLayout} />
             </BindLogic>
         </ReactFlowProvider>
     )

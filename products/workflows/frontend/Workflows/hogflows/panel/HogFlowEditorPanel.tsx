@@ -1,9 +1,12 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { useRef } from 'react'
 
 import { IconArrowLeft } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonTab, LemonTabs } from '@posthog/lemon-ui'
 
+import { Resizer } from 'lib/components/Resizer/Resizer'
+import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 
 import {
@@ -22,9 +25,17 @@ import { HogFlowEditorPanelVariables } from './HogFlowEditorPanelVariables'
 import { EmailActionTestContent } from './testing/HogFlowEditorNotificationPanelTest'
 import { HogFlowEditorPanelTest } from './testing/HogFlowEditorPanelTest'
 
-export function HogFlowEditorPanel(): JSX.Element | null {
+export function HogFlowEditorPanel({ layout = 'floating' }: { layout?: 'floating' | 'panel' } = {}): JSX.Element | null {
     const { panelWidth, selectedNode, mode, workflow } = useValues(hogFlowEditorLogic)
     const { clearPanelWidth, setMode, setPanelWidth, setSelectedNodeId } = useActions(hogFlowEditorLogic)
+    const panelRef = useRef<HTMLDivElement>(null)
+    const resizerProps: ResizerLogicProps = {
+        logicKey: 'hog-flow-simple-panel',
+        containerRef: panelRef,
+        placement: 'left',
+        persistent: true,
+    }
+    const { desiredSize: panelLayoutWidth } = useValues(resizerLogic(resizerProps))
 
     const variablesCount = workflow?.variables?.length || 0
 
@@ -48,16 +59,33 @@ export function HogFlowEditorPanel(): JSX.Element | null {
 
     return (
         <div
-            className="absolute right-0 flex max-h-full max-w-full flex-col justify-end overflow-hidden p-2"
-            style={{ width: panelWidth ?? HOG_FLOW_EDITOR_DEFAULT_PANEL_WIDTH }}
+            ref={panelRef}
+            className={clsx(
+                'flex min-h-0 max-h-full flex-col justify-end overflow-hidden',
+                layout === 'floating' ? 'absolute right-0 max-w-full p-2' : 'relative h-full shrink-0 bg-surface-primary'
+            )}
+            style={
+                layout === 'floating'
+                    ? { width: panelWidth ?? HOG_FLOW_EDITOR_DEFAULT_PANEL_WIDTH }
+                    : { width: panelLayoutWidth ?? '50%', minWidth: '20rem', maxWidth: '70%' }
+            }
         >
-            <HogFlowEditorPanelResizeHandle
-                width={panelWidth ?? HOG_FLOW_EDITOR_DEFAULT_PANEL_WIDTH}
-                onResize={setPanelWidth}
-                onReset={clearPanelWidth}
-            />
-            <div className="relative z-10 flex max-h-full flex-col overflow-hidden rounded-md border bg-surface-primary shadow-[0_3px_0_var(--border)]">
-                <div className="flex gap-2 border-b items-center">
+            {layout === 'floating' ? (
+                <HogFlowEditorPanelResizeHandle
+                    width={panelWidth ?? HOG_FLOW_EDITOR_DEFAULT_PANEL_WIDTH}
+                    onResize={setPanelWidth}
+                    onReset={clearPanelWidth}
+                />
+            ) : (
+                <Resizer {...resizerProps} />
+            )}
+            <div
+                className={clsx(
+                    'relative z-10 flex min-h-0 flex-col overflow-hidden bg-surface-primary',
+                    layout === 'floating' ? 'max-h-full rounded-md border shadow-[0_3px_0_var(--border)]' : 'h-full !rounded-none'
+                )}
+            >
+                <div className="flex shrink-0 items-center gap-2 border-b">
                     <div
                         className={clsx(
                             'transition-all overflow-hidden flex p-1',

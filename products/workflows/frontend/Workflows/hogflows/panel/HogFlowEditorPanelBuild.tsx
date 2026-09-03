@@ -194,11 +194,12 @@ function HogFlowEditorToolbarNode({
     action: CreateActionType
     children?: React.ReactNode
 }): JSX.Element | null {
-    const { setNodeToBeAdded } = useActions(hogFlowEditorLogic)
+    const { hideDropzones, setNodeToBeAdded, showDropzones } = useActions(hogFlowEditorLogic)
     const dragPreviewRef = useRef<HTMLDivElement>(null)
 
     const onDragStart = (event: React.DragEvent): void => {
         setNodeToBeAdded(action)
+        showDropzones()
         event.dataTransfer.setData('application/reactflow', action.type)
         event.dataTransfer.effectAllowed = 'move'
         if (dragPreviewRef.current) {
@@ -216,6 +217,11 @@ function HogFlowEditorToolbarNode({
         }
     }
 
+    const onDragEnd = (): void => {
+        setNodeToBeAdded(null)
+        hideDropzones()
+    }
+
     const step = useHogFlowStep(action as HogFlowAction)
 
     if (!step) {
@@ -224,7 +230,7 @@ function HogFlowEditorToolbarNode({
 
     return (
         <>
-            <div draggable onDragStart={onDragStart}>
+            <div draggable onDragStart={onDragStart} onDragEnd={onDragEnd}>
                 <LemonButton
                     icon={<span style={{ color: step.color }}>{step.icon}</span>}
                     sideIcon={<IconDrag />}
