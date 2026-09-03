@@ -7,16 +7,14 @@ from rest_framework.response import Response
 
 from posthog.schema import HogQLQuery, HogQLQueryModifiers
 
-from posthog.hogql.database.database import Database
-
 from posthog.models import Organization, Team
-from posthog.schema_enums import PersonsOnEventsMode
 
 from products.data_modeling.backend.facade.modeling import DataWarehouseModelPath
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.managed_warehouse.backend.facade.contracts import (
     ManagedWarehouseTableNames,
     ManagedWarehouseTeamMembership,
+    TrinoExpansionMode,
 )
 from products.managed_warehouse.backend.table_binding import build_trino_table_locators
 from products.managed_warehouse.backend.trino_compiler import (
@@ -88,8 +86,6 @@ class TestCompileHogQLToTrinoSQL:
     def test_preserves_sql_bind_values_and_diagnostics_across_the_transpiler_boundary(self) -> None:
         team = _team()
         membership = _membership(team_id=team.pk, organization_id=str(team.organization_id))
-        database = Database(include_posthog_tables=True)
-        modifiers = HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS)
 
         with (
             mock.patch(
@@ -100,19 +96,11 @@ class TestCompileHogQLToTrinoSQL:
                 "products.managed_warehouse.backend.trino_compiler.get_org_team_membership",
                 return_value=membership,
             ),
-            mock.patch("posthog.hogql.database.database.Database.create_for", return_value=database),
+            mock.patch("posthog.hogql.database.database.Database.create_for") as create_database,
+            mock.patch("posthog.hogql.modifiers.create_default_modifiers_for_team") as create_modifiers,
             mock.patch(
-                "posthog.hogql.modifiers.create_default_modifiers_for_team",
-                return_value=modifiers,
-            ),
-            mock.patch(
-                "products.managed_warehouse.backend.trino_compiler.build_trino_table_locators",
-                return_value={"events": ("org_catalog", "posthog", "events_production")},
-            ),
-            mock.patch(
-                "products.access_control.backend.property_access_control.get_restricted_properties_with_group_type_index_for_team",
-                return_value=set(),
-            ),
+                "products.managed_warehouse.backend.trino_compiler.build_trino_table_locators"
+            ) as build_locators,
         ):
             compiled = compile_hogql_to_trino_sql(
                 team.pk,
@@ -120,6 +108,10 @@ class TestCompileHogQLToTrinoSQL:
                 team=team,
                 include_hogql=True,
             )
+
+        create_database.assert_not_called()
+        create_modifiers.assert_not_called()
+        build_locators.assert_not_called()
 
         assert compiled.sql == (
             'SELECT "org_catalog"."posthog"."events_production"."event" '
@@ -151,7 +143,7 @@ class TestCompileHogQLToTrinoSQL:
                 "products.managed_warehouse.backend.trino_compiler.get_org_team_membership",
                 return_value=membership,
             ),
-            mock.patch("posthog.hogql.database.database.Database.create_for", return_value=database),
+            mock.patch("posthog.hogql.database.database.Database.create_for", return_value=database) as create_database,
             mock.patch(
                 "posthog.hogql.modifiers.create_default_modifiers_for_team",
                 return_value=modifiers,
@@ -170,6 +162,7 @@ class TestCompileHogQLToTrinoSQL:
                 HogQLQuery(query="SELECT event FROM events LIMIT 1"),
                 team=team,
                 include_hogql=include_hogql,
+                expansion_mode=TrinoExpansionMode.DJANGO,
             )
 
         assert compiled.sql == "SELECT event FROM target"
@@ -181,6 +174,7 @@ class TestCompileHogQLToTrinoSQL:
             catalog_name="org_catalog",
             table_names=membership.table_names,
         )
+        create_database.assert_called_once()
         trino_context = prepare_and_print.call_args_list[0].args[1]
         assert trino_context.trino_table_locators == locators
         assert trino_context.modifiers is modifiers

@@ -47,6 +47,7 @@ import type { AlertType } from 'products/alerts/frontend/types'
 
 import { DashboardResizeHandles } from '../handles'
 import { EditModeEdge, EditModeEdgeOverlay } from './EditModeEdgeOverlay'
+import { INSIGHT_CARD_KEY_ATTR, insightCardKey } from './insightCardImageCapture'
 import { InsightMeta } from './InsightMeta'
 
 const IS_STORYBOOK = inStorybook() || inStorybookTestRunner()
@@ -439,6 +440,7 @@ function InsightCardInternal(
                 className
             )}
             data-attr="insight-card"
+            {...{ [INSIGHT_CARD_KEY_ATTR]: insightCardKey(insight, tile) }}
             {...divProps}
             // eslint-disable-next-line react/forbid-dom-props
             style={{ ...divProps?.style, ...theme?.boxStyle }}

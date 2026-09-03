@@ -756,6 +756,12 @@ class Team(UUIDTClassicModel):
     # TRANSITIONAL: These accessors exist for backward compat with existing
     # `team.<product>_config` call sites. New products should NOT add accessors
     # here — use get_or_create_team_extension() at call sites instead.
+    #
+    # One exception, and the reason every config below is also a team/project serializer field: a
+    # config exposed that way needs the attribute. DRF skips a required=False field whose attribute
+    # is missing, so dropping one of these accessors strips the setting from every API response
+    # without raising. A config no serializer exposes needs no accessor here, and is reached through
+    # the helper the way TeamFeatureFlagDefaultsConfig is.
 
     @cached_property
     def revenue_analytics_config(self):
@@ -782,6 +788,12 @@ class Team(UUIDTClassicModel):
         from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 
         return get_or_create_team_extension(self, TeamWorkflowsConfig)
+
+    @cached_property
+    def feature_flag_policy_config(self):
+        from products.feature_flags.backend.models.team_feature_flag_policy_config import TeamFeatureFlagPolicyConfig
+
+        return get_or_create_team_extension(self, TeamFeatureFlagPolicyConfig)
 
     @property
     def default_modifiers(self) -> dict:

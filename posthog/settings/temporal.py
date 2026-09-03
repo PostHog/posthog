@@ -287,3 +287,7 @@ SIGNALS_INBOX_PR_NOTIFICATION_POLL_SECONDS: int = get_from_env(
 
 # Incoming webhook for experiment precompute canary divergence alerts. Unset: Slack alerting is skipped.
 EXPERIMENT_CANARY_SLACK_WEBHOOK_URL: str = os.getenv("EXPERIMENT_CANARY_SLACK_WEBHOOK_URL", "")
+
+# "report_only": the enrollment census logs candidates and writes nothing (default).
+# "enroll": the census also enables precomputation for qualifying teams, capped per run.
+EXPERIMENT_PRECOMPUTE_ENROLLMENT_MODE: str = os.getenv("EXPERIMENT_PRECOMPUTE_ENROLLMENT_MODE", "report_only")

@@ -53,17 +53,40 @@ export interface ClaudeLoginCheckOptions {
 
 export type ClaudeLoginResult = "logged-in" | "logged-out" | "unknown";
 
+export interface ClaudeLoginStatus {
+  state: ClaudeLoginResult;
+  email?: string;
+  organization?: string;
+  subscriptionType?: string;
+}
+
 interface ClaudeAuthStatusJson {
   loggedIn?: unknown;
   authMethod?: unknown;
   apiProvider?: unknown;
   subscriptionType?: unknown;
+  email?: unknown;
+  orgName?: unknown;
 }
 
 function isSubscriptionLogin(status: ClaudeAuthStatusJson): boolean {
   if (status.loggedIn !== true) return false;
   const method = status.authMethod;
   return method === "claude.ai" || method === "oauth_token";
+}
+
+function accountFieldsFromStatus(
+  status: ClaudeAuthStatusJson,
+): Pick<ClaudeLoginStatus, "email" | "organization" | "subscriptionType"> {
+  return {
+    email: typeof status.email === "string" ? status.email : undefined,
+    organization:
+      typeof status.orgName === "string" ? status.orgName : undefined,
+    subscriptionType:
+      typeof status.subscriptionType === "string"
+        ? status.subscriptionType
+        : undefined,
+  };
 }
 
 function parseAuthStatusJson(stdout: string): ClaudeAuthStatusJson | null {
@@ -80,12 +103,12 @@ function parseAuthStatusJson(stdout: string): ClaudeAuthStatusJson | null {
 
 export async function hasClaudeLogin(
   options: ClaudeLoginCheckOptions,
-): Promise<ClaudeLoginResult> {
+): Promise<ClaudeLoginStatus> {
   if (!existsSync(options.claudeCliPath)) {
     options.logger?.debug("Claude CLI not found, reporting unknown", {
       claudeCliPath: options.claudeCliPath,
     });
-    return "unknown";
+    return { state: "unknown" };
   }
 
   const isLegacyJs = options.claudeCliPath.endsWith(".js");
@@ -100,9 +123,9 @@ export async function hasClaudeLogin(
     env.ELECTRON_RUN_AS_NODE = "1";
   }
 
-  return new Promise<ClaudeLoginResult>((resolve) => {
+  return new Promise<ClaudeLoginStatus>((resolve) => {
     let settled = false;
-    const finish = (result: ClaudeLoginResult): void => {
+    const finish = (result: ClaudeLoginStatus): void => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
@@ -121,7 +144,7 @@ export async function hasClaudeLogin(
         STATUS_KILL_GRACE_MS,
       );
       child.once("exit", () => clearTimeout(killTimer));
-      finish("unknown");
+      finish({ state: "unknown" });
     }, options.timeoutMs ?? STATUS_TIMEOUT_MS);
 
     let stdout = "";
@@ -136,7 +159,7 @@ export async function hasClaudeLogin(
       options.logger?.debug("Failed to run claude auth status", {
         error: error.message,
       });
-      finish("unknown");
+      finish({ state: "unknown" });
     });
     child.on("exit", (code) => {
       const status = parseAuthStatusJson(stdout);
@@ -147,14 +170,14 @@ export async function hasClaudeLogin(
         stderr: stderr.slice(0, 500),
       });
       if (status && isSubscriptionLogin(status)) {
-        finish("logged-in");
+        finish({ state: "logged-in", ...accountFieldsFromStatus(status) });
         return;
       }
       if (status || code === 0) {
-        finish("logged-out");
+        finish({ state: "logged-out" });
         return;
       }
-      finish("unknown");
+      finish({ state: "unknown" });
     });
   });
 }

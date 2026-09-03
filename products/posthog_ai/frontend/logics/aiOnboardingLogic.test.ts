@@ -16,17 +16,36 @@ import { composerSeedLogic } from './composerSeedLogic'
 describe('aiOnboardingLogic', () => {
     let logic: ReturnType<typeof aiOnboardingLogic.build>
     let seedLogic: ReturnType<typeof composerSeedLogic.build>
-    let userUpdates: Record<string, any>[]
+    let seenWrites: Record<string, any>[]
+    let failNextSeenWrite: boolean
 
     beforeEach(() => {
-        userUpdates = []
+        seenWrites = []
+        failNextSeenWrite = false
         useMocks({
             patch: {
-                '/api/users/@me/': async ({ request }) => {
+                '/api/users/@me/product_intro_seen': async ({ request }) => {
                     const body = (await request.json()) as Record<string, any>
-                    userUpdates.push(body)
-                    return { ...MOCK_DEFAULT_USER, ...body }
+                    seenWrites.push(body)
+                    if (failNextSeenWrite) {
+                        failNextSeenWrite = false
+                        return [500, { detail: 'the seen write failed' }]
+                    }
+                    return { [body.product_key]: body.seen }
                 },
+            },
+            get: {
+                // The reload after a write has to see it, the way the real endpoint does. Without this the
+                // persisted flag never flips and every dismissal looks like a first write.
+                '/api/users/@me/': () => [
+                    200,
+                    {
+                        ...MOCK_DEFAULT_USER,
+                        has_seen_product_intro_for: Object.fromEntries(
+                            seenWrites.map(({ product_key, seen }) => [product_key, seen])
+                        ),
+                    },
+                ],
             },
         })
     })
@@ -79,23 +98,79 @@ describe('aiOnboardingLogic', () => {
         })
     })
 
-    // `has_seen_product_intro_for` is one shared map across every product intro. Writing the onboarding key
-    // without spreading the existing entries would silently re-trigger every other product's intro.
-    it('records the seen flag without dropping other product intros', async () => {
+    // Persisting only on the way out greeted people again on their next visit, because closing the tab,
+    // following a link, or reloading never reaches a dismissal. A replay has to stay silent: it opens the
+    // takeover on surfaces that never showed it, so writing there swallows the one real showing.
+    // The key matters too — one the open check doesn't read reopens the takeover forever.
+    it.each([
+        ['opens', false, [{ product_key: POSTHOG_AI_ONBOARDING_SEEN_KEY, seen: true }]],
+        ['is replayed', true, []],
+    ])('records the seen flag when the takeover %s', async (_name, isReplay, expected) => {
         mountLogic()
-        userLogic
-            .findMounted()
-            ?.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, has_seen_product_intro_for: { session_replay: true } })
+        userLogic.findMounted()?.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER })
 
+        await expectLogic(logic, () => {
+            logic.actions.openOnboarding(isReplay)
+        }).toFinishAllListeners()
+
+        expect(seenWrites).toEqual(expected)
+    })
+
+    // Both the open and the dismissal mark the takeover seen, so the persisted flag is what stops the
+    // second one from writing again and dragging another full user reload behind it.
+    it('records the seen flag once across an open and a dismissal', async () => {
+        mountLogic()
+        userLogic.findMounted()?.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER })
+
+        await expectLogic(logic, () => {
+            logic.actions.openOnboarding()
+        }).toFinishAllListeners()
         await expectLogic(logic, () => {
             logic.actions.closeOnboarding()
         }).toFinishAllListeners()
 
-        expect(userUpdates).toHaveLength(1)
-        expect(userUpdates[0].has_seen_product_intro_for).toEqual({
-            session_replay: true,
-            [POSTHOG_AI_ONBOARDING_SEEN_KEY]: true,
-        })
+        expect(seenWrites).toEqual([{ product_key: POSTHOG_AI_ONBOARDING_SEEN_KEY, seen: true }])
+    })
+
+    // A replay opens the takeover on a surface that never showed it, so it has to write nothing on the way
+    // out as well as on open. Otherwise dismissing, finishing, or answering a prompt after a replay persists
+    // the flag and swallows the user's one real first-run showing on the new surface.
+    it.each([
+        ['dismissed', () => logic.actions.closeOnboarding()],
+        ['finished', () => logic.actions.finishOnboarding()],
+        ['answered with a starter prompt', () => logic.actions.selectStarterPrompt('Audit my event tracking.')],
+    ])('writes nothing when a replay is %s', async (_name, exit) => {
+        mountLogic()
+        userLogic.findMounted()?.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER })
+
+        await expectLogic(logic, () => {
+            logic.actions.openOnboarding(true)
+        }).toFinishAllListeners()
+        await expectLogic(logic, () => {
+            exit()
+        }).toFinishAllListeners()
+
+        expect(seenWrites).toHaveLength(0)
+        // The session flag has to stay clear as well, or the real surface cannot open the takeover for the
+        // rest of the session. Guarding inside `markOnboardingSeen` would pass the check above but fail here.
+        expect(logic.values.hasSeenOnboarding).toBe(false)
+    })
+
+    // A failed write must not stop a later one from persisting the flag, or a transient error means the
+    // takeover comes back for good. An earlier guard latched before the request and never cleared.
+    it('retries the seen write on dismissal after the open-time write fails', async () => {
+        mountLogic()
+        userLogic.findMounted()?.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER })
+        failNextSeenWrite = true
+
+        await expectLogic(logic, () => {
+            logic.actions.openOnboarding()
+        }).toFinishAllListeners()
+        await expectLogic(logic, () => {
+            logic.actions.closeOnboarding()
+        }).toFinishAllListeners()
+
+        expect(seenWrites).toHaveLength(2)
     })
 
     // `/api/users/` rejects writes from an impersonated session, so persisting the flag can only
@@ -105,10 +180,11 @@ describe('aiOnboardingLogic', () => {
         userLogic.findMounted()?.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, is_impersonated: true })
 
         await expectLogic(logic, () => {
+            logic.actions.openOnboarding()
             logic.actions.closeOnboarding()
         }).toFinishAllListeners()
 
-        expect(userUpdates).toHaveLength(0)
+        expect(seenWrites).toHaveLength(0)
         expect(logic.values.hasSeenOnboarding).toBe(true)
         expect(logic.values.isOpen).toBe(false)
     })

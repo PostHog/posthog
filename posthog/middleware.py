@@ -1213,7 +1213,7 @@ class CSPMiddleware:
                 "default-src 'self'",
                 f"style-src 'self' 'unsafe-inline' {resource_url} https://fonts.googleapis.com",
                 f"script-src 'self' 'nonce-{nonce}' {resource_url} https://*.i.posthog.com",
-                f"font-src 'self' {resource_url} https://app-static.eu.posthog.com https://app-static-prod.posthog.com https://d1sdjtjk6xzm7.cloudfront.net https://fonts.gstatic.com https://cdn.jsdelivr.net https://assets.faircado.com https://use.typekit.net",
+                f"font-src 'self' {resource_url} https://app-static.eu.posthog.com https://app-static-prod.posthog.com https://fonts.gstatic.com https://cdn.jsdelivr.net",
                 "worker-src 'self'",
                 "child-src 'none'",
                 "object-src 'none'",
@@ -1225,6 +1225,9 @@ class CSPMiddleware:
                 "frame-src https:",
                 "manifest-src 'self'",
                 "base-uri 'self'",
+                # form-action has no default-src fallback, so leaving it unset lets an injected
+                # form post anywhere. Every form we serve targets a same-origin path.
+                "form-action 'self'",
             ]
 
             report_uri = csp_report_endpoint(sample_rate="0.1")
