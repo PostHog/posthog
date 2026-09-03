@@ -17300,7 +17300,22 @@
         },
         "CustomBotField": {
             "description": "The event properties a project's own bot rule can match on.",
-            "enum": ["$raw_user_agent", "$ip", "$lib", "$host", "$pathname", "$current_url"],
+            "enum": [
+                "$raw_user_agent",
+                "$ip",
+                "$lib",
+                "$host",
+                "$pathname",
+                "$current_url",
+                "$browser",
+                "$os",
+                "$browser_language",
+                "$screen_width",
+                "$screen_height",
+                "$geoip_country_code",
+                "$referrer",
+                "$referring_domain"
+            ],
             "type": "string"
         },
         "CustomBotMatcher": {
