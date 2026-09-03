@@ -35,7 +35,6 @@ logger = structlog.get_logger(__name__)
 
 SLACK_APP_AGENT_DESIGN_FLAG = "slack-app-agent-design"
 SLACK_APP_FORKING_FLAG = "slack-app-forking"
-SLACK_APP_TURN_FEEDBACK_FLAG = "slack-app-turn-feedback"
 
 
 # Linking a Slack identity to a PostHog user resolves the Slack profile and its email.
@@ -101,21 +100,6 @@ def is_slack_app_assistant_enabled(integration: Integration) -> bool:
     calls — ``im:history`` in particular, without which the assistant would answer
     once and then go deaf to follow-ups."""
     return has_scopes(integration, ASSISTANT_REQUIRED_SCOPES)
-
-
-def is_slack_app_turn_feedback_enabled(integration: Integration) -> bool:
-    """Gate for the thumbs under an agent answer.
-
-    Posts through the ``chat:write`` the mention flow already requires, so this is the
-    flag alone. Keyed on the Slack workspace like its neighbours: the thumbs hang off a
-    reply, and a workspace connected to two projects would otherwise show them on some
-    replies and not others.
-    """
-    return _workspace_flag_enabled(
-        SLACK_APP_TURN_FEEDBACK_FLAG,
-        integration,
-        failure_log_key="slack_app_turn_feedback_feature_flag_check_failed",
-    )
 
 
 def is_slack_app_forking_enabled(integration: Integration) -> bool:
