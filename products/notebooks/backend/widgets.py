@@ -38,11 +38,16 @@ from products.notebooks.backend.util import (
     _iter_markdown_component_blocks,
     _parse_markdown_component_props,
 )
-from products.notebooks.backend.widget_models import MAX_WIDGET_EFFECTIVE_PROMPT_LENGTH, MAX_WIDGET_PROMPT_LENGTH
+from products.notebooks.backend.widget_models import (
+    DEFAULT_WIDGET_PERMISSIONS,
+    MAX_WIDGET_EFFECTIVE_PROMPT_LENGTH,
+    MAX_WIDGET_PROMPT_LENGTH,
+    WidgetPermissions,
+)
 
 logger = logging.getLogger(__name__)
 
-GENERATOR_VERSION = "4"
+GENERATOR_VERSION = "5"
 MAX_INPUT_NAME_LENGTH = 128
 MAX_COLUMNS = 100
 MAX_CELL_STRING_LENGTH = 4_096
@@ -134,6 +139,7 @@ class WidgetStatus:
     has_versions: bool
     active_job: WidgetJobState | None
     security_review: WidgetSecurityReviewState | None
+    permissions: WidgetPermissions
     error_code: str | None = None
     failure_phase: str | None = None
     build_hash: str | None = None
@@ -154,6 +160,7 @@ class WidgetVersionSummary:
     frame_names: list[str]
     is_current: bool
     security_review: WidgetSecurityReviewState | None
+    permissions: WidgetPermissions
     build_hash: str | None = None
 
 
@@ -176,6 +183,14 @@ def _json_hash(value: object) -> str:
 
 def _json_size(value: object) -> int:
     return len(json.dumps(value, separators=(",", ":"), default=str).encode())
+
+
+def _widget_permissions(version: GeneratedWidgetVersion) -> WidgetPermissions:
+    return WidgetPermissions(
+        notebook_data=version.notebook_data_access,
+        hogql_queries=version.hogql_access,
+        tool_calls=version.tool_access,
+    )
 
 
 def _security_review_state(version: GeneratedWidgetVersion) -> WidgetSecurityReviewState | None:
@@ -562,6 +577,7 @@ def _validate_generation_retry(
     prompt: str,
     model: str,
     operation: str,
+    permissions: WidgetPermissions,
     expected_current_version_id: UUID | None,
 ) -> None:
     if job.team_id != notebook.team_id or job.instance.notebook_id != notebook.id or job.instance.node_id != node_id:
@@ -571,7 +587,14 @@ def _validate_generation_retry(
         expected_operation = GeneratedWidgetVersion.Operation.INITIAL
     elif operation == GeneratedWidgetVersion.Operation.INITIAL:
         expected_operation = GeneratedWidgetVersion.Operation.REGENERATE
-    if job.prompt != prompt or job.model != model or job.operation != expected_operation:
+    if (
+        job.prompt != prompt
+        or job.model != model
+        or job.operation != expected_operation
+        or job.notebook_data_access != permissions.notebook_data
+        or job.hogql_access != permissions.hogql_queries
+        or job.tool_access != permissions.tool_calls
+    ):
         raise WidgetConflictError(
             "This generation identifier was already used with different instructions.",
             "generation_id_conflict",
@@ -657,6 +680,7 @@ def start_widget_generation(
     model: str,
     generation_id: UUID,
     operation: str,
+    permissions: WidgetPermissions = DEFAULT_WIDGET_PERMISSIONS,
     expected_current_version_id: UUID | None = None,
 ) -> WidgetStatus:
     assert_widget_node_exists(notebook, node_id)
@@ -675,6 +699,7 @@ def start_widget_generation(
             prompt=normalized_prompt,
             model=model,
             operation=operation,
+            permissions=permissions,
             expected_current_version_id=expected_current_version_id,
         )
         _dispatch_widget_generation(existing_job.id, existing_job.team_id)
@@ -697,6 +722,7 @@ def start_widget_generation(
                 prompt=normalized_prompt,
                 model=model,
                 operation=operation,
+                permissions=permissions,
                 expected_current_version_id=expected_current_version_id,
             )
             return get_widget_status(notebook=notebook, node_id=node_id)
@@ -761,6 +787,9 @@ def start_widget_generation(
             base_version=base_version,
             input_contract=inspection.contract,
             schema_hash=inspection.schema_hash,
+            notebook_data_access=permissions.notebook_data,
+            hogql_access=permissions.hogql_queries,
+            tool_access=permissions.tool_calls,
         )
         transaction.on_commit(lambda: _dispatch_widget_generation(job.id, notebook.team_id))
     return get_widget_status(notebook=notebook, node_id=node_id)
@@ -1057,6 +1086,12 @@ def run_widget_generation_job(job_id: UUID, team_id: int) -> None:
             is_cancelled=is_cancelled,
             base_source=base_source,
             change_prompt=change_prompt,
+            permissions=WidgetPermissions(
+                notebook_data=job.notebook_data_access,
+                hogql_queries=job.hogql_access,
+                tool_calls=job.tool_access,
+            ),
+            user=job.requested_by,
         )
         source = generated.source
         title = generated.title or _display_name(effective_prompt)
@@ -1079,6 +1114,12 @@ def run_widget_generation_job(job_id: UUID, team_id: int) -> None:
             trace_id=f"notebook-widget-security-review-{job.id}",
             source=source,
             input_names=frame_names,
+            permissions=WidgetPermissions(
+                notebook_data=job.notebook_data_access,
+                hogql_queries=job.hogql_access,
+                tool_calls=job.tool_access,
+            ),
+            request_prompt=effective_prompt,
             is_cancelled=is_cancelled,
         )
         # Publication preserves the exact reviewed artifact for inspection. Browser consumers gate execution of
@@ -1108,6 +1149,9 @@ def run_widget_generation_job(job_id: UUID, team_id: int) -> None:
             user_id=job.requested_by.id,
             source=source,
             input_names=[str(item.get("slot")) for item in job.input_contract if isinstance(item, dict)],
+            notebook_data_access=job.notebook_data_access,
+            hogql_access=job.hogql_access,
+            tool_access=job.tool_access,
             prompt=job.prompt,
             name=title,
             expected_current_version_id=(
@@ -1155,6 +1199,9 @@ def run_widget_generation_job(job_id: UUID, team_id: int) -> None:
                 generator_version=GENERATOR_VERSION,
                 input_contract=_version_input_contract(job.input_contract),
                 schema_hash=job.schema_hash,
+                notebook_data_access=job.notebook_data_access,
+                hogql_access=job.hogql_access,
+                tool_access=job.tool_access,
                 security_review_severity=security_review.severity,
                 security_review_summary=security_review.summary,
                 security_review_findings=[
@@ -1306,6 +1353,7 @@ def get_widget_status(*, notebook: Notebook, node_id: str) -> WidgetStatus:
             has_versions=False,
             active_job=None,
             security_review=None,
+            permissions=WidgetPermissions(),
             error_code=None,
             failure_phase=None,
             build_hash=None,
@@ -1345,6 +1393,11 @@ def get_widget_status(*, notebook: Notebook, node_id: str) -> WidgetStatus:
             has_versions=False,
             active_job=active_job,
             security_review=None,
+            permissions=WidgetPermissions(
+                notebook_data=job.notebook_data_access if job is not None else True,
+                hogql_queries=job.hogql_access if job is not None else False,
+                tool_calls=job.tool_access if job is not None else False,
+            ),
             error_code=job.error_code if job and job.status == GeneratedWidgetGenerationJob.Status.FAILED else None,
             failure_phase=_job_failure_phase(job),
             build_hash=None,
@@ -1421,6 +1474,7 @@ def get_widget_status(*, notebook: Notebook, node_id: str) -> WidgetStatus:
         has_versions=True,
         active_job=active_job,
         security_review=_security_review_state(current_version),
+        permissions=_widget_permissions(current_version),
         error_code=error_code,
         failure_phase=failure_phase,
         build_hash=build_hash,
@@ -1473,6 +1527,7 @@ def list_widget_versions(*, notebook: Notebook, node_id: str, offset: int = 0, l
                 ],
                 is_current=version.id == current_id,
                 security_review=_security_review_state(version),
+                permissions=_widget_permissions(version),
                 build_hash=canvas_version.build_hash if canvas_version is not None else None,
             )
         )
@@ -1550,6 +1605,9 @@ def revert_widget_version(
             user_id=user_id,
             source=target_source,
             input_names=[str(item.get("slot")) for item in target.input_contract if isinstance(item, dict)],
+            notebook_data_access=target.notebook_data_access,
+            hogql_access=target.hogql_access,
+            tool_access=target.tool_access,
             prompt=f"Restore version {target.id}",
             name=title,
             expected_current_version_id=current.canvas_source_version_id,
@@ -1600,6 +1658,9 @@ def revert_widget_version(
             generator_version=GENERATOR_VERSION,
             input_contract=target.input_contract,
             schema_hash=target.schema_hash,
+            notebook_data_access=target.notebook_data_access,
+            hogql_access=target.hogql_access,
+            tool_access=target.tool_access,
             security_review_severity=target.security_review_severity,
             security_review_summary=target.security_review_summary,
             security_review_findings=target.security_review_findings,
@@ -1694,6 +1755,8 @@ def read_widget_frame(
     limit: int = 100,
 ) -> WidgetFrameRead:
     _instance, version = _get_instance_and_version(notebook, node_id, version_id)
+    if not version.notebook_data_access:
+        raise WidgetError("This widget version cannot read notebook dataframes.", "frame_not_allowed")
     contract_item = next(
         (item for item in version.input_contract if isinstance(item, dict) and item.get("slot") == frame_name),
         None,

@@ -21,6 +21,8 @@ import {
 import { NotebookWidgetGenerationModal } from './NotebookWidgetGenerationModal'
 import { NotebookWidgetSourceModal } from './NotebookWidgetSourceModal'
 import { DEFAULT_WIDGET_MODEL, DEFAULT_WIDGET_PROMPT, WIDGET_MODEL_OPTIONS } from './widgetModels'
+import { widgetPermissionAttributePatch, widgetPermissionsFromAttributes } from './widgetPermissions'
+import { WidgetPermissionToggles } from './WidgetPermissionToggles'
 
 export function NotebookNodeGeneratedWidgetSettings({
     attributes,
@@ -29,13 +31,16 @@ export function NotebookNodeGeneratedWidgetSettings({
     const nodeLogic = useMountedLogic(notebookNodeLogic)
     const { isEditable, notebookLogic } = useValues(nodeLogic)
     const { currentTeamId } = useValues(teamLogic)
+    const permissions = widgetPermissionsFromAttributes(attributes)
     const logicProps: NotebookNodeGeneratedWidgetLogicProps = {
         projectId: currentTeamId,
         notebookShortId: notebookLogic.props.shortId,
         nodeId: attributes.nodeId,
         prompt: attributes.prompt ?? '',
         model: attributes.model ?? DEFAULT_WIDGET_MODEL,
+        permissions,
         isEditable,
+        updatePermissions: (nextPermissions) => updateAttributes(widgetPermissionAttributePatch(nextPermissions)),
         persistNotebook: async (): Promise<void> => {
             await notebookLogic.asyncActions.saveNotebook({
                 content: notebookLogic.values.content,
@@ -129,8 +134,19 @@ export function NotebookNodeGeneratedWidgetSettings({
                         />
                     </div>
                     <div className="text-xs text-muted">
-                        Run every SQL and Python cell before generating. The widget can use their latest completed
-                        results automatically.
+                        Choose exactly what the generated code may access. Every generated version keeps its own grants.
+                    </div>
+                    <div>
+                        <LemonLabel>Data and actions</LemonLabel>
+                        <div className="mt-1">
+                            <WidgetPermissionToggles
+                                value={permissions}
+                                disabled={!isEditable || isWorking}
+                                onChange={(nextPermissions) =>
+                                    updateAttributes(widgetPermissionAttributePatch(nextPermissions))
+                                }
+                            />
+                        </div>
                     </div>
                     <div>
                         <LemonLabel htmlFor={modelId}>Model</LemonLabel>
@@ -277,7 +293,12 @@ export function NotebookNodeGeneratedWidgetSettings({
                     <LemonButton
                         type="primary"
                         onClick={() =>
-                            generateWidget(initialPrompt, attributes.model ?? DEFAULT_WIDGET_MODEL, 'initial')
+                            generateWidget(
+                                initialPrompt,
+                                attributes.model ?? DEFAULT_WIDGET_MODEL,
+                                'initial',
+                                permissions
+                            )
                         }
                         loading={generationRequestLoading}
                         disabledReason={!isEditable ? 'You need edit access to generate a widget.' : undefined}

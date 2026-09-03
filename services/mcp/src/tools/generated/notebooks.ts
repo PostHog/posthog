@@ -382,6 +382,63 @@ const notebooksRunCellResult = (): ToolBase<
     },
 })
 
+const NotebooksWidgetGenerateSchema = () => {
+    const NotebooksWidgetGenerateBody = orvalSchemas.NotebooksWidgetGenerateBody()
+    const NotebooksWidgetGenerateParams = orvalSchemas.NotebooksWidgetGenerateParams()
+    return NotebooksWidgetGenerateParams.omit({ project_id: true }).extend(NotebooksWidgetGenerateBody.shape)
+}
+
+const notebooksWidgetGenerate = (): ToolBase<ReturnType<typeof NotebooksWidgetGenerateSchema>, unknown> => ({
+    name: 'notebooks-widget-generate',
+    schema: NotebooksWidgetGenerateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof NotebooksWidgetGenerateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.prompt !== undefined) {
+            body['prompt'] = params.prompt
+        }
+        if (params.generation_id !== undefined) {
+            body['generation_id'] = params.generation_id
+        }
+        if (params.model !== undefined) {
+            body['model'] = params.model
+        }
+        if (params.generation_operation !== undefined) {
+            body['generation_operation'] = params.generation_operation
+        }
+        if (params.expected_current_version_id !== undefined) {
+            body['expected_current_version_id'] = params.expected_current_version_id
+        }
+        if (params.permissions !== undefined) {
+            body['permissions'] = params.permissions
+        }
+        const result = await context.api.request<unknown>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/notebooks/${encodeURIComponent(String(params.short_id))}/widgets/${encodeURIComponent(String(params.node_id))}/generate/`,
+            body,
+        })
+        return result
+    },
+})
+
+const NotebooksWidgetStatusSchema = () => {
+    const NotebooksWidgetStatusParams = orvalSchemas.NotebooksWidgetStatusParams()
+    return NotebooksWidgetStatusParams.omit({ project_id: true })
+}
+
+const notebooksWidgetStatus = (): ToolBase<ReturnType<typeof NotebooksWidgetStatusSchema>, Schemas.WidgetStatus> => ({
+    name: 'notebooks-widget-status',
+    schema: NotebooksWidgetStatusSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof NotebooksWidgetStatusSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.WidgetStatus>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/notebooks/${encodeURIComponent(String(params.short_id))}/widgets/${encodeURIComponent(String(params.node_id))}/status/`,
+        })
+        return result
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'notebooks-compute-options': notebooksComputeOptions,
     'notebooks-configure-compute': notebooksConfigureCompute,
@@ -394,4 +451,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'notebooks-retrieve': notebooksRetrieve,
     'notebooks-run-cell-interrupt': notebooksRunCellInterrupt,
     'notebooks-run-cell-result': notebooksRunCellResult,
+    'notebooks-widget-generate': notebooksWidgetGenerate,
+    'notebooks-widget-status': notebooksWidgetStatus,
 }

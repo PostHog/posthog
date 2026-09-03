@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { addCellHandler } from '@/tools/notebooks/addCell'
+import { addCellHandler, NotebooksAddCellSchema } from '@/tools/notebooks/addCell'
 import { createMarkdownHandler } from '@/tools/notebooks/createMarkdown'
 import { deleteCellHandler } from '@/tools/notebooks/deleteCell'
 import { updateCellHandler } from '@/tools/notebooks/updateCell'
@@ -111,6 +111,15 @@ describe('notebook cell tools', () => {
         expect(catalogPrompt).toContain('<Group id="group-key" groupTypeIndex={0} view="summary" />')
         expect(catalogPrompt).toContain('"attrs":{"id":"group-key","groupTypeIndex":0,"view":"summary"}')
         expect(catalogPrompt).toContain('groupTypeIndex: Numeric group type index.')
+    })
+
+    it('describes generated widget permission attributes to notebook-building agents', () => {
+        const schemaDescription = NotebooksAddCellSchema.shape.props.description
+
+        expect(schemaDescription).toContain('noDataFrames disables notebook dataframes')
+        expect(schemaDescription).toContain('allowSQL enables arbitrary HogQL')
+        expect(schemaDescription).toContain('allowTools enables PostHog tool calls')
+        expect(schemaDescription).toContain('notebooks-widget-generate')
     })
 
     it('add sql cell inserts the tag, runs with sibling refs, and writes the result back', async () => {

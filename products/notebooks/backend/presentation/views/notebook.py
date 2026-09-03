@@ -76,6 +76,7 @@ from products.notebooks.backend.facade.sql_v2 import acquire_run_slots, release_
 from products.notebooks.backend.facade.widgets import (
     WidgetConflictError,
     WidgetError,
+    WidgetPermissions,
     WidgetRateLimitError,
     cancel_widget_generation,
     get_widget_status,
@@ -100,12 +101,16 @@ from products.notebooks.backend.presentation.widget_serializers import (
     WidgetSourceQuerySerializer,
     WidgetSourceSerializer,
     WidgetStatusSerializer,
+    WidgetToolCallRequestSerializer,
+    WidgetToolCallResponseSerializer,
     WidgetVersionPageSerializer,
     WidgetVersionQuerySerializer,
 )
 from products.notebooks.backend.presentation.widget_throttles import (
     WidgetFrameBurstThrottle,
     WidgetFrameSustainedThrottle,
+    WidgetToolBurstThrottle,
+    WidgetToolSustainedThrottle,
 )
 from products.notebooks.backend.python_analysis import analyze_python_globals, annotate_python_nodes
 from products.notebooks.backend.query_validation import InvalidNotebookQueryError, normalize_notebook_query_nodes
@@ -153,6 +158,7 @@ from products.notebooks.backend.sql_v2_variables import (
 )
 from products.notebooks.backend.temporal.client import start_sql_v2_run_workflow
 from products.notebooks.backend.temporal.sql_v2 import SQLV2RunInput
+from products.notebooks.backend.widget_tools import call_widget_tool
 from products.tasks.backend.facade.exceptions import SandboxProvisionError
 from products.tasks.backend.facade.sandbox import SandboxStatus
 
@@ -776,8 +782,10 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             response_status = 429
         elif isinstance(error, WidgetConflictError):
             response_status = 409
-        elif error.code == "frame_not_allowed":
+        elif error.code in {"frame_not_allowed", "tool_not_allowed"}:
             response_status = 403
+        elif error.code == "tools_unavailable":
+            response_status = 503
         elif error.code == "ai_data_processing_not_approved":
             response_status = 403
         elif error.code == "node_not_found":
@@ -828,9 +836,20 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         serializer = WidgetGenerateRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         notebook = self.get_object()
-        self._require_query_access()
+        raw_permissions = serializer.validated_data.get("permissions")
+        permissions = (
+            WidgetPermissions(
+                notebook_data=raw_permissions["notebook_data"],
+                hogql_queries=raw_permissions["hogql_queries"],
+                tool_calls=raw_permissions["tool_calls"],
+            )
+            if raw_permissions is not None
+            else get_widget_status(notebook=notebook, node_id=node_id).permissions
+        )
+        if permissions.notebook_data or permissions.hogql_queries:
+            self._require_query_access()
         try:
-            input_candidates = infer_widget_inputs(notebook, node_id)
+            input_candidates = infer_widget_inputs(notebook, node_id) if permissions.notebook_data else []
             inspection = inspect_widget_inputs(
                 notebook,
                 input_candidates,
@@ -846,6 +865,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 model=serializer.validated_data["model"],
                 generation_id=serializer.validated_data["generation_id"],
                 operation=serializer.validated_data["generation_operation"],
+                permissions=permissions,
                 expected_current_version_id=serializer.validated_data.get("expected_current_version_id"),
             )
         except WidgetError as error:
@@ -1106,6 +1126,57 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         except WidgetError as error:
             return self._widget_error_response(error)
         return Response(WidgetFrameSerializer(result.frame).data)
+
+    @extend_schema(
+        operation_id="notebooks_widget_tool_call",
+        request=WidgetToolCallRequestSerializer,
+        responses={
+            200: WidgetToolCallResponseSerializer,
+            400: WidgetErrorSerializer,
+            403: WidgetErrorSerializer,
+            404: WidgetErrorSerializer,
+            429: WidgetErrorSerializer,
+            503: WidgetErrorSerializer,
+        },
+        parameters=[
+            OpenApiParameter(
+                "node_id",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.PATH,
+                description="Stable identifier of the generated widget node.",
+            )
+        ],
+    )
+    @action(
+        methods=["POST"],
+        url_path="widgets/(?P<node_id>[^/.]+)/tools/call",
+        detail=True,
+        required_scopes=["notebook:read"],
+        throttle_classes=[WidgetToolBurstThrottle, WidgetToolSustainedThrottle],
+    )
+    def widget_tool_call(self, request: Request, node_id: str | None = None, **kwargs) -> Response:
+        if node_id is None:
+            raise Http404()
+        user = self._current_user()
+        if user is None or not isinstance(request.successful_authenticator, SessionAuthentication):
+            raise PermissionDenied("Widget tool calls require an authenticated PostHog session.")
+        if not is_notebook_widget_enabled(user):
+            raise Http404()
+        serializer = WidgetToolCallRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            content = call_widget_tool(
+                notebook=self.get_object(),
+                node_id=node_id,
+                version_id=serializer.validated_data["version_id"],
+                build_hash=serializer.validated_data["build_hash"],
+                user=user,
+                tool_name=serializer.validated_data["tool_name"],
+                arguments=serializer.validated_data["arguments"],
+            )
+        except WidgetError as error:
+            return self._widget_error_response(error)
+        return Response(WidgetToolCallResponseSerializer({"content": content}).data)
 
     def safely_get_queryset(self, queryset) -> QuerySet:
         if not self.action.endswith("update"):

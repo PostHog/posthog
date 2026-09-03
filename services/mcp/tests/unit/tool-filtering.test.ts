@@ -917,6 +917,7 @@ describe('Tool Filtering - Feature Flags', () => {
                 'customer-analytics-csp',
                 'customer-analytics-feature-requests',
                 'notebooks-collaboration',
+                'notebook-generated-widgets',
                 'revamped-py-notebooks',
                 'tasks',
                 'dashboard-widgets',
@@ -945,7 +946,7 @@ describe('Tool Filtering - Feature Flags', () => {
                 'warehouse-multi-destination',
             ])
         )
-        expect(flags).toHaveLength(34)
+        expect(flags).toHaveLength(35)
     })
 
     it('every loops tool is gated on the loops flag', () => {

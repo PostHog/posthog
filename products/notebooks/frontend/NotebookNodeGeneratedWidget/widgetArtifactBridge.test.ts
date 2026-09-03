@@ -79,6 +79,25 @@ describe('widgetArtifactBridge', () => {
         expect(responses[0]).toMatchObject({ id: '1', ok: false })
     })
 
+    it('routes only the explicitly enabled HogQL and tool methods', async () => {
+        const responses: Record<string, unknown>[] = []
+        const onDataRequest = jest.fn().mockResolvedValue({ ok: true })
+        const { route } = createWidgetHostMessageRouter(
+            (message) => responses.push(message),
+            () => ({ allowedMethods: ['stateGet', 'query', 'toolCall'], onDataRequest })
+        )
+
+        await route({ channel: 'posthog-canvas', type: 'data-request', id: 'query', method: 'query', payload: {} })
+        await route({ channel: 'posthog-canvas', type: 'data-request', id: 'tool', method: 'toolCall', payload: {} })
+
+        expect(onDataRequest).toHaveBeenNthCalledWith(1, 'query', {}, expect.any(AbortSignal))
+        expect(onDataRequest).toHaveBeenNthCalledWith(2, 'toolCall', {}, expect.any(AbortSignal))
+        expect(responses).toEqual([
+            expect.objectContaining({ id: 'query', ok: true }),
+            expect.objectContaining({ id: 'tool', ok: true }),
+        ])
+    })
+
     it('passes a bounded runtime error to the host', async () => {
         const onError = jest.fn()
         const { route } = createWidgetHostMessageRouter(jest.fn(), () => ({ onDataRequest: jest.fn(), onError }))

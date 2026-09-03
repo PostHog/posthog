@@ -10,6 +10,24 @@ from products.notebooks.backend.facade.widgets import (
 )
 
 
+class WidgetPermissionsSerializer(serializers.Serializer):
+    notebook_data = serializers.BooleanField(
+        required=False,
+        default=True,
+        help_text="Whether the widget can read this notebook's dataframes.",
+    )
+    hogql_queries = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Whether the widget can run arbitrary HogQL queries.",
+    )
+    tool_calls = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Whether the widget can call PostHog MCP tools.",
+    )
+
+
 class WidgetGenerateRequestSerializer(serializers.Serializer):
     prompt = serializers.CharField(
         max_length=MAX_WIDGET_EFFECTIVE_PROMPT_LENGTH,
@@ -36,6 +54,13 @@ class WidgetGenerateRequestSerializer(serializers.Serializer):
     expected_current_version_id = serializers.UUIDField(
         required=False,
         help_text="Current widget version the improvement is based on. Required for improve operations.",
+    )
+    permissions = WidgetPermissionsSerializer(
+        required=False,
+        help_text=(
+            "Capabilities granted to the generated widget version. New widgets default to notebook data only; "
+            "later generations inherit the current version when omitted."
+        ),
     )
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
@@ -126,6 +151,10 @@ class WidgetStatusSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Hex SHA-256 over the exact immutable artifact manifest selected for display.",
     )
+    permissions = WidgetPermissionsSerializer(
+        required=False,
+        help_text="Capabilities granted to the selected immutable version. Omitted only by older servers.",
+    )
 
 
 class WidgetVersionSerializer(serializers.Serializer):
@@ -161,6 +190,10 @@ class WidgetVersionSerializer(serializers.Serializer):
     build_hash = serializers.CharField(
         allow_null=True,
         help_text="Hex SHA-256 over this version's exact immutable artifact manifest.",
+    )
+    permissions = WidgetPermissionsSerializer(
+        required=False,
+        help_text="Capabilities granted to this immutable version. Omitted only by older servers.",
     )
 
 
@@ -217,6 +250,28 @@ class WidgetFrameSerializer(serializers.Serializer):
     offset = serializers.IntegerField(min_value=0, help_text="Zero-based offset of this page.")
     nextOffset = serializers.IntegerField(min_value=0, allow_null=True, help_text="Offset for the next page, if any.")
     truncated = serializers.BooleanField(help_text="Whether more rows exist after this page.")
+
+
+class WidgetToolCallRequestSerializer(serializers.Serializer):
+    version_id = serializers.UUIDField(help_text="Immutable widget version requesting the tool call.")
+    build_hash = serializers.RegexField(
+        r"^[0-9a-f]{64}$",
+        help_text="SHA-256 of the exact verified widget build requesting the tool call.",
+    )
+    tool_name = serializers.RegexField(
+        r"^[a-z0-9][a-z0-9-]{0,127}$",
+        help_text="Exact PostHog MCP tool name to call.",
+    )
+    arguments = serializers.DictField(
+        child=serializers.JSONField(),
+        required=False,
+        default=dict,
+        help_text="JSON object passed to the PostHog MCP tool.",
+    )
+
+
+class WidgetToolCallResponseSerializer(serializers.Serializer):
+    content = serializers.CharField(help_text="Text result returned by the PostHog MCP tool.")
 
 
 class WidgetErrorSerializer(serializers.Serializer):

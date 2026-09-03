@@ -16,7 +16,7 @@ import {
 import posthog from 'posthog-js'
 import { v4 as uuidv4 } from 'uuid'
 
-import { ApiError, isAbortError } from 'lib/api'
+import api, { ApiError, isAbortError } from 'lib/api'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import {
@@ -35,6 +35,7 @@ import {
     notebooksWidgetRevert,
     notebooksWidgetSource,
     notebooksWidgetStatus,
+    notebooksWidgetToolCall,
     notebooksWidgetVersions,
 } from 'products/notebooks/frontend/generated/api'
 import type {
@@ -52,6 +53,12 @@ import {
     isWidgetModel,
     type WidgetModel,
 } from './widgetModels'
+import {
+    DEFAULT_WIDGET_PERMISSIONS,
+    type WidgetPermissions,
+    widgetPermissionsFromApi,
+    widgetPermissionsToApi,
+} from './widgetPermissions'
 
 const STATUS_POLL_INTERVAL_MS = 2_000
 const STATUS_POLL_MAX_INTERVAL_MS = 30_000
@@ -75,12 +82,15 @@ export type NotebookNodeGeneratedWidgetLogicProps = {
     nodeId: string
     prompt: string
     model: WidgetModel
+    permissions?: WidgetPermissions
     isEditable: boolean
+    updatePermissions?: (permissions: WidgetPermissions) => void
     persistNotebook: () => Promise<void>
     getContent: () => JSONContent | null
 }
 
 export interface notebookNodeGeneratedWidgetLogicValues {
+    activePermissions: WidgetPermissions
     activeGenerationModel: WidgetModel
     artifactLoading: boolean
     activeFrameNames: string[]
@@ -91,6 +101,7 @@ export interface notebookNodeGeneratedWidgetLogicValues {
     frameRevision: number
     generationDraftModel: WidgetModel
     generationDraftPrompt: string
+    generationDraftPermissions: WidgetPermissions
     generationError: string | null
     generationModalOperation: WidgetGenerationModalOperation
     generationRequestLoading: boolean
@@ -137,11 +148,13 @@ export interface notebookNodeGeneratedWidgetLogicActions {
         prompt: string,
         model: WidgetModel,
         operation: WidgetGenerationOperation,
+        permissions?: WidgetPermissions,
         expectedCurrentVersionId?: string
     ) => {
         prompt: string
         model: WidgetModel
         operation: WidgetGenerationOperation
+        permissions?: WidgetPermissions
         expectedCurrentVersionId?: string
     }
     generationCanceled: () => { value: true }
@@ -172,6 +185,7 @@ export interface notebookNodeGeneratedWidgetLogicActions {
     selectVersion: (versionId: string) => { versionId: string }
     setGenerationDraftModel: (model: WidgetModel) => { model: WidgetModel }
     setGenerationDraftPrompt: (prompt: string) => { prompt: string }
+    setGenerationDraftPermissions: (permissions: WidgetPermissions) => { permissions: WidgetPermissions }
     setRuntimeError: (error: string | null) => { error: string | null }
     setSourceChangePrompt: (prompt: string) => { prompt: string }
     sourceFailed: (error: string) => { error: string }
@@ -384,6 +398,65 @@ export async function loadWidgetFrame(
     )
 }
 
+export async function loadWidgetHogQL(payload: unknown, signal: AbortSignal): Promise<unknown> {
+    if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) {
+        throw new Error('The HogQL request is invalid.')
+    }
+    const { hogql, params } = payload as { hogql?: unknown; params?: unknown }
+    if (typeof hogql !== 'string' || !hogql.trim() || hogql.length > 50_000) {
+        throw new Error('The HogQL query is invalid.')
+    }
+    if (params !== undefined && (typeof params !== 'object' || params === null || Array.isArray(params))) {
+        throw new Error('The HogQL parameters are invalid.')
+    }
+    return await api.query(
+        {
+            kind: 'HogQLQuery',
+            query: hogql,
+            values: params as Record<string, unknown> | undefined,
+        },
+        { requestOptions: { signal } }
+    )
+}
+
+export async function loadWidgetToolCall(
+    projectId: string,
+    notebookShortId: string,
+    nodeId: string,
+    versionId: string,
+    buildHash: string,
+    payload: unknown,
+    signal: AbortSignal
+): Promise<unknown> {
+    if (!isSafeWidgetNodeId(nodeId) || typeof payload !== 'object' || payload === null || Array.isArray(payload)) {
+        throw new Error('The PostHog tool request is invalid.')
+    }
+    const { name, input } = payload as { name?: unknown; input?: unknown }
+    if (typeof name !== 'string' || !/^[a-z0-9][a-z0-9-]{0,127}$/.test(name)) {
+        throw new Error('The PostHog tool name is invalid.')
+    }
+    if (input !== undefined && (typeof input !== 'object' || input === null || Array.isArray(input))) {
+        throw new Error('The PostHog tool input is invalid.')
+    }
+    const response = await notebooksWidgetToolCall(
+        projectId,
+        notebookShortId,
+        nodeId,
+        {
+            version_id: versionId,
+            build_hash: buildHash,
+            tool_name: name,
+            arguments: (input as Record<string, unknown> | undefined) ?? {},
+        },
+        { signal }
+    )
+    try {
+        return JSON.parse(response.content) as unknown
+    } catch {
+        return response.content
+    }
+}
+
 export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGeneratedWidgetLogicType> =
     kea<notebookNodeGeneratedWidgetLogicType>([
         props({} as NotebookNodeGeneratedWidgetLogicProps),
@@ -417,11 +490,13 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                 prompt: string,
                 model: WidgetModel,
                 operation: WidgetGenerationOperation,
+                permissions?: WidgetPermissions,
                 expectedCurrentVersionId?: string
             ) => ({
                 prompt,
                 model,
                 operation,
+                permissions,
                 expectedCurrentVersionId,
             }),
             generationCanceled: true,
@@ -443,6 +518,7 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
             selectVersion: (versionId: string) => ({ versionId }),
             setGenerationDraftModel: (model: WidgetModel) => ({ model }),
             setGenerationDraftPrompt: (prompt: string) => ({ prompt }),
+            setGenerationDraftPermissions: (permissions: WidgetPermissions) => ({ permissions }),
             setRuntimeError: (error: string | null) => ({ error }),
             setSourceChangePrompt: (prompt: string) => ({ prompt }),
             sourceFailed: (error: string) => ({ error }),
@@ -507,6 +583,10 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
             ],
             generationDraftModel: [DEFAULT_WIDGET_MODEL, { setGenerationDraftModel: (_, { model }) => model }],
             generationDraftPrompt: ['', { setGenerationDraftPrompt: (_, { prompt }) => prompt }],
+            generationDraftPermissions: [
+                DEFAULT_WIDGET_PERMISSIONS,
+                { setGenerationDraftPermissions: (_, { permissions }) => permissions },
+            ],
             generationError: [
                 null as string | null,
                 {
@@ -638,6 +718,14 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
             versionsNextOffset: [null as number | null, { versionsReceived: (_, { nextOffset }) => nextOffset }],
         })),
         selectors({
+            activePermissions: [
+                (selectors) => [selectors.selectedVersion, selectors.selectedVersionId, selectors.status],
+                (selectedVersion, selectedVersionId, status): WidgetPermissions =>
+                    widgetPermissionsFromApi(
+                        selectedVersion?.permissions ??
+                            (selectedVersionId === status?.current_version_id ? status?.permissions : undefined)
+                    ),
+            ],
             activeFrameNames: [
                 (selectors) => [selectors.selectedVersion, selectors.selectedVersionId, selectors.status],
                 (selectedVersion, selectedVersionId, status): string[] =>
@@ -874,7 +962,7 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                         actions.cancellationFailed(message)
                     }
                 },
-                generateWidget: async ({ prompt, model, operation, expectedCurrentVersionId }) => {
+                generateWidget: async ({ prompt, model, operation, permissions, expectedCurrentVersionId }) => {
                     if (!props.isEditable || values.generationRequestLoading || values.isWorking) {
                         return
                     }
@@ -907,7 +995,9 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                         actions.generationFailed('Reload the widget before improving it.')
                         return
                     }
+                    const resolvedPermissions = permissions ?? props.permissions ?? DEFAULT_WIDGET_PERMISSIONS
                     actions.generationRequestStarted()
+                    props.updatePermissions?.(resolvedPermissions)
                     invalidateStatusRequests()
                     const generationId = uuidv4()
                     let aborted = false
@@ -923,6 +1013,7 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                                         generation_id: generationId,
                                         model,
                                         generation_operation: operation,
+                                        permissions: widgetPermissionsToApi(resolvedPermissions),
                                         expected_current_version_id: expectedCurrentVersionId,
                                     },
                                     { signal }
@@ -983,6 +1074,7 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                             values.sourceChangePrompt,
                             values.selectedVersion.model,
                             'improve',
+                            widgetPermissionsFromApi(values.selectedVersion.permissions),
                             values.sourceVersionId ?? undefined
                         )
                     }
@@ -1160,6 +1252,11 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                     actions.setGenerationDraftModel(
                         isWidgetModel(values.selectedVersion?.model) ? values.selectedVersion.model : props.model
                     )
+                    actions.setGenerationDraftPermissions(
+                        values.selectedVersion
+                            ? widgetPermissionsFromApi(values.selectedVersion.permissions)
+                            : (props.permissions ?? DEFAULT_WIDGET_PERMISSIONS)
+                    )
                 },
                 openSourceModal: () => {
                     actions.loadStatus()
@@ -1302,6 +1399,7 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                     if (isWidgetModel(values.selectedVersion.model)) {
                         actions.setGenerationDraftModel(values.selectedVersion.model)
                     }
+                    actions.setGenerationDraftPermissions(widgetPermissionsFromApi(values.selectedVersion.permissions))
                 },
                 closeGenerationModal: () => {
                     cache.regenerationDraftVersionId = null
