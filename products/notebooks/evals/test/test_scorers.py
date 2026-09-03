@@ -11,7 +11,11 @@ from typing import Any
 
 import pytest
 
-from products.notebooks.evals.scorers import ChurnCohortSurfaced
+from posthog.models import Team
+from posthog.models.scoping import team_scope
+
+from products.notebooks.backend.models import Notebook, NotebookNodeRun
+from products.notebooks.evals.scorers import CellRunsCompleted, ChurnCohortSurfaced
 from products.notebooks.evals.synthesizer import CHURN_TOKEN, build_churn_needle
 
 _ACCOUNTS: list[dict[str, Any]] = [
@@ -71,3 +75,26 @@ async def test_churn_cohort_surfaced_counts_prose_only(
     score = await ChurnCohortSurfaced().eval_async(output, {"churn_cohort_surfaced": {}})
 
     assert score.score == pytest.approx(expected_score)
+
+
+@pytest.mark.django_db
+def test_read_runs_skips_soft_deleted_notebooks(team: Team) -> None:
+    delivered = Notebook.objects.create(team=team, short_id="delivered")
+    scratch = Notebook.objects.create(team=team, short_id="scratch", deleted=True)
+    with team_scope(team.id):
+        for notebook, node_type in (
+            (scratch, NotebookNodeRun.NodeType.HOGQL),
+            (scratch, NotebookNodeRun.NodeType.PYTHON),
+            (delivered, NotebookNodeRun.NodeType.HOGQL),
+        ):
+            NotebookNodeRun.objects.create(
+                team=team,
+                notebook=notebook,
+                node_id=f"{notebook.short_id}-{node_type}",
+                node_type=node_type,
+                status=NotebookNodeRun.Status.DONE,
+            )
+
+        runs = CellRunsCompleted._read_runs(team.id)
+
+    assert [(run["notebook_short_id"], run["node_type"]) for run in runs] == [("delivered", "hogql")]

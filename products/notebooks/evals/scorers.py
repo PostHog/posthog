@@ -165,7 +165,8 @@ class CellRunsCompleted(AsyncOnlyScorerMixin, Scorer):
     The required types must all complete in a *single* notebook. Grading the team's
     runs in aggregate would let a scratch or retry notebook's SQL run and another
     notebook's Python run satisfy the requirement together, with neither notebook
-    holding the whole analysis.
+    holding the whole analysis. Deleting a notebook is a soft delete, so its runs
+    outlive it — they are skipped for the same reason.
     """
 
     def _name(self) -> str:
@@ -207,6 +208,7 @@ class CellRunsCompleted(AsyncOnlyScorerMixin, Scorer):
         return [
             {"notebook_short_id": notebook_short_id, "node_type": node_type, "status": status, "error": error}
             for notebook_short_id, node_type, status, error in NotebookNodeRun.objects.for_team(team_id)
+            .filter(notebook__deleted=False)
             .order_by("created_at")
             .values_list("notebook__short_id", "node_type", "status", "error")
         ]
