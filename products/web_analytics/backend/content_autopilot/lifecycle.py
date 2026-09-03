@@ -66,7 +66,7 @@ def start_run(*, team: Team, profile_id: str, triggered_by_id: int | None) -> Co
             raise ContentAutopilotLifecycleError("A content run is already in progress for this site.")
 
         return ContentAutopilotRun.objects.for_team(team_id, canonical=True).create(
-            team=team,
+            team_id=team_id,
             profile=profile,
             run_status=ContentAutopilotRun.RunStatus.PENDING,
             input_snapshot={
