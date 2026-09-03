@@ -1,6 +1,11 @@
 import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import posthog from 'posthog-js'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { type FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
+import { EMPTY_TRACE_IDENTITY, resolveTraceIdentity, type TraceIdentity } from './traceIdentity'
+import { tracingCorrelationConfigLogic } from './tracingCorrelationConfigLogic'
 import { PREFETCH_SPANS, tracingDataLogic } from './tracingDataLogic'
 import { TRACING_SCENE_VIEWER_ID, tracingFiltersLogic } from './tracingFiltersLogic'
 import type { OverlayWindow } from './tracingFiltersLogic'
@@ -18,12 +23,16 @@ export interface tracingViewerLogicValues {
     traceSpansLoading: boolean // tracingDataLogic
     traceSpansLoadingMore: boolean // tracingDataLogic
     hasDeferredFilterRefresh: boolean // tracingFiltersLogic
+    configuredDistinctIdKeys: string[] | undefined // tracingCorrelationConfigLogic
+    configuredSessionIdKeys: string[] | undefined // tracingCorrelationConfigLogic
+    featureFlags: FeatureFlagsSet // featureFlagLogic
     canLoadMoreTraceSpans: boolean
     compareFlameServiceName: string | null
     compareFlameSpanName: string | null
     isLoadingFullTrace: boolean
     isTraceOpen: boolean
     openTraceSpans: Span[]
+    traceIdentity: TraceIdentity
     selectedSpanId: string | null
     selectedTraceId: string | null
     selectedTraceTs: string | null
@@ -100,6 +109,13 @@ export interface tracingViewerLogicMeta {
             traceSpans: Span[],
             selectedTraceId: string | null
         ) => boolean
+        traceIdentity: (
+            openTraceSpans: Span[],
+            canLoadMoreTraceSpans: boolean,
+            configuredDistinctIdKeys: string[] | undefined,
+            configuredSessionIdKeys: string[] | undefined,
+            featureFlags: FeatureFlagsSet
+        ) => TraceIdentity
     }
 }
 
@@ -124,6 +140,10 @@ export const tracingViewerLogic = kea<tracingViewerLogicType>([
             ['spans', 'traceSpans', 'traceSpansLoading', 'traceSpansLoadingMore', 'traceSpansHasMore'],
             tracingFiltersLogic({ id }),
             ['hasDeferredFilterRefresh'],
+            tracingCorrelationConfigLogic,
+            ['configuredDistinctIdKeys', 'configuredSessionIdKeys'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
         actions: [
             tracingDataLogic({ id }),
@@ -219,6 +239,31 @@ export const tracingViewerLogic = kea<tracingViewerLogicType>([
                 traceSpansHasMore &&
                 !!selectedTraceId &&
                 traceSpans.some((span: Span) => span.trace_id === selectedTraceId),
+        ],
+        // The person and session the open trace belongs to. Empty while the span set is known
+        // partial, because "the spans disagree, so promote neither" can only be decided over the
+        // whole trace: a second identity may sit on a page that has not loaded yet.
+        traceIdentity: [
+            (s) => [
+                s.openTraceSpans,
+                s.canLoadMoreTraceSpans,
+                s.configuredDistinctIdKeys,
+                s.configuredSessionIdKeys,
+                s.featureFlags,
+            ],
+            (
+                openTraceSpans: Span[],
+                canLoadMoreTraceSpans: boolean,
+                configuredDistinctIdKeys: string[] | undefined,
+                configuredSessionIdKeys: string[] | undefined,
+                featureFlags: FeatureFlagsSet
+            ): TraceIdentity => {
+                // Gate before the scan, which reads every attribute of every loaded span.
+                if (canLoadMoreTraceSpans || !featureFlags[FEATURE_FLAGS.TRACING_SESSION_PERSON_LINKS]) {
+                    return EMPTY_TRACE_IDENTITY
+                }
+                return resolveTraceIdentity(openTraceSpans, configuredDistinctIdKeys, configuredSessionIdKeys)
+            },
         ],
     }),
 

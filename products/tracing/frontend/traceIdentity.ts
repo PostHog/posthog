@@ -1,60 +1,31 @@
 // Resolve the person and session a whole trace belongs to, so the drawer can answer "who was
 // this?" in its header instead of leaving the answer in a span's attribute table.
 
-// The key-matching helpers and their convention lists are shared with Logs, because both products
-// resolve the same SDK-emitted attribute keys (posthogDistinctId, sessionId, ...).
-import { isDistinctIdKey, isSessionIdKey } from 'products/logs/frontend/utils'
+// The per-span precedence and the convention key lists are shared with Logs, because both
+// products resolve the same SDK-emitted attribute keys (posthogDistinctId, sessionId, ...).
+import { getDistinctIdWithKey, getSessionIdWithKey, type SessionIdMatch } from 'products/logs/frontend/utils'
 
 import type { Span } from './types'
 
 export interface TraceIdentity {
-    /** Null when no loaded span carries a distinct-id key, or when the loaded spans disagree. */
+    /** Each is null when no span carries the key, or when the spans disagree on its value. */
     distinctId: string | null
-    /** Null when no loaded span carries a session-id key, or when the loaded spans disagree. */
     sessionId: string | null
 }
 
-// Precedence mirrors Logs' getSessionIdWithKey so a value resolves to the same identity in both
-// products: the team's configured keys first in list order, then the built-in conventions, and
-// within each pass span attributes before resource attributes.
-function resolveSpanValue(
-    span: Span,
-    configuredKeys: string[] | undefined,
-    matchesConventionKey: (key: string) => boolean
-): string | null {
-    const attributes = span.attributes ?? {}
-    const resourceAttributes = span.resource_attributes ?? {}
+export const EMPTY_TRACE_IDENTITY: TraceIdentity = { distinctId: null, sessionId: null }
 
-    for (const key of configuredKeys ?? []) {
-        if (attributes[key]) {
-            return attributes[key]
-        }
-        if (resourceAttributes[key]) {
-            return resourceAttributes[key]
-        }
-    }
-    for (const [key, value] of Object.entries(attributes)) {
-        if (value && matchesConventionKey(key)) {
-            return value
-        }
-    }
-    for (const [key, value] of Object.entries(resourceAttributes)) {
-        if (value && matchesConventionKey(key)) {
-            return value
-        }
-    }
-    return null
-}
+type SpanResolver = (span: Span, configuredKeys: string[] | undefined) => SessionIdMatch | null
 
 function singleValueAcrossSpans(
     spans: Span[],
     configuredKeys: string[] | undefined,
-    matchesConventionKey: (key: string) => boolean
+    resolve: SpanResolver
 ): string | null {
     let resolved: string | null = null
 
     for (const span of spans) {
-        const value = resolveSpanValue(span, configuredKeys, matchesConventionKey)
+        const value = resolve(span, configuredKeys)?.value
         if (!value) {
             continue
         }
@@ -76,7 +47,11 @@ export function resolveTraceIdentity(
     configuredSessionIdKeys: string[] | undefined
 ): TraceIdentity {
     return {
-        distinctId: singleValueAcrossSpans(spans, configuredDistinctIdKeys, isDistinctIdKey),
-        sessionId: singleValueAcrossSpans(spans, configuredSessionIdKeys, isSessionIdKey),
+        distinctId: singleValueAcrossSpans(spans, configuredDistinctIdKeys, (span, keys) =>
+            getDistinctIdWithKey(span.attributes, span.resource_attributes, keys)
+        ),
+        sessionId: singleValueAcrossSpans(spans, configuredSessionIdKeys, (span, keys) =>
+            getSessionIdWithKey(span.attributes, span.resource_attributes, keys)
+        ),
     }
 }

@@ -143,8 +143,8 @@ export function TraceDrawer({
                     />
                 </div>
             }
-            description={<TraceIdentityChips spans={spans} timestamp={rootSpan?.timestamp ?? ts} />}
         >
+            <TraceIdentityChips timestamp={rootSpan?.timestamp ?? ts} />
             <div className="relative min-h-32 flex gap-4 items-start">
                 {loading && <SpinnerOverlay />}
                 <div className="flex-1 min-w-0">

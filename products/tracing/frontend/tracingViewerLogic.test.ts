@@ -1,6 +1,8 @@
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { initKeaTests } from '~/test/init'
 
@@ -61,6 +63,62 @@ describe('tracingViewerLogic', () => {
 
         expect(logic.values.selectedTraceId).toBe('trace-x')
         expect(getTraceSpy.mock.calls.length > 0).toBe(shouldFetch)
+    })
+
+    describe('traceIdentity', () => {
+        // The featureFlags reducer persists, so it survives initKeaTests. Each test sets the flag
+        // it wants, otherwise a flag one test enables leaks into the next.
+        beforeEach(() => {
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([], {})
+        })
+
+        function enableCorrelationLinks(): void {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TRACING_SESSION_PERSON_LINKS], {
+                [FEATURE_FLAGS.TRACING_SESSION_PERSON_LINKS]: true,
+            })
+        }
+
+        // A partial prefetch batch is the trace's complete span set, so no fetch runs and the
+        // identity resolves from it.
+        function openCompleteTrace(attributes: Record<string, string>): void {
+            tracingDataLogic().actions.fetchSpansSuccess([
+                { ...createMockSpan('span-0', 'trace-x'), attributes },
+                createMockSpan('span-1', 'trace-x'),
+            ])
+            logic.actions.openTrace('trace-x', { ts: '2024-01-01T00:00:00Z' })
+        }
+
+        it('resolves the person and session the open trace belongs to', () => {
+            enableCorrelationLinks()
+
+            openCompleteTrace({ posthogDistinctId: 'user-1', sessionId: 'session-1' })
+
+            expect(logic.values.traceIdentity).toEqual({ distinctId: 'user-1', sessionId: 'session-1' })
+        })
+
+        it('resolves nothing while the flag is off', () => {
+            openCompleteTrace({ posthogDistinctId: 'user-1', sessionId: 'session-1' })
+
+            expect(logic.values.traceIdentity).toEqual({ distinctId: null, sessionId: null })
+        })
+
+        // "The spans disagree, so promote neither" can only be decided over the whole trace, so a
+        // known-partial span set must resolve nothing rather than trust the page it has.
+        it('resolves nothing while more spans can still load', async () => {
+            enableCorrelationLinks()
+            getTraceSpy.mockResolvedValue({
+                results: [{ ...createMockSpan('span-0', 'trace-x'), attributes: { posthogDistinctId: 'user-1' } }],
+                hasMore: true,
+                nextOffset: 1,
+            })
+
+            logic.actions.openTrace('trace-x', { ts: '2024-01-01T00:00:00Z' })
+            await expectLogic(tracingDataLogic()).toFinishAllListeners()
+
+            expect(logic.values.canLoadMoreTraceSpans).toBe(true)
+            expect(logic.values.traceIdentity).toEqual({ distinctId: null, sessionId: null })
+        })
     })
 
     describe('closeTrace', () => {

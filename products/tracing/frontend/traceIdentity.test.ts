@@ -1,85 +1,63 @@
+import { makeSpan } from './__mocks__/span'
 import { resolveTraceIdentity, type TraceIdentity } from './traceIdentity'
 import type { Span } from './types'
 
-function span(overrides: Partial<Span>): Span {
-    return {
-        uuid: 'uuid',
-        trace_id: 'trace-1',
-        span_id: 'span-1',
-        parent_span_id: '',
-        name: 'GET /checkout',
-        kind: 2,
-        service_name: 'checkout-api',
-        status_code: 0,
-        timestamp: '2026-09-03T10:00:00Z',
-        end_time: '2026-09-03T10:00:01Z',
-        duration_nano: 1_000_000,
-        is_root_span: true,
-        matched_filter: true,
-        attributes: {},
-        resource_attributes: {},
-        ...overrides,
-    }
-}
-
 describe('resolveTraceIdentity', () => {
-    const cases: [
-        name: string,
-        spans: Span[],
-        configuredDistinctIdKeys: string[] | undefined,
-        configuredSessionIdKeys: string[] | undefined,
-        expected: TraceIdentity,
-    ][] = [
-        [
-            'reads an identity carried only by a non-root span',
-            [
-                span({ span_id: 'root', is_root_span: true }),
-                span({
+    const cases: {
+        name: string
+        spans: Span[]
+        distinctIdKeys?: string[]
+        sessionIdKeys?: string[]
+        expected: TraceIdentity
+    }[] = [
+        {
+            name: 'reads an identity carried only by a non-root span',
+            spans: [
+                makeSpan({ span_id: 'root', is_root_span: true }),
+                makeSpan({
                     span_id: 'child',
                     is_root_span: false,
                     attributes: { posthogDistinctId: 'user-1', sessionId: 'session-1' },
                 }),
             ],
-            undefined,
-            undefined,
-            { distinctId: 'user-1', sessionId: 'session-1' },
-        ],
-        [
-            // Two people in one trace, which a batch consumer produces. The person must drop out
-            // rather than pick a side, while the agreeing session still resolves.
-            'drops a value the loaded spans disagree on, and keeps the one they agree on',
-            [
-                span({ span_id: 'a', attributes: { posthogDistinctId: 'user-1', sessionId: 'session-1' } }),
-                span({ span_id: 'b', attributes: { posthogDistinctId: 'user-2', sessionId: 'session-1' } }),
+            expected: { distinctId: 'user-1', sessionId: 'session-1' },
+        },
+        {
+            name: 'drops a value the spans disagree on, and keeps the one they agree on',
+            spans: [
+                makeSpan({ span_id: 'a', attributes: { posthogDistinctId: 'user-1', sessionId: 'session-1' } }),
+                makeSpan({ span_id: 'b', attributes: { posthogDistinctId: 'user-2', sessionId: 'session-1' } }),
             ],
-            undefined,
-            undefined,
-            { distinctId: null, sessionId: 'session-1' },
-        ],
-        [
-            'resolves nothing from spans that carry no correlation keys',
-            [span({ attributes: { 'http.method': 'GET' }, resource_attributes: { 'k8s.pod.name': 'pod-1' } })],
-            undefined,
-            undefined,
-            { distinctId: null, sessionId: null },
-        ],
-        [
-            'prefers a configured key over a convention key on the same span',
-            [span({ attributes: { 'user.id': 'configured-user', posthogDistinctId: 'convention-user' } })],
-            ['user.id'],
-            undefined,
-            { distinctId: 'configured-user', sessionId: null },
-        ],
-        [
-            'falls back to resource attributes when the span attributes carry nothing',
-            [span({ resource_attributes: { posthogDistinctId: 'user-1', sessionId: 'session-1' } })],
-            undefined,
-            undefined,
-            { distinctId: 'user-1', sessionId: 'session-1' },
-        ],
+            expected: { distinctId: null, sessionId: 'session-1' },
+        },
+        {
+            name: 'resolves nothing from spans that carry no correlation keys',
+            spans: [makeSpan({ attributes: { 'http.method': 'GET' }, resource_attributes: { 'k8s.pod.name': 'p' } })],
+            expected: { distinctId: null, sessionId: null },
+        },
+        {
+            name: 'prefers a configured key over a convention key on the same span',
+            spans: [makeSpan({ attributes: { 'user.id': 'configured-user', posthogDistinctId: 'convention-user' } })],
+            distinctIdKeys: ['user.id'],
+            expected: { distinctId: 'configured-user', sessionId: null },
+        },
+        {
+            name: 'falls back to resource attributes when the span attributes carry nothing',
+            spans: [makeSpan({ resource_attributes: { posthogDistinctId: 'user-1', sessionId: 'session-1' } })],
+            expected: { distinctId: 'user-1', sessionId: 'session-1' },
+        },
+        {
+            // A configured key naming an Object.prototype member would otherwise resolve to that
+            // member, which is truthy, and reach PersonDisplay as a function instead of a string.
+            name: 'ignores a configured key that names an Object.prototype member',
+            spans: [makeSpan({ attributes: { posthogDistinctId: 'user-1' } })],
+            distinctIdKeys: ['constructor'],
+            sessionIdKeys: ['valueOf'],
+            expected: { distinctId: 'user-1', sessionId: null },
+        },
     ]
 
-    test.each(cases)('%s', (_name, spans, configuredDistinctIdKeys, configuredSessionIdKeys, expected) => {
-        expect(resolveTraceIdentity(spans, configuredDistinctIdKeys, configuredSessionIdKeys)).toEqual(expected)
+    test.each(cases)('$name', ({ spans, distinctIdKeys, sessionIdKeys, expected }) => {
+        expect(resolveTraceIdentity(spans, distinctIdKeys, sessionIdKeys)).toEqual(expected)
     })
 })
