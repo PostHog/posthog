@@ -29,14 +29,14 @@ export interface CostableJob {
 
 export type WorkflowState = 'healthy' | 'degraded' | 'failing' | 'unknown'
 
+/** What the workflow tiles read, from either the server's window-wide figures or a fold over a page
+ *  of runs. Every field is answerable from both, so neither source has to invent one. */
 export interface HealthSummary {
     state: WorkflowState
     totalRuns: number
-    completedRuns: number
     conclusiveRuns: number
     passedRuns: number
     failures: number
-    running: number
     /** Runs that were a 2nd+ attempt. */
     reruns: number
     /** Passes divided by conclusive runs (null when no run reached a verdict). */
@@ -146,7 +146,7 @@ function workflowState(counts: {
  * The tiles read this rather than folding the run table, which only holds the newest page: on a busy
  * workflow that page is a few hours of a 30-day window, so a client-side pass rate answered a
  * different question than the Workflows table's, and cost-per-run divided a window-wide total by the
- * page size. `running` and `completedRuns` are not in the contract and are not on any tile.
+ * page size.
  */
 export function workflowHealthSummary(item: {
     run_count: number
@@ -168,11 +168,9 @@ export function workflowHealthSummary(item: {
             failures,
         }),
         totalRuns: item.run_count,
-        completedRuns: item.conclusive_run_count,
         conclusiveRuns: item.conclusive_run_count,
         passedRuns: item.successful_run_count,
         failures,
-        running: 0,
         reruns: item.rerun_cycles ?? 0,
         passRate: item.success_rate,
         medianSeconds: item.p50_seconds,
@@ -185,7 +183,6 @@ export function workflowHealthSummary(item: {
 export function computeHealthSummary(runs: HealthRun[]): HealthSummary {
     const completed = runs.filter((run) => run.conclusion !== null)
     const successful = completed.filter((run) => run.conclusion === 'success')
-    const running = runs.length - completed.length
     const passed = successful.length
     const failures = completed.filter((run) => isDecisiveFailure(run.conclusion)).length
     const conclusiveRuns = passed + failures
@@ -222,11 +219,9 @@ export function computeHealthSummary(runs: HealthRun[]): HealthSummary {
     return {
         state,
         totalRuns: runs.length,
-        completedRuns: completed.length,
         conclusiveRuns,
         passedRuns: passed,
         failures,
-        running,
         reruns,
         passRate,
         medianSeconds: percentileSorted(durations, 0.5),

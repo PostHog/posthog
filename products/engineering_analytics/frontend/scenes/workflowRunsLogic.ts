@@ -87,6 +87,7 @@ export interface workflowRunsLogicValues {
     runsTruncated: boolean
     sourceId: string | null
     workflowHealth: WorkflowHealthItemApi | null
+    workflowHealthFailed: boolean
     workflowHealthLoading: boolean
     workflowName: string
 }
@@ -363,6 +364,16 @@ export const workflowRunsLogic = kea<workflowRunsLogicType>([
                 loadRuns: () => false,
                 loadRunsSuccess: () => false,
                 loadRunsFailure: () => true,
+            },
+        ],
+        // Without this, a failed health fetch is indistinguishable from a quiet window: the tiles fall
+        // back to the capped run table and present a narrower answer as if it were the window's.
+        workflowHealthFailed: [
+            false,
+            {
+                loadWorkflowHealth: () => false,
+                loadWorkflowHealthSuccess: () => false,
+                loadWorkflowHealthFailure: () => true,
             },
         ],
         expandedRunKeys: [

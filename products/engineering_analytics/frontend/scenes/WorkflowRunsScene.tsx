@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconExternal, IconGear } from '@posthog/icons'
-import { LemonButton, LemonTable, LemonTableColumns, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonTable, LemonTableColumns, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
@@ -98,6 +98,7 @@ export function WorkflowRunsScene(): JSX.Element {
         workflowName,
         healthSummary,
         workflowHealthLoading,
+        workflowHealthFailed,
         costSummary,
         runsTruncated,
         activityRuns,
@@ -312,6 +313,12 @@ export function WorkflowRunsScene(): JSX.Element {
                 slug={`${repoOwner}/${repoName}`}
                 right={verdictPill}
             />
+            {workflowHealthFailed && (
+                <LemonBanner type="warning">
+                    These figures could not load, so they cover only the runs in the table below rather than the whole
+                    window. Refresh to try again.
+                </LemonBanner>
+            )}
             <div className="flex flex-wrap gap-2.5">
                 <MetricTile
                     label="Pass rate"
