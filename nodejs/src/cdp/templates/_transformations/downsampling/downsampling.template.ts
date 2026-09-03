@@ -27,6 +27,15 @@ if (not applies) {
     return event
 }
 
+// Handle the boundaries directly so 0 drops every event and 100 keeps every event in both modes,
+// and an out-of-range percentage cannot keep or drop more than intended.
+if (inputs.percentage <= 0) {
+    return null
+}
+if (inputs.percentage >= 100) {
+    return event
+}
+
 let keep := true
 if (inputs.randomSampling) {
     keep := (randomFloat() * 100) <= inputs.percentage
