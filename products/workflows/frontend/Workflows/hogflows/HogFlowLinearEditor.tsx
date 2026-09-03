@@ -60,7 +60,7 @@ export function HogFlowLinearEditor(): JSX.Element {
     const linearEdges = actionIds?.slice(0, -1).map((actionId) => edgesBySource.get(actionId)) ?? []
 
     return (
-        <div className="flex min-h-0 min-w-0 flex-1 overflow-y-auto p-4" data-attr="workflow-linear-editor">
+        <div className="flex min-h-0 min-w-0 flex-1 overflow-y-auto p-2" data-attr="workflow-linear-editor">
             <div className="mx-auto flex w-full max-w-3xl flex-col">
                 {linearActions.map((action, index) => (
                     <div key={action.id} className="flex flex-col">

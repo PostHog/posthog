@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
 import { IconCopy, IconDrag, IconEllipsis, IconTrash } from '@posthog/icons'
-import { LemonInput, LemonTextArea, Tooltip } from '@posthog/lemon-ui'
+import { LemonInput, LemonTag, LemonTextArea, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonBadge } from 'lib/lemon-ui/LemonBadge'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -18,6 +18,45 @@ import { isScheduleTrigger } from '../types'
 import { buildSummary } from './rrule-helpers'
 import { StepViewLogicProps, stepViewLogic } from './stepViewLogic'
 import { StepViewMetrics } from './StepViewMetrics'
+
+const TRIGGER_TYPE_LABELS: Record<string, string> = {
+    event: 'Event',
+    webhook: 'Webhook',
+    manual: 'Manual',
+    tracking_pixel: 'Tracking pixel',
+    schedule: 'Schedule',
+    batch: 'Audience',
+    'internal-event': 'Internal event',
+    'data-warehouse-table': 'Data warehouse table',
+    'data-warehouse-view': 'Data warehouse view',
+}
+
+function getTriggerPreview(action: HogFlowAction): string | null {
+    if (action.type !== 'trigger') {
+        return null
+    }
+
+    const config = action.config
+    const label = TRIGGER_TYPE_LABELS[config.type] ?? config.type
+    if (!('filters' in config)) {
+        return label
+    }
+
+    const selectedFilter =
+        config.type === 'event' || config.type === 'internal-event'
+            ? (config.filters.events?.[0] ?? ('actions' in config.filters ? config.filters.actions?.[0] : null))
+            : null
+    const selectedName = selectedFilter?.name ?? selectedFilter?.id
+    const propertyCount = config.filters?.properties?.length ?? 0
+
+    return [
+        label,
+        selectedName,
+        propertyCount ? `${propertyCount} ${propertyCount === 1 ? 'filter' : 'filters'}` : null,
+    ]
+        .filter(Boolean)
+        .join(' · ')
+}
 
 export function StepView({
     action,
@@ -36,7 +75,7 @@ export function StepView({
         workflow,
         isZoomedOutFar,
     } = useValues(hogFlowEditorLogic)
-    const { setMode, setSelectedNodeId, startCopyingNode, startMovingNode } = useActions(hogFlowEditorLogic)
+    const { setSelectedNodeId, startCopyingNode, startMovingNode } = useActions(hogFlowEditorLogic)
     const { actionValidationErrorsById, logicProps, scheduleState, scheduleStartsAt, isScheduleRepeating } =
         useValues(workflowLogic)
     const { deleteElements } = useReactFlow()
@@ -94,16 +133,14 @@ export function StepView({
     const hasValidationError = actionValidationErrorsById[action.id]?.valid === false
     const hasValidationWarning = Object.keys(actionValidationErrorsById[action.id]?.warnings ?? {}).length > 0
     const isAnimationTarget = mode === 'test' && animatingEdgePair?.endsWith(`->${action.id}`)
+    const triggerPreview = getTriggerPreview(action)
 
     if (layout === 'list') {
         return (
             <LemonButton
                 fullWidth
                 active={isSelected}
-                onClick={() => {
-                    setMode('build')
-                    setSelectedNodeId(action.id)
-                }}
+                onClick={() => setSelectedNodeId(action.id)}
                 data-attr="workflow-linear-step"
                 aria-pressed={isSelected}
                 className="!h-auto !items-stretch !justify-start !rounded !border-2 !bg-surface-primary !p-0 hover:!bg-surface-secondary"
@@ -112,7 +149,7 @@ export function StepView({
                     boxShadow: `0px 2px 0px 0px ${colorLight}`,
                 }}
             >
-                <div className="flex min-w-0 flex-1 items-start gap-3 p-3 text-left">
+                <div className="flex min-w-0 flex-1 items-start gap-3 p-2 text-left">
                     <span
                         className="flex size-12 shrink-0 items-center justify-center rounded text-2xl"
                         style={{ backgroundColor: colorLight, color }}
@@ -124,8 +161,13 @@ export function StepView({
                         <span className="mt-0.5 text-sm text-secondary">
                             {scheduleDescription ?? action.description ?? 'No description'}
                         </span>
-                        {shouldShowMetricsSummary && <StepViewMetrics action={action} layout="list" />}
+                        {triggerPreview && (
+                            <LemonTag type="muted" size="small" icon={icon} className="mt-1.5 w-fit">
+                                {triggerPreview}
+                            </LemonTag>
+                        )}
                     </span>
+                    {shouldShowMetricsSummary && <StepViewMetrics action={action} layout="list" />}
                     {hasValidationError || hasValidationWarning ? (
                         <LemonBadge status="warning" size="small" content="!" />
                     ) : null}
