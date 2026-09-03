@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
 # Clone the migrated test databases into per-worker copies for pytest-xdist.
-# pytest-django suffixes each worker's DB as <name>_gwN, and posthog/conftest.py
-# derives the persons DB as <name>_gwN_persons; cloning both via
+# pytest-django suffixes each worker's DB as <name>_gwN, and the multi-database
+# products derive theirs as <name>_gwN_<product>; cloning them all via
 # CREATE DATABASE ... TEMPLATE skips re-running Django + sqlx migrations per
 # worker, so `pytest -n N --reuse-db` starts instantly on every worker.
+#
+# The product databases are discovered rather than listed: a product that adds
+# its own database would otherwise be missing on every worker, and the failure
+# surfaces far from here as "database ... does not exist" inside an unrelated test.
 #
 # Usage: bin/clone-test-db-for-xdist <num_workers> [source_db]
 set -euo pipefail
@@ -29,9 +33,21 @@ clone() {
     echo "cloned ${src} -> ${dest}"
 }
 
+# Every product database beside the main one, as bare suffixes ("persons",
+# "stamphog", ...). Existing worker clones are excluded so a re-run does not
+# clone a clone.
+mapfile -t SUFFIXES < <(psql_admin "
+    SELECT substring(datname from '^${SOURCE_DB}_(.*)\$')
+    FROM pg_database
+    WHERE datname LIKE '${SOURCE_DB}\_%'
+      AND datname !~ '^${SOURCE_DB}_gw[0-9]+'
+    ORDER BY 1
+")
+
 for i in $(seq 0 $((WORKERS - 1))); do
     clone "${SOURCE_DB}" "${SOURCE_DB}_gw${i}"
-    if psql_admin "SELECT 1 FROM pg_database WHERE datname = '${SOURCE_DB}_persons'" | grep -q 1; then
-        clone "${SOURCE_DB}_persons" "${SOURCE_DB}_gw${i}_persons"
-    fi
+    for suffix in "${SUFFIXES[@]}"; do
+        [ -n "$suffix" ] || continue
+        clone "${SOURCE_DB}_${suffix}" "${SOURCE_DB}_gw${i}_${suffix}"
+    done
 done
