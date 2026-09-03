@@ -117,9 +117,7 @@ class CustomerTaskAPI(APIBaseTest):
             format="json",
         )
         task = CustomerTask.objects.unscoped().get(id=created.json()["id"])
-        activity_ids = list(
-            CustomerTaskActivity.objects.unscoped().filter(task=task).values_list("id", flat=True)
-        )
+        activity_ids = list(CustomerTaskActivity.objects.unscoped().filter(task=task).values_list("id", flat=True))
 
         account.delete()
 
