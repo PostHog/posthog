@@ -56,6 +56,26 @@ describe("ShowActionsRow", () => {
     expect(screen.queryByText("Open the canvas")).toBeNull();
   });
 
+  it("keeps the order the agent supplied, even with a pill before a card", () => {
+    renderCard([
+      { kind: "open_space", label: "Open the space", channel_id: "chan" },
+      {
+        kind: "compose",
+        label: "Add PostHog",
+        description: "Instruments the app and opens a task to review it",
+        prompt: "/instrument",
+      },
+      { kind: "open_inbox", label: "Review findings" },
+    ]);
+
+    const buttons = screen.getAllByRole("button");
+    expect(buttons.map((button) => button.textContent)).toEqual([
+      "Open the space",
+      "Add PostHogInstruments the app and opens a task to review it",
+      "Review findings",
+    ]);
+  });
+
   it("hands the host a typed action, never a url", async () => {
     renderCard([
       { kind: "open_space", label: "Open the space", channel_id: "chan" },

@@ -46,33 +46,88 @@ export function ShowActionsRow({ toolCall }: ToolViewProps) {
 
   if (buttons.length === 0) return null;
 
-  const cards = buttons.filter((button) => button.description);
-  const pills = buttons.filter((button) => !button.description);
+  // Consecutive same-shape buttons form one run, so the agent's order
+  // survives: a pill before a card still renders before that card.
+  const runs: ShowActionButton[][] = [];
+  for (const button of buttons) {
+    const isCard = Boolean(button.description);
+    const lastRun = runs.at(-1);
+    if (lastRun && Boolean(lastRun[0].description) === isCard) {
+      lastRun.push(button);
+    } else {
+      runs.push([button]);
+    }
+  }
 
   // No surrounding card: the buttons sit in the conversation, which already
   // frames them. A box around them would draw a second frame around nothing.
   return (
     <div className="flex flex-col gap-2">
-      {cards.length > 0 && (
-        <div className="flex max-w-sm flex-col gap-2">
-          {cards.map(({ label, description, action }, index) => {
-            const { icon: ActionIcon, color } = ACTION_LOOKS[action.kind];
-            return (
-              <button
-                key={`${index}-${label}`}
-                type="button"
-                disabled={openAction.isPending}
-                onClick={() => openAction.mutate({ action })}
-                style={
-                  {
-                    "--card-hover-border": `var(--${color}-6)`,
-                  } as React.CSSProperties
-                }
-                className="flex w-full cursor-pointer items-start gap-2.5 rounded-xl border border-(--gray-a3) bg-(--color-panel-solid) px-2.5 py-2 text-left shadow-[0_1px_3px_rgba(0,0,0,0.04),0_1px_2px_rgba(0,0,0,0.02)] transition-[border-color,box-shadow] hover:border-(--card-hover-border) hover:shadow-[0_2px_8px_rgba(0,0,0,0.06),0_1px_3px_rgba(0,0,0,0.04)] disabled:cursor-default disabled:opacity-60"
-              >
-                <div
-                  className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md"
-                  style={{ backgroundColor: `var(--${color}-3)` }}
+      {runs.map((run) =>
+        run[0].description ? (
+          <div
+            key={`${run[0].label}-${run[0].action.kind}`}
+            className="flex max-w-sm flex-col gap-2"
+          >
+            {run.map(({ label, description, action }) => {
+              const { icon: ActionIcon, color } = ACTION_LOOKS[action.kind];
+              return (
+                <button
+                  key={`${label}-${action.kind}`}
+                  type="button"
+                  disabled={openAction.isPending}
+                  onClick={() => openAction.mutate({ action })}
+                  style={
+                    {
+                      "--card-hover-border": `var(--${color}-6)`,
+                    } as React.CSSProperties
+                  }
+                  className="flex w-full cursor-pointer items-start gap-2.5 rounded-xl border border-(--gray-a3) bg-(--color-panel-solid) px-2.5 py-2 text-left shadow-[0_1px_3px_rgba(0,0,0,0.04),0_1px_2px_rgba(0,0,0,0.02)] transition-[border-color,box-shadow] hover:border-(--card-hover-border) hover:shadow-[0_2px_8px_rgba(0,0,0,0.06),0_1px_3px_rgba(0,0,0,0.04)] disabled:cursor-default disabled:opacity-60"
+                >
+                  <div
+                    className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md"
+                    style={{ backgroundColor: `var(--${color}-3)` }}
+                  >
+                    <ActionIcon
+                      size={14}
+                      weight="duotone"
+                      color={`var(--${color}-9)`}
+                      aria-hidden
+                    />
+                  </div>
+                  <div className="flex min-w-0 flex-1 flex-col gap-1">
+                    <Text
+                      size="xs"
+                      weight="medium"
+                      className="min-w-0 truncate text-(--gray-12)"
+                    >
+                      {label}
+                    </Text>
+                    <Text
+                      size="xs"
+                      className="line-clamp-1 text-(--gray-11) leading-normal"
+                    >
+                      {description}
+                    </Text>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        ) : (
+          <div
+            key={`${run[0].label}-${run[0].action.kind}`}
+            className="flex flex-wrap gap-2"
+          >
+            {run.map(({ label, action }) => {
+              const { icon: ActionIcon, color } = ACTION_LOOKS[action.kind];
+              return (
+                <Button
+                  key={`${label}-${action.kind}`}
+                  variant="outline"
+                  size="sm"
+                  disabled={openAction.isPending}
+                  onClick={() => openAction.mutate({ action })}
                 >
                   <ActionIcon
                     size={14}
@@ -80,50 +135,12 @@ export function ShowActionsRow({ toolCall }: ToolViewProps) {
                     color={`var(--${color}-9)`}
                     aria-hidden
                   />
-                </div>
-                <div className="flex min-w-0 flex-1 flex-col gap-1">
-                  <Text
-                    size="xs"
-                    weight="medium"
-                    className="min-w-0 truncate text-(--gray-12)"
-                  >
-                    {label}
-                  </Text>
-                  <Text
-                    size="xs"
-                    className="line-clamp-1 text-(--gray-11) leading-normal"
-                  >
-                    {description}
-                  </Text>
-                </div>
-              </button>
-            );
-          })}
-        </div>
-      )}
-      {pills.length > 0 && (
-        <div className="flex flex-wrap gap-2">
-          {pills.map(({ label, action }, index) => {
-            const { icon: ActionIcon, color } = ACTION_LOOKS[action.kind];
-            return (
-              <Button
-                key={`${index}-${label}`}
-                variant="outline"
-                size="sm"
-                disabled={openAction.isPending}
-                onClick={() => openAction.mutate({ action })}
-              >
-                <ActionIcon
-                  size={14}
-                  weight="duotone"
-                  color={`var(--${color}-9)`}
-                  aria-hidden
-                />
-                {label}
-              </Button>
-            );
-          })}
-        </div>
+                  {label}
+                </Button>
+              );
+            })}
+          </div>
+        ),
       )}
     </div>
   );
