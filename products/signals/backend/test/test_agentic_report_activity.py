@@ -845,6 +845,73 @@ async def test_run_multi_turn_research_survives_a_failed_supersede_turn(supersed
     assert decided == (None if isinstance(supersede_outcome, Exception) else supersede_outcome)
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("actionability", "expects_supersede_turn"),
+    [
+        (ActionabilityChoice.IMMEDIATELY_ACTIONABLE, True),
+        (ActionabilityChoice.REQUIRES_HUMAN_INPUT, False),
+        (ActionabilityChoice.NOT_ACTIONABLE, False),
+    ],
+)
+async def test_run_multi_turn_research_only_asks_about_the_pr_when_actionable(actionability, expects_supersede_turn):
+    """Auto-start is the decision's only consumer and it takes immediately-actionable reports only,
+    so asking on the other two outcomes buys a sandbox turn nothing can read."""
+    signals = _build_signals()
+    previous = ReportResearchOutput(
+        title="Old title",
+        summary="Old summary",
+        new_artefacts=[
+            SignalFinding(signal_id="sig-1", relevant_code_paths=[], data_queried="", verified=True),
+            ActionabilityAssessment(
+                explanation="Clear fix in the affected module.",
+                actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE,
+                already_addressed=False,
+            ),
+            PriorityAssessment(explanation="Affects many sessions.", priority=Priority.P2),
+        ],
+    )
+    by_label = {
+        "signal_2_of_2": SignalFinding(signal_id="sig-2", relevant_code_paths=[], data_queried="", verified=True),
+        "actionability": ActionabilityUpdate(
+            previous_assessment_correct=False,
+            assessment=ActionabilityAssessment(
+                explanation="The evidence changed what this needs.",
+                actionability=actionability,
+                already_addressed=False,
+            ),
+        ),
+        "priority": PriorityUpdate(previous_assessment_correct=True),
+        "presentation": ReportPresentationOutput(title="New title", summary="New summary"),
+        "supersede": ImplementationDecision(supersede=True, reason="the root cause moved"),
+    }
+    asked_labels: list[str] = []
+
+    async def fake_send_followup(message, model, *, label=""):
+        asked_labels.append(label)
+        return by_label[label]
+
+    session = Mock()
+    session.send_followup = AsyncMock(side_effect=fake_send_followup)
+    session.end = AsyncMock()
+    session.task = Mock(id="task-1")
+    first_finding = SignalFinding(signal_id="sig-1", relevant_code_paths=[], data_queried="", verified=True)
+
+    with patch(
+        "products.tasks.backend.facade.agents.MultiTurnSession.start",
+        AsyncMock(return_value=(session, first_finding)),
+    ):
+        result = await run_multi_turn_research(
+            signals,
+            Mock(),
+            previous_report_research=previous,
+            own_pr_url="https://github.com/PostHog/posthog/pull/1",
+        )
+
+    assert ("supersede" in asked_labels) is expects_supersede_turn
+    assert (result.effective_implementation_decision() is not None) is expects_supersede_turn
+
+
 def test_parse_artefact_content_parses_valid_content():
     actionability = ActionabilityAssessment(
         explanation="e", actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE, already_addressed=False

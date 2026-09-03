@@ -995,9 +995,16 @@ async def run_multi_turn_research(
         if output_fn:
             output_fn(f"Report title: {presentation_result.title}")
 
-        # Only worth a turn when there is a pull request to replace, and only on a re-research: a
-        # report's first pass has nothing to supersede.
-        if own_pr_url and previous_report_research is not None:
+        # Only worth a turn when there is a pull request to replace, only on a re-research (a
+        # report's first pass has nothing to supersede), and only when this pass ended immediately
+        # actionable. Auto-start is the sole consumer and it needs that choice, the workflow returns
+        # before auto-start on the other two, and neither of those statuses reaches READY again
+        # without a further pass, which asks this question for itself.
+        if (
+            own_pr_url
+            and previous_report_research is not None
+            and actionability_result.actionability == ActionabilityChoice.IMMEDIATELY_ACTIONABLE
+        ):
             if output_fn:
                 output_fn("Deciding whether the open PR still fits...")
             # This turn is asked last, so every finding, judgment, title and summary is already in
