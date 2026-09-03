@@ -1,10 +1,17 @@
 # serializer version: 1
 # name: TestUpgradeQueriesWorkflow.test_get_insights_to_migrate_activity
   '''
+  SELECT MAX("posthog_dashboarditem"."id") AS "id__max"
+  FROM "posthog_dashboarditem"
+  '''
+# ---
+# name: TestUpgradeQueriesWorkflow.test_get_insights_to_migrate_activity.1
+  '''
   
-  SELECT DISTINCT id
+  SELECT id
   FROM posthog_dashboarditem
-  WHERE (query @? '$.** ? (
+  WHERE query IS NOT NULL
+    AND (query @? '$.** ? (
       @.kind == "EventsNode" &&
       (!exists(@.version) || @.version == null || @.version < 8)
   )'

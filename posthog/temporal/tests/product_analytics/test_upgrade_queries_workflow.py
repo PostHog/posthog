@@ -13,8 +13,10 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 from posthog.schema import NodeKind
 
 import posthog.schema_migrations as schema_migrations_module
+from posthog.redis import get_client
 from posthog.schema_migrations import LATEST_VERSIONS, MIGRATIONS, SchemaMigration, _discover_migrations
 from posthog.temporal.product_analytics.upgrade_queries_activities import (
+    CURSOR_REDIS_KEY_PREFIX,
     GetInsightsToMigrateActivityInputs,
     MigrateInsightsBatchActivityInputs,
     get_insights_to_migrate,
@@ -95,6 +97,19 @@ def setup_migrations():
     MIGRATIONS.clear()
     schema_migrations_module._migrations_discovered = False
     _discover_migrations()
+
+
+@pytest.fixture(autouse=True)
+def clear_scan_cursor():
+    def drop_cursors():
+        client = get_client()
+        keys = list(client.scan_iter(f"{CURSOR_REDIS_KEY_PREFIX}*"))
+        if keys:
+            client.delete(*keys)
+
+    drop_cursors()
+    yield
+    drop_cursors()
 
 
 def setup_insights(team):
@@ -200,6 +215,15 @@ def setup_insights(team):
     return i1, i2, i3, i4, i5, i6, i7, i8
 
 
+def complete_a_sweep(activity_environment):
+    """Run the scan until it reports nothing left, the way a scheduled workflow does. The bound
+    fails the test rather than hanging it if the scan stops advancing between calls."""
+    for _ in range(5):
+        if not activity_environment.run(get_insights_to_migrate, GetInsightsToMigrateActivityInputs()).insight_ids:
+            return
+    raise AssertionError("the scan never reached the end of the table")
+
+
 class TestUpgradeQueriesWorkflow(QueryMatchingTest):
     @pytest.mark.django_db
     def test_get_insights_to_migrate_activity(self, activity_environment, team):
@@ -224,6 +248,27 @@ class TestUpgradeQueriesWorkflow(QueryMatchingTest):
 
         assert result.insight_ids == []
         assert result.last_id is None
+
+    @pytest.mark.django_db
+    def test_finished_scan_resumes_above_the_last_insight(self, activity_environment, team):
+        setup_insights(team)
+        complete_a_sweep(activity_environment)
+
+        # The rows already swept must not be read again, but an insight written afterwards must be.
+        newer = Insight.objects.create(query={"kind": "InsightVizNode", "version": 3}, team=team)
+        result = activity_environment.run(get_insights_to_migrate, GetInsightsToMigrateActivityInputs())
+
+        assert result.insight_ids == [newer.id]
+
+    @pytest.mark.django_db
+    def test_new_migration_sweeps_the_table_again(self, activity_environment, team):
+        i1, *_ = setup_insights(team)
+        complete_a_sweep(activity_environment)
+        LATEST_VERSIONS[NodeKind.TRENDS_QUERY] = 7
+
+        result = activity_environment.run(get_insights_to_migrate, GetInsightsToMigrateActivityInputs())
+
+        assert i1.id in result.insight_ids
 
     @pytest.mark.django_db
     def test_migrate_insights_batch_activity(self, activity_environment, team):

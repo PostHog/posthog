@@ -5386,9 +5386,8 @@ def _list_tasks_queryset(
     else:
         qs = qs.filter(archived=False)
 
-    qs = qs.select_related("created_by", "team", "github_integration", "github_user_integration").annotate(
-        _latest_run_id=Subquery(latest_run.values("id")[:1])
-    )
+    # `team` is joined for `Task.slug`, which reads the team name.
+    qs = qs.select_related("created_by", "team").annotate(_latest_run_id=Subquery(latest_run.values("id")[:1]))
 
     return qs
 
