@@ -1,6 +1,8 @@
+import { parseFileHref } from "@posthog/core/code-editor/fileHref";
 import { isPostHogCodeDeeplink } from "@posthog/shared";
 import { ArtifactRefChip } from "@posthog/ui/features/editor/components/ArtifactRefChip";
 import { EvidenceRefChip } from "@posthog/ui/features/editor/components/EvidenceRefChip";
+import { fileLinkFor } from "@posthog/ui/features/editor/components/fileLinkFor";
 import { githubRefChipFor } from "@posthog/ui/features/editor/components/githubRefChipFor";
 import { MessageChartCard } from "@posthog/ui/features/editor/components/MessageChartCard";
 import { CodeBlock } from "@posthog/ui/primitives/CodeBlock";
@@ -56,6 +58,9 @@ function markdownUrlTransform(value: string, key: string): string {
   // unsanitized image; consumers decide what a chart href renders as.
   if (key === "href" && value.startsWith("chart:")) return value;
   if (isPostHogCodeDeeplink(value)) return value;
+  // A file target never reaches the DOM — the `a` component below renders it
+  // as a button — but it has to survive the transform to get there.
+  if (key === "href" && parseFileHref(value)) return value;
   return defaultUrlTransform(value);
 }
 
@@ -185,6 +190,8 @@ export const baseComponents: Components = {
     }
     const githubChip = githubRefChipFor(href, children);
     if (githubChip) return githubChip;
+    const fileLink = fileLinkFor(href, children);
+    if (fileLink) return fileLink;
     return <ExternalMarkdownLink href={href}>{children}</ExternalMarkdownLink>;
   },
   kbd: ({ children }) => <Kbd>{children}</Kbd>,
