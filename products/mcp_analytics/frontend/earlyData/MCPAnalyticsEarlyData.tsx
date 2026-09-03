@@ -1,10 +1,11 @@
 import { useActions, useValues } from 'kea'
 
+import * as explorerPng from '@posthog/brand/hoggies/png/explorer'
 import { IconCheckCircle, IconClock, IconWarning } from '@posthog/icons'
 import { LemonBanner, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { dataColorVars } from 'lib/colors'
-import { ExplorerHog } from 'lib/components/hedgehogs'
 import { dayjs } from 'lib/dayjs'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { urls } from 'scenes/urls'
@@ -20,6 +21,8 @@ import { METRICS_UNLOCK_LIFETIME_CALLS, mcpAnalyticsOnboardingLogic } from '../m
 import { MCP_ACTIVITY_DATA_COLLECTION_ID, MCP_ACTIVITY_INTENT_COLUMN, MCP_ACTIVITY_MAX_ROWS } from './mcpActivityQuery'
 import type { ChecklistItem } from './mcpEarlyDataLogic'
 import { mcpEarlyDataLogic } from './mcpEarlyDataLogic'
+
+const HedgehogExplorer = pngHoggie(explorerPng)
 
 /**
  * The Activity tab: answers "what are agents doing with my server?" — a
@@ -57,7 +60,7 @@ function SummaryCard(): JSX.Element {
     return (
         <LemonBanner type="info" dismissKey="mcp-analytics-activity-summary" hideIcon>
             <div className="flex items-center gap-3 py-1">
-                <ExplorerHog className="h-14 w-14 shrink-0 hidden sm:block" />
+                <HedgehogExplorer className="h-14 w-14 shrink-0 hidden sm:block" />
                 <div className="min-w-0">
                     <h3 className="text-lg font-semibold m-0">
                         {summary}
