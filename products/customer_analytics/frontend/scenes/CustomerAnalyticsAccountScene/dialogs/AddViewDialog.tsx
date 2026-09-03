@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { LemonButton, LemonCheckbox, LemonInput, LemonModal, LemonSegmentedButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonInput, LemonLabel, LemonModal, LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
@@ -76,19 +76,18 @@ export function AddViewDialog(): JSX.Element {
                         size="small"
                     />
                 </LemonField>
-                <LemonField name="widgets" label="Widgets">
-                    <div className="flex flex-col gap-1">
-                        {ACCOUNT_DETAIL_WIDGET_KINDS.map((kind) => (
-                            <LemonCheckbox
-                                key={kind}
-                                checked={newViewForm.widgets.includes(kind)}
-                                onChange={(checked) => toggleWidget(kind, checked)}
-                                label={ACCOUNT_DETAIL_WIDGET_LABELS[kind]}
-                                size="small"
-                            />
-                        ))}
-                    </div>
-                </LemonField>
+                <div className="flex flex-col gap-1">
+                    <LemonLabel>Widgets</LemonLabel>
+                    {ACCOUNT_DETAIL_WIDGET_KINDS.map((kind) => (
+                        <LemonCheckbox
+                            key={kind}
+                            checked={newViewForm.widgets.includes(kind)}
+                            onChange={(checked) => toggleWidget(kind, checked)}
+                            label={ACCOUNT_DETAIL_WIDGET_LABELS[kind]}
+                            size="small"
+                        />
+                    ))}
+                </div>
                 <LemonCheckbox
                     checked={newViewForm.pin && canPinMore}
                     onChange={(checked) => setNewViewFormValue('pin', checked)}
