@@ -3272,6 +3272,7 @@ def register_task_run_posthog_references(
         by_id = {str(entry.get("id")): entry for entry in manifest if entry.get("id")}
         reference_count = sum(1 for entry in manifest if entry.get("type") == "reference")
         now = django_timezone.now().isoformat()
+        manifest_changed = False
 
         for reference in references:
             object_kind = str(reference["object_kind"])
@@ -3289,6 +3290,7 @@ def register_task_run_posthog_references(
                 metadata["source_message_ids"] = source_message_ids
                 metadata["occurrence_count"] = len(source_message_ids)
                 existing["metadata"] = metadata
+                manifest_changed = True
                 continue
 
             if reference_count >= MAX_RUN_REFERENCE_ARTIFACTS:
@@ -3314,8 +3316,10 @@ def register_task_run_posthog_references(
             manifest.append(entry)
             by_id[artifact_id] = entry
             created.append(entry)
+            manifest_changed = True
 
-        _save_artifact_manifest(run, manifest)
+        if manifest_changed:
+            _save_artifact_manifest(run, manifest)
 
     for entry in created if attribute_as_agent else []:
         reference_metadata = entry.get("metadata")
