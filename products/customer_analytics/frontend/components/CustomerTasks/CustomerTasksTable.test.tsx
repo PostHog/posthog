@@ -49,6 +49,10 @@ function findTableHeader(table: HTMLElement, title: string): HTMLTableCellElemen
     return tableHeaders(table).find((header) => header.textContent?.trim() === title)
 }
 
+function filterBar(container: HTMLElement): HTMLElement {
+    return container.querySelector('[data-attr="customer-tasks-filters"]') as HTMLElement
+}
+
 describe('CustomerTasksTable', () => {
     let logic: ReturnType<typeof customerTasksLogic.build>
 
@@ -128,14 +132,15 @@ describe('CustomerTasksTable', () => {
         expect(mockList).toHaveBeenLastCalledWith(expect.any(String), expect.objectContaining({ ordering, offset: 0 }))
     })
 
-    test('shows Account ordering only in the inbox', async () => {
+    test('shows Account ordering and assignee filters only in the inbox', async () => {
         await expectLogic(logic).toFinishAllListeners()
-        render(
+        const inbox = render(
             <Provider>
-                <CustomerTasksTable logic={logic} context="inbox" />
+                <CustomerTasksTable logic={logic} context="inbox" canViewAll />
             </Provider>
         )
         expect(findTableHeader(screen.getByRole('table'), 'Account')).not.toBeUndefined()
+        expect(within(filterBar(inbox.container)).queryByText('Choose member')).not.toBeNull()
 
         cleanup()
         logic.unmount()
@@ -144,10 +149,11 @@ describe('CustomerTasksTable', () => {
         await expectLogic(logic).toFinishAllListeners()
         const accountTable = render(
             <Provider>
-                <CustomerTasksTable logic={logic} context="account" />
+                <CustomerTasksTable logic={logic} context="account" canViewAll />
             </Provider>
         )
 
         expect(findTableHeader(accountTable.getByRole('table'), 'Account')).toBeUndefined()
+        expect(within(filterBar(accountTable.container)).queryByText('Choose member')).toBeNull()
     })
 })

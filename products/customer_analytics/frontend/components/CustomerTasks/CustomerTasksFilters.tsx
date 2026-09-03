@@ -73,6 +73,9 @@ export function CustomerTasksFilters({ logic, context, canViewAll = false }: Cus
             ],
         },
     ]
+    // The account tab always lists every visible task for the account, so the query drops
+    // assigned_to there — offering the control would do nothing.
+    const showAssigneeFilters = canViewAll && context === 'inbox'
     const options = accountOptions.map((a) => ({ key: a.id, label: a.name }))
     if (filters.account && !options.some((o) => o.key === filters.account?.id)) {
         options.unshift({ key: filters.account.id, label: filters.account.name })
@@ -93,14 +96,14 @@ export function CustomerTasksFilters({ logic, context, canViewAll = false }: Cus
                     {CUSTOMER_TASK_STATUS_OPTIONS.find((o) => o.value === filters.status)?.label}
                 </LemonButton>
             </LemonMenu>
-            {canViewAll && (
+            {showAssigneeFilters && (
                 <LemonMenu items={assignee}>
                     <LemonButton type="secondary" size="small" sideIcon={<IconChevronDown />}>
                         {assigneeLabel(filters.assignee)}
                     </LemonButton>
                 </LemonMenu>
             )}
-            {canViewAll && (
+            {showAssigneeFilters && (
                 <MemberSelect
                     value={typeof filters.assignee === 'number' ? filters.assignee : null}
                     defaultLabel="Choose member"
