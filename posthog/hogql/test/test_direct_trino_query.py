@@ -5,7 +5,12 @@ from unittest.mock import MagicMock, patch
 
 from posthog.hogql.query import HogQLQueryExecutor
 
-from products.data_warehouse.backend.direct_trino import DIRECT_TRINO_URL_PATTERN, get_direct_trino_table_options
+from products.data_warehouse.backend.facade.api import DIRECT_TRINO_URL_PATTERN
+from products.data_warehouse.backend.facade.sources import (
+    DIRECT_TRINO_CATALOG_OPTION,
+    DIRECT_TRINO_SCHEMA_OPTION,
+    DIRECT_TRINO_TABLE_OPTION,
+)
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
@@ -40,11 +45,11 @@ class TestDirectTrinoQuery(APIBaseTest):
                 "id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True},
                 "status": {"hogql": "StringDatabaseField", "clickhouse": "String", "valid": True},
             },
-            options=get_direct_trino_table_options(
-                source_catalog="ducklake",
-                source_schema="analytics",
-                source_table_name="materialized_orders",
-            ),
+            options={
+                DIRECT_TRINO_CATALOG_OPTION: "ducklake",
+                DIRECT_TRINO_SCHEMA_OPTION: "analytics",
+                DIRECT_TRINO_TABLE_OPTION: "materialized_orders",
+            },
         )
         return source
 
