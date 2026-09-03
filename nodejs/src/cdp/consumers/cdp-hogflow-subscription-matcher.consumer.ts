@@ -49,10 +49,6 @@ import { counterParseError } from './metrics'
 // the first bootstrap and offset-loss edge cases (covered by the deferred lag alerting follow-up).
 const startAtLatest = START_AT_LATEST
 
-// Expired watchers are not urgent — they have already stopped matching via the expires_at predicate,
-// so this only reclaims space.
-const WATCHER_SWEEP_INTERVAL_MS = 60_000
-
 // How stale the has-live-watchers gate may be. A team that just enrolled its first run while its only
 // goal flow was already paused waits at most this long to be admitted.
 const WATCHER_TEAMS_REFRESH_INTERVAL_MS = 30_000
@@ -240,7 +236,6 @@ export class CdpHogflowSubscriptionMatcherConsumer<
     // the survivor's id so the survivor's person/event updates can wake them.
     private personDistinctIdKafkaConsumer: KafkaConsumerInterface
     private cyclotronPool: Pool
-    private watcherSweepTimer: NodeJS.Timeout | null = null
     private watcherTeamsRefreshTimer: NodeJS.Timeout | null = null
     // Teams with at least one unexpired watcher. Empty until the first refresh, which start() awaits
     // before consuming, so the gate is never consulted against an unpopulated set.
@@ -1239,8 +1234,6 @@ export class CdpHogflowSubscriptionMatcherConsumer<
 
     public override async start(): Promise<void> {
         await super.start()
-        // Watchers that convert are deleted by the claim; ones that never convert are only removed
-        // here, so without this the table grows for the lifetime of the deployment.
         // Awaited so the first batches are gated against a populated set rather than an empty one,
         // which would drop messages for teams whose only goal flow is paused. A failure here must not
         // stop the matcher starting: an empty set degrades the gate to its previous flow-only
@@ -1255,17 +1248,10 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                 captureException(err)
             })
         }, WATCHER_TEAMS_REFRESH_INTERVAL_MS)
-        this.watcherSweepTimer = setInterval(() => {
-            void this.invocationResultsService.conversionWatchersService.sweepExpired().catch((err) => {
-                logger.error('⚠️', 'Conversion watcher sweep failed', { err })
-                captureException(err)
-            })
-        }, WATCHER_SWEEP_INTERVAL_MS)
-        // Neither timer is work the process should stay alive for: both are periodic maintenance that
-        // the next start picks up. Unref'd, a consumer that was started but never stopped cannot hold
-        // the event loop open — which is what a leaked one does to a long single-process test run.
+        // Not work the process should stay alive for: periodic maintenance that the next start picks
+        // up. Unref'd, a consumer that was started but never stopped cannot hold the event loop open —
+        // which is what a leaked one does to a long single-process test run.
         this.watcherTeamsRefreshTimer.unref()
-        this.watcherSweepTimer.unref()
         // Surface failures to each kafka consumer so the offset doesn't advance past a batch we
         // couldn't match. The pod will crash and replay; the SELECT is read-only and the UPDATE
         // (with `status = 'available'` guards) is idempotent, so replay is safe. All three streams
@@ -1307,9 +1293,6 @@ export class CdpHogflowSubscriptionMatcherConsumer<
 
     public override async stop(): Promise<void> {
         logger.info('💤', `Stopping ${this.name}...`)
-        if (this.watcherSweepTimer) {
-            clearInterval(this.watcherSweepTimer)
-        }
         if (this.watcherTeamsRefreshTimer) {
             clearInterval(this.watcherTeamsRefreshTimer)
         }

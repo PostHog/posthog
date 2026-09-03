@@ -3,6 +3,7 @@ import { router } from 'kea-router'
 import { useRef } from 'react'
 
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
+import { urls } from 'scenes/urls'
 
 import {
     Composer,
@@ -139,6 +140,11 @@ export function TaskComposer(): JSX.Element {
                                         // Clearing both pins is what hands the choice back to the resolved
                                         // default — submit then omits the triple entirely.
                                         onResetToDefault={() => setNewTaskData({ model: null, reasoningEffort: null })}
+                                        onOpenDefaultSettings={() =>
+                                            router.actions.push(
+                                                urls.settings('environment-task-agents', 'task-agent-my-preference')
+                                            )
+                                        }
                                     />
                                 </Composer.Footer>
                             </Composer.Frame>

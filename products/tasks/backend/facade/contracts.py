@@ -374,6 +374,7 @@ class TaskCommentDetailDTO:
 class TaskLatestRunSummaryDTO:
     """The latest-run status/environment pair nested in a task summary response."""
 
+    id: UUID
     status: str | None
     environment: str | None
 
@@ -389,6 +390,7 @@ class TaskSummaryDTO:
     id: UUID
     title: str
     repository: str | None
+    created_by_id: int | None
     created_at: datetime
     updated_at: datetime
     origin_product: str = ""
