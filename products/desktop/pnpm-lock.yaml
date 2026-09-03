@@ -309,6 +309,9 @@ importers:
       react-dom:
         specifier: 19.2.6
         version: 19.2.6(react@19.2.6)
+      react-grab:
+        specifier: ^0.2.0
+        version: 0.2.0(react@19.2.6)
       react-hotkeys-hook:
         specifier: ^4.4.4
         version: 4.6.2(patch_hash=a8cd00b963d4ae6787cc267a2345cc1b32bcba5fa1131328b8017ee0d316ab0e)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
