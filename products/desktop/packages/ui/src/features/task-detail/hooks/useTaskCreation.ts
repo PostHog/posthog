@@ -8,6 +8,7 @@ import {
   TASK_SERVICE,
   type TaskService,
 } from "@posthog/core/task-detail/taskService";
+import { pendingPromptRecordFromContent } from "@posthog/core/tasks/pendingPrompts";
 import { useService } from "@posthog/di/react";
 import type { HostTrpcClient } from "@posthog/host-router/client";
 import { useHostTRPC, useHostTRPCClient } from "@posthog/host-router/react";
@@ -48,7 +49,6 @@ import { assertCloudUsageAvailable } from "../../billing/preflightCloudUsage";
 import { useUsageLimitStore } from "../../billing/usageLimitStore";
 import { useLocalMcpCloudServers } from "../../local-mcp/useLocalMcpCloudServers";
 import {
-  contentToPlainText,
   contentToXml,
   type EditorContent,
   extractFilePaths,
@@ -124,7 +124,10 @@ interface UseTaskCreationOptions {
 interface UseTaskCreationReturn {
   isCreatingTask: boolean;
   canSubmit: boolean;
-  handleSubmit: (contentOverride?: EditorContent) => Promise<boolean>;
+  handleSubmit: (
+    contentOverride?: EditorContent,
+    promptContent?: EditorContent,
+  ) => Promise<boolean>;
   additionalDirectories: string[];
   setAdditionalDirectories: (next: string[]) => void;
 }
@@ -269,7 +272,15 @@ export function useTaskCreation({
   const canSubmit = !!editorRef.current && canSubmitBase && !editorIsEmpty;
 
   const handleSubmit = useCallback(
-    async (contentOverride?: EditorContent): Promise<boolean> => {
+    async (
+      contentOverride?: EditorContent,
+      /**
+       * The composer content the person typed, when a wrapper transformed it
+       * for the task request. The prompt record and history restore this, so
+       * generated request text never reaches the composer on recovery.
+       */
+      promptContent?: EditorContent,
+    ): Promise<boolean> => {
       const editor = editorRef.current;
       if (!editor) return false;
       const allowSubmit = contentOverride ? canSubmitBase : canSubmit;
@@ -280,7 +291,10 @@ export function useTaskCreation({
       // the exact prompt and tab that the user submitted.
       const originTabId = getCurrentBrowserTabId();
       const content = contentOverride ?? editor.getContent();
-      const plainPromptText = contentToPlainText(content).trim();
+      const promptRecord = pendingPromptRecordFromContent(
+        promptContent ?? content,
+      );
+      const plainPromptText = promptRecord.promptText;
       const serializedContent = contentToXml(content).trim();
       const filePaths = extractFilePaths(content);
 
@@ -357,15 +371,12 @@ export function useTaskCreation({
 
         if (pendingTaskKey) {
           pendingTaskPromptStoreApi.set(pendingTaskKey, {
-            promptText: plainPromptText,
-            attachments: (content.attachments ?? []).map((a) => ({
-              id: a.id,
-              label: a.label,
-            })),
+            promptText: promptRecord.promptText,
+            attachments: promptRecord.attachments,
             // The serialized content restores file chips and attachments on
             // recovery, so an interrupted prompt comes back whole, not as bare
             // text.
-            contentXml: serializedContent,
+            contentXml: promptRecord.contentXml,
             // Reopen recovery in the space the prompt was submitted in.
             channelId: channelId ?? undefined,
           });

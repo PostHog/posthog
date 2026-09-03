@@ -3,6 +3,7 @@ import {
   buildPendingPromptKey,
   capPendingPrompts,
   listPendingPromptsNewestFirst,
+  pendingPromptRecordFromContent,
   pendingPromptToContent,
 } from "./pendingPrompts";
 
@@ -52,5 +53,26 @@ describe("pendingPromptToContent", () => {
     expect(content).toEqual({
       segments: [{ type: "text", text: "just text" }],
     });
+  });
+});
+
+describe("pendingPromptRecordFromContent", () => {
+  it("captures plain text, serialized chips, and attachments from the typed content", () => {
+    const record = pendingPromptRecordFromContent({
+      segments: [
+        { type: "text", text: "fix " },
+        {
+          type: "chip",
+          chip: { type: "file", id: "src/a.ts", label: "src/a.ts" },
+        },
+      ],
+      attachments: [{ id: "notes.txt", label: "notes.txt" }],
+    });
+
+    expect(record.promptText).toBe("fix @src/a.ts");
+    expect(record.contentXml).toContain('<file path="src/a.ts" />');
+    expect(record.attachments).toEqual([
+      { id: "notes.txt", label: "notes.txt" },
+    ]);
   });
 });

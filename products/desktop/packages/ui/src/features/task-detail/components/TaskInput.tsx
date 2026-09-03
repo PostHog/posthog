@@ -1115,7 +1115,7 @@ export function TaskInput({
       ...resolvedRun,
       instructions: contentToXml(content).trim(),
     });
-    const submitted = await handleSubmit(override);
+    const submitted = await handleSubmit(override, content);
     if (submitted) {
       track(ANALYTICS_EVENTS.AUTORESEARCH_RUN_STARTED, {
         direction: resolvedRun.direction,
