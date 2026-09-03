@@ -1,4 +1,3 @@
-from functools import cached_property
 from typing import Any, cast
 from uuid import UUID
 
@@ -69,11 +68,6 @@ class ChannelListPagination(LimitOffsetPagination):
     default_limit = None
 
 
-# Shared by the PUT and PATCH verbs on /instructions/ — same request/response contract,
-# PATCH is an alias for clients that can't send PUT.
-_SLACK_TASK_ROUTING_UNCHANGED = object()
-
-
 PUBLISH_INSTRUCTIONS_SCHEMA_KWARGS: dict[str, Any] = {
     "request": ChannelInstructionsWriteSerializer,
     "responses": {200: ChannelInstructionsSerializer},
@@ -123,17 +117,6 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def _user_id(self) -> int | None:
         return getattr(self.request.user, "id", None)
 
-    @cached_property
-    def _effective_membership_level(self) -> OrganizationMembership.Level | None:
-        return self.user_permissions.current_team.effective_membership_level
-
-    @cached_property
-    def _can_manage_slack_task_routing(self) -> bool:
-        effective_membership_level = self._effective_membership_level
-        return (
-            effective_membership_level is not None and effective_membership_level >= OrganizationMembership.Level.ADMIN
-        )
-
     @staticmethod
     def _sandbox_task_id(request: Request) -> UUID | None:
         authenticator = request.successful_authenticator
@@ -152,11 +135,7 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         ),
     )
     def list(self, request, *args, **kwargs):
-        channels = tasks_facade.list_channels(
-            self.team_id,
-            self._user_id(),
-            can_manage_slack_task_routing=self._can_manage_slack_task_routing,
-        )
+        channels = tasks_facade.list_channels(self.team_id, self._user_id())
         paginator = ChannelListPagination()
         page = paginator.paginate_queryset(cast(Any, channels), request, view=self)
         if page is None:
@@ -182,11 +161,7 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         user_id = self._user_id()
         if user_id is None:
             raise PermissionDenied("Provisioning default channels requires a user.")
-        provisioned = tasks_facade.provision_default_channels(
-            self.team_id,
-            user_id,
-            can_manage_slack_task_routing=self._can_manage_slack_task_routing,
-        )
+        provisioned = tasks_facade.provision_default_channels(self.team_id, user_id)
         return Response(ProvisionedChannelsSerializer(provisioned).data)
 
     @extend_schema(
@@ -273,7 +248,6 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             self._user_id(),
             name=serializer.validated_data["name"],
             star=serializer.validated_data["star"],
-            can_manage_slack_task_routing=self._can_manage_slack_task_routing,
         )
         if channel is None:
             return Response({"detail": "Invalid channel name"}, status=status.HTTP_400_BAD_REQUEST)
@@ -287,36 +261,44 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def partial_update(self, request, pk=None, **kwargs):
         serializer = ChannelUpdateSerializer(data=request.data, context={"team_id": self.team_id}, partial=True)
         serializer.is_valid(raise_exception=True)
-        can_manage_shared_settings = self._can_manage_slack_task_routing
-        slack_task_routing = serializer.validated_data.pop("slack_task_routing", _SLACK_TASK_ROUTING_UNCHANGED)
-        if slack_task_routing is not _SLACK_TASK_ROUTING_UNCHANGED and not can_manage_shared_settings:
-            raise PermissionDenied("Only project admins can change Slack task routing")
-        if slack_task_routing is _SLACK_TASK_ROUTING_UNCHANGED:
-            routing_kwargs: dict[str, tasks_facade.SlackTaskRoutingConfig | None] = {}
-        elif slack_task_routing is None:
-            routing_kwargs = {"slack_task_routing": None}
-        else:
-            public_channel = SlackIntegration(slack_task_routing["integration"]).get_public_channel_by_id(
-                slack_task_routing["slack_channel_id"]
-            )
-            if public_channel is None:
-                return Response(
-                    {"detail": "Choose an active public Slack channel."},
-                    status=status.HTTP_400_BAD_REQUEST,
+        membership_level = self.user_permissions.current_team.effective_membership_level
+        can_manage_shared_auto_archive = (
+            membership_level is not None and membership_level >= OrganizationMembership.Level.ADMIN
+        )
+        routing_kwargs: dict[str, tasks_facade.SlackTaskRoutingConfig | None] = {}
+        if "slack_task_routing" in serializer.validated_data:
+            slack_task_routing = serializer.validated_data.pop("slack_task_routing")
+            if slack_task_routing is None:
+                routing_kwargs["slack_task_routing"] = None
+            else:
+                source = SlackIntegration(slack_task_routing["integration"]).get_channel_by_id(
+                    slack_task_routing["slack_channel_id"]
                 )
-            routing_kwargs = {
-                "slack_task_routing": tasks_facade.SlackTaskRoutingConfig(
+                if (
+                    source is None
+                    or source.get("is_archived") is not False
+                    or source.get("is_private") is not False
+                    or source.get("is_im") is not False
+                    or source.get("is_mpim") is not False
+                    or source.get("is_channel") is not True
+                    or not isinstance(source.get("id"), str)
+                    or not isinstance(source.get("name"), str)
+                    or not source["name"]
+                ):
+                    return Response(
+                        {"detail": "Choose an active public Slack channel."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                routing_kwargs["slack_task_routing"] = tasks_facade.SlackTaskRoutingConfig(
                     integration_id=slack_task_routing["integration"].id,
-                    slack_channel_id=public_channel["id"],
-                    display_name=public_channel["name"],
+                    slack_channel_id=source["id"],
+                    display_name=source["name"],
                 )
-            }
         result = tasks_facade.update_channel(
             pk,
             self.team_id,
             self._user_id(),
-            can_manage_shared_auto_archive=can_manage_shared_settings,
-            can_manage_slack_task_routing=can_manage_shared_settings,
+            can_manage_shared_auto_archive=can_manage_shared_auto_archive,
             **routing_kwargs,
             **serializer.validated_data,
         )
@@ -328,16 +310,9 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise PermissionDenied("The general space can't be renamed")
         if result == "auto_archive_forbidden":
             raise PermissionDenied("Only project admins can change automatic archiving for shared spaces")
-        if result == "slack_task_routing_forbidden":
-            raise PermissionDenied("Only project admins can change Slack task routing")
         if result == "slack_task_routing_public_only":
             return Response(
                 {"detail": "Slack task routing can only target public spaces."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        if result == "slack_task_routing_invalid_integration":
-            return Response(
-                {"detail": "The Slack integration is no longer available in this project."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         if result == "slack_task_routing_taken":
@@ -349,12 +324,7 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return Response({"detail": "Invalid channel name"}, status=status.HTTP_400_BAD_REQUEST)
         if result == "name_taken":
             return Response({"detail": "A channel with this name already exists"}, status=status.HTTP_400_BAD_REQUEST)
-        channel = tasks_facade.get_channel(
-            pk,
-            self.team_id,
-            self._user_id(),
-            can_manage_slack_task_routing=self._can_manage_slack_task_routing,
-        )
+        channel = tasks_facade.get_channel(pk, self.team_id, self._user_id())
         if channel is None:
             raise NotFound()
         return Response(ChannelSerializer(channel).data)
@@ -386,12 +356,7 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     @extend_schema(responses={200: ChannelSerializer}, summary="Get a channel")
     def retrieve(self, request, pk=None, **kwargs):
-        channel = tasks_facade.get_channel(
-            pk,
-            self.team_id,
-            self._user_id(),
-            can_manage_slack_task_routing=self._can_manage_slack_task_routing,
-        )
+        channel = tasks_facade.get_channel(pk, self.team_id, self._user_id())
         if channel is None:
             raise NotFound()
         return Response(ChannelSerializer(channel).data)

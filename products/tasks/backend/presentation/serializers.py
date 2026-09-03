@@ -2082,10 +2082,6 @@ class ChannelSerializer(DataclassSerializer):
             "Slack channel routing for new root-thread tasks. Null means this space is not configured for Slack routing."
         ),
     )
-    can_manage_slack_task_routing = serializers.BooleanField(
-        read_only=True,
-        help_text="Whether the requester can change Slack task routing for this channel.",
-    )
     system_role = serializers.ChoiceField(
         choices=tasks_facade.Channel.SystemRole.choices,
         allow_null=True,
@@ -2109,7 +2105,6 @@ class ChannelSerializer(DataclassSerializer):
             "created_at",
             "created_by",
             "starred",
-            "can_manage_slack_task_routing",
             "system_role",
             "slack_task_routing",
         ]
@@ -2223,13 +2218,6 @@ class SlackTaskRoutingWriteSerializer(serializers.Serializer):
         max_length=64,
         help_text="Slack external channel identifier to route into this space.",
     )
-
-    def validate_integration(self, value: Integration) -> Integration:
-        if value.kind != Integration.IntegrationKind.SLACK:
-            raise serializers.ValidationError("Integration must be a Slack integration.")
-        if value.team_id != self.context["team_id"]:
-            raise serializers.ValidationError("Integration must belong to this project.")
-        return value
 
 
 class ChannelUpdateSerializer(serializers.Serializer):
