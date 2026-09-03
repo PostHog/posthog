@@ -102,6 +102,11 @@ export interface SummaryChangeContent {
     new_summary: string
 }
 
+export interface ImplementationDecisionContent {
+    supersede?: boolean
+    reason?: string
+}
+
 // ── Type labels ──────────────────────────────────────────────────────────────────────────────
 
 /** Human label for each artefact type as it reads in the activity log header. */
@@ -124,6 +129,7 @@ export const ARTEFACT_TYPE_LABELS: Record<string, string> = {
     related_to: 'Related report',
     code_review: 'Code review',
     check_result: 'Follow-up check',
+    implementation_decision: 'Open PR assessed',
 }
 
 export function artefactTypeLabel(type: string): string {
