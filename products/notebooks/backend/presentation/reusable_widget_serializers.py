@@ -60,6 +60,13 @@ class ReusableWidgetAttachRequestSerializer(serializers.Serializer):
 ReusableWidgetGenerateRequestSerializer = WidgetGenerateRequestSerializer
 
 
+class ReusableWidgetReviewRequestSerializer(serializers.Serializer):
+    pending_version_id = serializers.UUIDField(help_text="Draft version being reviewed.")
+    expected_current_version_id = serializers.UUIDField(
+        help_text="Published version observed when the review action started."
+    )
+
+
 class ReusableWidgetCatalogQuerySerializer(serializers.Serializer):
     search = serializers.CharField(
         required=False,
@@ -161,6 +168,10 @@ class ReusableWidgetDetailSerializer(serializers.Serializer):
         help_text="Catalog lifecycle of the reusable widget.",
     )
     current_version = ReusableWidgetVersionDetailSerializer(help_text="Current reusable widget version.")
+    pending_version = ReusableWidgetVersionDetailSerializer(
+        allow_null=True,
+        help_text="Generated draft waiting for manual review, or null when no review is pending.",
+    )
     version_count = serializers.IntegerField(help_text="Number of immutable versions in this widget's history.")
     instance_count = serializers.IntegerField(help_text="Number of notebook placements using this widget.")
     created_at = serializers.DateTimeField(help_text="When the widget identity was created.")
@@ -175,5 +186,6 @@ __all__ = [
     "ReusableWidgetGenerateRequestSerializer",
     "ReusableWidgetPageSerializer",
     "ReusableWidgetPublishRequestSerializer",
+    "ReusableWidgetReviewRequestSerializer",
     "WidgetFrameSerializer",
 ]

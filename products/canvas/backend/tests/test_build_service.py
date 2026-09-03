@@ -113,6 +113,32 @@ class TestRunCanvasBuild(BuildServiceBaseTest):
         assert draft_build.artifact_object_prefix
         assert self.canvas.published_build_id == published.id
 
+    def test_prepared_draft_keeps_the_published_source_head(self):
+        self._publish()
+        published_version_id = self.canvas.current_source_version_id
+        project = synthetic_source_project("export default function C() { return 2 }")
+        prepared = build_service.prepare_source_project_publish(
+            self.canvas,
+            project=project,
+            has_expected_version=True,
+            expected_version_id=str(published_version_id),
+        )
+
+        draft, _build = build_service.commit_source_project_draft(
+            self.canvas,
+            prepared=prepared,
+            prompt="Show the new design",
+            has_expected_version=True,
+            expected_version_id=str(published_version_id),
+            task_id=None,
+            created_by=self.user,
+        )
+
+        self.canvas.refresh_from_db()
+        assert draft.draft is True
+        assert draft.parent_version_id == published_version_id
+        assert self.canvas.current_source_version_id == published_version_id
+
     def test_stale_head_does_not_advance_pointer(self):
         build = self._publish()
         second = self._publish()  # supersedes the first build, moves the head

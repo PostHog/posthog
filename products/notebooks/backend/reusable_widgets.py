@@ -1,5 +1,6 @@
 import json
 from datetime import datetime
+from typing import Protocol, cast
 from uuid import UUID
 
 from django.db import transaction
@@ -30,6 +31,11 @@ MAX_REUSABLE_WIDGET_DEMO_ROWS = 20
 MAX_REUSABLE_WIDGET_DEMO_BYTES = 512 * 1_024
 MAX_REUSABLE_WIDGET_BINDING_HOG_LENGTH = 10_000
 MAX_REUSABLE_WIDGET_BINDINGS_BYTES = 256 * 1_024
+
+
+class _WidgetCounts(Protocol):
+    version_count: int
+    instance_count: int
 
 
 @frozen
@@ -79,6 +85,7 @@ class ReusableWidgetDetail:
     tags: list[str]
     publication_status: str
     current_version: ReusableWidgetVersionDetail
+    pending_version: ReusableWidgetVersionDetail | None
     version_count: int
     instance_count: int
     created_at: datetime
@@ -110,6 +117,8 @@ def _summary(widget: GeneratedWidget) -> ReusableWidgetSummary:
     if widget.current_version_id is None or widget.published_at is None:
         raise WidgetError("This reusable widget is unavailable.", "widget_unavailable")
     updated_at = widget.updated_at or widget.published_at
+    counts = cast(_WidgetCounts, widget)
+    version_count = counts.version_count - int(widget.pending_version_id is not None)
     return ReusableWidgetSummary(
         id=widget.id,
         name=widget.name,
@@ -117,8 +126,8 @@ def _summary(widget: GeneratedWidget) -> ReusableWidgetSummary:
         tags=_tag_list(widget.tags),
         publication_status=widget.publication_status,
         current_version_id=widget.current_version_id,
-        version_count=widget.version_count,
-        instance_count=widget.instance_count,
+        version_count=version_count,
+        instance_count=counts.instance_count,
         created_at=widget.created_at,
         published_at=widget.published_at,
         updated_at=updated_at,
@@ -160,10 +169,32 @@ def _canvas_version(widget: GeneratedWidget, version: GeneratedWidgetVersion):
     return versions[0] if versions else None
 
 
+def _version_detail(
+    *, widget: GeneratedWidget, version: GeneratedWidgetVersion, version_number: int
+) -> ReusableWidgetVersionDetail:
+    canvas_version = _canvas_version(widget, version)
+    contract = _input_contract(version.input_contract)
+    return ReusableWidgetVersionDetail(
+        id=version.id,
+        title=version.title,
+        version=version_number,
+        operation=version.operation,
+        model=version.model or None,
+        artifact_url=canvas_version.artifact_url if canvas_version is not None else None,
+        build_status=canvas_version.build_status if canvas_version is not None else None,
+        build_hash=canvas_version.build_hash if canvas_version is not None else None,
+        frame_names=[str(item["slot"]) for item in contract if item.get("slot")],
+        input_contract=contract,
+        security_review=_security_review_state(version),
+        has_demo_data=bool(version.demo_data),
+        created_at=version.created_at,
+    )
+
+
 def get_reusable_widget(*, team_id: int, widget_id: UUID) -> ReusableWidgetDetail:
     widget = (
         _published_widgets(team_id)
-        .select_related("current_version")
+        .select_related("current_version", "pending_version")
         .annotate(
             version_count=Count("versions", distinct=True),
             instance_count=Count("notebook_instances", distinct=True),
@@ -173,31 +204,30 @@ def get_reusable_widget(*, team_id: int, widget_id: UUID) -> ReusableWidgetDetai
     )
     if widget is None or widget.current_version is None or widget.published_at is None:
         raise WidgetError("This reusable widget does not exist.", "widget_not_found")
-    canvas_version = _canvas_version(widget, widget.current_version)
-    contract = _input_contract(widget.current_version.input_contract)
+    counts = cast(_WidgetCounts, widget)
+    version_count = counts.version_count - int(widget.pending_version_id is not None)
     return ReusableWidgetDetail(
         id=widget.id,
         name=widget.name,
         description=widget.description,
         tags=_tag_list(widget.tags),
         publication_status=widget.publication_status,
-        current_version=ReusableWidgetVersionDetail(
-            id=widget.current_version.id,
-            title=widget.current_version.title,
-            version=widget.version_count,
-            operation=widget.current_version.operation,
-            model=widget.current_version.model or None,
-            artifact_url=canvas_version.artifact_url if canvas_version is not None else None,
-            build_status=canvas_version.build_status if canvas_version is not None else None,
-            build_hash=canvas_version.build_hash if canvas_version is not None else None,
-            frame_names=[str(item["slot"]) for item in contract if item.get("slot")],
-            input_contract=contract,
-            security_review=_security_review_state(widget.current_version),
-            has_demo_data=bool(widget.current_version.demo_data),
-            created_at=widget.current_version.created_at,
+        current_version=_version_detail(
+            widget=widget,
+            version=widget.current_version,
+            version_number=version_count,
         ),
-        version_count=widget.version_count,
-        instance_count=widget.instance_count,
+        pending_version=(
+            _version_detail(
+                widget=widget,
+                version=widget.pending_version,
+                version_number=version_count + 1,
+            )
+            if widget.pending_version is not None
+            else None
+        ),
+        version_count=version_count,
+        instance_count=counts.instance_count,
         created_at=widget.created_at,
         published_at=widget.published_at,
         updated_at=widget.updated_at or widget.published_at,
@@ -206,7 +236,12 @@ def get_reusable_widget(*, team_id: int, widget_id: UUID) -> ReusableWidgetDetai
 
 def _fit_demo_data(frames: dict[str, dict[str, object]]) -> dict[str, dict[str, object]]:
     while len(json.dumps(frames, separators=(",", ":"), default=str).encode()) > MAX_REUSABLE_WIDGET_DEMO_BYTES:
-        largest = max(frames.values(), key=lambda frame: len(frame.get("rows", [])), default=None)
+
+        def row_count(frame: dict[str, object]) -> int:
+            rows = frame.get("rows")
+            return len(rows) if isinstance(rows, list) else 0
+
+        largest = max(frames.values(), key=row_count, default=None)
         if largest is None:
             break
         rows = largest.get("rows")
@@ -366,7 +401,10 @@ def attach_reusable_widget(
     if widget is None or widget.current_version is None:
         raise WidgetError("This reusable widget does not exist.", "widget_not_found")
     version = (
-        GeneratedWidgetVersion.objects.for_team(notebook.team_id).filter(id=version_id, widget=widget).first()
+        GeneratedWidgetVersion.objects.for_team(notebook.team_id)
+        .filter(id=version_id, widget=widget)
+        .exclude(id=widget.pending_version_id)
+        .first()
         if version_id is not None
         else widget.current_version
     )
@@ -504,15 +542,113 @@ def fork_reusable_widget(*, notebook: Notebook, node_id: str, user: User) -> Wid
     return get_widget_status(notebook=notebook, node_id=node_id)
 
 
-def read_reusable_widget_demo_frame(*, team_id: int, widget_id: UUID, frame_name: str) -> WidgetFrameRead:
+def read_reusable_widget_demo_frame(
+    *, team_id: int, widget_id: UUID, frame_name: str, version_id: UUID | None = None
+) -> WidgetFrameRead:
     widget = _published_widgets(team_id).select_related("current_version").filter(id=widget_id).first()
     if widget is None or widget.current_version is None:
         raise WidgetError("This reusable widget does not exist.", "widget_not_found")
-    demo_data = widget.current_version.demo_data
+    version = (
+        GeneratedWidgetVersion.objects.for_team(team_id).filter(id=version_id, widget=widget).first()
+        if version_id is not None
+        else widget.current_version
+    )
+    if version is None:
+        raise WidgetError("This reusable widget version does not exist.", "version_missing")
+    demo_data = version.demo_data
     frame = demo_data.get(frame_name) if isinstance(demo_data, dict) else None
     if not isinstance(frame, dict):
         raise WidgetError("This demo dataframe is unavailable.", "frame_not_found")
     return WidgetFrameRead(frame=frame)
+
+
+def save_reusable_widget_version(
+    *,
+    team_id: int,
+    widget_id: UUID,
+    pending_version_id: UUID,
+    expected_current_version_id: UUID,
+    user_id: int,
+) -> ReusableWidgetDetail:
+    from products.canvas.backend import (  # noqa: PLC0415 — keeps Canvas build imports off notebook startup
+        notebook_integration as canvas_facade,
+    )
+
+    with transaction.atomic():
+        widget = (
+            _published_widgets(team_id)
+            .select_for_update(of=("self",))
+            .select_related("current_version", "pending_version")
+            .filter(id=widget_id)
+            .first()
+        )
+        if widget is None or widget.current_version is None:
+            raise WidgetError("This reusable widget does not exist.", "widget_not_found")
+        if widget.current_version_id != expected_current_version_id:
+            raise WidgetConflictError(
+                "This reusable widget changed since you opened it. Reload it before saving.",
+                "generation_conflict",
+            )
+        if widget.pending_version is None or widget.pending_version_id != pending_version_id:
+            raise WidgetConflictError("This draft is no longer waiting for review.", "review_conflict")
+        candidate = widget.pending_version
+        canvas_versions = canvas_facade.list_notebook_canvas_versions(
+            team_id=team_id,
+            canvas_id=widget.canvas_id,
+            version_ids=[candidate.canvas_source_version_id],
+        )
+        canvas_version = canvas_versions[0] if canvas_versions else None
+        if canvas_version is None or canvas_version.build_status != "ready" or not canvas_version.artifact_url:
+            raise WidgetConflictError(
+                "Wait for the draft preview to finish building before saving it.", "review_not_ready"
+            )
+        try:
+            canvas_facade.promote_notebook_canvas_draft(
+                team_id=team_id,
+                canvas_id=widget.canvas_id,
+                user_id=user_id,
+                version_id=candidate.canvas_source_version_id,
+                expected_current_version_id=widget.current_version.canvas_source_version_id,
+            )
+        except canvas_facade.NotebookCanvasVersionConflictError as error:
+            raise WidgetConflictError(
+                "This reusable widget changed since you opened it. Reload it before saving.",
+                "generation_conflict",
+            ) from error
+        except canvas_facade.NotebookCanvasError as error:
+            raise WidgetError("This reusable widget draft could not be saved.", "review_save_failed") from error
+        widget.current_version = candidate
+        widget.pending_version = None
+        widget.updated_at = timezone.now()
+        widget.save(update_fields=["current_version", "pending_version", "updated_at"])
+    return get_reusable_widget(team_id=team_id, widget_id=widget_id)
+
+
+def discard_reusable_widget_version(
+    *, team_id: int, widget_id: UUID, pending_version_id: UUID, expected_current_version_id: UUID
+) -> ReusableWidgetDetail:
+    with transaction.atomic():
+        widget = (
+            _published_widgets(team_id)
+            .select_for_update(of=("self",))
+            .select_related("current_version", "pending_version")
+            .filter(id=widget_id)
+            .first()
+        )
+        if widget is None or widget.current_version is None:
+            raise WidgetError("This reusable widget does not exist.", "widget_not_found")
+        if widget.current_version_id != expected_current_version_id:
+            raise WidgetConflictError(
+                "This reusable widget changed since you opened it. Reload it before discarding the draft.",
+                "generation_conflict",
+            )
+        if widget.pending_version is None or widget.pending_version_id != pending_version_id:
+            raise WidgetConflictError("This draft is no longer waiting for review.", "review_conflict")
+        candidate = widget.pending_version
+        widget.pending_version = None
+        widget.save(update_fields=["pending_version"])
+        candidate.delete()
+    return get_reusable_widget(team_id=team_id, widget_id=widget_id)
 
 
 def read_reusable_widget_source(*, team_id: int, widget_id: UUID, version_id: UUID | None = None) -> str:

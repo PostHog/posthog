@@ -17,12 +17,14 @@ from products.notebooks.backend.facade.widgets import (
     WidgetConflictError,
     WidgetError,
     WidgetRateLimitError,
+    discard_reusable_widget_version,
     get_reusable_widget,
     get_reusable_widget_status,
     is_notebook_widget_enabled,
     list_reusable_widgets,
     read_reusable_widget_demo_frame,
     read_reusable_widget_source,
+    save_reusable_widget_version,
     start_reusable_widget_generation,
 )
 from products.notebooks.backend.presentation.reusable_widget_serializers import (
@@ -30,6 +32,7 @@ from products.notebooks.backend.presentation.reusable_widget_serializers import 
     ReusableWidgetDetailSerializer,
     ReusableWidgetGenerateRequestSerializer,
     ReusableWidgetPageSerializer,
+    ReusableWidgetReviewRequestSerializer,
 )
 from products.notebooks.backend.presentation.widget_serializers import (
     WidgetErrorSerializer,
@@ -45,7 +48,8 @@ class ReusableWidgetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     required_scopes = ["notebook:read"]
 
     def _require_feature(self) -> None:
-        if not is_notebook_widget_enabled(self.request.user):
+        user = self.request.user
+        if not isinstance(user, User) or not is_notebook_widget_enabled(user):
             raise Http404()
 
     def _widget_id(self) -> UUID:
@@ -109,7 +113,14 @@ class ReusableWidgetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 OpenApiTypes.STR,
                 OpenApiParameter.PATH,
                 description="Logical dataframe slot requested by the widget demo.",
-            )
+            ),
+            OpenApiParameter(
+                "version_id",
+                OpenApiTypes.UUID,
+                OpenApiParameter.QUERY,
+                required=False,
+                description="Immutable version whose saved demo data should be returned.",
+            ),
         ],
     )
     @action(
@@ -122,11 +133,14 @@ class ReusableWidgetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         self._require_feature()
         if frame_name is None:
             raise Http404()
+        query = WidgetSourceQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
         try:
             result = read_reusable_widget_demo_frame(
                 team_id=self.team_id,
                 widget_id=self._widget_id(),
                 frame_name=frame_name,
+                version_id=query.validated_data.get("version_id"),
             )
         except WidgetError as error:
             return self._error_response(error)
@@ -203,6 +217,63 @@ class ReusableWidgetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         except WidgetError as error:
             return self._error_response(error)
         return Response(WidgetStatusSerializer(result).data, status=202)
+
+    @extend_schema(
+        operation_id="reusable_widgets_save_version",
+        request=ReusableWidgetReviewRequestSerializer,
+        responses={
+            200: ReusableWidgetDetailSerializer,
+            400: WidgetErrorSerializer,
+            404: WidgetErrorSerializer,
+            409: WidgetErrorSerializer,
+        },
+    )
+    @action(methods=["POST"], detail=True, url_path="save-version", required_scopes=["notebook:write"])
+    def save_version(self, request: Request, **kwargs) -> Response:
+        self._require_feature()
+        user = request.user
+        if not isinstance(user, User):
+            raise PermissionDenied("A user is required to save a reusable widget version.")
+        serializer = ReusableWidgetReviewRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            result = save_reusable_widget_version(
+                team_id=self.team_id,
+                widget_id=self._widget_id(),
+                pending_version_id=serializer.validated_data["pending_version_id"],
+                expected_current_version_id=serializer.validated_data["expected_current_version_id"],
+                user_id=user.id,
+            )
+        except WidgetError as error:
+            return self._error_response(error)
+        return Response(ReusableWidgetDetailSerializer(result).data)
+
+    @extend_schema(
+        operation_id="reusable_widgets_discard_version",
+        request=ReusableWidgetReviewRequestSerializer,
+        responses={
+            200: ReusableWidgetDetailSerializer,
+            404: WidgetErrorSerializer,
+            409: WidgetErrorSerializer,
+        },
+    )
+    @action(methods=["POST"], detail=True, url_path="discard-version", required_scopes=["notebook:write"])
+    def discard_version(self, request: Request, **kwargs) -> Response:
+        self._require_feature()
+        if not isinstance(request.user, User):
+            raise PermissionDenied("A user is required to discard a reusable widget draft.")
+        serializer = ReusableWidgetReviewRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            result = discard_reusable_widget_version(
+                team_id=self.team_id,
+                widget_id=self._widget_id(),
+                pending_version_id=serializer.validated_data["pending_version_id"],
+                expected_current_version_id=serializer.validated_data["expected_current_version_id"],
+            )
+        except WidgetError as error:
+            return self._error_response(error)
+        return Response(ReusableWidgetDetailSerializer(result).data)
 
     @extend_schema(
         operation_id="reusable_widgets_status",

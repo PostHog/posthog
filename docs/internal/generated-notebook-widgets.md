@@ -28,6 +28,8 @@ A generated widget can be published to the project-scoped reusable widget catalo
 
 A reusable placement follows the widget's latest version by default. Selecting a historical version in the notebook and choosing **Pin this version** adds that immutable version to the placement. **Use latest** removes the pin. Shared source changes must be made from the catalog page; **Fork and edit here** copies the selected version into a private notebook widget before enabling notebook-local changes.
 
+Improving or regenerating a reusable widget creates a draft instead of changing the published version. Review the draft's runnable demo, input contract, security review, and source on the catalog detail page. **Save version** publishes it for unpinned placements, while **Discard draft** leaves the published version unchanged.
+
 `<Widget>` nodes store a stable `id`, an optional `version`, and notebook-local `inputs`. The server remains the source of truth for the placement and its bindings. A binding maps each logical contract slot to a local SQL or Python dataframe, so two instances of the same reusable widget can use different notebook data.
 
 An input binding can also include a pure Hog transform. It receives `rows` as a list of row objects, `columns`, and `frame`, and must return a list of row objects matching the widget's expected contract. Hog is compiled through the existing compiler and runs in the browser VM with no callable functions, no asynchronous steps, a 100 ms timeout, and a 16 MiB memory limit. Direct bindings retain the existing schema-hash check; transformed bindings are validated as bounded tabular output before the iframe receives them.

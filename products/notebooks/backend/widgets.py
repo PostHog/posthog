@@ -724,7 +724,7 @@ def start_widget_generation(
         locked_instance = (
             NotebookWidgetInstance.objects.for_team(notebook.team_id)
             .select_for_update(of=("self", "widget"))
-            .select_related("widget", "widget__current_version")
+            .select_related("widget", "widget__current_version", "widget__pending_version")
             .get(id=instance.id)
         )
         if (
@@ -743,6 +743,11 @@ def start_widget_generation(
             raise WidgetConflictError(
                 "This widget is already being generated. Cancel it before starting another version.",
                 "generation_in_progress",
+            )
+        if allow_reusable and locked_instance.widget.pending_version_id is not None:
+            raise WidgetConflictError(
+                "Review or discard the pending version before generating another update.",
+                "review_pending",
             )
         base_version = locked_instance.widget.current_version
         if allow_reusable and (
@@ -1157,10 +1162,19 @@ def run_widget_generation_job(job_id: UUID, team_id: int) -> None:
                     "This widget changed while the new version was being generated.",
                     "generation_conflict",
                 )
-            publication = canvas_facade.publish_prepared_notebook_canvas_source(
-                team_id=job.team_id,
-                user_id=job.requested_by.id,
-                prepared=prepared_source,
+            is_reusable = widget.publication_status == GeneratedWidget.PublicationStatus.PUBLISHED
+            publication = (
+                canvas_facade.publish_prepared_notebook_canvas_draft(
+                    team_id=job.team_id,
+                    user_id=job.requested_by.id,
+                    prepared=prepared_source,
+                )
+                if is_reusable
+                else canvas_facade.publish_prepared_notebook_canvas_source(
+                    team_id=job.team_id,
+                    user_id=job.requested_by.id,
+                    prepared=prepared_source,
+                )
             )
             prompt_history = (
                 _extend_prompt_history(_prompt_history(job.base_version), job.prompt)
@@ -1201,12 +1215,17 @@ def run_widget_generation_job(job_id: UUID, team_id: int) -> None:
                 security_reviewed_at=security_reviewed_at,
                 created_by=job.requested_by,
             )
-            widget.current_version = version
-            widget_update_fields = ["current_version"]
-            if widget.publication_status == GeneratedWidget.PublicationStatus.PUBLISHED:
-                widget.updated_at = timezone.now()
-                widget_update_fields.append("updated_at")
+            if is_reusable:
+                if widget.pending_version_id is not None:
+                    raise WidgetConflictError(
+                        "Another reusable widget version is already waiting for review.",
+                        "review_pending",
+                    )
+                widget.pending_version = version
+                widget_update_fields = ["pending_version"]
             else:
+                widget.current_version = version
+                widget_update_fields = ["current_version"]
                 widget.name = title
                 widget_update_fields.append("name")
             widget.save(update_fields=widget_update_fields)
@@ -1328,7 +1347,7 @@ def get_widget_status(*, notebook: Notebook, node_id: str) -> WidgetStatus:
     assert_widget_node_exists(notebook, node_id)
     instance = (
         NotebookWidgetInstance.objects.for_team(notebook.team_id)
-        .select_related("widget", "widget__current_version", "pinned_version")
+        .select_related("widget", "widget__current_version", "widget__pending_version", "pinned_version")
         .filter(notebook=notebook, node_id=node_id)
         .first()
     )
@@ -1492,6 +1511,12 @@ def list_widget_versions(*, notebook: Notebook, node_id: str, offset: int = 0, l
     if instance is None:
         return WidgetVersionPage(results=[], count=0, next_offset=None)
     queryset = GeneratedWidgetVersion.objects.for_team(notebook.team_id).filter(widget=instance.widget)
+    pending_version_id = instance.widget.pending_version_id
+    if (
+        instance.widget.publication_status == GeneratedWidget.PublicationStatus.PUBLISHED
+        and pending_version_id is not None
+    ):
+        queryset = queryset.exclude(id=pending_version_id)
     count = queryset.count()
     versions = list(queryset.order_by("-created_at")[offset : offset + limit])
     canvas_versions = canvas_facade.list_notebook_canvas_versions(
@@ -1543,11 +1568,12 @@ def set_widget_instance_version(*, notebook: Notebook, node_id: str, version_id:
         if instance is None:
             raise WidgetError("Generate the widget before choosing a version.", "version_missing")
         if version_id is not None:
-            version = (
-                GeneratedWidgetVersion.objects.for_team(notebook.team_id)
-                .filter(id=version_id, widget_id=instance.widget_id)
-                .first()
+            versions = GeneratedWidgetVersion.objects.for_team(notebook.team_id).filter(
+                id=version_id, widget_id=instance.widget_id
             )
+            if instance.widget.pending_version_id is not None:
+                versions = versions.exclude(id=instance.widget.pending_version_id)
+            version = versions.first()
             if version is None:
                 raise WidgetError("This widget version does not exist.", "version_missing")
         else:
@@ -1570,11 +1596,12 @@ def _get_instance_and_version(
     if instance is None:
         raise WidgetError("Generate the widget before viewing its source.", "version_missing")
     if version_id is not None:
-        version = (
-            GeneratedWidgetVersion.objects.for_team(notebook.team_id)
-            .filter(id=version_id, widget=instance.widget)
-            .first()
+        versions = GeneratedWidgetVersion.objects.for_team(notebook.team_id).filter(
+            id=version_id, widget=instance.widget
         )
+        if instance.widget.pending_version_id is not None:
+            versions = versions.exclude(id=instance.widget.pending_version_id)
+        version = versions.first()
     else:
         version = instance.pinned_version or instance.widget.current_version
     if version is None:

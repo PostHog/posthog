@@ -193,6 +193,64 @@ def publish_prepared_notebook_canvas_source(
     return result.version.id
 
 
+def publish_prepared_notebook_canvas_draft(
+    *, team_id: int, user_id: int, prepared: PreparedNotebookCanvasSource
+) -> UUID:
+    canvas = (
+        Canvas.objects.for_team(team_id)
+        .filter(id=prepared.canvas_id, deleted=False, source_policy=Canvas.SOURCE_POLICY_NOTEBOOK_WIDGET)
+        .first()
+    )
+    user = User.objects.filter(id=user_id).first()
+    if canvas is None or user is None:
+        raise NotebookCanvasNotFoundError
+    try:
+        version, _build = build_service.commit_source_project_draft(
+            canvas,
+            prepared=prepared.prepared,
+            prompt=prepared.prompt,
+            has_expected_version=True,
+            expected_version_id=(
+                str(prepared.expected_current_version_id) if prepared.expected_current_version_id else None
+            ),
+            task_id=None,
+            created_by=user,
+        )
+    except build_service.CanvasVersionConflict as error:
+        raise NotebookCanvasVersionConflictError from error
+    except build_service.CanvasBuildCapacityExceeded as error:
+        raise NotebookCanvasBuildCapacityError from error
+    except ObjectStorageError as error:
+        raise NotebookCanvasError from error
+    return version.id
+
+
+def promote_notebook_canvas_draft(
+    *, team_id: int, canvas_id: UUID, user_id: int, version_id: UUID, expected_current_version_id: UUID
+) -> None:
+    canvas = (
+        Canvas.objects.for_team(team_id)
+        .filter(id=canvas_id, deleted=False, source_policy=Canvas.SOURCE_POLICY_NOTEBOOK_WIDGET)
+        .first()
+    )
+    user = User.objects.filter(id=user_id).first()
+    if canvas is None or user is None:
+        raise NotebookCanvasNotFoundError
+    try:
+        build_service.promote_draft_version(
+            canvas,
+            version_id,
+            expected_current_version_id,
+            user=user,
+        )
+    except build_service.CanvasVersionConflict as error:
+        raise NotebookCanvasVersionConflictError from error
+    except build_service.CanvasBuildCapacityExceeded as error:
+        raise NotebookCanvasBuildCapacityError from error
+    except CanvasSourceVersion.DoesNotExist as error:
+        raise NotebookCanvasNotFoundError from error
+
+
 def list_notebook_canvas_versions(
     *, team_id: int, canvas_id: UUID, version_ids: list[UUID] | None = None
 ) -> list[NotebookCanvasVersion]:
@@ -203,11 +261,13 @@ def list_notebook_canvas_versions(
     )
     if canvas is None:
         raise NotebookCanvasNotFoundError
-    versions_queryset = CanvasSourceVersion.objects.for_team(team_id).filter(canvas_id=canvas.id, draft=False)
+    versions_queryset = CanvasSourceVersion.objects.for_team(team_id).filter(canvas_id=canvas.id)
     builds_queryset = CanvasBuild.objects.for_team(team_id).filter(canvas_id=canvas.id)
     if version_ids is not None:
         versions_queryset = versions_queryset.filter(id__in=version_ids)
         builds_queryset = builds_queryset.filter(source_version_id__in=version_ids)
+    else:
+        versions_queryset = versions_queryset.filter(draft=False)
     versions = list(versions_queryset.order_by("created_at"))
     builds = builds_queryset.order_by("-created_at")
     latest_builds: dict[UUID, CanvasBuild] = {}

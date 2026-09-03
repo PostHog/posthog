@@ -6,8 +6,10 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
 import {
+    reusableWidgetsDiscardVersion,
     reusableWidgetsGenerate,
     reusableWidgetsRetrieve,
+    reusableWidgetsSaveVersion,
     reusableWidgetsSource,
     reusableWidgetsStatus,
 } from 'products/notebooks/frontend/generated/api'
@@ -26,6 +28,9 @@ export interface reusableWidgetLogicValues {
     reusableWidget: ReusableWidgetDetailApi | null
     reusableWidgetError: string | null
     reusableWidgetLoading: boolean
+    reviewError: string | null
+    reviewResult: ReusableWidgetDetailApi | null
+    reviewResultLoading: boolean
     runtimeError: string | null
     source: string | null
     sourceError: string | null
@@ -50,6 +55,18 @@ export interface reusableWidgetLogicActions {
     openSourceModal: () => { value: true }
     setRuntimeError: (error: string | null) => { error: string | null }
     pollUpdate: () => { value: true }
+    discardVersion: () => { value: true }
+    discardVersionFailure: (error: string, errorObject?: unknown) => { error: string; errorObject?: unknown }
+    discardVersionSuccess: (
+        reviewResult: ReusableWidgetDetailApi,
+        payload?: { value: true }
+    ) => { reviewResult: ReusableWidgetDetailApi; payload?: { value: true } }
+    saveVersion: () => { value: true }
+    saveVersionFailure: (error: string, errorObject?: unknown) => { error: string; errorObject?: unknown }
+    saveVersionSuccess: (
+        reviewResult: ReusableWidgetDetailApi,
+        payload?: { value: true }
+    ) => { reviewResult: ReusableWidgetDetailApi; payload?: { value: true } }
     setChangePrompt: (prompt: string) => { prompt: string }
     updateFailed: (error: string) => { error: string }
     updateFinished: () => { value: true }
@@ -86,7 +103,14 @@ export const reusableWidgetLogic = kea<reusableWidgetLogicType>([
         updateStarted: true,
     }),
     reducers({
-        artifactUnavailable: [false, { markArtifactUnavailable: () => true, loadReusableWidget: () => false }],
+        artifactUnavailable: [
+            false,
+            {
+                markArtifactUnavailable: () => true,
+                loadReusableWidget: () => false,
+                loadReusableWidgetSuccess: () => false,
+            },
+        ],
         changePrompt: ['', { setChangePrompt: (_, { prompt }) => prompt, updateFinished: () => '' }],
         reusableWidgetError: [
             null as string | null,
@@ -95,12 +119,24 @@ export const reusableWidgetLogic = kea<reusableWidgetLogicType>([
                 loadReusableWidgetFailure: (_, { error }) => error,
             },
         ],
-        runtimeError: [null as string | null, { setRuntimeError: (_, { error }) => error }],
+        runtimeError: [
+            null as string | null,
+            { setRuntimeError: (_, { error }) => error, loadReusableWidgetSuccess: () => null },
+        ],
         sourceError: [
             null as string | null,
             {
                 loadSource: () => null,
                 loadSourceFailure: (_, { error }) => error,
+            },
+        ],
+        reviewError: [
+            null as string | null,
+            {
+                saveVersion: () => null,
+                discardVersion: () => null,
+                saveVersionFailure: (_, { error }) => error,
+                discardVersionFailure: (_, { error }) => error,
             },
         ],
         sourceModalOpen: [false, { openSourceModal: () => true, closeSourceModal: () => false }],
@@ -129,14 +165,57 @@ export const reusableWidgetLogic = kea<reusableWidgetLogicType>([
                     if (!values.currentTeamId) {
                         throw new Error('Select a project to load this reusable widget.')
                     }
-                    const response = await reusableWidgetsSource(String(values.currentTeamId), props.widgetId)
+                    const versionId = values.reusableWidget?.pending_version?.id
+                    const response = await reusableWidgetsSource(
+                        String(values.currentTeamId),
+                        props.widgetId,
+                        versionId ? { version_id: versionId } : undefined
+                    )
                     return response.source
+                },
+            },
+        ],
+        reviewResult: [
+            null as ReusableWidgetDetailApi | null,
+            {
+                saveVersion: async () => {
+                    if (!values.currentTeamId || !values.reusableWidget?.pending_version) {
+                        throw new Error('Reload the reusable widget before saving this draft.')
+                    }
+                    return await reusableWidgetsSaveVersion(String(values.currentTeamId), props.widgetId, {
+                        pending_version_id: values.reusableWidget.pending_version.id,
+                        expected_current_version_id: values.reusableWidget.current_version.id,
+                    })
+                },
+                discardVersion: async () => {
+                    if (!values.currentTeamId || !values.reusableWidget?.pending_version) {
+                        throw new Error('Reload the reusable widget before discarding this draft.')
+                    }
+                    return await reusableWidgetsDiscardVersion(String(values.currentTeamId), props.widgetId, {
+                        pending_version_id: values.reusableWidget.pending_version.id,
+                        expected_current_version_id: values.reusableWidget.current_version.id,
+                    })
                 },
             },
         ],
     })),
     listeners(({ actions, cache, props, values }) => ({
         openSourceModal: actions.loadSource,
+        loadReusableWidgetSuccess: ({ reusableWidget }) => {
+            if (
+                reusableWidget.pending_version &&
+                reusableWidget.pending_version.build_status !== 'ready' &&
+                reusableWidget.pending_version.build_status !== 'failed' &&
+                !values.updateInFlight
+            ) {
+                actions.updateStarted()
+                cache.disposables.add(() => {
+                    const intervalId = window.setInterval(() => actions.pollUpdate(), 2_000)
+                    return () => window.clearInterval(intervalId)
+                }, 'widgetUpdatePoll')
+                actions.pollUpdate()
+            }
+        },
         updateReusableWidget: async ({ operation }) => {
             const prompt = values.changePrompt.trim()
             if (!values.currentTeamId || !values.reusableWidget || !prompt || values.updateInFlight) {
@@ -177,13 +256,32 @@ export const reusableWidgetLogic = kea<reusableWidgetLogicType>([
                 ) {
                     return
                 }
-                cache.disposables.dispose('widgetUpdatePoll')
                 const reusableWidget = await reusableWidgetsRetrieve(String(values.currentTeamId), props.widgetId)
+                actions.loadReusableWidgetSuccess(reusableWidget)
+                if (reusableWidget.pending_version) {
+                    if (
+                        reusableWidget.pending_version.build_status !== 'ready' &&
+                        reusableWidget.pending_version.build_status !== 'failed'
+                    ) {
+                        return
+                    }
+                    cache.disposables.dispose('widgetUpdatePoll')
+                    if (
+                        reusableWidget.pending_version.build_status === 'ready' &&
+                        reusableWidget.pending_version.artifact_url
+                    ) {
+                        actions.updateFinished()
+                        lemonToast.success('Draft ready to review')
+                        return
+                    }
+                    actions.updateFailed('The reusable widget draft could not be built.')
+                    return
+                }
+                cache.disposables.dispose('widgetUpdatePoll')
                 if (
                     status.lifecycle_status === 'ready' &&
                     reusableWidget.current_version.id !== cache.updateStartingVersion
                 ) {
-                    actions.loadReusableWidgetSuccess(reusableWidget)
                     actions.updateFinished()
                     lemonToast.success('Reusable widget updated')
                     return
@@ -193,6 +291,16 @@ export const reusableWidgetLogic = kea<reusableWidgetLogicType>([
                 cache.disposables.dispose('widgetUpdatePoll')
                 actions.updateFailed(error instanceof Error ? error.message : 'The widget status could not be loaded.')
             }
+        },
+        saveVersionSuccess: ({ reviewResult }) => {
+            actions.loadReusableWidgetSuccess(reviewResult)
+            actions.closeSourceModal()
+            lemonToast.success('Reusable widget version saved')
+        },
+        discardVersionSuccess: ({ reviewResult }) => {
+            actions.loadReusableWidgetSuccess(reviewResult)
+            actions.closeSourceModal()
+            lemonToast.success('Draft discarded')
         },
     })),
     afterMount(({ actions }) => actions.loadReusableWidget()),

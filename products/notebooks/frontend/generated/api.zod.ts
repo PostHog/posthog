@@ -9,6 +9,11 @@
  */
 import * as zod from 'zod'
 
+export const ReusableWidgetsDiscardVersionBody = /* @__PURE__ */ zod.object({
+    pending_version_id: zod.uuid().describe('Draft version being reviewed.'),
+    expected_current_version_id: zod.uuid().describe('Published version observed when the review action started.'),
+})
+
 export const reusableWidgetsGenerateBodyPromptMax = 50000
 
 export const reusableWidgetsGenerateBodyModelDefault = `claude-sonnet-4-6`
@@ -42,6 +47,11 @@ export const ReusableWidgetsGenerateBody = /* @__PURE__ */ zod.object({
         .uuid()
         .optional()
         .describe('Current widget version the improvement is based on. Required for improve operations.'),
+})
+
+export const ReusableWidgetsSaveVersionBody = /* @__PURE__ */ zod.object({
+    pending_version_id: zod.uuid().describe('Draft version being reviewed.'),
+    expected_current_version_id: zod.uuid().describe('Published version observed when the review action started.'),
 })
 
 /**

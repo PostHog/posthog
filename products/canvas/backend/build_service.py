@@ -589,6 +589,41 @@ def commit_source_project_publish(
     )
 
 
+def commit_source_project_draft(
+    canvas: Canvas,
+    *,
+    prepared: PreparedSourceProjectPublish,
+    prompt: str | None,
+    has_expected_version: bool,
+    expected_version_id: str | None,
+    task_id: UUID | None,
+    created_by: User | None,
+) -> tuple[CanvasSourceVersion, CanvasBuild]:
+    """Commit a prepared project as a reviewable draft without advancing the canvas head."""
+    with transaction.atomic(), team_scope(canvas.team_id):
+        canvas = _claim_canvas_head(
+            canvas,
+            has_expected_version=has_expected_version,
+            expected_version_id=expected_version_id,
+        )
+        version = CanvasSourceVersion.objects.create(
+            team_id=canvas.team_id,
+            canvas=canvas,
+            draft=True,
+            parent_version_id=canvas.current_source_version_id,
+            source_hash=prepared.source_upload.digest,
+            source_object_key=prepared.source_upload.key,
+            source_size=prepared.source_upload.size,
+            task_id=task_id,
+            prompt=prompt or None,
+            created_by=created_by,
+            capabilities=prepared.project.get("capabilities") or {},
+            component_meta=prepared.project.get("component"),
+        )
+        build = _queue_build(version)
+    return version, build
+
+
 def publish_source_project(
     canvas: Canvas,
     *,

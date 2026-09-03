@@ -1014,12 +1014,16 @@ class TestWidgetData(APIBaseTest):
             error_detail=None,
             artifact_url=None,
             frame_names=[self.INPUT_NAME],
+            input_bindings={},
+            input_contract=[],
             current_version_id=None,
+            pinned_version_id=None,
             widget_id=None,
             instance_id=None,
             has_versions=False,
             active_job=None,
             security_review=None,
+            is_reusable=False,
         )
 
         with patch(

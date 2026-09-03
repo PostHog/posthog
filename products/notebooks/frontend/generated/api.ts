@@ -32,6 +32,8 @@ import type {
     ReusableWidgetDetailApi,
     ReusableWidgetPageApi,
     ReusableWidgetPublishRequestApi,
+    ReusableWidgetReviewRequestApi,
+    ReusableWidgetsDemoFrameParams,
     ReusableWidgetsListParams,
     ReusableWidgetsSourceParams,
     WidgetCancelRequestApi,
@@ -103,17 +105,53 @@ export const reusableWidgetsRetrieve = async (
     })
 }
 
-export const getReusableWidgetsDemoFrameUrl = (projectId: string, id: string, frameName: string) => {
-    return `/api/projects/${projectId}/notebook_widgets/${id}/frames/${frameName}/`
+export const getReusableWidgetsDiscardVersionUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/notebook_widgets/${id}/discard-version/`
+}
+
+export const reusableWidgetsDiscardVersion = async (
+    projectId: string,
+    id: string,
+    reusableWidgetReviewRequestApi: ReusableWidgetReviewRequestApi,
+    options?: RequestInit
+): Promise<ReusableWidgetDetailApi> => {
+    return apiMutator<ReusableWidgetDetailApi>(getReusableWidgetsDiscardVersionUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(reusableWidgetReviewRequestApi),
+    })
+}
+
+export const getReusableWidgetsDemoFrameUrl = (
+    projectId: string,
+    id: string,
+    frameName: string,
+    params?: ReusableWidgetsDemoFrameParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/notebook_widgets/${id}/frames/${frameName}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/notebook_widgets/${id}/frames/${frameName}/`
 }
 
 export const reusableWidgetsDemoFrame = async (
     projectId: string,
     id: string,
     frameName: string,
+    params?: ReusableWidgetsDemoFrameParams,
     options?: RequestInit
 ): Promise<WidgetFrameApi> => {
-    return apiMutator<WidgetFrameApi>(getReusableWidgetsDemoFrameUrl(projectId, id, frameName), {
+    return apiMutator<WidgetFrameApi>(getReusableWidgetsDemoFrameUrl(projectId, id, frameName, params), {
         ...options,
         method: 'GET',
     })
@@ -134,6 +172,24 @@ export const reusableWidgetsGenerate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(widgetGenerateRequestApi),
+    })
+}
+
+export const getReusableWidgetsSaveVersionUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/notebook_widgets/${id}/save-version/`
+}
+
+export const reusableWidgetsSaveVersion = async (
+    projectId: string,
+    id: string,
+    reusableWidgetReviewRequestApi: ReusableWidgetReviewRequestApi,
+    options?: RequestInit
+): Promise<ReusableWidgetDetailApi> => {
+    return apiMutator<ReusableWidgetDetailApi>(getReusableWidgetsSaveVersionUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(reusableWidgetReviewRequestApi),
     })
 }
 

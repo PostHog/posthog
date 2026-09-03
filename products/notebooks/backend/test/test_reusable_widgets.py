@@ -1,4 +1,4 @@
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
@@ -21,11 +21,19 @@ from products.notebooks.backend.reusable_widgets import (
     read_reusable_widget_demo_frame,
     start_reusable_widget_generation,
 )
+from products.notebooks.backend.widget_generation import (
+    WIDGET_SECURITY_REVIEW_MODEL,
+    GeneratedWidgetSource,
+    WidgetSecurityReview,
+)
 from products.notebooks.backend.widgets import (
     WidgetConflictError,
+    WidgetError,
     get_widget_status,
+    list_widget_versions,
     read_widget_frame,
     revert_widget_version,
+    run_widget_generation_job,
     set_widget_instance_version,
 )
 
@@ -54,7 +62,7 @@ class TestReusableWidgets(APIBaseTest):
                 f'<Widget nodeId="{self.node_id}" prompt="Chart revenue by plan" />'
             ),
         )
-        self.run = NotebookNodeRun.objects.for_team(self.team.id).create(
+        self.node_run = NotebookNodeRun.objects.for_team(self.team.id).create(
             team_id=self.team.id,
             notebook=self.notebook,
             user=self.user,
@@ -145,7 +153,7 @@ class TestReusableWidgets(APIBaseTest):
         assert self.widget.published_by == self.user
         assert self.instance.pinned_version is None
         assert len(self.version.demo_data[self.input_name]["rows"]) == 20
-        assert self.version.demo_data[self.input_name]["runId"] == str(self.run.id)
+        assert self.version.demo_data[self.input_name]["runId"] == str(self.node_run.id)
         assert self.version.demo_data[self.input_name]["truncated"] is True
 
         frame = read_reusable_widget_demo_frame(
@@ -153,7 +161,9 @@ class TestReusableWidgets(APIBaseTest):
             widget_id=self.widget.id,
             frame_name=self.input_name,
         )
-        assert frame.frame["rows"][0] == ["Plan 0", 0]
+        rows = frame.frame["rows"]
+        assert isinstance(rows, list)
+        assert rows[0] == ["Plan 0", 0]
 
     def test_catalog_lists_only_published_widgets_for_the_team(self) -> None:
         assert list_reusable_widgets(team_id=self.team.id).count == 0
@@ -326,7 +336,7 @@ class TestReusableWidgets(APIBaseTest):
         )
         assert frame.frame["rows"] == [["Enterprise", 500]]
 
-    def test_shared_edit_queues_a_global_version_without_pinning_the_source(self) -> None:
+    def test_shared_edit_stages_a_review_draft_without_changing_the_published_version(self) -> None:
         self._publish()
         state = CanvasGenerationState(
             current_source_version_id=self.version.canvas_source_version_id,
@@ -362,6 +372,158 @@ class TestReusableWidgets(APIBaseTest):
         assert job.input_contract == self.version.input_contract
         assert self.instance.pinned_version is None
         start_workflow.assert_called_once()
+
+        draft_source_version_id = uuid4()
+        with (
+            patch(
+                "products.notebooks.backend.widget_generation.generate_widget_source",
+                return_value=GeneratedWidgetSource(
+                    title="Stacked revenue by plan",
+                    source="export default function Widget() { return null }",
+                ),
+            ),
+            patch(
+                "products.notebooks.backend.widget_generation.review_widget_source",
+                return_value=WidgetSecurityReview(
+                    severity="none",
+                    summary="No security issues found.",
+                    findings=[],
+                    model=WIDGET_SECURITY_REVIEW_MODEL,
+                    review_version="2",
+                ),
+            ),
+            patch("products.canvas.backend.notebook_integration.get_notebook_canvas_source", return_value="source"),
+            patch("products.canvas.backend.notebook_integration.prepare_notebook_canvas_source", return_value=object()),
+            patch(
+                "products.canvas.backend.notebook_integration.publish_prepared_notebook_canvas_draft",
+                return_value=draft_source_version_id,
+            ) as stage_draft,
+            patch("products.canvas.backend.notebook_integration.publish_prepared_notebook_canvas_source") as publish,
+        ):
+            run_widget_generation_job(job.id, self.team.id)
+
+        self.widget.refresh_from_db()
+        job.refresh_from_db()
+        assert job.status == GeneratedWidgetGenerationJob.Status.COMPLETED
+        assert self.widget.current_version_id == self.version.id
+        assert self.widget.pending_version_id == job.result_version_id
+        assert self.widget.pending_version is not None
+        assert self.widget.pending_version.canvas_source_version_id == draft_source_version_id
+        with patch(
+            "products.canvas.backend.notebook_integration.list_notebook_canvas_versions",
+            return_value=[self._canvas_version()],
+        ):
+            history = list_widget_versions(notebook=self.notebook, node_id=self.node_id)
+        assert [version.id for version in history.results] == [self.version.id]
+        with self.assertRaises(WidgetError) as error:
+            set_widget_instance_version(
+                notebook=self.notebook,
+                node_id=self.node_id,
+                version_id=self.widget.pending_version_id,
+            )
+        assert error.exception.code == "version_missing"
+        stage_draft.assert_called_once()
+        publish.assert_not_called()
+
+    def test_saving_a_reviewed_draft_advances_the_shared_version(self) -> None:
+        self._publish()
+        candidate = GeneratedWidgetVersion.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            widget=self.widget,
+            canvas_source_version_id=uuid4(),
+            parent_version=self.version,
+            title="Stacked revenue by plan",
+            operation=GeneratedWidgetVersion.Operation.IMPROVE,
+            prompt_delta="Use a stacked bar chart",
+            generator_version="4",
+            input_contract=self.version.input_contract,
+            demo_data=self.version.demo_data,
+            schema_hash="",
+            created_by=self.user,
+        )
+        self.widget.pending_version = candidate
+        self.widget.save(update_fields=["pending_version"])
+        url = f"/api/projects/{self.team.id}/notebook_widgets/{self.widget.id}/save-version/"
+
+        def canvas_versions(*, version_ids: list[UUID], **_kwargs: object) -> list[NotebookCanvasVersion]:
+            return [
+                NotebookCanvasVersion(
+                    id=version_ids[0],
+                    build_status="ready",
+                    artifact_url="https://example.com/reviewed-widget.html",
+                    build_hash="f" * 64,
+                )
+            ]
+
+        with (
+            patch(
+                "products.canvas.backend.notebook_integration.list_notebook_canvas_versions",
+                side_effect=canvas_versions,
+            ),
+            patch("products.canvas.backend.notebook_integration.promote_notebook_canvas_draft") as promote,
+        ):
+            response = self.client.post(
+                url,
+                data={
+                    "pending_version_id": str(candidate.id),
+                    "expected_current_version_id": str(self.version.id),
+                },
+                format="json",
+            )
+
+        assert response.status_code == 200
+        assert response.json()["current_version"]["id"] == str(candidate.id)
+        assert response.json()["pending_version"] is None
+        assert response.json()["version_count"] == 2
+        self.widget.refresh_from_db()
+        assert self.widget.current_version_id == candidate.id
+        assert self.widget.pending_version_id is None
+        promote.assert_called_once_with(
+            team_id=self.team.id,
+            canvas_id=self.widget.canvas_id,
+            user_id=self.user.id,
+            version_id=candidate.canvas_source_version_id,
+            expected_current_version_id=self.version.canvas_source_version_id,
+        )
+
+    def test_discarding_a_review_draft_keeps_the_published_version(self) -> None:
+        self._publish()
+        candidate = GeneratedWidgetVersion.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            widget=self.widget,
+            canvas_source_version_id=uuid4(),
+            parent_version=self.version,
+            title="Unwanted draft",
+            operation=GeneratedWidgetVersion.Operation.IMPROVE,
+            prompt_delta="Change everything",
+            generator_version="4",
+            input_contract=self.version.input_contract,
+            schema_hash="",
+            created_by=self.user,
+        )
+        self.widget.pending_version = candidate
+        self.widget.save(update_fields=["pending_version"])
+        url = f"/api/projects/{self.team.id}/notebook_widgets/{self.widget.id}/discard-version/"
+        with patch(
+            "products.canvas.backend.notebook_integration.list_notebook_canvas_versions",
+            return_value=[self._canvas_version()],
+        ):
+            response = self.client.post(
+                url,
+                data={
+                    "pending_version_id": str(candidate.id),
+                    "expected_current_version_id": str(self.version.id),
+                },
+                format="json",
+            )
+
+        assert response.status_code == 200
+        assert response.json()["current_version"]["id"] == str(self.version.id)
+        assert response.json()["pending_version"] is None
+        self.widget.refresh_from_db()
+        assert self.widget.current_version_id == self.version.id
+        assert self.widget.pending_version_id is None
+        assert not GeneratedWidgetVersion.objects.for_team(self.team.id).filter(id=candidate.id).exists()
 
     def test_fork_replaces_the_placement_with_an_independent_private_widget(self) -> None:
         self._publish()
