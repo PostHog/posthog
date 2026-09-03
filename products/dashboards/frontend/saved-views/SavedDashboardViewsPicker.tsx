@@ -1,7 +1,7 @@
 import { useState } from 'react'
 
 import { IconCheck, IconChevronDown, IconPeople, IconPlus, IconUser } from '@posthog/icons'
-import { LemonButton, LemonSkeleton, Popover } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton, LemonTag, Popover } from '@posthog/lemon-ui'
 
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 
@@ -253,6 +253,11 @@ export function SavedDashboardViewsPicker({
             >
                 <span className="flex items-center gap-1">
                     <span>{activeSavedView?.name || 'Saved views'}</span>
+                    {!activeSavedView && (
+                        <LemonTag type="highlight" size="small">
+                            NEW
+                        </LemonTag>
+                    )}
                     {canEdit && activeSavedViewHasUnsavedChanges && <span className="text-warning">Unsaved</span>}
                 </span>
             </LemonButton>
