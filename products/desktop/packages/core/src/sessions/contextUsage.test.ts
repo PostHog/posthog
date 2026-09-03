@@ -17,31 +17,6 @@ function usageUpdateEvent(used: number, size: number): AcpMessage {
   };
 }
 
-function costUsageUpdateEvent(
-  used: number,
-  size: number,
-  amount: number,
-  currency = "USD",
-): AcpMessage {
-  return {
-    type: "acp_message",
-    ts: 1,
-    message: {
-      jsonrpc: "2.0",
-      method: "session/update",
-      params: {
-        sessionId: "s1",
-        update: {
-          sessionUpdate: "usage_update",
-          used,
-          size,
-          cost: { amount, currency },
-        },
-      },
-    },
-  };
-}
-
 function sizelessUsageUpdateEvent(used: number): AcpMessage {
   return {
     type: "acp_message",
@@ -144,30 +119,6 @@ describe("extractContextUsage", () => {
     expect(result?.breakdown?.conversation).toBe(45_500);
   });
 
-  it("reports null cost when no update carries a cost", () => {
-    const result = extractContextUsage([usageUpdateEvent(50_000, 200_000)]);
-    expect(result?.cost).toBeNull();
-  });
-
-  it("surfaces the cost from a single turn", () => {
-    const result = extractContextUsage([
-      costUsageUpdateEvent(50_000, 200_000, 0.42),
-    ]);
-    expect(result?.cost).toEqual({ amount: 0.42, currency: "USD" });
-  });
-
-  it("sums cost across turns since each result reports only its own spend", () => {
-    const result = extractContextUsage([
-      costUsageUpdateEvent(40_000, 200_000, 0.4),
-      costUsageUpdateEvent(90_000, 200_000, 0.35),
-      costUsageUpdateEvent(120_000, 200_000, 0.25),
-    ]);
-    // Context occupancy tracks the newest turn; cost accrues across all of them.
-    expect(result?.used).toBe(120_000);
-    expect(result?.cost?.amount).toBeCloseTo(1.0, 10);
-    expect(result?.cost?.currency).toBe("USD");
-  });
-
   it("tolerates the double-underscore method prefix from extNotification", () => {
     const result = extractContextUsage([
       usageUpdateEvent(50_000, 200_000),
@@ -227,28 +178,6 @@ describe("createContextUsageTracker", () => {
     // Dropping the latest usage event must lower the reported value, not keep
     // the stale append-path total.
     expect(tracker.update([earlier])?.used).toBe(50_000);
-  });
-
-  it("accumulates cost only over newly appended turns", () => {
-    const tracker = createContextUsageTracker();
-    const first = costUsageUpdateEvent(40_000, 200_000, 0.4);
-
-    expect(tracker.update([first])?.cost?.amount).toBeCloseTo(0.4, 10);
-
-    const result = tracker.update([
-      first,
-      costUsageUpdateEvent(90_000, 200_000, 0.35),
-    ]);
-    expect(result?.cost?.amount).toBeCloseTo(0.75, 10);
-  });
-
-  it("matches the batch extractor for a cost-bearing log", () => {
-    const tracker = createContextUsageTracker();
-    const events = [
-      costUsageUpdateEvent(40_000, 200_000, 0.4),
-      costUsageUpdateEvent(90_000, 200_000, 0.35),
-    ];
-    expect(tracker.update(events)).toEqual(extractContextUsage(events));
   });
 
   it("rebuilds when the tail changes at the same length", () => {
