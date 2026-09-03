@@ -139,13 +139,7 @@ import {
 } from './environment/SessionRecordingSettings'
 import { SurveyDefaultAppearance, SurveyEnableToggle } from './environment/SurveySettings'
 import { TeamAccessControl } from './environment/TeamAccessControl'
-import {
-    TeamAuthorizedURLs,
-    TeamBusinessModel,
-    TeamDisplayName,
-    TeamTimezone,
-    TeamVariables,
-} from './environment/TeamSettings'
+import { TeamAuthorizedURLs, TeamBusinessModel, TeamTimezone, TeamVariables } from './environment/TeamSettings'
 import { ProjectAccountFiltersSetting } from './environment/TestAccountFiltersConfig'
 import { UsageMetricsConfig } from './environment/UsageMetricsConfig'
 import { WebAnalyticsEnablePreAggregatedTables } from './environment/WebAnalyticsAPISetting'
@@ -171,6 +165,7 @@ import { OrganizationVariables } from './organization/OrgVariables'
 import { EnforceVerifiedDomains } from './organization/VerifiedDomains/EnforceVerifiedDomains'
 import { VerifiedDomains } from './organization/VerifiedDomains/VerifiedDomains'
 import { ProjectDangerZone } from './project/ProjectDangerZone'
+import { ProjectDetails } from './project/ProjectDetails'
 import { ProjectMove } from './project/ProjectMove'
 import { ProjectSecretAPIKeys } from './project/ProjectSecretAPIKeys'
 import { SettingSection } from './types'
@@ -288,10 +283,10 @@ export const SETTINGS_MAP: SettingSection[] = [
         settings: [
             {
                 id: 'display-name',
-                title: 'Display name',
-                description: 'A human-friendly name for this environment.',
-                component: <TeamDisplayName />,
-                keywords: ['name', 'rename', 'label'],
+                title: 'Project details',
+                description: 'Name this project and label it so you can group and find it across your organization.',
+                component: <ProjectDetails />,
+                keywords: ['name', 'rename', 'label', 'tag', 'tags'],
             },
             {
                 id: 'date-and-time',
@@ -357,24 +352,24 @@ export const SETTINGS_MAP: SettingSection[] = [
     {
         level: 'environment',
         id: 'environment-task-agents',
-        title: 'Task agents',
+        title: 'Model preferences',
         group: 'AI',
         settings: [
             {
                 id: 'task-agent-project-default',
                 title: 'Project default model',
                 description:
-                    'The model agent runs launch with when nobody picks one. Everyone on this project inherits it, for runs started from the task composer, Slack, and PostHog Desktop.',
+                    'The model agent runs launch with when nobody picks one. Everyone on this project inherits it in the new PostHog AI view, in Slack, and in PostHog Desktop.',
                 component: <TaskAgentProjectDefaultSettings />,
-                keywords: ['ai', 'model', 'claude', 'codex', 'agent', 'tasks', 'default'],
+                keywords: ['ai', 'model', 'claude', 'codex', 'agent', 'tasks', 'default', 'slack', 'desktop'],
             },
             {
                 id: 'task-agent-my-preference',
                 title: 'My default model',
                 description:
-                    'The model your own runs launch with, overriding the project default. Applies everywhere in PostHog: the task composer, Slack, and PostHog Desktop.',
+                    'The model your own runs launch with, overriding the project default. Applies in the new PostHog AI view, in Slack, and in PostHog Desktop.',
                 component: <TaskAgentMyPreferenceSettings />,
-                keywords: ['ai', 'model', 'claude', 'codex', 'agent', 'tasks', 'preference'],
+                keywords: ['ai', 'model', 'claude', 'codex', 'agent', 'tasks', 'preference', 'slack', 'desktop'],
             },
         ],
     },

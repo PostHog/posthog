@@ -723,6 +723,7 @@ export interface CorrelationConfigType {
 export interface ProjectType extends ProjectBasicType {
     created_at: string
     is_pending_deletion: boolean
+    tags?: string[]
 }
 
 export interface TeamSurveyConfigType {
@@ -4517,11 +4518,6 @@ export enum FeatureFlagStatus {
     UNKNOWN = 'unknown',
 }
 
-export interface FeatureFlagStatusResponse {
-    status: FeatureFlagStatus
-    reason: string
-}
-
 export interface CombinedFeatureFlagAndValueType {
     feature_flag: FeatureFlagType
     value: boolean | string
@@ -7325,6 +7321,7 @@ export type CyclotronJobInputSchemaType = {
         | 'task_repository'
         | 'task_mcp_installations'
         | 'signals_scout'
+        | 'task_skills'
     key: string
     label: string
     choices?: { value: string; label: string }[]

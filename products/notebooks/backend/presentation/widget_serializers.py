@@ -93,6 +93,17 @@ class WidgetStatusSerializer(serializers.Serializer):
         help_text="Current widget and preview state.",
     )
     error_detail = serializers.CharField(required=False, allow_null=True, help_text="Actionable failure detail.")
+    error_code = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Stable failure code for support and diagnostics.",
+    )
+    failure_phase = serializers.ChoiceField(
+        choices=["generating_source", "reviewing_source", "publishing_source", "unknown"],
+        required=False,
+        allow_null=True,
+        help_text="Generation step that failed, if a generation job failed.",
+    )
     artifact_url = serializers.URLField(
         required=False,
         allow_null=True,
