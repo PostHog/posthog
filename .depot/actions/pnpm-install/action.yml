@@ -5,15 +5,12 @@
 # not collide.
 name: Install pnpm dependencies
 description: |
-    Sets up pnpm + Node, restores the shared pnpm store cache, installs, and
-    saves the cache only on the default branch.
+    Sets up pnpm + Node via `setup-pnpm`, restores the shared pnpm store cache,
+    installs, and saves the cache only on the default branch.
 
     Single source of truth for the pnpm cache key. Every node workflow shares
     one namespace (`pnpm-<os>-<lockfile-hash>`), so the store is cached once
     instead of fragmenting across runner-arch casings or per-workflow keys.
-
-    Also pre-seeds the Node tool cache (`node-toolcache-<os>-<arch>-<version>`,
-    master-gated save) so setup-node makes no GitHub API calls on a hit.
 
     Deliberately does NOT use setup-node's `cache: pnpm`: that auto-saves on
     every run (PRs included, and the post-save can't be gated) and keys on
@@ -33,63 +30,14 @@ inputs:
         description: 'Directory to run the install command in.'
         required: false
         default: '.'
-    install:
-        description: "Set to 'false' to set up pnpm and Node without restoring the store or installing dependencies."
-        required: false
-        default: 'true'
 
 runs:
     using: composite
     steps:
-        - name: Install pnpm
-          uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
-
-        - name: Fix node-gyp permissions
-          shell: bash
-          # Depot CI's restored pnpm store can land node-gyp's gyp_main.py without +x.
-          # Locate it across pnpm/action-setup layouts and never fail if it is absent.
-          run: find ~/setup-pnpm -name gyp_main.py -path '*/node-gyp/*' -exec chmod +x {} + 2>/dev/null || true
-
-        - name: Resolve Node version
-          id: node-version
-          shell: bash
-          # An empty version (missing file or non-exact pin) skips the tool cache
-          # steps, so setup-node falls back to resolving the version itself. Only
-          # exact x.y.z pins are cacheable: the tool-cache directory is named after
-          # the resolved version, so a range spec would never match it.
-          env:
-              NODE_VERSION_FILE: ${{ inputs.node-version-file }}
-          run: |
-              version=""
-              [[ -f "$NODE_VERSION_FILE" ]] && version=$(tr -d 'v[:space:]' < "$NODE_VERSION_FILE")
-              [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || version=""
-              echo "version=$version" >> "$GITHUB_OUTPUT"
-
-        # A tool-cache hit turns setup-node into a filesystem lookup. On a miss it
-        # fetches the version manifest from api.github.com (two rate-limited API
-        # calls per job) and downloads the tarball, on every Node job, because
-        # runner images don't ship the .nvmrc version.
-        - name: Restore Node tool cache
-          id: node-toolcache
-          if: steps.node-version.outputs.version != ''
-          uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
-          with:
-              path: ${{ runner.tool_cache }}/node/${{ steps.node-version.outputs.version }}
-              key: node-toolcache-${{ runner.os }}-${{ runner.arch }}-${{ steps.node-version.outputs.version }}
-
-        - name: Set up Node.js
-          uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+        - name: Set up pnpm and Node
+          uses: ./.depot/actions/setup-pnpm
           with:
               node-version-file: ${{ inputs.node-version-file }}
-              token: ${{ github.token }}
-
-        # Save only on the default branch, for the same reasons as the pnpm store save below.
-        - name: Save Node tool cache
-          if: github.ref == 'refs/heads/master' && steps.node-version.outputs.version != '' && steps.node-toolcache.outputs.cache-hit != 'true'
-          uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
-          with:
-              path: ${{ runner.tool_cache }}/node/${{ steps.node-version.outputs.version }}
-              key: node-toolcache-${{ runner.os }}-${{ runner.arch }}-${{ steps.node-version.outputs.version }}
 
         - name: Get pnpm store path
           id: pnpm-store

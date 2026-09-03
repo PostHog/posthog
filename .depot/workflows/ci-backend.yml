@@ -843,9 +843,7 @@ jobs:
             # available on Depot), so setup-python keeps the bot PAT.
             - parallel:
                   - name: Set up pnpm and Node
-                    uses: ./.depot/actions/pnpm-install
-                    with:
-                        install: 'false'
+                    uses: ./.depot/actions/setup-pnpm
                   - name: Install turbo
                     uses: ./.github/actions/setup-turbo
                   - name: Set up Python
