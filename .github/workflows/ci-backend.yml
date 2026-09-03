@@ -811,9 +811,8 @@ jobs:
                   # turbo launches each backend:test script through pnpm, so pnpm and
                   # Node must stay on PATH even though nothing here reads the workspace.
                   - name: Set up pnpm and Node
-                    uses: ./.github/actions/pnpm-install
+                    uses: ./.github/actions/setup-pnpm
                     with:
-                        install: 'false'
                         token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
                   - name: Install turbo
