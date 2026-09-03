@@ -167,7 +167,7 @@ Required environment variables (validated by zod in `src/server/bin.ts`):
 
 Optional behavior toggles:
 
-- `POSTHOG_BENJAMIN` — `1` or `true` appends the vendored Benjamin-Plus token-efficiency instruction (`src/adapters/benjamin/instruction.ts`) to the Claude system prompt and the Codex instructions, and stamps the pinned upstream commit into run state as `benjamin_version` at session start. Any other value leaves prompts unchanged.
+- `POSTHOG_BENJAMIN` — `1` or `true` appends the vendored Benjamin-Plus token-efficiency instruction (`src/adapters/benjamin/instruction.ts`) to the Claude, Codex, and Pi system prompts, and stamps the pinned upstream commit into run state as `benjamin_version` at session start. Any other value leaves prompts unchanged.
 
 Optional run telemetry (the logs pair must both be set, otherwise telemetry stays off):
 

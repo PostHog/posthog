@@ -18,6 +18,8 @@ import { buildPosthogPropertyHeaderRecord } from "@posthog/shared/posthog-proper
 import { Hono } from "hono";
 import { z } from "zod/v4";
 import { POSTHOG_NOTIFICATIONS } from "../acp-extensions";
+import { BENJAMIN_UPSTREAM_COMMIT } from "../adapters/benjamin/instruction";
+import { isBenjaminEnabled } from "../adapters/benjamin-guidance";
 import { buildLocalToolsServer } from "../adapters/codex-app-server/local-tools-mcp";
 import { resolveContextWikiPath } from "../context-wiki";
 import { OtelRunTelemetry } from "../otel-telemetry";
@@ -697,6 +699,9 @@ export class PiAgentServer {
     this.sessionInitMs = Date.now() - startedAt;
     await this.posthogAPI.updateTaskRun(payload.task_id, payload.run_id, {
       status: "in_progress",
+      ...(isBenjaminEnabled() && {
+        state: { benjamin_version: BENJAMIN_UPSTREAM_COMMIT },
+      }),
     });
     this.broadcast({
       type: "pi_run_started",

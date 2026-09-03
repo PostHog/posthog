@@ -4,6 +4,7 @@ import type {
   SessionEntry,
   SessionManager,
 } from "@earendil-works/pi-coding-agent";
+import { appendBenjaminGuidance } from "../adapters/benjamin-guidance";
 import {
   buildTaskSystemPrompt,
   type TaskContext,
@@ -105,7 +106,9 @@ export function createPiTaskSystemPromptExtension(
         return;
       }
       pi.on("before_agent_start", (event) => ({
-        systemPrompt: `${event.systemPrompt}\n\n${buildTaskSystemPrompt(context, capabilities)}`,
+        systemPrompt: appendBenjaminGuidance(
+          `${event.systemPrompt}\n\n${buildTaskSystemPrompt(context, capabilities)}`,
+        ),
       }));
     },
   };
