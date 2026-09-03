@@ -2,9 +2,10 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.gcp_cloud_monitoring.gcp_cloud_monitoring import (
+    TOKEN_URI,
     GcpCloudMonitoringClient,
     GcpCloudMonitoringError,
     GcpCloudMonitoringResumeConfig,
@@ -13,6 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gcp_cloud_
     build_time_series_params,
     flatten_time_series,
     gcp_cloud_monitoring_source,
+    make_authed_session,
     resolve_start_time,
     series_key,
     validate_credentials,
@@ -121,6 +123,13 @@ class TestFlattenTimeSeries:
         )
 
 
+class TestMakeAuthedSession:
+    def test_tokens_are_minted_against_googles_fixed_endpoint(self):
+        with patch("google.oauth2.service_account.Credentials.from_service_account_info") as from_info:
+            make_authed_session(project_id="p", private_key="pk", private_key_id="pkid", client_email="sa@example.com")
+        assert from_info.call_args.args[0]["token_uri"] == TOKEN_URI
+
+
 class TestBuildTimeSeriesParams:
     def _params(self, **overrides):
         return build_time_series_params(
@@ -152,8 +161,18 @@ class TestBuildTimeSeriesParams:
         params = self._params(per_series_aligner="ALIGN_SUM", alignment_period_seconds=300)
         assert params["aggregation.alignmentPeriod"] == "300s"
 
-    def test_a_reducer_without_an_aligner_is_not_sent(self):
-        assert "aggregation.crossSeriesReducer" not in self._params(cross_series_reducer="REDUCE_SUM")
+    @pytest.mark.parametrize(
+        "overrides",
+        [
+            {"cross_series_reducer": "REDUCE_SUM"},
+            {"group_by_fields": ["resource.labels.service"]},
+            {"alignment_period_seconds": 300},
+            {"per_series_aligner": "ALIGN_SUM", "group_by_fields": ["resource.labels.service"]},
+        ],
+    )
+    def test_an_aggregation_setting_that_would_be_dropped_is_refused(self, overrides):
+        with pytest.raises(GcpCloudMonitoringError):
+            self._params(**overrides)
 
     def test_group_by_fields_ride_with_the_reducer(self):
         params = self._params(

@@ -25,6 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.gcp_cloud_monitoring.gcp_cloud_monitoring import (
     GcpCloudMonitoringClient,
     GcpCloudMonitoringResumeConfig,
+    aggregation_config_error,
     gcp_cloud_monitoring_source,
     make_authed_session,
     validate_credentials as validate_monitoring_credentials,
@@ -102,13 +103,15 @@ class GcpCloudMonitoringSource(ResumableSource[GcpCloudMonitoringSourceConfig, G
     def _effective_project_id(self, config: GcpCloudMonitoringSourceConfig) -> str:
         return config.project_id or config.key_file.project_id
 
+    def _group_by_fields(self, config: GcpCloudMonitoringSourceConfig) -> list[str]:
+        return [field.strip() for field in (config.group_by_fields or "").split(",") if field.strip()]
+
     def _session(self, config: GcpCloudMonitoringSourceConfig):
         return make_authed_session(
             project_id=self._effective_project_id(config),
             private_key=config.key_file.private_key,
             private_key_id=config.key_file.private_key_id,
             client_email=config.key_file.client_email,
-            token_uri=config.key_file.token_uri,
         )
 
     def validate_credentials(
@@ -118,6 +121,15 @@ class GcpCloudMonitoringSource(ResumableSource[GcpCloudMonitoringSourceConfig, G
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
+        aggregation_error = aggregation_config_error(
+            config.alignment_period_seconds,
+            config.per_series_aligner or None,
+            config.cross_series_reducer or None,
+            self._group_by_fields(config) or None,
+        )
+        if aggregation_error:
+            return False, aggregation_error
+
         try:
             session = self._session(config)
         except Exception:
@@ -137,7 +149,7 @@ class GcpCloudMonitoringSource(ResumableSource[GcpCloudMonitoringSourceConfig, G
         inputs: SourceInputs,
     ) -> SourceResponse:
         endpoint_name = inputs.schema_name
-        group_by_fields = [field.strip() for field in (config.group_by_fields or "").split(",") if field.strip()]
+        group_by_fields = self._group_by_fields(config)
 
         def items():
             client = GcpCloudMonitoringClient(self._session(config), self._effective_project_id(config))
@@ -159,7 +171,7 @@ class GcpCloudMonitoringSource(ResumableSource[GcpCloudMonitoringSourceConfig, G
         return SourceResponse(
             name=endpoint_name,
             items=items,
-            primary_keys=PRIMARY_KEYS.get(endpoint_name),
+            primary_keys=PRIMARY_KEYS[endpoint_name],
             # The interval end never moves once a point exists.
             partition_mode="datetime" if is_time_series else None,
             partition_format="day" if is_time_series else None,

@@ -47,7 +47,7 @@ def _config(**overrides):
     key_file.private_key = "pk"
     key_file.private_key_id = "pkid"
     key_file.client_email = "sa@example.com"
-    key_file.token_uri = "https://oauth2.googleapis.com/token"
+    key_file.token_uri = "https://not-google.example/token"
 
     config = MagicMock()
     config.key_file = key_file
@@ -143,6 +143,27 @@ class TestValidateCredentials:
         ):
             assert GcpCloudMonitoringSource().validate_credentials(_config(), team_id=1) == (True, None)
         assert validate.call_args.args[1] == "key-project"
+
+    def test_the_uploaded_token_uri_is_never_used(self):
+        with patch(f"{SOURCE_MODULE}.make_authed_session") as session:
+            GcpCloudMonitoringSource().validate_credentials(_config(), team_id=1)
+        assert "token_uri" not in session.call_args.kwargs
+
+    @pytest.mark.parametrize(
+        "overrides",
+        [
+            {"cross_series_reducer": "REDUCE_SUM"},
+            {"group_by_fields": "resource.labels.service"},
+            {"alignment_period_seconds": 300},
+            {"per_series_aligner": "ALIGN_SUM", "group_by_fields": "resource.labels.service"},
+        ],
+    )
+    def test_aggregation_that_would_be_ignored_is_rejected_before_any_network_call(self, overrides):
+        with patch(f"{SOURCE_MODULE}.make_authed_session") as session:
+            ok, message = GcpCloudMonitoringSource().validate_credentials(_config(**overrides), team_id=1)
+        assert ok is False
+        assert message is not None and ("aligner" in message or "reducer" in message)
+        session.assert_not_called()
 
     def test_an_unreadable_key_file_reports_that_rather_than_raising(self):
         with patch(f"{SOURCE_MODULE}.make_authed_session", side_effect=ValueError("bad key")):

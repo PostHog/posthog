@@ -29,6 +29,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gcp_cloud_
 # The point value arrives under exactly one of these keys, named for its value type.
 VALUE_KEYS = ("doubleValue", "int64Value", "boolValue", "stringValue", "distributionValue")
 
+# Always mint tokens against Google's fixed endpoint. Never POST to the uploaded key's
+# `token_uri`: a source-write user could point it at an internal host (SSRF).
+TOKEN_URI = "https://oauth2.googleapis.com/token"
+
 
 @frozen
 class GcpCloudMonitoringResumeConfig:
@@ -53,7 +57,6 @@ def make_authed_session(
     private_key: str,
     private_key_id: str,
     client_email: str,
-    token_uri: str,
 ) -> Session:
     """A session that injects the service account's bearer token and rides the tracked adapter."""
     credentials = service_account.Credentials.from_service_account_info(
@@ -62,7 +65,7 @@ def make_authed_session(
             "private_key": private_key,
             "private_key_id": private_key_id,
             "client_email": client_email,
-            "token_uri": token_uri,
+            "token_uri": TOKEN_URI,
         },
         scopes=SCOPES,
     )
@@ -182,6 +185,31 @@ def flatten_time_series(time_series: list[dict[str, Any]]) -> list[dict[str, Any
     return rows
 
 
+def aggregation_config_error(
+    alignment_period_seconds: Optional[int],
+    per_series_aligner: Optional[str],
+    cross_series_reducer: Optional[str],
+    group_by_fields: Optional[list[str]],
+) -> Optional[str]:
+    """The API ignores a reducer, group-by or period that has nothing to hang off, so a setting
+    that would be dropped is refused instead of importing raw data the user didn't ask for."""
+    if not per_series_aligner:
+        dropped = [
+            label
+            for label, value in (
+                ("a cross-series reducer", cross_series_reducer),
+                ("group-by fields", group_by_fields),
+                ("an alignment period", alignment_period_seconds),
+            )
+            if value
+        ]
+        if dropped:
+            return f"Setting {' and '.join(dropped)} needs a per-series aligner, for example ALIGN_SUM."
+    if group_by_fields and not cross_series_reducer:
+        return "Group-by fields need a cross-series reducer, for example REDUCE_SUM."
+    return None
+
+
 def build_time_series_params(
     metric_filter: str,
     window_start: datetime,
@@ -196,6 +224,12 @@ def build_time_series_params(
     Aggregation stays off unless the user asks for it. A valid aligner depends on the metric's
     kind and value type, so a default one would reject some of the filters a user can write.
     """
+    error = aggregation_config_error(
+        alignment_period_seconds, per_series_aligner, cross_series_reducer, group_by_fields
+    )
+    if error:
+        raise GcpCloudMonitoringError(error)
+
     params: dict[str, Any] = {
         "filter": metric_filter,
         "interval.startTime": _rfc3339(window_start),
