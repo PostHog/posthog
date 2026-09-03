@@ -2,7 +2,7 @@ from typing import Any
 
 import pytest
 
-from posthog.schema import HogQLFilters, HogQLQueryModifiers, HogQLVariable
+from posthog.schema import DateRange, HogQLFilters, HogQLQueryModifiers, HogQLVariable
 
 from posthog.hogql.errors import QueryError
 from posthog.hogql.transforms.trino.errors import TrinoLoweringError
@@ -78,7 +78,11 @@ def test_transpiles_manifest_table_without_django_queries(django_assert_num_quer
         ("SELECT matchesAction(1) FROM events", {}, "TRINO_PURE_ACTION_UNSUPPORTED"),
         ("SELECT event FROM events WHERE person_id IN COHORT 1", {}, "TRINO_PURE_COHORT_UNSUPPORTED"),
         ("SELECT event FROM events WHERE {filters}", {}, "TRINO_PURE_PLACEHOLDER_UNSUPPORTED"),
-        ("SELECT event FROM events", {"filters": HogQLFilters()}, "TRINO_PURE_FILTERS_UNSUPPORTED"),
+        (
+            "SELECT event FROM events",
+            {"filters": HogQLFilters(dateRange=DateRange(date_from="-7d"))},
+            "TRINO_PURE_FILTERS_UNSUPPORTED",
+        ),
         (
             "SELECT event FROM events",
             {"variables": {"value": HogQLVariable(code_name="value", variableId="1", value="signup")}},
@@ -101,6 +105,19 @@ def test_rejects_django_backed_semantics(query: str, kwargs: dict[str, Any], fea
         transpile_hogql_to_trino(query, manifest=_manifest(_events()), **kwargs)
 
     assert error.value.feature_code == feature_code
+
+
+def test_accepts_content_free_filters_and_null_modifiers() -> None:
+    # Dashboards send an empty filters object, and a serialize/validate round trip carries every
+    # unset modifier as an explicit null. Neither asks for Django semantics.
+    result = transpile_hogql_to_trino(
+        "SELECT event FROM events",
+        manifest=_manifest(_events()),
+        filters=HogQLFilters(),
+        modifiers=HogQLQueryModifiers.model_validate({"debug": None, "materializationMode": None}),
+    )
+
+    assert 'FROM "org_catalog"."posthog"."events_production"' in result.sql
 
 
 def test_rejects_tables_absent_from_manifest() -> None:

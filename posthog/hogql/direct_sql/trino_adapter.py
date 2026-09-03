@@ -127,7 +127,7 @@ class TrinoAdapter:
                     with _CancelWatchdog(cursor, timeout_seconds) as watchdog:
                         try:
                             if values:
-                                cursor.execute(  # nosemgrep: python.django.security.injection.sql.sql-injection-using-db-cursor-execute.sql-injection-db-cursor-execute -- compiled values are bound separately by the Trino driver
+                                cursor.execute(  # nosemgrep: python.django.security.injection.sql.sql-injection-using-db-cursor-execute.sql-injection-db-cursor-execute -- values are passed as parameters; the trino client escapes them, this code never concatenates them
                                     sql, values
                                 )
                             else:
@@ -139,6 +139,11 @@ class TrinoAdapter:
                             if watchdog.fired:
                                 raise ExposedHogQLError(DIRECT_TRINO_TIMEOUT_ERROR) from error
                             raise
+                        # The parameterized path runs a capability probe and a PREPARE before the
+                        # main query exists, where cancel() is a no-op. Refuse results that arrive
+                        # past the deadline so the timeout holds through that window.
+                        if watchdog.fired:
+                            raise ExposedHogQLError(DIRECT_TRINO_TIMEOUT_ERROR)
                     description = cursor.description or []
         except Exception as error:
             span.set_attribute("error_type", error.__class__.__name__)

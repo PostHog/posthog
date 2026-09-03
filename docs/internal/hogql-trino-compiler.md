@@ -16,11 +16,11 @@ Pure transpilation accepts caller-supplied constant values. It rejects unresolve
 
 ## Query Editor connection integration
 
-The connection integration advertises `TrinoAdapter.dialect = "trino"`. Selecting a Trino connection for a HogQL query uses pure manifest-backed compilation. The query executor derives the manifest from the selected connection's discovered tables and calls the same pure transpiler as managed compilation. It does not enable Django semantic expansion.
+The connection integration advertises `TrinoAdapter.dialect = "trino"`. Selecting a Trino connection for a HogQL query calls the same pure transpiler as managed compilation, handing it the connection-scoped database directly. It does not enable Django semantic expansion. Catalog introspection through `system.information_schema` keeps running on the ClickHouse path. Editor validation prints with the same dialect and rejects the same unsupported features, so a query that validates also compiles.
 
-Table and field lookup follow Trino's case-insensitive identifier rules, while printed relations use the connection's catalog, schema, and physical table name. Tables outside the selected connection are absent from the manifest. Actions, cohorts, saved queries, query filters, variables, and Django-only modifiers receive the pure compiler's existing unsupported-feature errors.
+Table and field lookup follow Trino's case-insensitive identifier rules for discovered tables and columns, including table-qualified column references; explicit aliases keep their written case. Printed relations use the connection's catalog, schema, and physical table name. Tables outside the selected connection are absent from the connection-scoped database. Actions, cohorts, saved queries, content-carrying query filters, variables, and Django-only modifiers receive the pure compiler's existing unsupported-feature errors; a content-free filters object and modifiers carried as explicit nulls pass through.
 
-The adapter converts compiler placeholders into positional driver parameters without interpolating values into SQL. Raw SQL requests without bound values still pass through unchanged. Existing source configuration validation, raw read-only checks, timeouts, and row caps remain in place.
+The adapter converts compiler placeholders into positional parameters and never concatenates values into SQL itself. The Trino client submits them through its prepared-statement emulation, which escapes each value into the `EXECUTE` statement text, so values still appear in Trino's query log and UI. Raw SQL requests without bound values still pass through unchanged. Existing source configuration validation, raw read-only checks, timeouts, and row caps remain in place.
 
 The integration does not provision catalogs, alter deployments, or make source-only ClickHouse tables available in Trino.
 

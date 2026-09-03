@@ -458,12 +458,25 @@ class HogQLQueryExecutor:
             engine="direct_sql",
         )
 
-    def _prepare_pure_trino_query(self) -> _PreparedExecution:
+    def _references_information_schema(self, context: HogQLContext) -> bool:
+        try:
+            resolved = Resolver(context=context, dialect="hogql").visit(clone_expr(self.select_query, True))
+            query_type = getattr(resolved, "type", None)
+        except Exception:
+            # The transpiler reports its own resolution errors; only a resolvable
+            # introspection query changes the route.
+            return False
+        if query_type is None:
+            return False
+        return any(
+            isinstance(lazy_table_type.table, InformationSchemaTable)
+            for lazy_table_type in extract_lazy_table_types(query_type)
+        )
+
+    def _prepare_pure_trino_query(self) -> _PreparedExecution | None:
         source = self._resolve_direct_source()
         if source is None or self.connection_id is None:
             raise InternalHogQLError("Pure Trino compilation requires a selected connection.")
-        if self.query is None:
-            raise InternalHogQLError("Pure Trino compilation requires a query.")
 
         database = Database.create_for(
             team=self.team,
@@ -476,21 +489,37 @@ class HogQLQueryExecutor:
             trigger="executor",
         )
 
-        from posthog.hogql.transforms.trino.manifest import (  # noqa: PLC0415 -- load the optional backend only for Trino queries
-            build_trino_manifest_from_database,
-            transpile_hogql_to_trino,
+        limit_context = self.limit_context or LimitContext.QUERY
+        direct_context = dataclasses.replace(
+            self.context,
+            is_direct_query=True,
+            team_id=self.team.pk,
+            team=self.team,
+            enable_select_queries=True,
+            timings=self.timings,
+            modifiers=self.query_modifiers,
+            limit_context=limit_context,
+            database=database,
         )
 
-        limit_context = self.limit_context or LimitContext.QUERY
-        query = self.query
-        if isinstance(query, ast.SelectQuery | ast.SelectSetQuery):
-            self.query = None
-        transpiled = transpile_hogql_to_trino(
-            query,
-            manifest=build_trino_manifest_from_database(database),
+        # Catalog introspection describes the connection but reads nothing from it. Route such a
+        # query to the ClickHouse path in _prepare_execution, where these tables exist.
+        if self._references_information_schema(direct_context):
+            return None
+
+        from posthog.hogql.transforms.trino.manifest import (  # noqa: PLC0415 -- load the optional backend only for Trino queries
+            transpile_hogql_to_trino_with_database,
+        )
+
+        transpiled = transpile_hogql_to_trino_with_database(
+            self.select_query,
+            database=database,
             filters=self.filters,
             variables=self.variables,
             modifiers=self.modifiers,
+            # The team-effective value, so a team-level timezone setting is honored even when the
+            # caller sets no modifiers of its own.
+            convert_to_project_timezone=self.query_modifiers.convertToProjectTimezone,
             limit_top_select=limit_context not in (LimitContext.COHORT_CALCULATION, LimitContext.SAVED_QUERY),
             limit_context=limit_context,
             default_limit=get_default_limit_for_context(limit_context),
@@ -499,17 +528,12 @@ class HogQLQueryExecutor:
         )
 
         self.hogql = transpiled.hogql
+        self.print_columns = list(transpiled.print_columns)
         self.direct_sql = ensure_single_direct_statement(transpiled.sql)
         self.direct_values = transpiled.values
         self.direct_source_id = str(source.id)
         self.direct_dialect = "trino"
-        self.direct_context = HogQLContext(
-            values=dict(transpiled.values),
-            timings=self.timings,
-            limit_context=limit_context,
-            timezone=database.get_timezone(),
-            week_start_day=database.get_week_start_day(),
-        )
+        self.direct_context = dataclasses.replace(direct_context, values=dict(transpiled.values))
         return self._PreparedExecution(sql=self.direct_sql, context=self.direct_context, engine="direct_sql")
 
     def _get_select_query_type(self) -> ast.SelectQueryType | ast.SelectSetQueryType | None:
@@ -652,11 +676,14 @@ class HogQLQueryExecutor:
                 raise
 
     def _prepare_execution(self) -> _PreparedExecution:
+        self._parse_query()
+
         source = self._resolve_direct_source()
         if source is not None and source.direct_engine == "trino":
-            return self._prepare_pure_trino_query()
+            trino_execution = self._prepare_pure_trino_query()
+            if trino_execution is not None:
+                return trino_execution
 
-        self._parse_query()
         self._process_variables()
         self._process_placeholders()
         self._apply_limit()

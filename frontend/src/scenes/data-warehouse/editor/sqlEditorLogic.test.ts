@@ -2212,7 +2212,8 @@ describe('sqlEditorLogic', () => {
                 connection: {
                     id: 'trino-conn-1',
                     prefix: 'trino',
-                    engine: 'trino',
+                    // The serializer reports no engine for Trino connections in production.
+                    engine: null,
                     source_type: 'Trino',
                     access_method: 'direct',
                     supports_hogql: true,

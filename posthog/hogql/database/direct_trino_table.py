@@ -1,3 +1,5 @@
+from typing import ClassVar
+
 from posthog.hogql.database.direct_sql_table import DirectSQLTable
 from posthog.hogql.database.models import FieldOrTable
 from posthog.hogql.errors import QueryError
@@ -7,6 +9,8 @@ class DirectTrinoTable(DirectSQLTable):
     trino_catalog: str
     trino_schema: str
     trino_table_name: str
+
+    case_insensitive_identifiers: ClassVar[bool] = True
 
     # Trino resolves unquoted identifiers case-insensitively, but the printer quotes canonical
     # names. Resolve the user's field spelling to the discovered column name before printing it.

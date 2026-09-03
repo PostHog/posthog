@@ -1999,7 +1999,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     )
                     const isManagedWarehouseSource =
                         option?.prefix === MANAGED_WAREHOUSE_SOURCE_PREFIX && option?.source_type === 'Postgres'
-                    const defaultsToRawQuery = isManagedWarehouseSource || option?.engine === 'trino'
+                    // The serializer only sets `engine` for sources that report connection
+                    // metadata, and Trino does not, so key off the source type instead.
+                    const defaultsToRawQuery = isManagedWarehouseSource || option?.source_type === 'Trino'
 
                     if (!values.selectedConnectionSupportsHogQL || defaultsToRawQuery) {
                         actions.setSendRawQuery(true)

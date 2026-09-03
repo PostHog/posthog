@@ -2068,14 +2068,15 @@ class Database(BaseModel):
                                 # For a chain of type a.b.c, we want to create a nested table node
                                 # where a is the parent, b is the child of a, and c is the child of b
                                 # where a.b.c will contain the table.
-                                # Snowflake and Trino resolve unquoted identifiers case-insensitively,
-                                # so preserve the discovered spelling while accepting any input case.
+                                # Direct Snowflake and Trino connections resolve unquoted identifiers
+                                # case-insensitively. Synced table names are PostHog-generated, so
+                                # they stay exact-match.
                                 warehouse_tables.add_child(
                                     TableNode.create_nested_for_chain(
                                         table_chain,
                                         table_for_key,
-                                        case_insensitive=table.external_data_source.direct_engine
-                                        in {"snowflake", "trino"},
+                                        case_insensitive=table.external_data_source.is_direct_query
+                                        and table.external_data_source.direct_engine in {"snowflake", "trino"},
                                     ),
                                     table_conflict_mode=table_conflict_mode,
                                 )
@@ -2123,7 +2124,8 @@ class Database(BaseModel):
                             TableNode.create_nested_for_chain(
                                 table_key.split("."),
                                 virtual_table,
-                                # Synced sources have no direct engine, so use the source type for case folding.
+                                # A dual-mode source queried directly follows its engine's
+                                # case-insensitive identifier rules.
                                 case_insensitive=(
                                     virtual_source.source_type
                                     in {ExternalDataSourceType.SNOWFLAKE, ExternalDataSourceType.TRINO}
