@@ -17,6 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition import (
     RepartitionBudgetExceededError,
+    RepartitionSchemePersistError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_controller import (
     MAX_REPARTITION_ATTEMPTS,
@@ -635,6 +636,55 @@ class TestTransientObjectStoreFailure:
         assert schema.repartition_pending["attempts"] == 0
         skip_calls = [c for c in mock_capture_event.call_args_list if c.args[0] == "warehouse_repartition_skipped"]
         assert any(c.args[1].get("reason") == "transient_infra_error" for c in skip_calls)
+
+    @patch(f"{MODULE}.capture_exception")
+    @patch(f"{MODULE}.capture_repartition_event")
+    @patch(f"{MODULE}.HeartbeaterSync")
+    @patch(f"{MODULE}.repartition_table_in_place", new_callable=AsyncMock)
+    @patch(f"{MODULE}.DeltaTableRef")
+    @patch(f"{MODULE}.is_auto_repartition_enabled", return_value=True)
+    @patch(f"{MODULE}.ExternalDataJob")
+    @patch(f"{MODULE}.ExternalDataSchema")
+    def test_a_database_blip_after_the_swap_is_reported_not_shrugged_off(
+        self,
+        mock_schema_model: MagicMock,
+        _mock_job_model: MagicMock,
+        _mock_enabled: MagicMock,
+        _mock_helper_cls: MagicMock,
+        mock_repartition: AsyncMock,
+        _mock_heartbeater: MagicMock,
+        mock_capture_event: MagicMock,
+        mock_capture_exception: MagicMock,
+    ) -> None:
+        # The counterpart to the two cases above: the same class of database error, but raised once the
+        # swap has already re-bucketed the data in S3. Standing down there leaves the schema row
+        # describing a layout the table no longer has, and the merge that runs next in this very sync
+        # inserts every fetched row instead of upserting it. It has to be a reported failure.
+        # Spent attempts as well, so giving up is on the table: that is the one path that used to
+        # clear the marker, and clearing it is what would release the imports.
+        schema = _schema(
+            name="public.usages",
+            s3_folder_name="usages",
+            pending={**PENDING_TARGET, "attempts": MAX_REPARTITION_ATTEMPTS - 1},
+            swap={"state": "ready", "target": PENDING_TARGET},
+        )
+        mock_schema_model.objects.select_related.return_value.get.return_value = schema
+        mock_repartition.side_effect = RepartitionSchemePersistError(
+            "the swap landed but the new scheme could not be saved: server conn crashed?"
+        )
+
+        _maybe_repartition_table(
+            RepartitionActivityInputs(team_id=TEAM_ID, schema_id=SCHEMA_ID, job_id=JOB_ID, source_id=SOURCE_ID),
+            MagicMock(),
+        )
+
+        mock_capture_exception.assert_called_once()
+        emitted = [c.args[0] for c in mock_capture_event.call_args_list]
+        assert "warehouse_repartition_failed" in emitted
+        schema.clear_repartition_pending.assert_called_once()
+        # The marker records the staged scheme and holds this schema's imports; dropping it would let
+        # the next sync merge against settings that no longer describe the data.
+        schema.clear_repartition_swap.assert_not_called()
 
 
 class TestFeatureFlagGate:

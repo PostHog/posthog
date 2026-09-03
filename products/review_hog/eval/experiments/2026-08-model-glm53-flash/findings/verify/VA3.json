@@ -1,0 +1,6 @@
+{
+    "id": "VA3",
+    "real": true,
+    "source": "reused-LB20",
+    "reasoning": "Adopted from prior verdict LB20 (identical file, lines, and race). Confirmed in frozen tree: the opt-out skip block (tasks.py:889-903) calls only _retract_stale_approvals_on_skip (tasks.py:483-517), which dismisses posted approvals but never changes run status; _supersede_prior_runs (tasks.py:415-432) runs only on the main path (:1054) and receiver leg (:1222). A live run passes post_verdict's head check (temporal/activities.py:673-684) before the push, then posts its approval (:745) after the skip-path retraction ran, before posted_review_id persists (:753-756); no newer run sweeps it. Real but narrow: window is a few GitHub round-trips, and the next head-changing delivery's retraction dismisses it (approvals.py:52). Prior verdict rated severity consider, not must_fix."
+}

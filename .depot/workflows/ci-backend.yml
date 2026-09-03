@@ -23,8 +23,9 @@
 #   test matrices were skipped has nothing to mirror), Trunk flaky-test quarantine
 #   gate (canonical runs per-shard analytics-uploader steps that post to the
 #   external Trunk service; the upload is best-effort and a local "Fail on test
-#   failure" step owns the pass/fail verdict. Canonical can stage or filter JUnit
-#   before this upload. The shadow strips all of it because a non-blocking timing
+#   failure" step owns the pass/fail verdict. Canonical stages JUnit under per-product
+#   filenames before this upload, and can hold a product back from quarantine by naming
+#   its report as an exclusion. The shadow strips all of it because a non-blocking timing
 #   trial must not post to Trunk, and so it also omits the test
 #   steps' continue-on-error and that verdict step, letting each shard's test
 #   exit code be the verdict directly. Canonical gates each quarantine gate on the
@@ -88,7 +89,8 @@
 #   canonical's env.DOCKERHUB_USERNAME / vars.DOCKERHUB_USER because Depot never indirects
 #   through env:, so canonical's per-job env-scoping (workflow-level -> job-level,
 #   for the gha-workflow-env-secret Semgrep fix) is depot-exempt. Login is best-effort
-#   because these jobs only pull public images and can fall back to anonymous pulls.
+#   because these jobs only pull public images and can fall back to anonymous pulls,
+#   which canonical relies on too.
 # - Path-filter persons-SQL is folded into migrations
 # - Snapshot mode matches canonical, but snapshot patch upload/commit is stripped;
 #   canonical's per-schema-leg patch scoping (legacy legs exclude *.new_events_schema.ambr,
@@ -264,6 +266,10 @@ jobs:
             migrations: ${{ steps.filter.outputs.migrations || 'true' }}
             migrations_files: ${{ steps.filter.outputs.migrations_files }}
             migrations_any: ${{ steps.filter.outputs.migrations_any || 'true' }}
+            # What the replay gate in check-migrations keys off. A ClickHouse or
+            # async-migration change does not pay for a replay of a history the Django
+            # planner never sees.
+            migration_replay: ${{ steps.filter.outputs.migration_replay || 'true' }}
             tasks_temporal: ${{ steps.filter.outputs.tasks_temporal || 'true' }}
             openapi_types: ${{ steps.filter.outputs.openapi_types || 'true' }}
             # The label has to reach discovery as well: `backend` alone only starts the
@@ -288,6 +294,11 @@ jobs:
               continue-on-error: true
             - uses: ./.depot/actions/paths-filter
               id: filter
+              # No `!= 'schedule'` arm, unlike canonical: this shadow has no `schedule`
+              # trigger (depot-exempt, see the header), so there is no cron run whose
+              # filter could narrow to a single commit. Canonical's reason for the extra
+              # arm is "The hourly master lane" in
+              # .agents/skills/authoring-ci-workflows/SKILL.md.
               if: github.event_name != 'push' # Run all tests on master push
               with:
                   list-files: 'escape'
@@ -466,6 +477,19 @@ jobs:
                       # deleted-migration check in repo-checks.
                       migrations_any:
                         - '**/migrations/*.py'
+                      # Django migration files in any app, plus the routing files that decide
+                      # which app labels land in which database. Both change the plan a
+                      # from-scratch migrate builds. Match everything and exclude the two
+                      # non-Django directories, so a new app is covered without an edit here.
+                      # An app missed by a positive list would leave the replay gate silently
+                      # off for it.
+                      migration_replay:
+                        - '**/migrations/*.py'
+                        - '!posthog/clickhouse/migrations/*.py'
+                        - '!posthog/async_migrations/migrations/*.py'
+                        - 'products/db_routing.yaml'
+                        - 'posthog/product_db_config.py'
+                        - 'posthog/product_db_router.py'
                       tasks_temporal:
                         - 'products/tasks/backend/temporal/**/*'
                       product_yamls:
@@ -1165,12 +1189,18 @@ jobs:
     # branch so repository switches cannot disturb live Compose bind mounts.
     check-migrations:
         needs: [changes]
-        if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.migrations == 'true'
+        # migration_replay is listed because it reaches files the others miss:
+        # products/db_routing.yaml is neither Python nor under a backend/ directory, and
+        # a migration in a future top-level app matches none of them. Without it the
+        # replay gate could be on while the job that runs it never starts.
+        if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.migrations == 'true' || needs.changes.outputs.migration_replay == 'true'
         # On master this job replays the full migration history from scratch to
-        # produce the schema dump every PR job restores. That replay grows with
-        # every merged migration, so the limit needs headroom over it: it is
-        # there to cancel a hang, not to cap how long the history takes.
-        timeout-minutes: 40
+        # produce the schema dump every PR job restores, and a merge queue batch that
+        # changes a Django migration replays it a second time onto an empty database.
+        # That replay grows with every merged migration, so the limit needs headroom
+        # over two of them: it is there to cancel a hang, not to cap how long the
+        # history takes.
+        timeout-minutes: 60
         name: Validate migrations
         runs-on: depot-ubuntu-24.04
         steps:
@@ -1328,6 +1358,33 @@ jobs:
                   # Then run persons migrations using sqlx
                   DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons" \
                     sqlx migrate run --source rust/persons_migrations/
+            - name: Replay the full migration history from scratch
+              # The steps above prime the database from the cached master schema dump, so
+              # the migrate that follows only applies the migrations this branch adds.
+              # That hides a branch whose new migration moves an older one's position in
+              # the plan, because the older one is already recorded as applied and never
+              # runs against its new neighbours. A replay onto an empty database is the
+              # only step that runs the whole history in the order this branch produces.
+              # Master pushes already replay from scratch, which is where such a break
+              # surfaces today, one merge too late.
+              #
+              # Queue lane only. The trunk-merge/** branch is master plus the batch, so it
+              # sees the ordering every merged migration produces together; a PR branch
+              # sees it only while it is current with master. The replay is by far the
+              # most expensive part of this job, so paying it once per batch rather than
+              # on every push of every migration branch is what keeps it affordable.
+              if: github.event_name == 'pull_request' && startsWith(github.head_ref, 'trunk-merge/') && needs.changes.outputs.migration_replay == 'true'
+              env:
+                  REPLAY_DB: posthog_migration_replay
+              run: |
+                  set -euo pipefail
+                  docker compose -f docker-compose.dev.yml exec -T db psql -q -U posthog postgres \
+                      -c "DROP DATABASE IF EXISTS ${REPLAY_DB};" \
+                      -c "CREATE DATABASE ${REPLAY_DB};"
+                  if ! DATABASE_URL="postgres://posthog:posthog@localhost:5432/${REPLAY_DB}" python manage.py migrate; then
+                      echo "::error::The migration history does not apply to an empty database. A merge to master fails the same way. Read the traceback above for the migration that stopped, and check whether another migration this branch adds moved it in the plan."
+                      exit 1
+                  fi
             - name: Dump migrated schema
               if: github.event_name == 'push'
               run: |
@@ -2332,9 +2389,6 @@ jobs:
                       # shellcheck disable=SC2086
                       pytest -v --tb=short --reuse-db -o junit_duration_report=call $TEMPORAL_FILES -m "not async_migrations" \
                           "${SELECTED_SPLIT[@]}" \
-                          --deselect "posthog/temporal/tests/data_modeling/test_run_workflow.py::test_run_workflow_with_minio_bucket" \
-                          --deselect "posthog/temporal/tests/data_modeling/test_run_workflow.py::test_run_workflow_timeout_does_not_pause_schedule_without_consecutive_failures" \
-                          --deselect "posthog/temporal/tests/data_modeling/test_run_workflow.py::test_run_workflow_timeout_pauses_schedule_after_5_consecutive_failures" \
                           -r fEsxX \
                           --junitxml=junit-temporal.xml \
                           $PYTEST_ARGS
@@ -2343,9 +2397,6 @@ jobs:
                       # safety net. The per-test timeout also terminates the whole process, so it adds
                       # no protection beyond the job timeout.
                       pytest -v --tb=short --reuse-db -o junit_duration_report=call posthog/temporal products/signals/backend/emission -m "not async_migrations" \
-                          --deselect "posthog/temporal/tests/data_modeling/test_run_workflow.py::test_run_workflow_with_minio_bucket" \
-                          --deselect "posthog/temporal/tests/data_modeling/test_run_workflow.py::test_run_workflow_timeout_does_not_pause_schedule_without_consecutive_failures" \
-                          --deselect "posthog/temporal/tests/data_modeling/test_run_workflow.py::test_run_workflow_timeout_pauses_schedule_after_5_consecutive_failures" \
                           --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
                           --durations=100 --durations-min=1.0 \
                           --pytest-durations=100 \

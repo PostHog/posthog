@@ -15,19 +15,18 @@ use tracing::{info, warn};
 
 use crate::config::{CaptureMode, Config};
 use crate::event_restrictions::{EventRestrictionService, Pipeline, RedisRestrictionsRepository};
-use crate::global_rate_limiter::GlobalRateLimiter;
+use crate::global_rate_limiter::{ai_byte_limit_window, GlobalRateLimiter};
+use crate::outputs::{Output, OutputRegistry};
 use crate::prometheus::setup_metrics_recorder;
 use crate::quota_limiters::{
     is_exception_event, is_llm_event, is_survey_event, CaptureQuotaLimiter,
 };
 use crate::router;
 use crate::router::BATCH_BODY_SIZE;
-use crate::sinks::fallback::FallbackSink;
 use crate::sinks::kafka::KafkaSink;
 use crate::sinks::noop::NoOpSink;
 use crate::sinks::print::PrintSink;
 use crate::sinks::s3::S3Sink;
-use crate::sinks::Event;
 use limiters::overflow::OverflowLimiter;
 use limiters::redis::{QuotaResource, RedisLimiter, ServiceName, OVERFLOW_LIMITER_CACHE_KEY};
 use limiters::token_dropper::TokenDropper;
@@ -126,7 +125,7 @@ pub fn register_components(manager: &mut lifecycle::Manager, config: &Config) ->
 pub struct CaptureComponents {
     pub app: Router,
     pub server_handle: lifecycle::Handle,
-    pub sink: Arc<dyn Event + Send + Sync>,
+    pub outputs: Arc<OutputRegistry>,
     pub v1_sink_router: Option<Arc<crate::v1::sinks::Router>>,
     pub event_restriction_service: Option<EventRestrictionService>,
     pub http1_header_read_timeout_ms: Option<u64>,
@@ -291,12 +290,12 @@ pub async fn build_components(
         _ => None,
     };
 
-    let sink: Arc<dyn Event + Send + Sync> = Arc::from(
-        create_sink(&config, sink_handle, advisory_handle)
+    let outputs = Arc::new(
+        create_output_registry(&config, sink_handle, advisory_handle)
             .await
-            .expect("failed to create sink"),
+            .expect("failed to create the output registry"),
     );
-    let sink_for_flush = sink.clone();
+    let outputs_for_flush = outputs.clone();
 
     let event_restriction_service = if let Some(handle) = event_restrictions_handle {
         create_event_restriction_service(
@@ -384,7 +383,7 @@ pub async fn build_components(
         crate::time::SystemTime {},
         readiness,
         liveness,
-        sink,
+        outputs,
         redis_client,
         global_rate_limiter_token_distinctid,
         quota_limiter,
@@ -423,7 +422,7 @@ pub async fn build_components(
     CaptureComponents {
         app,
         server_handle: server,
-        sink: sink_for_flush,
+        outputs: outputs_for_flush,
         v1_sink_router,
         event_restriction_service,
         http1_header_read_timeout_ms: config.http1_header_read_timeout_ms,
@@ -493,7 +492,7 @@ fn warn_if_ai_byte_budget_below_max_event(config: &Config) {
     if max_event_bytes == 0 {
         return;
     }
-    let window_secs = config.global_rate_limit_window_interval_secs;
+    let (window_secs, _) = ai_byte_limit_window(config);
     let window_budget = ai_byte_limit_per_second(config).saturating_mul(window_secs);
     if window_budget < max_event_bytes {
         warn!(
@@ -566,16 +565,25 @@ fn create_v1_sink_router(
     Ok(Arc::new(router))
 }
 
-async fn create_sink(
+async fn create_output_registry(
     config: &Config,
     sink_handle: Option<lifecycle::Handle>,
     advisory_handle: Option<lifecycle::Handle>,
-) -> anyhow::Result<Box<dyn Event + Send + Sync>> {
+) -> anyhow::Result<OutputRegistry> {
+    let output = create_output(config, sink_handle, advisory_handle).await?;
+    Ok(OutputRegistry::new(output))
+}
+
+async fn create_output(
+    config: &Config,
+    sink_handle: Option<lifecycle::Handle>,
+    advisory_handle: Option<lifecycle::Handle>,
+) -> anyhow::Result<Output> {
     if config.print_sink {
-        Ok(Box::new(PrintSink {}))
+        Ok(Output::single(PrintSink {}))
     } else if config.noop_sink {
         info!("NoOpSink enabled, events will be silently dropped");
-        Ok(Box::new(NoOpSink::new()))
+        Ok(Output::single(NoOpSink::new()))
     } else if config.s3_fallback_enabled {
         let s3_handle = sink_handle.expect("sink lifecycle handle required for S3 fallback");
         let kafka_handle = advisory_handle.expect("kafka advisory handle required for fallback");
@@ -596,17 +604,17 @@ async fn create_sink(
         .await
         .expect("failed to create S3 sink");
 
-        Ok(Box::new(FallbackSink::new_with_advisory(
-            kafka_sink,
-            s3_sink,
-            kafka_handle,
-        )))
+        Ok(Output::failover(
+            Output::single(kafka_sink),
+            Output::single(s3_sink),
+            Some(kafka_handle),
+        ))
     } else {
         let kafka_sink = KafkaSink::new(config.kafka.clone(), sink_handle)
             .await
             .context("failed to start Kafka sink")?;
 
-        Ok(Box::new(kafka_sink))
+        Ok(Output::single(kafka_sink))
     }
 }
 
@@ -1005,6 +1013,43 @@ mod tests {
         );
     }
 
+    /// The AI byte limiter takes its window from its own knob when one is set,
+    /// so a zero there has to be caught and named separately. Naming the wrong
+    /// variable sends an operator to a setting that is already correct.
+    #[test]
+    fn ai_byte_limiter_rejects_a_zero_window_from_its_own_knob() {
+        let cfg_env: HashMap<String, String> = [
+            ("REDIS_URL", "redis://localhost:6379/"),
+            ("CAPTURE_MODE", "events"),
+            ("KAFKA_HOSTS", "localhost:9092"),
+            ("KAFKA_TOPIC", "events_plugin_ingestion"),
+            ("GLOBAL_RATE_LIMIT_WINDOW_INTERVAL_SECS", "180"),
+            ("AI_BYTE_LIMIT_WINDOW_INTERVAL_SECS", "0"),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+        let config: Config =
+            envconfig::Envconfig::init_from_hashmap(&cfg_env).expect("test config");
+
+        let err = match GlobalRateLimiter::new_ai_bytes(&config, vec![]) {
+            Ok(_) => panic!("a zero AI byte window must not build a limiter"),
+            Err(err) => err,
+        };
+        assert!(
+            err.to_string()
+                .contains("AI_BYTE_LIMIT_WINDOW_INTERVAL_SECS"),
+            "the error must name the AI byte knob, not the shared one, got: {err}"
+        );
+
+        // The shared window is valid here, so the token+distinct_id limiter is
+        // unaffected by the AI byte knob being wrong.
+        assert!(
+            GlobalRateLimiter::new_token_distinct_id(&config, vec![]).is_err(),
+            "an empty redis instance list still fails, but not on the window"
+        );
+    }
+
     #[test]
     #[should_panic(expected = "imports must never overflow")]
     fn ai_events_overflow_valve_rejects_armed_valve_in_import_mode() {
@@ -1181,7 +1226,7 @@ mod tests {
     }
 
     /// A blank output topic makes `create_sink` refuse to boot in every capture
-    /// mode — the misconfig fails fast at startup (via the `OutputRegistry`
+    /// mode — the misconfig fails fast at startup (via the `TopicTable`
     /// completeness check inside `KafkaSink::new`) rather than at first produce.
     #[rstest::rstest]
     #[case(CaptureMode::Events)]
@@ -1203,7 +1248,7 @@ mod tests {
         config.kafka.outputs_completeness_check_enabled = true;
         config.kafka.kafka_dlq_topic = String::new();
 
-        let err = create_sink(&config, None, None)
+        let err = create_output_registry(&config, None, None)
             .await
             .err()
             .expect("boot must be refused when an output topic is empty");
@@ -1216,7 +1261,7 @@ mod tests {
         // The default: with the check off, the same blank topic boots (and
         // would fail at first produce instead).
         config.kafka.outputs_completeness_check_enabled = false;
-        create_sink(&config, None, None)
+        create_output_registry(&config, None, None)
             .await
             .expect("boot must proceed when the completeness check is disabled");
     }

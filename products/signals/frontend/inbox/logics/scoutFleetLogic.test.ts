@@ -14,6 +14,7 @@ import { initKeaTests } from '~/test/init'
 import {
     signalsScoutChatTasksCreate,
     signalsScoutConfigList,
+    signalsScoutConfigSync,
     signalsScoutConfigUpdate,
     signalsScoutRunsRecentPerScout,
 } from 'products/signals/frontend/generated/api'
@@ -27,6 +28,7 @@ jest.mock('products/signals/frontend/generated/api', () => ({
     signalsScoutChatTasksCreate: jest.fn(),
     signalsScoutConfigDestroy: jest.fn(),
     signalsScoutConfigList: jest.fn(),
+    signalsScoutConfigSync: jest.fn(),
     signalsScoutConfigUpdate: jest.fn(),
     signalsScoutRunsFindingsSummary: jest.fn(),
     signalsScoutRunsList: jest.fn(),
@@ -37,6 +39,7 @@ const mockSignalsScoutChatTasksCreate = signalsScoutChatTasksCreate as jest.Mock
     typeof signalsScoutChatTasksCreate
 >
 const mockSignalsScoutConfigList = signalsScoutConfigList as jest.MockedFunction<typeof signalsScoutConfigList>
+const mockSignalsScoutConfigSync = signalsScoutConfigSync as jest.MockedFunction<typeof signalsScoutConfigSync>
 const mockSignalsScoutConfigUpdate = signalsScoutConfigUpdate as jest.MockedFunction<typeof signalsScoutConfigUpdate>
 const mockSignalsScoutRunsRecentPerScout = signalsScoutRunsRecentPerScout as jest.MockedFunction<
     typeof signalsScoutRunsRecentPerScout
@@ -118,6 +121,7 @@ describe('scoutFleetLogic', () => {
         initKeaTests()
         mockSignalsScoutChatTasksCreate.mockReset()
         mockSignalsScoutConfigList.mockReset().mockResolvedValue([])
+        mockSignalsScoutConfigSync.mockReset().mockResolvedValue([])
         mockSignalsScoutConfigUpdate.mockReset()
         mockSignalsScoutRunsRecentPerScout.mockReset().mockResolvedValue([])
         logic = scoutFleetLogic()
@@ -219,65 +223,75 @@ describe('scoutFleetLogic', () => {
     })
 
     it('lists the whole roster A→Z and tags each row with its lifecycle group', () => {
-        logic.actions.setRosterEvaluatedAt(new Date('2026-08-28T12:00:00Z').valueOf())
-        logic.actions.loadScoutConfigsSuccess([
-            { ...BASE_CONFIG, id: 'quiet', skill_name: 'signals-scout-quiet' },
-            { ...BASE_CONFIG, id: 'busy', skill_name: 'signals-scout-busy' },
-            {
-                ...BASE_CONFIG,
-                id: 'off',
-                skill_name: 'signals-scout-off',
-                enabled: false,
-                status: 'paused_by_user',
-            },
-            {
-                ...BASE_CONFIG,
-                id: 'broken',
-                skill_name: 'signals-scout-broken',
-                enabled: false,
-                status: 'paused_by_system',
-                pause_reason: 'repeated_failures',
-                status_changed_at: '2026-08-27T12:00:00Z',
-            },
-            {
-                ...BASE_CONFIG,
-                id: 'stale-pause',
-                skill_name: 'signals-scout-stale-pause',
-                enabled: false,
-                status: 'paused_by_system',
-                pause_reason: 'no_output',
-                status_changed_at: '2026-08-20T12:00:00Z',
-            },
-            {
-                ...BASE_CONFIG,
-                id: 'warned',
-                skill_name: 'signals-scout-warned',
-                status: 'pending_pause',
-                pause_reason: 'ignored',
-            },
-            {
-                ...BASE_CONFIG,
-                id: 'quiet-warning',
-                skill_name: 'signals-scout-quiet-warning',
-                status: 'pending_pause',
-                pause_reason: 'no_output',
-            },
-        ])
-        // `busy` filed a report in the window, which is what separates Working from Watching.
-        logic.actions.loadScoutRunsSuccess([makeRun({ skill_name: 'signals-scout-busy', emitted_report_ids: ['r-1'] })])
+        // The runs poll re-pins `rosterEvaluatedAt` to the wall clock when real time has moved a
+        // scout out of the pause window, so the fixture dates only hold with the clock pinned too.
+        jest.useFakeTimers()
+        try {
+            jest.setSystemTime(new Date('2026-08-28T12:00:00Z'))
+            logic.actions.setRosterEvaluatedAt(new Date('2026-08-28T12:00:00Z').valueOf())
+            logic.actions.loadScoutConfigsSuccess([
+                { ...BASE_CONFIG, id: 'quiet', skill_name: 'signals-scout-quiet' },
+                { ...BASE_CONFIG, id: 'busy', skill_name: 'signals-scout-busy' },
+                {
+                    ...BASE_CONFIG,
+                    id: 'off',
+                    skill_name: 'signals-scout-off',
+                    enabled: false,
+                    status: 'paused_by_user',
+                },
+                {
+                    ...BASE_CONFIG,
+                    id: 'broken',
+                    skill_name: 'signals-scout-broken',
+                    enabled: false,
+                    status: 'paused_by_system',
+                    pause_reason: 'repeated_failures',
+                    status_changed_at: '2026-08-27T12:00:00Z',
+                },
+                {
+                    ...BASE_CONFIG,
+                    id: 'stale-pause',
+                    skill_name: 'signals-scout-stale-pause',
+                    enabled: false,
+                    status: 'paused_by_system',
+                    pause_reason: 'no_output',
+                    status_changed_at: '2026-08-20T12:00:00Z',
+                },
+                {
+                    ...BASE_CONFIG,
+                    id: 'warned',
+                    skill_name: 'signals-scout-warned',
+                    status: 'pending_pause',
+                    pause_reason: 'ignored',
+                },
+                {
+                    ...BASE_CONFIG,
+                    id: 'quiet-warning',
+                    skill_name: 'signals-scout-quiet-warning',
+                    status: 'pending_pause',
+                    pause_reason: 'no_output',
+                },
+            ])
+            // `busy` filed a report in the window, which is what separates Working from Watching.
+            logic.actions.loadScoutRunsSuccess([
+                makeRun({ skill_name: 'signals-scout-busy', emitted_report_ids: ['r-1'] }),
+            ])
 
-        // One flat list ordered by name, not split across lifecycle sections.
-        expect(logic.values.rosterScouts.map((row) => [row.config.id, row.group])).toEqual([
-            ['broken', 'needs_you'],
-            ['busy', 'working'],
-            ['off', 'off'],
-            ['quiet', 'watching'],
-            ['quiet-warning', 'needs_you'],
-            ['stale-pause', 'needs_you'],
-            ['warned', 'needs_you'],
-        ])
-        // The stats tell a warning apart from a recent pause; human and stale pauses are neither.
-        expect(logic.values.pauseAttentionCounts).toEqual({ pausingSoon: 1, recentlyPaused: 1 })
+            // One flat list ordered by name, not split across lifecycle sections.
+            expect(logic.values.rosterScouts.map((row) => [row.config.id, row.group])).toEqual([
+                ['broken', 'needs_you'],
+                ['busy', 'working'],
+                ['off', 'off'],
+                ['quiet', 'watching'],
+                ['quiet-warning', 'needs_you'],
+                ['stale-pause', 'needs_you'],
+                ['warned', 'needs_you'],
+            ])
+            // The stats tell a warning apart from a recent pause; human and stale pauses are neither.
+            expect(logic.values.pauseAttentionCounts).toEqual({ pausingSoon: 1, recentlyPaused: 1 })
+        } finally {
+            jest.useRealTimers()
+        }
     })
 
     it('keeps configs unresolved until the current team is available', async () => {
@@ -322,6 +336,71 @@ describe('scoutFleetLogic', () => {
 
         await expectLogic(logic).toDispatchActions([expectedAction])
     })
+
+    // The whole point of materializing on open: a project the coordinator never reached has no
+    // configs at all, and the roster has no other way to get any.
+    it('fills an empty roster from the fleet the sync materializes', async () => {
+        mockSignalsScoutConfigSync.mockResolvedValue([BASE_CONFIG])
+        logic.actions.loadScoutConfigsSuccess([])
+
+        logic.actions.materializeScoutFleet()
+
+        await expectLogic(logic).toDispatchActions(['syncScoutFleetSuccess'])
+        expect(mockSignalsScoutConfigSync).toHaveBeenCalledWith(String(MOCK_TEAM_ID), { surface: 'roster' })
+        expect(logic.values.scoutConfigs).toEqual([BASE_CONFIG])
+        expect(logic.values.scoutFleetSynced).toBe(true)
+        expect(logic.values.scoutFleetSyncOutcome).toBe('synced')
+    })
+
+    it('materializes the fleet at most once per roster session', async () => {
+        logic.actions.materializeScoutFleet()
+        await expectLogic(logic).toDispatchActions(['syncScoutFleetSuccess'])
+
+        logic.actions.materializeScoutFleet()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(mockSignalsScoutConfigSync).toHaveBeenCalledTimes(1)
+    })
+
+    // Syncing on top of an in-flight list read would let the older read land last and blank the
+    // roster the sync just filled.
+    it('waits for an in-flight config read before materializing the fleet', async () => {
+        const listRequest = deferred<SignalScoutConfigApi[]>()
+        mockSignalsScoutConfigList.mockReturnValueOnce(listRequest.promise)
+        mockSignalsScoutConfigSync.mockResolvedValue([BASE_CONFIG])
+        logic.actions.loadScoutConfigs()
+
+        logic.actions.materializeScoutFleet()
+        await new Promise(setImmediate)
+        expect(mockSignalsScoutConfigSync).not.toHaveBeenCalled()
+
+        listRequest.resolve([])
+        await expectLogic(logic).toDispatchActions(['loadScoutConfigsSuccess', 'syncScoutFleetSuccess'])
+        expect(logic.values.scoutConfigs).toEqual([BASE_CONFIG])
+    })
+
+    // Materializing is a write, so a member without write access gets a 403. Either way the sync
+    // has to settle: a roster stuck unsynced shows a skeleton over its empty state forever. The 500
+    // row keeps a real outage from being swallowed into the same silent branch. Each refusal has to
+    // report its own outcome — a roster kept because the sync was refused reads as an empty fleet
+    // otherwise, and `Scout fleet viewed` can't tell that from a project with no scouts.
+    it.each([
+        [403, 'syncScoutFleetSuccess', 'skipped_permission'],
+        [404, 'syncScoutFleetSuccess', 'not_found'],
+        [500, 'syncScoutFleetFailure', 'failed'],
+    ])(
+        'keeps the roster and settles the sync when it is refused with %s',
+        async (status, expectedAction, expectedOutcome) => {
+            mockSignalsScoutConfigSync.mockRejectedValueOnce(new ApiError('nope', status))
+
+            logic.actions.materializeScoutFleet()
+
+            await expectLogic(logic).toDispatchActions([expectedAction])
+            expect(logic.values.scoutConfigs).toEqual([BASE_CONFIG])
+            expect(logic.values.scoutFleetSynced).toBe(true)
+            expect(logic.values.scoutFleetSyncOutcome).toBe(expectedOutcome)
+        }
+    )
 
     it('sends newer queued updates after an earlier request fails', async () => {
         const firstRequest = deferred<SignalScoutConfigApi>()

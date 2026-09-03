@@ -130,7 +130,12 @@ def _build_eval_report_signal_prompt(inputs: EmitEvalReportSignalInputs, content
 async def summarize_report_for_signal(
     inputs: EmitEvalReportSignalInputs, content: dict[str, Any]
 ) -> EvalReportSignalSummary:
-    """Use the signals LLM to produce a signal-sized summary of a report run."""
+    """Use the signals LLM to produce a signal-sized summary of a report run.
+
+    `ai_product` is the Go-gateway opt-in. A call without it routes to the legacy Python
+    gateway under the bare `signals` slug. This tag stays separate from the report agent's
+    `aio_eval_reports`: a budget denial on one must not stop the other.
+    """
     user_prompt = _build_eval_report_signal_prompt(inputs, content)
 
     def validate(text: str) -> EvalReportSignalSummary:
@@ -144,6 +149,7 @@ async def summarize_report_for_signal(
         validate=validate,
         thinking=True,
         stage="eval_report_signal_summary",
+        ai_product="aio_eval_reports_for_signals",
     )
 
 

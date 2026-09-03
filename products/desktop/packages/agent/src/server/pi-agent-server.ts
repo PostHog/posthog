@@ -1,10 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
+import type { RpcSessionState } from "@earendil-works/pi-coding-agent";
 import type { ServerType } from "@hono/node-server";
 import { serve } from "@hono/node-server";
 import {
   type AgentConversationEvent,
+  type AgentTurnUsage,
   MCP_TOOL_PERMISSION_OPTIONS,
   type McpToolPermissionDecision,
   type McpToolPermissionRequest,
@@ -31,13 +33,25 @@ import {
 import { piRpcCommandSchema, type RpcCommand } from "../pi/rpc-transport";
 import { PiRuntime } from "../pi/runtime";
 import type { TaskContext } from "../pi/task-system-prompt";
+import {
+  type PiExtensionEvent,
+  piExtensionUIResponseSchema,
+  type RpcExtensionUIResponse,
+} from "../pi/types";
 import { PostHogAPIClient } from "../posthog-api";
 import { resolveLlmGatewayUrl } from "../utils/gateway";
 import { Logger } from "../utils/logger";
 import { TaskRunEventStreamSender } from "./event-stream-sender";
 import { type JwtPayload, JwtValidationError, validateJwt } from "./jwt";
+import { createRtkSavingsNotification } from "./rtk-savings";
+import { RunUsageAccumulator, reportRunUsage, seedRunUsage } from "./run-usage";
 import { jsonRpcRequestSchema } from "./schemas";
 import type { AgentServerConfig } from "./types";
+
+const MODEL_CHANGING_RPC_COMMANDS: ReadonlySet<string> = new Set([
+  "set_model",
+  "cycle_model",
+]);
 
 interface SseController {
   send(data: unknown): void;
@@ -136,6 +150,9 @@ export class PiAgentServer {
     string,
     McpToolPermissionRequest
   >();
+  private rtkSavingsAttempted = false;
+  private runUsage = new RunUsageAccumulator();
+  private modelContextWindow: number | null = null;
 
   constructor(private readonly config: AgentServerConfig) {
     this.posthogAPI = new PostHogAPIClient({
@@ -243,10 +260,12 @@ export class PiAgentServer {
         );
     }
     this.session = null;
+    this.runUsage = new RunUsageAccumulator();
     this.pendingMcpPermissions.clear();
     await this.flushConversationLog().catch((error) =>
       this.logger.error("Failed to persist Pi events during shutdown", error),
     );
+    await this.emitRtkSavings();
     await this.eventStreamSender?.stop();
     this.server?.close();
     this.server = null;
@@ -287,7 +306,31 @@ export class PiAgentServer {
           updateError,
         ),
       );
+    await this.emitRtkSavings();
     await this.eventStreamSender?.stop();
+  }
+
+  private async emitRtkSavings(): Promise<void> {
+    if (!this.eventStreamSender || this.rtkSavingsAttempted) {
+      return;
+    }
+    this.rtkSavingsAttempted = true;
+
+    try {
+      const notification = await createRtkSavingsNotification({
+        taskId: this.config.taskId,
+        runId: this.config.runId,
+        teamId: this.config.projectId,
+        runtimeAdapter: "pi",
+        model: this.config.model,
+        resolveSavings: this.config.resolveRtkSavings,
+      });
+      if (notification) {
+        this.eventStreamSender.enqueue(notification);
+      }
+    } catch (error) {
+      this.logger.debug("Failed to emit rtk savings", { error });
+    }
   }
 
   private createApp(): Hono {
@@ -299,6 +342,10 @@ export class PiAgentServer {
         hasSession: this.session !== null,
         bootMs: this.sessionReadyBootMs,
         sessionInitMs: this.sessionInitMs,
+        boot: {
+          totalMs: this.sessionReadyBootMs,
+          launcherToProcessMs: this.config.launcherToProcessMs,
+        },
       }),
     );
 
@@ -546,6 +593,7 @@ export class PiAgentServer {
         }),
     ]);
     const runState = taskRun?.state;
+    seedRunUsage(this.runUsage, runState?.token_usage);
     const taskSnapshotKind = taskRun
       ? typeof runState?.snapshot_kind === "string"
         ? runState.snapshot_kind
@@ -555,12 +603,17 @@ export class PiAgentServer {
       typeof this.config.claudeCode?.systemPrompt === "string"
         ? this.config.claudeCode.systemPrompt
         : this.config.claudeCode?.systemPrompt?.append;
+    // A repo-less run gets the tools to discover and clone a repository, and the
+    // channel prompt that names them. Derive both from one condition so the tools
+    // and the prompt that describes them can never disagree.
+    const channelMode = !this.config.repositoryPath;
     const taskContext: TaskContext = {
       projectId: this.config.projectId,
       apiHost: this.config.apiUrl,
       taskId: this.config.taskId,
       cwd,
       environment: "cloud",
+      channelMode,
       additionalInstructions: configuredSystemPrompt,
     };
     const attributionHeaders = buildPosthogPropertyHeaderRecord({
@@ -585,7 +638,7 @@ export class PiAgentServer {
     });
 
     const extensions: PiRuntimeExtension[] = ["context-wiki"];
-    if (!this.config.repositoryPath) {
+    if (channelMode) {
       extensions.push("repository-tools");
     }
     if (this.config.autoPublish === true && this.config.createPr !== false) {
@@ -614,9 +667,12 @@ export class PiAgentServer {
       extensions,
       contextWikiPath: resolveContextWikiPath(),
     });
-    const runtime = new PiRuntime(client);
+    const runtime = new PiRuntime(
+      client,
+      () => this.modelContextWindow ?? undefined,
+    );
     const unsubscribeConversation = runtime.onConversationEvent((event) =>
-      this.handleEvent(event),
+      this.handleConversationEvent(event),
     );
     const unsubscribeRuntime = runtime.onRuntimeEvent((event) => {
       if (event.type === "agent_settled") {
@@ -627,6 +683,9 @@ export class PiAgentServer {
           });
       }
     });
+    const unsubscribeExtensions = runtime.onExtensionEvent((event) =>
+      this.handleExtensionEvent(event),
+    );
     const unsubscribeMcpPermissions = client.onMcpToolPermissionRequest(
       (request) => this.handleMcpToolPermissionRequest(request),
     );
@@ -640,10 +699,12 @@ export class PiAgentServer {
       );
     }
     const runtimeState = await client.getState();
+    this.applyModelContextWindow(runtimeState);
     this.sessionFile = runtimeState.sessionFile ?? restoredSessionFile ?? null;
     const unsubscribe = () => {
       unsubscribeConversation();
       unsubscribeRuntime();
+      unsubscribeExtensions();
       unsubscribeMcpPermissions();
     };
 
@@ -661,6 +722,24 @@ export class PiAgentServer {
     });
   }
 
+  private handleConversationEvent(event: AgentConversationEvent): void {
+    if (event.type === "turn_completed" && event.usage) {
+      this.recordTurnUsage(event.usage);
+    }
+    this.handleEvent(event);
+  }
+
+  private recordTurnUsage(usage: AgentTurnUsage): void {
+    if (!this.runUsage.add(usage)) return;
+    reportRunUsage(
+      this.runUsage,
+      this.posthogAPI,
+      this.config.taskId,
+      this.config.runId,
+      this.logger,
+    );
+  }
+
   private handleEvent(event: AgentConversationEvent): void {
     const id = randomUUID();
     this.broadcast({
@@ -674,6 +753,22 @@ export class PiAgentServer {
         this.logger.error("Failed to persist Pi queue state", error),
       );
     }
+  }
+
+  private handleExtensionEvent(event: PiExtensionEvent): void {
+    this.broadcast({ ...event });
+  }
+
+  private async respondExtensionUI(
+    response: RpcExtensionUIResponse,
+  ): Promise<{ resolved: true }> {
+    const runtime = this.session?.runtime;
+    if (!runtime) {
+      throw new Error("No active Pi runtime");
+    }
+    await runtime.client.respondToExtensionUI(response);
+    this.broadcast({ ...response });
+    return { resolved: true };
   }
 
   private handleMcpToolPermissionRequest(
@@ -758,8 +853,31 @@ export class PiAgentServer {
             response.decision,
           );
         }
-        return runtime.sendCommand(command);
+        if ((command as { type?: unknown }).type === "extension_ui_response") {
+          const response = piExtensionUIResponseSchema.parse(command);
+          return this.respondExtensionUI(response);
+        }
+        const result = await runtime.sendCommand(command);
+        if (MODEL_CHANGING_RPC_COMMANDS.has(command.type)) {
+          await this.refreshModelContextWindow(client);
+        }
+        return result;
       }
+    }
+  }
+
+  private applyModelContextWindow(state: RpcSessionState): void {
+    this.modelContextWindow =
+      typeof state.model?.contextWindow === "number"
+        ? state.model.contextWindow
+        : null;
+  }
+
+  private async refreshModelContextWindow(client: PiRpcClient): Promise<void> {
+    try {
+      this.applyModelContextWindow(await client.getState());
+    } catch (error) {
+      this.logger.debug("Failed to refresh Pi model context window", error);
     }
   }
 
@@ -927,17 +1045,35 @@ export class PiAgentServer {
   }
 
   private broadcast(event: Record<string, unknown>): void {
-    if (event.type === "pi_event" || event.type === "pi_run_started") {
-      const logEntry: StoredLogEntry = {
-        id: typeof event.id === "string" ? event.id : undefined,
-        type: event.type,
-        timestamp:
-          typeof event.timestamp === "string" ? event.timestamp : undefined,
-        event:
-          event.type === "pi_event"
-            ? (event.event as AgentConversationEvent)
-            : undefined,
-      };
+    const isConversationEvent =
+      event.type === "pi_event" || event.type === "pi_run_started";
+    const isExtensionMessage =
+      event.type === "extension_ui_request" ||
+      event.type === "extension_ui_response";
+    if (isConversationEvent || isExtensionMessage) {
+      const logEntry: StoredLogEntry = isExtensionMessage
+        ? {
+            id: typeof event.id === "string" ? event.id : undefined,
+            type: "pi_extension_event",
+            timestamp:
+              typeof event.timestamp === "string"
+                ? event.timestamp
+                : new Date().toISOString(),
+            notification: {
+              method: "_posthog/pi_extension_event",
+              params: event,
+            },
+          }
+        : {
+            id: typeof event.id === "string" ? event.id : undefined,
+            type: String(event.type),
+            timestamp:
+              typeof event.timestamp === "string" ? event.timestamp : undefined,
+            event:
+              event.type === "pi_event"
+                ? (event.event as AgentConversationEvent)
+                : undefined,
+          };
       const toolCallId = updatedToolCallId(logEntry.event);
       const pendingLogIndex = toolCallId
         ? this.pendingLogEntries.findLastIndex(
@@ -961,6 +1097,7 @@ export class PiAgentServer {
       }
       if (
         event.type === "pi_run_started" ||
+        isExtensionMessage ||
         this.pendingLogEntries.length >= LOG_FLUSH_ENTRY_COUNT ||
         (event.event as { type?: string } | undefined)?.type ===
           "turn_completed"

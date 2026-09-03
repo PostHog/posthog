@@ -157,6 +157,8 @@ class GitHubRecorder:
         # Test hook: raise this exception from the label-add POST (e.g. GitHubRateLimitError) to
         # exercise the best-effort catch for exception types the client does not raise itself.
         self.add_label_side_effect: Exception | None = None
+        # Set to make posting a COMMENT review blow up, e.g. a rate limit on the failure notice.
+        self.comment_review_side_effect: Exception | None = None
         self.teams_by_login: dict[str, list[str]] = {}
         self.policy_files: dict[str, str] = {}
         # Per-repository overrides for the same paths, for cases where two connected repos must
@@ -211,6 +213,8 @@ class GitHubRecorder:
             # Split by event so a test asserting on approvals never matches a COMMENT review.
             event = (json_body or {}).get("event")
             kind = "approve_review" if event == "APPROVE" else "comment_review"
+            if kind == "comment_review" and self.comment_review_side_effect is not None:
+                raise self.comment_review_side_effect
             return self._record_write(kind, m.group("repo"), int(m.group("number")), json_body)
         if method == "GET" and (m := _ISSUE_COMMENTS_RE.match(path)):
             page = int(params.get("page", 1))
@@ -522,6 +526,9 @@ def make_fake_sandbox_class(engine_output: str, write_sink: list[tuple[str, byte
     class _FakeSandbox:
         # A test can set this on the class to make teardown blow up (destroy-must-not-mask coverage).
         destroy_error: Exception | None = None
+        # A test can set this to make provisioning blow up, which is the first step of the review's
+        # paid phase (retry-boundary coverage).
+        create_error: Exception | None = None
         # Every SandboxConfig passed to create(), so a test can assert what the sandbox was given
         # (environment variables, egress allowlist).
         created_configs: list[Any] = []
@@ -529,6 +536,8 @@ def make_fake_sandbox_class(engine_output: str, write_sink: list[tuple[str, byte
         @classmethod
         def create(cls, config: Any) -> _FakeSandbox:
             cls.created_configs.append(config)
+            if cls.create_error is not None:
+                raise cls.create_error
             return cls()
 
         def execute(self, command: str, timeout_seconds: int | None = None) -> FakeExecResult:

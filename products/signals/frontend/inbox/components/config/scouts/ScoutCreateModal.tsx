@@ -1,6 +1,5 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { useId } from 'react'
 
 import {
     LemonButton,
@@ -23,6 +22,7 @@ import {
     ScoutCreateInitialValues,
     ScoutCreateModalLogicProps,
     scoutCreateModalLogic,
+    scoutCreateModalLogicKey,
 } from '../../../logics/scoutCreateModalLogic'
 import {
     getScoutScheduleMode,
@@ -44,7 +44,7 @@ export interface ScoutCreateModalProps {
 
 export function ScoutCreateModal({ isOpen, onClose, initialValues, onCreated }: ScoutCreateModalProps): JSX.Element {
     const redesign = useFeatureFlag('INBOX_REDESIGN')
-    const logicKey = useId()
+    const logicKey = scoutCreateModalLogicKey(initialValues)
     const formId = `scout-create-form-${logicKey}`
     const logicProps: ScoutCreateModalLogicProps = { logicKey, initialValues, onClose, onCreated }
     const logic = scoutCreateModalLogic(logicProps)
@@ -56,7 +56,8 @@ export function ScoutCreateModal({ isOpen, onClose, initialValues, onCreated }: 
         scoutCreateFormTouches,
         showScoutCreateFormErrors,
     } = useValues(logic)
-    const { resetScoutCreateForm, setScoutCreateDailyTime, setScoutCreateScheduleMode } = useActions(logic)
+    const { resetScoutCreateForm, resetMcpServersDefaulted, setScoutCreateDailyTime, setScoutCreateScheduleMode } =
+        useActions(logic)
     const { timezone: projectTimezone } = useValues(teamLogic)
     const scheduleMode = getScoutScheduleMode(scoutCreateForm.config)
 
@@ -65,6 +66,9 @@ export function ScoutCreateModal({ isOpen, onClose, initialValues, onCreated }: 
             return
         }
         resetScoutCreateForm()
+        // Leaving the modal on purpose discards the draft, so clear the "servers defaulted" marker too.
+        // Otherwise its persisted `true` would make the next open skip the all-servers default.
+        resetMcpServersDefaulted()
         onClose()
     }
 

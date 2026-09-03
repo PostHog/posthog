@@ -329,7 +329,7 @@ export function NavTabBrowse(): JSX.Element {
                         })
                         toggleNavSection('recents')
                     }}
-                    className="mt-2 group/colorful-product-icons colorful-product-icons-true"
+                    className="mt-[var(--nav-section-gap,0.5rem)] group/colorful-product-icons colorful-product-icons-true"
                     data-attr="nav-section-recents"
                 >
                     <SectionTrigger icon={<IconClock />} label="Recents" isCollapsed={isLayoutNavCollapsed} />
@@ -393,7 +393,7 @@ export function NavTabBrowse(): JSX.Element {
                         })
                         toggleNavSection('tools')
                     }}
-                    className="mt-2 group/colorful-product-icons colorful-product-icons-true"
+                    className="mt-[var(--nav-section-gap,0.5rem)] group/colorful-product-icons colorful-product-icons-true"
                     data-attr="nav-section-tools"
                 >
                     <div className="relative">

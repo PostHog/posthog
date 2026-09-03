@@ -7,6 +7,7 @@ import dataclasses
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
@@ -1216,6 +1217,81 @@ async def test_boot_milestone_contains_only_timing_and_runtime_dimensions(monkey
             "prewarmed": False,
         },
     )
+
+
+@pytest.mark.parametrize(
+    ("origin_product", "team_id"),
+    [
+        ("signals_scout", 314),  # platform start the alert must exclude
+        ("user_created", 42),  # customer start the alert must count
+    ],
+)
+async def test_sandbox_started_carries_run_attribution(origin_product, team_id, monkeypatch):
+    # The sandboxes-started alert filters platform work out by origin_product, and
+    # cross-references team_id and task_run_id. Dropping any of them from this payload
+    # blinds the alert to who a sandbox belongs to, so lock the three fields in.
+    workflow_instance = ProcessTaskWorkflow()
+    workflow_instance._context = dataclasses.replace(
+        _build_context(github_integration_id=123, origin_product=origin_product), team_id=team_id
+    )
+
+    monkeypatch.setattr(process_task_workflow_module.workflow, "patched", Mock(return_value=True))
+    monkeypatch.setattr(workflow_instance, "_update_task_run_status", AsyncMock())
+    monkeypatch.setattr(workflow_instance, "_emit_progress", AsyncMock())
+    monkeypatch.setattr(workflow_instance, "_post_slack_update", AsyncMock())
+    monkeypatch.setattr(workflow_instance, "_run_wizard_if_configured", AsyncMock(return_value=0))
+    monkeypatch.setattr(
+        workflow_instance,
+        "_get_sandbox_for_repository",
+        AsyncMock(
+            return_value=SimpleNamespace(
+                sandbox_id="sandbox-123",
+                boot_path="cold",
+                image_source="base_image",
+                used_snapshot=False,
+                create_ms=1,
+                clone_ms=2,
+                checkout_ms=3,
+                launch_ms=4,
+                agent_prepare_ms=5,
+                agent_invoke_ms=6,
+                agent_server_launched=False,
+                agent_shadow_launched=False,
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        workflow_instance,
+        "_start_agent_server",
+        AsyncMock(
+            return_value=SimpleNamespace(
+                sandbox_url="https://sandbox.example",
+                connect_token="token",
+                boot_total_ms=100,
+                prepare_ms=None,
+                invoke_ms=None,
+                health_poll_ms=None,
+                ready_wait_ms=None,
+                session_init_ms=None,
+                boot_phases_ms={"launcher_to_process": 7},
+                shadow_launched=False,
+            )
+        ),
+    )
+    tracked: list[tuple[str, dict]] = []
+    monkeypatch.setattr(
+        workflow_instance,
+        "_track_workflow_event",
+        AsyncMock(side_effect=lambda event, props: tracked.append((event, props))),
+    )
+
+    await workflow_instance._provision_and_start_agent(ProcessTaskInput(run_id="run-id"), "run-id")
+
+    sandbox_started = next(props for event, props in tracked if event == "sandbox_started")
+    assert sandbox_started["origin_product"] == origin_product
+    assert sandbox_started["team_id"] == team_id
+    assert sandbox_started["task_run_id"] == "run-id"
+    assert sandbox_started["agent_launcher_to_process_ms"] == 7
 
 
 @pytest.mark.django_db

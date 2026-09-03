@@ -28,7 +28,6 @@ import { logDetailsModalLogic } from 'products/logs/frontend/components/LogsView
 import { logsViewerLogic } from 'products/logs/frontend/components/LogsViewer/logsViewerLogic'
 import { useCellScrollControls } from 'products/logs/frontend/components/VirtualizedLogsList/useCellScroll'
 import { logsConfigLogic } from 'products/logs/frontend/logsConfigLogic'
-import { LogsFeatureFlagKeys } from 'products/logs/frontend/logsFeatureFlagKeys'
 import { ParsedLogMessage } from 'products/logs/frontend/types'
 import { getSessionIdFromLogAttributes } from 'products/logs/frontend/utils'
 import { traceUrl } from 'products/tracing/frontend/traceLinks'
@@ -59,7 +58,7 @@ export function LogRowFAB({
     const { openWithSeed } = useActions(logsMetricRuleQuickCreateLogic)
     const { startScrolling, stopScrolling } = useCellScrollControls({ id, cellKey: 'message' })
     const sessionId = getSessionIdFromLogAttributes(log.attributes, log.resource_attributes, configuredSessionIdKeys)
-    const metricRulesEnabled = useFeatureFlag(LogsFeatureFlagKeys.metricRules)
+    const metricRulesEnabled = useFeatureFlag('METRICS')
     const metricsEditorDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.Metrics,
         AccessControlLevel.Editor

@@ -118,7 +118,14 @@ from products.access_control.backend.presentation.access_control import (
 from products.access_control.backend.presentation.access_control_settings import AccessControlSettingsViewSetMixin
 from products.customer_analytics.backend.facade.team_extension import TeamCustomerAnalyticsConfig
 from products.feature_flags.backend.models.evaluation_context import EvaluationContext, normalize_context_name
+from products.feature_flags.backend.models.team_feature_flag_policy_config import TeamFeatureFlagPolicyConfig
 from products.logs.backend.models import TeamLogsConfig
+from products.web_analytics.backend.hogql_queries.custom_bot_definitions import (
+    MAX_CUSTOM_BOT_DEFINITIONS,
+    assert_patterns_compile as assert_custom_bot_patterns_compile,
+    compiled_patterns as compiled_custom_bot_patterns,
+    validate_definition as validate_custom_bot_definition,
+)
 from products.workflows.backend.models.team_workflows_config import EmailTrackingConsentMode, TeamWorkflowsConfig
 
 tracer = trace.get_tracer(__name__)
@@ -163,6 +170,20 @@ class TeamLogsConfigSerializer(serializers.ModelSerializer):
             "if your pipeline emits the session ID under different attributes."
         ),
     )
+    logs_pattern_message_keys = serializers.ListField(
+        child=serializers.CharField(max_length=200, allow_blank=False, trim_whitespace=True),
+        allow_empty=True,
+        max_length=10,
+        help_text=(
+            "Ordered list of top-level JSON keys whose value is the message text that log "
+            "patterns are derived from. Keys are matched literally at the top level of the log "
+            "body; a dot in a key is part of the key name, not a path into nested objects. "
+            "Selection checks keys in order; the first key whose value is a non-empty string "
+            "wins. Defaults to ['message', 'msg', 'event']. An empty list "
+            "turns message extraction off, so JSON log bodies group by their key set instead. "
+            "The stored log body is never changed by this setting."
+        ),
+    )
 
     class Meta:
         model = TeamLogsConfig
@@ -170,6 +191,7 @@ class TeamLogsConfigSerializer(serializers.ModelSerializer):
             "logs_distinct_id_attribute_key",
             "logs_distinct_id_attribute_keys",
             "logs_session_id_attribute_keys",
+            "logs_pattern_message_keys",
         ]
 
     def _validate_unique_keys(self, value: list[str]) -> list[str]:
@@ -183,6 +205,9 @@ class TeamLogsConfigSerializer(serializers.ModelSerializer):
         return self._validate_unique_keys(value)
 
     def validate_logs_session_id_attribute_keys(self, value: list[str]) -> list[str]:
+        return self._validate_unique_keys(value)
+
+    def validate_logs_pattern_message_keys(self, value: list[str]) -> list[str]:
         return self._validate_unique_keys(value)
 
     def update(self, instance: TeamLogsConfig, validated_data: dict) -> TeamLogsConfig:
@@ -453,6 +478,7 @@ TEAM_CONFIG_FIELDS = (
     "feature_flag_confirmation_message",
     "default_evaluation_contexts_enabled",
     "require_evaluation_contexts",
+    "feature_flag_policy_config",
     "capture_dead_clicks",
     "default_data_theme",
     "revenue_analytics_config",
@@ -769,6 +795,22 @@ class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessContr
         fields = ["capture_workflows_engagement_events", "email_tracking_consent_mode"]
 
 
+class TeamFeatureFlagPolicyConfigSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
+    require_tags = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "When enabled, a new feature flag needs at least one tag, and a tagged flag cannot lose its "
+            "last one. A create that declares it comes from a survey, experiment, early access feature, "
+            "product tour, or web experiment is exempt, because those forms have no tag input. The caller "
+            "sets that declaration, so a flag can still be created without a tag."
+        ),
+    )
+
+    class Meta:
+        model = TeamFeatureFlagPolicyConfig
+        fields = ["require_tags"]
+
+
 class TeamCustomerAnalyticsConfigSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     activity_event = serializers.JSONField(required=False, help_text="Event used as the activity signal (DAU/WAU/MAU).")
     signup_pageview_event = serializers.JSONField(
@@ -1020,16 +1062,24 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     marketing_analytics_config = TeamMarketingAnalyticsConfigSerializer(required=False)
     customer_analytics_config = TeamCustomerAnalyticsConfigSerializer(required=False)
     workflows_config = TeamWorkflowsConfigSerializer(required=False)
+    feature_flag_policy_config = TeamFeatureFlagPolicyConfigSerializer(required=False)
     base_currency = serializers.ChoiceField(choices=CURRENCY_CODE_CHOICES, default=DEFAULT_CURRENCY)
     event_retention_months = serializers.IntegerField(
         read_only=True,
         help_text=(
             "The team's events data retention window in months (plan-derived, synced from billing). When retention "
-            "enforcement is active for the team, queries do not return events older than this many months."
+            "enforcement is active for the team, queries do not return events older than this many months. "
+            "Read-only: this value follows your plan's data retention entitlement, so neither you nor PostHog "
+            "support can change it unless your organization is on the enterprise plan. Background and discussion: "
+            "https://github.com/PostHog/posthog/issues/17031"
         ),
     )
     events_retention_enforced = serializers.SerializerMethodField(
-        help_text="Whether events data retention is currently enforced for this team (cohort/flag gated)."
+        help_text=(
+            "Whether events data retention is currently enforced for this team (cohort/flag gated). Read-only: "
+            "neither you nor PostHog support can turn enforcement off, and the retention window itself only "
+            "changes with your plan. Background and discussion: https://github.com/PostHog/posthog/issues/17031"
+        )
     )
 
     class Meta:
@@ -1203,6 +1253,16 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             return None
 
         serializer = TeamWorkflowsConfigSerializer(data=value)
+        if not serializer.is_valid():
+            raise exceptions.ValidationError(_format_serializer_errors(serializer.errors))
+        return serializer.validated_data
+
+    @staticmethod
+    def validate_feature_flag_policy_config(value):
+        if value is None:
+            return None
+
+        serializer = TeamFeatureFlagPolicyConfigSerializer(data=value)
         if not serializer.is_valid():
             raise exceptions.ValidationError(_format_serializer_errors(serializer.errors))
         return serializer.validated_data
@@ -1752,9 +1812,27 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                     )
 
         try:
-            HogQLQueryModifiers(**value)
+            modifiers = HogQLQueryModifiers(**value)
         except Exception:
             raise exceptions.ValidationError(f"Invalid modifier key.")
+
+        if "customBotDefinitions" in value:
+            definitions = modifiers.customBotDefinitions or []
+            if len(definitions) > MAX_CUSTOM_BOT_DEFINITIONS:
+                raise exceptions.ValidationError(
+                    {"customBotDefinitions": f"You can define at most {MAX_CUSTOM_BOT_DEFINITIONS} bots."}
+                )
+            for definition in definitions:
+                # An unusable pattern would break every query that reads $virt_is_bot for this
+                # project, so it is rejected here rather than dropped silently at query time.
+                try:
+                    validate_custom_bot_definition(definition)
+                except ValueError as error:
+                    raise exceptions.ValidationError({"customBotDefinitions": f"{definition.name}: {error}"})
+            try:
+                assert_custom_bot_patterns_compile(compiled_custom_bot_patterns(definitions))
+            except ValueError as error:
+                raise exceptions.ValidationError({"customBotDefinitions": str(error)})
 
         return value
 
@@ -1825,6 +1903,9 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
         if config_data := validated_data.pop("workflows_config", None):
             self._update_workflows_config(instance, config_data)
+
+        if config_data := validated_data.pop("feature_flag_policy_config", None):
+            self._update_feature_flag_policy_config(instance, config_data)
 
         if "session_recording_retention_period" in validated_data:
             self._verify_update_session_recording_retention_period(
@@ -2075,6 +2156,30 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             field: getattr(instance.workflows_config, field) for field in TeamWorkflowsConfigSerializer.Meta.fields
         }
         self._capture_diff(instance, "workflows_config", old_config, new_config)
+        return instance
+
+    def _update_feature_flag_policy_config(self, instance: Team, validated_data: dict[str, Any]) -> Team:
+        old_config = {
+            field: getattr(instance.feature_flag_policy_config, field)
+            for field in TeamFeatureFlagPolicyConfigSerializer.Meta.fields
+        }
+
+        serializer = TeamFeatureFlagPolicyConfigSerializer(
+            instance.feature_flag_policy_config,
+            data=validated_data,
+            partial=True,
+            context={**self.context, "user_access_control": self.user_access_control},
+        )
+        if not serializer.is_valid():
+            raise serializers.ValidationError(_format_serializer_errors(serializer.errors))
+
+        serializer.save()
+
+        new_config = {
+            field: getattr(instance.feature_flag_policy_config, field)
+            for field in TeamFeatureFlagPolicyConfigSerializer.Meta.fields
+        }
+        self._capture_diff(instance, "feature_flag_policy_config", old_config, new_config)
         return instance
 
     def _verify_update_session_recording_retention_period(self, instance: Team, new_retention_period: str):

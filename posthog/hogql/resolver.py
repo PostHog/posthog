@@ -41,6 +41,7 @@ from posthog.hogql.functions.traffic_type import (
     get_bot_type,
     get_traffic_category,
     get_traffic_type,
+    has_user_agent_rule,
     is_bot,
 )
 from posthog.hogql.hogqlx import HOGQLX_COMPONENTS, HOGQLX_TAGS, convert_to_hx
@@ -51,6 +52,11 @@ from posthog.hogql.resolver_utils import (
     lookup_table_by_name,
     suggest_field_names,
     suggested_field_fix,
+)
+from posthog.hogql.transforms.trino.persons import (
+    lower_trino_table,
+    resolve_internal_trino_logical_table,
+    resolve_trino_table_reference,
 )
 from posthog.hogql.type_system import (
     infer_array_access_constant_type,
@@ -1347,17 +1353,28 @@ class Resolver(CloningVisitor):
 
                 return node
 
-            try:
-                database_table = cast(Database, self.database).get_table(table_name_chain)
-            except QueryError:
-                # Direct Postgres/DuckDB sources expose introspected table-valued functions
-                # (range, generate_series, unnest, …) via connection metadata. If the lookup
-                # failed but the name matches one of those, synthesize an opaque single-column
-                # table so the call resolves and the printer emits it as a passthrough.
-                opaque_table = self._build_opaque_table_function(table_name_chain, node)
-                if opaque_table is None:
-                    raise
-                database_table = opaque_table
+            if self.dialect == "trino":
+                database_table = resolve_trino_table_reference(
+                    cast(ast.Field, node.table), self.context
+                ) or resolve_internal_trino_logical_table(table_name_chain, self.context)
+            else:
+                database_table = None
+
+            if database_table is None:
+                try:
+                    database_table = cast(Database, self.database).get_table(table_name_chain)
+                except QueryError:
+                    # Direct Postgres/DuckDB sources expose introspected table-valued functions
+                    # (range, generate_series, unnest, …) via connection metadata. If the lookup
+                    # failed but the name matches one of those, synthesize an opaque single-column
+                    # table so the call resolves and the printer emits it as a passthrough.
+                    opaque_table = self._build_opaque_table_function(table_name_chain, node)
+                    if opaque_table is None:
+                        raise
+                    database_table = opaque_table
+
+            if self.dialect == "trino":
+                database_table = lower_trino_table(database_table, self.context)
 
             if isinstance(database_table, SavedQuery):
                 self.current_view_depth += 1
@@ -1898,22 +1915,40 @@ class Resolver(CloningVisitor):
                 )
             if node.name in ("isLikelyBot", "__preview_isBot"):
                 # The two-arg form duplicates its IP argument across the per-prefix-length range
-                # checks, so it needs the same re-entrancy guard as the lookup builders below.
-                if len(node.args) > 1:
-                    return self._expand_duplicating_macro(node, lambda: is_bot(node=node, args=node.args))
-                return self.visit(is_bot(node=node, args=node.args))
+                # checks, and a project's user-agent rules duplicate the user-agent argument the
+                # same way, so guard the expansion whenever either can happen. A one-arg call with
+                # no user-agent rule embeds its argument once — rules on other properties read a
+                # sibling field, not the argument — so it stays unguarded and can still be reached
+                # inside another macro's expansion.
+                modifiers = self.context.modifiers
+                duplicates_argument = len(node.args) > 1 or has_user_agent_rule(modifiers)
+                if duplicates_argument:
+                    return self._expand_duplicating_macro(
+                        node, lambda: is_bot(node=node, args=node.args, modifiers=modifiers)
+                    )
+                return self.visit(is_bot(node=node, args=node.args, modifiers=modifiers))
             # The bot-lookup builders below duplicate their argument, so they must expand under the
             # re-entrancy guard to bound nested expansion (see _expand_duplicating_macro).
             if node.name in ("getTrafficType", "__preview_getTrafficType"):
-                return self._expand_duplicating_macro(node, lambda: get_traffic_type(node=node, args=node.args))
+                return self._expand_duplicating_macro(
+                    node, lambda: get_traffic_type(node=node, args=node.args, modifiers=self.context.modifiers)
+                )
             if node.name in ("getTrafficCategory", "__preview_getTrafficCategory"):
-                return self._expand_duplicating_macro(node, lambda: get_traffic_category(node=node, args=node.args))
+                return self._expand_duplicating_macro(
+                    node, lambda: get_traffic_category(node=node, args=node.args, modifiers=self.context.modifiers)
+                )
             if node.name in ("getBotType", "__preview_getBotType"):
-                return self._expand_duplicating_macro(node, lambda: get_bot_type(node=node, args=node.args))
+                return self._expand_duplicating_macro(
+                    node, lambda: get_bot_type(node=node, args=node.args, modifiers=self.context.modifiers)
+                )
             if node.name in ("getBotName", "__preview_getBotName"):
-                return self._expand_duplicating_macro(node, lambda: get_bot_name(node=node, args=node.args))
+                return self._expand_duplicating_macro(
+                    node, lambda: get_bot_name(node=node, args=node.args, modifiers=self.context.modifiers)
+                )
             if node.name in ("getBotOperator", "__preview_getBotOperator"):
-                return self._expand_duplicating_macro(node, lambda: get_bot_operator(node=node, args=node.args))
+                return self._expand_duplicating_macro(
+                    node, lambda: get_bot_operator(node=node, args=node.args, modifiers=self.context.modifiers)
+                )
             if node.name in ("_defaultChannelType", "_domainType"):
                 from posthog.hogql.database.schema.channel_type import (  # noqa: PLC0415 — avoid resolver->schema import cycle
                     expand_default_channel_type_call,
@@ -2139,7 +2174,7 @@ class Resolver(CloningVisitor):
         return node
 
     def visit_try_cast(self, node: ast.TryCast):
-        if self.dialect not in _POSTGRES_FAMILY:
+        if self.dialect not in _POSTGRES_FAMILY and self.dialect != "trino":
             raise QueryError(f"TRY_CAST is not allowed in {self.dialect} dialect")
         node = cast(ast.TryCast, clone_expr(node))
         node.expr = self.visit(node.expr)
@@ -2154,14 +2189,14 @@ class Resolver(CloningVisitor):
         return node
 
     def visit_positional_ref(self, node: ast.PositionalRef):
-        if self.dialect not in _POSTGRES_FAMILY:
+        if self.dialect not in _POSTGRES_FAMILY and self.dialect != "trino":
             raise QueryError(f"Positional references are not allowed in {self.dialect} dialect")
         node = cast(ast.PositionalRef, clone_expr(node))
         node.type = ast.UnknownType()
         return node
 
     def visit_array_slice(self, node: ast.ArraySlice):
-        if self.dialect not in _POSTGRES_FAMILY and self.dialect != "clickhouse":
+        if self.dialect not in _POSTGRES_FAMILY and self.dialect not in {"clickhouse", "trino"}:
             raise QueryError(f"Array slices are not allowed in {self.dialect} dialect")
         node = cast(ast.ArraySlice, clone_expr(node))
         node.array = self.visit(node.array)

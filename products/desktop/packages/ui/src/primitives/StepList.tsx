@@ -61,7 +61,7 @@ function StepDetail({ detail }: { detail: string }) {
   const url = parseWebUrl(detail);
 
   if (!url) {
-    return <Text className="text-[13px] text-gray-10">{detail}</Text>;
+    return <Text className="truncate text-[13px] text-gray-10">{detail}</Text>;
   }
 
   const label = formatWebUrl(url);

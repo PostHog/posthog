@@ -3,7 +3,7 @@ name: signals-scout-feature-flags
 description: >
   Signals scout for PostHog feature flags. Watches the flag roster and the
   `$feature_flag_called` stream for evaluation cliffs, ghost flags, response-distribution
-  shifts, and flag debt, and files each validated contradiction as a report in the inbox.
+  shifts, and flag debt.
 compatibility: >
   PostHog Signals agent (Claude sandbox). Read-only analytics + signal_scout_internal:write
   (scratchpad) + signal_scout_report:write (report channel), plus the feature-flag and

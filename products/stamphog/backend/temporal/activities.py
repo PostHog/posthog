@@ -69,6 +69,7 @@ from products.stamphog.backend.temporal.constants import (
     STAMPHOG_SANDBOX_OWNERS_DIR,
     STAMPHOG_SANDBOX_REPO_DIR,
     STAMPHOG_TRUSTED_REACTOR_BOTS,
+    SandboxPhaseError,
 )
 from products.tasks.backend.facade.sandbox import (
     SandboxBase,
@@ -483,37 +484,68 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
         environment_variables=environment,
         outbound_domain_allowlist=_sandbox_egress_allowlist(),
     )
-    sandbox = sandbox_class.create(config)
-    try:
-        _clone_pr(sandbox, repo, base_sha, run.head_sha, run.pull_request.pr_number, token)
-        _inject_policy_files(sandbox, policy_files)
-        _ship_engine(sandbox)
-        _write_context(sandbox, invocation)
-
-        command = f"cd {shlex.quote(STAMPHOG_SANDBOX_REPO_DIR)} && {_harden_reviewer_command(invocation.command)}"
-        result = sandbox.execute(command, timeout_seconds=25 * 60)
-    finally:
-        # A destroy failure must not mask a completed review — the verdict below still has to be
-        # persisted and posted. An orphaned sandbox self-terminates when SandboxConfig.ttl_seconds expires.
-        try:
-            sandbox.destroy()
-        except Exception:
-            activity.logger.exception(f"Failed to destroy sandbox for run {run.id}")
-
-    # Scrub stdout before persisting: it can echo the LLM keys the sandbox holds, and it is
-    # both stored on run.output and re-read verbatim to render the verdict posted to GitHub.
-    run.output = {
-        **(run.output or {}),
-        "reviewer_raw": _scrub_credentials(result.stdout, token, gateway_token),
-        "reviewer_exit_code": result.exit_code,
-    }
+    # The steps above cost nothing and keep their own exception type. From here the run makes a
+    # sandbox and can run the reviewer, so failures raise SandboxPhaseError, which the retry policy
+    # excludes. Both statements stay outside the try below, so the refusal keeps its own type and a
+    # failed write stays retryable.
+    #
+    # Temporal applies the start-to-close timeout and retries a lost worker. Neither path raises a
+    # type this code can mark, so the claim is what stops a second sandbox. Read it from the writer,
+    # because a stalled attempt holds a copy from before its replacement wrote. Read and then write
+    # is not atomic: two attempts in the same instant both pass. A column and a conditional update
+    # would close that.
+    latest_output = (
+        ReviewRun.objects.for_team(input.team_id)
+        .using(router.db_for_write(ReviewRun))
+        .filter(id=run.id)
+        .values_list("output", flat=True)
+        .first()
+    ) or {}
+    if latest_output.get("sandbox_started_at"):
+        raise SandboxPhaseError("an earlier attempt already provisioned a sandbox for this run")
+    run.output = {**latest_output, "sandbox_started_at": timezone.now().isoformat()}
     run.save(update_fields=["output", "updated_at"])
 
-    if result.exit_code != 0:
-        raise RuntimeError(
-            f"Reviewer exited with code {result.exit_code}: "
-            f"{_scrub_credentials(result.stderr, token, gateway_token)[:500]}"
-        )
+    try:
+        sandbox = sandbox_class.create(config)
+        try:
+            _clone_pr(sandbox, repo, base_sha, run.head_sha, run.pull_request.pr_number, token)
+            _inject_policy_files(sandbox, policy_files)
+            _ship_engine(sandbox)
+            _write_context(sandbox, invocation)
+
+            command = f"cd {shlex.quote(STAMPHOG_SANDBOX_REPO_DIR)} && {_harden_reviewer_command(invocation.command)}"
+            result = sandbox.execute(command, timeout_seconds=25 * 60)
+        finally:
+            # A destroy failure must not mask a completed review — the verdict below still has to be
+            # persisted and posted. An orphaned sandbox self-terminates when SandboxConfig.ttl_seconds expires.
+            try:
+                sandbox.destroy()
+            except Exception:
+                activity.logger.exception(f"Failed to destroy sandbox for run {run.id}")
+
+        # Scrub stdout before persisting: it can echo the LLM keys the sandbox holds, and it is
+        # both stored on run.output and re-read verbatim to render the verdict posted to GitHub.
+        run.output = {
+            **(run.output or {}),
+            "reviewer_raw": _scrub_credentials(result.stdout, token, gateway_token),
+            "reviewer_exit_code": result.exit_code,
+        }
+        run.save(update_fields=["output", "updated_at"])
+
+        if result.exit_code != 0:
+            # The reviewer reads an untrusted PR head, so its stderr can contain repository content.
+            # This message reaches run.error, so keep the stderr in the worker log only.
+            activity.logger.error(
+                f"Reviewer exited with code {result.exit_code} for run {run.id}: "
+                f"{_scrub_credentials(result.stderr, token, gateway_token)[:500]}"
+            )
+            raise RuntimeError(f"reviewer exited with code {result.exit_code}")
+    except Exception as exc:
+        # Give the type only. Every step in this phase touches the sandbox, and anyone with
+        # stamphog:read can read run.error without access to the repository. The setup phase above
+        # keeps its text, because it fails on our own infrastructure and must stay diagnosable.
+        raise SandboxPhaseError(f"the sandbox phase failed with {type(exc).__name__}") from exc
 
     activity.logger.info(f"Reviewer completed for run {run.id}")
     return {"exit_code": result.exit_code}
@@ -917,6 +949,11 @@ def mark_review_failed(input: MarkReviewFailedInput) -> None:
     first_error_line = (input.error.splitlines() or [""])[0][:300]
     if run.status in TERMINAL_STATUSES:
         activity.logger.warning(f"Run {run.id} already {run.status}; keeping it, error was: {first_error_line}")
+        # A retry that died between the FAILED save and the notice finds its own run terminal. Keep
+        # the status, but post the notice the author is still owed. Only FAILED resumes: every other
+        # terminal state belongs to a run that gave a verdict.
+        if run.status == ReviewRunStatus.FAILED:
+            _post_failure_notice(StamphogGitHubClient(run.pull_request.repo_config.installation_id), run, input.team_id)
         return
     # A prior post_verdict attempt may have approved on GitHub and then exhausted retries before the
     # terminal save — the id is persisted, the verdict is not, and without a future delivery nothing
@@ -933,8 +970,11 @@ def mark_review_failed(input: MarkReviewFailedInput) -> None:
     # Conditional like every terminal save (the load-time guard above can race an in-flight
     # supersession): a run that just went SUPERSEDED keeps that status, FAILED must not clobber it.
     now = timezone.now()
-    ReviewRun.objects.for_team(input.team_id).filter(id=run.id).exclude(status__in=TERMINAL_STATUSES).update(
-        status=ReviewRunStatus.FAILED, error=first_error_line, completed_at=now, updated_at=now
+    marked_failed = (
+        ReviewRun.objects.for_team(input.team_id)
+        .filter(id=run.id)
+        .exclude(status__in=TERMINAL_STATUSES)
+        .update(status=ReviewRunStatus.FAILED, error=first_error_line, completed_at=now, updated_at=now)
     )
     # This run is done reviewing (unrecoverably) — clean up its own "review in flight" 👀 too. After
     # the terminal save on purpose: the removal's live-peer check must see this run as terminal, or
@@ -952,6 +992,7 @@ def mark_review_failed(input: MarkReviewFailedInput) -> None:
     # the global client's background flush may never run before the worker thread moves on.
     pull_request = run.pull_request
     repo = pull_request.repo_config.repository
+
     with ph_scoped_capture() as capture:
         capture(
             distinct_id=pull_request.author_login or repo,
@@ -964,6 +1005,11 @@ def mark_review_failed(input: MarkReviewFailedInput) -> None:
                 "stamphog_error": first_error_line,
             },
         )
+
+    # Last, because this step raises. A retry returns through the terminal guard, which posts the
+    # notice and nothing else, so the event above must reach PostHog on this attempt.
+    if marked_failed:
+        _post_failure_notice(client, run, input.team_id)
 
 
 def _harden_reviewer_command(command: Sequence[str] | str) -> str:
@@ -1109,7 +1155,10 @@ def _overlay_policy_yaml(repo: str, default_text: str, repo_text: str | None) ->
     try:
         overlay = yaml.safe_load(repo_text)
     except yaml.YAMLError as exc:
-        raise RuntimeError(f"repo {repo} has malformed YAML in .stamphog/policy.yml: {exc}") from exc
+        # PyYAML puts the bad tag on the first line, and run.error keeps that line. Anyone with
+        # stamphog:read can read it without access to the repository, so log the parser text instead.
+        activity.logger.error(f"Malformed YAML in .stamphog/policy.yml for {repo}: {exc}")
+        raise RuntimeError(f"repo {repo} has malformed YAML in .stamphog/policy.yml") from exc
     if not isinstance(overlay, dict):
         raise RuntimeError(f"repo {repo} .stamphog/policy.yml must be a YAML mapping to overlay the defaults")
     merged = {**yaml.safe_load(default_text), **overlay}
@@ -1292,6 +1341,47 @@ def _post_non_approval_review(
     review = client.post_comment_review(repo, pull_request.pr_number, _scrub_credentials(body), run.head_sha)
     run.output = {**(run.output or {}), NON_APPROVAL_REVIEW_ID_KEY: _comment_id(review)}
     ReviewRun.objects.for_team(team_id).filter(id=run.id).update(output=run.output, updated_at=timezone.now())
+
+
+FAILURE_NOTICE_BODY = (
+    "**The review did not complete.**\n\n"
+    "Stamphog hit an error and produced no verdict for this commit.\n\n"
+    "Push a new commit to try again."
+)
+
+
+def _post_failure_notice(client: StamphogGitHubClient, run: ReviewRun, team_id: int) -> None:
+    """Tell the PR that this run gave no verdict, once.
+
+    The notice names a push, because that route works in every mode. A failure keeps the trigger
+    label, so a push carries it and starts a run, while a re-added label waits out the per-PR
+    cooldown. A self-driving run ignores labels and re-reviews only on synchronize, reopen and base
+    retarget.
+
+    The notice gives no error text, because this is a public pull request.
+
+    A newer run at the same head stops the notice. Supersession skips terminal states, so a
+    `reopened` delivery can queue a replacement at the unchanged head, and that replacement can
+    approve the commit this notice would call unreviewed. A newer run at a different head is not a
+    replacement. The read uses the writer, because it gates a GitHub write.
+
+    A GitHub error propagates. If this function hides it, the activity completes, Temporal does not
+    retry, and the PR keeps no notice. Raising is safe: the FAILED update is committed, and the retry
+    finishes the post through the terminal guard.
+    """
+    replaced_at_same_head = (
+        ReviewRun.objects.for_team(team_id)
+        .using(router.db_for_write(ReviewRun))
+        .filter(pull_request_id=run.pull_request_id, head_sha=run.head_sha, created_at__gt=run.created_at)
+        .exists()
+    )
+    if replaced_at_same_head:
+        activity.logger.info(f"Skipping the failure notice for run {run.id}; a newer run holds the same head")
+        return
+
+    _post_non_approval_review(
+        client, run.pull_request.repo_config.repository, run, run.pull_request, team_id, FAILURE_NOTICE_BODY
+    )
 
 
 def _comment_id(obj: dict) -> int | None:

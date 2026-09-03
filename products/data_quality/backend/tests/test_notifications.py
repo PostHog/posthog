@@ -224,6 +224,19 @@ class TestDataQualityNotifications(BaseTest):
         assert self.user.id in resolved
         assert blocked.id not in resolved
 
+    def test_a_relationship_target_keeps_its_name_for_notification_filtering(self) -> None:
+        check = self._check(
+            check_type=CheckType.RELATIONSHIPS,
+            column_name="customer_id",
+            config={
+                "to_subject_type": SubjectType.VIEW,
+                "to_subject_uuid": str(self.view.id),
+                "to_column": "id",
+            },
+        )
+
+        assert referenced_subject_names(self.team.id, check.check_type, check.config) == ["orders"]
+
     def test_members_denied_a_referenced_subject_do_not_get_the_blocked_materialization_count(self) -> None:
         # The blocked-materialization body counts the checks that failed, and one of them reads a
         # second view, so the count is an oracle over that view too. A member allowed the view being

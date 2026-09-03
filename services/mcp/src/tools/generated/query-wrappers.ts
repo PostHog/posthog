@@ -337,6 +337,142 @@ const AssistantPropertyFilter = z.union([
     AssistantFlagPropertyFilter,
 ])
 
+const PropertyOperator = z.enum([
+    'exact',
+    'is_not',
+    'icontains',
+    'not_icontains',
+    'starts_with',
+    'not_starts_with',
+    'ends_with',
+    'not_ends_with',
+    'regex',
+    'not_regex',
+    'gt',
+    'gte',
+    'lt',
+    'lte',
+    'is_set',
+    'is_not_set',
+    'is_date_exact',
+    'is_date_before',
+    'is_date_after',
+    'between',
+    'not_between',
+    'min',
+    'max',
+    'in',
+    'not_in',
+    'is_cleaned_path_exact',
+    'flag_evaluates_to',
+    'semver_eq',
+    'semver_neq',
+    'semver_gt',
+    'semver_gte',
+    'semver_lt',
+    'semver_lte',
+    'semver_tilde',
+    'semver_caret',
+    'semver_wildcard',
+    'icontains_multi',
+    'not_icontains_multi',
+])
+
+const PropertyFilterBaseValue = z.union([z.string(), z.number(), z.boolean()])
+
+const PropertyFilterValue = z.union([PropertyFilterBaseValue, z.array(PropertyFilterBaseValue), z.null()])
+
+const EventPropertyFilter = z.object({
+    key: z.string(),
+    label: z.string().optional(),
+    operator: PropertyOperator.default('exact'),
+    type: z.literal('event').describe('Event properties').default('event'),
+    value: PropertyFilterValue.optional(),
+})
+
+const PersonPropertyFilter = z.object({
+    key: z.string(),
+    label: z.string().optional(),
+    operator: PropertyOperator,
+    type: z.literal('person').describe('Person properties').default('person'),
+    value: PropertyFilterValue.optional(),
+})
+
+const ElementPropertyFilter = z.object({
+    key: z.enum(['tag_name', 'text', 'href', 'selector']),
+    label: z.string().optional(),
+    operator: PropertyOperator,
+    type: z.literal('element').default('element'),
+    value: PropertyFilterValue.optional(),
+})
+
+const FeaturePropertyFilter = z.object({
+    key: z.string(),
+    label: z.string().optional(),
+    operator: PropertyOperator,
+    type: z.literal('feature').describe('Event property with "$feature/" prepended').default('feature'),
+    value: PropertyFilterValue.optional(),
+})
+
+const HogQLPropertyFilter = z.object({
+    key: z.string(),
+    label: z.string().optional(),
+    type: z.literal('hogql').default('hogql'),
+    value: PropertyFilterValue.optional(),
+})
+
+const BehavioralEventSource = z.enum(['events', 'actions'])
+
+const AssistantBehavioralPropertyFilterOperator = z.enum(['exact', 'gt', 'gte', 'lt', 'lte'])
+
+const TimeUnitType = z.enum(['day', 'week', 'month', 'year'])
+
+const InlineBehavioralType = z.enum(['performed_event', 'performed_event_multiple'])
+
+const AssistantBehavioralPropertyFilter = z.object({
+    event_filters: z
+        .array(
+            z.union([
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                FeaturePropertyFilter,
+                HogQLPropertyFilter,
+            ])
+        )
+        .describe(
+            'Extra property filters the matching events must satisfy. Deliberately excludes nested behavioral/cohort filters and groups'
+        )
+        .optional(),
+    event_type: BehavioralEventSource,
+    explicit_datetime: z
+        .string()
+        .describe('Absolute or relative (e.g. -30d) lower date bound — alternative to time_value/time_interval')
+        .optional(),
+    explicit_datetime_to: z.string().optional(),
+    key: z.string().describe("Event name, or action id when event_type is 'actions'"),
+    label: z.string().optional(),
+    negation: z.coerce
+        .boolean()
+        .describe(
+            'Match persons who did NOT satisfy the criterion. Not the same as a low count — zero-occurrence persons never match count operators'
+        )
+        .optional(),
+    operator: AssistantBehavioralPropertyFilterOperator.optional(),
+    operator_value: z.coerce.number().int().describe('Count threshold for performed_event_multiple').optional(),
+    time_interval: TimeUnitType.optional(),
+    time_value: z.coerce.number().int().describe('Relative time window size, paired with time_interval').optional(),
+    type: z
+        .literal('behavioral')
+        .describe(
+            "Person performed (or didn't perform) an event in a time window. ClickHouse-only — not evaluable by flags or CDP"
+        )
+        .default('behavioral'),
+    value: InlineBehavioralType,
+})
+
+const AssistantInsightPropertyFilter = z.union([AssistantPropertyFilter, AssistantBehavioralPropertyFilter])
+
 const BaseMathType = z.enum([
     'total',
     'dau',
@@ -619,7 +755,11 @@ const AssistantTrendsQuery = z.object({
         .default('day')
         .optional(),
     kind: z.literal('TrendsQuery').default('TrendsQuery'),
-    properties: z.array(AssistantPropertyFilter).describe('Property filters for all series').default([]).optional(),
+    properties: z
+        .array(AssistantInsightPropertyFilter)
+        .describe('Property filters for all series')
+        .default([])
+        .optional(),
     series: z
         .array(z.union([AssistantTrendsEventsNode, AssistantTrendsActionsNode, AssistantTrendsGroupNode]))
         .describe(
@@ -803,7 +943,11 @@ const AssistantFunnelsQuery = z.object({
         'Granularity of the response. Can be one of `hour`, `day`, `week` or `month`'
     ).optional(),
     kind: z.literal('FunnelsQuery').default('FunnelsQuery'),
-    properties: z.array(AssistantPropertyFilter).describe('Property filters for all series').default([]).optional(),
+    properties: z
+        .array(AssistantInsightPropertyFilter)
+        .describe('Property filters for all series')
+        .default([])
+        .optional(),
     series: z
         .array(AssistantFunnelsNode)
         .describe('Events or actions to include. Prioritize the more popular and fresh events and actions.'),
@@ -916,7 +1060,11 @@ const AssistantRetentionQuery = z.object({
         .default(false)
         .optional(),
     kind: z.literal('RetentionQuery').default('RetentionQuery'),
-    properties: z.array(AssistantPropertyFilter).describe('Property filters for all series').default([]).optional(),
+    properties: z
+        .array(AssistantInsightPropertyFilter)
+        .describe('Property filters for all series')
+        .default([])
+        .optional(),
     retentionFilter: AssistantRetentionFilter.describe('Properties specific to the retention insight'),
 })
 
@@ -1017,7 +1165,11 @@ const AssistantStickinessQuery = z.object({
         )
         .optional(),
     kind: z.literal('StickinessQuery').default('StickinessQuery'),
-    properties: z.array(AssistantPropertyFilter).describe('Property filters for all series').default([]).optional(),
+    properties: z
+        .array(AssistantInsightPropertyFilter)
+        .describe('Property filters for all series')
+        .default([])
+        .optional(),
     series: z
         .array(AssistantStickinessNode)
         .describe(
@@ -1139,7 +1291,11 @@ const AssistantPathsQuery = z.object({
     pathsFilter: AssistantPathsFilter.describe(
         'Properties specific to the paths insight. Paths show the most common sequences of events or pages that users navigate through, helping identify popular user flows and drop-off points.'
     ),
-    properties: z.array(AssistantPropertyFilter).describe('Property filters for all series').default([]).optional(),
+    properties: z
+        .array(AssistantInsightPropertyFilter)
+        .describe('Property filters for all series')
+        .default([])
+        .optional(),
 })
 
 const LifecycleToggle = z.enum(['new', 'resurrecting', 'returning', 'dormant'])
@@ -1199,7 +1355,11 @@ const AssistantLifecycleQuery = z.object({
         .optional(),
     kind: z.literal('LifecycleQuery').default('LifecycleQuery'),
     lifecycleFilter: AssistantLifecycleFilter.describe('Properties specific to the lifecycle insight').optional(),
-    properties: z.array(AssistantPropertyFilter).describe('Property filters for all series').default([]).optional(),
+    properties: z
+        .array(AssistantInsightPropertyFilter)
+        .describe('Property filters for all series')
+        .default([])
+        .optional(),
     series: z
         .array(AssistantLifecycleSeriesNode)
         .max(1)

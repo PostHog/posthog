@@ -66,6 +66,17 @@ def default_logs_session_id_attribute_keys() -> list[str]:
     return list(DEFAULT_LOGS_SESSION_ID_ATTRIBUTE_KEYS)
 
 
+# Default top-level JSON keys that hold the message text a log pattern is derived from.
+# Keys match literally, so a dot is part of the name and never a path. Ordered: selection
+# checks keys in list order and the first key whose value is a non-empty string wins. An
+# empty list turns extraction off, so JSON bodies group by their key set instead.
+DEFAULT_LOGS_PATTERN_MESSAGE_KEYS = ["message", "msg", "event"]
+
+
+def default_logs_pattern_message_keys() -> list[str]:
+    return list(DEFAULT_LOGS_PATTERN_MESSAGE_KEYS)
+
+
 class TeamLogsConfig(models.Model):
     # Plain `models.Model` (not `TeamScopedRootMixin`) — log emission and ingestion
     # are per-environment, and so is this config. Inheriting the root-mixin would
@@ -101,6 +112,17 @@ class TeamLogsConfig(models.Model):
         # Stale relative to the default above; aligning it needs a migration and Django
         # applies `default` first, so this is never observed.
         db_default=Value("{posthogSessionId}"),
+    )
+
+    # Ordered list of top-level JSON keys whose value is the message text that log patterns are
+    # derived from. Matched literally, so `log.message` names one key and never descends. The
+    # first key in order whose value is a non-empty string wins. An empty list
+    # turns extraction off. Read by the logs ingestion consumer, so this only shapes the
+    # stored `pattern` column and never rewrites the log body.
+    logs_pattern_message_keys = ArrayField(
+        models.CharField(max_length=200),
+        default=default_logs_pattern_message_keys,
+        db_default=Value("{message,msg,event}"),
     )
 
 
@@ -351,12 +373,21 @@ MAX_METRIC_RULE_GROUP_BY_KEYS = 5
 # addressed through the `attributes.` / `resource_attributes.` map prefixes.
 METRIC_RULE_GROUP_BY_TOP_LEVEL_KEYS = ("service_name", "severity_text", "event_name")
 
+# Top-level span fields allowed as group-by dimensions for `source=spans` rules. Spans
+# carry no severity/event columns, so the log-only keys are excluded; `name` and
+# `status_code` are span columns.
+METRIC_RULE_GROUP_BY_SPAN_TOP_LEVEL_KEYS = ("service_name", "name", "status_code")
+
 
 class LogsMetricRule(ModelActivityMixin, TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFields, UUIDModel):
-    """Generates a metric from ingested logs: records matching `filter_group` are tallied
-    at ingest time (before drop rules) and emitted into the Metrics product under
+    """Generates a metric from ingested logs or spans: records matching `filter_group` are
+    tallied at ingest time (before drop rules) and emitted into the Metrics product under
     `metric_name`. With `value_attribute` unset the rule counts matching records; when set,
     the numeric value of that attribute is aggregated into a distribution (count + sum)."""
+
+    class RecordSource(models.TextChoices):
+        LOGS = "logs", "Logs"
+        SPANS = "spans", "Spans"
 
     # db_constraint=False on the team/user FKs: posthog_team and posthog_user are hot tables,
     # and creating an FK constraint against them locks the parent — see the hot-table section
@@ -379,12 +410,16 @@ class LogsMetricRule(ModelActivityMixin, TeamScopedRootMixin, CreatedMetaFields,
     value_attribute = models.CharField(max_length=512, null=True, blank=True)
     # Group-by dimension keys; each distinct value combination becomes its own series.
     group_by = ArrayField(models.CharField(max_length=512), default=list, blank=True)
+    # Record source the rule tallies. Immutable after create — it decides which consumer
+    # (logs vs traces) evaluates the rule and which keys are valid. Default keeps
+    # pre-existing rows as log rules.
+    source = models.CharField(max_length=16, choices=RecordSource.choices, default=RecordSource.LOGS)
     version = models.PositiveIntegerField(default=1)
 
     class Meta:
         db_table = "logs_logsmetricrule"
         constraints = [
-            models.UniqueConstraint(fields=["team", "metric_name"], name="logs_metric_rule_team_metric_uniq"),
+            models.UniqueConstraint(fields=["team", "metric_name", "source"], name="logs_metric_rule_team_metric_uniq"),
         ]
         indexes = [
             models.Index(fields=["team_id", "enabled"], name="logs_metric_team_enabled_idx"),

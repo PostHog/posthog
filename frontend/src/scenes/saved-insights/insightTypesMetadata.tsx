@@ -639,6 +639,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconPieChart,
         inMenu: false,
     },
+    [NodeKind.MCPMissingCapabilitiesQuery]: {
+        name: 'MCP missing capabilities',
+        description: 'Capabilities agents asked an MCP server for and could not get.',
+        icon: IconPieChart,
+        inMenu: false,
+    },
     [NodeKind.MCPToolStatsQuery]: {
         name: 'MCP tool stats',
         description: 'Summary stats for a single MCP tool.',

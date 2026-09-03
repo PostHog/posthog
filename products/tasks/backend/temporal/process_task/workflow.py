@@ -1731,7 +1731,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             "sandbox_started",
             {
                 "run_id": run_id,
+                "task_run_id": run_id,
                 "task_id": self.context.task_id,
+                "team_id": self.context.team_id,
+                "origin_product": self.context.origin_product,
                 "sandbox_id": sandbox_id,
                 "sandbox_url": agent_server_output.sandbox_url,
                 "used_snapshot": sandbox_output.used_snapshot,
@@ -1758,6 +1761,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 "agent_session_init_ms": agent_server_output.session_init_ms,
                 "agent_server_total_ms": agent_server_output.boot_phases_ms.get("server_total"),
                 "agent_server_http_ready_ms": agent_server_output.boot_phases_ms.get("http_ready"),
+                "agent_launcher_to_process_ms": agent_server_output.boot_phases_ms.get("launcher_to_process"),
                 "agent_context_fetch_ms": agent_server_output.boot_phases_ms.get("context_fetch"),
                 "agent_acp_initialize_ms": agent_server_output.boot_phases_ms.get("acp_initialize"),
                 "agent_repository_ready_ms": agent_server_output.boot_phases_ms.get("repository_ready"),

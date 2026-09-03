@@ -161,6 +161,32 @@ Funnel exposes these services to anyone on the internet who learns the URL, so t
 
 `SANDBOX_MCP_URL` overrides the `host.docker.internal` default (which only resolves from local Docker sandboxes, not Modal). Without it, sandbox agents can't reach the MCP server and lose access to the PostHog `execute-sql`, query, and tool-calling stack.
 
+### AI gateway token caps
+
+Scoped AI gateway tokens use `SANDBOX_AI_GATEWAY_TOKEN_CAP_USD` as their default
+per-run dollar cap. Two JSON object settings can override it:
+
+- `SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_OVERRIDES` maps team IDs to caps.
+- `SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_PRODUCT_OVERRIDES` maps AI product names to
+  caps and defaults to `{"signals_implementation": "15"}`.
+
+A product override takes precedence over a team override, which takes precedence
+over the default cap. Set the product override to `{}` to disable the built-in
+implementation override. An empty environment value is treated as unset and
+restores the built-in map.
+
+### Which gateway a sandbox run uses
+
+A run reaches the Go gateway only when its `ai_product` is listed in
+`SANDBOX_AI_GATEWAY_PRODUCTS` and the worker minted a scoped token for it. When the
+worker mints, it also injects `AI_GATEWAY_PRODUCT` and `AI_GATEWAY_AI_STAGE`, naming
+the product the token is pinned to, and the agent routes on those in preference to
+what it derives itself. Both are reserved keys: a sandbox environment cannot set them.
+
+When a run lands on the Python gateway unexpectedly, check those two variables first.
+Their absence means no token was minted, so the agent falls back to deriving the
+product from the task run it fetches at boot, which is the path that fails quietly.
+
 ### Agent run telemetry (optional)
 
 To ship agent-server run metadata to PostHog Logs, set both of the first two; the third additionally produces one APM trace per run (root `task_run` span, a `turn` span per prompt, a `tool_call:<kind>` span per tool call) with trace/span ids stamped on the log records:

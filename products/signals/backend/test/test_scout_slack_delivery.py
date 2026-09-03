@@ -1,3 +1,5 @@
+import uuid
+
 import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
@@ -17,6 +19,8 @@ from posthog.redis import get_client
 from products.signals.backend.models import SignalReport, SignalScoutEmission, SignalScoutRun
 from products.signals.backend.scout_harness.slack_charts import CHART_BLOCK_ID_PREFIX as PREFIX
 from products.signals.backend.scout_harness.slack_delivery import (
+    MAX_SCOUT_SLACK_DM_TARGETS,
+    ScoutSlackDestination,
     ScoutSlackPermanentDeliveryError,
     _latest_report_delivery_key,
     get_scout_slack_destination,
@@ -27,7 +31,47 @@ from products.signals.backend.scout_harness.slack_delivery_queue import queue_co
 from products.signals.backend.tasks import deliver_scout_slack_output, enqueue_scout_slack_delivery
 
 
+class FakeSlackResponse(dict):
+    def __init__(self, data: dict, headers: dict | None = None) -> None:
+        super().__init__(data)
+        self.headers = headers or {}
+
+
 class TestGetScoutSlackDestination(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("channel", {"integration_id": 5, "channel": "C123|#alerts"}, ("C123|#alerts",)),
+            ("single_user", {"integration_id": 5, "users": ["U123|@andy"]}, ("U123|@andy",)),
+            ("multiple_users", {"integration_id": 5, "users": ["U1|@a", "U2|@b"]}, ("U1|@a", "U2|@b")),
+            ("channel_wins_over_users", {"integration_id": 5, "channel": "C1|#a", "users": ["U1|@a"]}, ("C1|#a",)),
+            (
+                "users_deduped_and_garbage_filtered",
+                {"integration_id": 5, "users": ["U1|@a", " ", None, "U1|@a", 7]},
+                ("U1|@a",),
+            ),
+        ]
+    )
+    def test_parses_active_destination(self, _name: str, slack: dict, expected_targets: tuple[str, ...]) -> None:
+        destination = get_scout_slack_destination({"slack": slack})
+        assert destination == ScoutSlackDestination(integration_id=5, targets=expected_targets)
+
+    @parameterized.expand(
+        [
+            ("no_target", {"integration_id": 5}),
+            ("empty_users", {"integration_id": 5, "users": []}),
+            ("users_not_a_list", {"integration_id": 5, "users": "U1|@a"}),
+            ("bad_integration_id", {"integration_id": True, "users": ["U1|@a"]}),
+        ]
+    )
+    def test_returns_none_for_inactive_or_malformed(self, _name: str, slack: dict) -> None:
+        assert get_scout_slack_destination({"slack": slack}) is None
+
+    def test_caps_dm_targets(self) -> None:
+        users = [f"U{index}|@user{index}" for index in range(MAX_SCOUT_SLACK_DM_TARGETS + 3)]
+        destination = get_scout_slack_destination({"slack": {"integration_id": 5, "users": users}})
+        assert destination is not None
+        assert destination.targets == tuple(users[:MAX_SCOUT_SLACK_DM_TARGETS])
+
     @parameterized.expand(
         [
             ("explicit_true", {"thread_reports": True}, True),
@@ -42,12 +86,6 @@ class TestGetScoutSlackDestination(SimpleTestCase):
 
         assert destination is not None
         assert destination.thread_reports is expected
-
-
-class FakeSlackResponse(dict):
-    def __init__(self, data: dict, headers: dict | None = None) -> None:
-        super().__init__(data)
-        self.headers = headers or {}
 
 
 class TestScoutSlackDelivery(BaseTest):
@@ -97,6 +135,7 @@ class TestScoutSlackDelivery(BaseTest):
             slack_integration.return_value.client = fake_client
             post_scout_emission_to_slack(
                 emission,
+                delivery_id=str(emission.id),
                 integration_id=integration.id,
                 channel="CSCOUTS|#scout-findings",
             )
@@ -331,16 +370,26 @@ class TestScoutSlackDelivery(BaseTest):
         assert not any(text.endswith("…") for text in section_texts)
         assert any(tail_marker in text for text in section_texts)
 
-    def test_threaded_short_report_posts_one_reply_per_heading_section(self) -> None:
+    @parameterized.expand(
+        [
+            ("headings", "Lead line.\n\n## First\nshort body\n\n### Detail\ndeeper body\n\n## Second\nshort body"),
+            (
+                "bold_labels",
+                "Lead line.\n\n**First**\n\nshort body\n\n**Detail** - deeper body\n\n**Second**\n\nshort body",
+            ),
+        ]
+    )
+    def test_threaded_short_report_posts_one_reply_per_section(self, _name: str, summary: str) -> None:
         # The bug: threading only kicked in past the section cap, so a typical digest that fits one
-        # section posted as one wall of text. A report with headings now threads at any length, and
-        # a sub-heading rides in its parent's reply instead of opening one of its own.
+        # section posted as one wall of text. A report now threads at any length, whether it labels
+        # its sections with headings or in bold, and a sub-section rides in its parent's reply
+        # instead of opening one of its own.
         emission = self._make_emission()
         report = SignalReport.objects.create(
             team=self.team,
             status=SignalReport.Status.READY,
             title="Checkout failures",
-            summary="Lead line.\n\n## First\nshort body\n\n### Detail\ndeeper body\n\n## Second\nshort body",
+            summary=summary,
         )
         integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
         fake_client = MagicMock()
@@ -366,6 +415,11 @@ class TestScoutSlackDelivery(BaseTest):
         lead_sections = [block["text"]["text"] for block in calls[0].kwargs["blocks"] if block["type"] == "section"]
         assert lead_sections == ["Lead line."]
         first_reply, second_reply = calls[1].kwargs, calls[2].kwargs
+        # Slack rejects a client_msg_id that is not a UUID, and the reply loop swallows the error,
+        # so a malformed id costs every reply while the delivery still reports success.
+        reply_ids = [first_reply["client_msg_id"], second_reply["client_msg_id"]]
+        assert [str(uuid.UUID(reply_id)) for reply_id in reply_ids] == reply_ids
+        assert len(set(reply_ids)) == 2
         assert first_reply["thread_ts"] == "1785418710.000600"
         assert "First" in first_reply["blocks"][0]["text"]["text"]
         assert "Detail" in first_reply["blocks"][0]["text"]["text"]
@@ -373,9 +427,9 @@ class TestScoutSlackDelivery(BaseTest):
         assert "Second" in second_reply["blocks"][0]["text"]["text"]
         assert calls[3].kwargs["blocks"][0]["type"] == "context"
 
-    def test_threaded_report_without_headings_posts_a_single_message(self) -> None:
-        # Headings are the seams threading splits on. A summary with none has nothing to split, so it
-        # stays one channel message rather than being cut mid-prose.
+    def test_threaded_report_without_section_labels_posts_a_single_message(self) -> None:
+        # Headings and bold labels are the seams threading splits on. A summary with neither has
+        # nothing to split, so it stays one channel message rather than being cut mid-prose.
         emission = self._make_emission()
         report = SignalReport.objects.create(
             team=self.team,
@@ -452,11 +506,52 @@ class TestScoutSlackDelivery(BaseTest):
             slack_integration.return_value.client = fake_client
             post_scout_emission_to_slack(
                 emission,
+                delivery_id=str(emission.id),
                 integration_id=integration.id,
                 channel="CSCOUTS|#scout-findings",
             )
 
         assert fake_client.chat_postMessage.call_count == 2
+
+    @parameterized.expand(
+        [
+            ("eligible_member", {"id": "U123ABC45"}, True),
+            # None covers every ineligibility get_user_by_id enforces: unknown id, guest,
+            # bot, or a member from outside the connected workspace.
+            ("ineligible_member", None, False),
+        ]
+    )
+    def test_dm_delivery_revalidates_recipient_eligibility(self, _name, member, expect_sent) -> None:
+        emission = self._make_emission()
+        integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
+        fake_client = MagicMock()
+        fake_client.chat_postMessage.return_value = {"ts": "1785418710.000600"}
+
+        with patch("products.signals.backend.scout_harness.slack_delivery.SlackIntegration") as slack_integration:
+            slack_integration.return_value.client = fake_client
+            slack_integration.return_value.get_user_by_id.return_value = member
+            if expect_sent:
+                post_scout_emission_to_slack(
+                    emission,
+                    delivery_id=str(emission.id),
+                    integration_id=integration.id,
+                    channel="U123ABC45|@andy",
+                )
+            else:
+                with pytest.raises(ScoutSlackPermanentDeliveryError) as err:
+                    post_scout_emission_to_slack(
+                        emission,
+                        delivery_id=str(emission.id),
+                        integration_id=integration.id,
+                        channel="U123ABC45|@andy",
+                    )
+                assert err.value.error_code == "recipient_not_eligible"
+
+        slack_integration.return_value.get_user_by_id.assert_called_once_with("U123ABC45")
+        if expect_sent:
+            assert fake_client.chat_postMessage.call_args_list[0].kwargs["channel"] == "U123ABC45"
+        else:
+            fake_client.chat_postMessage.assert_not_called()
 
     def test_task_skips_report_suppressed_before_delivery(self) -> None:
         emission = self._make_emission()

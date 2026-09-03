@@ -12,9 +12,10 @@
  * * `verified` - Verified
  * * `community` - Community
  */
-export type TrustTierEnumApi = (typeof TrustTierEnumApi)[keyof typeof TrustTierEnumApi]
+export type CommunitySkillTrustTierEnumApi =
+    (typeof CommunitySkillTrustTierEnumApi)[keyof typeof CommunitySkillTrustTierEnumApi]
 
-export const TrustTierEnumApi = {
+export const CommunitySkillTrustTierEnumApi = {
     Official: 'official',
     Verified: 'verified',
     Community: 'community',
@@ -65,7 +66,7 @@ export interface CommunitySkillListApi {
      * * `official` - Official
      * * `verified` - Verified
      * * `community` - Community */
-    trust_tier: TrustTierEnumApi
+    trust_tier: CommunitySkillTrustTierEnumApi
     /** GitHub handle (or name) of the contributor who published the skill. */
     readonly author_handle: string
     /** Link to the skill's source directory on GitHub. */
@@ -133,7 +134,7 @@ export interface CommunitySkillApi {
      * * `official` - Official
      * * `verified` - Verified
      * * `community` - Community */
-    trust_tier: TrustTierEnumApi
+    trust_tier: CommunitySkillTrustTierEnumApi
     /** GitHub handle (or name) of the contributor who published the skill. */
     readonly author_handle: string
     /** Link to the skill's source directory on GitHub. */
@@ -670,22 +671,14 @@ export interface LLMSkillFileApi {
 }
 
 export interface LLMSkillPublishToCommunityApi {
-    /**
-     * Human-friendly display name for the community listing. Defaults to a title-cased skill slug. Must be a single line: it is used as the pull request title and commit message.
-     * @maxLength 64
-     * @pattern ^[^\u0000-\u001f\u007f]*$
-     */
+    /** Human-friendly display name for the community listing. Defaults to a title-cased skill slug. Must be a single line: it is used as the pull request title and commit message. */
     display_name?: string
     /**
      * Tags used for filtering and discovery in the marketplace, e.g. ['web-analytics', 'triage'].
      * @items.maxLength 64
      */
     tags?: string[]
-    /**
-     * The publisher's GitHub username, used for public attribution on the listing and PR. Optional, and self-reported: it is not verified against the publisher's PostHog account.
-     * @maxLength 39
-     * @pattern ^$|^[a-zA-Z0-9](?:-?[a-zA-Z0-9]){0,38}$
-     */
+    /** The publisher's GitHub username, used for public attribution on the listing and PR. Optional, and self-reported: it is not verified against the publisher's PostHog account. */
     author_handle?: string
 }
 

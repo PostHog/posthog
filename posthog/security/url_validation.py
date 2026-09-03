@@ -1,3 +1,4 @@
+import re
 import ipaddress
 import urllib.parse as urlparse
 from collections.abc import Iterable, Mapping
@@ -240,6 +241,49 @@ def strip_userinfo(url: str) -> str:
     if parsed.port:
         netloc = f"{netloc}:{parsed.port}"
     return urlparse.urlunparse(parsed._replace(netloc=netloc))
+
+
+# Hosts that hand out a Microsoft Teams incoming webhook. Dots are escaped and the host is anchored
+# at both ends, so a registrable lookalike such as `evilpowerautomate.com` cannot match. The CDP
+# Teams template matches the same hosts with unescaped dots, so its patterns are not reusable here.
+_TEAMS_LOGIC_APPS_HOST = re.compile(r"^(?:[a-z0-9-]+\.)+logic\.azure\.com$")
+_TEAMS_CONNECTOR_HOST = re.compile(r"^(?:[a-z0-9-]+\.)+webhook\.office\.com$")
+_TEAMS_POWER_AUTOMATE_HOST = re.compile(r"^(?:[a-z0-9-]+\.)+(?:powerautomate\.com|flow\.microsoft\.com)$")
+_TEAMS_POWER_PLATFORM_HOST = re.compile(r"^(?:[a-z0-9-]+\.)+environment\.api\.powerplatform\.com$")
+
+
+def is_microsoft_teams_webhook_url(url: str) -> bool:
+    """Whether a URL is one of the Microsoft Teams webhook shapes we are willing to post to.
+
+    Checks the scheme, host and path only, with no name resolution, so it is cheap enough for a
+    save path. Anything that then delivers to the URL must still run the full SSRF validation,
+    because DNS can change between the save and the send.
+    """
+    if has_authority_bypass_chars(url):
+        return False
+    try:
+        parsed = urlparse.urlparse(url)
+        port = parsed.port
+    except ValueError:
+        return False
+    # `requests` turns userinfo into a Basic `Authorization` header on the outbound POST, and the
+    # credential would sit in the stored URL for as long as the subscription lives.
+    if parsed.username is not None or parsed.password is not None:
+        return False
+    if parsed.scheme != "https" or port not in (None, 443):
+        return False
+
+    host = (parsed.hostname or "").lower()
+    path = parsed.path
+    if _TEAMS_LOGIC_APPS_HOST.match(host):
+        return path.startswith("/workflows/") and "/triggers/manual/paths/invoke" in path
+    if _TEAMS_CONNECTOR_HOST.match(host):
+        return path.startswith("/webhookb2/") and "/IncomingWebhook/" in path
+    if _TEAMS_POWER_AUTOMATE_HOST.match(host):
+        return bool(path.strip("/"))
+    if _TEAMS_POWER_PLATFORM_HOST.match(host):
+        return path.startswith("/powerautomate/automations/direct/") and "/workflows/" in path
+    return False
 
 
 def _dev_bypass_enabled() -> bool:

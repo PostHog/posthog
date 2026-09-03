@@ -11,7 +11,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
-import { WorkflowActivityLink } from './WorkflowActivityLink'
+import { WorkflowActivityLink } from './components/WorkflowActivityLink/WorkflowActivityLink'
 
 const nameOrLinkToTicket = (
     ticketNumber: string | undefined,

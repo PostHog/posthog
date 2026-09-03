@@ -352,5 +352,15 @@ def _send_org_digest(inputs: SendOrgDigestInputs, attempt: int) -> SendOrgDigest
 @activity.defn
 def send_org_digest_activity(inputs: SendOrgDigestInputs) -> SendOrgDigestResult:
     close_old_connections()
+    attempt = activity.info().attempt
     with HeartbeaterSync(logger=logger):
-        return _send_org_digest(inputs, attempt=activity.info().attempt)
+        try:
+            return _send_org_digest(inputs, attempt=attempt)
+        except Exception:
+            # Every other failure log sits inside the per-team build loop, so a failure before it
+            # (the org-wide exception count query, or any Postgres read) names no org anywhere.
+            # Temporal's own activity-failure log carries the activity id but not the inputs, which
+            # leaves those orgs unidentifiable after the fact. This one event names the org for
+            # every failure path: filter it on attempt == max_attempts for the orgs a run gave up on.
+            logger.exception("et_weekly_digest.org_failed", org_id=inputs.org_id, attempt=attempt)
+            raise

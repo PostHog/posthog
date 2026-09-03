@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 from unittest.mock import MagicMock, patch
 
+from products.tasks.backend.constants import RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS
 from products.tasks.backend.temporal.process_task.ai_gateway_token import (
     mint_scoped_token,
     resolve_sandbox_ai_product,
@@ -22,6 +23,7 @@ class TestResolveSandboxAiProduct:
         [
             ("signals_scout", "scout", "signals_scout"),
             ("signals_scout", "scout:web-analytics", "signals_scout"),
+            ("scout_suggestions", "scout_suggestions", "signals"),
             ("signal_report", "research", "signals_research"),
             ("signal_report", "implementation", "signals_implementation"),
             ("signal_report", "repo_selection", "signals_repo_selection"),
@@ -99,6 +101,7 @@ def mint_settings(settings):
     settings.SANDBOX_AI_GATEWAY_TOKEN_CAP_USD = "3"
     settings.SANDBOX_AI_GATEWAY_TOKEN_TTL_SECONDS = 14400
     settings.SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_OVERRIDES = ""
+    settings.SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_PRODUCT_OVERRIDES = ""
     return settings
 
 
@@ -208,6 +211,8 @@ class TestAiGatewayEnvVars:
             "AI_GATEWAY_URL": "https://ai-gateway.dev.posthog.dev",
             "AI_GATEWAY_PRODUCTS": "signals_scout,signals_research",
             "AI_GATEWAY_TOKEN": "phe_abc",
+            "AI_GATEWAY_PRODUCT": "signals_scout",
+            "AI_GATEWAY_AI_STAGE": "scout:logs",
         }
         mint.assert_called_once_with(ai_product="signals_scout", team_id=123, user=None)
 
@@ -215,7 +220,14 @@ class TestAiGatewayEnvVars:
         with patch("products.tasks.backend.temporal.process_task.utils.mint_scoped_token") as mint:
             env = ai_gateway_env_vars(team_id=123, origin_product="loop")
         assert "AI_GATEWAY_TOKEN" not in env
+        assert "AI_GATEWAY_PRODUCT" not in env
+        assert "AI_GATEWAY_AI_STAGE" not in env
         mint.assert_not_called()
+
+    # The agent trusts these as the worker's word, so the API must refuse a run-supplied value.
+    def test_reserved_keys_cover_the_pinned_product_env(self):
+        assert "AI_GATEWAY_PRODUCT" in RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS
+        assert "AI_GATEWAY_AI_STAGE" in RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS
 
     def test_skill_qualified_allowlist_still_mints(self, mint_settings):
         """The D4-D6 batched scout flips route by skill-qualified entries alone; a mint
@@ -236,6 +248,8 @@ class TestAiGatewayEnvVars:
         ):
             env = ai_gateway_env_vars(team_id=123, origin_product="signals_scout", ai_stage="scout")
         assert "AI_GATEWAY_TOKEN" not in env
+        # No token, no pinned product: the agent must not route on a product it cannot authenticate.
+        assert "AI_GATEWAY_PRODUCT" not in env
         assert env["AI_GATEWAY_URL"] == "https://ai-gateway.dev.posthog.dev"
 
     def test_no_run_context_still_sets_routing_pair(self, mint_settings):
@@ -364,6 +378,27 @@ class TestUserPinAndCapOverride:
             mint_scoped_token(ai_product="signals_scout", team_id=123)
         assert post.call_args_list[0].kwargs["json"]["cap_usd"] == "10"
         assert post.call_args_list[1].kwargs["json"]["cap_usd"] == "3"
+
+    def test_cap_product_override_beats_team_override(self, mint_settings):
+        mint_settings.SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_OVERRIDES = '{"2": "10"}'
+        mint_settings.SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_PRODUCT_OVERRIDES = '{"signals_implementation": "15"}'
+        with patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post:
+            post.return_value = self._response({"token": "phe_abc"})
+            mint_scoped_token(ai_product="signals_implementation", team_id=2)
+            mint_scoped_token(ai_product="signals_scout", team_id=2)
+        assert post.call_args_list[0].kwargs["json"]["cap_usd"] == "15"
+        assert post.call_args_list[1].kwargs["json"]["cap_usd"] == "10"
+
+    @pytest.mark.parametrize("invalid_product_cap", ["", True, 0, -1, "0.0000001", "10000.000001", "NaN"])
+    def test_invalid_product_cap_falls_back_to_team_override(self, mint_settings, invalid_product_cap):
+        mint_settings.SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_OVERRIDES = '{"2": "10"}'
+        mint_settings.SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_PRODUCT_OVERRIDES = json.dumps(
+            {"signals_implementation": invalid_product_cap}
+        )
+        with patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post:
+            post.return_value = self._response({"token": "phe_abc"})
+            mint_scoped_token(ai_product="signals_implementation", team_id=2)
+        assert post.call_args.kwargs["json"]["cap_usd"] == "10"
 
     def test_malformed_overrides_fall_back_to_default(self, mint_settings):
         mint_settings.SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_OVERRIDES = "not json"

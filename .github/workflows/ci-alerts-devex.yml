@@ -63,7 +63,10 @@ env:
     # evaluated on its own, so a green master-push run can't mask a red scheduled run. Backend CI is
     # split this way: master push runs only the per-commit checks (migrations, OpenAPI types, repo
     # checks), and the test matrices run hourly.
-    SCHEDULED_GATING_WORKFLOWS: 'ci-backend.yml'
+    # Frontend CI is split the same way: jest runs hourly, while typecheck, format and bundle size
+    # run on every push. For Node.js, Dagster, Python and MCP the whole suite is on the cron, so
+    # their push lane only proves the run dispatched and the scheduled lane carries the coverage.
+    SCHEDULED_GATING_WORKFLOWS: 'ci-backend.yml,ci-frontend.yml,ci-nodejs.yml,ci-dagster.yml,ci-python.yml,ci-mcp.yml'
     # A scheduled lane produces one run an hour, so it needs its own arms: the push streak of 5
     # would take 5 hours to trip, while the push wall-clock arm of 60 minutes pages on a single
     # flaky run held for one tick. Two red ticks in a row, or red across two ticks, is the honest
@@ -107,6 +110,11 @@ jobs:
               uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
               env:
                   SLACK_BOT_TOKEN: ${{ secrets.SLACK_DEVEX_BOT_TOKEN }}
+                  # Incoming-webhook trigger of the master-red diagnosis workflow. Unset skips the
+                  # call and still posts the Slack alert; set and unreachable fails this run. A
+                  # variable rather than a secret, because this repo sits two under GitHub's cap of
+                  # 100 secrets; the script masks the value so a public log cannot leak it.
+                  DIAGNOSIS_WEBHOOK_URL: ${{ vars.MASTER_RED_DIAGNOSIS_WEBHOOK_URL }}
               with:
                   github-token: ${{ steps.app-token.outputs.token || github.token }}
                   script: |

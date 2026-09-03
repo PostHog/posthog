@@ -213,6 +213,7 @@ TASK_SIGNALS_CLONING_BLOBLESS_FEATURE_FLAG = "task-signals-cloning-blobless"
 # enabling this flag disables it fleet-wide — over any per-run override — without
 # an image rebuild.
 RTK_DISABLED_FEATURE_FLAG = "tasks-rtk-disabled"
+BENJAMIN_FEATURE_FLAG = "task-cloud-run-benjamin-plus"
 # Gates whether long-running process_task runs continue-as-new to bound history/replay cost.
 CONTINUE_AS_NEW_FEATURE_FLAG = "tasks-cloud-run-continue-as-new"
 PR_BABYSIT_SNAPSHOT_FEATURE_FLAG = "tasks-pr-babysit-snapshot"
@@ -294,6 +295,7 @@ POSTHOG_EXEC_DESTRUCTIVE_SUB_TOOLS: tuple[str, ...] = (
 # foreground streams.
 POSTHOG_EXEC_PERSIST_SUB_TOOLS: tuple[str, ...] = (
     "dashboard-create",
+    "dashboard-create-tile",
     "dashboard-create-text-tile",
     "dashboard-tile-copy",
     "dashboard-widgets-batch-add",
@@ -524,6 +526,8 @@ RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS: frozenset[str] = frozenset(
         "AI_GATEWAY_URL",
         "AI_GATEWAY_PRODUCTS",
         "AI_GATEWAY_TOKEN",
+        "AI_GATEWAY_PRODUCT",
+        "AI_GATEWAY_AI_STAGE",
         "POSTHOG_RESUME_RUN_ID",
         "POSTHOG_AGENT_OTEL_LOGS_URL",
         "POSTHOG_AGENT_OTEL_LOGS_TOKEN",

@@ -25,6 +25,7 @@ import { GitHub, Linear, Slack } from 'scenes/integrations/definitions'
 import { BounceRateDurationSetting } from 'scenes/settings/environment/BounceRateDuration'
 import { BounceRatePageViewModeSetting } from 'scenes/settings/environment/BounceRatePageViewMode'
 import { CookielessServerHashModeSetting } from 'scenes/settings/environment/CookielessServerHashMode'
+import { CustomBotDefinitions } from 'scenes/settings/environment/CustomBotDefinitions'
 import { CustomChannelTypes } from 'scenes/settings/environment/CustomChannelTypes'
 import { DeadClicksAutocaptureSettings } from 'scenes/settings/environment/DeadClicksAutocaptureSettings'
 import { MaxChangelogSettings } from 'scenes/settings/environment/MaxChangelogSettings'
@@ -36,9 +37,15 @@ import { PreAggregatedTablesSetting } from 'scenes/settings/environment/PreAggre
 import { ReplayTriggers } from 'scenes/settings/environment/ReplayTriggers'
 import { SessionsTableVersion } from 'scenes/settings/environment/SessionsTableVersion'
 import { SessionsV2JoinModeSettings } from 'scenes/settings/environment/SessionsV2JoinModeSettings'
+import {
+    TaskAgentMyPreferenceSettings,
+    TaskAgentProjectDefaultSettings,
+} from 'scenes/settings/environment/TaskAgentDefaultsSettings'
 import { OrganizationMCPAccess } from 'scenes/settings/organization/OrganizationMCPAccess'
 import { urls } from 'scenes/urls'
 
+import { ConfigScopeEnumApi } from '~/generated/core/api.schemas'
+import { AccessResolutionPreview } from '~/layout/navigation-3000/sidepanel/panels/access_control/ResolutionPreview/AccessResolutionPreview'
 import {
     DefaultRoleSelector,
     RolesAccessControls,
@@ -99,6 +106,7 @@ import {
     FlagPersistenceSettings,
     FlagsSecureApiKeys,
     RequireEvaluationContexts,
+    RequireFeatureFlagTags,
 } from './environment/FeatureFlagSettings'
 import { GroupAnalyticsConfig } from './environment/GroupAnalyticsConfig'
 import { HeatmapsSettings } from './environment/HeatmapsSettings'
@@ -133,13 +141,7 @@ import {
 } from './environment/SessionRecordingSettings'
 import { SurveyDefaultAppearance, SurveyEnableToggle } from './environment/SurveySettings'
 import { TeamAccessControl } from './environment/TeamAccessControl'
-import {
-    TeamAuthorizedURLs,
-    TeamBusinessModel,
-    TeamDisplayName,
-    TeamTimezone,
-    TeamVariables,
-} from './environment/TeamSettings'
+import { TeamAuthorizedURLs, TeamBusinessModel, TeamTimezone, TeamVariables } from './environment/TeamSettings'
 import { ProjectAccountFiltersSetting } from './environment/TestAccountFiltersConfig'
 import { UsageMetricsConfig } from './environment/UsageMetricsConfig'
 import { WebAnalyticsEnablePreAggregatedTables } from './environment/WebAnalyticsAPISetting'
@@ -147,6 +149,7 @@ import { AIHipaaDisclaimer, getExternalAIProvidersTooltipTitle } from './organiz
 import { ApprovalPolicies } from './organization/Approvals/ApprovalPolicies'
 import { ChangeRequestsList } from './organization/Approvals/ChangeRequestsList'
 import { CIMDVerificationTokens } from './organization/CIMDVerificationTokens'
+import { IdentityProviderFeatureSection } from './organization/IdentityProviderConfig/IdentityProviderFeatureSection'
 import { Invites } from './organization/Invites'
 import { Members } from './organization/Members'
 import { NotificationGovernanceSetting } from './organization/NotificationGovernanceSetting'
@@ -164,6 +167,7 @@ import { OrganizationVariables } from './organization/OrgVariables'
 import { EnforceVerifiedDomains } from './organization/VerifiedDomains/EnforceVerifiedDomains'
 import { VerifiedDomains } from './organization/VerifiedDomains/VerifiedDomains'
 import { ProjectDangerZone } from './project/ProjectDangerZone'
+import { ProjectDetails } from './project/ProjectDetails'
 import { ProjectMove } from './project/ProjectMove'
 import { ProjectSecretAPIKeys } from './project/ProjectSecretAPIKeys'
 import { SettingSection } from './types'
@@ -177,6 +181,7 @@ import { OptOutCapture } from './user/OptOutCapture'
 import { PasskeySettings } from './user/PasskeySettings'
 import { PersonalAPIKeys } from './user/PersonalAPIKeys'
 import { PersonalGitHubIntegrations, PersonalSlackIntegrations } from './user/PersonalIntegrations'
+import { ProfilePictureSettings } from './user/ProfilePictureSettings'
 import { RealtimeNotificationPreferences } from './user/RealtimeNotificationPreferences'
 import { Reminders } from './user/Reminders'
 import { SidebarAutoSuggestSetting } from './user/SidebarProductSettings'
@@ -280,10 +285,10 @@ export const SETTINGS_MAP: SettingSection[] = [
         settings: [
             {
                 id: 'display-name',
-                title: 'Display name',
-                description: 'A human-friendly name for this environment.',
-                component: <TeamDisplayName />,
-                keywords: ['name', 'rename', 'label'],
+                title: 'Project details',
+                description: 'Name this project and label it so you can group and find it across your organization.',
+                component: <ProjectDetails />,
+                keywords: ['name', 'rename', 'label', 'tag', 'tags'],
             },
             {
                 id: 'date-and-time',
@@ -303,6 +308,17 @@ export const SETTINGS_MAP: SettingSection[] = [
                 docsUrl: 'https://posthog.com/tutorials/filter-internal-users',
                 component: <ProjectAccountFiltersSetting />,
                 keywords: ['test account', 'internal', 'exclude', 'filter'],
+            },
+            {
+                // Project-wide, like internal user filtering above: these definitions feed the
+                // `Is bot` property, which is available to every query, not only web analytics.
+                id: 'custom-bot-definitions',
+                title: 'Custom bots',
+                description:
+                    'Add your own crawlers and scripts to the bots PostHog already detects, so you can tell them apart from real visitors.',
+                docsUrl: 'https://posthog.com/docs/web-analytics/bot-detection',
+                component: <CustomBotDefinitions />,
+                keywords: ['bot', 'crawler', 'spider', 'scraper', 'user agent', 'ai'],
             },
             {
                 id: 'business-model',
@@ -343,6 +359,30 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'See the latest PostHog AI features and control whether the changelog appears in the main UI.',
                 component: <MaxChangelogSettings />,
                 hideOn: [Realm.SelfHostedClickHouse, Realm.SelfHostedPostgres],
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-task-agents',
+        title: 'Model preferences',
+        group: 'AI',
+        settings: [
+            {
+                id: 'task-agent-project-default',
+                title: 'Project default model',
+                description:
+                    'The model agent runs launch with when nobody picks one. Everyone on this project inherits it in the new PostHog AI view, in Slack, and in PostHog Desktop.',
+                component: <TaskAgentProjectDefaultSettings />,
+                keywords: ['ai', 'model', 'claude', 'codex', 'agent', 'tasks', 'default', 'slack', 'desktop'],
+            },
+            {
+                id: 'task-agent-my-preference',
+                title: 'My default model',
+                description:
+                    'The model your own runs launch with, overriding the project default. Applies in the new PostHog AI view, in Slack, and in PostHog Desktop.',
+                component: <TaskAgentMyPreferenceSettings />,
+                keywords: ['ai', 'model', 'claude', 'codex', 'agent', 'tasks', 'preference', 'slack', 'desktop'],
             },
         ],
     },
@@ -729,6 +769,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['confirmation', 'safety', 'change', 'release'],
             },
             {
+                id: 'feature-flag-require-tags',
+                title: 'Require tags',
+                description:
+                    'Require every new feature flag to have at least one tag, and stop a tagged flag losing its last one, so flags stay attributable to a team or workstream. Flags created for surveys, experiments, early access features, product tours, and web experiments are exempt.',
+                component: <RequireFeatureFlagTags />,
+                keywords: ['tag', 'tags', 'require', 'governance'],
+            },
+            {
                 id: 'feature-flag-require-evaluation-contexts',
                 title: 'Require evaluation contexts',
                 description:
@@ -898,7 +946,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description:
                     'Generate metrics from your logs at ingestion time. Metrics are computed before drop rules, so you can drop noisy logs and keep the trend.',
                 component: <LogsMetricRulesSection />,
-                flag: LogsFeatureFlagKeys.metricRules,
+                flag: 'METRICS',
                 keywords: ['metric', 'metrics', 'log-based', 'generate', 'count', 'aggregate', 'logs to metrics'],
             },
             {
@@ -1788,7 +1836,7 @@ export const SETTINGS_MAP: SettingSection[] = [
     {
         level: 'organization',
         id: 'organization-authentication',
-        title: 'Authentication domains & SSO',
+        title: 'Authentication',
         settings: [
             {
                 id: 'authentication-domains',
@@ -1802,6 +1850,35 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Domain enforcement',
                 component: <EnforceVerifiedDomains />,
                 keywords: ['sso', 'verified domain', 'restrict', 'membership', 'invites'],
+            },
+            {
+                id: 'saml-configuration',
+                title: 'SAML single sign-on',
+                description:
+                    'Authenticate members through your identity provider using Security Assertion Markup Language (SAML).',
+                docsUrl: 'https://posthog.com/docs/data/sso#setting-up-saml',
+                component: <IdentityProviderFeatureSection configScope={ConfigScopeEnumApi.Saml} />,
+                flag: 'SSO_SETTINGS_REDESIGN',
+                keywords: ['sso', 'saml', 'single sign-on', 'identity provider'],
+            },
+            {
+                id: 'scim-configuration',
+                title: 'SCIM provisioning',
+                description:
+                    'Provision and deprovision organization members through your identity provider using System for Cross-domain Identity Management (SCIM).',
+                docsUrl: 'https://posthog.com/docs/data/sso#setting-up-scim',
+                component: <IdentityProviderFeatureSection configScope={ConfigScopeEnumApi.Scim} />,
+                flag: 'SSO_SETTINGS_REDESIGN',
+                keywords: ['scim', 'provisioning', 'identity provider'],
+            },
+            {
+                id: 'xaa-configuration',
+                title: 'XAA authentication',
+                description: 'Automate API and MCP access to PostHog with Cross App Access (XAA).',
+                docsUrl: 'https://posthog.com/docs/settings/id-jag',
+                component: <IdentityProviderFeatureSection configScope={ConfigScopeEnumApi.Xaa} />,
+                flag: ['SSO_SETTINGS_REDESIGN', 'XAA_AUTHENTICATION'],
+                keywords: ['xaa', 'id-jag', 'identity provider', 'token exchange'],
             },
         ],
     },
@@ -1935,6 +2012,25 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'organization',
+        id: 'organization-access-resolution',
+        title: 'Access resolution preview',
+        flag: 'ACCESS_CONTROL_RESOLUTION_PREVIEW',
+        // Temporary migration surface: reachable only from the access control
+        // settings banner, never from the settings navigation or search
+        hideFromNavigation: true,
+        settings: [
+            {
+                id: 'organization-access-resolution-preview',
+                title: 'Access resolution preview',
+                description:
+                    'PostHog is changing how access levels combine: the most specific rule will decide, instead of the highest one. Review what will be different for your organization before the change takes effect.',
+                component: <AccessResolutionPreview />,
+                keywords: ['access control', 'resolution', 'rbac', 'permission', 'override'],
+            },
+        ],
+    },
+    {
+        level: 'organization',
         id: 'organization-security',
         title: 'Security',
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
@@ -1994,6 +2090,12 @@ export const SETTINGS_MAP: SettingSection[] = [
         id: 'user-profile',
         title: 'Profile',
         settings: [
+            {
+                id: 'profile-picture',
+                title: 'Profile picture',
+                component: <ProfilePictureSettings />,
+                keywords: ['avatar', 'gravatar', 'photo', 'picture', 'image', 'profile'],
+            },
             {
                 id: 'details',
                 title: 'Details',
@@ -2237,7 +2339,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'Bind your Slack identity to this PostHog account so @PostHog mentions route to you even when your Slack email and PostHog email differ.',
                 component: <PersonalSlackIntegrations />,
                 keywords: ['slack', 'integration', 'identity', 'link', 'mention', 'personal'],
-                flag: 'SLACK_APP_OAUTH',
             },
             {
                 id: 'personal-integrations-posthog',
