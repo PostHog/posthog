@@ -26,6 +26,12 @@ export const CERTIFICATION_TOOLS = [
     'data-catalog-certification-deprecate-execute',
 ]
 export const READ_TOOLS = ['data-catalog-metric-run', 'metric-list', 'metric-describe']
+// Tools whose result also changes what the database and joins views show.
+const CERTIFICATION_DATABASE_TOOLS = [
+    'data-catalog-certification-certify-execute',
+    'data-catalog-certification-deprecate-execute',
+]
+const RELATIONSHIP_JOIN_TOOLS = ['data-catalog-relationship-accept-execute']
 export const TOOL_RELOAD_DEBOUNCE_MS = 300
 
 const LISTENER_ID = 'data-catalog-agent-sync'
@@ -97,7 +103,7 @@ export const dataCatalogAgentSyncLogic = kea<dataCatalogAgentSyncLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
         toolCompleted: ({ event }) => {
             if (event.phase !== 'completed') {
                 return
@@ -126,20 +132,25 @@ export const dataCatalogAgentSyncLogic = kea<dataCatalogAgentSyncLogicType>([
             }
         },
         certificationsChanged: async ({ toolName }, breakpoint) => {
+            // The debounce cancels the earlier run, so the extra reload it asked for is recorded
+            // before the breakpoint. Reading the surviving dispatch's tool name alone would drop it.
+            cache.reloadDatabase = cache.reloadDatabase || CERTIFICATION_DATABASE_TOOLS.includes(toolName)
             await breakpoint(TOOL_RELOAD_DEBOUNCE_MS)
+            const reloadDatabase = cache.reloadDatabase
+            cache.reloadDatabase = false
             if (!certificationsLogic.isMounted()) {
                 return
             }
             certificationsLogic.actions.loadCertifications()
-            if (
-                toolName === 'data-catalog-certification-certify-execute' ||
-                toolName === 'data-catalog-certification-deprecate-execute'
-            ) {
+            if (reloadDatabase) {
                 certificationsLogic.actions.loadDatabase({ force: true })
             }
         },
         relationshipsChanged: async ({ toolName }, breakpoint) => {
+            cache.reloadJoins = cache.reloadJoins || RELATIONSHIP_JOIN_TOOLS.includes(toolName)
             await breakpoint(TOOL_RELOAD_DEBOUNCE_MS)
+            const reloadJoins = cache.reloadJoins
+            cache.reloadJoins = false
             if (!relationshipsLogic.isMounted()) {
                 return
             }
@@ -148,7 +159,7 @@ export const dataCatalogAgentSyncLogic = kea<dataCatalogAgentSyncLogicType>([
                 return
             }
             relationshipsLogic.actions.loadProposals()
-            if (toolName === 'data-catalog-relationship-accept-execute') {
+            if (reloadJoins) {
                 relationshipsLogic.actions.loadJoins()
             }
         },

@@ -4,6 +4,7 @@ import { expectLogic } from '~/test/keaTestUtils'
 import { foregroundStreamLogic, toolStreamEventsLogic } from 'products/posthog_ai/frontend/api/logics'
 import type { ToolStreamEvent } from 'products/posthog_ai/frontend/api/types'
 
+import { certificationsLogic } from './certificationsLogic'
 import {
     CERTIFICATION_TOOLS,
     dataCatalogAgentSyncLogic,
@@ -12,6 +13,15 @@ import {
     RELATIONSHIP_TOOLS,
 } from './dataCatalogAgentSyncLogic'
 import { DATA_CATALOG_MCP_TOOLS } from './generated/agentContext'
+
+// The reload targets are stubs here: this file covers which reloads the sync logic asks for, not
+// what the catalog logics do with them.
+jest.mock('./certificationsLogic', () => ({
+    certificationsLogic: {
+        isMounted: () => true,
+        actions: { loadCertifications: jest.fn(), loadDatabase: jest.fn() },
+    },
+}))
 
 function toolEvent({
     toolName,
@@ -38,6 +48,7 @@ describe('dataCatalogAgentSyncLogic', () => {
     let logic: ReturnType<typeof dataCatalogAgentSyncLogic.build>
 
     beforeEach(() => {
+        jest.clearAllMocks()
         initKeaTests()
         logic = dataCatalogAgentSyncLogic.build()
         logic.mount()
@@ -85,6 +96,30 @@ describe('dataCatalogAgentSyncLogic', () => {
         toolStreamEventsLogic.actions.emitToolEvent(toolEvent({ toolName: 'data-catalog-metric-run' }))
 
         await expectLogic(logic).toNotHaveDispatchedActions(['toolCompleted']).toFinishAllListeners()
+    })
+
+    it('keeps the database reload when a second certification write coalesces with it', async () => {
+        foregroundStreamLogic.actions.setForegroundStream('run-1', 'panel-1')
+
+        // Certifying reloads the database view; proposing does not. Both land inside the debounce
+        // window, so the surviving dispatch must still carry the reload the first one needs.
+        toolStreamEventsLogic.actions.emitToolEvent(
+            toolEvent({ toolName: 'data-catalog-certification-certify-execute' })
+        )
+        toolStreamEventsLogic.actions.emitToolEvent(toolEvent({ toolName: 'data-catalog-certification-propose' }))
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(certificationsLogic.actions.loadDatabase).toHaveBeenCalledWith({ force: true })
+    })
+
+    it('does not reload the database when only proposals land', async () => {
+        foregroundStreamLogic.actions.setForegroundStream('run-1', 'panel-1')
+
+        toolStreamEventsLogic.actions.emitToolEvent(toolEvent({ toolName: 'data-catalog-certification-propose' }))
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(certificationsLogic.actions.loadCertifications).toHaveBeenCalled()
+        expect(certificationsLogic.actions.loadDatabase).not.toHaveBeenCalled()
     })
 
     it('classifies every generated tool that can mutate or read a metric result', () => {

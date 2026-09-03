@@ -22,25 +22,40 @@ describe('data catalog agent context', () => {
         const name = 'weekly_active_users'
         const contextItems = buildDataCatalogMetricAgentContext(name, '1. Count active users')
         const metricItem = contextItems.find((item) => item.type === 'data_catalog_metric')
-        const pointerItem = contextItems.find((item) => item.type === 'text' && item.value?.includes(name))
-        const draftItem = contextItems.find((item) => item.type === 'data_catalog_metric_draft')
+        const pointerItem = contextItems.find((item) => item.value === `Open data catalog metric: ${name}`)
+        const draftItem = contextItems.find((item) => item.value?.startsWith('Open data catalog metric draft:'))
 
         expect(metricItem).toEqual(
             expect.objectContaining({ key: name, label: name, dismissGroup: pointerItem?.dismissGroup })
         )
         expect(draftItem).toEqual(
             expect.objectContaining({
+                type: 'text',
                 dismissGroup: metricItem?.dismissGroup,
-                value: JSON.stringify({ name, kind: 'MarkdownDefinition', markdown: '1. Count active users' }),
+                value: `Open data catalog metric draft: ${JSON.stringify({
+                    name,
+                    editing: true,
+                    kind: 'MarkdownDefinition',
+                    markdown: '1. Count active users',
+                })}`,
             })
         )
         expect(instructions(contextItems).join('\n')).not.toContain(name)
     })
 
-    it('only includes a draft while markdown editing is active', () => {
-        const contextItems = buildDataCatalogMetricAgentContext('weekly_active_users', null)
+    it('reports the closed editor so an abandoned draft cannot read as live', () => {
+        const name = 'weekly_active_users'
+        const contextItems = buildDataCatalogMetricAgentContext(name, null)
+        const draftItem = contextItems.find((item) => item.value?.startsWith('Open data catalog metric draft:'))
 
-        expect(contextItems.some((item) => item.type === 'data_catalog_metric_draft')).toBe(false)
+        // A text item is exempt from the send-path dedupe, so the closed state reaches the agent
+        // on every send rather than being pruned as a repeat.
+        expect(draftItem).toEqual(
+            expect.objectContaining({
+                type: 'text',
+                value: `Open data catalog metric draft: ${JSON.stringify({ name, editing: false })}`,
+            })
+        )
     })
 
     it('only supplies the skill bundle for an invalid metric name', () => {

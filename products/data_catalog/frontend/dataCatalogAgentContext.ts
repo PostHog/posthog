@@ -54,7 +54,9 @@ const METRIC_CONTEXT_ITEM: AttachedContextItem = {
     dismissGroup: METRIC_DISMISS_GROUP,
     value:
         'The data_catalog_metric item is the open metric and the Open data catalog metric text item names it. ' +
-        'The data_catalog_metric_draft item, when present, is the unsaved markdown definition being edited and wins over the persisted definition when reading. ' +
+        'The Open data catalog metric draft text item is the state of the markdown definition editor, and the latest one wins over anything earlier in the conversation. ' +
+        'While editing is true its markdown is unsaved text that wins over the persisted definition when reading. ' +
+        'While editing is false the editor is closed, any earlier draft was abandoned, and the persisted definition is current. ' +
         'Updating, approving, or refreshing this metric refreshes the page. Renaming it moves the page to the new name and keeps any open edit.',
 }
 
@@ -100,14 +102,19 @@ export function buildDataCatalogMetricAgentContext(name: string, draftMarkdown: 
         },
     ]
 
-    if (draftMarkdown !== null) {
-        contextItems.push({
-            type: 'data_catalog_metric_draft',
-            hidden: true,
-            dismissGroup: METRIC_DISMISS_GROUP,
-            value: JSON.stringify({ name, kind: 'MarkdownDefinition', markdown: draftMarkdown }),
-        })
-    }
+    // Always attached, including when the editor is closed, so a closed or reverted editor
+    // supersedes the draft the agent read earlier. A text item is the only shape the send-path
+    // dedupe never prunes, so every send carries the current state rather than the last new value.
+    contextItems.push({
+        type: 'text',
+        hidden: true,
+        dismissGroup: METRIC_DISMISS_GROUP,
+        value: `Open data catalog metric draft: ${JSON.stringify(
+            draftMarkdown === null
+                ? { name, editing: false }
+                : { name, editing: true, kind: 'MarkdownDefinition', markdown: draftMarkdown }
+        )}`,
+    })
 
     return contextItems
 }
