@@ -244,8 +244,8 @@ class Command(BaseCommand):
 
         self.stdout.write(self.style.SUCCESS(f"Source {source_id} is now buffered."))
         self.stdout.write(
-            "Verify: capture writes buffer files and advances the slot; the next sync merges and "
-            "writes every table the mode feeds; the files it read disappear when its job completes."
+            "Verify: capture writes buffer files and advances the slot; the next sync writes every "
+            "table the mode feeds; a later sync deletes the files once every table is past them."
         )
 
     def _roll_back(
