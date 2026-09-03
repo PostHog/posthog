@@ -58586,6 +58586,8 @@ export namespace Schemas {
       readonly author_name: string;
       /** True for internal notes not visible to the customer. */
       readonly is_private: boolean;
+      /** True when the complete inbound email body can be retrieved. */
+      readonly has_full_email_content: boolean;
       /** Edit count. 0 means never edited. */
       readonly version: number;
       readonly created_at: string;
@@ -85861,6 +85863,11 @@ export namespace Schemas {
     export interface TicketError {
       detail: string;
       error_type?: string;
+    }
+
+    export interface TicketFullEmail {
+      /** Full inbound email body in Markdown. */
+      readonly content: string;
     }
 
     /**
