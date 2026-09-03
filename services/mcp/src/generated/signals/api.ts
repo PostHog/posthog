@@ -1354,6 +1354,10 @@ export const SignalsScoutEditReportParams = () => zod.object({
 
 export const signalsScoutEditReportBodyTitleMax = 300
 
+export const signalsScoutEditReportBodySummaryMax = 20000
+
+export const signalsScoutEditReportBodyAppendNoteMax = 10000
+
 export const signalsScoutEditReportBodySuggestedReviewersItemGithubLoginMax = 200
 
 export const signalsScoutEditReportBodySuggestedReviewersItemReasonMax = 500
@@ -1384,12 +1388,14 @@ export const SignalsScoutEditReportBody = () => zod
             ),
         summary: zod
             .string()
+            .max(signalsScoutEditReportBodySummaryMax)
             .nullish()
             .describe(
                 'Optional new summary. Markdown is supported (headings, lists, code, links; images are not rendered); lead with one plain declarative sentence — it becomes the inbox card headline. A heading, or a bold label on a line of its own with a blank line above it, marks a section that a threaded Slack delivery splits into its own reply. The pipeline may later re-research and overwrite it.'
             ),
         append_note: zod
             .string()
+            .max(signalsScoutEditReportBodyAppendNoteMax)
             .nullish()
             .describe("Optional free-form note to append to the report's work log (attributed to this scout)."),
         suggested_reviewers: zod
@@ -1476,7 +1482,7 @@ export const SignalsScoutEditReportBody = () => zod
             .max(signalsScoutEditReportBodySuggestedPromptsMax)
             .nullish()
             .describe(
-                "The full set of follow-up questions the report should offer above its `Ask AI` box. Replaces the report's questions rather than adding to them, so send every one you want kept. Omit the field (or send null) to leave them untouched, and send an empty list to take them down, which is what you want once a rewrite has left them answering the old report."
+                "The full set of follow-up prompts (questions or next-step actions) the report should offer above its `Ask AI` box. Replaces the report's prompts rather than adding to them, so send every one you want kept. Omit the field (or send null) to leave them untouched, and send an empty list to take them down, which is what you want once a rewrite has left them pointing at the old report."
             ),
     })
     .describe(
@@ -1704,7 +1710,7 @@ export const SignalsScoutEmitReportBody = () => zod
             .max(signalsScoutEmitReportBodySuggestedPromptsMax)
             .optional()
             .describe(
-                "Optional follow-up questions to offer above the report's `Ask AI` box. The reader clicks one to fill the box with it, then sends or edits it. Write the questions your own research left open, phrased as the reader would ask them."
+                "Optional follow-up prompts to offer above the report's `Ask AI` box: questions to ask, or next-step actions to request (e.g. carrying out the report's recommendation). The reader clicks one to fill the box with it, then sends or edits it. Write the prompts your own research left open, phrased as the reader would send them."
             ),
     })
     .describe('Request body for `emit-report`. Run attribution is taken from the URL path.')

@@ -1604,10 +1604,10 @@ class SignalReportViewSet(
             edit_artefacts.append(SummaryChange(old_summary=report.summary, new_summary=data["summary"]))
             report.summary = data["summary"]
             update_fields.append("summary")
-            # The suggested questions were written against the prose this edit replaces, so they go
+            # The suggested prompts were written against the prose this edit replaces, so they go
             # down with it — the same rule the research pipeline applies when it rewrites a summary.
-            # Leaving them would offer questions about a report that no longer says what they ask
-            # about, and this field is read-only here, so nothing could take them back down.
+            # Leaving them would offer prompts about a report that no longer says what they point
+            # at, and this field is read-only here, so nothing could take them back down.
             if report.suggested_prompts:
                 report.suggested_prompts = []
                 update_fields.append("suggested_prompts")

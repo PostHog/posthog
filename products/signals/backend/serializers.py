@@ -493,8 +493,9 @@ class SignalReportSerializer(serializers.ModelSerializer):
         child=serializers.CharField(),
         read_only=True,
         help_text=(
-            "Follow-up questions the report's author suggests asking about it, in the order they were "
-            "written. The inbox offers them above the `Ask AI` box; clicking one fills the box with it."
+            "Follow-up prompts the report's author suggests sending about it (questions to ask, or "
+            "next-step actions to request), in the order they were written. The inbox offers them "
+            "above the `Ask AI` box; clicking one fills the box with it."
         ),
     )
     refund_ineligibility_reason = serializers.SerializerMethodField(
