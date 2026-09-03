@@ -3,12 +3,32 @@ import uuid
 from django.core.management.base import BaseCommand
 from django.db import transaction
 
+from posthog.dataclasses import frozen
+
 from products.workflows.backend.api.hog_flow import MAX_LEGACY_WINDOW_MINUTES
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow_revision import HogFlowRevision
 from products.workflows.backend.services.timing_reschedule import parse_delay_duration_seconds
 
 MINUTES_PER_DAY = 1440
+
+
+@frozen
+class RewrittenWindow:
+    """A conversion whose window_minutes has been respelled as a duration string."""
+
+    conversion: dict
+    window: str
+    minutes: int
+
+
+@frozen
+class ConvertedFlow:
+    """What one locked row's conversion turned into, and whether its draft moved with it."""
+
+    window: str
+    minutes: int
+    draft_converted: bool
 
 
 class Command(BaseCommand):
@@ -66,11 +86,10 @@ class Command(BaseCommand):
                 )
                 continue
 
-            locked_minutes, window, draft_converted = result
-            drafts_with_rows += 1 if draft_converted else 0
+            drafts_with_rows += 1 if result.draft_converted else 0
             self.stdout.write(
                 f"  Converting flow id={flow.id} team_id={flow.team_id} status={flow.status}: "
-                f"window_minutes={locked_minutes} -> window={window}"
+                f"window_minutes={result.minutes} -> window={result.window}"
             )
             converted += 1
 
@@ -100,7 +119,7 @@ class Command(BaseCommand):
                 continue
             self.stdout.write(
                 f"  {'Converting' if live_run else 'Would convert'} draft on flow id={flow.id} "
-                f"team_id={flow.team_id}: window={rewritten['window']}"
+                f"team_id={flow.team_id}: window={rewritten.window}"
             )
             if live_run:
                 with transaction.atomic():
@@ -111,7 +130,7 @@ class Command(BaseCommand):
                     fresh = converted_conversion(locked_draft.get("conversion"))
                     if fresh is None:
                         continue
-                    HogFlow.objects.filter(pk=flow.pk).update(draft={**locked_draft, "conversion": fresh})
+                    HogFlow.objects.filter(pk=flow.pk).update(draft={**locked_draft, "conversion": fresh.conversion})
             count += 1
         return count
 
@@ -133,17 +152,17 @@ class Command(BaseCommand):
                 continue
             self.stdout.write(
                 f"  {'Converting' if live_run else 'Would convert'} revision id={revision.id} "
-                f"flow={revision.hog_flow_id} v{revision.version}: window={rewritten['window']}"
+                f"flow={revision.hog_flow_id} v{revision.version}: window={rewritten.window}"
             )
             if live_run:
                 # Append-only in practice — nothing edits a published snapshot — so no lock is needed.
                 HogFlowRevision.objects.for_team(revision.team_id).filter(pk=revision.pk).update(
-                    content={**content, "conversion": rewritten}
+                    content={**content, "conversion": rewritten.conversion}
                 )
             count += 1
         return count
 
-    def convert_locked(self, pk: uuid.UUID) -> tuple[int, str, bool] | None:
+    def convert_locked(self, pk: uuid.UUID) -> ConvertedFlow | None:
         # Re-read the row under a lock and convert the value it holds now, not the one the scan read.
         # A customer saving the workflow between the scan and this write would otherwise lose that edit
         # to the stale conversion this command is holding, the lost write the API save path and the
@@ -153,16 +172,10 @@ class Command(BaseCommand):
         # editor's next save or re-sort untouched flows to the top.
         with transaction.atomic():
             locked = HogFlow.objects.select_for_update().get(pk=pk)
-            conversion = locked.conversion or {}
-            minutes = conversion.get("window_minutes")
-            rewritten = converted_conversion(conversion)
+            rewritten = converted_conversion(locked.conversion or {})
             if rewritten is None:
                 return None
-            # converted_conversion only returns a dict once it has established both of these, but it
-            # hands back the whole conversion, so narrow them here rather than assert.
-            minutes = int(minutes)
-            window = str(rewritten["window"])
-            fields: dict[str, object] = {"conversion": rewritten}
+            fields: dict[str, object] = {"conversion": rewritten.conversion}
             draft_converted = False
             # The draft holds its own copy of conversion, so leaving it behind would put the
             # deprecated field back on the live row the moment the draft is published.
@@ -170,10 +183,10 @@ class Command(BaseCommand):
             if isinstance(draft, dict):
                 draft_conversion = converted_conversion(draft.get("conversion"))
                 if draft_conversion is not None:
-                    fields["draft"] = {**draft, "conversion": draft_conversion}
+                    fields["draft"] = {**draft, "conversion": draft_conversion.conversion}
                     draft_converted = True
             HogFlow.objects.filter(pk=pk).update(**fields)
-        return minutes, window, draft_converted
+        return ConvertedFlow(window=rewritten.window, minutes=rewritten.minutes, draft_converted=draft_converted)
 
     def report_needs_review(self, needs_review):
         if not needs_review:
@@ -194,7 +207,7 @@ class Command(BaseCommand):
         )
 
 
-def converted_conversion(conversion: object) -> dict | None:
+def converted_conversion(conversion: object) -> RewrittenWindow | None:
     """The same conversion with window_minutes spelled as a duration string, or None when it must not
     be touched: already migrated, no usable value, or above the ceiling where the reading is in doubt."""
     if not isinstance(conversion, dict):
@@ -204,9 +217,10 @@ def converted_conversion(conversion: object) -> dict | None:
         return None
     if minutes > MAX_LEGACY_WINDOW_MINUTES:
         return None
+    window = duration_string(minutes)
     rewritten = {k: v for k, v in conversion.items() if k != "window_minutes"}
-    rewritten["window"] = duration_string(minutes)
-    return rewritten
+    rewritten["window"] = window
+    return RewrittenWindow(conversion=rewritten, window=window, minutes=minutes)
 
 
 def duration_string(minutes: int) -> str:
