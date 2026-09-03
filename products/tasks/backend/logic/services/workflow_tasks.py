@@ -31,6 +31,11 @@ from products.tasks.backend.logic.services.run_actor import (
     loop_owner_eligible_for_credentials,
     user_has_current_team_access,
 )
+from products.tasks.backend.logic.services.workflow_task_skills import (
+    AttachedSkill,
+    render_skills_manifest,
+    resolve_attached_skills,
+)
 from products.tasks.backend.metrics import observe_workflow_task_create
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.constants import WORKFLOW_RUN_IDLE_TIMEOUT_SECONDS
@@ -126,6 +131,7 @@ def create_workflow_task(
     model: str | None = None,
     reasoning_effort: str | None = None,
     connector_ids: list[str] | None = None,
+    skill_names: list[str] | None = None,
     posthog_mcp_scopes: PosthogMcpScopes = "read_only",
     max_parallel_tasks: int = 5,
     origin_key: str | None = None,
@@ -146,6 +152,10 @@ def create_workflow_task(
     the workflow or its team reached the daily created-task cap. A replayed
     `origin_key` bypasses the gate and every cap. `rate_limits` can override either
     product default for this project; a missing value keeps the default.
+
+    `skill_names` are skills store skills the run's prompt should name. Each resolves to its
+    latest published version at create time; a name that no longer resolves is dropped rather
+    than failing the create, for the same reason a Slack context is.
 
     `event` is rendered into the agent's prompt as data. The Slack thread binding decides
     the run's lifetime: a thread-bound run stays live until its inactivity timeout, so its
@@ -206,18 +216,28 @@ def create_workflow_task(
         observe_workflow_task_create(reason="gate_blocked")
         raise WorkflowTaskUsageLimited()
 
+    # Resolved after the gate so a capped or blocked fire never pays for the query, and outside
+    # the transaction below so the skills store read never happens while holding the team lock.
+    skills = resolve_attached_skills(team, gate_owner, skill_names)
+
     # Snapshot the connector selection onto the run, next to the PostHog MCP scopes the token
     # minter reads back. The mounts themselves follow the same list stamped on the task as its
     # gateway server allowlist below, so a later edit of the workflow can't change what an
     # already-queued run may reach. No installation ids on purpose: see
     # loop_mcp_installation_allowlist for why that keeps the member path closed.
-    extra_run_state = {
-        "config_snapshot": {
-            "connectors": {
-                "mcp_gateway_server_ids": gateway_server_ids,
-                "posthog_mcp_scopes": posthog_mcp_scopes,
-            }
-        },
+    config_snapshot: dict[str, Any] = {
+        "connectors": {
+            "mcp_gateway_server_ids": gateway_server_ids,
+            "posthog_mcp_scopes": posthog_mcp_scopes,
+        }
+    }
+    if skills:
+        # Which version each skill was at when this run was planned. A later run of the same task
+        # inherits config_snapshot without re-rendering the prompt, so this is the only record.
+        config_snapshot["skills"] = [{"name": skill.name, "version": skill.version} for skill in skills]
+
+    extra_run_state: dict[str, Any] = {
+        "config_snapshot": config_snapshot,
         "inactivity_timeout_seconds": WORKFLOW_RUN_IDLE_TIMEOUT_SECONDS,
     }
 
@@ -285,7 +305,10 @@ def create_workflow_task(
             # deliveries carry no shared idempotency id, so a cold-start background run gets the
             # prompt twice. The override is only read by the boot path, so it delivers once.
             extra_run_state["initial_prompt_override"] = _render_run_message(
-                prompt, event, slack_reply_context=slack_binding is not None
+                prompt,
+                event,
+                skills,
+                slack_reply_context=slack_binding is not None,
             )
             # Derived from the thread context rather than tested separately, because the two
             # must travel together: a context passed without an explicit origin defaults the
@@ -412,13 +435,26 @@ def resolve_connectors(team_id: int, connector_ids: list[str] | None) -> list[st
     return gateway_server_ids
 
 
-def _render_run_message(prompt: str, event: dict[str, Any] | None, *, slack_reply_context: bool = False) -> str:
+def _render_run_message(
+    prompt: str,
+    event: dict[str, Any] | None,
+    skills: list[AttachedSkill] | None = None,
+    *,
+    slack_reply_context: bool = False,
+) -> str:
     # PostHog Code strips this established wrapper from user-message bubbles while still
     # sending its contents to the agent (same contract as render_loop_run_message).
+    # The skills manifest belongs inside it for the same reason the framing block does: it is
+    # system-generated, and it must sit above <triggering_event>, which the framing text tells
+    # the agent to read as data rather than instructions.
+    instructions = [WORKFLOW_SLACK_FRAMING_BLOCK if slack_reply_context else WORKFLOW_FRAMING_BLOCK]
+    skills_manifest = render_skills_manifest(skills or [])
+    if skills_manifest:
+        instructions.append(skills_manifest)
     message = (
         "<user_custom_instructions>\n"
         "The following system-generated instructions apply to this unattended workflow run. Follow them.\n\n"
-        f"{WORKFLOW_SLACK_FRAMING_BLOCK if slack_reply_context else WORKFLOW_FRAMING_BLOCK}\n"
+        f"{'\n\n'.join(instructions)}\n"
         "</user_custom_instructions>\n\n"
         f"{prompt}"
     )

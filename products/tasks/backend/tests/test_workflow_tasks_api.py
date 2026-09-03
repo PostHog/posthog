@@ -22,7 +22,9 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
 
+from products.skills.backend.models.skills import LLMSkill
 from products.slack_app.backend.models import SlackChannel, SlackThreadTaskMapping
+from products.tasks.backend.logic.services.workflow_task_skills import MAX_ATTACHED_SKILLS
 from products.tasks.backend.logic.services.workflow_tasks import (
     WORKFLOW_TASK_RATE_CAP_PER_DAY,
     WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY,
@@ -502,6 +504,88 @@ class TestWorkflowTasksAPI(APIBaseTest):
         assert response.status_code == status.HTTP_409_CONFLICT, response.json()
         assert not Task.objects.filter(hog_flow_id=self.hog_flow.id).exists()
 
+    def _seed_skill(self, name: str, *, version: int = 1, description: str = "What it covers.", **kwargs) -> LLMSkill:
+        return LLMSkill.objects.create(
+            team=self.team,
+            name=name,
+            description=description,
+            body=f"# {name}",
+            version=version,
+            created_by=self.user,
+            **kwargs,
+        )
+
+    def test_attaches_the_latest_version_of_each_selected_skill(self) -> None:
+        self._seed_skill("error-triage", version=1, description="Old wording.", is_latest=False)
+        self._seed_skill("error-triage", version=2, description="Triage an error spike.")
+
+        response = self._post({"skills": ["error-triage"]})
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        run = TaskRun.objects.get(id=response.json()["run_id"])
+        message = run.state["initial_prompt_override"]
+        assert "- `error-triage` (v2): Triage an error spike." in message
+        assert "Old wording." not in message
+        assert run.state["config_snapshot"]["skills"] == [{"name": "error-triage", "version": 2}]
+
+    def test_skips_a_skill_archived_since_the_workflow_was_saved(self) -> None:
+        self._seed_skill("error-triage")
+        self._seed_skill("db-runbook", deleted=True)
+
+        response = self._post({"skills": ["error-triage", "db-runbook"]})
+
+        # An event-triggered workflow fires unattended, so failing here would be a silent
+        # outage from the moment anyone archives a skill.
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        run = TaskRun.objects.get(id=response.json()["run_id"])
+        assert "`error-triage`" in run.state["initial_prompt_override"]
+        assert "`db-runbook`" not in run.state["initial_prompt_override"]
+        assert run.state["config_snapshot"]["skills"] == [{"name": "error-triage", "version": 1}]
+
+    @parameterized.expand([("slash", "Bad/Name"), ("newline", "bad\nname"), ("backtick", "bad`name")])
+    def test_skips_a_malformed_legacy_skill(self, _name: str, skill_name: str) -> None:
+        self._seed_skill("error-triage")
+        self._seed_skill(skill_name)
+
+        response = self._post({"skills": ["error-triage", skill_name]})
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        run = TaskRun.objects.get(id=response.json()["run_id"])
+        assert "`error-triage`" in run.state["initial_prompt_override"]
+        assert skill_name not in run.state["initial_prompt_override"]
+        assert run.state["config_snapshot"]["skills"] == [{"name": "error-triage", "version": 1}]
+
+    def test_a_run_with_no_skills_carries_the_prompt_unchanged(self) -> None:
+        response = self._post()
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        run = TaskRun.objects.get(id=response.json()["run_id"])
+        assert "skill-get" not in run.state["initial_prompt_override"]
+        assert "skills store" not in run.state["initial_prompt_override"]
+        assert "skills" not in run.state["config_snapshot"]
+
+    def test_the_skills_manifest_is_an_instruction_not_event_data(self) -> None:
+        self._seed_skill("error-triage")
+
+        response = self._post({"skills": ["error-triage"], "event": {"event": "$pageview"}})
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        message = TaskRun.objects.get(id=response.json()["run_id"]).state["initial_prompt_override"]
+        # Inside the instruction wrapper and above the prompt. Below <triggering_event> would put
+        # it in the block the framing text tells the agent to read as data.
+        assert message.index("`error-triage`") < message.index("</user_custom_instructions>")
+        assert message.index("`error-triage`") < message.index("look into the alert")
+
+    def test_a_later_run_inherits_the_skill_snapshot(self) -> None:
+        self._seed_skill("error-triage")
+        response = self._post({"skills": ["error-triage"]})
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        task = Task.objects.get(id=response.json()["id"])
+
+        later_run = task.create_run(mode="background")
+
+        assert later_run.state["config_snapshot"]["skills"] == [{"name": "error-triage", "version": 1}]
+
     @patch("products.tasks.backend.logic.services.workflow_tasks.resolve_agent_gateway_server_ids")
     def test_a_later_run_inherits_the_connector_snapshot(self, resolve_ids) -> None:
         resolve_ids.return_value = {"server-1": "server-1"}
@@ -849,6 +933,13 @@ class TestWorkflowTaskCreateSerializer(SimpleTestCase):
             ("too_many_parallel_tasks", {"prompt": "p", "max_parallel_tasks": 101}, "max_parallel_tasks"),
             ("unknown_mcp_scopes", {"prompt": "p", "posthog_mcp_scopes": "admin"}, "posthog_mcp_scopes"),
             ("connectors_not_a_list", {"prompt": "p", "connectors": "inst-1"}, "connectors"),
+            ("skills_not_a_list", {"prompt": "p", "skills": "error-triage"}, "skills"),
+            ("skills_not_strings", {"prompt": "p", "skills": [{"name": "error-triage"}]}, "skills"),
+            (
+                "too_many_skills",
+                {"prompt": "p", "skills": [f"s-{i}" for i in range(MAX_ATTACHED_SKILLS + 1)]},
+                "skills",
+            ),
             ("event_not_a_dict", {"prompt": "p", "event": "boom"}, "event"),
             (
                 "slack_context_missing_channel",
