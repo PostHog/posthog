@@ -116,8 +116,10 @@ describe('ChunkLoadErrorBoundary', () => {
         // the module loads, but an export the boot path needs is gone.
         const StaleApp = lazy(() =>
             Promise.resolve<{ bootApp?: () => void; App?: () => JSX.Element }>(staleChunk).then((module) => {
-                requireBootExport(module, 'bootApp')()
-                return { default: requireBootExport(module, 'App') }
+                const bootApp = requireBootExport(module, 'bootApp')
+                const AppComponent = requireBootExport(module, 'App')
+                bootApp()
+                return { default: AppComponent }
             })
         )
 
