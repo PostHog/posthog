@@ -210,7 +210,7 @@ class TeamLogsConfigSerializer(serializers.ModelSerializer):
         return _validate_unique_attribute_keys(value)
 
     def validate_logs_pattern_message_keys(self, value: list[str]) -> list[str]:
-        return self._validate_unique_keys(value)
+        return _validate_unique_attribute_keys(value)
 
     def update(self, instance: TeamLogsConfig, validated_data: dict) -> TeamLogsConfig:
         # Keep the legacy single-key column in sync so pre-plural readers stay coherent.
