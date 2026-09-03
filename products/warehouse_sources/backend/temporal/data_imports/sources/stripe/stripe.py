@@ -137,6 +137,10 @@ METER_SUMMARY_GROUPING_WINDOW: Literal["day"] = "day"
 # the newest day the table already holds, so this bounds the initial import only. The table's
 # canonical description states this number for the user, so a change here has to change that too.
 METER_SUMMARY_INITIAL_LOOKBACK_DAYS = 90
+# Stripe accepts a meter event whose timestamp is up to 35 calendar days old, so usage can still be
+# recorded for a customer after their metered subscription ended. The meter sweep keeps an ended
+# subscription for this long past its end date, and skips it after that.
+METER_EVENT_BACKDATING_DAYS = 35
 
 _JSON_WHITESPACE = frozenset(b" \t\n\r\f\v")
 _OPEN_BRACE = ord("{")
@@ -494,6 +498,29 @@ def _subscription_meter_ids(subscription: dict[str, Any]) -> list[str]:
 
 def _subscription_has_metered_price(subscription: dict[str, Any]) -> bool:
     return bool(_subscription_meter_ids(subscription))
+
+
+def _subscription_can_carry_usage(window: _MeterSummaryWindow) -> Callable[[dict[str, Any]], bool]:
+    """Whether a subscription can lead the sweep to usage inside `window`.
+
+    A subscription with no metered price bills no usage at all. One that ended long before the
+    window carries none inside it either, and the parent listing holds every subscription the
+    account has ever created, so those calls accumulate with churn and never go away.
+
+    The end date is not read as a hard edge, because usage can still be recorded for a customer
+    after the subscription ends. The subscription stays in the sweep for
+    `METER_EVENT_BACKDATING_DAYS` past its end date instead.
+    """
+
+    def _can_carry_usage(subscription: dict[str, Any]) -> bool:
+        if not _subscription_has_metered_price(subscription):
+            return False
+        ended_at = subscription.get("ended_at")
+        if ended_at is None:
+            return True
+        return ended_at >= window.start_time - METER_EVENT_BACKDATING_DAYS * DAY_SECONDS
+
+    return _can_carry_usage
 
 
 def _meter_summary_params(subscription: dict[str, Any]) -> dict[str, Any]:
@@ -955,7 +982,7 @@ def _build_resources(
             parent_id="id",
             parent=StripeResource(method=_subscriptions_with_all_items(client), params={"status": "all"}),
             parent_name=SUBSCRIPTION_RESOURCE_NAME,
-            parent_has_nested=_subscription_has_metered_price,
+            parent_has_nested=_subscription_can_carry_usage(meter_summary_window),
             nested_params_from_parent=_meter_summary_params,
         ),
         # Stays on the parent API: the credit-grant listing fits in one page, so there is

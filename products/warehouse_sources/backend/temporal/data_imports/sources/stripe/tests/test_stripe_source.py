@@ -2053,6 +2053,26 @@ class TestMeterEventSummaryFanout:
         self._run([self._subscription("sub_1", "cus_1", [{"recurring": {"meter": "mtr_a"}}])])
         assert self.client.subscription_items.list.call_count == 0
 
+    @parameterized.expand(
+        [
+            # The parent listing carries every subscription the account has ever created, so a call
+            # per meter on one that ended long ago is spent on every sync and the count only grows
+            # with churn.
+            (stripe_module.METER_EVENT_BACKDATING_DAYS + 10, []),
+            # Usage can still be recorded for a customer after the subscription ends, so an end just
+            # outside the window keeps the subscription rather than cutting it at the window edge.
+            (1, ["mtr_a"]),
+        ]
+    )
+    def test_an_ended_subscription_is_asked_for_only_while_usage_can_still_land(
+        self, days_before_window: int, expected_meters: list[str]
+    ) -> None:
+        window = stripe_module._meter_summary_window(None)
+        subscription = self._subscription("sub_1", "cus_1", [{"recurring": {"meter": "mtr_a"}}])
+        subscription["ended_at"] = window.start_time - days_before_window * _DAY
+        _, requested = self._run([subscription])
+        assert [meter for meter, _ in requested] == expected_meters
+
     def test_a_meter_on_several_items_is_asked_for_once(self):
         # Both items bill the same usage series, so a second call would only double the volume.
         _, requested = self._run(
