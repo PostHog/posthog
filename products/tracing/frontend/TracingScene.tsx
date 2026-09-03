@@ -26,6 +26,7 @@ import { tracingEmptyState } from './emptyState/tracingEmptyState'
 import { OperationsTable } from './OperationsTable'
 import { TraceCompareFlame } from './TraceCompareFlame'
 import { TraceCompareTable } from './TraceCompareTable'
+import { TracingAgentIntegration } from './TracingAgentIntegration'
 import { tracingConfigLogic } from './tracingConfigLogic'
 import { tracingDataLogic } from './tracingDataLogic'
 import { TracingDisplayBar } from './TracingDisplayBar'
@@ -60,6 +61,7 @@ export default function TracingScene(): JSX.Element {
         <BindLogic logic={tracingFiltersLogic} props={{ id: TRACING_SCENE_VIEWER_ID }}>
             <BindLogic logic={tracingDataLogic} props={{ id: TRACING_SCENE_VIEWER_ID }}>
                 <BindLogic logic={tracingViewerLogic} props={{ id: TRACING_SCENE_VIEWER_ID }}>
+                    <TracingAgentIntegration />
                     <TracingSceneContents />
                 </BindLogic>
             </BindLogic>
