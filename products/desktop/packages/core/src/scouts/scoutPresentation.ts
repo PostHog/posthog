@@ -624,14 +624,17 @@ export function timeToDailyCron(time: string): string {
   return `${Number(minutes)} ${Number(hours)} * * *`;
 }
 
-/** "30 9 * * 4" → `{ day: "4", time: "09:30" }` when the cron is a plain weekly slot. */
+/**
+ * "30 9 * * 4" → `{ day: "4", time: "09:30" }` when the cron is a plain weekly slot. Cron takes
+ * both 0 and 7 for Sunday; the dropdown offers 0, so 7 maps onto it.
+ */
 export function weeklyCronToDayTime(
   cron: string | null | undefined,
 ): { day: string; time: string } | null {
-  const match = cron?.trim().match(/^(\d{1,2}) (\d{1,2}) \* \* ([0-6])$/);
+  const match = cron?.trim().match(/^(\d{1,2}) (\d{1,2}) \* \* ([0-7])$/);
   if (!match) return null;
   return {
-    day: match[3],
+    day: match[3] === "7" ? "0" : match[3],
     time: `${match[2].padStart(2, "0")}:${match[1].padStart(2, "0")}`,
   };
 }

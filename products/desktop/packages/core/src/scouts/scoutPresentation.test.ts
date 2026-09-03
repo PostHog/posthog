@@ -707,6 +707,7 @@ describe("schedule modes", () => {
     ["a rolling interval", null, 1440, "daily"],
     ["a plain daily cron", "0 9 * * *", 1440, "daily at 09:00"],
     ["a weekly cron", "30 8 * * 4", 1440, "thursdays at 08:30"],
+    ["a Sunday cron written as 7", "0 9 * * 7", 1440, "sundays at 09:00"],
     ["a cron the presets cannot name", "0 9 * * 1-5", 1440, "0 9 * * 1-5"],
   ])("labels %s", (_label, cron, minutes, expected) => {
     expect(
@@ -721,6 +722,7 @@ describe("schedule modes", () => {
     ["a rolling interval", null, "1440"],
     ["a plain daily cron", "0 9 * * *", SCOUT_DAILY_AT_SCHEDULE_MODE],
     ["a single weekday cron", "30 8 * * 4", SCOUT_WEEKLY_ON_SCHEDULE_MODE],
+    ["a Sunday cron written as 7", "30 8 * * 7", SCOUT_WEEKLY_ON_SCHEDULE_MODE],
     ["a weekday-range cron", "0 9 * * 1-5", SCOUT_CUSTOM_CRON_SCHEDULE_MODE],
   ])("reads %s as its own mode", (_label, cron, expected) => {
     expect(
