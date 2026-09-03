@@ -2,6 +2,8 @@ import importlib
 
 from posthog.test.base import ClickhouseDestroyTablesMixin, _create_event, flush_persons_and_events
 
+from parameterized import parameterized
+
 from posthog.hogql.test.test_property_skip_indexes import _run_explain_and_get_skip_indexes
 
 from posthog.clickhouse.client import sync_execute
@@ -36,13 +38,18 @@ class Test0314(ClickhouseDestroyTablesMixin):
         _apply_migration()
         assert _session_id_bloom_filter_indexes() == [("bloom_filter_$session_id", "`$session_id`")]
 
-    def test_bare_column_index_engages_for_equals_and_has_under_default_hogql_settings(self):
+    @parameterized.expand(
+        [
+            ("has", "has(%(session_ids)s, `$session_id`)"),
+            ("equals", "equals(`$session_id`, %(session_id)s)"),
+        ]
+    )
+    def test_bare_column_index_engages_under_default_hogql_settings(self, _name: str, predicate: str):
         _apply_migration()
         _create_event(team=self.team, distinct_id="d", event="$pageview", properties={"$session_id": SESSION_ID})
         flush_persons_and_events()
         values = {"team_id": self.team.pk, "session_ids": [SESSION_ID], "session_id": SESSION_ID}
-        for predicate in ("has(%(session_ids)s, `$session_id`)", "equals(`$session_id`, %(session_id)s)"):
-            skip_indexes = _run_explain_and_get_skip_indexes(
-                f"SELECT count() FROM events WHERE team_id = %(team_id)s AND {predicate}", values
-            )
-            assert "bloom_filter_$session_id" in skip_indexes, predicate
+        skip_indexes = _run_explain_and_get_skip_indexes(
+            f"SELECT count() FROM events WHERE team_id = %(team_id)s AND {predicate}", values
+        )
+        assert "bloom_filter_$session_id" in skip_indexes
