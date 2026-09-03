@@ -2999,6 +2999,9 @@ importers:
       react:
         specifier: 18.3.1
         version: 18.3.1
+      yaml:
+        specifier: 'catalog:'
+        version: 2.9.0
     devDependencies:
       '@storybook/react':
         specifier: 'catalog:'
