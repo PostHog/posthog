@@ -39,9 +39,8 @@ try:
     # Resolve the URLconf now, at module load. The lazy API router otherwise builds on
     # each worker's FIRST LIVE REQUEST — k8s probes (/_livez, /_readyz) short-circuit in
     # middleware and never warm it — costing seconds per worker after every deploy.
-    # Building it here keeps the cost to the parent-process boot. A server that forks
-    # workers after the module loads lands the built router in the frozen heap, which is
-    # then copy-on-write shared across the workers. Non-web processes
+    # Building it here pays the cost once in the parent, whose frozen heap the workers
+    # then share copy-on-write. Non-web processes
     # (celery, temporal, migrate, shell) never load this module and keep the lazy win.
     from django.urls import get_resolver
 
@@ -106,13 +105,11 @@ def application(environ, start_response):
     if not _prewarmed:
         prewarm_query_cache_cluster_in_background()
         validate_configured_web_bot_auth_private_keys_in_background()
-        # Start the RSS sampler post-fork, here in the worker. A thread started before a fork
-        # does not survive into the worker, so starting it on the worker's first call samples
-        # the process that actually serves requests and grows toward the OOM limit.
+        # A thread started before a fork does not survive into the worker, so start the
+        # sampler here to measure the process that actually serves requests.
         start_web_memory_sampler()
-        # Register the SIGUSR2 memory probe on the same post-fork path (see asgi.py). Signal
-        # handlers install only from the main thread, so this succeeds when the server calls
-        # the app there and logs a handled failure otherwise. Inert unless the env flag is set.
+        # Signal handlers install only from the main thread, so this logs a handled failure
+        # when the server calls the app off it. Inert unless the env flag is set.
         install_memory_probe_handler()
         _prewarmed = True
     return _django_application(environ, start_response)

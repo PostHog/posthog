@@ -272,8 +272,7 @@ RUN apt-get update && \
 #
 # ---------------------------------------------------------
 #
-# Same digest as the posthog-build stage, so the interpreter that runs the app matches the one
-# its wheels were built against.
+# Same digest as the posthog-build stage, so the interpreter matches the one the wheels were built against.
 FROM python:3.13.13-slim-bookworm@sha256:355bfa66770995d7e9a0da4b3473b44d0cb451f6b56f5615ad9c39e3c4eca03f
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
@@ -301,8 +300,7 @@ RUN apt-get update && \
     # point releases out of the security archive, which breaks exact pins on uncached builds.
     "libssl3=3.0.*" \
     "libjemalloc2" \
-    # numba's omppool extension links libgomp.so.1 and has no vendored copy. The old
-    # base pulled it in through gcc; without it numba drops to the workqueue backend.
+    # numba's omppool extension links libgomp.so.1 and vendors no copy of it.
     "libgomp1" \
     && \
     rm -rf /var/lib/apt/lists/*
@@ -316,8 +314,6 @@ RUN apt-get update && \
 # command shells out to `npx prettier` to regenerate a checked-in file; it is not run in this image.
 ENV NODE_VERSION 24.13.0
 
-# curl/gnupg/xz-utils are needed only to fetch and verify the tarball, so they are purged in the
-# same layer rather than left in the runtime image.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends "curl" "gnupg" "xz-utils" \
     && ARCH= && dpkgArch="$(dpkg --print-architecture)" \
