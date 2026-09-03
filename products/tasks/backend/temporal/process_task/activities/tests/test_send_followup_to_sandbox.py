@@ -89,6 +89,7 @@ class TestSendFollowupToSandbox(BaseTest):
         self, mock_task_run_objects, mock_send_user_message, mock_publish
     ):
         task_run = MagicMock()
+        task_run.state = {}
         task_run.task.created_by = None
         mock_task_run_objects.select_related.return_value.get.return_value = task_run
         mock_send_user_message.return_value = MagicMock(
