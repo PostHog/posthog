@@ -39,6 +39,9 @@ export interface ScoutRunsWindow {
   complete: boolean;
 }
 
+/** The window as a span, e.g. "last 3 days", with no completeness suffix. */
+export const SCOUT_RUNS_WINDOW_LABEL = `last ${SCOUT_RUNS_WINDOW_SPAN}`;
+
 /** Label for stats derived from a window, e.g. "last 3 days". */
 export function scoutRunsWindowLabel(window?: ScoutRunsWindow): string {
   const base = `last ${SCOUT_RUNS_WINDOW_SPAN}`;

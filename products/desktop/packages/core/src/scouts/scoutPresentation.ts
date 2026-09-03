@@ -77,27 +77,27 @@ function warnedCopy(
       return {
         label: "Pausing soon",
         explanation:
-          "Its findings have been going unacted on, so the inactivity sweep will pause this scout soon. Act on a finding, or exempt it from inactivity pauses, to keep it running.",
+          "Nobody acted on its signals, so PostHog pauses this agent soon. Act on a signal, or exempt it from inactivity pauses, to keep it running.",
         willPause: true,
       };
     case "no_output":
       return {
         label: "Quiet",
         explanation:
-          "This scout has surfaced nothing lately, so the inactivity sweep flagged it for a look. Staying quiet on its own never pauses a scout, so nothing happens unless someone acts.",
+          "This agent has sent nothing lately, so PostHog flagged it for a look. Staying quiet never pauses an agent on its own.",
         willPause: false,
       };
     case "repeated_failures":
       return {
         label: "Pausing soon",
-        explanation: `PostHog will pause this scout soon because ${failureCountClause(failureCount)}. Fix the skill to keep it running.`,
+        explanation: `PostHog pauses this agent soon because ${failureCountClause(failureCount)}. Fix the skill to keep it running.`,
         willPause: true,
       };
     default:
       return {
         label: "Pausing soon",
         explanation:
-          "PostHog is about to pause this scout. Exempt it from inactivity pauses to keep it running.",
+          "PostHog is about to pause this agent. Exempt it from inactivity pauses to keep it running.",
         willPause: true,
       };
   }
@@ -109,15 +109,15 @@ function systemPausedExplanation(
 ): string {
   switch (reason) {
     case "ignored":
-      return "PostHog paused this scout because its findings were going unacted on. Switch it back on to resume. It can pause again later unless its findings get acted on.";
+      return "PostHog paused this agent because nobody acted on its signals. Switch it back on to resume.";
     case "no_output":
-      return "PostHog paused this scout because it stopped emitting findings. Switch it back on to resume. Staying quiet on its own will not pause it again.";
+      return "PostHog paused this agent because it stopped sending signals. Switch it back on to resume.";
     case "repeated_failures":
       // The breaker keeps a half-open probe on this reason, so this one recovers
       // without anyone touching it. Say so, or the badge reads as terminal.
-      return `PostHog paused this scout because ${failureCountClause(failureCount)}. It retries about once a day and resumes on its own once a run succeeds. Fix the skill, or switch it back on to retry right away.`;
+      return `PostHog paused this agent because ${failureCountClause(failureCount)}. It retries about once a day and resumes when a run succeeds. Fix the skill, or switch it back on to retry now.`;
     default:
-      return "PostHog paused this scout. Switch it back on to resume.";
+      return "PostHog paused this agent. Switch it back on to resume.";
   }
 }
 
@@ -174,6 +174,108 @@ export function deriveScoutLifecycle(config: ScoutConfig): ScoutLifecycleState {
     isWarned: false,
     willPause: false,
   };
+}
+
+export interface ScoutHealthNotice {
+  text: string;
+  tone: "warning" | "destructive";
+  /** The one config change that clears the notice, when there is one. */
+  action: "resume" | "keep_running" | null;
+  /** Where to look for the cause. */
+  link: "signals" | "activity" | null;
+}
+
+/**
+ * The banner on the agent page. Shorter than `explanation` because the
+ * buttons beside it carry the instruction. Null when the agent is healthy.
+ */
+export function scoutHealthNotice(
+  config: ScoutConfig,
+): ScoutHealthNotice | null {
+  const lifecycle = deriveScoutLifecycle(config);
+  const failures = failureCountClause(lifecycle.consecutiveFailureCount);
+  if (lifecycle.isSystemPaused) {
+    switch (lifecycle.reason) {
+      case "ignored":
+        return {
+          text: "PostHog paused this agent because nobody acted on its signals.",
+          tone: "destructive",
+          action: "resume",
+          link: "signals",
+        };
+      case "no_output":
+        return {
+          text: "PostHog paused this agent because it stopped sending signals.",
+          tone: "destructive",
+          action: "resume",
+          link: "activity",
+        };
+      case "repeated_failures":
+        return {
+          text: `PostHog paused this agent because ${failures}. It retries about once a day.`,
+          tone: "destructive",
+          action: "resume",
+          link: "activity",
+        };
+      default:
+        return {
+          text: "PostHog paused this agent.",
+          tone: "destructive",
+          action: "resume",
+          link: null,
+        };
+    }
+  }
+  if (!lifecycle.isWarned) return null;
+  const canExempt = lifecycle.autoPauseExempt === false;
+  switch (lifecycle.reason) {
+    case "ignored":
+      return {
+        text: "Nobody acted on its signals. PostHog pauses this agent soon.",
+        tone: "warning",
+        action: canExempt ? "keep_running" : null,
+        link: "signals",
+      };
+    case "no_output":
+      return {
+        text: "This agent has sent nothing lately. Staying quiet never pauses an agent on its own.",
+        tone: "warning",
+        action: canExempt ? "keep_running" : null,
+        link: "activity",
+      };
+    case "repeated_failures":
+      return {
+        text: `${failures.charAt(0).toUpperCase()}${failures.slice(1)}. PostHog pauses this agent soon.`,
+        tone: "warning",
+        action: null,
+        link: "activity",
+      };
+    default:
+      return {
+        text: "PostHog pauses this agent soon.",
+        tone: "warning",
+        action: canExempt ? "keep_running" : null,
+        link: null,
+      };
+  }
+}
+
+const SUMMARY_MAX_CHARS = 140;
+
+/**
+ * One line for the agent header. Descriptions are skill prose written for a
+ * model, so take the first sentence and cut it at a word when it still runs long.
+ */
+export function scoutSummarySentence(
+  description: string | undefined,
+): string | null {
+  const text = description?.trim().replace(/\s+/g, " ");
+  if (!text) return null;
+  const sentenceEnd = text.search(/[.!?](\s|$)/);
+  const sentence = sentenceEnd === -1 ? text : text.slice(0, sentenceEnd + 1);
+  if (sentence.length <= SUMMARY_MAX_CHARS) return sentence;
+  const cut = sentence.slice(0, SUMMARY_MAX_CHARS);
+  return `${cut.slice(0, cut.lastIndexOf(" "))}…`;
 }
 
 /** "signals-scout-error-tracking" → "Error tracking" */
@@ -403,10 +505,10 @@ export function scoutRunOutcomeLabel(run: ScoutRun, now: Date): string {
   switch (deriveRunOutcome(run, now)) {
     case "emitted": {
       const count = run.emitted_count ?? 0;
-      return `${count} signal${count === 1 ? "" : "s"} emitted`;
+      return `${count} signal${count === 1 ? "" : "s"}`;
     }
     case "quiet":
-      return "0 signals emitted";
+      return "no signals";
     case "error":
       return "failed";
     case "timed_out":
@@ -414,7 +516,7 @@ export function scoutRunOutcomeLabel(run: ScoutRun, now: Date): string {
     case "running":
       return "running now";
     case "stuck":
-      return "running past the deadline – may be stuck";
+      return "running past the deadline, may be stuck";
     case "queued":
       return "queued";
     case "unknown":
@@ -613,4 +715,151 @@ export function sortConfigsForDisplay(configs: ScoutConfig[]): ScoutConfig[] {
       return a.name.localeCompare(b.name);
     })
     .map((entry) => entry.config);
+}
+
+/** When the coordinator is next due to dispatch this scout; null when it never ran or is off. */
+export function nextRunAt(config: ScoutConfig): Date | null {
+  if (!config.enabled || !config.last_run_at) return null;
+  const last = new Date(config.last_run_at).getTime();
+  if (Number.isNaN(last)) return null;
+  return new Date(last + config.run_interval_minutes * 60 * 1000);
+}
+
+export function medianRunDurationSeconds(
+  runs: ScoutRun[],
+  now: Date,
+): number | null {
+  const durations = runs
+    .filter((run) => normalizeRunStatus(run.status) === "completed")
+    .map((run) => runDurationSeconds(run, now))
+    .filter((seconds): seconds is number => seconds !== null)
+    .sort((a, b) => a - b);
+  if (durations.length === 0) return null;
+  const middle = Math.floor(durations.length / 2);
+  return durations.length % 2 === 0
+    ? (durations[middle - 1] + durations[middle]) / 2
+    : durations[middle];
+}
+
+function plural(count: number, noun: string): string {
+  return `${count} ${noun}${count === 1 ? "" : "s"}`;
+}
+
+/** "3 runs · all finished · no signals · about 3m each" for the activity tab. */
+export function summarizeRunWindow(
+  rollup: ScoutRollup | undefined,
+  now: Date,
+): string | null {
+  if (!rollup || rollup.runCount === 0) return null;
+  const parts = [plural(rollup.runCount, "run")];
+  const finished = rollup.completedCount + rollup.failedCount;
+  if (rollup.failedCount > 0) parts.push(`${rollup.failedCount} failed`);
+  else if (finished > 0) parts.push("all finished");
+  if (rollup.runningRun) parts.push("1 running now");
+  parts.push(
+    rollup.emittedCount > 0
+      ? plural(rollup.emittedCount, "signal")
+      : "no signals",
+  );
+  const median = formatRunDuration(medianRunDurationSeconds(rollup.runs, now));
+  if (median) parts.push(`about ${median} each`);
+  return parts.join(" · ");
+}
+
+export type ScoutAttentionKind = "auto_paused" | "pausing_soon" | "failing";
+
+export interface ScoutAttention {
+  kind: ScoutAttentionKind;
+  config: ScoutConfig;
+  detail: string;
+}
+
+function attentionReason(
+  reason: ScoutPauseReason | null,
+  failureCount: number,
+): string {
+  switch (reason) {
+    case "ignored":
+      return "Nobody acted on its signals.";
+    case "no_output":
+      return "It stopped sending signals.";
+    case "repeated_failures":
+      return `${failureCount > 1 ? `${failureCount} runs` : "Its runs"} in a row failed.`;
+    default:
+      return "PostHog flagged it.";
+  }
+}
+
+/** Runs failed back to back before the row reads as failing. */
+const FAILING_STREAK = 2;
+
+/**
+ * The scouts a person should look at before anything else: the ones the
+ * system stopped, is about to stop, or that keep failing. Ordered by urgency.
+ */
+export function listScoutsNeedingAttention(
+  configs: ScoutConfig[],
+  rollups: Map<string, ScoutRollup>,
+  now: Date,
+): ScoutAttention[] {
+  const out: ScoutAttention[] = [];
+  for (const config of configs) {
+    const lifecycle = deriveScoutLifecycle(config);
+    if (lifecycle.isSystemPaused) {
+      out.push({
+        kind: "auto_paused",
+        config,
+        detail: attentionReason(
+          lifecycle.reason,
+          lifecycle.consecutiveFailureCount,
+        ),
+      });
+      continue;
+    }
+    if (lifecycle.willPause) {
+      out.push({
+        kind: "pausing_soon",
+        config,
+        detail: `${attentionReason(lifecycle.reason, lifecycle.consecutiveFailureCount)} PostHog pauses it soon.`,
+      });
+      continue;
+    }
+    const streak = config.consecutive_failure_count ?? 0;
+    const latestRun = rollups.get(config.skill_name)?.latestRun ?? null;
+    const latestFailed =
+      latestRun !== null && normalizeRunStatus(latestRun.status) === "failed";
+    if (
+      config.enabled &&
+      latestRun &&
+      latestFailed &&
+      streak >= FAILING_STREAK
+    ) {
+      const kind = deriveRunFailureKind(latestRun, now);
+      out.push({
+        kind: "failing",
+        config,
+        detail: `${streak} runs in a row ${kind === "timed_out" ? "timed out" : "failed"}. PostHog pauses it after a few more.`,
+      });
+    }
+  }
+  const order: Record<ScoutAttentionKind, number> = {
+    auto_paused: 0,
+    failing: 1,
+    pausing_soon: 2,
+  };
+  return out.sort((a, b) => order[a.kind] - order[b.kind]);
+}
+
+/** "in 4h", "in 12m", "due now"; null when there is no next run. */
+export function formatNextRun(next: Date | null, now: Date): string | null {
+  if (!next) return null;
+  const minutes = Math.round((next.getTime() - now.getTime()) / 60000);
+  if (minutes <= 0) return "due now";
+  if (minutes < 60) return `in ${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) {
+    const rest = minutes % 60;
+    return rest > 0 ? `in ${hours}h ${rest}m` : `in ${hours}h`;
+  }
+  return `in ${Math.round(hours / 24)}d`;
 }

@@ -1,9 +1,7 @@
 import {
-  ArrowLeftIcon,
   CaretDownIcon,
   ClockIcon,
   MagnifyingGlassIcon,
-  NotebookIcon,
   StackIcon,
 } from "@phosphor-icons/react";
 import {
@@ -11,10 +9,10 @@ import {
   groupScratchpadEntries,
   type ScratchpadGrouping,
 } from "@posthog/core/scouts/scoutScratchpad";
-import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
+import { Input, Tabs, TabsList, TabsTrigger } from "@posthog/quill";
+import { AgentsTabLayout } from "@posthog/ui/features/agents/components/AgentsTabLayout";
 import { RelativeTimestamp } from "@posthog/ui/primitives/RelativeTimestamp";
-import { Box, Flex, SegmentedControl, Text, TextField } from "@radix-ui/themes";
-import { Link } from "@tanstack/react-router";
+import { Box, Flex, Text } from "@radix-ui/themes";
 import { useMemo, useState } from "react";
 import { useScoutScratchpad } from "../hooks/useScoutScratchpad";
 import { ScratchpadEntryCard } from "./ScratchpadEntryCard";
@@ -33,22 +31,6 @@ export function ScratchpadView() {
   const [searchText, setSearchText] = useState("");
   const [grouping, setGrouping] = useState<ScratchpadGrouping>("recent");
 
-  const headerContent = useMemo(
-    () => (
-      <Flex align="center" gap="2" className="w-full min-w-0">
-        <NotebookIcon size={12} className="shrink-0 text-gray-10" />
-        <Text
-          className="truncate whitespace-nowrap font-medium text-[13px]"
-          title="Scout scratchpad"
-        >
-          Scout scratchpad
-        </Text>
-      </Flex>
-    ),
-    [],
-  );
-  useSetHeaderContent(headerContent);
-
   const isSearching = searchText.trim().length > 0;
   const allEntries = entries ?? [];
   const visibleEntries = useMemo(
@@ -64,35 +46,14 @@ export function ScratchpadView() {
   const lastUpdatedAt = entries?.[0]?.updated_at ?? null;
 
   return (
-    <Flex direction="column" className="h-full min-h-0">
-      <Flex
-        direction="column"
-        gap="2"
-        className="border-(--gray-5) border-b px-6 pt-5 pb-5"
-      >
-        <Link
-          to="/agents/scouts"
-          className="flex w-fit items-center gap-1 text-[12px] text-gray-10 no-underline hover:text-gray-12"
-        >
-          <ArrowLeftIcon size={12} />
-          Scouts
-        </Link>
-        <Flex align="center" gap="2">
-          <NotebookIcon size={20} className="shrink-0 text-(--iris-9)" />
-          <Text className="font-bold text-[22px] text-gray-12 leading-tight tracking-tight">
-            Scout scratchpad
-          </Text>
-        </Flex>
-        <Text className="max-w-2xl text-pretty text-[12.5px] text-gray-11 leading-relaxed">
-          Where your scouts jot down useful context as they scan your project —
-          things they&apos;ve classified, ruled out, or the vocabulary
-          they&apos;ve settled on. Browse it to see what they&apos;re picking up
-          about your setup.
-        </Text>
+    <AgentsTabLayout tab="memory" counts={{ memory: totalCount ?? undefined }}>
+      <Flex direction="column" gap="4">
         {totalCount !== null && totalCount > 0 ? (
           <Flex align="center" gap="1" className="text-[12px] text-gray-10">
             <Text className="text-[12px] text-gray-10">
-              {totalCount} note{totalCount === 1 ? "" : "s"}
+              {totalCount >= 500
+                ? "Latest 500 notes"
+                : `${totalCount} note${totalCount === 1 ? "" : "s"}`}
             </Text>
             {lastUpdatedAt ? (
               <>
@@ -105,60 +66,52 @@ export function ScratchpadView() {
             ) : null}
           </Flex>
         ) : null}
-      </Flex>
-
-      <div className="min-h-0 flex-1 overflow-auto">
-        <div className="mx-auto max-w-4xl px-6 py-6">
-          <Flex direction="column" gap="4">
-            <Flex align="center" gap="2" wrap="wrap">
-              <TextField.Root
-                type="search"
-                placeholder="Search the scratchpad…"
-                value={searchText}
-                onChange={(event) => setSearchText(event.target.value)}
-                size="2"
-                className="min-w-[14rem] flex-1"
-              >
-                <TextField.Slot>
-                  <MagnifyingGlassIcon size={14} className="text-gray-10" />
-                </TextField.Slot>
-              </TextField.Root>
-              <SegmentedControl.Root
-                value={grouping}
-                size="1"
-                onValueChange={(value) =>
-                  setGrouping(value as ScratchpadGrouping)
-                }
-                aria-label="Scratchpad grouping"
-              >
-                <SegmentedControl.Item value="recent">
-                  <span className="inline-flex items-center gap-1.5">
-                    <ClockIcon size={12} />
-                    Recent
-                  </span>
-                </SegmentedControl.Item>
-                <SegmentedControl.Item value="topic">
-                  <span className="inline-flex items-center gap-1.5">
-                    <StackIcon size={12} />
-                    By topic
-                  </span>
-                </SegmentedControl.Item>
-              </SegmentedControl.Root>
-            </Flex>
-
-            <ScratchpadBody
-              isLoading={isLoading}
-              isError={isError}
-              onRetry={() => refetch()}
-              entries={visibleEntries}
-              groups={groups}
-              grouping={grouping}
-              isSearching={isSearching}
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative w-64">
+            <MagnifyingGlassIcon
+              size={13}
+              className="-translate-y-1/2 pointer-events-none absolute top-1/2 left-2.5 text-gray-10"
             />
-          </Flex>
+            <Input
+              type="search"
+              placeholder="Search notes"
+              aria-label="Search notes"
+              value={searchText}
+              onChange={(event) => setSearchText(event.target.value)}
+              className="h-8 pl-7"
+            />
+          </div>
+          <span className="flex-1" />
+          <Tabs
+            value={grouping}
+            onValueChange={(value: string) =>
+              setGrouping(value as ScratchpadGrouping)
+            }
+          >
+            <TabsList className="h-8" aria-label="Group notes">
+              <TabsTrigger value="recent" className="gap-1.5 px-2.5">
+                <ClockIcon size={12} />
+                Recent
+              </TabsTrigger>
+              <TabsTrigger value="topic" className="gap-1.5 px-2.5">
+                <StackIcon size={12} />
+                By topic
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
         </div>
-      </div>
-    </Flex>
+
+        <ScratchpadBody
+          isLoading={isLoading}
+          isError={isError}
+          onRetry={() => refetch()}
+          entries={visibleEntries}
+          groups={groups}
+          grouping={grouping}
+          isSearching={isSearching}
+        />
+      </Flex>
+    </AgentsTabLayout>
   );
 }
 
@@ -220,7 +173,7 @@ function ScratchpadBody({
       <Box className="rounded-(--radius-2) border border-(--gray-6) border-dashed bg-gray-1 px-4 py-8 text-center text-[12.5px] text-gray-11">
         {isSearching
           ? "No notes match your search."
-          : "Your scouts haven't jotted anything down yet. As they scan your project, their notes show up here."}
+          : "Your agents haven't written anything down yet. As they scan your project, their notes show up here."}
       </Box>
     );
   }

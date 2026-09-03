@@ -74,8 +74,8 @@ export function ScratchpadEntryCard({
 
       <Box className="px-3 pb-2 pl-9">
         <Box
-          className={`text-pretty break-words text-[13px] text-gray-11 leading-relaxed [&_code]:text-[11px] [&_p:last-child]:mb-0 [&_p]:mb-1 [&_pre]:text-[11px] ${
-            expanded ? "" : "line-clamp-2"
+          className={`text-pretty break-words text-[12.5px] text-gray-11 leading-relaxed [&_code]:text-[11px] [&_p:last-child]:mb-0 [&_p]:mb-1 [&_pre]:text-[11px] ${
+            expanded ? "max-h-72 overflow-y-auto pr-2" : "line-clamp-2"
           }`}
         >
           <MarkdownRenderer content={entry.content || "_No content._"} />

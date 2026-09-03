@@ -6,7 +6,6 @@ import type {
 import { ANALYTICS_EVENTS } from "@posthog/shared";
 import { track } from "@posthog/ui/shell/analytics";
 import { getPostHogUrl } from "@posthog/ui/utils/urls";
-import { Box, Flex, Text } from "@radix-ui/themes";
 import { useMemo, useState } from "react";
 import { useScoutEmissionReports } from "../hooks/useScoutEmissionReports";
 import { useScoutRunEmissions } from "../hooks/useScoutRunEmissions";
@@ -34,6 +33,7 @@ export function ScoutSignalsSection({
   loading,
   error,
   highlightFindingId,
+  hideTitle = false,
 }: {
   runs: ScoutRun[];
   windowLabel: string;
@@ -41,6 +41,8 @@ export function ScoutSignalsSection({
   error?: boolean;
   /** Emission id from a shared finding link – expanded and scrolled to when present. */
   highlightFindingId?: string;
+  /** The Signals tab already names the section in its tab. */
+  hideTitle?: boolean;
 }) {
   const [showAll, setShowAll] = useState(false);
   const emittedRuns = useMemo(
@@ -85,21 +87,24 @@ export function ScoutSignalsSection({
   }, [emissionReports]);
 
   return (
-    <Flex direction="column" gap="3">
-      <Text className="font-semibold text-[13px] text-gray-12">Signals</Text>
+    <div className="flex flex-col gap-3">
+      {hideTitle ? null : (
+        <h2 className="font-semibold text-[13px] text-gray-12">Signals</h2>
+      )}
       {loading ? (
-        <Box className="h-24 w-full animate-pulse rounded-(--radius-2) bg-(--gray-3)" />
+        <div className="h-24 w-full animate-pulse rounded-(--radius-2) bg-(--gray-3)" />
       ) : error ? (
-        <Text className="text-(--red-11) text-[12.5px]">
-          Couldn&apos;t load this scout&apos;s runs, so signals for the{" "}
+        <p className="text-(--red-11) text-[12.5px]">
+          Couldn&apos;t load this agent&apos;s runs, so signals for the{" "}
           {windowLabel} are unavailable.
-        </Text>
+        </p>
       ) : emittedRuns.length === 0 ? (
-        <Text className="text-[12.5px] text-gray-11">
-          No signals emitted in the {windowLabel}.
-        </Text>
+        <p className="text-[12.5px] text-gray-11">
+          No signals in the {windowLabel}. Quiet is normal for a watchdog. Use
+          Run now to check that the agent still works.
+        </p>
       ) : (
-        <Flex direction="column" gap="2">
+        <div className="flex flex-col gap-2">
           {visibleRuns.map((run) => (
             <RunEmissions
               key={run.run_id}
@@ -128,9 +133,9 @@ export function ScoutSignalsSection({
               Show {hiddenCount} more emitted run{hiddenCount === 1 ? "" : "s"}
             </button>
           ) : null}
-        </Flex>
+        </div>
       )}
-    </Flex>
+    </div>
   );
 }
 
@@ -153,7 +158,7 @@ function RunEmissions({
 
   if (loading) {
     return (
-      <Box className="h-24 w-full animate-pulse rounded-(--radius-2) bg-(--gray-3)" />
+      <div className="h-24 w-full animate-pulse rounded-(--radius-2) bg-(--gray-3)" />
     );
   }
 
@@ -161,25 +166,21 @@ function RunEmissions({
   // emissions response must say so rather than render nothing.
   if (error || !emissions || emissions.length === 0) {
     return (
-      <Flex
-        align="center"
-        gap="2"
-        className="rounded-(--radius-2) border border-border bg-(--color-panel-solid) px-4 py-3"
-      >
-        <Text className="flex-1 text-[12.5px] text-gray-10">
+      <div className="flex items-center gap-2 rounded-(--radius-2) border border-border bg-(--color-panel-solid) px-4 py-3">
+        <p className="flex-1 text-[12.5px] text-gray-10">
           {error
             ? "Couldn't load this run's signals."
             : "No signal details available for this run."}
-        </Text>
+        </p>
         {taskRunUrl ? (
           <ScoutTaskRunLink run={run} taskRunUrl={taskRunUrl} />
         ) : null}
-      </Flex>
+      </div>
     );
   }
 
   return (
-    <Flex direction="column" gap="2">
+    <div className="flex flex-col gap-2">
       {emissions.map((emission) => (
         <ScoutEmissionCard
           key={emission.id}
@@ -207,6 +208,6 @@ function RunEmissions({
           }
         />
       ))}
-    </Flex>
+    </div>
   );
 }

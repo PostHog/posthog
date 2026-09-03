@@ -42,9 +42,15 @@ function runTooltip(run: ScoutRun, now: Date): string {
  * opens the backing task run in PostHog cloud; runs without a task link are
  * tooltip-only.
  */
-export function ScoutRunBoxes({ runs }: { runs: ScoutRun[] }) {
+export function ScoutRunBoxes({
+  runs,
+  max = MAX_BOXES,
+}: {
+  runs: ScoutRun[];
+  max?: number;
+}) {
   if (runs.length === 0) return null;
-  const visible = runs.slice(-MAX_BOXES);
+  const visible = runs.slice(-max);
   const hidden = runs.length - visible.length;
   const now = new Date();
 

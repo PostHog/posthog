@@ -6,6 +6,7 @@ import {
   type IconProps,
   Lightning,
   ListMagnifyingGlassIcon,
+  RobotIcon,
   ShapesIcon,
 } from "@phosphor-icons/react";
 import type { RailVisit } from "@posthog/shared";
@@ -30,6 +31,7 @@ import { LoopIcon } from "@posthog/ui/primitives/LoopIcon";
 import {
   getCurrentMatches,
   navigateToActivity,
+  navigateToAgents,
   navigateToCanvases,
   navigateToChannel,
   navigateToCommandCenter,
@@ -202,6 +204,15 @@ const RAIL_DESTINATIONS: readonly RailDestination[] = [
     onPick: navigateToInbox,
     shortcut: formatHotkey(SHORTCUTS.INBOX),
     count: (counts) => counts.inbox,
+    enabled: (flags) => flags.inbox,
+  },
+  {
+    pane: "agents",
+    label: "Agents",
+    analyticsId: "agents",
+    Icon: RobotIcon,
+    href: "/agents",
+    onPick: navigateToAgents,
     enabled: (flags) => flags.inbox,
   },
   {

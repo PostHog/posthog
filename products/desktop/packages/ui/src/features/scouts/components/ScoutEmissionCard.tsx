@@ -83,14 +83,12 @@ export function ScoutEmissionCard({
           className={`shrink-0 text-gray-9 transition-transform duration-150 ${expanded ? "rotate-90" : ""}`}
         />
         <CompassIcon size={14} className="shrink-0 text-(--iris-9)" />
-        <Text className="font-medium text-[13px] text-gray-10">Signal</Text>
         <SeverityBadge severity={emission.severity} />
         <Text className="text-[11px] text-gray-10">
           confidence {Math.round(emission.confidence * 100)}%
         </Text>
         {scoutLabel ? (
           <Flex align="center" gap="1" className="min-w-0">
-            <CompassIcon size={11} className="shrink-0 text-gray-9" />
             <Text
               className="truncate text-[11px] text-gray-9"
               title={scoutLabel}
@@ -132,7 +130,6 @@ export function ScoutEmissionCard({
           pt="2"
           className="border-t border-t-(--gray-5) text-[11px] text-gray-10"
         >
-          <Text className="font-mono text-[11px]">{emission.finding_id}</Text>
           {actions}
           <span className="flex-1" />
           {linkedReport ? (

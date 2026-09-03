@@ -197,8 +197,8 @@ describe("run outcomes", () => {
   });
 
   it.each<{ overrides: Partial<ScoutRun>; label: string }>([
-    { overrides: { emitted_count: 1 }, label: "1 signal emitted" },
-    { overrides: { emitted_count: 0 }, label: "0 signals emitted" },
+    { overrides: { emitted_count: 1 }, label: "1 signal" },
+    { overrides: { emitted_count: 0 }, label: "no signals" },
     {
       overrides: { status: "failed", completed_at: "2026-06-10T11:30:10Z" },
       label: "timed out",
@@ -399,8 +399,8 @@ describe("intervals and ordering", () => {
 
 describe("lifecycle", () => {
   it.each([
-    ["ignored", "unacted on"],
-    ["no_output", "stopped emitting"],
+    ["ignored", "nobody acted"],
+    ["no_output", "stopped sending"],
     ["repeated_failures", "3 runs in a row failed"],
   ] as const)("explains a %s system pause", (reason, fragment) => {
     const state = deriveScoutLifecycle(
@@ -434,7 +434,7 @@ describe("lifecycle", () => {
         pause_reason: "ignored",
       }),
     );
-    expect(state.explanation).toContain("can pause again later");
+    expect(state.explanation).toContain("Switch it back on");
     expect(state.explanation).not.toMatch(/retries|on its own|exempt/i);
   });
 
@@ -449,7 +449,7 @@ describe("lifecycle", () => {
         consecutive_failure_count: 6,
       }),
     );
-    expect(state.explanation).toContain("resumes on its own");
+    expect(state.explanation).toContain("resumes when a run succeeds");
   });
 
   it("flags an ignored warning as heading for a pause", () => {

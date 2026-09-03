@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   href: "/",
   navigate: vi.fn(),
   navigateToActivity: vi.fn(),
+  navigateToAgents: vi.fn(),
   navigateToCanvases: vi.fn(),
   navigateToSpaces: vi.fn(),
   navigateToChannel: vi.fn(),
@@ -67,6 +68,7 @@ vi.mock("@posthog/ui/features/settings/hooks/useOpenSettings", () => ({
 vi.mock("@posthog/ui/router/navigationBridge", () => ({
   getCurrentMatches: () => [{ fullPath: mocks.fullPath }],
   navigateToActivity: (...a: unknown[]) => mocks.navigateToActivity(...a),
+  navigateToAgents: (...a: unknown[]) => mocks.navigateToAgents(...a),
   navigateToCanvases: (...a: unknown[]) => mocks.navigateToCanvases(...a),
   navigateToSpaces: (...a: unknown[]) => mocks.navigateToSpaces(...a),
   navigateToChannel: (...a: unknown[]) => mocks.navigateToChannel(...a),

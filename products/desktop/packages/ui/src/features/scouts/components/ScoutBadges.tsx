@@ -1,33 +1,10 @@
 import type { ScoutConfig } from "@posthog/api-client/posthog-client";
-import { getScoutOrigin } from "@posthog/core/scouts/scoutPresentation";
 import { Badge, Tooltip } from "@radix-ui/themes";
-
-export function ScoutOriginBadge({ config }: { config: ScoutConfig }) {
-  const origin = getScoutOrigin(config);
-  return (
-    <Tooltip
-      content={
-        origin === "canonical"
-          ? "Part of the standard scout fleet built and maintained by PostHog"
-          : "A scout your team created as a signals-scout-* skill in this project"
-      }
-    >
-      <Badge
-        variant="soft"
-        color={origin === "canonical" ? "gray" : "iris"}
-        size="1"
-        className="relative text-[11px]"
-      >
-        {origin === "canonical" ? "Canonical" : "Custom"}
-      </Badge>
-    </Tooltip>
-  );
-}
 
 export function DryRunBadge({ config }: { config: ScoutConfig }) {
   if (config.emit) return null;
   return (
-    <Tooltip content="Runs on schedule but signals are not emitted to Self-driving">
+    <Tooltip content="Runs on schedule, but its signals do not reach Self-driving">
       <Badge
         variant="soft"
         color="amber"

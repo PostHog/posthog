@@ -2295,6 +2295,17 @@ export class PostHogAPIClient {
     return (await response.json()) as ScoutConfig;
   }
 
+  /**
+   * Queue one run of a scout outside its schedule. 409 when a run is already in
+   * flight, 429 when the project's daily run budget is spent.
+   */
+  async runScoutNow(
+    projectId: number,
+    configId: string,
+  ): Promise<{ skill_name: string; workflow_id: string; started: boolean }> {
+    return await this.scoutPost(projectId, `configs/${configId}/run/`, {});
+  }
+
   async listScoutRuns(
     projectId: number,
     params?: ScoutRunsQueryParams,

@@ -12,6 +12,22 @@ Then ask me what sort of scout I'd like to make, and offer a few concrete sugges
 
 If the skill is unavailable, fall back to the signals-scout MCP tools directly (config list to see the existing fleet) plus the read-data and insight tools to scan the project.`;
 
+/**
+ * The authoring prompt, led by what the person typed in the New agent dialog.
+ * An empty brief falls back to the open-ended template.
+ */
+export function buildScoutAuthorPrompt(brief: string): string {
+  const trimmed = brief.trim();
+  if (!trimmed) return SCOUT_AUTHOR_PROMPT;
+  return `I'd like to make a new scout for this PostHog project. Here is what it should do:
+
+${trimmed}
+
+Use the authoring-signals-scouts skill from the PostHog MCP to author this scout end to end. Take a quick scan of the project first (events, insights, existing scouts, recent signals) so the scout's thresholds and scope fit the data. Ask me only what you cannot infer, then create the scout as a dry run and tell me how to review its first output.
+
+If the skill is unavailable, fall back to the signals-scout MCP tools directly.`;
+}
+
 export const SCOUT_FLEET_OVERVIEW_PROMPT = `How is my scout fleet performing?
 
 Use the exploring-signals-scouts skill from the PostHog MCP to survey the signals scout fleet on this project and give me a high-level overview:
