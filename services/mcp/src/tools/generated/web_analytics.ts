@@ -237,24 +237,6 @@ const heatmapsSavedUpdate = (): ToolBase<
     },
 })
 
-const WebAnalyticsBotRulesListSchema = () => z.object({})
-
-const webAnalyticsBotRulesList = (): ToolBase<
-    ReturnType<typeof WebAnalyticsBotRulesListSchema>,
-    WithPostHogUrl<Schemas.CustomBotRule[]>
-> => ({
-    name: 'web-analytics-bot-rules-list',
-    schema: WebAnalyticsBotRulesListSchema(),
-    handler: async (context: Context, _params: z.infer<ReturnType<typeof WebAnalyticsBotRulesListSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.CustomBotRule[]>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/web_analytics_bot_rules/`,
-        })
-        return await withPostHogUrl(context, result, '/web')
-    },
-})
-
 const WebAnalyticsBotRulesCreateSchema = () => {
     const WebAnalyticsBotRulesCreateBody = orvalSchemas.WebAnalyticsBotRulesCreateBody()
     return WebAnalyticsBotRulesCreateBody
@@ -308,6 +290,24 @@ const webAnalyticsBotRulesDestroy = (): ToolBase<ReturnType<typeof WebAnalyticsB
             path: `/api/projects/${encodeURIComponent(String(projectId))}/web_analytics_bot_rules/${encodeURIComponent(String(params.id))}/`,
         })
         return result
+    },
+})
+
+const WebAnalyticsBotRulesListSchema = () => z.object({})
+
+const webAnalyticsBotRulesList = (): ToolBase<
+    ReturnType<typeof WebAnalyticsBotRulesListSchema>,
+    WithPostHogUrl<Schemas.CustomBotRule[]>
+> => ({
+    name: 'web-analytics-bot-rules-list',
+    schema: WebAnalyticsBotRulesListSchema(),
+    handler: async (context: Context, _params: z.infer<ReturnType<typeof WebAnalyticsBotRulesListSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.CustomBotRule[]>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/web_analytics_bot_rules/`,
+        })
+        return await withPostHogUrl(context, result, '/web')
     },
 })
 
@@ -691,9 +691,9 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'heatmaps-saved-list': heatmapsSavedList,
     'heatmaps-saved-regenerate': heatmapsSavedRegenerate,
     'heatmaps-saved-update': heatmapsSavedUpdate,
-    'web-analytics-bot-rules-list': webAnalyticsBotRulesList,
     'web-analytics-bot-rules-create': webAnalyticsBotRulesCreate,
     'web-analytics-bot-rules-destroy': webAnalyticsBotRulesDestroy,
+    'web-analytics-bot-rules-list': webAnalyticsBotRulesList,
     'web-analytics-path-cleaning-suggestions-apply': webAnalyticsPathCleaningSuggestionsApply,
     'web-analytics-path-cleaning-suggestions-generate': webAnalyticsPathCleaningSuggestionsGenerate,
     'web-analytics-weekly-digest': webAnalyticsWeeklyDigest,
