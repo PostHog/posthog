@@ -35,10 +35,12 @@ import { objectsEqual } from 'lib/utils/objects'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { hogql } from '~/queries/utils'
+import { TeamPublicType, TeamType } from '~/types'
 
 import { savedPreflightCreate } from 'products/web_analytics/frontend/generated/api'
 import type { HeatmapPreflightResponseApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
+import { HEATMAP_SCREENSHOT_HEADER, heatmapScreenshotHeaderValue } from '../heatmapScreenshotHeader'
 import {
     ReplayIframeData,
     getStoredRecordingBackground,
@@ -67,7 +69,7 @@ function hostOf(url: string): string {
     }
 }
 
-export function preflightBannerMessage(preflight: PagePreflight | null): string | null {
+export function preflightBannerMessage(preflight: PagePreflight | null, headerValue: string): string | null {
     if (!preflight) {
         return null
     }
@@ -80,8 +82,8 @@ export function preflightBannerMessage(preflight: PagePreflight | null): string 
         return (
             `${host} returned ${preflight.http_status} when we tried to load this page.${said} ` +
             `Bot protection often blocks automated loads like this. A screenshot background sends the ` +
-            `"X-PostHog-Heatmap-Screenshot: 1" header, which a bot protection rule can allow. The live ` +
-            `preview cannot send that header, so add the rule and switch to a screenshot background.`
+            `"${HEATMAP_SCREENSHOT_HEADER}: ${headerValue}" header, which a bot protection rule can allow. The ` +
+            `live preview cannot send that header, so add the rule and switch to a screenshot background.`
         )
     }
 
@@ -139,6 +141,7 @@ export interface heatmapsBrowserLogicValues {
     hrefMatchType: HrefMatchType // heatmapDataLogic
     isHeightCapped: boolean // heatmapDataLogic
     widthOverride: number // heatmapDataLogic
+    currentTeam: TeamPublicType | TeamType | null // teamLogic
     currentTeamIdStrict: number | string // teamLogic
     browserSearchResults: string[] | null
     browserSearchResultsLoading: boolean
@@ -317,7 +320,10 @@ export interface heatmapsBrowserLogicActions {
 export interface heatmapsBrowserLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         currentPagePreflight: (pagePreflight: PagePreflight | null, displayUrl: string | null) => PagePreflight | null
-        preflightMessage: (currentPagePreflight: PagePreflight | null) => string | null
+        preflightMessage: (
+            currentPagePreflight: PagePreflight | null,
+            currentTeam: TeamPublicType | TeamType | null
+        ) => string | null
         iframeBanner: (preflightMessage: string | null, loadTimeoutBanner: IFrameBanner | null) => IFrameBanner | null
         browserUrlSearchOptions: (
             browserSearchResults: string[] | null,
@@ -386,7 +392,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             featureFlagLogic,
             ['featureFlags'],
             teamLogic,
-            ['currentTeamIdStrict'],
+            ['currentTeam', 'currentTeamIdStrict'],
         ],
         actions: [
             heatmapDataLogic({ context: 'in-app' }),
@@ -573,8 +579,11 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                 pagePreflight?.url === displayUrl ? pagePreflight : null,
         ],
         preflightMessage: [
-            (s) => [s.currentPagePreflight],
-            (currentPagePreflight: PagePreflight | null): string | null => preflightBannerMessage(currentPagePreflight),
+            (s) => [s.currentPagePreflight, s.currentTeam],
+            (
+                currentPagePreflight: PagePreflight | null,
+                currentTeam: TeamPublicType | TeamType | null
+            ): string | null => preflightBannerMessage(currentPagePreflight, heatmapScreenshotHeaderValue(currentTeam)),
         ],
         // Derived rather than pushed into loadTimeoutBanner, because stopTrackingLoading nulls that
         // banner as soon as the iframe fires onload, which a blocked frame does immediately.

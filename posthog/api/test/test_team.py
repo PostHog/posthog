@@ -787,6 +787,36 @@ def team_api_test_factory():
                 ]
             )
 
+        def test_rotate_heatmaps_screenshot_secret(self):
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+            self.assertIsNone(self.team.heatmaps_screenshot_secret)
+
+            response = self.client.patch(f"/api/environments/{self.team.id}/rotate_heatmaps_screenshot_secret/")
+            self.team.refresh_from_db()
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            first_secret = response.json()["heatmaps_screenshot_secret"]
+            self.assertTrue(first_secret.startswith("phh_"))
+            self.assertEqual(first_secret, self.team.heatmaps_screenshot_secret)
+
+            # Rotating again replaces the value, so a leaked one stops working.
+            response = self.client.patch(f"/api/environments/{self.team.id}/rotate_heatmaps_screenshot_secret/")
+            self.assertNotEqual(response.json()["heatmaps_screenshot_secret"], first_secret)
+
+            # Only the rotate endpoint mints a value, so a caller cannot choose one.
+            self.client.patch(f"/api/environments/{self.team.id}/", {"heatmaps_screenshot_secret": "phh_chosen"})
+            self.team.refresh_from_db()
+            self.assertNotEqual(self.team.heatmaps_screenshot_secret, "phh_chosen")
+
+        def test_rotate_heatmaps_screenshot_secret_insufficient_privileges(self):
+            self.organization_membership.level = OrganizationMembership.Level.MEMBER
+            self.organization_membership.save()
+
+            response = self.client.patch(f"/api/environments/{self.team.id}/rotate_heatmaps_screenshot_secret/")
+            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+            self.team.refresh_from_db()
+            self.assertIsNone(self.team.heatmaps_screenshot_secret)
+
         def test_rotate_secret_token_insufficient_privileges(self):
             self.organization_membership.level = OrganizationMembership.Level.MEMBER
             self.organization_membership.save()

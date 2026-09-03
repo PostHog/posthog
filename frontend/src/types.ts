@@ -856,6 +856,8 @@ export interface TeamType extends TeamBasicType {
     session_recording_trigger_groups?: SessionRecordingTriggerGroupsConfig | null
     surveys_opt_in?: boolean
     heatmaps_opt_in?: boolean
+    /** Value of the X-PostHog-Heatmap-Screenshot header on this project's heatmap renders. Null means the public default. */
+    heatmaps_screenshot_secret?: string | null
     conversations_enabled?: boolean
     conversations_settings?: ConversationsSettings | null
     web_analytics_pre_aggregated_tables_enabled?: boolean

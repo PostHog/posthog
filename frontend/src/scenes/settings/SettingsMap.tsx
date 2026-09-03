@@ -64,6 +64,7 @@ import { LogsMetricRulesSection } from 'products/logs/frontend/components/LogsMe
 import { LogsRetentionSection } from 'products/logs/frontend/components/LogsRetention/LogsRetentionSection'
 import { LogsSamplingSection } from 'products/logs/frontend/components/LogsSampling/LogsSamplingSection'
 import { LogsFeatureFlagKeys } from 'products/logs/frontend/logsFeatureFlagKeys'
+import { HeatmapScreenshotHeaderSettings } from 'products/web_analytics/frontend/heatmaps/components/HeatmapScreenshotHeaderSettings'
 import { WorkflowsEmailTrackingConsentSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsEmailTrackingConsentSettings'
 import { WorkflowsEngagementEventsSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsEngagementEventsSettings'
 
@@ -800,6 +801,15 @@ export const SETTINGS_MAP: SettingSection[] = [
                 platformSupport: FEATURE_SUPPORT.heatmaps,
                 component: <HeatmapsSettings />,
                 keywords: ['click map', 'scroll', 'rage click', 'mouse', 'touch'],
+            },
+            {
+                id: 'heatmap-screenshot-header',
+                title: 'Screenshot request header',
+                description:
+                    'Heatmap backgrounds are screenshots of your site. This header lets bot protection tell them apart from other headless browsers and permit them.',
+                docsUrl: 'https://posthog.com/docs/toolbar/heatmaps',
+                component: <HeatmapScreenshotHeaderSettings />,
+                keywords: ['waf', 'bot protection', 'firewall', 'cloudflare', 'screenshot', 'blocked', 'allowlist'],
             },
         ],
     },

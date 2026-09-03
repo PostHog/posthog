@@ -44,23 +44,30 @@ describe('heatmapsBrowserLogic', () => {
             ['blocked by csp', { framing: 'blocked', blocked_by: 'frame_ancestors' }, 'content security policy'],
             ['blocked by xfo', { framing: 'blocked', blocked_by: 'x_frame_options' }, 'X-Frame-Options'],
         ] as const)('explains why the live preview cannot load when %s', (_name, overrides, expected) => {
-            const message = preflightBannerMessage({ ...base, ...overrides })
+            const message = preflightBannerMessage({ ...base, ...overrides }, '1')
             expect(message).toContain('shop.example.com')
             expect(message).toContain(expected)
         })
 
-        it('reports a non-2xx and points to the screenshot background that carries the header', () => {
-            const message = preflightBannerMessage({
-                ...base,
-                framing: 'unknown',
-                http_status: 429,
-                body_excerpt: 'local_rate_limited',
-            })
+        it.each([
+            ['the public default', '1'],
+            // A project that minted a secret must see its own value, not the default that everyone sends.
+            ['a project secret', 'phh_abc123'],
+        ])('reports a non-2xx and quotes %s in the header to allow', (_name, headerValue) => {
+            const message = preflightBannerMessage(
+                {
+                    ...base,
+                    framing: 'unknown',
+                    http_status: 429,
+                    body_excerpt: 'local_rate_limited',
+                },
+                headerValue
+            )
 
             expect(message).toContain('429')
             expect(message).toContain('local_rate_limited')
             // The published fix is the header, not an IP allowlist that cannot match the render service.
-            expect(message).toContain('X-PostHog-Heatmap-Screenshot: 1')
+            expect(message).toContain(`X-PostHog-Heatmap-Screenshot: ${headerValue}`)
             // The live preview cannot send the header, so the guidance must point at the screenshot
             // background that does, not tell the user to retry the iframe.
             expect(message).toContain('screenshot background')
@@ -75,7 +82,7 @@ describe('heatmapsBrowserLogic', () => {
             // must never be reported as the customer's host refusing us.
             ['a redirect', { ...base, framing: 'unknown', http_status: 301 }],
         ] as const)('stays silent for %s', (_name, preflight) => {
-            expect(preflightBannerMessage(preflight)).toBeNull()
+            expect(preflightBannerMessage(preflight, '1')).toBeNull()
         })
     })
 

@@ -173,6 +173,7 @@ export type SettingId =
     | 'feature-previews-coming-soon'
     | 'group-analytics'
     | 'heatmaps'
+    | 'heatmap-screenshot-header'
     | 'hedgehog-mode'
     | 'homepage'
     | 'human-friendly-comparison-periods'
