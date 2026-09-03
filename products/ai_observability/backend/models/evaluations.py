@@ -83,7 +83,8 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
     objects = EvaluationQuerySet.as_manager()
 
     # Core fields
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    # No single-column index on team: three of the Meta indexes above already lead with it.
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_index=False)
     name = models.CharField(max_length=400)
     description = models.TextField(blank=True, default="")
     directory = models.ForeignKey(
