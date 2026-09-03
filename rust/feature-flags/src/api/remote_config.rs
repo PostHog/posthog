@@ -30,6 +30,7 @@
 //! request could replay the decrypted body to a secret-key caller without ever hitting
 //! the etag check.
 
+use crate::api::api_key_usage::ApiKeyKind;
 use crate::{
     api::{auth, errors::FlagError, flag_definitions},
     database::get_connection_with_metrics,
@@ -359,8 +360,8 @@ async fn authenticate(
     headers: &HeaderMap,
 ) -> Result<AuthOutcome, FlagError> {
     if let Some(token) = auth::extract_team_secret_token(headers) {
-        let (team_id, _api_token, is_project_secret) =
-            auth::validate_secret_api_token(state, &token).await?;
+        let secret = auth::validate_secret_api_token(state, &token).await?;
+        let team_id = secret.team_id;
         // Django: authenticated_team.id == view.team.id.
         if team_id != scope_team_id {
             // Mismatch resolves like Django: 403 when a real (different) team owns the
@@ -378,16 +379,14 @@ async fn authenticate(
         // because it decides redact-vs-decrypt, so the mix is worth watching during phase 2/3.
         inc(
             REMOTE_CONFIG_AUTH_COUNTER,
-            &[(
-                "method".to_string(),
-                if is_project_secret {
-                    "project_secret_api_key".to_string()
-                } else {
-                    "secret_api_key".to_string()
-                },
-            )],
+            &[("method".to_string(), secret.method_label().to_string())],
             1,
         );
+        if let Some(key_id) = secret.project_secret_key_id {
+            state
+                .record_api_key_last_used(ApiKeyKind::ProjectSecret, key_id)
+                .await;
+        }
         // Secret-key requests are not throttled by Django's RemoteConfigThrottle.
         return Ok(AuthOutcome::Authorized {
             should_decrypt: false,
@@ -426,7 +425,9 @@ async fn authenticate(
 
         // Track PAK usage so a key used only for remote config doesn't look dormant and get
         // rotated as unused. Shared with flag_definitions via the State helper.
-        state.record_pak_last_used(pak_id).await;
+        state
+            .record_api_key_last_used(ApiKeyKind::Personal, pak_id)
+            .await;
 
         return Ok(AuthOutcome::Authorized {
             should_decrypt: true,
@@ -449,8 +450,9 @@ async fn resolve_current_team(
     headers: &HeaderMap,
 ) -> Result<Option<Team>, FlagError> {
     if let Some(token) = auth::extract_team_secret_token(headers) {
-        let (team_id, _api_token, _is_project_secret) =
-            auth::validate_secret_api_token(state, &token).await?;
+        let team_id = auth::validate_secret_api_token(state, &token)
+            .await?
+            .team_id;
         return Ok(Some(state.flag_service().get_team_by_id(team_id).await?));
     }
     if let Some(key) = auth::extract_personal_api_key(headers)? {
