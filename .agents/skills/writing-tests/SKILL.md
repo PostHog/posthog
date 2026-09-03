@@ -159,7 +159,7 @@ Escalating to the next rung is the last resort, not the default.
   A fixture date keeps its meaning only while the real clock stays where you left it.
   If anything under test measures that date against `now` — an age, a window, a "recent" flag, an expiry — the assertion holds today and fails some weeks later, on every open branch at once.
   Pinning a date into application state is not pinning the clock: a test that sets an "evaluated at" value to a fixed instant, and leaves the wall clock real, still fails when real time drifts past the window, because the code re-reads `now` and the two stop agreeing.
-  Pin the process clock to the instant the fixtures speak in — `freeze_time` in Python, `jest.useFakeTimers()` with `jest.setSystemTime()` released in a `finally` in Jest — or write the fixture relative to `now` (`now - 2 days`), so the distance is what the test states.
+  Pin the process clock to the instant the fixtures speak in — `freeze_time` in Python, `jest.useFakeTimers()` with `jest.setSystemTime()` in Jest, released by `jest.useRealTimers()` in a `finally` — or write the fixture relative to `now` (`now - 2 days`), so the distance is what the test states.
   Pinning the clock covers only what reads it inside your process; the next rule covers the rest.
   Ask this of every absolute date in a test, not only of an explicit `freeze_time`: _what does this assert when today is a year past it?_ If the answer is not "the same thing", fix it before you commit.
 - **A frozen clock doesn't freeze the infrastructure.**
