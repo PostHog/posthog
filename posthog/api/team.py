@@ -1033,6 +1033,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "api_token",
             "secret_api_token",
             "secret_api_token_backup",
+            "heatmaps_screenshot_secret",
             "created_at",
             "updated_at",
             "ingested_event",
@@ -1061,6 +1062,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "api_token",
             "secret_api_token",
             "secret_api_token_backup",
+            "heatmaps_screenshot_secret",
             "created_at",
             "updated_at",
             "ingested_event",
@@ -2313,6 +2315,19 @@ class TeamViewSet(
         team = self.get_object()
         validate_secret_token_generation(team, cast(User, request.user))
         team.rotate_secret_token_and_save(user=request.user, is_impersonated_session=is_impersonated(request))
+        return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
+
+    @action(
+        methods=["PATCH"],
+        detail=True,
+        # Only ADMIN or higher users are allowed to access this project
+        permission_classes=[TeamMemberStrictManagementPermission],
+    )
+    def rotate_heatmaps_screenshot_secret(self, request: request.Request, id: str, **kwargs) -> response.Response:
+        team = self.get_object()
+        team.rotate_heatmaps_screenshot_secret_and_save(
+            user=request.user, is_impersonated_session=is_impersonated(request)
+        )
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
 
     @action(

@@ -11,6 +11,8 @@ from celery.exceptions import SoftTimeLimitExceeded
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 
+from posthog.models.team import Team
+
 from products.web_analytics.backend.api.heatmaps_utils import MAX_TARGET_WIDTHS, PREWARM_TTL
 from products.web_analytics.backend.models import HeatmapSnapshot, SavedHeatmap
 from products.web_analytics.backend.tasks.heatmap_screenshot import (
@@ -27,6 +29,7 @@ from products.web_analytics.backend.tasks.heatmap_screenshot import (
     _resolve_widths,
     _sanitize_browserless_error,
     generate_heatmap_screenshot,
+    heatmap_screenshot_header_value,
     reap_stale_prewarm_heatmaps,
     report_stuck_heatmap_screenshots,
 )
@@ -286,7 +289,7 @@ class TestBrowserlessScreenshotRequest(SimpleTestCase):
         mock_requests.post.return_value = resp
 
         content, page_status = _browserless_screenshot(
-            "https://host/screenshot?token=t", "https://ex.com", 1024, block_consent_modals=False
+            "https://host/screenshot?token=t", "https://ex.com", 1024, block_consent_modals=False, header_value="1"
         )
 
         assert content == _jpeg(b"img")
@@ -305,7 +308,7 @@ class TestBrowserlessScreenshotRequest(SimpleTestCase):
         mock_requests.post.return_value = _make_response(_jpeg(b"img"))
 
         content, _ = _browserless_screenshot(
-            "https://host/screenshot?token=t", "https://example.com", width, block_consent_modals=True
+            "https://host/screenshot?token=t", "https://example.com", width, block_consent_modals=True, header_value="1"
         )
 
         assert content == _jpeg(b"img")
@@ -333,7 +336,7 @@ class TestBrowserlessScreenshotRequest(SimpleTestCase):
     def test_block_ads_added_to_body_when_enabled(self, mock_requests: MagicMock) -> None:
         mock_requests.post.return_value = _make_response()
         _browserless_screenshot(
-            "https://host/screenshot?token=t", "https://example.com", 1024, block_consent_modals=False
+            "https://host/screenshot?token=t", "https://example.com", 1024, block_consent_modals=False, header_value="1"
         )
         assert mock_requests.post.call_args.kwargs["json"]["blockAds"] is True
 
@@ -348,7 +351,7 @@ class TestBrowserlessScreenshotRequest(SimpleTestCase):
         # so disabling them must omit the keys entirely rather than send false.
         mock_requests.post.return_value = _make_response()
         _browserless_screenshot(
-            "https://host/screenshot?token=t", "https://example.com", 1024, block_consent_modals=False
+            "https://host/screenshot?token=t", "https://example.com", 1024, block_consent_modals=False, header_value="1"
         )
         body = mock_requests.post.call_args.kwargs["json"]
         assert "blockAds" not in body
@@ -369,7 +372,7 @@ class TestBrowserlessScreenshotRequest(SimpleTestCase):
             mock_requests.post.side_effect = Exception("ECONNREFUSED https://host/screenshot?token=secret-token")
 
         with self.assertRaises(BrowserlessError) as ctx:
-            _browserless_screenshot(endpoint, "https://example.com", 1024, block_consent_modals=False)
+            _browserless_screenshot(endpoint, "https://example.com", 1024, block_consent_modals=False, header_value="1")
 
         message = str(ctx.exception)
         # The token must never reach the (API-readable) persisted exception
@@ -392,7 +395,11 @@ class TestBrowserlessScreenshotRequest(SimpleTestCase):
         mock_requests.post.return_value = _make_response(content, content_type=content_type)
         with self.assertRaises(BrowserlessError):
             _browserless_screenshot(
-                "https://host/screenshot?token=t", "https://example.com", 1024, block_consent_modals=False
+                "https://host/screenshot?token=t",
+                "https://example.com",
+                1024,
+                block_consent_modals=False,
+                header_value="1",
             )
 
     @override_settings(HEATMAP_BROWSERLESS_TIMEOUT_MS=180000, HEATMAP_BROWSERLESS_CONNECT_TIMEOUT_MS=30000)
@@ -402,8 +409,20 @@ class TestBrowserlessScreenshotRequest(SimpleTestCase):
         mock_requests.post.return_value = _make_response(_jpeg(b"way over the cap"))
         with self.assertRaises(BrowserlessPermanentError):
             _browserless_screenshot(
-                "https://host/screenshot?token=t", "https://example.com", 1024, block_consent_modals=False
+                "https://host/screenshot?token=t",
+                "https://example.com",
+                1024,
+                block_consent_modals=False,
+                header_value="1",
             )
+
+
+class TestHeatmapScreenshotHeaderValue(SimpleTestCase):
+    def test_team_without_a_secret_sends_the_public_default(self) -> None:
+        assert heatmap_screenshot_header_value(Team(heatmaps_screenshot_secret=None)) == "1"
+
+    def test_team_with_a_secret_sends_it_instead_of_the_default(self) -> None:
+        assert heatmap_screenshot_header_value(Team(heatmaps_screenshot_secret="phh_abc")) == "phh_abc"
 
 
 # Pure-function tests for the Browserless URL helpers — no DB, so they run on SimpleTestCase.

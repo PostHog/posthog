@@ -28,6 +28,7 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.signals import mutable_receiver, secret_api_token_rotated
 from posthog.models.utils import (
     UUIDTClassicModel,
+    generate_random_token_heatmap_screenshot,
     generate_random_token_project,
     generate_random_token_secret,
     mask_key_value,
@@ -493,6 +494,14 @@ class Team(UUIDTClassicModel):
 
     # Heatmaps
     heatmaps_opt_in = field_access_control(models.BooleanField(null=True, blank=True), "project", "admin")
+    # Value of the X-PostHog-Heatmap-Screenshot header on this team's heatmap renders, so a WAF rule can
+    # allow our screenshots without allowing every headless browser. Null means the team has not minted
+    # one and the render sends the public default instead. Only as strong as a shared secret can be here:
+    # the render service applies the header to every request the page makes, third-party hosts included,
+    # which is why it is rotatable and grants nothing beyond a match on the customer's own WAF rule.
+    heatmaps_screenshot_secret = field_access_control(
+        models.CharField(max_length=200, null=True, blank=True), "project", "admin"
+    )
 
     # Activity logs
     receive_org_level_activity_logs = field_access_control(
@@ -1074,6 +1083,36 @@ class Team(UUIDTClassicModel):
                         field="conversations_settings.widget_public_token",
                         before=mask_key_value(old_token) if old_token else None,
                         after=mask_key_value(new_token),
+                    )
+                ],
+            ),
+        )
+
+    def rotate_heatmaps_screenshot_secret_and_save(self, *, user: "User", is_impersonated_session: bool):
+        """Mint the team's first heatmap screenshot secret, or replace the one it has."""
+        from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+
+        old_secret = self.heatmaps_screenshot_secret
+        self.heatmaps_screenshot_secret = generate_random_token_heatmap_screenshot()
+        self.save(update_fields=["heatmaps_screenshot_secret"])
+
+        log_activity(
+            organization_id=self.organization_id,
+            team_id=self.pk,
+            user=cast("User", user),
+            was_impersonated=is_impersonated_session,
+            scope="Team",
+            item_id=self.pk,
+            activity="updated",
+            detail=Detail(
+                name=str(self.name),
+                changes=[
+                    Change(
+                        type="Team",
+                        action="created" if old_secret is None else "changed",
+                        field="heatmaps_screenshot_secret",
+                        before=mask_key_value(old_secret) if old_secret else None,
+                        after=mask_key_value(self.heatmaps_screenshot_secret),
                     )
                 ],
             ),

@@ -15,6 +15,7 @@ from celery.exceptions import SoftTimeLimitExceeded
 from prometheus_client import Counter, Gauge, Histogram
 
 from posthog.exceptions_capture import capture_exception
+from posthog.models.team import Team
 from posthog.ph_client import ph_scoped_capture
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.security.url_validation import is_url_allowed
@@ -28,11 +29,11 @@ logger = structlog.get_logger(__name__)
 # Rides on every render request so a site's WAF can allow our screenshot without allowing headless
 # browsers broadly. The render reaches the site from Browserless' worker fleet, not from PostHog's
 # published egress IPs, so an IP allowlist cannot match it; this header can. The name is a public
-# contract we publish to customers, so a rename breaks every WAF rule that matches it. The value is
-# non-secret: Browserless applies these headers to every request the page makes, including
-# cross-origin subresources.
+# contract we publish to customers, so a rename breaks every WAF rule that matches it.
 HEATMAP_SCREENSHOT_REQUEST_HEADER = "X-PostHog-Heatmap-Screenshot"
-HEATMAP_SCREENSHOT_REQUEST_HEADER_VALUE = "1"
+# Sent by every team that has not minted a secret. It is public, so a rule matching it allows anyone
+# who sends the same header. A team that wants more than that mints a value only it knows.
+HEATMAP_SCREENSHOT_REQUEST_HEADER_DEFAULT_VALUE = "1"
 
 # Reclaim a hung worker rather than letting a stuck render hold an EXPORTS slot for the full retry budget.
 HEATMAP_SCREENSHOT_SOFT_TIME_LIMIT = 600  # seconds
@@ -389,8 +390,12 @@ def _page_status_from(response: requests.Response) -> int | None:
         return None
 
 
+def heatmap_screenshot_header_value(team: Team) -> str:
+    return team.heatmaps_screenshot_secret or HEATMAP_SCREENSHOT_REQUEST_HEADER_DEFAULT_VALUE
+
+
 def _browserless_screenshot(
-    endpoint_url: str, page_url: str, width: int, block_consent_modals: bool
+    endpoint_url: str, page_url: str, width: int, block_consent_modals: bool, header_value: str
 ) -> tuple[bytes, int | None]:
     # Render one width via the Browserless /screenshot REST API. viewport.width sets the captured width;
     # scrollPage triggers lazy-loaded content and blockConsentModals dismisses cookie banners server-side.
@@ -407,7 +412,7 @@ def _browserless_screenshot(
         "gotoOptions": {"waitUntil": "networkidle2", "timeout": 30_000},
         "scrollPage": True,
         "bestAttempt": True,
-        "setExtraHTTPHeaders": {HEATMAP_SCREENSHOT_REQUEST_HEADER: HEATMAP_SCREENSHOT_REQUEST_HEADER_VALUE},
+        "setExtraHTTPHeaders": {HEATMAP_SCREENSHOT_REQUEST_HEADER: header_value},
     }
     # blockConsentModals / blockAds are browserless.io cloud API extensions; the self-hosted OSS
     # image rejects unknown body fields (400 "must NOT have additional properties"), so only send
@@ -565,17 +570,20 @@ def _generate_browserless_screenshots(screenshot: SavedHeatmap, widths: list[int
         widths=pending,
         reused_widths=sorted(already_rendered),
     )
+    header_value = heatmap_screenshot_header_value(screenshot.team)
     count = 0
     for w in pending:
         image_data, page_status = _browserless_screenshot(
-            endpoint_url, screenshot.url, w, screenshot.block_consent_modals
+            endpoint_url, screenshot.url, w, screenshot.block_consent_modals, header_value
         )
         if page_status is not None and not 200 <= page_status < 300:
             raise PageHttpStatusError(
                 f"{_host_of(screenshot.url)} returned {page_status} when we loaded the page, so the capture "
                 f"is a picture of that response. Bot protection often blocks our screenshots. To allow them, "
-                f'add a rule that permits requests carrying the "{HEATMAP_SCREENSHOT_REQUEST_HEADER}: '
-                f'{HEATMAP_SCREENSHOT_REQUEST_HEADER_VALUE}" header, then try again.',
+                # The header value stays out of this string: it is persisted on the snapshot and sent to
+                # error tracking, and a team's minted secret belongs in neither.
+                f'add a rule that permits requests carrying the "{HEATMAP_SCREENSHOT_REQUEST_HEADER}" header, '
+                f"then try again. Project settings, under Heatmaps, holds the value to match.",
                 cause="page_http_status",
             )
         _persist_snapshot(screenshot, w, image_data)
