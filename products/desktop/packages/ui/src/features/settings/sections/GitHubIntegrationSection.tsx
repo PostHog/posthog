@@ -145,7 +145,7 @@ export function GitHubIntegrationSection({
         ? describeGithubConnectError(connectError)
         : timedOut
           ? GITHUB_CONNECT_TIMEOUT_MESSAGE
-          : "Required for Self-driving to work"}
+          : "Read repository code and keep Self-driving investigations current"}
     </Text>
   );
 

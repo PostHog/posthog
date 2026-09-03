@@ -1,4 +1,5 @@
 import { Text } from "@components/text";
+import { GITHUB_CODE_CONTEXT_MESSAGE } from "@posthog/core/integrations/connectErrors";
 import * as WebBrowser from "expo-web-browser";
 import { Pressable, View } from "react-native";
 import { useAuthStore } from "@/features/auth";
@@ -19,7 +20,7 @@ export function GitHubConnectionPrompt({
   onConnected,
   mode = "card",
   title = "Connect GitHub to continue",
-  description = "You need to connect your GitHub account before using this workflow.",
+  description = GITHUB_CODE_CONTEXT_MESSAGE,
 }: GitHubConnectionPromptProps) {
   const { cloudRegion, projectId } = useAuthStore();
   const themeColors = useThemeColors();
@@ -66,7 +67,7 @@ export function GitHubConnectionPrompt({
           Connect GitHub
         </Text>
         <Text className="mb-6 text-center text-gray-11 text-sm">
-          Let PostHog work on your repositories.
+          {GITHUB_CODE_CONTEXT_MESSAGE}
         </Text>
         <Pressable
           onPress={handleConnectGitHub}

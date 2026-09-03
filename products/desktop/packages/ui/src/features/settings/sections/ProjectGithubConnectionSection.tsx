@@ -69,7 +69,7 @@ export function ProjectGithubConnectionSection() {
   return (
     <SettingsSection
       label="Project connection"
-      description="GitHub access for this project's Self-driving pipeline and cloud tasks"
+      description="Read repository code for cloud tasks, investigations, and later background runs"
     >
       {projectId != null ? (
         <GithubInstallRequestsBanner
@@ -121,7 +121,7 @@ export function ProjectGithubConnectionSection() {
         ) : (
           <SettingsCardRow
             label="No GitHub connection yet"
-            description="Connect GitHub so Self-driving and cloud tasks can work with your repositories"
+            description="Connect GitHub so PostHog can use current code context for cloud tasks and investigations"
           >
             <Button
               type="button"
