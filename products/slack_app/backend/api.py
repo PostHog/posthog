@@ -85,6 +85,7 @@ from products.slack_app.backend.services.slack_app_home import (
 from products.slack_app.backend.services.slack_fork_context import clear_pending_fork, get_pending_fork
 from products.slack_app.backend.services.slack_messages import (
     FORK_THREAD_ACTION_ID,
+    SLACK_WEBHOOK_TIMEOUT_SECONDS,
     TURN_FEEDBACK_ACTION_ID,
     post_slack_thread_reply,
 )
@@ -92,6 +93,7 @@ from products.slack_app.backend.services.slack_settings import resolve_untagged_
 from products.slack_app.backend.services.slack_user_info import (
     clear_workspace_profile_cache,
     get_cached_bot_user_id,
+    get_cached_workspace_bot_user_id,
     get_slack_user_info,
     normalize_slack_response,
     persist_slack_user_info,
@@ -120,6 +122,7 @@ HANDLED_EVENT_TYPES = [
     "assistant_thread_context_changed",
     "app_home_opened",
     "app_uninstalled",
+    "reaction_added",
 ]
 
 # The notifications Slack app (`slack`) install carries every scope the coding-agent flow
@@ -149,10 +152,6 @@ ROUTE_NO_INTEGRATION = "no_integration"
 # "the app didn't respond" is unattributable: the mention-received funnel only
 # covers mentions that got far enough to resolve an integration.
 SLACK_MENTION_DROPPED_EVENT = "posthog code slack mention dropped"
-
-# Ceiling on a feedback post made from inside the webhook request path, matching
-# _count_session_thread_messages. Slack's retry window is what we're protecting.
-SLACK_FEEDBACK_TIMEOUT_SECONDS = 3
 
 PICKER_TOKEN_SALT = "posthog_code_repo_picker"
 PICKER_TOKEN_MAX_AGE_SECONDS = 900
@@ -351,7 +350,7 @@ def _post_slack_user_ephemeral(
     # builds a fresh WebClient on every access, so the client has to be held in a local
     # for the timeout to apply to the instance that makes the request.
     client = slack.client
-    client.timeout = SLACK_FEEDBACK_TIMEOUT_SECONDS
+    client.timeout = SLACK_WEBHOOK_TIMEOUT_SECONDS
     try:
         client.chat_postEphemeral(channel=channel, user=slack_user_id, thread_ts=thread_ts, text=text)
     except Exception:
@@ -2043,6 +2042,68 @@ def _route_app_home_opened(
     return ROUTE_HANDLED_LOCALLY
 
 
+def _route_reaction_added(
+    request: HttpRequest,
+    event: dict,
+    slack_team_id: str,
+    *,
+    proxied: bool,
+    other_domain: str,
+) -> str:
+    """Turn a thumbs reaction on an agent reply into turn feedback, in the owning region.
+
+    The event names only a channel and a message ts, so which region owns the run is not
+    known until the handler reads the message back and finds the reply's own integration
+    id. The gate here is therefore two-step: no local integration for the workspace defers
+    the whole event, and a fetched integration id belonging to the other region defers it
+    after the fetch. The US-precedence rule for dual-owned workspaces does not apply,
+    because the embedded integration id is definitive.
+    """
+    # Everything up to the workspace lookup is free, and most reactions fail it: only a
+    # thumb on a message is a rating candidate.
+    item = event.get("item") or {}
+    channel = item.get("channel")
+    message_ts = item.get("ts")
+    if turn_feedback.reaction_sentiment(event.get("reaction")) is None or item.get("type") != "message":
+        return ROUTE_HANDLED_LOCALLY
+
+    # The reacted message's author rides on the event, and the bot's user id is the same
+    # for every install of the workspace, so a warm workspace cache rejects a thumb on a
+    # human message here, before the first database query. A miss falls through: the
+    # handler re-checks against the integration-scoped lookup, which also warms this cache.
+    workspace_bot_user_id = get_cached_workspace_bot_user_id(slack_team_id)
+    if workspace_bot_user_id is not None and event.get("item_user") != workspace_bot_user_id:
+        return ROUTE_HANDLED_LOCALLY
+
+    # Same candidate loading as the mention pipeline: broken-token installs are filtered
+    # out (with none left the event defers to the other region, whose healthy install can
+    # still serve a rating this region cannot), and the resolver ladder picks the install
+    # the same way a mention would. A reaction carries no thread_ts, so the message ts
+    # stands in; it only matches a thread mapping when the reacted message opened the
+    # thread, and the resolver falls through to the defaults otherwise.
+    workspace_result = load_integrations(
+        slack_team_id=slack_team_id,
+        kinds=[SLACK_INTEGRATION_KIND],
+        slack_user_id=str(event.get("user") or ""),
+        channel=channel if isinstance(channel, str) else None,
+        thread_ts=message_ts if isinstance(message_ts, str) else None,
+    )
+    workspace_integration = workspace_result.resolved_or_first()
+    if workspace_integration is None:
+        return _route_to_other_region_or_drop(request, slack_team_id, proxied=proxied, other_domain=other_domain)
+
+    outcome = turn_feedback.handle_reaction_added(event, slack_team_id, workspace_integration)
+    if outcome == turn_feedback.REACTION_NOT_LOCAL:
+        if not proxied and cross_region_routing_enabled():
+            return _proxy_event_and_return_route(request, other_domain)
+        logger.warning(
+            "slack_app_reaction_feedback_not_local",
+            slack_team_id=slack_team_id,
+            incoming_host=request.get_host(),
+        )
+    return ROUTE_HANDLED_LOCALLY
+
+
 def _handle_app_uninstalled(request: HttpRequest, slack_team_id: str) -> str:
     """Drop the workspace's cached Slack profiles so a reinstall resolves users from
     fresh ``users.info`` data instead of emails cached under the previous install.
@@ -2091,6 +2152,15 @@ def route_posthog_code_event_to_relevant_region(
 
     if event_type == "app_uninstalled":
         return _handle_app_uninstalled(request, slack_team_id)
+
+    if event_type == "reaction_added":
+        return _route_reaction_added(
+            request,
+            event,
+            slack_team_id,
+            proxied=proxied,
+            other_domain=other_domain,
+        )
 
     # App Home tab: published per-user when they open the Home tab. The view is
     # rendered against the workspace's integration row, which only the owning
@@ -2649,7 +2719,7 @@ def _count_session_thread_messages(integration: Integration, channel: str | None
         return None
     try:
         client = SlackIntegration(integration).client
-        client.timeout = 3
+        client.timeout = SLACK_WEBHOOK_TIMEOUT_SECONDS
         response = client.conversations_replies(channel=channel, ts=thread_ts, limit=200)
         return len(response.get("messages", []))
     except Exception:

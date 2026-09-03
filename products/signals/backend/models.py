@@ -288,6 +288,12 @@ class SignalReport(UUIDModel):
     # recount it against SignalTeamConfig.max_reports_per_day. Null for reports that predate the
     # field or never surfaced.
     first_visible_at = models.DateTimeField(null=True, blank=True)
+    # When the report's inbox notification was dispatched. A report notifies once, ever: research
+    # settles every time a new signal carries the report to its next bucket, and each settle starts
+    # the notification workflow again, so without this a report re-notified per research pass. Set
+    # once and never cleared, so it survives past Temporal's history retention window — a workflow
+    # ID de-duplication would not. Null for reports that never notified or predate the field.
+    inbox_notified_at = models.DateTimeField(null=True, blank=True)
 
     # Video segment clustering fields
     cluster_centroid = deprecate_field(
@@ -743,7 +749,7 @@ class SignalReport(UUIDModel):
         return models.Q(id__in=artefact_report_ids) | models.Q(id__in=legacy_report_ids)
 
     @staticmethod
-    def reports_for_task_ids_filter(task_ids: Any) -> "models.Q":
+    def reports_for_task_ids_filter(task_ids: Any, *, team_id: int | None = None) -> "models.Q":
         """`reports_for_task_filter` widened to a *set* of tasks: a `Q` on `SignalReport.id` matching
         the reports associated with any task in `task_ids` (a collection or, preferably, a `task_id`
         subquery), unified across the `task_run` artefact log and the legacy `SignalReportTask` gate
@@ -752,12 +758,20 @@ class SignalReport(UUIDModel):
         Lets a per-report correlated `Exists` over `tasks.TaskRun` be *decorrelated*: drive off the
         small task set (e.g. tasks that produced a PR) and map it to reports here via the indexed
         `task_id` columns, instead of probing the runs once per candidate report.
+
+        Pass `team_id` whenever the caller works within one team. Association rows are always
+        same-team as their report, so the scope drops no valid matches, and without it the planner
+        can invert the join and scan every team's `task_run` artefacts when `task_ids` is a
+        subquery. Only cross-team callers with literal `task_ids` (the PR webhook) leave it unset.
         """
-        artefact_report_ids = SignalReportArtefact.objects.filter(
+        artefact_rows = SignalReportArtefact.objects.filter(
             type=SignalReportArtefact.ArtefactType.TASK_RUN, task_id__in=task_ids
-        ).values("report_id")
-        legacy_report_ids = SignalReportTask.objects.filter(task_id__in=task_ids).values("report_id")
-        return models.Q(id__in=artefact_report_ids) | models.Q(id__in=legacy_report_ids)
+        )
+        legacy_rows = SignalReportTask.objects.filter(task_id__in=task_ids)
+        if team_id is not None:
+            artefact_rows = artefact_rows.filter(team_id=team_id)
+            legacy_rows = legacy_rows.filter(team_id=team_id)
+        return models.Q(id__in=artefact_rows.values("report_id")) | models.Q(id__in=legacy_rows.values("report_id"))
 
 
 class SignalEmissionRecord(UUIDModel):
