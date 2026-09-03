@@ -97,9 +97,10 @@ class TestForwardPendingUserMessage(TestCase):
             forward_pending_user_message("550e8400-e29b-41d4-a716-446655440000")
         assert ctx.exception.non_retryable is True
 
+    @patch("products.tasks.backend.logic.services.store_skills.refresh_store_skills_state")
     @patch("products.tasks.backend.logic.services.connection_token.create_sandbox_connection_token", return_value="jwt")
     @patch("products.tasks.backend.logic.services.agent_command.send_user_message")
-    def test_pending_message_delivered_successfully(self, mock_send, mock_token):
+    def test_pending_message_delivered_successfully(self, mock_send, mock_token, mock_refresh_store_skills):
         run = self._make_run(
             state={
                 "pending_user_message": "fix the tests",
@@ -110,6 +111,8 @@ class TestForwardPendingUserMessage(TestCase):
 
         forward_pending_user_message(str(run.id))
 
+        # Not a warm activation: the run's own boot already listed this user's skills.
+        mock_refresh_store_skills.assert_not_called()
         mock_send.assert_called_once()
         assert mock_send.call_args[0][1] == "fix the tests"
         assert mock_send.call_args.kwargs["message_id"]
@@ -117,10 +120,13 @@ class TestForwardPendingUserMessage(TestCase):
         assert "pending_user_message" not in run.state
         assert "pending_user_message_id" not in run.state
 
+    @patch("products.tasks.backend.logic.services.store_skills.refresh_store_skills_state")
     @patch("products.tasks.backend.logic.services.sandbox_usage.measure_task_run_cpu_attribution")
     @patch("products.tasks.backend.logic.services.connection_token.create_sandbox_connection_token", return_value="jwt")
     @patch("products.tasks.backend.logic.services.agent_command.send_user_message")
-    def test_successful_delivery_attributes_sandbox_usage(self, mock_send, mock_token, mock_measure):
+    def test_successful_delivery_attributes_sandbox_usage(
+        self, mock_send, mock_token, mock_measure, mock_refresh_store_skills
+    ):
         run = self._make_run(
             state={
                 "await_user_message": True,
@@ -155,8 +161,12 @@ class TestForwardPendingUserMessage(TestCase):
             calls.append("send")
             return _command_result(success=True, status_code=200)
 
+        def refresh_store_skills(*args, **kwargs):
+            calls.append("refresh_store_skills")
+
         mock_measure.side_effect = measure
         mock_send.side_effect = send
+        mock_refresh_store_skills.side_effect = refresh_store_skills
 
         forward_pending_user_message(str(run.id))
 
@@ -166,7 +176,9 @@ class TestForwardPendingUserMessage(TestCase):
         assert session.provider_cpu_usage_attribution_usec == 1_234_567
         assert session.provider_billed_cpu_usage_attribution_usec == 1_500_000
         assert session.provider_cpu_usage_attribution_measured_at == measured_at
-        assert calls == ["measure", "send"]
+        # The agent re-reads the run on this message, so the activating user's skills go in first.
+        assert calls == ["refresh_store_skills", "measure", "send"]
+        mock_refresh_store_skills.assert_called_once_with(run, self.user, reason="warm_activation")
 
     @patch("products.tasks.backend.logic.services.connection_token.create_sandbox_connection_token", return_value="jwt")
     @patch("products.tasks.backend.temporal.observability.posthoganalytics.capture")
