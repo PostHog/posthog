@@ -776,6 +776,40 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response["attr"], "layout_compaction")
         self.assertEqual(response["detail"], "Tile movement settings aren't available.")
 
+    @patch("products.dashboards.backend.api.dashboard.dashboard_filter_saved_views_enabled", return_value=True)
+    def test_dashboard_filter_views_are_saved(self, _mock_enabled: MagicMock) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        view_id = "00000000-0000-0000-0000-000000000001"
+
+        _, updated = self.dashboard_api.update_dashboard(
+            dashboard_id,
+            {
+                "filter_views": [
+                    {
+                        "id": view_id,
+                        "name": "Enterprise",
+                        "filters": {"date_from": "-30d", "properties": []},
+                    }
+                ]
+            },
+        )
+
+        self.assertEqual(updated["customization"]["filter_views"][0]["id"], view_id)
+        self.assertEqual(updated["customization"]["filter_views"][0]["filters"]["date_from"], "-30d")
+
+    @patch("products.dashboards.backend.api.dashboard.dashboard_filter_saved_views_enabled", return_value=False)
+    def test_dashboard_filter_views_require_feature_flag(self, _mock_enabled: MagicMock) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+
+        _, response = self.dashboard_api.update_dashboard(
+            dashboard_id,
+            {"filter_views": []},
+            expected_status=status.HTTP_400_BAD_REQUEST,
+        )
+
+        self.assertEqual(response["attr"], "filter_views")
+        self.assertEqual(response["detail"], "Dashboard filter views aren't available.")
+
     @patch("products.dashboards.backend.api.dashboard.dashboard_customization_enabled", return_value=True)
     def test_dashboard_tile_spacing_requires_a_known_preset(self, _mock_enabled: MagicMock):
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
