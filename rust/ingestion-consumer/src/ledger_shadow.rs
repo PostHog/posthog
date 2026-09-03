@@ -34,12 +34,13 @@ impl LedgerShadow {
         }
     }
 
-    /// See [`TopicOffsetLedger::bumps`]; constant while disabled.
-    pub(crate) fn bumps(&self) -> u64 {
+    /// See [`TopicOffsetLedger::generations_version`]; constant while
+    /// disabled.
+    pub(crate) fn generations_version(&self) -> u64 {
         if !self.enabled {
             return 0;
         }
-        self.ledger.bumps()
+        self.ledger.generations_version()
     }
 
     /// See [`TopicOffsetLedger::generation`]; 0 while disabled.
@@ -286,7 +287,7 @@ mod tests {
         shadow.settle(&p0, 0, [Offset(10)], &span(10, 10));
 
         assert_eq!(ledger.depth(&p0), 0);
-        assert_eq!(shadow.bumps(), 0);
+        assert_eq!(shadow.generations_version(), 0);
         assert_eq!(shadow.generation(&p0), 0);
     }
 

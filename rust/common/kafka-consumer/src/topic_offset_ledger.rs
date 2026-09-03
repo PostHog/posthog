@@ -47,7 +47,7 @@ pub struct Settlement {
 }
 
 /// One [`PartitionOffsetLedger`] per partition, each founded under a
-/// per-partition generation. Forgetting a partition bumps its generation and
+/// per-partition generation. Forgetting a partition advances its generation and
 /// replaces its ledger in one step, so charges and completions stamped with an
 /// earlier generation are dropped instead of corrupting the new assignment.
 ///
@@ -57,10 +57,11 @@ pub struct Settlement {
 #[derive(Default)]
 pub struct TopicOffsetLedger {
     partitions: Mutex<HashMap<TopicPartition, PartitionOffsetLedger>>,
-    /// Generation bumps across every partition. A caller stamping work
-    /// outside the lock reads this per message and only re-reads the
-    /// partition's generation when it moved.
-    bumps: AtomicU64,
+    /// Version of the per-partition generation map: moves whenever any
+    /// partition's generation does. A caller stamping work outside the lock
+    /// reads this per message and only re-reads the partition's generation
+    /// when it moved.
+    generations_version: AtomicU64,
 }
 
 impl TopicOffsetLedger {
@@ -79,11 +80,11 @@ impl TopicOffsetLedger {
             .unwrap_or_default()
     }
 
-    /// Count of generation bumps across every partition. Cheaper than
-    /// `generation` and changes whenever any generation does, so a caller
+    /// Version of the per-partition generation map. Cheaper than
+    /// `generation` and moves whenever any generation does, so a caller
     /// compares it per message and consults `generation` only on a change.
-    pub fn bumps(&self) -> u64 {
-        self.bumps.load(Ordering::Relaxed)
+    pub fn generations_version(&self) -> u64 {
+        self.generations_version.load(Ordering::Relaxed)
     }
 
     /// Record one slice of delivered offsets on the partition's ledger,
@@ -108,7 +109,7 @@ impl TopicOffsetLedger {
             Ok(_) => Ok(ledger.len()),
             Err(error) => {
                 *ledger = PartitionOffsetLedger::new(generation + 1);
-                self.bumps.fetch_add(1, Ordering::Relaxed);
+                self.generations_version.fetch_add(1, Ordering::Relaxed);
                 Err(Rejection::Violation(error))
             }
         }
@@ -144,7 +145,7 @@ impl TopicOffsetLedger {
             }),
             Err(error) => {
                 *ledger = PartitionOffsetLedger::new(generation + 1);
-                self.bumps.fetch_add(1, Ordering::Relaxed);
+                self.generations_version.fetch_add(1, Ordering::Relaxed);
                 Err(Rejection::Violation(error))
             }
         }
@@ -176,7 +177,7 @@ impl TopicOffsetLedger {
     /// land on the new one.
     pub fn forget_partitions<'a>(&self, revoked: impl IntoIterator<Item = (&'a str, i32)>) {
         let mut partitions = self.partitions.lock().unwrap();
-        let mut bumped = 0;
+        let mut forgotten = 0;
         for (topic, partition) in revoked {
             let key = TopicPartition::new(topic, partition);
             let generation = partitions
@@ -184,9 +185,10 @@ impl TopicOffsetLedger {
                 .map(PartitionOffsetLedger::generation)
                 .unwrap_or_default();
             partitions.insert(key, PartitionOffsetLedger::new(generation + 1));
-            bumped += 1;
+            forgotten += 1;
         }
-        self.bumps.fetch_add(bumped, Ordering::Relaxed);
+        self.generations_version
+            .fetch_add(forgotten, Ordering::Relaxed);
     }
 }
 
@@ -225,23 +227,23 @@ mod tests {
     }
 
     #[test]
-    fn forgetting_a_partition_drops_its_ledger_and_bumps_its_generation() {
+    fn forgetting_a_partition_drops_its_ledger_and_advances_its_generation() {
         let ledger = TopicOffsetLedger::new();
         let p0 = tp("events", 0);
         charge(&ledger, &p0, 0, &[10]);
-        assert_eq!(ledger.bumps(), 0);
+        assert_eq!(ledger.generations_version(), 0);
 
         ledger.forget_partitions([("events", 0)]);
 
         assert_eq!(ledger.depth(&p0), 0);
         assert_eq!(ledger.generation(&p0), 1);
-        assert_eq!(ledger.bumps(), 1);
+        assert_eq!(ledger.generations_version(), 1);
     }
 
     #[test]
     fn forgetting_an_unseen_partition_still_opens_a_generation() {
-        // A slice buffered before the revoke carries stamp 0; without the bump
-        // it would found the new assignment's ledger with stale offsets.
+        // A slice buffered before the revoke carries stamp 0; without a new
+        // generation it would found the new assignment's ledger with stale offsets.
         let ledger = TopicOffsetLedger::new();
         let p0 = tp("events", 0);
         ledger.forget_partitions([("events", 0)]);
@@ -424,15 +426,15 @@ mod tests {
     }
 
     #[test]
-    fn slices_spanning_another_partitions_bump_still_charge() {
+    fn slices_spanning_another_partitions_generation_change_still_charge() {
         let ledger = TopicOffsetLedger::new();
         let p1 = tp("events", 1);
         charge(&ledger, &p1, 0, &[20]);
 
-        // Another partition's reassignment moves the bump count; this
-        // partition's generation and ledger are untouched.
+        // Another partition's reassignment moves the generations version;
+        // this partition's generation and ledger are untouched.
         ledger.forget_partitions([("events", 0)]);
-        assert_eq!(ledger.bumps(), 1);
+        assert_eq!(ledger.generations_version(), 1);
         charge(&ledger, &p1, 0, &[21]);
         assert_eq!(ledger.depth(&p1), 2);
 
@@ -516,7 +518,7 @@ mod tests {
         );
         assert_eq!(ledger.depth(&p0), 0, "the window is discarded");
         assert_eq!(ledger.generation(&p0), 1);
-        assert_eq!(ledger.bumps(), 1);
+        assert_eq!(ledger.generations_version(), 1);
 
         // In-flight work from before the reset drops as stale; the next
         // delivery under the new generation founds a fresh ledger.

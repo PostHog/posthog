@@ -62,9 +62,9 @@ struct BatchPartition {
     span: OffsetSpan,
     /// Ledger generation the charges are stamped with.
     generation: u64,
-    /// Ledger bump count seen when the charges were last stamped. Comparing
-    /// it per message is cheaper than reading the generation.
-    bumps: u64,
+    /// Ledger generations version seen when the charges were last stamped.
+    /// Comparing it per message is cheaper than reading the generation.
+    generations_version_seen: u64,
     /// The slice charged to the ledger: offsets delivered under `generation`.
     charges: Vec<(LedgerOffset, Charge)>,
     /// Max Kafka message timestamp (ms) — for `latest_processed_timestamp_ms`.
@@ -74,31 +74,36 @@ struct BatchPartition {
 }
 
 impl BatchPartition {
-    fn new(generation: u64, bumps: u64, delivery: &Delivery) -> Self {
+    fn new(generation: u64, generations_version: u64, delivery: &Delivery) -> Self {
         Self {
             span: OffsetSpan::new(delivery.offset),
             generation,
-            bumps,
+            generations_version_seen: generations_version,
             charges: vec![(LedgerOffset(delivery.offset), delivery.charge)],
             latest_kafka_ts: delivery.kafka_ts,
             max_lag_ms: delivery.lag_ms,
         }
     }
 
-    /// Record one more delivery. `generation` is consulted only when `bumps`
-    /// moved since the last stamp. A moved generation means the partition was
-    /// revoked and regained inside this batch: the offsets buffered so far
-    /// belong to the old assignment and Kafka redelivers them, so the ledger
-    /// slice restarts. The commit span keeps them, as the commit path does
-    /// today.
-    fn record(&mut self, bumps: u64, generation: impl FnOnce() -> u64, delivery: &Delivery) {
+    /// Record one more delivery. `generation` is consulted only when
+    /// `generations_version` moved since the last stamp. A moved generation
+    /// means the partition was revoked and regained inside this batch: the
+    /// offsets buffered so far belong to the old assignment and Kafka
+    /// redelivers them, so the ledger slice restarts. The commit span keeps
+    /// them, as the commit path does today.
+    fn record(
+        &mut self,
+        generations_version: u64,
+        generation: impl FnOnce() -> u64,
+        delivery: &Delivery,
+    ) {
         self.span.extend(delivery.offset);
         self.latest_kafka_ts = self.latest_kafka_ts.max(delivery.kafka_ts);
         if let Some(lag_ms) = delivery.lag_ms {
             self.max_lag_ms = Some(self.max_lag_ms.map_or(lag_ms, |max| max.max(lag_ms)));
         }
-        if bumps != self.bumps {
-            self.bumps = bumps;
+        if generations_version != self.generations_version_seen {
+            self.generations_version_seen = generations_version;
             let generation = generation();
             if generation != self.generation {
                 self.generation = generation;
@@ -841,17 +846,19 @@ impl IngestionConsumer {
                         lag_ms,
                     };
                     let key = TopicPartition::new(topic.clone(), partition);
-                    let bumps = self.ledger_shadow.bumps();
+                    let generations_version = self.ledger_shadow.generations_version();
                     match partitions.get_mut(&key) {
                         Some(batch_partition) => batch_partition.record(
-                            bumps,
+                            generations_version,
                             || self.ledger_shadow.generation(&key),
                             &delivery,
                         ),
                         None => {
                             let generation = self.ledger_shadow.generation(&key);
-                            partitions
-                                .insert(key, BatchPartition::new(generation, bumps, &delivery));
+                            partitions.insert(
+                                key,
+                                BatchPartition::new(generation, generations_version, &delivery),
+                            );
                         }
                     }
 
@@ -1131,14 +1138,18 @@ mod tests {
         let mut partition = BatchPartition::new(3, 7, &delivery(10));
         partition.record(
             7,
-            || unreachable!("no bump, no generation read"),
+            || unreachable!("unchanged version, no generation read"),
             &delivery(11),
         );
 
         // The partition is revoked and regained: Kafka redelivers from the
         // committed offset 5 under generation 4.
         partition.record(8, || 4, &delivery(5));
-        partition.record(8, || unreachable!("stamped once per bump"), &delivery(6));
+        partition.record(
+            8,
+            || unreachable!("stamped once per version change"),
+            &delivery(6),
+        );
 
         assert_eq!(charged_offsets(&partition), vec![5, 6]);
         assert_eq!(partition.generation, 4);
@@ -1146,7 +1157,7 @@ mod tests {
     }
 
     #[test]
-    fn another_partitions_bump_keeps_the_slice() {
+    fn another_partitions_generation_change_keeps_the_slice() {
         let mut partition = BatchPartition::new(3, 7, &delivery(10));
         partition.record(8, || 3, &delivery(11));
 
