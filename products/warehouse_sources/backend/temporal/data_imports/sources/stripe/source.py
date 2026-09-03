@@ -377,7 +377,10 @@ If automatic creation failed with a permissions error, the fix depends on how yo
                 webhook_only=(
                     endpoint in STRIPE_WEBHOOK_ONLY_ENDPOINTS or endpoint in STRIPE_WEBHOOK_SYNC_ONLY_ENDPOINTS
                 ),
-                # nested resources are only full refresh and are not in STRIPE_APPEND_ONLY_INCREMENTAL_FIELDS
+                # A table supports append when it declares an incremental field. A nested resource
+                # normally declares none, because its sweep walks a parent list and cannot filter on
+                # the child's own timestamp. BillingMeterEventSummary is the exception: it names the
+                # time range it asks Stripe to aggregate, so the watermark moves that range forward.
                 supports_append=STRIPE_APPEND_ONLY_INCREMENTAL_FIELDS.get(endpoint, None) is not None,
                 incremental_fields=STRIPE_APPEND_ONLY_INCREMENTAL_FIELDS.get(endpoint, []),
                 should_sync_default=endpoint not in STRIPE_DEFAULT_OFF_ENDPOINTS,

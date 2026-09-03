@@ -13,6 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
     BILLING_CREDIT_BALANCE_SUMMARY_RESOURCE_NAME,
     BILLING_CREDIT_BALANCE_TRANSACTION_RESOURCE_NAME,
     BILLING_CREDIT_GRANT_RESOURCE_NAME,
+    BILLING_METER_EVENT_SUMMARY_RESOURCE_NAME,
     BILLING_METER_RESOURCE_NAME,
     CHARGE_RESOURCE_NAME,
     CHECKOUT_SESSION_RESOURCE_NAME,
@@ -84,6 +85,7 @@ ENDPOINTS = (
     QUOTE_RESOURCE_NAME,
     EVENT_RESOURCE_NAME,
     BILLING_METER_RESOURCE_NAME,
+    BILLING_METER_EVENT_SUMMARY_RESOURCE_NAME,
     BILLING_CREDIT_GRANT_RESOURCE_NAME,
     BILLING_CREDIT_BALANCE_TRANSACTION_RESOURCE_NAME,
     BILLING_CREDIT_BALANCE_SUMMARY_RESOURCE_NAME,
@@ -305,6 +307,17 @@ APPEND_ONLY_INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
             "label": "created_at",
             "type": IncrementalFieldType.DateTime,
             "field": "created",
+            "field_type": IncrementalFieldType.Integer,
+        }
+    ],
+    # Meter event summaries are aggregates over a day, so they carry `start_time` and `end_time`
+    # rather than `created`. The field doubles as the append watermark: the next sweep asks Stripe
+    # for the newest day the table holds and everything after it, instead of the whole lookback.
+    BILLING_METER_EVENT_SUMMARY_RESOURCE_NAME: [
+        {
+            "label": "start_time",
+            "type": IncrementalFieldType.DateTime,
+            "field": "start_time",
             "field_type": IncrementalFieldType.Integer,
         }
     ],

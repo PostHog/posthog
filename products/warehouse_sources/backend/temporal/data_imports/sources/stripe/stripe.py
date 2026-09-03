@@ -45,6 +45,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
     BILLING_CREDIT_BALANCE_SUMMARY_RESOURCE_NAME,
     BILLING_CREDIT_BALANCE_TRANSACTION_RESOURCE_NAME,
     BILLING_CREDIT_GRANT_RESOURCE_NAME,
+    BILLING_METER_EVENT_SUMMARY_RESOURCE_NAME,
     BILLING_METER_RESOURCE_NAME,
     CHARGE_RESOURCE_NAME,
     CHECKOUT_SESSION_RESOURCE_NAME,
@@ -128,6 +129,13 @@ STRIPE_CHUNK_SIZE = 1000
 # nothing, so thousands of parents can pass between chunks — and every pod death throws that walk
 # away. Counting parents bounds the work a restart repeats no matter how sparse the data is.
 NESTED_SWEEP_CHECKPOINT_PARENTS = 5000
+
+DAY_SECONDS = 24 * 60 * 60
+# Stripe types the meter event summary granularity as a literal, so the value carries the type.
+METER_SUMMARY_GROUPING_WINDOW: Literal["day"] = "day"
+# How far back the first sweep of the meter event summary table reaches. An append sync starts at
+# the newest day the table already holds, so this bounds the initial import only.
+METER_SUMMARY_INITIAL_LOOKBACK_DAYS = 90
 
 _JSON_WHITESPACE = frozenset(b" \t\n\r\f\v")
 _OPEN_BRACE = ord("{")
@@ -382,16 +390,17 @@ class StripeNestedResource:
     row_transform: Optional[Callable[[dict[str, Any]], dict[str, Any]]] = None
 
 
-class _SingleObjectList:
-    """Presents one retrieved Stripe object through the ``auto_paging_iter`` interface every other
-    resource in ``_build_resources`` exposes, so a retrieve-only endpoint rides the same fan-out
-    path as the list endpoints instead of needing its own branch in ``get_rows``."""
+class _RowList:
+    """Presents rows already in hand through the ``auto_paging_iter`` interface every other resource
+    in ``_build_resources`` exposes, so a retrieve-only endpoint, or one the sweep assembles from
+    several calls, rides the same fan-out path as the list endpoints instead of needing its own
+    branch in ``get_rows``."""
 
-    def __init__(self, obj: Any) -> None:
-        self._obj = obj
+    def __init__(self, rows: Iterable[Any]) -> None:
+        self._rows = rows
 
-    def auto_paging_iter(self):
-        yield self._obj
+    def auto_paging_iter(self) -> Iterator[Any]:
+        yield from self._rows
 
 
 def _credit_balance_summary_lister(client: StripeClient) -> Callable[..., ListObject[Any]]:
@@ -406,7 +415,7 @@ def _credit_balance_summary_lister(client: StripeClient) -> Callable[..., ListOb
                 "filter": {"type": "credit_grant", "credit_grant": credit_grant},
             }
         )
-        return cast(ListObject[Any], _SingleObjectList(summary))
+        return cast(ListObject[Any], _RowList([summary]))
 
     return _retrieve
 
@@ -434,6 +443,108 @@ def _credit_grant_has_customer(credit_grant: dict[str, Any]) -> bool:
     `customer`. The summary endpoint takes one or the other, and we scope on `customer`, so skip the
     rest rather than sending a request Stripe would reject."""
     return bool(credit_grant.get("customer"))
+
+
+@frozen
+class _MeterSummaryWindow:
+    """The range of whole UTC days one meter event summary sweep asks Stripe to aggregate over."""
+
+    start_time: int
+    end_time: int
+
+
+def _meter_summary_window(last_synced_start_time: Optional[Any], now: Optional[float] = None) -> _MeterSummaryWindow:
+    """The day range this sweep reads, from the newest day the table already holds.
+
+    Stripe aggregates a daily bucket only over whole UTC days, so both bounds align to 00:00 UTC.
+    The range stops at the start of the current day. A bucket that is still filling would report a
+    different total on the next run.
+
+    Stripe gives a day bucket a stable id, so a sweep that reads the newest day again refreshes it
+    through the merge instead of writing it twice. A first sync, or a full refresh, has no watermark
+    and reaches back `METER_SUMMARY_INITIAL_LOOKBACK_DAYS` instead.
+    """
+    end_time = int((now if now is not None else time.time()) // DAY_SECONDS) * DAY_SECONDS
+    watermark = _coerce_incremental_cursor(last_synced_start_time)
+    if watermark is None:
+        start_time = end_time - METER_SUMMARY_INITIAL_LOOKBACK_DAYS * DAY_SECONDS
+    else:
+        # A watermark past the current day boundary (clock skew, or a table written by a different
+        # window) would make Stripe reject the range, so the window collapses to an empty one.
+        start_time = min(watermark // DAY_SECONDS * DAY_SECONDS, end_time)
+    return _MeterSummaryWindow(start_time=start_time, end_time=end_time)
+
+
+def _subscription_meter_ids(subscription: dict[str, Any]) -> list[str]:
+    """The meters the subscription's items are billed on, without duplicates and in a stable order.
+
+    Only a metered price carries `recurring.meter`. Reading the meters off the subscription holds
+    the fan-out to the meter and customer pairs that can carry usage; the alternative is one Stripe
+    call for every meter in the account against every customer. The order has to stay stable, so a
+    resumed sweep sees the same row sequence and can drop the rows it already wrote.
+
+    A subscription lists its first 10 items, so usage on a meter beyond that item is not synced.
+    """
+    items = (subscription.get("items") or {}).get("data") or []
+    meters = {((item.get("price") or {}).get("recurring") or {}).get("meter") for item in items}
+    return sorted(meter for meter in meters if meter)
+
+
+def _subscription_has_metered_price(subscription: dict[str, Any]) -> bool:
+    return bool(_subscription_meter_ids(subscription))
+
+
+def _meter_summary_params(subscription: dict[str, Any]) -> dict[str, Any]:
+    """`customer` and `meters` for the fan-out call. Stripe has no `meters` parameter. The lister
+    reads it to decide which meter endpoints to call."""
+    return {"customer": subscription.get("customer"), "meters": _subscription_meter_ids(subscription)}
+
+
+def _rows_after_cursor(rows: list[dict[str, Any]], cursor: Optional[str]) -> list[dict[str, Any]]:
+    """`rows` from just after the row `cursor` names, or every row when it names none.
+
+    A resumed sweep re-enters the parent it stopped inside, so it has to drop what it already wrote.
+    The cursor can name no row, because the parent's meters changed between the two runs. Every row
+    is then kept, which repeats rows that the merge collapses on their id. That is safer than
+    dropping the parent for this run.
+    """
+    if cursor is None:
+        return rows
+    ids = [row.get("id") for row in rows]
+    if cursor not in ids:
+        return rows
+    return rows[ids.index(cursor) + 1 :]
+
+
+def _meter_event_summary_lister(client: StripeClient, window: _MeterSummaryWindow) -> Callable[..., ListObject[Any]]:
+    """`/v1/billing/meters/{id}/event_summaries` aggregates one meter, for one customer, over one
+    time range, and it has no unscoped list. The sweep walks subscriptions, so a single parent names
+    the customer and, through the prices on its items, the meters that customer is billed on.
+
+    Every row carries the customer, which the summary object itself leaves out. The rows of all the
+    subscription's meters arrive as one list, so Stripe's `starting_after` cursor names a position
+    in that combined list. The resume path applies the cursor here rather than sending it to Stripe,
+    which knows about one meter at a time.
+    """
+
+    def _list(params: dict[str, Any]) -> ListObject[Any]:
+        customer = params["customer"]
+        rows: list[dict[str, Any]] = []
+        for meter in params["meters"]:
+            summaries = client.billing.meters.event_summaries.list(
+                meter,
+                params={
+                    "customer": customer,
+                    "start_time": window.start_time,
+                    "end_time": window.end_time,
+                    "value_grouping_window": METER_SUMMARY_GROUPING_WINDOW,
+                    "limit": params.get("limit", DEFAULT_LIMIT),
+                },
+            )
+            rows.extend({**summary, "customer": customer} for summary in summaries.auto_paging_iter())
+        return cast(ListObject[Any], _RowList(_rows_after_cursor(rows, params.get("starting_after"))))
+
+    return _list
 
 
 def _customer_might_have_balance_transactions(customer: dict[str, Any]) -> bool:
@@ -672,7 +783,9 @@ def _batch_and_yield(
 
 
 def _build_resources(
-    client: StripeClient, logger: Optional[FilteringBoundLogger] = None
+    client: StripeClient,
+    logger: Optional[FilteringBoundLogger] = None,
+    meter_summary_window: Optional[_MeterSummaryWindow] = None,
 ) -> dict[str, Union[StripeResource, StripeNestedResource]]:
     """Single source of truth for the resources we sync from Stripe and how they relate.
 
@@ -682,7 +795,11 @@ def _build_resources(
 
     `logger` is only consumed by InvoiceListWithAllLines; pass None when the caller doesn't
     need the wrapped invoice expansion (e.g. validation, which just probes the list endpoint).
+    `meter_summary_window` is only consumed by BillingMeterEventSummary; callers that never read
+    rows (validation again) can leave it unset and take the full initial window.
     """
+    if meter_summary_window is None:
+        meter_summary_window = _meter_summary_window(None)
     return {
         ACCOUNT_RESOURCE_NAME: StripeResource(method=client.accounts.list),
         BALANCE_TRANSACTION_RESOURCE_NAME: StripeResource(method=client.balance_transactions.list),
@@ -766,6 +883,20 @@ def _build_resources(
         EVENT_RESOURCE_NAME: StripeResource(method=client.events.list),
         BILLING_METER_RESOURCE_NAME: StripeResource(method=client.billing.meters.list),
         BILLING_CREDIT_GRANT_RESOURCE_NAME: StripeResource(method=client.billing.credit_grants.list),
+        # The meter definitions above say what an account measures; this table says what each
+        # customer used. The endpoint takes one meter, one customer and one time range, so the
+        # sweep fans out over subscriptions: a subscription names its customer, and its items name
+        # the meters that customer is billed on. Only subscriptions with a metered price reach
+        # Stripe, which keeps this off a sweep of every customer against every meter.
+        BILLING_METER_EVENT_SUMMARY_RESOURCE_NAME: StripeNestedResource(
+            method=_meter_event_summary_lister(client, meter_summary_window),
+            nested_parent_param="subscription",
+            parent_id="id",
+            parent=StripeResource(method=client.subscriptions.list, params={"status": "all"}),
+            parent_name=SUBSCRIPTION_RESOURCE_NAME,
+            parent_has_nested=_subscription_has_metered_price,
+            nested_params_from_parent=_meter_summary_params,
+        ),
         # Stays on the parent API: the credit-grant listing fits in one page, so there is
         # no listing cost to remove.
         BILLING_CREDIT_BALANCE_TRANSACTION_RESOURCE_NAME: StripeNestedResource(
@@ -850,7 +981,13 @@ def get_rows(
         http_client=_tracked_stripe_http_client(),
     )
     default_params = {"limit": DEFAULT_LIMIT}
-    resources = _build_resources(client, logger=logger)
+    resources = _build_resources(
+        client,
+        logger=logger,
+        meter_summary_window=_meter_summary_window(
+            db_incremental_field_last_value if should_use_incremental_field else None
+        ),
+    )
 
     batcher = Batcher(logger=logger, chunk_size=STRIPE_CHUNK_SIZE)
 

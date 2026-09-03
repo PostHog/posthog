@@ -36,6 +36,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
     BILLING_CREDIT_BALANCE_SUMMARY_RESOURCE_NAME,
     BILLING_CREDIT_BALANCE_TRANSACTION_RESOURCE_NAME,
     BILLING_CREDIT_GRANT_RESOURCE_NAME,
+    BILLING_METER_EVENT_SUMMARY_RESOURCE_NAME,
     BILLING_METER_RESOURCE_NAME,
     CHARGE_RESOURCE_NAME,
     CHECKOUT_SESSION_RESOURCE_NAME,
@@ -959,6 +960,7 @@ class TestWebhookEventMapping:
             (SHIPPING_RATE_RESOURCE_NAME,),
             (EVENT_RESOURCE_NAME,),
             (BILLING_CREDIT_BALANCE_SUMMARY_RESOURCE_NAME,),
+            (BILLING_METER_EVENT_SUMMARY_RESOURCE_NAME,),
             (ENTITLEMENTS_FEATURE_RESOURCE_NAME,),
             (ENTITLEMENTS_ACTIVE_ENTITLEMENT_RESOURCE_NAME,),
         ]
@@ -1288,6 +1290,9 @@ class TestPartitioningAndColumnHints:
             (PAYMENT_INTENT_RESOURCE_NAME, "created"),
             (SUBSCRIPTION_ITEM_RESOURCE_NAME, "created"),
             (CUSTOMER_RESOURCE_NAME, "created"),
+            # Meter event summaries carry no `created`. Without the declared `start_time` field the
+            # partitioner falls back to `created` and KeyErrors on the first row.
+            (BILLING_METER_EVENT_SUMMARY_RESOURCE_NAME, "start_time"),
         ],
     )
     def test_timestamped_endpoints_keep_weekly_partitioning(self, endpoint, expected_key):
@@ -1877,3 +1882,145 @@ class TestStripeNestedSweepResume:
 
         assert "starting_after" not in nested_params[0]
         assert [row["id"] for row in rows] == ["txn_1"]
+
+
+_DAY = 24 * 60 * 60
+
+
+class TestMeterSummaryWindow:
+    def test_window_covers_whole_days_up_to_the_current_one(self):
+        # Stripe only aggregates daily buckets over UTC day boundaries, and a bucket that is still
+        # filling reports a different total on the next run.
+        window = stripe_module._meter_summary_window(None, now=3 * _DAY + 3600)
+        assert window.end_time == 3 * _DAY
+        assert window.start_time == 3 * _DAY - stripe_module.METER_SUMMARY_INITIAL_LOOKBACK_DAYS * _DAY
+
+    def test_watermark_starts_the_window_at_the_newest_day_held(self):
+        window = stripe_module._meter_summary_window(100 * _DAY, now=103 * _DAY + 10)
+        assert (window.start_time, window.end_time) == (100 * _DAY, 103 * _DAY)
+
+    def test_watermark_past_the_day_boundary_gives_an_empty_window(self):
+        # Stripe rejects a range that ends before it starts, which would fail the whole sync.
+        window = stripe_module._meter_summary_window(200 * _DAY, now=103 * _DAY)
+        assert window.start_time == window.end_time
+
+
+class TestMeterEventSummaryFanout:
+    def _subscription(self, subscription_id: str, customer: str, prices: list[dict[str, Any]]) -> dict[str, Any]:
+        return {
+            "id": subscription_id,
+            "customer": customer,
+            "items": {"data": [{"price": price} for price in prices]},
+        }
+
+    def _run(
+        self,
+        subscriptions: list[dict[str, Any]],
+        summaries_per_meter: int = 1,
+        resumable_source_manager: Any = None,
+    ) -> tuple[list[dict], list[tuple[str, dict]]]:
+        requested: list[tuple[str, dict]] = []
+
+        def event_summaries_list(meter, params):
+            requested.append((meter, params))
+            return _FakeStripeList(
+                [
+                    {
+                        "id": f"mtrusg_{meter}_{params['customer']}_{index}",
+                        "object": "billing.meter_event_summary",
+                        "meter": meter,
+                        "aggregated_value": 12,
+                        "start_time": params["start_time"],
+                        "end_time": params["end_time"],
+                    }
+                    for index in range(summaries_per_meter)
+                ]
+            )
+
+        client = MagicMock()
+        client.billing.meters.event_summaries.list.side_effect = event_summaries_list
+        client.subscriptions.list.return_value = _list_object(subscriptions)
+
+        real_build_resources = stripe_module._build_resources
+
+        def build_resources(_client, logger=None, meter_summary_window=None):
+            return real_build_resources(client, logger=None, meter_summary_window=meter_summary_window)
+
+        if resumable_source_manager is None:
+            resumable_source_manager = MagicMock()
+            resumable_source_manager.can_resume.return_value = False
+
+        with (
+            patch.object(stripe_module, "StripeClient"),
+            patch.object(stripe_module, "_build_resources", side_effect=build_resources),
+        ):
+            rows: list[dict] = []
+            for table in get_rows(
+                api_key="sk_test_123",
+                endpoint=BILLING_METER_EVENT_SUMMARY_RESOURCE_NAME,
+                account_id=None,
+                db_incremental_field_last_value=None,
+                db_incremental_field_earliest_value=None,
+                logger=MagicMock(),
+                resumable_source_manager=resumable_source_manager,
+                api_version=STRIPE_API_VERSION_ACACIA,
+            ):
+                rows.extend(table.to_pylist())
+        return rows, requested
+
+    def test_only_subscriptions_with_a_metered_price_reach_stripe(self):
+        # The endpoint costs one call per meter and customer pair, so a sweep that asked for every
+        # customer would spend most of its calls on customers that meter nothing.
+        rows, requested = self._run(
+            [
+                self._subscription("sub_flat", "cus_1", [{"recurring": {"interval": "month"}}, {}]),
+                self._subscription("sub_metered", "cus_2", [{"recurring": {"meter": "mtr_a"}}]),
+            ]
+        )
+        assert [meter for meter, _ in requested] == ["mtr_a"]
+        # The summary object names its meter but not its customer, so the sweep stamps both keys.
+        assert [(row["meter"], row["customer"], row["subscription"]) for row in rows] == [
+            ("mtr_a", "cus_2", "sub_metered")
+        ]
+
+    def test_a_meter_on_several_items_is_asked_for_once(self):
+        # Both items bill the same usage series, so a second call would only double the volume.
+        _, requested = self._run(
+            [
+                self._subscription(
+                    "sub_1",
+                    "cus_1",
+                    [
+                        {"recurring": {"meter": "mtr_b"}},
+                        {"recurring": {"meter": "mtr_a"}},
+                        {"recurring": {"meter": "mtr_a"}},
+                    ],
+                )
+            ]
+        )
+        assert [meter for meter, _ in requested] == ["mtr_a", "mtr_b"]
+
+    def test_request_asks_for_daily_buckets_of_the_subscription_customer(self):
+        _, requested = self._run([self._subscription("sub_1", "cus_1", [{"recurring": {"meter": "mtr_a"}}])])
+        _, params = requested[0]
+        assert params["customer"] == "cus_1"
+        assert params["value_grouping_window"] == "day"
+        assert params["start_time"] % _DAY == 0
+        assert params["end_time"] % _DAY == 0
+
+    def test_resume_drops_the_rows_already_written_and_sends_no_cursor(self):
+        # The cursor names a row in the subscription's combined list across its meters. Stripe lists
+        # one meter at a time and cannot resolve it, so the sweep applies the cursor itself.
+        manager = MagicMock()
+        manager.can_resume.return_value = True
+        manager.load_state.return_value = stripe_module.StripeResumeConfig(
+            nested_parent_id="sub_1",
+            nested_starting_after="mtrusg_mtr_a_cus_1_0",
+        )
+        rows, requested = self._run(
+            [self._subscription("sub_1", "cus_1", [{"recurring": {"meter": "mtr_a"}}])],
+            summaries_per_meter=3,
+            resumable_source_manager=manager,
+        )
+        assert [row["id"] for row in rows] == ["mtrusg_mtr_a_cus_1_1", "mtrusg_mtr_a_cus_1_2"]
+        assert "starting_after" not in requested[0][1]
