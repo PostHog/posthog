@@ -95,7 +95,7 @@ class TestQueryStatusManager(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("payload_without_cache_key", {"results": list(range(2000))}),
+            ("result_without_cache_key", {"results": [1, 2, 3]}),
             ("cache_entry_gone", {"results": [], "cache_key": "cache_missing"}),
         ]
     )
@@ -108,14 +108,14 @@ class TestQueryStatusManager(SimpleTestCase):
             self.manager.get_query_status()
         assert self.manager.get_query_status(resolve_results=False).complete is True
 
-    def test_keeps_a_small_result_reference_without_a_cache_key(self):
+    def test_hands_back_an_explicit_result_reference(self):
         self.query_status.complete = True
-        self.query_status.results = {"object_key": "frames/abc.arrow", "bucket": "notebook-frames"}
-        self.manager.store_query_status(self.query_status)
+        reference = {"object_key": "frames/abc.arrow", "bucket": "notebook-frames"}
+        self.manager.store_query_status(self.query_status, result_reference=reference)
 
         status = self.manager.get_query_status()
 
-        assert status.results == {"object_key": "frames/abc.arrow", "bucket": "notebook-frames"}
+        assert status.results == reference
 
     def test_delete_forgets_the_query(self):
         self.manager.store_query_status(self.query_status)

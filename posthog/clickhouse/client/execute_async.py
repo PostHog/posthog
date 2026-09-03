@@ -75,7 +75,6 @@ class QueryStatusManager:
     _DATETIME_FIELDS = ("start_time", "pickup_time", "end_time")
     _INT_FIELDS = ("insight_id", "dashboard_id")
     _STRING_FIELDS = ("task_id", "error_message", "error_code")
-    INLINE_RESULT_REFERENCE_MAX_BYTES = 1024
 
     def __init__(self, query_id: str, team_id: int):
         self.redis_client = redis.get_client()
@@ -98,7 +97,16 @@ class QueryStatusManager:
     def running_queries_key(self) -> str:
         return f"{self.KEY_PREFIX_RUNNING_QUERIES}:{self.team_id}"
 
-    def store_query_status(self, query_status: QueryStatus, ttl_seconds: Optional[int] = None) -> None:
+    def store_query_status(
+        self,
+        query_status: QueryStatus,
+        ttl_seconds: Optional[int] = None,
+        result_reference: Optional[dict] = None,
+    ) -> None:
+        """Write the record. `query_status.results` is never stored: a query-runner result is
+        pointed at through the cache key it carries, and a caller whose result lives elsewhere
+        passes a small `result_reference` (for example the object key a notebook frame was
+        written under), which the poll hands back in place of the result."""
         ttl = ttl_seconds if ttl_seconds is not None else settings.ASYNC_QUERY_STATUS_TTL_SECONDS
         query_status.expiration_time = datetime.datetime.now(datetime.UTC) + datetime.timedelta(seconds=ttl)
         fields: dict[str, str] = {
@@ -122,13 +130,8 @@ class QueryStatusManager:
         cache_key = query_status.results.get("cache_key") if isinstance(query_status.results, dict) else None
         if cache_key:
             fields["cache_key"] = cache_key
-        elif query_status.results is not None:
-            # A result without a cache key is kept only if it is itself a reference, such as the
-            # object key a notebook frame is materialized under. Anything payload-sized is dropped:
-            # the record must not turn back into a result cache.
-            encoded = json.dumps(query_status.results)
-            if len(encoded) <= self.INLINE_RESULT_REFERENCE_MAX_BYTES:
-                fields["results"] = encoded.decode("utf-8")
+        if result_reference is not None:
+            fields["result_reference"] = json.dumps(result_reference).decode("utf-8")
         self.redis_client.hset(self.status_key, mapping=fields)
         self.redis_client.expire(self.status_key, ttl)
 
@@ -211,8 +214,8 @@ class QueryStatusManager:
         )
 
         if query_status.complete and not query_status.error and resolve_results:
-            if record.get("results"):
-                query_status.results = json.loads(record["results"])
+            if record.get("result_reference"):
+                query_status.results = json.loads(record["result_reference"])
             else:
                 query_status.results = self._load_result(record.get("cache_key"))
 
