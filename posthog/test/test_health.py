@@ -15,7 +15,7 @@ from django.db import (
     Error as DjangoDatabaseError,
     connections,
 )
-from django.db.migrations.exceptions import NodeNotFoundError
+from django.db.migrations.exceptions import CircularDependencyError, NodeNotFoundError
 from django.http import JsonResponse
 from django.test import Client
 
@@ -440,18 +440,24 @@ def test_is_kafka_connected_returns_true_when_metadata_succeeds():
 
 
 @pytest.mark.django_db
-def test_health_returns_503_and_names_the_node_for_a_broken_migration_graph(client: Client):
-    error = NodeNotFoundError(
-        "Migration example.0002_second dependencies reference nonexistent parent node ('other', '0001_first')",
-        ("other", "0001_first"),
-    )
+@pytest.mark.parametrize(
+    "error",
+    [
+        NodeNotFoundError(
+            "Migration example.0002_second dependencies reference nonexistent parent node ('other', '0001_first')",
+            ("other", "0001_first"),
+        ),
+        CircularDependencyError("example.0002_second, other.0001_first"),
+    ],
+)
+def test_health_returns_503_and_names_the_bad_nodes_for_a_broken_migration_graph(client: Client, error):
     with patch("posthog.views.MigrationExecutor", side_effect=error):
         response = client.get("/_health")
 
     assert response.status_code == 503
     body = response.content.decode()
     assert "Migration graph is not valid" in body
-    assert "other" in body and "0001_first" in body
+    assert str(error) in body
 
 
 @pytest.fixture(autouse=True)

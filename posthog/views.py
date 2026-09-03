@@ -13,7 +13,7 @@ from django.contrib.admin.views.decorators import staff_member_required
 from django.contrib.auth import login
 from django.contrib.auth.decorators import login_required as base_login_required
 from django.db import DEFAULT_DB_ALIAS, connections
-from django.db.migrations.exceptions import NodeNotFoundError
+from django.db.migrations.exceptions import CircularDependencyError, NodeNotFoundError
 from django.db.migrations.executor import MigrationExecutor
 from django.db.models import Q
 from django.http import HttpRequest, HttpResponse, HttpResponseNotAllowed, JsonResponse
@@ -125,8 +125,8 @@ def health(request):
     try:
         executor = MigrationExecutor(connections[DEFAULT_DB_ALIAS])
         plan = executor.migration_plan(executor.loader.graph.leaf_nodes())
-    except NodeNotFoundError as err:
-        # A broken graph is a checkout problem, so name the bad node instead of raising a traceback.
+    except (NodeNotFoundError, CircularDependencyError) as err:
+        # A broken graph is a checkout problem, so name the bad nodes instead of raising a traceback.
         logger.warning("health_check_migration_graph_invalid", error=str(err))
         return HttpResponse(f"Migration graph is not valid: {err}", status=503, content_type="text/plain")
     if plan:
