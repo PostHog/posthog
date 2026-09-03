@@ -210,11 +210,15 @@ export const dataCatalogMetricSceneLogic = kea<dataCatalogMetricSceneLogicType>(
         metric: [
             null as DataCatalogMetricApi | null,
             {
-                loadMetric: async () => {
+                loadMetric: async (_, breakpoint) => {
                     if (isInvalidMetricName(props.name)) {
                         throw new Error('Invalid metric name')
                     }
-                    return await dataCatalogMetricsRetrieve(projectId(), props.name)
+                    const metric = await dataCatalogMetricsRetrieve(projectId(), props.name)
+                    // Latest-wins: a tool completion can fire loadMetric while one is already in
+                    // flight, so drop a superseded response instead of writing stale data back.
+                    breakpoint()
+                    return metric
                 },
                 setMetric: ({ metric }) => metric,
             },
