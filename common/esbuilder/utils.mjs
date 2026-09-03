@@ -117,9 +117,8 @@ export function copyIndexHtml(
     // Don't use chunks in dev mode.
     // Django caches the generated index.html, and we'll end up loading the wrong chunks after one change.
     const chunksToServe = isDev ? {} : chunks
-    let chunkMapFile = null
-    if (Object.keys(chunksToServe).length > 0) {
-        chunkMapFile = chunkMapFileName(entry, chunksToServe)
+    const chunkMapFile = Object.keys(chunksToServe).length > 0 ? chunkMapFileName(entry, chunksToServe) : null
+    if (chunkMapFile) {
         fse.writeFileSync(path.resolve(absWorkingDir, 'dist', chunkMapFile), chunkMapFileContents(chunksToServe))
     }
     const chunkCode = Object.keys(chunks).length > 0 ? chunkLoaderScript(chunksToServe, chunkMapFile) : ''

@@ -19,7 +19,7 @@ export function chunkMapFileName(entry, chunks) {
 
 /** Contents of the external map file: merges the full map into the inline global. */
 export function chunkMapFileContents(chunks) {
-    return `Object.assign(window.${CHUNK_MAP_GLOBAL} = window.${CHUNK_MAP_GLOBAL} || {}, ${JSON.stringify(chunks)});\n`
+    return `window.${CHUNK_MAP_GLOBAL} = Object.assign(window.${CHUNK_MAP_GLOBAL} || {}, ${JSON.stringify(chunks)});\n`
 }
 
 /**
