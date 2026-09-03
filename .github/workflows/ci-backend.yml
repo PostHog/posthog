@@ -808,11 +808,10 @@ jobs:
                   skip-token-revoke: true
 
             - parallel:
-                  - name: Install pnpm dependencies
-                    uses: ./.github/actions/pnpm-install
-                    with:
-                        install-command: pnpm install --frozen-lockfile --filter=@posthog/root
-                        token: ${{ steps.setup-gh-token.outputs.token || github.token }}
+                  # Every product's backend:test is a plain pytest invocation, so this
+                  # job needs the turbo binary and nothing else from the workspace.
+                  - name: Install turbo
+                    uses: ./.github/actions/setup-turbo
 
                   - name: Set up Python
                     uses: ./.github/actions/setup-python-cached
@@ -1053,7 +1052,7 @@ jobs:
                       echo "::group::turbo backend:test $leg_filters $leg_args"
                       # Word splitting is intended here: both variables carry several flags.
                       # shellcheck disable=SC2086
-                      pnpm turbo run backend:test $leg_filters --concurrency=1 --output-logs=full --force --log-order=stream $leg_args
+                      turbo run backend:test $leg_filters --concurrency=1 --output-logs=full --force --log-order=stream $leg_args
                       exit_code=$?
                       echo "::endgroup::"
                       if [ $exit_code -eq 5 ]; then
