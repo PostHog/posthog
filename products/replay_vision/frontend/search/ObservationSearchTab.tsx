@@ -6,6 +6,7 @@ import { IconSearch } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { PaginationControl } from 'lib/lemon-ui/PaginationControl'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -14,9 +15,9 @@ import { userLogic } from 'scenes/userLogic'
 import { ObservationResultSummary } from '../components/ObservationCard'
 import { ScannerTypeBadge } from '../components/ScannerTypeBadge'
 import type { ObservationSearchResultApi } from '../generated/api.schemas'
-import type { ReplayScanner } from '../replay_scanners/types'
+import { type ReplayScanner, SUCCEEDED_OUTPUT_LABEL } from '../replay_scanners/types'
 import { scannerLabel } from '../utils/observation'
-import { observationSearchLogic } from './observationSearchLogic'
+import { SEARCH_PAGE_SIZE, observationSearchLogic } from './observationSearchLogic'
 import { snippetSegments } from './snippetSegments'
 
 const CROSS_SCANNER_EXAMPLE_QUERIES = ['users who got stuck and gave up', 'rage clicking out of frustration']
@@ -114,11 +115,17 @@ function SearchResultCard({
                     <>
                         <span className="font-semibold text-sm truncate">{scannerLabel(observation)}</span>
                         {snapshot && (
-                            <ScannerTypeBadge scannerType={snapshot.scanner_type} size="small" variant="muted" />
+                            <ScannerTypeBadge
+                                scannerType={snapshot.scanner_type}
+                                label={SUCCEEDED_OUTPUT_LABEL[snapshot.scanner_type]}
+                                size="small"
+                            />
                         )}
                     </>
                 )}
-                <span className="font-mono text-xs text-muted truncate">{observation.session_id}</span>
+                {observation.recording_subject_email && (
+                    <span className="text-xs text-muted truncate">{observation.recording_subject_email}</span>
+                )}
                 <span className="ml-auto shrink-0 flex items-center gap-2 text-xs text-muted">
                     {strongMatch && (
                         <LemonTag type="success" size="small">
@@ -165,8 +172,11 @@ export function ObservationSearchTab({ scanner }: { scanner: ReplayScanner | nul
         recentQueries,
         suggestedQueries,
         suggestedQueriesLoading,
+        page,
+        pageCount,
+        pageResults,
     } = useValues(logic)
-    const { setQuery, search } = useActions(logic)
+    const { setQuery, search, setPage } = useActions(logic)
     const crossScanner = scanner === null
     const tryQueries = suggestedQueries.length > 0 ? suggestedQueries : exampleQueries(scanner)
     const runQuery = (value: string): void => {
@@ -252,7 +262,7 @@ export function ObservationSearchTab({ scanner }: { scanner: ReplayScanner | nul
                         <>
                             <div className="text-muted text-sm">{countLabel(results.length, truncated)}</div>
                             <div className="flex flex-col gap-2">
-                                {results.map((result) => (
+                                {pageResults.map((result) => (
                                     <SearchResultCard
                                         key={result.observation.id}
                                         result={result}
@@ -265,6 +275,20 @@ export function ObservationSearchTab({ scanner }: { scanner: ReplayScanner | nul
                                     />
                                 ))}
                             </div>
+                            <PaginationControl
+                                pagination={{
+                                    controlled: true,
+                                    pageSize: SEARCH_PAGE_SIZE,
+                                }}
+                                currentPage={page}
+                                setCurrentPage={setPage}
+                                pageCount={pageCount}
+                                dataSourcePage={pageResults}
+                                entryCount={results.length}
+                                currentStartIndex={(page - 1) * SEARCH_PAGE_SIZE}
+                                currentEndIndex={(page - 1) * SEARCH_PAGE_SIZE + pageResults.length}
+                                nouns={['match', 'matches']}
+                            />
                         </>
                     )}
                 </div>
