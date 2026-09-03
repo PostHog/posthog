@@ -12,8 +12,12 @@ import { createHash } from 'node:crypto'
  */
 export const CHUNK_MAP_GLOBAL = 'ESBUILD_CHUNK_MAP'
 
+// Hashes the exact bytes chunkMapFileContents emits, not just the chunk metadata, so a change
+// to the wrapper it writes also gets a new URL. Otherwise a deploy that only touches the wrapper
+// would reuse the old immutable URL while serving different bytes, letting caches keep the stale
+// wrapper.
 export function chunkMapFileName(entry, chunks) {
-    const hash = createHash('sha256').update(JSON.stringify(chunks)).digest('hex').slice(0, 8).toUpperCase()
+    const hash = createHash('sha256').update(chunkMapFileContents(chunks)).digest('hex').slice(0, 8).toUpperCase()
     return `chunk-map-${entry}-${hash}.js`
 }
 

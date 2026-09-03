@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto'
+
 import { chunkLoaderScript, chunkMapFileContents, chunkMapFileName } from './chunkLoader.mjs'
 
 const CHUNKS = {
@@ -77,5 +79,15 @@ describe('chunk loader script', () => {
         const b = chunkMapFileName('index', { ...CHUNKS, Dashboard: ['EEEE5555'] })
         expect(a).toMatch(/^chunk-map-index-[0-9A-F]{8}\.js$/)
         expect(a).not.toBe(b)
+
+        // The hash covers the exact bytes chunkMapFileContents writes to disk, wrapper included,
+        // not just the chunk metadata. A future change to the wrapper also gets a new URL.
+        const hash = a.match(/^chunk-map-index-([0-9A-F]{8})\.js$/)?.[1]
+        const contentHash = createHash('sha256')
+            .update(chunkMapFileContents(CHUNKS))
+            .digest('hex')
+            .slice(0, 8)
+            .toUpperCase()
+        expect(hash).toBe(contentHash)
     })
 })
