@@ -87,6 +87,45 @@ tools:
             Replace one context wiki page with complete Markdown content. Read it first and pass its head_sha as
             base_head. A concurrent wiki change returns a conflict instead of being overwritten.
         feature_flag: context-layer
+    loop-context-wiki-channel-resolve:
+        operation: context_layer_agent_channel_pages_retrieve
+        enabled: true
+        scopes:
+            - task:read
+            - loop_context_internal:write
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Resolve a loop context wiki page
+        description: Resolve a channel id to its context wiki page path for an unattended loop run.
+        feature_flag: context-layer
+    loop-context-wiki-page-retrieve:
+        operation: context_layer_agent_pages_retrieve
+        enabled: true
+        scopes:
+            - task:read
+            - loop_context_internal:write
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Read a loop context wiki page
+        description: Read a context wiki page and its head_sha for an unattended loop run.
+        feature_flag: context-layer
+    loop-context-wiki-page-update:
+        operation: context_layer_agent_pages_update
+        enabled: true
+        scopes:
+            - task:write
+            - loop_context_internal:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        title: Update a loop context wiki page
+        description: Replace a context wiki page using base_head concurrency for an unattended loop run.
+        feature_flag: context-layer
     task-context-wiki-channel-resolve:
         operation: context_layer_agent_channel_pages_retrieve
         enabled: true
@@ -126,43 +165,4 @@ tools:
             idempotent: false
         title: Update this task's context wiki page
         description: Replace the current task channel's context wiki page using base_head concurrency.
-        feature_flag: context-layer
-    loop-context-wiki-channel-resolve:
-        operation: context_layer_agent_channel_pages_retrieve
-        enabled: true
-        scopes:
-            - task:read
-            - loop_context_internal:write
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: Resolve a loop context wiki page
-        description: Resolve a channel id to its context wiki page path for an unattended loop run.
-        feature_flag: context-layer
-    loop-context-wiki-page-retrieve:
-        operation: context_layer_agent_pages_retrieve
-        enabled: true
-        scopes:
-            - task:read
-            - loop_context_internal:write
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: Read a loop context wiki page
-        description: Read a context wiki page and its head_sha for an unattended loop run.
-        feature_flag: context-layer
-    loop-context-wiki-page-update:
-        operation: context_layer_agent_pages_update
-        enabled: true
-        scopes:
-            - task:write
-            - loop_context_internal:write
-        annotations:
-            readOnly: false
-            destructive: true
-            idempotent: false
-        title: Update a loop context wiki page
-        description: Replace a context wiki page using base_head concurrency for an unattended loop run.
         feature_flag: context-layer
