@@ -15,6 +15,7 @@ use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 use tokio_stream::wrappers::TcpListenerStream;
 use tonic::transport::{Channel, Server};
+use usage_ingestion::counters::CounterAccumulator;
 use usage_ingestion::resolver::{OrganizationResolver, ResolveError};
 use usage_ingestion::service::UsageIngestionService;
 use usage_ingestion_proto::usage_ingestion::v1::usage_ingestion_client::UsageIngestionClient;
@@ -102,7 +103,11 @@ pub struct Service {
 }
 
 impl Service {
-    pub async fn start(max_batch_size: usize, organization_id: Uuid) -> Self {
+    pub async fn start(
+        max_batch_size: usize,
+        organization_id: Uuid,
+        counters: Option<Arc<CounterAccumulator>>,
+    ) -> Self {
         let producer = create_kafka_producer(
             &KafkaConfig {
                 kafka_hosts: kafka_hosts(),
@@ -119,6 +124,7 @@ impl Service {
             Arc::new(FixedResolver(organization_id)),
             max_batch_size,
             topic(),
+            counters,
         );
 
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();

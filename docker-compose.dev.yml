@@ -191,7 +191,7 @@ services:
             # CDP Redis defaults to 127.0.0.1 — must point to the Docker service
             CDP_REDIS_HOST: redis7
             CDP_VALKEY_HOST: valkey-cluster
-            CDP_VALKEY_PORT: 6379
+            CDP_VALKEY_PORT: 6390
             # Encryption keys default is only set when NODE_ENV=dev, but the image uses production
             ENCRYPTION_SALT_KEYS: '00beef0000beef0000beef0000beef00'
             # PersonHog is required for CDP — point at the local gRPC router
@@ -428,21 +428,26 @@ services:
         image: valkey/valkey:8.1-alpine
         restart: on-failure
         ports:
-            - '127.0.0.1:6390:6379'
+            - '127.0.0.1:6390:6390'
         command:
             - /bin/sh
             - -ec
             - |
-                valkey-server --cluster-enabled yes --cluster-config-file /tmp/nodes.conf --cluster-node-timeout 5000 &
+                # 6390 inside the container as well as on the host, so the port CLUSTER SLOTS
+                # announces is right for both. It announces no address, which every cluster
+                # client reads as "the one you reached me on", so a host client stays on
+                # 127.0.0.1 and a container client stays on valkey-cluster. Announcing an
+                # address instead would name one of those two and break the other.
+                valkey-server --port 6390 --cluster-enabled yes --cluster-config-file /tmp/nodes.conf --cluster-node-timeout 5000 &
                 pid=$$!
-                until valkey-cli ping >/dev/null 2>&1; do sleep 0.1; done
-                valkey-cli cluster addslots $$(seq 0 16383)
+                until valkey-cli -p 6390 ping >/dev/null 2>&1; do sleep 0.1; done
+                valkey-cli -p 6390 cluster addslots $$(seq 0 16383)
                 wait $$pid
         healthcheck:
             test:
                 [
                     'CMD-SHELL',
-                    'valkey-cli cluster info | grep -q cluster_state:ok && test "$$(valkey-cli cluster info | sed -n "s/cluster_slots_assigned://p" | tr -d "\r")" = 16384',
+                    'valkey-cli -p 6390 cluster info | grep -q cluster_state:ok && test "$$(valkey-cli -p 6390 cluster info | sed -n "s/cluster_slots_assigned://p" | tr -d "\r")" = 16384',
                 ]
             interval: 2s
             timeout: 3s
@@ -707,6 +712,10 @@ services:
                 condition: service_healthy
             kafka:
                 condition: service_healthy
+            valkey-cluster:
+                condition: service_healthy
+        environment:
+            USAGE_INGESTION_REDIS_URL: 'redis://valkey-cluster:6390'
         # Keeps a bare `up` from building an image that is not published yet.
         profiles:
             - ingestion

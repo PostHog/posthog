@@ -30,6 +30,35 @@ organization lookups in its process-local cache for five minutes.
 When `DEBUG` is set, the service writes readable, colorized logs for local
 development. It uses structured JSON logs otherwise.
 
+## Redis usage counters
+
+Set `USAGE_INGESTION_REDIS_URL` to a dedicated Valkey Cluster endpoint to
+enable the lossy hourly and daily counter projection. It is disabled when the
+URL is empty, so Kafka and ClickHouse remain the only required dependencies.
+When Valkey is unavailable, the flusher retries every
+`USAGE_INGESTION_REDIS_FLUSH_INTERVAL_SECONDS` (default `15`) and drops the
+unavailable interval's deltas. Counter timestamps are limited to seven days
+behind and 24 hours ahead of the current time, with at most 16 series per
+scope and bucket.
+
+The projection stores additive deltas, not usage record identities. Retrying
+after an accepted response or correcting a durable record can therefore
+increment its Valkey total again. ClickHouse remains the authoritative billing
+source, so do not use this projection for exact billing decisions.
+
+The dev stack runs the cluster on 6390 from both sides, so a host client uses
+`redis://127.0.0.1:6390` and the service container uses
+`redis://valkey-cluster:6390`. Start it and run its integration test with:
+
+```sh
+docker compose -f docker-compose.dev.yml up -d valkey-cluster
+flox activate -- bash -c 'cd rust && cargo test -p usage-ingestion --test counters -- --ignored --nocapture'
+```
+
+The test writes 1,024 independent team scopes plus one organization scope,
+checks the hour and day keys share a cluster slot, and proves cluster routing
+still rejects an intentionally cross-slot transaction.
+
 ## Where it runs
 
 | Resource | Placement |
@@ -100,7 +129,10 @@ flox activate -- bash -c 'cd rust && cargo test -p usage-ingestion --test load -
 It asserts that every request succeeds, that concurrent throughput is at least
 5x the sequential baseline measured on the same machine, and that ClickHouse
 ends with exactly one row per record with every retry winning on event
-timestamp.
+timestamp. It also flushes the accepted requests to Valkey Cluster, then
+checks the 27 hourly/daily hashes stay at four fields each and within a
+64-byte–1-KiB per-key memory budget. Add a counter series only with an
+intentional budget adjustment.
 The throughput floor is deliberately loose: it exists to catch a lock or single
 worker serializing the request path, not to pin a number to a laptop.
 
@@ -109,7 +141,7 @@ Raise the load to find where a machine stops scaling:
 
 | Env var | Default | |
 | --- | --- | --- |
-| `USAGE_INGESTION_E2E_LOAD_REQUESTS` | 5000 | total requests, 10% of them retries |
+| `USAGE_INGESTION_E2E_LOAD_REQUESTS` | 5000 | total requests, 10% of them retries, minimum 320 |
 | `USAGE_INGESTION_E2E_LOAD_CONCURRENCY` | 128 | requests in flight |
 | `USAGE_INGESTION_E2E_LOAD_CHANNELS` | 8 | gRPC connections the load spreads over |
 

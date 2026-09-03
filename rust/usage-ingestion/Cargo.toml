@@ -8,6 +8,7 @@ publish = false
 async-trait = { workspace = true }
 axum = { workspace = true }
 chrono = { workspace = true }
+futures = { workspace = true }
 common-database = { path = "../common/database" }
 common-grpc = { path = "../common/grpc" }
 common-kafka = { path = "../common/kafka" }
@@ -18,6 +19,7 @@ metrics = { workspace = true }
 metrics-exporter-prometheus = { workspace = true }
 moka = { workspace = true }
 rdkafka = { workspace = true }
+redis = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sqlx = { workspace = true }
