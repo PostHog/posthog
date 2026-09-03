@@ -440,8 +440,9 @@ class TestRecentReviewsAPI(APIBaseTest):
             head_sha="sha1",
             results={(1, 1): _issues_review(1), (2, 1): _issues_review(0)},
         )
-        # No persisted plan (a fallback run): the dense estimate — 2 chunks × (3 canonical
-        # perspectives + the blind-spot sweep) = 8 expected reads.
+        # No persisted plan (a fallback run): the dense estimate — 2 chunks × (3 default-enabled
+        # canonical perspectives + the blind-spot sweep) = 8 expected reads. Opt-in canonicals
+        # never seed, so they don't inflate the cold-user estimate.
         assert self.client.get(self.url).json()["results"][0]["progress"] == {
             "review_stage": "reviewing",
             "done": 2,

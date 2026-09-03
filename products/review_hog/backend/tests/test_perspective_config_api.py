@@ -8,6 +8,8 @@ from products.review_hog.backend.models import ReviewSkillConfig
 from products.review_hog.backend.reviewer.lazy_seed import sync_canonical_perspectives
 from products.review_hog.backend.reviewer.skill_loader import (
     CANONICAL_PERSPECTIVE_SKILL_NAMES,
+    DEFAULT_ENABLED_PERSPECTIVE_SKILL_NAMES,
+    OPT_IN_CANONICAL_PERSPECTIVE_SKILL_NAMES,
     REVIEW_HOG_PERSPECTIVE_PREFIX,
     REVIEW_HOG_VALIDATION_SKILL_NAME,
     register_missing_perspective_configs,
@@ -15,6 +17,7 @@ from products.review_hog.backend.reviewer.skill_loader import (
 from products.skills.backend.models.skills import LLMSkill
 
 _CUSTOM = f"{REVIEW_HOG_PERSPECTIVE_PREFIX}custom-x"
+_OPT_IN = OPT_IN_CANONICAL_PERSPECTIVE_SKILL_NAMES[0]
 
 
 class TestReviewPerspectiveConfigAPI(APIBaseTest):
@@ -35,15 +38,17 @@ class TestReviewPerspectiveConfigAPI(APIBaseTest):
         )
 
     def test_list_shows_canonicals_enabled_and_custom_disabled(self) -> None:
-        # The menu surfaces every perspective skill with this user's enable state — canonicals seed on,
-        # a custom not yet switched on shows off — so the future UI can render the full toggle list.
+        # The menu surfaces every perspective skill with this user's enable state — default canonicals
+        # seed on, an opt-in canonical or a custom not yet switched on shows off — so the future UI
+        # can render the full toggle list.
         self._author_custom()
 
         res = self.client.get(f"{self.base}/")
 
         assert res.status_code == 200
         by_name = {item["skill_name"]: item["enabled"] for item in res.json()}
-        assert all(by_name[name] is True for name in CANONICAL_PERSPECTIVE_SKILL_NAMES)
+        assert all(by_name[name] is True for name in DEFAULT_ENABLED_PERSPECTIVE_SKILL_NAMES)
+        assert by_name[_OPT_IN] is False
         assert by_name[_CUSTOM] is False
 
     def test_enabling_a_custom_perspective_upserts_the_config(self) -> None:
@@ -58,31 +63,41 @@ class TestReviewPerspectiveConfigAPI(APIBaseTest):
         config = ReviewSkillConfig.objects.for_team(self.team.id).get(user_id=self.user.id, skill_name=_CUSTOM)
         assert config.enabled is True
 
+    def test_enabling_an_opt_in_canonical_upserts_the_config(self) -> None:
+        # An opt-in canonical is seeded with no author, so unlike a custom its visibility rides only
+        # on the canonical name set — if the name fell out of it, this PATCH would 404 for everyone.
+        res = self.client.patch(f"{self.base}/{_OPT_IN}/", {"enabled": True}, format="json")
+
+        assert res.status_code == 200
+        assert res.json()["enabled"] is True
+        config = ReviewSkillConfig.objects.for_team(self.team.id).get(user_id=self.user.id, skill_name=_OPT_IN)
+        assert config.enabled is True
+
     def test_cannot_disable_the_last_enabled_perspective(self) -> None:
         # The min-1 floor: a user must always keep ≥1 perspective on, or their reviews would run empty.
         register_missing_perspective_configs(self.team.id, self.user.id)
-        names = sorted(CANONICAL_PERSPECTIVE_SKILL_NAMES)
-        for name in names[:2]:
+        names = sorted(DEFAULT_ENABLED_PERSPECTIVE_SKILL_NAMES)
+        for name in names[:-1]:
             assert self.client.patch(f"{self.base}/{name}/", {"enabled": False}, format="json").status_code == 200
 
-        res = self.client.patch(f"{self.base}/{names[2]}/", {"enabled": False}, format="json")
+        res = self.client.patch(f"{self.base}/{names[-1]}/", {"enabled": False}, format="json")
 
         assert res.status_code == 400
-        last = ReviewSkillConfig.objects.for_team(self.team.id).get(user_id=self.user.id, skill_name=names[2])
+        last = ReviewSkillConfig.objects.for_team(self.team.id).get(user_id=self.user.id, skill_name=names[-1])
         assert last.enabled is True
 
     def test_an_enabled_validator_does_not_satisfy_the_perspective_floor(self) -> None:
         # The min-1 floor counts only perspectives: an enabled validator in the shared table must not
         # let a user disable their last perspective.
         register_missing_perspective_configs(self.team.id, self.user.id)
-        names = sorted(CANONICAL_PERSPECTIVE_SKILL_NAMES)
-        for name in names[:2]:
+        names = sorted(DEFAULT_ENABLED_PERSPECTIVE_SKILL_NAMES)
+        for name in names[:-1]:
             assert self.client.patch(f"{self.base}/{name}/", {"enabled": False}, format="json").status_code == 200
         ReviewSkillConfig.objects.for_team(self.team.id).create(
             team_id=self.team.id, user_id=self.user.id, skill_name=REVIEW_HOG_VALIDATION_SKILL_NAME, enabled=True
         )
 
-        res = self.client.patch(f"{self.base}/{names[2]}/", {"enabled": False}, format="json")
+        res = self.client.patch(f"{self.base}/{names[-1]}/", {"enabled": False}, format="json")
 
         assert res.status_code == 400
 

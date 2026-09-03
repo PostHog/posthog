@@ -90,7 +90,7 @@ export const getReviewHogPerspectivesListUrl = (projectId: string) => {
 }
 
 /**
- * List the `review-hog-perspective-*` skills visible to the requesting user — the canonical perspectives plus the customs they authored — joined with their enable state. The 3 canonical perspectives are auto-seeded enabled on the first read; a custom perspective the user has not switched on shows as disabled.
+ * List the `review-hog-perspective-*` skills visible to the requesting user — the canonical perspectives plus the customs they authored — joined with their enable state. The default canonical perspectives are auto-seeded enabled on the first read; opt-in canonicals and custom perspectives the user has not switched on show as disabled.
  * @summary List review perspectives and their enablement
  */
 export const reviewHogPerspectivesList = async (

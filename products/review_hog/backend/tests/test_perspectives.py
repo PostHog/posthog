@@ -14,7 +14,8 @@ from products.review_hog.backend.reviewer.lazy_seed import (
 )
 from products.review_hog.backend.reviewer.skill_loader import (
     CANONICAL_PERSPECTIVE_SKILL_NAMES,
-    PERSPECTIVES,
+    DEFAULT_ENABLED_PERSPECTIVE_SKILL_NAMES,
+    OPT_IN_CANONICAL_PERSPECTIVE_SKILL_NAMES,
     REVIEW_HOG_PERSPECTIVE_PREFIX,
     REVIEW_HOG_VALIDATION_SKILL_NAME,
     NoEnabledPerspectivesError,
@@ -26,6 +27,7 @@ from products.skills.backend.models.skills import LLMSkill
 
 _LOGIC = f"{REVIEW_HOG_PERSPECTIVE_PREFIX}logic-correctness"
 _CUSTOM = f"{REVIEW_HOG_PERSPECTIVE_PREFIX}custom-x"
+_OPT_IN = OPT_IN_CANONICAL_PERSPECTIVE_SKILL_NAMES[0]
 
 
 def _author_perspective_skill(team, name: str, created_by: User | None = None) -> LLMSkill:
@@ -34,10 +36,11 @@ def _author_perspective_skill(team, name: str, created_by: User | None = None) -
     )
 
 
-def test_discover_finds_the_three_canonical_perspectives() -> None:
-    # The on-disk SKILL.md set must parse and match the registry names exactly.
+def test_discover_finds_the_canonical_perspectives() -> None:
+    # The on-disk SKILL.md set must parse and match the registry names exactly — the default-enabled
+    # ones and the opt-in ones alike.
     discovered = {s.name for s in discover_canonical_perspectives()}
-    assert discovered == {name for _, name in PERSPECTIVES}
+    assert discovered == set(CANONICAL_PERSPECTIVE_SKILL_NAMES)
 
 
 def _changed_canonical(name: str) -> CanonicalSkill:
@@ -55,9 +58,9 @@ class TestSyncCanonicalPerspectives(BaseTest):
     def test_creates_a_seeded_row_per_perspective(self) -> None:
         result = sync_canonical_perspectives(self.team)
 
-        assert set(result.created_skill_names) == {name for _, name in PERSPECTIVES}
+        assert set(result.created_skill_names) == set(CANONICAL_PERSPECTIVE_SKILL_NAMES)
         rows = LLMSkill.objects.filter(team=self.team, deleted=False, is_latest=True)
-        assert rows.count() == len(PERSPECTIVES)
+        assert rows.count() == len(CANONICAL_PERSPECTIVE_SKILL_NAMES)
         row = rows.get(name=_LOGIC)
         assert row.version == 1
         assert row.category == REVIEW_HOG_SKILL_CATEGORY
@@ -144,15 +147,16 @@ class TestSyncCanonicalPerspectives(BaseTest):
 
 
 class TestRegisterMissingPerspectiveConfigs(BaseTest):
-    def test_seeds_only_canonicals_enabled_and_is_idempotent(self) -> None:
-        # Seeding enables the 3 canonicals for the user and must NOT auto-create a config for a custom
-        # perspective (customs are user-enabled only). Re-running must not duplicate rows.
+    def test_seeds_only_default_canonicals_enabled_and_is_idempotent(self) -> None:
+        # Seeding enables the default canonicals for the user and must NOT auto-create a config for a
+        # custom perspective or an opt-in canonical (both are user-enabled only). Re-running must not
+        # duplicate rows.
         _author_perspective_skill(self.team, _CUSTOM)
         register_missing_perspective_configs(self.team.id, self.user.id)
         register_missing_perspective_configs(self.team.id, self.user.id)
 
         rows = ReviewSkillConfig.objects.for_team(self.team.id).filter(user_id=self.user.id)
-        assert {r.skill_name for r in rows} == set(CANONICAL_PERSPECTIVE_SKILL_NAMES)
+        assert {r.skill_name for r in rows} == set(DEFAULT_ENABLED_PERSPECTIVE_SKILL_NAMES)
         assert all(r.enabled for r in rows)
 
     def test_does_not_re_enable_a_disabled_canonical(self) -> None:
@@ -169,14 +173,15 @@ class TestRegisterMissingPerspectiveConfigs(BaseTest):
 
 
 class TestLoadPerspectivesForRun(BaseTest):
-    def test_cold_user_gets_the_canonicals_pinned(self) -> None:
-        # A user who never toggled anything: seeding enables the 3 canonicals, the loader resolves them
-        # sorted, pass_number a contiguous per-run index, version pinned to the synced latest.
+    def test_cold_user_gets_the_default_canonicals_pinned(self) -> None:
+        # A user who never toggled anything: seeding enables the default canonicals (never the opt-in
+        # ones), the loader resolves them sorted, pass_number a contiguous per-run index, version
+        # pinned to the synced latest.
         sync_canonical_perspectives(self.team)
 
         loaded = load_perspectives_for_run(self.team.id, self.user.id)
 
-        assert [lp.skill_name for lp in loaded] == sorted(CANONICAL_PERSPECTIVE_SKILL_NAMES)
+        assert [lp.skill_name for lp in loaded] == sorted(DEFAULT_ENABLED_PERSPECTIVE_SKILL_NAMES)
         assert [lp.pass_number for lp in loaded] == [1, 2, 3]
         assert all(lp.version == 1 for lp in loaded)
 
@@ -202,7 +207,7 @@ class TestLoadPerspectivesForRun(BaseTest):
 
         loaded = load_perspectives_for_run(self.team.id, self.user.id)
 
-        assert [lp.skill_name for lp in loaded] == sorted(set(CANONICAL_PERSPECTIVE_SKILL_NAMES) - {_LOGIC})
+        assert [lp.skill_name for lp in loaded] == sorted(set(DEFAULT_ENABLED_PERSPECTIVE_SKILL_NAMES) - {_LOGIC})
         assert [lp.pass_number for lp in loaded] == [1, 2]
 
     def test_includes_an_enabled_custom_perspective(self) -> None:
@@ -232,7 +237,7 @@ class TestLoadPerspectivesForRun(BaseTest):
         loaded = load_perspectives_for_run(self.team.id, self.user.id)
 
         assert REVIEW_HOG_VALIDATION_SKILL_NAME not in {lp.skill_name for lp in loaded}
-        assert [lp.skill_name for lp in loaded] == sorted(CANONICAL_PERSPECTIVE_SKILL_NAMES)
+        assert [lp.skill_name for lp in loaded] == sorted(DEFAULT_ENABLED_PERSPECTIVE_SKILL_NAMES)
 
     def test_raises_when_user_has_zero_enabled(self) -> None:
         sync_canonical_perspectives(self.team)
@@ -260,7 +265,7 @@ class TestLoadPerspectivesForRun(BaseTest):
 
         loaded = load_perspectives_for_run(self.team.id, self.user.id)
 
-        assert [lp.skill_name for lp in loaded] == sorted(CANONICAL_PERSPECTIVE_SKILL_NAMES)
+        assert [lp.skill_name for lp in loaded] == sorted(DEFAULT_ENABLED_PERSPECTIVE_SKILL_NAMES)
         assert [lp.pass_number for lp in loaded] == [1, 3, 4]
 
     def test_skips_an_enabled_perspective_authored_by_another_user(self) -> None:
@@ -278,8 +283,21 @@ class TestLoadPerspectivesForRun(BaseTest):
 
         loaded = load_perspectives_for_run(self.team.id, self.user.id)
 
-        assert [lp.skill_name for lp in loaded] == sorted(CANONICAL_PERSPECTIVE_SKILL_NAMES)
+        assert [lp.skill_name for lp in loaded] == sorted(DEFAULT_ENABLED_PERSPECTIVE_SKILL_NAMES)
         assert [lp.pass_number for lp in loaded] == [1, 3, 4]
+
+    def test_includes_the_opt_in_canonical_once_enabled(self) -> None:
+        # An opt-in canonical is seeded with no author, so if its name fell out of the canonical
+        # visibility set the loader would skip it as a foreign custom — enabling it must run it.
+        sync_canonical_perspectives(self.team)
+        register_missing_perspective_configs(self.team.id, self.user.id)
+        ReviewSkillConfig.objects.for_team(self.team.id).create(
+            team_id=self.team.id, user_id=self.user.id, skill_name=_OPT_IN, enabled=True
+        )
+
+        loaded = load_perspectives_for_run(self.team.id, self.user.id)
+
+        assert [lp.skill_name for lp in loaded] == sorted([*DEFAULT_ENABLED_PERSPECTIVE_SKILL_NAMES, _OPT_IN])
 
     def test_enablement_is_per_user(self) -> None:
         # Disabling a perspective for one user must not affect another user's run — enablement is per-USER.

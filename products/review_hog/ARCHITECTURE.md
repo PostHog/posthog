@@ -8,8 +8,9 @@ GitHub, splits it into logically reviewable **chunks**, picks which perspectives
 (**perspective selection**, a cheap one-shot), runs the selected **perspective reviews in parallel** on each
 chunk inside **sandbox agents**, then combines → scope-cleans → deduplicates → validates the findings, renders
 a markdown report, and posts inline review comments back to the PR. Each review **perspective** (Logic &
-Correctness, Contracts & Security, Performance & Reliability) is a DB-synced **LLMA skill** the sandbox agent
-pulls over MCP — the same canonical-skill pattern the Signals scouts use.
+Correctness, Contracts & Security, Performance & Reliability, plus the opt-in Overengineering & Paranoia —
+canonical for every team but disabled until a user switches it on) is a DB-synced **LLMA skill** the sandbox
+agent pulls over MCP — the same canonical-skill pattern the Signals scouts use.
 
 The repo-access LLM steps (perspective review, blind-spot check, validation) run inside **sandbox agents**
 spawned through the shared `products/tasks` infrastructure (`Task`/`TaskRun` → Temporal
@@ -270,15 +271,19 @@ pr_metadata.head_branch` is threaded (as explicit kwargs, alongside `team_id` / 
    same Sonnet 5 @ xhigh via the `CHUNKING_*` constants (identical prompt — the sandbox only adds repo
    access the agent may not use). Returns the
    `ChunksList`; persists a `chunk_set` row (and resumes from it on a re-run of the same head).
-5. **Parallel perspective review** — `review_chunks` runs **three independent specialist perspectives
-   concurrently** per chunk (one sandbox activity per `(perspective × chunk)`, bounded by the child workflow's `asyncio.Semaphore`),
-   each with **no cross-perspective context** — overlap is left to dedup (7):
+5. **Parallel perspective review** — `review_chunks` runs the acting user's **enabled specialist
+   perspectives concurrently** per chunk (one sandbox activity per `(perspective × chunk)`, bounded by the child workflow's `asyncio.Semaphore`),
+   each with **no cross-perspective context** — overlap is left to dedup (7). The default-enabled three:
    - **Logic & Correctness** (`PerspectiveType.LOGIC_CORRECTNESS`)
    - **Contracts & Security** (`PerspectiveType.CONTRACTS_SECURITY`)
    - **Performance & Reliability** (`PerspectiveType.PERFORMANCE_RELIABILITY`)
 
-   The three perspectives come from the ordered `PERSPECTIVES` registry (`reviewer/skill_loader.py`);
-   `load_perspectives_for_run(team_id)` pins each one's current `LLMSkill` version for the run. Delivery is
+   The canonical perspectives come from `reviewer/skill_loader.py`: the ordered `PERSPECTIVES` registry
+   (auto-seeds enabled on a user's first run) plus `OPT_IN_CANONICAL_PERSPECTIVE_SKILL_NAMES`
+   (currently **Overengineering & Paranoia**, which hunts complexity the PR adds that its job doesn't
+   need — synced for every team but never auto-enabled; a user switches it on from the Code review
+   scene like a custom). `load_perspectives_for_run(team_id)` pins each enabled one's current
+   `LLMSkill` version for the run. Delivery is
    **pull** — the prompt instructs the sandbox agent to `skill-get(review-hog-perspective-…, version=N)` over
    MCP and apply that perspective's focus, rather than splicing the focus text into the prompt. Each
    perspective×chunk is one sandbox call validating `IssuesReview` (step name `issues-review-p{pass}-c{chunk}`);
@@ -507,7 +512,7 @@ content". Most begin with `{{ CLAUDE_CODE_CONTEXT | safe }}` (the `@path#L…` r
   `<your_review_perspective>` block instructs the agent to `skill-get(PERSPECTIVE_SKILL_NAME, version=N)` over
   MCP and apply that perspective's focus (pull delivery). → `IssuesReview`. The perspective focuses themselves
   live as **DB-synced LLMA skills** at
-  `products/review_hog/skills/review-hog-perspective-{logic-correctness,contracts-security,performance-reliability}/SKILL.md`.
+  `products/review_hog/skills/review-hog-perspective-{logic-correctness,contracts-security,performance-reliability,overengineering-paranoia}/SKILL.md`.
 - `issue_deduplicator/prompt.jinja` — mark duplicates (same file + overlapping lines + similar root cause)
   and issues matching prior review comments; keep the single most comprehensive representative. →
   `IssueDeduplication`.

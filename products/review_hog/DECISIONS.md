@@ -198,6 +198,31 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
    rate drops materially (toward ≤50%) on frozen-PR evals with the valid-finding set intact (item 5's
    coverage matrix as the guard); kill if valid findings drop with the noise.
 
+### ✅ BUILT 2026-08-31 — opt-in canonical perspective: Overengineering & Paranoia (shipped to everyone, enabled by no one)
+
+The first canonical perspective that does not auto-enable: `review-hog-perspective-overengineering-paranoia`
+hunts complexity the PR itself introduces (premature abstraction, speculative options, guards for impossible
+states, unreachable fallbacks, dead weight) and always proposes a removal, never an addition. Two decisions:
+
+- **A third seeding class.** Canonicals used to mean "visible to everyone AND auto-enabled"; customs mean
+  "author-only AND off until toggled". This lens wants the cross: every team gets it, nobody runs it
+  uninvited (its findings are opinionated, and the default wave's cost/precision balance is tuned around
+  three lenses). `skill_loader.py` splits the sets — `PERSPECTIVES` stays the auto-enable seed,
+  `OPT_IN_CANONICAL_PERSPECTIVE_SKILL_NAMES` joins it in `CANONICAL_PERSPECTIVE_SKILL_NAMES` (the
+  visibility set) but never gets a seeded config row, so a missing row reads as disabled exactly like a
+  custom. No `PerspectiveType` member: skill_name has been the identity since the customizable-perspectives
+  decision.
+- **The validator needed a keep-bucket, not just the lens (grilled 2026-08-31).** The canonical validation
+  criteria's keep list was a closed set of behavioral harms; a grounded "delete this machinery the PR added"
+  finding matched none of them (removal changes no behavior), so the lens's output would have been judged
+  invalid wholesale. Added one tight keep-bullet — needless complexity the PR itself introduces, kept only
+  with evidence (call sites counted, types checked, or the existing utility named) and a safe removal — and
+  made the overengineering drop-bullet's direction explicit (it drops asks to _add_ machinery). The initial
+  "different cases, no conflict" read was half right: the drop list wasn't the blocker, the keep list was.
+
+Downstream needed nothing: selection, the blind-spot prompt, dedup, `perspective_stats`, and the scene all
+key off skill name + description. `progress.py`'s cold-user estimate now counts the default-enabled set.
+
 ### ✅ DECIDED 2026-08-21 — label trigger moves onto the GitHub App webhook (additive handler, no second inlet)
 
 - **What.** The `reviewhog` label add reaches ReviewHog as a `pull_request` handler registered in core's

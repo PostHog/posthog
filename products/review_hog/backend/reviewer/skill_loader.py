@@ -22,19 +22,35 @@ from products.skills.backend.models.skills import LLMSkill
 logger = logging.getLogger(__name__)
 
 # Naming contract for review perspectives (mirrors `SIGNALS_SCOUT_SKILL_PREFIX`): any team skill with
-# this prefix is a perspective. Canonical and custom are identical except canonicals auto-seed enabled.
+# this prefix is a perspective. Canonical and custom are identical in shape; only default-enabled
+# canonicals auto-seed enabled, while opt-in canonicals and customs stay off until a user switches
+# them on.
 REVIEW_HOG_PERSPECTIVE_PREFIX = "review-hog-perspective-"
 
-# Canonical perspectives that auto-seed. `PerspectiveType` is just this seed list now — NOT an identity
-# (skill_name is, stamped at review time), so a custom perspective without an enum member is first-class.
+# Canonical perspectives that auto-seed ENABLED on a user's first run. `PerspectiveType` is just this
+# seed list now — NOT an identity (skill_name is, stamped at review time), so a custom perspective
+# without an enum member is first-class.
 PERSPECTIVES: tuple[tuple[PerspectiveType, str], ...] = (
     (PerspectiveType.LOGIC_CORRECTNESS, f"{REVIEW_HOG_PERSPECTIVE_PREFIX}logic-correctness"),
     (PerspectiveType.CONTRACTS_SECURITY, f"{REVIEW_HOG_PERSPECTIVE_PREFIX}contracts-security"),
     (PerspectiveType.PERFORMANCE_RELIABILITY, f"{REVIEW_HOG_PERSPECTIVE_PREFIX}performance-reliability"),
 )
 
-# The canonical perspective skill names — the set `register_missing_perspective_configs` auto-enables.
-CANONICAL_PERSPECTIVE_SKILL_NAMES: tuple[str, ...] = tuple(name for _, name in PERSPECTIVES)
+# Canonical perspectives that ship to every team but never auto-enable — a user switches them on from
+# the Code review scene, like a custom. Kept out of `PERSPECTIVES` so the config seed cannot enable
+# them; the on-disk skill still syncs for every team because discovery is directory-driven.
+OPT_IN_CANONICAL_PERSPECTIVE_SKILL_NAMES: tuple[str, ...] = (
+    f"{REVIEW_HOG_PERSPECTIVE_PREFIX}overengineering-paranoia",
+)
+
+# The subset `register_missing_perspective_configs` auto-enables on a user's first run.
+DEFAULT_ENABLED_PERSPECTIVE_SKILL_NAMES: tuple[str, ...] = tuple(name for _, name in PERSPECTIVES)
+
+# Every canonical perspective skill name — the everyone-visible set (`visible_skill_names`).
+CANONICAL_PERSPECTIVE_SKILL_NAMES: tuple[str, ...] = (
+    *DEFAULT_ENABLED_PERSPECTIVE_SKILL_NAMES,
+    *OPT_IN_CANONICAL_PERSPECTIVE_SKILL_NAMES,
+)
 
 
 class NoEnabledPerspectivesError(LookupError):
@@ -82,9 +98,9 @@ class LoadedPerspective:
 
 
 def _register_missing_configs(team_id: int, user_id: int, skill_names: tuple[str, ...]) -> None:
-    """Seed an enabled `ReviewSkillConfig` for each canonical skill this user lacks.
+    """Seed an enabled `ReviewSkillConfig` for each given canonical skill this user lacks.
 
-    The one allowed canonical/custom difference: the canonicals auto-enable on a user's first run
+    The one allowed canonical/custom difference: these canonicals auto-enable on a user's first run
     ("auto-added on the start"); customs are switched on explicitly via the config API. Idempotent
     (`get_or_create` on the `(team, user, skill_name)` unique key), and a row the user disabled is
     left untouched — seeding never re-enables. `team_id` / `user_id` stay in the create kwargs: the
@@ -99,14 +115,20 @@ def _register_missing_configs(team_id: int, user_id: int, skill_names: tuple[str
 
 
 def register_missing_perspective_configs(team_id: int, user_id: int) -> None:
-    """Seed an enabled `ReviewSkillConfig` for each canonical perspective this user lacks."""
-    _register_missing_configs(team_id, user_id, CANONICAL_PERSPECTIVE_SKILL_NAMES)
+    """Seed an enabled `ReviewSkillConfig` for each default canonical perspective this user lacks.
+
+    Opt-in canonicals get no config row here: with no row they read as disabled everywhere (the
+    config API and the loader both default a missing row to off), which is exactly the
+    disabled-until-switched-on behavior customs have.
+    """
+    _register_missing_configs(team_id, user_id, DEFAULT_ENABLED_PERSPECTIVE_SKILL_NAMES)
 
 
 def load_perspectives_for_run(team_id: int, acting_user_id: int) -> list[LoadedPerspective]:
     """Resolve the acting user's enabled perspectives, each pinned to its current latest version.
 
-    Seeds the canonical configs first (so a cold user gets the 3 canonicals), then reads the user's
+    Seeds the default canonical configs first (so a cold user gets those enabled; opt-in canonicals
+    stay off until the user switches them on), then reads the user's
     enabled set and resolves each name to its live `LLMSkill` (latest, non-deleted). `pass_number`
     is the 1-based slot in the full enabled set sorted by name — NOT an index over the live subset,
     so a dead skill leaves a hole instead of shifting the others. That keeps each surviving

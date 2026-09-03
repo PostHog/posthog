@@ -34,7 +34,7 @@ from products.review_hog.backend.reviewer.constants import BLIND_SPOT_PASS_NUMBE
 from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
 from products.review_hog.backend.reviewer.models.perspective_selection import ChunkPerspectiveSelection
 from products.review_hog.backend.reviewer.skill_loader import (
-    CANONICAL_PERSPECTIVE_SKILL_NAMES,
+    DEFAULT_ENABLED_PERSPECTIVE_SKILL_NAMES,
     REVIEW_HOG_PERSPECTIVE_PREFIX,
 )
 
@@ -388,8 +388,8 @@ def _expected_reads(team_id: int, report: ReviewReport, turn: TurnStats) -> int 
         .filter(user_id=report.acting_user_id, enabled=True, skill_name__startswith=REVIEW_HOG_PERSPECTIVE_PREFIX)
         .count()
     )
-    # No configs yet means the run will seed and use the canonical set.
-    perspectives = enabled or len(CANONICAL_PERSPECTIVE_SKILL_NAMES)
+    # No configs yet means the run will seed and use the default-enabled canonical set.
+    perspectives = enabled or len(DEFAULT_ENABLED_PERSPECTIVE_SKILL_NAMES)
     return chunk_count * (perspectives + 1)
 
 
