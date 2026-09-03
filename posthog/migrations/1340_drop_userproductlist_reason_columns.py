@@ -17,7 +17,7 @@ class Migration(migrations.Migration):
     """
 
     dependencies = [
-        ("posthog", "1333_uploaded_media_library_index"),
+        ("posthog", "1339_validate_taggeditem_project_fk"),
     ]
 
     operations = [
