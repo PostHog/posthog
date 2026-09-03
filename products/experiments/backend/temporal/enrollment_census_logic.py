@@ -230,7 +230,20 @@ def enroll_candidates(report: EnrollmentCensusReport) -> list[int]:
 
     Additive only: the single write is False to True with set_by="auto". Teams a human
     touched (set_by="manual", in either direction) and already-enabled teams are skipped.
+
+    The wave commits atomically: a mid-loop failure enrolls nobody, so an activity retry
+    starts from a clean slate instead of topping up a partial wave with a fresh counter.
+    A worker crash in the gap after commit but before the activity completes can still
+    replay one full wave; that enrolls the next-worst qualifying teams a day early, which
+    is acceptable.
     """
+    enrolled: list[int] = []
+    with transaction.atomic():
+        enrolled = _enroll_candidates_locked(report)
+    return enrolled
+
+
+def _enroll_candidates_locked(report: EnrollmentCensusReport) -> list[int]:
     enrolled: list[int] = []
     for candidate in report.candidates:
         if len(enrolled) >= MAX_ENROLLMENTS_PER_RUN:
