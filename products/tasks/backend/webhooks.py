@@ -322,7 +322,12 @@ def handle_pull_request_event(payload: dict) -> HttpResponse:
         event_uuid = str(uuid.uuid5(uuid.NAMESPACE_URL, f"{pr_url}:{analytics_event}"))
         _capture_pr_event(payload, task_run, analytics_event, event_uuid)
 
-    if task_run and action == "opened":
+    # Read after the backstop, so a URL it just persisted counts. The run has to carry the URL
+    # before the handover closes anything: a report surfaces its PR from `output`, and
+    # `_record_run_pr_url` swallows a failed write, so closing the older PR on a run that never
+    # recorded this one would leave the report linked to the closed PR while its replacement sits
+    # open and unlinked. Both PRs staying open is the recoverable side of that choice.
+    if task_run and action == "opened" and pr_url in read_pr_urls(task_run.output):
         # Hand over from the PR this one replaces, now that the replacement exists. Doing it here,
         # rather than polling after the task is created, means the report is never left without an
         # open PR: if the replacement run never opens one, nothing closes.
