@@ -13,6 +13,10 @@ const LIQUID_OUTPUT_LIMIT_CHARS = 1_000_000
 
 const LIQUID_TAG_CLOSERS: Record<string, string> = { '{': '}}', '%': '%}' }
 
+// These filters evaluate a tenant-written expression once per array item and LiquidJS only checks
+// the render deadline between template nodes, so one filter call can run unbounded.
+const LIQUID_UNBOUNDED_FILTERS = ['where_exp', 'find_exp', 'find_index_exp', 'reject_exp', 'group_by_exp']
+
 export class LiquidRenderBudget {
     private usedMs = 0
     private outputChars = 0
@@ -87,6 +91,7 @@ export class LiquidRenderer {
                 renderLimit: LIQUID_RENDER_LIMIT_MS,
                 memoryLimit: LIQUID_MEMORY_LIMIT_UNITS,
             })
+            LIQUID_UNBOUNDED_FILTERS.forEach((name) => this._liquid?.unregisterFilter(name))
         }
         return this._liquid
     }
