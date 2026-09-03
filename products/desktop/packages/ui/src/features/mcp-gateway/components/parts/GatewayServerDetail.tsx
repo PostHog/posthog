@@ -1029,7 +1029,7 @@ function AccessSection({
                 className="group border-gray-5 border-b px-3 py-2 last:border-b-0"
               >
                 <RobotAvatar />
-                <div className="flex min-w-0 flex-col">
+                <div className="flex min-w-0 flex-1 flex-col">
                   <Text truncate className="font-medium text-sm">
                     {agent.name}
                   </Text>
@@ -1040,27 +1040,11 @@ function AccessSection({
                     }`}
                   </Text>
                 </div>
-                <div className="flex shrink-0 items-center gap-2">
-                  <span
-                    className={`h-[6px] w-[6px] rounded-full ${
-                      agent.status === "active" ? "bg-(--green-9)" : "bg-gray-8"
-                    }`}
-                  />
-                  <Text color="gray" className="text-xs">
-                    {agent.status === "active"
-                      ? `Active${
-                          formatAgo(agent.last_active_at)
-                            ? ` ${formatAgo(agent.last_active_at)}`
-                            : ""
-                        }`
-                      : "Paused"}
-                  </Text>
-                </div>
                 {/* Revoking removes only the caller's own share, so the scope
                     toggle and Revoke appear only on rows backed by the caller's
                     connection. */}
                 {isYourShare && (
-                  <div className="ml-auto flex shrink-0 items-center gap-3">
+                  <div className="flex shrink-0 items-center gap-3">
                     <AgentScopeToggle
                       value={agent.scope}
                       disabled={accessPending}
