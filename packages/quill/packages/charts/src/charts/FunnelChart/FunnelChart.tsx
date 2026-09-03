@@ -17,10 +17,7 @@ import { BarChart } from '../BarChart/BarChart'
 /** Inner gap between variant bars as a fraction of a step's band slot. */
 export const FUNNEL_BAND_PADDING = 0.1
 
-/** Default min px extent of a non-zero bar's interactive region. The resting bar keeps its true
- *  size; hovering the step reveals the floored bar, and hit-testing treats it as the converted
- *  region — so a near-zero conversion rate stays hoverable and clickable without overstating the
- *  drawn value. Zero-valued bars stay empty and inert. */
+/** Default min px hover/click extent of a non-zero bar; the resting bar keeps its true size. */
 export const FUNNEL_MIN_BAR_SIZE = 4
 
 const FUNNEL_BAR_SHADOW: BarsConfig['shadow'] = { color: 'rgba(0,0,0,0.15)', blur: 6, offsetY: -2 }
@@ -47,10 +44,7 @@ export interface FunnelChartConfig {
     maxCategoryLabelWidth?: number
     /** Inner gap between variant bars as a fraction of the band slot. Defaults to {@link FUNNEL_BAND_PADDING}. */
     bandPadding?: number
-    /** Min px height of a non-zero bar's hover/click extent. The resting bar draws at its true
-     *  size; the floor applies to the hover highlight and hit-testing, so a tiny conversion grows
-     *  to a clickable nub under the cursor. Defaults to {@link FUNNEL_MIN_BAR_SIZE}; pass 0 to
-     *  disable. */
+    /** Min px hover/click extent of a non-zero bar. Defaults to {@link FUNNEL_MIN_BAR_SIZE}; 0 disables. */
     minBarSize?: number
     /** Cap (px) on the band-axis range — clusters steps at the start of the plot instead of
      *  stretching a 2–3 step funnel across the full width. */

@@ -80,8 +80,7 @@ export const WithStepFooter: Story = {
     },
 }
 
-// A near-zero conversion rests at its true (sub-pixel) size — hover the last step to reveal the
-// floored clickable nub at the baseline.
+// Pins the resting render: the hover-only floor must not draw the sub-pixel bar at rest.
 export const NearZeroConversion: Story = {
     render: () => {
         const theme = useReactiveTheme()

@@ -85,8 +85,7 @@ describe('FunnelChart', () => {
     })
 
     it('floors a near-zero bar for interaction: track above, converted tooltip and click near the baseline', async () => {
-        // Without the min-bar-size floor a 0.1% bar is a sub-pixel sliver, the whole column
-        // classifies as drop-off, and the converted persons are unreachable from the chart.
+        // Without the floor a 0.1% bar is sub-pixel and the whole column classifies as drop-off.
         const onStepClick = jest.fn()
         const { chart } = renderHogChart(
             <FunnelChart

@@ -90,8 +90,7 @@ function narrowSeriesByCursor<Meta>(
     if (hits.size === 0) {
         return null
     }
-    // Same floored-rect geometry as click routing, so the tooltip's converted/track split
-    // can't disagree with what a click at the same position resolves to.
+    // Same rects as click routing, so the tooltip and a click classify a position identically.
     const inTrackArea = layout === 'grouped' ? strictHit == null : undefined
     let visibleKey: string | null = null
     let visibleDataIndex: number | null = null

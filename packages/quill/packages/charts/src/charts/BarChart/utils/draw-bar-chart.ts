@@ -118,8 +118,7 @@ export function drawBarChartStatic(
     if (!rawScales) {
         return
     }
-    // Hover-scoped flooring: the static layer draws true sizes; the floored rects live only in
-    // the hover highlight and hit-testing, which read minBarSize from the committed scales.
+    // With 'hover' scope the static layer draws true sizes; hover and hit-testing keep the floor.
     const d3Scales = minBarSizeScope === 'hover' ? { ...rawScales, minBarSize: undefined } : rawScales
 
     const baseDrawCtx: DrawContext = {

@@ -41,8 +41,7 @@ export function FunnelStepsBarTooltip({
         ? funnelComparePeriodDateRange(series.compare_label, resolvedDateRange, compareTo)
         : null
 
-    // `inTrackArea` shares the chart's hit-test geometry (including the min-bar-size floor on
-    // tiny bars), so the tooltip's converted/drop-off framing always matches what a click opens.
+    // Shares the chart's hit-test rects, so the drop-off framing matches what a click opens.
     const isDropOffHover = stepIndex > 0 && context.inTrackArea === true
 
     const sharedProps = {
