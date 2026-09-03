@@ -144,6 +144,7 @@ interface TaskInputProps {
   sessionId?: string;
   onTaskCreated?: (task: Task) => void;
   onTaskCreatedEffect?: (task: Task) => void;
+  showNewTaskSuggestions?: boolean;
   initialPrompt?: string;
   /** Full editor content to prefill (chips + attachments), preferred over initialPrompt. */
   initialContent?: EditorContent;
@@ -216,6 +217,7 @@ export function TaskInput({
   sessionId = "task-input",
   onTaskCreated,
   onTaskCreatedEffect,
+  showNewTaskSuggestions = true,
   initialPrompt,
   initialContent,
   recoveredFromKey,
@@ -1677,6 +1679,7 @@ export function TaskInput({
                         isLoading={isPreviewLoading}
                         modelAccess={composerModelAccess}
                         showBillingMenu
+                        workspaceMode={workspaceMode}
                       />
                     )
                   }
@@ -1805,13 +1808,13 @@ export function TaskInput({
                       </motion.div>
                     )}
                   </AnimatePresence>
-                ) : (
+                ) : showNewTaskSuggestions ? (
                   <NewTaskSuggestions
                     repoPath={selectedDirectory || null}
                     workspaceMode={effectiveWorkspaceMode}
                     disabled={isCreatingTask}
                   />
-                )}
+                ) : null}
               </div>
             </div>
           </Flex>

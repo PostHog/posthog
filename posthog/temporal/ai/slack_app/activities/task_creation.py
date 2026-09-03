@@ -640,7 +640,9 @@ def create_posthog_code_task_for_repo_activity(
 
     from products.slack_app.backend.facade.run_preferences import resolve_run_preferences
 
-    run_prefs = resolve_run_preferences(integration, slack_user_id, override=model_override)
+    run_prefs = resolve_run_preferences(
+        integration, slack_user_id, override=model_override, team_id=integration.team_id, user_id=user_id
+    )
 
     # File into the creator's personal "#me" channel so the task surfaces in PostHog Desktop's
     # Spaces feed, which is strictly channel-scoped — a NULL-channel task shows up in no space.
@@ -1135,6 +1137,9 @@ def _run_preference_state(
     integration: Any,
     slack_user_id: str,
     model_override: SlackAppModelOverride | None,
+    *,
+    team_id: int | None = None,
+    user_id: int | None = None,
 ) -> dict[str, Any]:
     """The run-state keys that pin a new run's harness, model and effort.
 
@@ -1145,7 +1150,9 @@ def _run_preference_state(
     from products.slack_app.backend.facade.run_preferences import resolve_run_preferences
     from products.tasks.backend.facade.run_config import get_provider_for_runtime_adapter
 
-    prefs = resolve_run_preferences(integration, slack_user_id, override=model_override)
+    prefs = resolve_run_preferences(
+        integration, slack_user_id, override=model_override, team_id=team_id, user_id=user_id
+    )
     provider = get_provider_for_runtime_adapter(prefs.runtime_adapter) if prefs.runtime_adapter else None
     state = {
         "runtime_adapter": prefs.runtime_adapter,
@@ -1309,7 +1316,11 @@ def _resume_task_with_new_run(
     # including the runtime a live run could never be moved onto. Resolved rather than
     # carried over, like the keys above: a preference changed since the previous run is
     # picked up too.
-    extra_state.update(_run_preference_state(integration, slack_user_id, model_override))
+    extra_state.update(
+        _run_preference_state(
+            integration, slack_user_id, model_override, team_id=mapping.task.team_id, user_id=run_actor.id
+        )
+    )
 
     extra_state.update(tasks_facade.get_resume_snapshot_carry_state(previous_state))
     extra_state["resume_from_run_id"] = str(previous_run.id)
@@ -1339,7 +1350,12 @@ def _resume_task_with_new_run(
     extra_state["slack_mention_workflow_id"] = derive_mention_workflow_id(inputs)
 
     try:
-        new_run = tasks_facade.create_run(mapping.task_id, mode="interactive", extra_state=extra_state)
+        # The replying user, not the task creator: the safety-net default resolution and
+        # its gated-model entitlement check inside `create_run` must run against whoever
+        # launches this follow-up.
+        new_run = tasks_facade.create_run(
+            mapping.task_id, mode="interactive", extra_state=extra_state, acting_user_id=run_actor.id
+        )
     except Exception:
         logger.exception(
             "posthog_code_resume_create_run_failed",

@@ -16,8 +16,8 @@ from products.replay_vision.backend.models.replay_observation_label import Repla
 from products.replay_vision.backend.models.replay_observation_usage import ReplayObservationUsage
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
 from products.replay_vision.backend.models.replay_scanner_prompt_suggestion import (
+    PromptSuggestionStatus,
     ReplayScannerPromptSuggestion,
-    SuggestionStatus,
 )
 from products.replay_vision.backend.prompt_evaluation import (
     EVALUATE_PROMPT_SUGGESTION_EXECUTION_TIMEOUT,
@@ -81,7 +81,7 @@ class TestPromptEvaluation(_VisionAPITestCase):
             "team": self.team,
             "suggested_prompt": "Did the user place an order? Only answer yes on a confirmation page.",
             "base_prompt": "did the user check out?",
-            "status": SuggestionStatus.PENDING,
+            "status": PromptSuggestionStatus.PENDING,
             "scanner_version": 1,
         }
         defaults.update(overrides)
@@ -398,7 +398,7 @@ class TestPromptEvaluationApi(_VisionAPITestCase):
             "scanner": self.scanner,
             "team": self.team,
             "suggested_prompt": "new prompt",
-            "status": SuggestionStatus.PENDING,
+            "status": PromptSuggestionStatus.PENDING,
             "scanner_version": 1,
         }
         defaults.update(overrides)
@@ -586,7 +586,7 @@ class TestPromptEvaluationApi(_VisionAPITestCase):
             scanner=other_scanner,
             team=self.team,
             suggested_prompt="p",
-            status=SuggestionStatus.PENDING,
+            status=PromptSuggestionStatus.PENDING,
             scanner_version=1,
             evaluation={
                 "status": "running",
@@ -611,7 +611,7 @@ class TestPromptEvaluationApi(_VisionAPITestCase):
             scanner=scanner,
             team=self.team,
             suggested_prompt="p",
-            status=SuggestionStatus.PENDING,
+            status=PromptSuggestionStatus.PENDING,
             scanner_version=1,
             evaluation=build_running_evaluation(total=3, labels_fingerprint="", model=expensive),
         )
@@ -630,7 +630,7 @@ class TestPromptEvaluationApi(_VisionAPITestCase):
             scanner=scanner,
             team=self.team,
             suggested_prompt="p",
-            status=SuggestionStatus.PENDING,
+            status=PromptSuggestionStatus.PENDING,
             scanner_version=1,
             evaluation=build_running_evaluation(total=3, labels_fingerprint="", model=expensive),
         )
@@ -654,7 +654,7 @@ class TestPromptEvaluationApi(_VisionAPITestCase):
 
     @parameterized.expand(
         [
-            ("not_pending", {"status": SuggestionStatus.DISMISSED}, ScannerType.MONITOR, True),
+            ("not_pending", {"status": PromptSuggestionStatus.DISMISSED}, ScannerType.MONITOR, True),
             ("no_ratings", {}, ScannerType.MONITOR, False),
         ]
     )

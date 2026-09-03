@@ -5,6 +5,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, Literal, Optional, cast
+from urllib.parse import urlparse
 
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
@@ -105,6 +106,7 @@ class Subscription(ModelActivityMixin, models.Model):
     class SubscriptionTarget(models.TextChoices):
         EMAIL = "email"
         SLACK = "slack"
+        TEAMS = "teams", "Microsoft Teams"
 
     class SubscriptionFrequency(models.TextChoices):
         DAILY = "daily"
@@ -440,6 +442,20 @@ class Subscription(ModelActivityMixin, models.Model):
         if info is not None:
             return info.name
         return self.title or "Subscription"
+
+    @property
+    def recipient_label(self) -> str:
+        """Names the destination in `RecipientResult.recipient` and in the
+        `SubscriptionDelivery.target_value` snapshot, both of which the API returns. A webhook URL
+        authorizes a post to the channel on its own, so only its host is recorded.
+        """
+        if self.target_type != self.SubscriptionTarget.TEAMS:
+            return self.target_value
+        try:
+            host = (urlparse(self.target_value).hostname or "").lower()
+        except ValueError:
+            host = ""
+        return host or "webhook"
 
     @property
     def summary(self):

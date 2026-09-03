@@ -10,6 +10,7 @@ from typing import cast
 
 import click
 
+from .census import census
 from .matcher import compile_pattern, normalize_path
 from .resolver import OWNERS_FILENAME, PRODUCT_FILENAME, OwnersResolver, Purpose, read_stdin_paths, resolution_to_wire
 from .schema import is_simple_owners_file, normalize_product_owners
@@ -59,6 +60,22 @@ def cmd_who(path: str) -> None:
     click.echo(f"status:  {r.status}")
     click.echo(f"slack:   {r.slack or '(none)'}")
     click.echo(f"source:  {r.source or '(none)'}")
+
+
+@click.command(name="owners:census", help="Count test files per owning team")
+@click.option("--json", "as_json", is_flag=True, help="Emit a JSON list of per-team counts")
+@click.argument("prefix", required=False)
+def cmd_census(as_json: bool, prefix: str | None) -> None:
+    resolver = OwnersResolver()
+    rows = census(resolver.tracked_files(prefix), resolver.repo_root)
+    if as_json:
+        click.echo(json.dumps([row.as_payload() for row in rows], indent=2))
+        return
+    for row in rows:
+        click.echo(
+            f"{row.test_file_count:6d}  {row.pytest_file_count:6d} py  {row.jest_file_count:6d} js  {row.owner_team}"
+        )
+    click.echo(f"\n{sum(r.test_file_count for r in rows)} test file(s) across {len(rows)} team(s)", err=True)
 
 
 @click.command(name="owners:unowned", help="List unowned tracked files (respecting owners: null exemptions)")
@@ -317,6 +334,7 @@ def main() -> None:
     """
 
 
+main.add_command(cmd_census, name="census")
 main.add_command(cmd_resolve, name="resolve")
 main.add_command(cmd_who, name="who")
 main.add_command(cmd_unowned, name="unowned")

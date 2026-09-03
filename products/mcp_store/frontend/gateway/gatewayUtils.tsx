@@ -168,7 +168,7 @@ export function PolicySummary({ counts }: { counts: Record<MCPToolApprovalStateE
             </span>
             <span className="flex items-center gap-1">
                 <LemonBadge.Number count={counts.do_not_use} status="danger" showZero />
-                <span className="text-secondary">blocked</span>
+                <span className="text-secondary">Blocked</span>
             </span>
         </div>
     )

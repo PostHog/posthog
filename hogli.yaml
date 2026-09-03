@@ -1089,6 +1089,9 @@ owners:
     owners:who:
         click: posthog_owners.cli:cmd_who
         description: Show who owns a single path (owners, status, slack, source)
+    owners:census:
+        click: posthog_owners.cli:cmd_census
+        description: Count test files per owning team (optional PREFIX; --json for machine output)
     owners:unowned:
         click: posthog_owners.cli:cmd_unowned
         description: List unowned tracked files, respecting owners:null exemptions (optional PREFIX)

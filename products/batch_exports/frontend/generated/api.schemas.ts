@@ -43,10 +43,10 @@ export const BlankEnumApi = {
  * * `NoOp` - Noop
  * * `FileDownload` - File Download
  */
-export type BatchExportDestinationTypeEnumApi =
-    (typeof BatchExportDestinationTypeEnumApi)[keyof typeof BatchExportDestinationTypeEnumApi]
+export type BatchExportDestinationDestinationEnumApi =
+    (typeof BatchExportDestinationDestinationEnumApi)[keyof typeof BatchExportDestinationDestinationEnumApi]
 
-export const BatchExportDestinationTypeEnumApi = {
+export const BatchExportDestinationDestinationEnumApi = {
     S3: 'S3',
     AwsS3: 'AwsS3',
     S3Compatible: 'S3Compatible',
@@ -468,7 +468,7 @@ export interface BatchExportDestinationApi {
      * * `HTTP` - Http
      * * `NoOp` - Noop
      * * `FileDownload` - File Download */
-    type: BatchExportDestinationTypeEnumApi
+    type: BatchExportDestinationDestinationEnumApi
     /** Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres, AwsS3, S3Compatible, Snowflake, Redshift) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses. */
     config: BatchExportDestinationConfigApi
     /**
@@ -477,7 +477,7 @@ export interface BatchExportDestinationApi {
      */
     integration?: number | null
     /**
-     * ID of a team-scoped Integration providing credentials. Required when creating Databricks, AzureBlob, BigQuery, Postgres, AwsS3, and S3Compatible destinations; optional for Snowflake and Redshift (inline credentials remain supported); unused for other types.
+     * ID of a team-scoped Integration providing credentials, for destinations that authenticate through one. Required for all of those except Snowflake, which still supports inline credentials.
      * @nullable
      */
     integration_id?: number | null
@@ -1374,7 +1374,7 @@ export const AwsS3DestinationRequestApiType = {
  */
 export interface AwsS3DestinationRequestApi {
     type: AwsS3DestinationRequestApiType
-    /** ID of an aws-s3-kind Integration providing AWS credentials. Required when creating a batch export. Use the integrations-list MCP tool to find one. */
+    /** ID of an aws-s3-kind Integration providing AWS credentials. Use the integrations-list MCP tool to find one. */
     integration_id: number
     config: AwsS3DestinationConfigApi
 }
@@ -1391,7 +1391,7 @@ export const S3CompatibleDestinationRequestApiType = {
  */
 export interface S3CompatibleDestinationRequestApi {
     type: S3CompatibleDestinationRequestApiType
-    /** ID of an s3-compatible-kind Integration providing credentials and the provider endpoint URL. Required when creating a batch export. Use the integrations-list MCP tool to find one. */
+    /** ID of an s3-compatible-kind Integration providing credentials and the provider endpoint URL. Use the integrations-list MCP tool to find one. */
     integration_id: number
     config: S3CompatibleDestinationConfigApi
 }
@@ -1425,8 +1425,8 @@ export const RedshiftDestinationRequestApiType = {
  */
 export interface RedshiftDestinationRequestApi {
     type: RedshiftDestinationRequestApiType
-    /** ID of an aws-redshift-kind Integration providing connection credentials. Preferred over inline credentials. Use the integrations-list MCP tool to find one. */
-    integration_id?: number
+    /** ID of an aws-redshift-kind Integration providing connection credentials. Use the integrations-list MCP tool to find one. */
+    integration_id: number
     config: RedshiftDestinationConfigApi
 }
 

@@ -62,7 +62,6 @@ from products.signals.backend.temporal.signal_queries import (
 from products.signals.backend.temporal.summary import SignalReportSummaryWorkflow
 from products.signals.backend.temporal.types import (
     IMPLEMENTATION_DEBOUNCE_SECONDS,
-    RERESEARCH_MAX_SIGNALS,
     RESEARCH_DEBOUNCE_SECONDS,
     EmitSignalInputs,
     ExistingReportMatch,
@@ -77,6 +76,7 @@ from products.signals.backend.temporal.types import (
     SignalTypeExample,
     SpecificityMetadata,
     TeamSignalGroupingInput,
+    next_research_bucket,
 )
 
 logger = structlog.get_logger(__name__)
@@ -678,6 +678,12 @@ class AssignAndEmitDbResult:
     report_status: str
     report_signal_count: int
     promotion_suppressed: bool
+    # Cumulative signal count the report must reach for its next research pass, or None when its
+    # last pass already covered the final bucket. Carried out of the transaction only so the skip
+    # event can report it.
+    next_research_bucket: Optional[int] = None
+    # What the report's last completed pass covered, for the same reason.
+    report_signals_researched: int = 0
 
 
 @temporalio.activity.defn
@@ -738,6 +744,7 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                         report_status=report.status,
                         report_signal_count=report.signal_count,
                         promotion_suppressed=False,
+                        next_research_bucket=None,
                     )
                 # Resolved reports are terminal — never reopen them. When a signal would have grouped
                 # into an already-resolved report, the issue it fixed has recurred (or a related one
@@ -789,11 +796,20 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
             # - RESOLVED: terminal — never receives new signals (a recurrence spawns a fresh report above).
             # - POTENTIAL: promote once total_weight >= WEIGHT_THRESHOLD and signal_count >= signals_at_run
             #   (snooze gate, defaults to 0). Uncapped — a report's first research always runs.
-            # - READY: re-research on every new signal, but only while signal_count <= RERESEARCH_MAX_SIGNALS;
-            #   past the cap, signals are collected, not researched.
+            # - READY: re-research once the report has reached its next bucket in
+            #   RESEARCH_SIGNAL_BUCKETS. Between buckets, and past the last one, signals are
+            #   collected, not researched.
             # - CANDIDATE: re-promote to self-heal failed spawns (uncapped; concurrent runs blocked by Temporal).
+            #
+            # The bucket is measured against what the last completed pass actually covered, so a
+            # bucket the report is already past is skipped rather than firing a pass immediately on
+            # top of the previous one. Testing the reached count against that bucket, rather than
+            # the crossing itself, is what lets a report still claim a bucket it reached while
+            # promotion was suppressed.
+            signals_researched = report.researched_signal_count
+            bucket = next_research_bucket(signals_researched)
             is_reresearch = report.status == SignalReport.Status.READY
-            reresearch_capped = is_reresearch and report.signal_count > RERESEARCH_MAX_SIGNALS
+            reresearch_capped = is_reresearch and (bucket is None or report.signal_count < bucket)
             if (
                 (is_reresearch and not reresearch_capped)
                 or report.status == SignalReport.Status.CANDIDATE
@@ -856,6 +872,8 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                 report_status=report.status,
                 report_signal_count=report.signal_count,
                 promotion_suppressed=promotion_suppressed,
+                next_research_bucket=bucket,
+                report_signals_researched=signals_researched,
             )
 
     try:
@@ -929,8 +947,9 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                     team_id=input.team_id,
                     source_id=input.source_id,
                 )
-            # Over-cap signal on an already-researched report: assigned/emitted but no re-research
-            # spawned. Emitted so the saved re-research volume is trackable.
+            # A signal on an already-researched report that did not spawn re-research, because the
+            # report is either between buckets or past its last one. Emitted so the withheld
+            # re-research volume is trackable, split by which of the two reasons held it back.
             if db_result.reresearch_capped:
                 try:
                     posthoganalytics.capture(
@@ -943,7 +962,12 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                             "source_product": input.source_product,
                             "source_type": input.source_type,
                             "source_id": input.source_id,
-                            "threshold": RERESEARCH_MAX_SIGNALS,
+                            "run_count": db_result.run_count,
+                            "signals_researched": db_result.report_signals_researched,
+                            "next_bucket": db_result.next_research_bucket,
+                            "skip_reason": (
+                                "buckets_exhausted" if db_result.next_research_bucket is None else "below_next_bucket"
+                            ),
                         },
                         groups=groups(team.organization, team),
                     )

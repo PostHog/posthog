@@ -179,7 +179,7 @@ from products.product_analytics.backend.facade.api import (
     record_insight_views,
     with_last_viewed_at,
 )
-from products.product_analytics.backend.facade.models import Insight
+from products.product_analytics.backend.facade.models import Insight, resolve_insight_by_id_or_short_id
 from products.product_analytics.backend.presentation.insight_metadata import (
     InsightMetadataTimeoutError,
     generate_insight_metadata,
@@ -1918,15 +1918,7 @@ class InsightViewSet(
         return self.order_queryset(queryset)
 
     def safely_get_object(self, queryset: QuerySet) -> Insight | None:
-        lookup_value = self.kwargs[self.lookup_field]
-        if isinstance(lookup_value, str) and lookup_value.isdigit():
-            # A numeric lookup is ambiguous: usually it's a primary key, but a small number of
-            # legacy rows have numeric-only short_ids. Try pk first (preserving existing behavior)
-            # and fall back to short_id so those legacy insights stay retrievable.
-            pk_match = queryset.filter(pk=int(lookup_value)).first()
-            if pk_match is not None:
-                return pk_match
-        return queryset.filter(short_id=lookup_value).first()
+        return resolve_insight_by_id_or_short_id(queryset, self.kwargs[self.lookup_field])
 
     def filter_queryset(self, queryset: QuerySet) -> QuerySet:
         return drop_similar_when_exact_exists(super().filter_queryset(queryset))

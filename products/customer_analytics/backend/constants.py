@@ -1,3 +1,5 @@
+from django.db import models
+
 DEFAULT_ACTIVITY_EVENT = {"kind": "EventsNode", "event": "$pageview", "name": "$pageview"}
 
 # Mirrors frontend `SLACK_ARCHIVES_ORIGIN` in accountLinksLogic.ts. PostHog-internal: hardcodes our
@@ -22,17 +24,20 @@ WAREHOUSE_PERSON_PROPERTIES_FLAG = "warehouse-person-properties"
 BILLING_USAGE_INSIGHT_SHORT_IDS = ["fiJDsKLp"]
 BILLING_SPEND_INSIGHT_SHORT_IDS = ["o4I9sdFE", "Tjo4bsux"]
 
-CUSTOM_PROPERTY_DISPLAY_TYPE_CHOICES = [
-    "text",
-    "link",
-    "number",
-    "currency",
-    "percent",
-    "date",
-    "datetime",
-    "boolean",
-    "select",
-]
+
+class CustomPropertyDisplayType(models.TextChoices):
+    TEXT = "text", "text"
+    LINK = "link", "link"
+    NUMBER = "number", "number"
+    CURRENCY = "currency", "currency"
+    PERCENT = "percent", "percent"
+    DATE = "date", "date"
+    DATETIME = "datetime", "datetime"
+    BOOLEAN = "boolean", "boolean"
+    SELECT = "select", "select"
+
+
+CUSTOM_PROPERTY_DISPLAY_TYPE_CHOICES = list(CustomPropertyDisplayType.values)
 
 # Mirrors OPTION_COLOR_TOKENS in the frontend's customPropertyTypes.ts (DataColorToken presets).
 CUSTOM_PROPERTY_OPTION_COLORS = [f"preset-{i}" for i in range(1, 11)]
