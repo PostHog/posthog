@@ -1453,6 +1453,19 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         # Check that the user was assigned to the default role
         assert RoleMembership.objects.filter(role=role, user=new_user, organization_member=membership).exists()
 
+    @patch("posthog.models.user.capture_exception")
+    def test_user_join_does_not_assign_default_role_from_another_organization(self, mock_capture_exception):
+        other_organization = Organization.objects.create(name="Other organization")
+        role = Role.objects.create(name="Other organization role", organization=other_organization)
+        self.organization.default_role = role
+        self.organization.save()
+        new_user = User.objects.create(email="test@example.com", first_name="Test")
+
+        new_user.join(organization=self.organization)
+
+        assert not RoleMembership.objects.filter(role=role, user=new_user).exists()
+        mock_capture_exception.assert_called_once()
+
     def test_user_join_without_default_role(self):
         """Test that new users don't get assigned any role when no default is set"""
         # Create a new user and have them join the organization
