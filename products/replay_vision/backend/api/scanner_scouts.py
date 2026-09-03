@@ -86,7 +86,11 @@ class ScannerScoutViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     )
     def create(self, request: Any, **kwargs: Any) -> Response:
         scanner = self._scanner_for_writing()
-        payload = ScannerScoutCreateSerializer(data=request.data)
+        # The nested config validates a Slack destination against the project's integrations and
+        # the caller's key scopes, so the body serializer needs the same context the facade gets.
+        # Without it, any create carrying a destination raises rather than returning a 400.
+        serializer_context = {"project_id": self.team.project_id, "request": request}
+        payload = ScannerScoutCreateSerializer(data=request.data, context=serializer_context)
         payload.is_valid(raise_exception=True)
         validated = payload.validated_data
 
@@ -102,7 +106,7 @@ class ScannerScoutViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             files=[],
             config_options=validated.get("config", {}),
             request=request,
-            serializer_context={"project_id": self.team.project_id, "request": request},
+            serializer_context=serializer_context,
             # From the URL the caller's access was checked against, never from the body.
             source_product=SCOUT_SOURCE_PRODUCT,
             source_id=str(scanner.id),
