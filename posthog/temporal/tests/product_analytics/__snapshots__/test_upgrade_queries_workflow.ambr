@@ -2,20 +2,9 @@
 # name: TestUpgradeQueriesWorkflow.test_get_insights_to_migrate_activity
   '''
   
-  SELECT DISTINCT id
+  SELECT id
   FROM posthog_dashboarditem
-  WHERE (query @? '$.** ? (
-      @.kind == "EventsNode" &&
-      (!exists(@.version) || @.version == null || @.version < 8)
-  )'
-         OR query @? '$.** ? (
-      @.kind == "InsightVizNode" &&
-      (!exists(@.version) || @.version == null || @.version < 4)
-  )'
-         OR query @? '$.** ? (
-      @.kind == "TrendsQuery" &&
-      (!exists(@.version) || @.version == null || @.version < 6)
-  )')
+  WHERE posthog_dashboarditem_schema_versions(query) && '{EventsNode:0,EventsNode:1,EventsNode:2,EventsNode:3,EventsNode:4,EventsNode:5,EventsNode:6,EventsNode:7,InsightVizNode:0,InsightVizNode:1,InsightVizNode:2,InsightVizNode:3,TrendsQuery:0,TrendsQuery:1,TrendsQuery:2,TrendsQuery:3,TrendsQuery:4,TrendsQuery:5}'::text[]
   ORDER BY id
   LIMIT 100;
   '''
