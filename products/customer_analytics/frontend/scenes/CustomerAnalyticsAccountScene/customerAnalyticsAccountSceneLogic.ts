@@ -218,7 +218,7 @@ export const customerAnalyticsAccountSceneLogic = kea<customerAnalyticsAccountSc
                 tagsModel.findMounted()?.actions.loadTags()
                 posthog.capture(AccountsEvents.TagsUpdated, { tag_count: tags.length })
             } catch (error) {
-                if (isBreakpoint(error)) {
+                if (error instanceof Error && isBreakpoint(error)) {
                     throw error
                 }
                 await breakpoint()
