@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-from dataclasses import dataclass
 from datetime import timedelta
 from typing import TYPE_CHECKING, cast
 
@@ -14,6 +13,7 @@ from asgiref.sync import async_to_sync
 from temporalio.client import Client
 from temporalio.common import RetryPolicy, WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 
+from posthog.cdp.workflow_step_resume import WorkflowStepResumeStatus, resume_workflow_step
 from posthog.dataclasses import frozen
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
@@ -29,7 +29,6 @@ from products.signals.backend.scout_harness.limits import (
     WORKFLOW_HARD_CEILING_S,
 )
 from products.signals.backend.temporal import metrics
-from products.workflows.backend.services.step_resume import WorkflowStepResumeStatus, resume_workflow_step
 
 if TYPE_CHECKING:
     # Type-only: importing the harness runner at module load would close the cycle
@@ -55,7 +54,7 @@ class RunSignalsScoutInput:
     workflow_origin_key: str | None = None
 
 
-@dataclass
+@frozen
 class RunSignalsScoutOutput:
     run_id: str | None
     task_run_id: str | None

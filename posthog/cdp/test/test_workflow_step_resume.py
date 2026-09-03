@@ -1,8 +1,8 @@
 from unittest.mock import patch
 
-from products.workflows.backend.services.step_resume import RESULT_STRING_CAP, resume_workflow_step
+from posthog.cdp.workflow_step_resume import RESULT_STRING_CAP, resume_workflow_step
 
-_PRODUCE = "products.workflows.backend.services.step_resume.produce_internal_event"
+_PRODUCE = "posthog.cdp.workflow_step_resume.produce_internal_event"
 
 
 def test_emits_the_wake_keyed_to_the_step_with_capped_strings() -> None:

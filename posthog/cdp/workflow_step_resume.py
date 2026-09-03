@@ -4,6 +4,9 @@ The step sent its dispatch key as the run's idempotency key. On the run's termin
 owning product calls `resume_workflow_step` with that key, and the CDP subscription matcher wakes
 exactly that job (nodejs/src/cdp/consumers/cdp-hogflow-subscription-matcher.consumer.ts). The
 parked step has its own deadline, so a lost wake fails the step late rather than stranding it.
+
+Lives in core rather than in the workflows product so any product can call it without a
+cross-product dependency.
 """
 
 from collections.abc import Mapping

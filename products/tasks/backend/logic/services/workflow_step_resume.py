@@ -3,8 +3,9 @@ from uuid import UUID
 
 from celery import current_app
 
+from posthog.cdp.workflow_step_resume import WorkflowStepResumeStatus, resume_workflow_step
+
 from products.tasks.backend.models import Task, TaskRun
-from products.workflows.backend.services.step_resume import WorkflowStepResumeStatus, resume_workflow_step
 
 _STATUS_BY_RUN_STATUS: dict[str, WorkflowStepResumeStatus] = {
     TaskRun.Status.COMPLETED: "completed",
