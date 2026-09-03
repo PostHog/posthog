@@ -6,14 +6,13 @@ caused the incident. Be adversarial with yourself: topic proximity is NOT a hit.
 
 ## Inputs
 
-1. Incident ground truth: `<scratch>/incidents/<INC>.json`. Fields that define THE bug:
-   `detailed_bug_cause`, `generated_cause`, `code_file`, `code_hunk`, `code_diff_excerpt`, `title`,
-   `short_description`. `attribution_evidence` / `detailed_bug_cause` may name the FIX PR
-   (e.g. "Attribution detail: <url>" or "Reverts #NNN"). The fix PR is the strongest statement of what
-   was wrong: read it with `gh pr view <url> --json title,body` and `gh pr diff <url>` (pipe through
-   `head -600` if large). If `alternative_attributed_prs` is set, the attribution is weaker: note it.
-   This file contains internal data (customers, money, Slack). Never copy it into anything public;
-   your output is internal.
+1. Incident ground truth: `<scratch>/incidents/<INC>.json`. Fields that define THE bug: the
+   root-cause fields, the code file, hunk and diff excerpt, and the title and short description.
+   The attribution fields may name the FIX PR (as a link or a revert reference). The fix PR is the
+   strongest statement of what was wrong: read it with `gh pr view <url> --json title,body` and
+   `gh pr diff <url>` (pipe through `head -600` if large). If the record lists alternative
+   introducing PRs, the attribution is weaker: note it. This file contains internal data. Never
+   copy it into anything public; your output is internal.
 2. The ReviewHog review. If `<scratch>/reviews/<INC>.json` exists, read it from disk (it is the same
    payload). Otherwise fetch it: load the MCP tool with
    ToolSearch `select:mcp__plugin_posthog_posthog__exec`, then
@@ -31,14 +30,15 @@ caused the incident. Be adversarial with yourself: topic proximity is NOT a hit.
 
 ## Two verdicts
 
-- **published verdict**: consider ONLY findings with `effective_priority` must_fix or should_fix
-  (these are the ones a human saw on the PR; `consider` findings are not posted).
-- **funnel verdict**: consider ALL findings (any priority) plus `dismissed_findings`.
+- **published verdict**: consider ONLY findings a human saw on the PR: every validated finding whose
+  `effective_priority` is at or above the run's urgency threshold (`run_urgency_threshold` in the
+  review payload). On this run the threshold was `consider`, so that is every validated finding.
+- **funnel verdict**: consider ALL validated findings plus `dismissed_findings`.
   If the funnel verdict beats the published one, record who lost it:
   `validator_dismissed` (the match is in dismissed_findings) or `priority_too_low` (the match is a
-  validated finding at `consider`). Note that the validator may have DOWNGRADED a finding
-  (`reviewer_priority` higher than `effective_priority`); a reviewer must_fix that ends at consider
-  is a validator loss of the `priority_too_low` kind, say so in notes.
+  validated finding whose `effective_priority` sits below the run's threshold; on a `consider` run
+  this cannot occur). Note that the validator may have DOWNGRADED a finding (`reviewer_priority`
+  higher than `effective_priority`); say so in notes.
 
 ## Verdict scale
 
