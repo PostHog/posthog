@@ -31,7 +31,7 @@ If `$exception` is absent from `top_events` or its `count` is at baseline (no fr
 - key: `not-in-use:error_tracking:team{team_id}` (if `$exception` is absent entirely) **or** `pattern:error_tracking:baseline-team{team_id}` (if it fires at a steady baseline with no fresh burst)
 - content: `"$exception baseline ~{count}/day, no fresh 24h burst at {timestamp}"`
 
-Close out empty. Re-running with the same key idempotently refreshes the timestamp; the next run reads the entry cold and short-circuits.
+Re-running with the same key idempotently refreshes the timestamp; the next run reads the entry cold and short-circuits. Before you close out empty, check the follow-up queue: a quiet surface is the cheapest run you'll get to work it down (see _Keep the follow-up queue drained_).
 
 ## How a run works
 
@@ -39,11 +39,12 @@ Cycle between these moves; skip what's not useful.
 
 ### Get oriented
 
-Four cheap reads cold-start a run:
+Five cheap reads cold-start a run:
 
 - `scout-scratchpad-search` (`text=error` or `text=exception`) — durable team steering from past error-tracking runs. Entries with `pattern:`, `noise:`, `addressed:`, `dedupe:`, `report:`, or `reviewer:` key prefixes tell you what's normal, what's already surfaced, what to skip, which report covers an issue, and who owns it.
 - `scout-runs-list` (last 7d) — what prior error-tracking scouts found and ruled out.
 - `scout-project-profile-get` — the `$exception` row in `top_events` carries `count`, `distinct_users`, `recent_24h_count`, `recent_24h_users` (pattern the count/users ratio against the table below), plus `existing_inbox_reports` for what's already in the inbox.
+- `scout-scratchpad-search` (`text=followup:signals-scout-error-tracking:`, `limit=100`, `content_max_chars=400`) — your own follow-up queue, per the harness step-1 rule. Count the entries whose validate-after date has passed before you decide what this run is; that count drives _Keep the follow-up queue drained_.
 - `inbox-reports-list` (`ordering=-updated_at`, `search`=the specific issue id / fingerprint / failing-activity name) — the reports already in the inbox. Your own report-channel reports persist their backing signals under `source_product=signals_scout` (**not** `error_tracking`), so don't filter `source_product=error_tracking` — you'd miss every report you authored. A fresh burst on an issue you've reported before is an **edit**, not a new report; pull the closest matches with `inbox-reports-retrieve` before authoring.
 
 ### Profile shape — count vs distinct_users
@@ -97,6 +98,17 @@ Memory is a continuous activity. Write a scratchpad entry whenever you observe s
 
 By run #5 you'll have a local map of what's normal versus what warrants investigation, and burn less time on cold-start exploration.
 
+### Keep the follow-up queue drained
+
+The harness section _Follow up on your own past work_ owns the mechanics — when to record an entry, what goes in it, how to deliver a verdict. Don't re-derive them here. This surface needs a size trigger and a retirement rule on top, because it fills the queue faster than any other: nearly every report you author is measurable later, so nearly every authoring run adds an entry. A queue that only grows buries its own oldest entries and degrades every future run's "is it time to validate?" judgment.
+
+- **Past ~15 due entries, this run is a validation run.** Work them down before any new investigation; new exploration gets what's left. Below that, the harness's run-by-run judgment applies unchanged.
+- **Oldest validate-after first, triaged in batches.** Sort by date, not by which issue looked interesting. One `execute-sql` over `events` filtered to `event = '$exception'` and grouped by `properties.$exception_issue_id` covers a whole batch of issue ids at once, so ~10 stale entries cost one query plus a `query-error-tracking-issue` drill on the few still alive. That's what makes draining the queue affordable in one run.
+- **Retire an entry once it can't teach you more:** its header already reads `validated` or `re-surfaced`; its report is `resolved`, or `suppressed` / dismissed `already_fixed`; or the issue 404s or has had no occurrences for 14 days. `scout-scratchpad-forget` the key, moving any durable lesson to a `dedupe:` / `pattern:` / `addressed:` entry outside the queue.
+- **Three checks maximum, then a verdict regardless.** Each "can't judge yet" is a check. On the third, stop waiting for a deploy that isn't coming: a quiet issue is **fix held**; one still at baseline is **fix didn't hold** — re-surface per the harness rules, noting the fix was never evidenced as shipped.
+- **Every entry carries a calendar date.** "Validate after the fix deploys and soaks" never comes due, so the entry sits forever. Use merge time plus soak when a PR exists, else about a week out, and push it out explicitly on each re-check.
+- **One entry per issue.** Reuse the existing `followup:signals-scout-error-tracking:<issue_id>` key when an issue returns; the report-id suffix is only for two independent fixes in flight on one issue. A second key for an issue you already track doubles the queue and splits its history.
+
 ### Decide
 
 The generic report mechanics — search the inbox first (via the `report:error_tracking:<issue_id>` pointer, else an `inbox-reports-list` search on the issue's _specific_ terms — the issue id, the fingerprint, the failing activity name, not a broad word like `error`), edit-vs-author, the status rules, reviewer routing, non-idempotent dedup, and the `priority` / `repository` / actionability fields — live in the harness prompt and in `authoring-scouts` → `references/report-contract.md`. Do not re-derive them here. This section is only the error-tracking judgment layered on top:
@@ -143,8 +155,9 @@ Harness-level:
 
 ## When to stop
 
-- `$exception` row in profile is at baseline → close out empty.
+- `$exception` row in profile is at baseline → work whatever follow-ups are due, then close out empty.
 - A candidate matches a scratchpad entry with `noise:` / `addressed:` / `dedupe:` key prefix, or an existing inbox report → edit-or-skip with a one-line note.
 - You've validated some hypotheses and filed reports for what's solid → close out, even if there's more you could look at. Fewer, better reports.
+- On a validation run: the due entries are worked down to a handful, or you've spent the run's budget on them → close out, saying how many you retired and how many are still queued.
 
 "Looked but found nothing meaningful" is a real outcome.
