@@ -34,7 +34,9 @@ class RecipientsResolver:
             return list(
                 RoleMembership.objects.filter(
                     role_id=target_id,
-                ).values_list("user_id", flat=True)
+                )
+                .valid_for_authorization()
+                .values_list("user_id", flat=True)
             )
 
         raise ValueError(f"Unknown target type: {target_type}")
