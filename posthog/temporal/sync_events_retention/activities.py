@@ -6,7 +6,7 @@ from temporalio import activity
 
 from posthog.constants import AvailableFeature
 from posthog.models.team import Team
-from posthog.models.team.event_retention import parse_events_feature_to_months
+from posthog.models.team.event_retention import parse_events_feature_to_months, shrinks_apply_today
 from posthog.ph_client import ph_scoped_capture
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_write_only_logger
@@ -61,11 +61,14 @@ async def sync_events_retention(input: SyncEventsRetentionInput) -> SyncEventsRe
 
             teams_to_update: list[Team] = []
             changes: list[dict] = []
+            apply_shrinks = shrinks_apply_today()
             for team in teams:
                 retention_feature = team.organization.get_available_feature(
                     AvailableFeature.PRODUCT_ANALYTICS_DATA_RETENTION
                 )
                 target_months = parse_events_feature_to_months(retention_feature)
+                if target_months < team.event_retention_months and not apply_shrinks:
+                    continue
                 if team.event_retention_months != target_months:
                     changes.append(
                         {

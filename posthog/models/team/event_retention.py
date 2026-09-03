@@ -1,8 +1,12 @@
+from datetime import date, datetime
 from typing import TYPE_CHECKING, Optional
+from zoneinfo import ZoneInfo
 
 from django.conf import settings
+from django.utils import timezone
 
 import posthoganalytics
+from dateutil.relativedelta import relativedelta
 
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
@@ -98,6 +102,22 @@ def organization_events_retention_months(organization: "Organization") -> int:
     return parse_events_feature_to_months(organization.get_available_feature(EVENTS_DATA_RETENTION_FEATURE))
 
 
+def events_retention_floor_date(team: Team, retention_months: int) -> date:
+    """The first day the floor keeps: the 1st of the current month in the project timezone, minus the window.
+
+    Mirrors the ``toStartOfMonth(now()) - toIntervalMonth(N)`` predicate the printer injects, so a cache key built
+    from it rolls over on the same day the query's floor moves.
+    """
+    today = datetime.now(ZoneInfo(team.timezone)).date()
+    return today.replace(day=1) - relativedelta(months=retention_months)
+
+
+def shrinks_apply_today() -> bool:
+    # Hidden data may only appear on the 1st of a month, so a shorter window waits for the next 1st. The nightly
+    # sync runs every day and applies it then; longer windows never wait.
+    return timezone.now().day == 1
+
+
 def reconcile_organization_events_retention(organization: "Organization") -> int:
     """Align the org's teams with its entitlement-derived retention window; returns teams updated.
 
@@ -105,8 +125,7 @@ def reconcile_organization_events_retention(organization: "Organization") -> int
     """
     organization.refresh_from_db(fields=["available_product_features"])
     target_months = organization_events_retention_months(organization)
-    return (
-        Team.objects.filter(organization=organization)
-        .exclude(event_retention_months=target_months)
-        .update(event_retention_months=target_months)
-    )
+    teams = Team.objects.filter(organization=organization).exclude(event_retention_months=target_months)
+    if not shrinks_apply_today():
+        teams = teams.filter(event_retention_months__lt=target_months)
+    return teams.update(event_retention_months=target_months)

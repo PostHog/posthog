@@ -16,6 +16,17 @@ from posthog.temporal.sync_events_retention.types import SyncEventsRetentionInpu
 # exactly those — which is how a select_related/.only() FieldError shipped undetected.
 
 
+SHRINKS_APPLY_TODAY = "posthog.temporal.sync_events_retention.activities.shrinks_apply_today"
+
+
+# freezegun trips a metaclass conflict inside pydantic.v1 when the activity imports it lazily, so the
+# first-of-the-month clock is patched rather than frozen. The clock itself is covered by the reconcile tests.
+@pytest.fixture(autouse=True)
+def _first_of_the_month():
+    with patch(SHRINKS_APPLY_TODAY, return_value=True):
+        yield
+
+
 async def _team_with_features(features: list[dict], *, current_months: int) -> Team:
     org = await sync_to_async(Organization.objects.create)(name="test-org")
     team = await sync_to_async(Team.objects.create)(
@@ -84,6 +95,23 @@ async def test_syncs_all_teams_across_batches():
     for team in teams:
         await sync_to_async(team.refresh_from_db)()
         assert team.event_retention_months == 12
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_shorter_window_waits_for_the_first_of_the_month():
+    features = [{"key": "product_analytics_data_retention", "limit": 1, "unit": "year"}]
+    shrinking = await _team_with_features(features, current_months=84)
+    growing = await _team_with_features(features, current_months=6)
+
+    with patch(SHRINKS_APPLY_TODAY, return_value=False):
+        result = await ActivityEnvironment().run(sync_events_retention, SyncEventsRetentionInput(dry_run=False))
+
+    await sync_to_async(shrinking.refresh_from_db)()
+    await sync_to_async(growing.refresh_from_db)()
+    assert shrinking.event_retention_months == 84
+    assert growing.event_retention_months == 12
+    assert result.total_updated == 1
 
 
 @pytest.mark.django_db(transaction=True)

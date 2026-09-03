@@ -496,6 +496,23 @@ class TestQueryRunner(BaseTest):
         cache_key = runner.get_cache_key()
         assert cache_key == "cache_42_c034c5f92d23cb2399f6c087694175b7e6950739ea60b0ec7cf2665d2ae82d50"
 
+    @override_settings(EVENTS_DATA_RETENTION_ENFORCED=True)
+    def test_cache_key_rolls_over_when_the_retention_floor_moves(self):
+        TestQueryRunner = self.setup_test_query_runner_class()
+        self.team.event_retention_months = 12
+        self.team.save()
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
+
+        with freeze_time("2026-09-02"):
+            early_in_month = runner.get_cache_key()
+        with freeze_time("2026-09-20"):
+            later_in_month = runner.get_cache_key()
+        with freeze_time("2026-10-01"):
+            next_month = runner.get_cache_key()
+
+        assert early_in_month == later_in_month
+        assert next_month != early_in_month
+
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_cache_key_runner_subclass(self):
         TestQueryRunner = self.setup_test_query_runner_class()
