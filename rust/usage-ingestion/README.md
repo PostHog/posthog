@@ -41,6 +41,11 @@ unavailable interval's deltas. Counter timestamps are limited to seven days
 behind and 24 hours ahead of the current time, with at most 16 series per
 scope and bucket.
 
+The projection stores additive deltas, not usage record identities. Retrying
+after an accepted response or correcting a durable record can therefore
+increment its Valkey total again. ClickHouse remains the authoritative billing
+source, so do not use this projection for exact billing decisions.
+
 The dev stack runs the cluster on 6390 from both sides, so a host client uses
 `redis://127.0.0.1:6390` and the service container uses
 `redis://valkey-cluster:6390`. Start it and run its integration test with:
