@@ -97,6 +97,14 @@ describe('hogFlowEditorLogic', () => {
         logic.mount()
     })
 
+    it('resolves the selected action while React Flow nodes are still laying out', () => {
+        const action = logic.values.workflow.actions[0]
+        logic.actions.setNodesRaw([])
+        logic.actions.setSelectedNodeId(action.id)
+
+        expect(logic.values.selectedNode).toMatchObject({ id: action.id, data: action })
+    })
+
     describe('conditional branch naming', () => {
         const createMockHogFlow = (conditionNames?: (string | undefined)[]): HogFlow => ({
             id: 'test-flow',

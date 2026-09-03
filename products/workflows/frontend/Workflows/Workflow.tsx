@@ -1,20 +1,30 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
 import { LemonBanner, LemonButton, SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { HogFlowEditor } from './hogflows/HogFlowEditor'
+import { getLinearWorkflowActionIds } from './hogflows/linearWorkflow'
 import { WorkflowLogicProps, workflowLogic } from './workflowLogic'
 import { WorkflowStatusBar } from './WorkflowStatusBar'
 
 export function Workflow(props: WorkflowLogicProps): JSX.Element {
-    const { originalWorkflow, workflowLoading, externallyEdited, isSyncingExternalEdit } = useValues(
+    const { originalWorkflow, workflow, workflowLoading, externallyEdited, isSyncingExternalEdit } = useValues(
         workflowLogic(props)
     )
     const { loadWorkflow, keepMyWorkflowVersion } = useActions(workflowLogic(props))
+    const [editorLayout, setEditorLayout] = useState<'simple' | 'advanced'>('simple')
+    const canUseSimpleLayout = !!getLinearWorkflowActionIds(workflow)
+    const effectiveEditorLayout = editorLayout === 'simple' && canUseSimpleLayout ? 'simple' : 'advanced'
 
     return (
-        <div className="flex flex-col grow relative border rounded-md">
-            <WorkflowStatusBar {...props} />
+        <div className="relative flex h-[calc(100vh-13rem)] max-h-full min-h-[25rem] grow flex-col overflow-hidden rounded-md border">
+            <WorkflowStatusBar
+                {...props}
+                editorLayout={effectiveEditorLayout}
+                canUseSimpleLayout={canUseSimpleLayout}
+                onEditorLayoutChange={setEditorLayout}
+            />
             {/* Brief working/disabled overlay while we reconcile to an edit made elsewhere (clean state). */}
             {isSyncingExternalEdit && <SpinnerOverlay />}
             {externallyEdited && (
@@ -36,7 +46,11 @@ export function Workflow(props: WorkflowLogicProps): JSX.Element {
                     </div>
                 </LemonBanner>
             )}
-            {!originalWorkflow && workflowLoading ? <SpinnerOverlay /> : <HogFlowEditor />}
+            {!originalWorkflow && workflowLoading ? (
+                <SpinnerOverlay />
+            ) : (
+                <HogFlowEditor isSimpleLayout={effectiveEditorLayout === 'simple'} />
+            )}
         </div>
     )
 }

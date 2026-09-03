@@ -19,7 +19,13 @@ import { buildSummary } from './rrule-helpers'
 import { StepViewLogicProps, stepViewLogic } from './stepViewLogic'
 import { StepViewMetrics } from './StepViewMetrics'
 
-export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
+export function StepView({
+    action,
+    layout = 'node',
+}: {
+    action: HogFlowAction
+    layout?: 'node' | 'list'
+}): JSX.Element {
     const {
         selectedNode,
         mode,
@@ -30,7 +36,7 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
         workflow,
         isZoomedOutFar,
     } = useValues(hogFlowEditorLogic)
-    const { setSelectedNodeId, startCopyingNode, startMovingNode } = useActions(hogFlowEditorLogic)
+    const { setMode, setSelectedNodeId, startCopyingNode, startMovingNode } = useActions(hogFlowEditorLogic)
     const { actionValidationErrorsById, logicProps, scheduleState, scheduleStartsAt, isScheduleRepeating } =
         useValues(workflowLogic)
     const { deleteElements } = useReactFlow()
@@ -83,11 +89,50 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
             color: Step?.color || 'var(--text-secondary)',
             icon: Step?.icon,
         }
-    }, [action, isSelected, Step])
+    }, [isSelected, Step])
 
     const hasValidationError = actionValidationErrorsById[action.id]?.valid === false
     const hasValidationWarning = Object.keys(actionValidationErrorsById[action.id]?.warnings ?? {}).length > 0
     const isAnimationTarget = mode === 'test' && animatingEdgePair?.endsWith(`->${action.id}`)
+
+    if (layout === 'list') {
+        return (
+            <LemonButton
+                fullWidth
+                active={isSelected}
+                onClick={() => {
+                    setMode('build')
+                    setSelectedNodeId(action.id)
+                }}
+                data-attr="workflow-linear-step"
+                aria-pressed={isSelected}
+                className="!h-auto !items-stretch !justify-start !rounded !border-2 !bg-surface-primary !p-0 hover:!bg-surface-secondary"
+                style={{
+                    borderColor: isAnimationTarget ? 'var(--success)' : selectedColor,
+                    boxShadow: `0px 2px 0px 0px ${colorLight}`,
+                }}
+            >
+                <div className="flex min-w-0 flex-1 items-start gap-3 p-3 text-left">
+                    <span
+                        className="flex size-12 shrink-0 items-center justify-center rounded text-2xl"
+                        style={{ backgroundColor: colorLight, color }}
+                    >
+                        {icon}
+                    </span>
+                    <span className="flex min-w-0 flex-1 flex-col">
+                        <span className="font-semibold leading-5">{action.name}</span>
+                        <span className="mt-0.5 text-sm text-secondary">
+                            {scheduleDescription ?? action.description ?? 'No description'}
+                        </span>
+                        {shouldShowMetricsSummary && <StepViewMetrics action={action} layout="list" />}
+                    </span>
+                    {hasValidationError || hasValidationWarning ? (
+                        <LemonBadge status="warning" size="small" content="!" />
+                    ) : null}
+                </div>
+            </LemonButton>
+        )
+    }
 
     return (
         <div
