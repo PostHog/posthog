@@ -87,11 +87,11 @@ const NO_SEED_LINE =
   "Start by asking me what I want automated, and offer a couple of concrete ideas.";
 
 /**
- * The workflow-backed briefing. It pins the exact graph the Loops screens read
- * back (`loopHogFlowMapping.ts`) and the schedule presets they can display
- * (`loopScheduleRRule.ts`): anything else saves fine but shows up in Loops as a
- * read-only "changed in the workflow editor" entry. A context target is not
- * carried because workflow loops have no context channel.
+ * The workflow-backed briefing. The loop's exact graph, trigger configs and
+ * schedule presets live in the `building-workflows` skill (references/loops.md)
+ * so every agent builds the same shape; the prompt keeps the rules that must
+ * hold even if the skill is never opened. A context target is not carried
+ * because workflow loops have no context channel.
  */
 function buildWorkflowLoopBuilderInstructions({
   hasSeed,
@@ -104,6 +104,8 @@ A Loop is a workflow that creates an AI task every time its trigger fires: on a 
 
 ${hasSeed ? SEED_LINE : NO_SEED_LINE}
 
+Before you build anything, read the \`building-workflows\` skill and its \`references/loops.md\`. It has the exact graph a loop must have, the trigger configs, the schedule presets, the test-run steps, and what Loops does not support. Follow it exactly. Do not build a loop from memory.
+
 How to build it:
 
 1. Call \`workflows-list\` with \`origin_product\` set to "loops" first so you don't duplicate an existing loop.
@@ -113,63 +115,14 @@ How to build it:
    - Whether it works on a repository (for code changes and PRs) or is report-only.
    - A short name.
 4. Repository: use the \`owner/name\` I give you, never one from memory. If I don't name one and the task clearly needs code, ask.
-5. Skills: only when I ask for one, or my request clearly matches one, call \`skill-list\` and attach up to 10 by exact name. Never invent a skill name.
+5. Skills: only when I ask for one, or my request clearly matches one, call \`skill-list\` and attach by exact name.
 6. Before you create anything, send me one short summary (name, trigger, repository, skills, and the task prompt) and ask me to reply with the literal word \`confirm\`. Do not create until I reply \`confirm\`; no earlier message counts. If I ask for changes, update the draft and summarize again.
-7. After I confirm, create it in this order and stop at the first failure:
-   a. \`workflows-create\` with the graph below, \`status\` "draft" and \`origin_product\` "loops".
-   b. Schedule loops only: \`workflows-schedule-create\` with the new workflow id as \`workflow_id\`, plus \`rrule\`, \`starts_at\` and \`timezone\`. Skip this for GitHub loops.
-   c. \`workflows-enable\` with the workflow id. My \`confirm\` is the sign-off for enabling.
-   d. Tell me it is live and that it appears in Loops in this app.
+7. After I confirm, do these in order and stop at the first failure:
+   a. \`workflows-create\` with the graph from the skill, \`status\` "draft" and \`origin_product\` "loops".
+   b. \`workflows-test-run\` it step by step as the skill describes, until the exit step. If a step fails, fix the workflow and test again before going on.
+   c. Schedule loops only: \`workflows-schedule-create\` with the new workflow id as \`workflow_id\`, plus \`rrule\`, \`starts_at\` and \`timezone\` from the skill's presets. Skip this for GitHub loops.
+   d. \`workflows-enable\` with the workflow id. My \`confirm\` is the sign-off for enabling.
+   e. Tell me it is live and that it appears in Loops in this app.
 
-The graph, exactly. Replace only the values in angle brackets and add nothing else:
-
-{
-  "name": "<short name>",
-  "description": "",
-  "status": "draft",
-  "origin_product": "loops",
-  "exit_condition": "exit_only_at_end",
-  "actions": [
-    { "id": "trigger", "name": "Trigger", "type": "trigger", "config": <trigger config> },
-    {
-      "id": "create_task",
-      "name": "Create AI task",
-      "type": "function",
-      "config": {
-        "template_id": "template-posthog-create-task",
-        "inputs": {
-          "prompt": { "value": "<task prompt>" },
-          "repository": { "value": "<owner/name>" },
-          "skills": { "value": ["<skill name>"] }
-        }
-      }
-    },
-    { "id": "exit", "name": "Exit", "type": "exit", "config": { "reason": "Task created" } }
-  ],
-  "edges": [
-    { "from": "trigger", "to": "create_task", "type": "continue" },
-    { "from": "create_task", "to": "exit", "type": "continue" }
-  ]
-}
-
-Task step inputs: \`prompt\` is required. Include \`repository\` only for a repository loop and \`skills\` only when attaching skills; otherwise leave those keys out. Do not add other inputs.
-
-Trigger config:
-- Schedule: { "type": "schedule" }. The cadence lives in the schedule row, not in the trigger.
-- GitHub event: { "type": "internal-event", "filters": { "source": "internal-events", "events": [{ "id": "$github_event_received", "type": "events" }], "properties": [
-    { "key": "repository", "value": ["<owner/name>"], "operator": "exact", "type": "event" },
-    { "key": "event_type", "value": ["<issues | issue_comment | pull_request | push>"], "operator": "exact", "type": "event" },
-    { "key": "actor_access", "value": ["write"], "operator": "exact", "type": "event" }
-  ] } }
-  Keep the actor_access filter: it stops people without write access to the repository from starting a task.
-
-Schedule row: \`rrule\` is one of these, exactly as written (nothing else, no BYHOUR or BYMINUTE):
-- Every hour: FREQ=HOURLY;INTERVAL=1
-- Every day: FREQ=DAILY;INTERVAL=1
-- Weekdays: FREQ=WEEKLY;INTERVAL=1;BYDAY=MO,TU,WE,TH,FR
-- One day a week: FREQ=WEEKLY;INTERVAL=1;BYDAY=<MO | TU | WE | TH | FR | SA | SU>
-- Once: FREQ=DAILY;COUNT=1
-\`starts_at\` is the first time it should run, as ISO 8601 with a UTC offset; the clock time comes from it, so pick the next occurrence at the time I want. \`timezone\` is my IANA timezone (ask if you don't know it). Hourly schedules start on the hour.
-
-Not available in Loops: notifications, auto-fix behaviors, contexts, API or manual triggers, more than one repository, more than one GitHub event type, and any other workflow step. If I ask for one of these, say Loops doesn't support it yet and offer the closest loop that fits. Never add actions, edges or inputs to work around it.`;
+If I ask for something the skill lists as not available in Loops, say so and offer the closest loop that fits. Never add actions, edges or inputs to work around it.`;
 }
