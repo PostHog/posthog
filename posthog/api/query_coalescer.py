@@ -263,6 +263,21 @@ class QueryCoalescer:
                 pass
 
 
+def _has_truthy_key(node: object, key: str) -> bool:
+    # The walk is iterative because the body is untrusted: a deeply nested document must not
+    # exhaust the Python stack.
+    stack: list[object] = [node]
+    while stack:
+        current = stack.pop()
+        if isinstance(current, dict):
+            if current.get(key):
+                return True
+            stack.extend(current.values())
+        elif isinstance(current, list):
+            stack.extend(current)
+    return False
+
+
 _TEAM_ID_RE = re.compile(r"^/api/(?:environments|projects)/(\d+)/")
 
 _COALESCE_PATH_PATTERNS = [
@@ -292,6 +307,12 @@ class QueryCoalescingMiddleware:
 
         team_id = self._extract_team_id(request.path)
         if not team_id:
+            return self.get_response(request)
+
+        # The experiment_exposure recordings filter is gated per experiment inside the query
+        # runner, which a coalescing follower never reaches. Let every such request run itself.
+        if self._carries_experiment_exposure(request):
+            query_coalesce_counter.labels(outcome="skipped_experiment_exposure").inc()
             return self.get_response(request)
 
         enabled = posthoganalytics.feature_enabled("http-query-coalescing", str(team_id))
@@ -372,6 +393,16 @@ class QueryCoalescingMiddleware:
         if not match:
             return None
         return int(match.group(1))
+
+    @staticmethod
+    def _carries_experiment_exposure(request: HttpRequest) -> bool:
+        if request.method != "POST":
+            return False
+        try:
+            data = orjson.loads(request.body)
+        except ValueError:
+            return False
+        return _has_truthy_key(data, "experiment_exposure")
 
     # Fields that are unique per request and should not affect coalescing
     _IGNORED_KEY_FIELDS = {"client_query_id", "session_id"}

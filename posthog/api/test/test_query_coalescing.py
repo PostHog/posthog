@@ -1,11 +1,13 @@
 import time
 import threading
+from datetime import timedelta
 from typing import Any
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest import mock
 
 from django.test import TestCase
+from django.utils import timezone
 
 from parameterized import parameterized
 from redis.exceptions import RedisError
@@ -20,6 +22,14 @@ from posthog.api.query_coalescer import (
     QueryCoalescer,
     query_coalesce_counter,
 )
+from posthog.constants import AvailableFeature
+from posthog.models import User
+
+from products.access_control.backend.models.access_control import AccessControl
+from products.experiments.backend.models.experiment import Experiment
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
+
+_EVENTS_QUERY = {"kind": "EventsQuery", "select": ["event"]}
 
 
 class TestQueryCoalescer(TestCase):
@@ -250,7 +260,40 @@ class TestQueryCoalescingMiddleware(ClickhouseTestMixin, APIBaseTest):
         return f"/api/environments/{self.team.id}/query/"
 
     def _query_payload(self):
-        return {"query": {"kind": "EventsQuery", "select": ["event"]}}
+        return {"query": _EVENTS_QUERY}
+
+    def _create_denied_experiment_and_viewer(self) -> tuple[Experiment, User]:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="coalescing-exposure-flag",
+            created_by=self.user,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "rollout_percentage": 50},
+                        {"key": "test", "rollout_percentage": 50},
+                    ]
+                },
+            },
+        )
+        experiment = Experiment.objects.create(
+            team=self.team,
+            name="coalescing exposure experiment",
+            feature_flag=flag,
+            created_by=self.user,
+            start_date=timezone.now() - timedelta(days=1),
+            exposure_criteria={},
+            metrics=[],
+        )
+        AccessControl.objects.create(
+            team=self.team, resource="experiment", resource_id=str(experiment.pk), access_level="none"
+        )
+        return experiment, self._create_user("denied-coalescing-viewer@posthog.com")
 
     def test_leader_executes_and_stores_response(self):
         _create_event(team=self.team, event="test_event", distinct_id="user1")
@@ -477,13 +520,16 @@ class TestQueryCoalescingMiddleware(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("query", "/api/environments/{team_id}/query/"),
-            ("insights_trend", "/api/environments/{team_id}/insights/trend/"),
-            ("insights_funnel", "/api/environments/{team_id}/insights/funnel/"),
-            ("insights_pk", "/api/environments/{team_id}/insights/123/"),
+            ("query", "/api/environments/{team_id}/query/", _EVENTS_QUERY),
+            ("insights_trend", "/api/environments/{team_id}/insights/trend/", _EVENTS_QUERY),
+            ("insights_funnel", "/api/environments/{team_id}/insights/funnel/", _EVENTS_QUERY),
+            ("insights_pk", "/api/environments/{team_id}/insights/123/", _EVENTS_QUERY),
+            # Without the exposure filter a recordings query is ordinary traffic. Catches a
+            # guard that stops coalescing recordings queries wholesale.
+            ("recordings_query_without_exposure", "/api/environments/{team_id}/query/", {"kind": "RecordingsQuery"}),
         ]
     )
-    def test_matching_paths_trigger_coalescing(self, _name, path_template):
+    def test_matching_paths_trigger_coalescing(self, _name, path_template, query):
         path = path_template.format(team_id=self.team.id)
         mock_coalescer = mock.MagicMock()
         mock_coalescer.try_acquire.return_value = True
@@ -492,5 +538,43 @@ class TestQueryCoalescingMiddleware(ClickhouseTestMixin, APIBaseTest):
             mock.patch("posthog.api.query_coalescer.posthoganalytics.feature_enabled", return_value=True),
             mock.patch("posthog.api.query_coalescer.QueryCoalescer", return_value=mock_coalescer) as mock_cls,
         ):
-            self.client.post(path, {"query": {"kind": "EventsQuery", "select": ["event"]}})
+            self.client.post(path, {"query": query})
             mock_cls.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("top_level", False),
+            ("nested_in_data_table_source", True),
+        ]
+    )
+    def test_experiment_exposure_query_is_never_served_a_coalesced_body(self, _name: str, nested: bool) -> None:
+        # A denied viewer must not read the recordings of an experiment's exposed persons. The
+        # coalescing key holds no user identity, so a follower would otherwise replay the body a
+        # permitted leader produced, and the runner-level experiment check never runs for it.
+        experiment, denied_viewer = self._create_denied_experiment_and_viewer()
+        self.client.force_login(denied_viewer)
+
+        query: dict = {"kind": "RecordingsQuery", "experiment_exposure": {"experiment_id": experiment.id}}
+        if nested:
+            query = {"kind": "DataTableNode", "source": query}
+
+        mock_coalescer = mock.MagicMock()
+        mock_coalescer.try_acquire.return_value = False
+        mock_coalescer._dry_run = False
+        mock_coalescer.wait_for_signal.return_value = CoalesceSignal.DONE
+        mock_coalescer.get_success_response.return_value = {
+            "status": 200,
+            "body": '{"results": [{"session_id": "leader-only-session"}]}',
+            "content_type": "application/json",
+        }
+
+        with (
+            mock.patch("posthog.api.query_coalescer.posthoganalytics.feature_enabled", return_value=True),
+            mock.patch("posthog.api.query_coalescer.QueryCoalescer", return_value=mock_coalescer) as mock_cls,
+        ):
+            response = self.client.post(self._query_url(), {"query": query})
+
+        mock_cls.assert_not_called()
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertIn("Access control failure", response.json()["detail"])
+        self.assertNotIn("leader-only-session", response.content.decode())
