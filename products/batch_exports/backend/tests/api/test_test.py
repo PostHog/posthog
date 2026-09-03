@@ -99,8 +99,8 @@ async def delete_all_from_s3(object_storage_client, bucket_name: str, key_prefix
 def object_storage_integration(team, user):
     """An s3-compatible Integration pointing at the local object storage used by these tests.
 
-    The shared `s3_compatible_integration` fixture points at a fake provider, and its endpoint and
-    credentials would override the inline ones when running a destination test step.
+    The shared `s3_compatible_integration` fixture points at a fake provider, so a destination test
+    step configured from it could not reach a real bucket.
     """
     return Integration.objects.create(
         team=team,
@@ -125,9 +125,6 @@ def test_can_run_s3_test_step_for_new_destination(
             "bucket_name": bucket_name,
             "region": "us-east-1",
             "prefix": "posthog-events/",
-            "aws_access_key_id": "object_storage_root_user",
-            "aws_secret_access_key": "object_storage_root_password",
-            "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
         },
     }
 
@@ -170,9 +167,6 @@ def test_can_run_s3_test_step_for_destination(
             "bucket_name": bucket_name,
             "region": "us-east-1",
             "prefix": "posthog-events/",
-            "aws_access_key_id": "object_storage_root_user",
-            "aws_secret_access_key": "object_storage_root_password",
-            "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
         },
     }
 
@@ -205,35 +199,17 @@ def test_can_run_s3_test_step_for_destination(
 
 
 def test_run_test_step_rejects_destination_type_change(
-    client: HttpClient, temporal, organization, team, user, aws_s3_integration
+    client: HttpClient, temporal, organization, team, user, s3_batch_export_data
 ):
     """A test step must not be able to change the destination type of an existing export.
 
     Otherwise a caller could, for example, switch an "AwsS3" export (no `endpoint_url`) to the
-    legacy "S3" type, supply a `endpoint_url` they control, and have the stored credentials tested
-    against that endpoint.
+    legacy "S3" type, supply an `endpoint_url` they control, and have the integration's credentials
+    tested against that endpoint.
     """
 
-    destination_data = {
-        "type": "AwsS3",
-        "integration": aws_s3_integration.id,
-        "config": {
-            "bucket_name": "my-production-s3-bucket",
-            "region": "us-east-1",
-            "prefix": "posthog-events/",
-            "aws_access_key_id": "abc123",
-            "aws_secret_access_key": "secret",
-        },
-    }
-
-    batch_export_data = {
-        "name": "my-production-s3-bucket-destination",
-        "destination": destination_data,
-        "interval": "hour",
-    }
-
     client.force_login(user)
-    batch_export = create_batch_export_ok(client, team.pk, batch_export_data)
+    batch_export = create_batch_export_ok(client, team.pk, s3_batch_export_data)
 
     malicious_data = {
         "name": "my-production-s3-bucket-destination",
@@ -393,9 +369,6 @@ def test_can_run_s3_test_step_with_additional_fields(
             "bucket_name": bucket_name,
             "region": "us-east-1",
             "prefix": "posthog-events/",
-            "aws_access_key_id": "object_storage_root_user",
-            "aws_secret_access_key": "object_storage_root_password",
-            "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
         },
     }
 
