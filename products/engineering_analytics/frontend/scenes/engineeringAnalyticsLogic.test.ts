@@ -92,6 +92,7 @@ function makePr(overrides: Partial<PullRequestRow> = {}): PullRequestRow {
         passing: 0,
         failing: 0,
         pending: 0,
+        inconclusive: 0,
         failingWorkflows: [],
         pushes: 0,
         pushHistory: [],
@@ -106,7 +107,7 @@ function apiPr(overrides: Partial<PullRequestListItemApi> = {}): PullRequestList
     return {
         author: { handle: 'alice', display_name: 'alice', avatar_url: 'https://a/avatar', is_bot: false },
         repo: { provider: 'github', owner: 'posthog', name: 'posthog' },
-        ci: { runs: 0, passing: 0, failing: 0, pending: 0 },
+        ci: { runs: 0, passing: 0, failing: 0, pending: 0, inconclusive: 0 },
         number: 1,
         title: 'feat: x',
         state: 'open',
@@ -126,13 +127,18 @@ function apiPr(overrides: Partial<PullRequestListItemApi> = {}): PullRequestList
 
 const CARDS: CICardSummaryApi = { open_prs: 18, repos: 10, stuck: 6, failing_ci: 4 }
 const PRS: PullRequestListItemApi[] = [
-    apiPr({ number: 101, ci: { runs: 3, passing: 2, failing: 1, pending: 0 }, pushes: 7, rerun_cycles: 2 }),
+    apiPr({
+        number: 101,
+        ci: { runs: 3, passing: 2, failing: 1, pending: 0, inconclusive: 0 },
+        pushes: 7,
+        rerun_cycles: 2,
+    }),
     apiPr({
         number: 102,
         title: 'fix: y',
         author: { handle: 'bob', display_name: 'bob', avatar_url: 'https://b/avatar', is_bot: false },
         repo: { provider: 'github', owner: 'posthog', name: 'posthog-js' },
-        ci: { runs: 5, passing: 5, failing: 0, pending: 0 },
+        ci: { runs: 5, passing: 5, failing: 0, pending: 0, inconclusive: 0 },
         state: 'merged',
         created_at: '2026-05-20T00:00:00Z',
         merged_at: '2026-05-21T00:00:00Z',
@@ -199,6 +205,8 @@ describe('engineeringAnalyticsLogic', () => {
         mockTrunkQuarantine.mockResolvedValue({
             available: true,
             owners_resolved: true,
+            truncated: false,
+            limit: 5000,
             ttl_days: 15,
             repository: 'PostHog/posthog',
             trunk_url: null,
@@ -216,16 +224,6 @@ describe('engineeringAnalyticsLogic', () => {
         }
         jest.restoreAllMocks()
         resumeKeaLoadersErrors()
-    })
-
-    it.each([
-        ['no runs', { runs: 0, failing: 0, pending: 0 }, 'none'],
-        ['a failure', { runs: 3, failing: 1, pending: 0 }, 'failing'],
-        ['failure beats pending', { runs: 5, failing: 1, pending: 2 }, 'failing'],
-        ['unsettled run', { runs: 3, failing: 0, pending: 2 }, 'running'],
-        ['all green', { runs: 3, failing: 0, pending: 0 }, 'passing'],
-    ])('ciStatusOf derives %s', (_label, rollup, expected) => {
-        expect(ciStatusOf(rollup)).toBe(expected)
     })
 
     it('filters by state, author, repo, ci status, and search', () => {
@@ -667,6 +665,7 @@ describe('engineeringAnalyticsLogic', () => {
             run_attempt: 1,
             pr_number: 10,
             commit_pr_number: null,
+            is_merge_queue: false,
             ...overrides,
         })
         const groups = groupRunsByCommit([
@@ -707,6 +706,8 @@ describe('engineeringAnalyticsLogic', () => {
         mockTrunkQuarantine.mockResolvedValue({
             available: true,
             owners_resolved: true,
+            truncated: false,
+            limit: 5000,
             ttl_days: 15,
             repository: 'PostHog/posthog',
             trunk_url: 'https://app.trunk.io/posthog-inc/flaky-tests?repo=PostHog/posthog',

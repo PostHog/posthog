@@ -144,7 +144,14 @@ const PULL_REQUESTS: PullRequestListApi = {
         {
             author: { handle: 'jane-dev', display_name: 'Jane Dev', avatar_url: '', is_bot: false },
             repo: { provider: 'github', owner: 'PostHog', name: 'posthog' },
-            ci: { runs: 6, passing: 4, failing: 2, pending: 0, failing_workflows: ['Backend CI', 'E2E - Playwright'] },
+            ci: {
+                runs: 6,
+                passing: 4,
+                failing: 2,
+                pending: 0,
+                inconclusive: 0,
+                failing_workflows: ['Backend CI', 'E2E - Playwright'],
+            },
             push_history: [
                 {
                     head_sha: 'aaa111',
@@ -185,7 +192,7 @@ const PULL_REQUESTS: PullRequestListApi = {
         {
             author: { handle: 'sam-eng', display_name: 'Sam Eng', avatar_url: '', is_bot: false },
             repo: { provider: 'github', owner: 'PostHog', name: 'posthog' },
-            ci: { runs: 5, passing: 5, failing: 0, pending: 0 },
+            ci: { runs: 5, passing: 5, failing: 0, pending: 0, inconclusive: 0 },
             push_history: [
                 {
                     head_sha: 'ddd444',

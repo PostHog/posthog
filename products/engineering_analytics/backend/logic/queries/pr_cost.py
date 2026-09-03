@@ -39,6 +39,7 @@ from products.engineering_analytics.backend.logic.cost import (
     render_is_billable_job,
     runner_tier_descriptor,
 )
+from products.engineering_analytics.backend.logic.merge_queue import in_merge_queue_namespace_expr
 from products.engineering_analytics.backend.logic.queries._buckets import (
     Granularity,
     bucket_expr,
@@ -49,7 +50,6 @@ from products.engineering_analytics.backend.logic.queries._curated import Curate
 from products.engineering_analytics.backend.logic.queries._workflow_filters import (
     branch_filter_clause,
     date_to_filter_clause,
-    merge_queue_branch_predicate,
     run_scope_filter_clause,
     run_windowed_job_created_floor_constant,
     window_pair_predicates,
@@ -401,11 +401,11 @@ def query_workflow_window_costs_with_prev(
     if date_to is not None:
         date_to_clause = "AND c.run_started_at <= {date_to}"
         placeholders["date_to"] = ast.Constant(value=date_to)
-    # The prefix predicate deliberately counts all queue-shaped spend, including branch shapes
+    # The namespace predicate deliberately counts all queue spend, including branch shapes
     # logic/merge_queue.py cannot resolve to a PR (e.g. trunk-merge/gr-*). The per-PR landing stats
     # in merge_queue_overview.py use the narrower corroborated population; the two answer different
     # questions, so don't unify them casually.
-    queue = merge_queue_branch_predicate("c.head_branch")
+    queue = in_merge_queue_namespace_expr("c.head_branch")
     queue_agg = (
         f"sumIf(ifNull(c.billable_seconds, 0), {queue} AND {windows.current}) AS queue_billable_seconds, "
         f"sumIf(ifNull(c.billable_seconds, 0), {queue} AND {windows.previous}) AS queue_billable_seconds_prev"
