@@ -1597,6 +1597,14 @@ class TestExtractColumns(ClickhouseTestMixin, APIBaseTest):
                 [{"name": "maybe_event", "type": "string"}],
             ),
             (
+                "access_controlled_system_table",
+                {"kind": "HogQLQuery", "query": "SELECT id, name FROM system.dashboards"},
+                [
+                    {"name": "id", "type": "integer"},
+                    {"name": "name", "type": "string"},
+                ],
+            ),
+            (
                 "query_with_variable_placeholders",
                 {
                     "kind": "HogQLQuery",
@@ -1614,6 +1622,29 @@ class TestExtractColumns(ClickhouseTestMixin, APIBaseTest):
 
         result = EndpointVersion.extract_columns(query, team_id=self.team.pk)
         self.assertEqual(result, expected)
+
+    def test_get_columns_retries_after_a_failed_extraction(self):
+        from unittest import mock
+
+        from products.endpoints.backend.models import Endpoint, EndpointVersion
+
+        endpoint = Endpoint.objects.create(team=self.team, name="retry-columns", created_by=self.user)
+        version = EndpointVersion.objects.create(
+            endpoint=endpoint,
+            team=self.team,
+            version=1,
+            query={"kind": "HogQLQuery", "query": "SELECT event FROM events"},
+            created_by=self.user,
+        )
+
+        with mock.patch.object(EndpointVersion, "extract_columns", side_effect=Exception("boom")):
+            assert version.get_columns() == []
+        version.refresh_from_db()
+        assert version.columns is None
+
+        assert version.get_columns() == [{"name": "event", "type": "string"}]
+        version.refresh_from_db()
+        assert version.columns == [{"name": "event", "type": "string"}]
 
 
 class TestClickhouseTypeMapping(TestCase):
