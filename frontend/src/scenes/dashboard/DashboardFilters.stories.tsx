@@ -7,12 +7,11 @@ import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { mswDecorator } from '~/mocks/browser'
 import { AccessControlLevel, DashboardMode, DashboardTile, DashboardType, QueryBasedInsightModel } from '~/types'
 
-import { SEARCH_PARAM_FILTERS_KEY } from './dashboardConstants'
 import { DashboardFilterBar } from './DashboardFilters'
 import { dashboardLogic } from './dashboardLogic'
-import { encodeURLFilters } from './dashboardUtils'
+import { encodeURLFilters, SEARCH_PARAM_FILTERS_KEY } from './dashboardUtils'
 
-type FilterBarState = 'saved' | 'unsaved' | 'temporary' | 'layout' | 'narrow' | 'large'
+type FilterBarState = 'saved' | 'unsaved' | 'temporary' | 'temporary-viewer' | 'layout' | 'narrow' | 'large'
 
 const DASHBOARD_ID = 955
 
@@ -48,11 +47,17 @@ const largeDashboard: DashboardType<QueryBasedInsightModel> = {
 }
 
 function DashboardFilterBarStory({ state }: { state: FilterBarState }): JSX.Element {
-    const storyDashboard = state === 'large' ? largeDashboard : dashboard
+    let storyDashboard = dashboard
+    if (state === 'large') {
+        storyDashboard = largeDashboard
+    }
+    if (state === 'temporary-viewer') {
+        storyDashboard = { ...dashboard, user_access_level: AccessControlLevel.Viewer }
+    }
     const logic = dashboardLogic({ id: DASHBOARD_ID, dashboard: storyDashboard })
     logic.mount()
 
-    if (state === 'temporary') {
+    if (state === 'temporary' || state === 'temporary-viewer') {
         const filters = encodeURLFilters({ date_from: '-7d' })
         router.actions.push(
             `/dashboard/${DASHBOARD_ID}?${SEARCH_PARAM_FILTERS_KEY}=${filters[SEARCH_PARAM_FILTERS_KEY]}`
@@ -114,6 +119,10 @@ export const UnsavedFilters: Story = {
 
 export const TemporaryFilters: Story = {
     args: { state: 'temporary' },
+}
+
+export const TemporaryFiltersWithoutEditAccess: Story = {
+    args: { state: 'temporary-viewer' },
 }
 
 export const LayoutEditingWithUnsavedFilters: Story = {
