@@ -101,7 +101,15 @@ const Template: StoryFn<StoryArgs> = ({
         }
     }, [enforcement])
 
+    // Both controls run in one effect because `exitCodeVerification` also clears `generalError`.
+    // The code screen is settled first, so the banner the args ask for survives.
     useEffect(() => {
+        if (codeVerification) {
+            loginLogic.actions.setCodeVerificationRequired('test@posthog.com')
+        } else {
+            loginLogic.actions.exitCodeVerification()
+        }
+
         if (generalError !== 'none') {
             const messages: Record<string, string> = {
                 invalid_credentials: 'Invalid email or password.',
@@ -111,15 +119,7 @@ const Template: StoryFn<StoryArgs> = ({
         } else {
             loginLogic.actions.clearGeneralError()
         }
-    }, [generalError])
-
-    useEffect(() => {
-        if (codeVerification) {
-            loginLogic.actions.setCodeVerificationRequired('test@posthog.com')
-        } else {
-            loginLogic.actions.exitCodeVerification()
-        }
-    }, [codeVerification])
+    }, [generalError, codeVerification])
 
     return <Login />
 }
