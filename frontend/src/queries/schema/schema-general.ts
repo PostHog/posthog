@@ -700,6 +700,12 @@ export interface RecordingsQueryExperimentExposureFilter {
     experiment_id: integer
     /** Narrow to persons exposed to this variant. Defaults to all of the experiment's variants. */
     variant?: string
+    /**
+     * Only sessions carrying in-session exposure evidence: an event matching the experiment's exposure criteria
+     * inside the session (with the stamped `$feature/<flag_key>` property standing in when the exposure event was
+     * never captured with a session id). Defaults to all exposed persons' sessions from first exposure onward.
+     */
+    in_session?: boolean
 }
 
 export interface RecordingsQuery extends DataNode<RecordingsQueryResponse> {
