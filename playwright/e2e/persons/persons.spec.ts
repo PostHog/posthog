@@ -138,6 +138,11 @@ test.describe('Persons', () => {
     })
 
     test('Split a person with multiple distinct IDs', async ({ page }) => {
+        // The split API returns 201 when it enqueues the background task, and no endpoint reports
+        // that the task finished. So the poll below waits the couple of minutes the app tells the
+        // user the split can take, and the test budget must outlast that wait.
+        test.setTimeout(240_000)
+
         const persons = new PersonsPage(page)
         const { primaryDistinctId } = personWithMultipleIds.expected
         const secondaryDistinctId = personWithMultipleIds.person.distinct_ids[1]
@@ -165,7 +170,6 @@ test.describe('Persons', () => {
         })
 
         await test.step('wait for async split to complete then verify both persons exist', async () => {
-            // Split is a long running task — we tell the user that it may take a couple of minutes to see results
             await expect
                 .poll(
                     async () => {
@@ -180,7 +184,7 @@ test.describe('Persons', () => {
                             secondaryIds: secondaryData.results[0]?.distinct_ids,
                         }
                     },
-                    { timeout: 60_000, intervals: [1_000, 2_000, 5_000] }
+                    { timeout: 120_000, intervals: [1_000, 2_000, 5_000] }
                 )
                 .toEqual({
                     primaryIds: [primaryDistinctId],
