@@ -66889,15 +66889,68 @@ export namespace Schemas {
       NotIcontains: 'not_icontains',
     } as const;
 
+    /**
+     * * `exact` - exact
+     * * `is_not` - is_not
+     * * `icontains` - icontains
+     * * `not_icontains` - not_icontains
+     * * `regex` - regex
+     * * `not_regex` - not_regex
+     * * `gt` - gt
+     * * `gte` - gte
+     * * `lt` - lt
+     * * `lte` - lte
+     */
+    export type SurveyEventPropertyOperatorEnum = typeof SurveyEventPropertyOperatorEnum[keyof typeof SurveyEventPropertyOperatorEnum];
+
+
+    export const SurveyEventPropertyOperatorEnum = {
+      Exact: 'exact',
+      IsNot: 'is_not',
+      Icontains: 'icontains',
+      NotIcontains: 'not_icontains',
+      Regex: 'regex',
+      NotRegex: 'not_regex',
+      Gt: 'gt',
+      Gte: 'gte',
+      Lt: 'lt',
+      Lte: 'lte',
+    } as const;
+
+    export interface SurveyEventPropertyFilterSchema {
+      /** Values to compare the event property against. The filter matches if any of them matches. */
+      values: string[];
+      /** How to compare the event property against the values.
+       *
+       * * `exact` - exact
+       * * `is_not` - is_not
+       * * `icontains` - icontains
+       * * `not_icontains` - not_icontains
+       * * `regex` - regex
+       * * `not_regex` - not_regex
+       * * `gt` - gt
+       * * `gte` - gte
+       * * `lt` - lt
+       * * `lte` - lte */
+      operator: SurveyEventPropertyOperatorEnum;
+    }
+
+    /**
+     * Filters on the properties of the triggering event, keyed by property name. The survey only shows if the event matches every filter. Leave this out to trigger on the event name alone.
+     */
+    export type SurveyConditionEventValueSchemaPropertyFilters = {[key: string]: SurveyEventPropertyFilterSchema};
+
     export interface SurveyConditionEventValueSchema {
       /** Event name that triggers the survey. */
       name: string;
+      /** Filters on the properties of the triggering event, keyed by property name. The survey only shows if the event matches every filter. Leave this out to trigger on the event name alone. */
+      propertyFilters?: SurveyConditionEventValueSchemaPropertyFilters;
     }
 
     export interface SurveyEventsConditionSchema {
       /** Whether to show the survey every time one of the events is triggered (true), or just once (false). */
       repeatedActivation?: boolean;
-      /** Array of event names that trigger the survey. */
+      /** Events that trigger the survey, each with optional filters on the event properties. */
       values?: SurveyConditionEventValueSchema[];
     }
 

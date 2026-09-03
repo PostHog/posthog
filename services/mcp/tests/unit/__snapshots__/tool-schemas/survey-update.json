@@ -142,12 +142,48 @@
                                     "type": "boolean"
                                 },
                                 "values": {
-                                    "description": "Array of event names that trigger the survey.",
+                                    "description": "Events that trigger the survey, each with optional filters on the event properties.",
                                     "items": {
                                         "properties": {
                                             "name": {
                                                 "description": "Event name that triggers the survey.",
                                                 "type": "string"
+                                            },
+                                            "propertyFilters": {
+                                                "additionalProperties": {
+                                                    "properties": {
+                                                        "operator": {
+                                                            "description": "How to compare the event property against the values.\n\n* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `gte` - gte\n* `lt` - lt\n* `lte` - lte",
+                                                            "enum": [
+                                                                "exact",
+                                                                "is_not",
+                                                                "icontains",
+                                                                "not_icontains",
+                                                                "regex",
+                                                                "not_regex",
+                                                                "gt",
+                                                                "gte",
+                                                                "lt",
+                                                                "lte"
+                                                            ],
+                                                            "type": "string"
+                                                        },
+                                                        "values": {
+                                                            "description": "Values to compare the event property against. The filter matches if any of them matches.",
+                                                            "items": {
+                                                                "type": "string"
+                                                            },
+                                                            "type": "array"
+                                                        }
+                                                    },
+                                                    "required": ["values", "operator"],
+                                                    "type": "object"
+                                                },
+                                                "description": "Filters on the properties of the triggering event, keyed by property name. The survey only shows if the event matches every filter. Leave this out to trigger on the event name alone.",
+                                                "propertyNames": {
+                                                    "type": "string"
+                                                },
+                                                "type": "object"
                                             }
                                         },
                                         "required": ["name"],
