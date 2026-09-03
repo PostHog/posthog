@@ -2197,6 +2197,10 @@ def _fetch_aws_tenant_reputation(team_id: int) -> dict[str, Any] | None:
 ISP_METRICS_CACHE_SECONDS = 30 * 60
 # A failure is cached too, briefly: without it an unreachable SES is retried in full per keystroke.
 ISP_METRICS_ERROR_CACHE_SECONDS = 60
+# Held while one request does the fan-out so a cold key admits one, not all of them. Typing races
+# concurrent misses through the same key, and each miss can hold a worker for the whole query
+# budget. Longer than that budget, so the holder always outlives its own work.
+ISP_METRICS_REFRESH_LOCK_SECONDS = 30
 # Bounds the BatchGetMetricData fan-out: every extra domain costs one query per provider per
 # metric. A project with more sending domains gets a breakdown over its first few.
 ISP_METRICS_MAX_DOMAINS = 5
@@ -2307,6 +2311,11 @@ def _fetch_isp_metrics(team_id: int, window_days: int, domains: list[str]) -> li
     cached = cache.get(cache_key)
     if cached is not None:
         return cached["value"]
+
+    # Losers show no breakdown rather than queueing behind the holder: the rates above are what the
+    # page is for, and a second fan-out would buy a number the next reload gets from cache anyway.
+    if not cache.add(f"{cache_key}_refreshing", True, ISP_METRICS_REFRESH_LOCK_SECONDS):
+        return []
 
     try:
         rows = SESProvider().get_identity_isp_metrics(

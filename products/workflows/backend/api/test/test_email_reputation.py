@@ -428,6 +428,24 @@ class TestEmailReputationAPI(APIBaseTest):
         assert body["isps"] == []
         assert body["reputation"]["emails_sent"] == 100
 
+    def test_reputation_endpoint_shows_no_breakdown_while_another_request_is_refreshing_it(self):
+        # One refresh is 150 metric queries over 15 sequential SES calls, and the endpoint reloads on
+        # every search keystroke, so a cold key must admit one request rather than all of them.
+        self._verify_sending_domain()
+        provider = MagicMock()
+        provider.get_tenant_reputation.return_value = None
+        with (
+            patch("products.workflows.backend.api.hog_flow.fetch_app_metric_totals_by_source", return_value={}),
+            patch("products.workflows.backend.api.hog_flow.SESProvider", return_value=provider),
+            patch("products.workflows.backend.api.hog_flow._isp_breakdown_enabled", return_value=True),
+            patch("products.workflows.backend.api.hog_flow.cache.add", return_value=False),
+        ):
+            response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/reputation")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["isps"] == []
+        assert provider.get_identity_isp_metrics.call_count == 0
+
     def test_reputation_endpoint_withholds_the_breakdown_without_the_feature_flag(self):
         self._verify_sending_domain()
 
