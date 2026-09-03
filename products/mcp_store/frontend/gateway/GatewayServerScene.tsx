@@ -92,6 +92,7 @@ export function GatewayServerScene({
         removingServerIds.has(server.id) ||
         Boolean(connection && disconnectingInstallationIds.has(connection.installation_id))
     const needsReconnect = Boolean(connection?.pending_oauth || connection?.needs_reauth)
+    const canReconnect = Boolean(connection && (server.auth_type === 'oauth' || needsReconnect))
     const confirmRemoval = (): void => {
         if (!connection && removalAction !== 'delete_for_everyone') {
             return
@@ -183,7 +184,7 @@ export function GatewayServerScene({
                                     }
                                 />
                             </div>
-                            {needsReconnect && (
+                            {canReconnect && (
                                 <LemonButton
                                     type="primary"
                                     size="small"
@@ -195,6 +196,7 @@ export function GatewayServerScene({
                                               : undefined
                                     }
                                     onClick={() => reconnectServer(connection.installation_id)}
+                                    data-attr="mcp-server-reconnect"
                                 >
                                     Reconnect your account
                                 </LemonButton>
