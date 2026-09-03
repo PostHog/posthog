@@ -16,8 +16,10 @@ export function canCopyImageToClipboard(): boolean {
     return typeof ClipboardItem !== 'undefined' && !!navigator.clipboard?.write
 }
 
-export async function captureElementAsPng(element: HTMLElement): Promise<Blob> {
+export async function captureElementAsPng(element: HTMLElement, excludeSelector?: string): Promise<Blob> {
     return captureElementImage(element, {
+        // Hover controls and other chrome inside the element are part of the app, not of the picture.
+        filter: excludeSelector ? (node) => !(node instanceof Element) || !node.matches(excludeSelector) : undefined,
         type: CLIPBOARD_IMAGE_TYPE,
         // Charts are read at a glance after being pasted, so capture at 2x to keep text and lines sharp.
         pixelRatio: 2,
@@ -27,7 +29,10 @@ export async function captureElementAsPng(element: HTMLElement): Promise<Blob> {
     })
 }
 
-export async function copyElementImageToClipboard(element: HTMLElement): Promise<CopyImageResult> {
+export async function copyElementImageToClipboard(
+    element: HTMLElement,
+    excludeSelector?: string
+): Promise<CopyImageResult> {
     if (!canCopyImageToClipboard()) {
         return { outcome: 'unsupported', blob: null }
     }
@@ -35,7 +40,7 @@ export async function copyElementImageToClipboard(element: HTMLElement): Promise
     // Safari only accepts a clipboard write that starts in the same task as the click, so the pending
     // capture goes onto the ClipboardItem rather than being awaited first. Attach a no-op handler as
     // well, because the write never observes the promise if the ClipboardItem constructor throws.
-    const capture = captureElementAsPng(element)
+    const capture = captureElementAsPng(element, excludeSelector)
     capture.catch(() => {})
 
     try {

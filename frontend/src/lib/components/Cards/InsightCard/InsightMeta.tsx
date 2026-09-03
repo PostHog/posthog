@@ -12,6 +12,7 @@ import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+import { captureImageLogic } from 'lib/components/Scenes/InsightOrDashboard/captureImageLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { IconLink } from 'lib/lemon-ui/icons'
@@ -74,6 +75,7 @@ import type { DashboardSqlVisualizationPersistence } from './dashboardVisualizat
 import { dashboardWidgetMenusLogic } from './dashboardWidgetMenusLogic'
 import { DashboardWidgetPlacementMenus } from './DashboardWidgetPlacementMenus'
 import { InsightCardProps } from './InsightCard'
+import { insightCardCaptureTarget } from './insightCardImageCapture'
 import { InsightDetails } from './InsightDetails'
 
 interface InsightMetaProps extends Pick<
@@ -182,6 +184,8 @@ export function InsightMeta({
             dashboard_tiles: insight.dashboard_tiles,
         })
     )
+    const { copyImage } = useActions(captureImageLogic)
+    const { isCapturing: isCapturingImage } = useValues(captureImageLogic)
     const { updateInsightDirect } = useActions(insightsModel)
     const { reportDashboardInsightMetaUpdated } = useActions(eventUsageLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -354,6 +358,14 @@ export function InsightMeta({
     // The always-visible "⋯" menu keeps refresh reachable on touch/keyboard. Unlike the hover
     // icon (which hides while this tile refreshes) the menu item stays but disables.
     const refreshMenuDisabledReason = tileRefreshing ? 'Refreshing…' : refreshDisabledReason
+
+    // A browser capture takes whatever is on screen, so a tile captured mid-load makes a valid PNG of an
+    // empty card.
+    const copyImageDisabledReason = isCapturingImage
+        ? 'Copying…'
+        : tileRefreshing
+          ? 'Wait for the insight to finish loading'
+          : undefined
 
     // Gate the hover icon on `showEditingControls` so it doesn't appear on public/export
     // dashboards, matching the "⋯" menu (which is already gated there).
@@ -651,6 +663,15 @@ export function InsightMeta({
                                 />
                             </>
                         ) : null}
+                        <LemonButton
+                            onClick={() => copyImage(insightCardCaptureTarget(insight, tile))}
+                            disabledReason={copyImageDisabledReason}
+                            tooltip="Copy the tile to your clipboard as a PNG"
+                            fullWidth
+                            data-attr="insight-card-copy-image"
+                        >
+                            Copy as PNG
+                        </LemonButton>
                         {refresh && (
                             <DashboardTileRefreshDataButton
                                 onRefresh={refresh}
@@ -669,8 +690,8 @@ export function InsightMeta({
                 }
                 moreTooltip={
                     canEditInsight
-                        ? 'Rename, duplicate, export, refresh and more…'
-                        : 'Duplicate, export, refresh and more…'
+                        ? 'Rename, duplicate, export, copy as PNG, refresh and more…'
+                        : 'Duplicate, export, copy as PNG, refresh and more…'
                 }
                 extraControls={
                     placement !== DashboardPlacement.Public &&
