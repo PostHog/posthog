@@ -3,6 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 
 import { logsAttributesRetrieve } from 'products/logs/frontend/generated/api'
+import { MatchedOnEnumApi } from 'products/logs/frontend/generated/api.schemas'
 import { userFacetSettingsRetrieve } from 'products/platform_features/frontend/generated/api'
 
 import { facetPresenceLogic } from './facetPresenceLogic'
@@ -42,7 +43,16 @@ describe('facetPresenceLogic', () => {
 
         await expectLogic(logic).toFinishAllListeners().toMatchValues({ presenceLoadFailed: true })
 
-        mockAttributes.mockResolvedValue({ results: [{ name: 'service.name' }], count: 1 })
+        mockAttributes.mockResolvedValue({
+            results: [
+                {
+                    name: 'service.name',
+                    propertyFilterType: 'log_resource_attribute',
+                    matchedOn: MatchedOnEnumApi.Key,
+                },
+            ],
+            count: 1,
+        })
         logic.actions.loadPresentResourceKeys()
 
         await expectLogic(logic)
