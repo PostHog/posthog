@@ -2,7 +2,7 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, render } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { router } from 'kea-router'
 
@@ -11,6 +11,7 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import { getByDataAttr } from '~/test/byDataAttr'
 import { initKeaTests } from '~/test/init'
 import { OrganizationType } from '~/types'
 
@@ -39,7 +40,7 @@ describe('<ReplayDataRetentionSettings /> locked retention options', () => {
 
         render(<ReplayDataRetentionSettings />)
 
-        await userEvent.click(screen.getByRole('button', { name: '90 days' }))
+        await userEvent.click(getByDataAttr(document.body, 'session-recording-retention-button-90d'))
 
         expect(router.values.location.pathname).toBe('/organization/billing')
         expect(router.values.location.search).toBe('?products=platform_and_support')
@@ -51,7 +52,7 @@ describe('<ReplayDataRetentionSettings /> locked retention options', () => {
 
         render(<ReplayDataRetentionSettings />)
 
-        await userEvent.click(screen.getByRole('button', { name: '5 years (1825 days)' }))
+        await userEvent.click(getByDataAttr(document.body, 'session-recording-retention-button-5y'))
 
         expect(router.values.location.pathname).not.toBe('/organization/billing')
     })
