@@ -49,6 +49,13 @@ To force the failure modes the picker fallback handles:
   `IntegrationRepositoryCacheEntry` for the team, run any agent case.
 - `RepoSelectionRejectedError`: hard to force reliably; use `--show-picker-guidance`
   to preview what the user would see if it did fire.
+
+# Routing rules
+
+Cases with `routing_rules` create temporary `RepoRoutingRule` rows for the team before
+running and delete them afterwards. Rules the team already has stay in place and reach
+the agent prompt on every agent case, so a heavily rule-configured team can shift the
+expected outcomes of unrelated cases.
 """
 
 # ruff: noqa: T201, E402
@@ -80,6 +87,7 @@ django.setup()
 from django.conf import settings
 
 from posthog.models import Team
+from posthog.models.repo_routing_rule import RepoRoutingRule
 from posthog.temporal.ai.slack_app import POSTHOG_CODE_SLACK_MENTION_PICKER_GUIDANCE
 from posthog.temporal.ai.slack_app.activities.classifiers import classify_task_needs_repo
 
@@ -110,13 +118,18 @@ Outcome = Literal[
 class Case:
     name: str
     description: str
-    # `{first_repo}` is substituted with the team's first connected repo for the explicit case.
+    # `{first_repo}`/`{second_repo}` are substituted with the team's connected repos at runtime.
     text_template: str
     thread_messages: list[dict[str, str]]
     expected_stage: Stage
     expected_outcome: Outcome
     # Optional human note explaining current behavior quirks.
     note: str = ""
+    # `(rule_text, repository_template)` pairs created as temporary RepoRoutingRule rows for
+    # this case and deleted afterwards.
+    routing_rules: tuple[tuple[str, str], ...] = ()
+    # When set, the case only passes if the picked repo equals this (template-substituted).
+    expected_repo_template: str = ""
 
 
 @dataclass
@@ -125,14 +138,17 @@ class CaseResult:
     actual_stage: Stage
     actual_outcome: Outcome
     detail: str = ""  # repo name, error type, etc.
+    expected_repo: str = ""  # resolved from `expected_repo_template`; empty = don't check the repo
 
     @property
     def status(self) -> Literal["PASS", "FAIL", "SKIP"]:
         if self.actual_stage == "skipped":
             return "SKIP"
-        if (self.actual_stage, self.actual_outcome) == (self.case.expected_stage, self.case.expected_outcome):
-            return "PASS"
-        return "FAIL"
+        if (self.actual_stage, self.actual_outcome) != (self.case.expected_stage, self.case.expected_outcome):
+            return "FAIL"
+        if self.expected_repo and self.detail.lower() != self.expected_repo.lower():
+            return "FAIL"
+        return "PASS"
 
 
 # Cases are parameterized so they work across teams; `{first_repo}` is substituted at runtime.
@@ -296,6 +312,34 @@ CASES: list[Case] = [
         expected_stage="agent",
         expected_outcome="found",
     ),
+    # --- Routing rules (steer the agent when the ask names no repo) -------------
+    Case(
+        name="routing_rule_steers_vague_ask",
+        description="A configured routing rule steers an ambiguous ask to its repository.",
+        text_template="@PostHog the internal support desk search endpoint is throwing 500s, can you fix it",
+        thread_messages=[
+            {
+                "user": "tester",
+                "text": "@PostHog the internal support desk search endpoint is throwing 500s, can you fix it",
+            }
+        ],
+        expected_stage="agent",
+        expected_outcome="found",
+        routing_rules=(("Anything about the internal support desk", "{second_repo}"),),
+        expected_repo_template="{second_repo}",
+        note="The rule is the only signal linking 'support desk' to that repo — nothing in the "
+        "repo caches mentions it — so a pass means the rule reached and steered the agent.",
+    ),
+    Case(
+        name="routing_rule_loses_to_explicit_mention",
+        description="An explicit org/repo in the text wins in the cascade; the rule never reaches the agent.",
+        text_template="@PostHog can you look at {first_repo} and fix the readme typo",
+        thread_messages=[{"user": "tester", "text": "@PostHog can you look at {first_repo} and fix the readme typo"}],
+        expected_stage="cascade",
+        expected_outcome="auto",
+        routing_rules=(("Route every request to the second repo", "{second_repo}"),),
+        expected_repo_template="{first_repo}",
+    ),
 ]
 
 
@@ -313,7 +357,12 @@ class TeamContext:
     user_id: int
     all_repos: list[str]
     first_repo: str
+    second_repo: str
     results: list[CaseResult] = field(default_factory=list)
+
+    @property
+    def repo_substitutions(self) -> dict[str, str]:
+        return {"first_repo": self.first_repo, "second_repo": self.second_repo}
 
 
 class CommandError(Exception):
@@ -438,20 +487,50 @@ class Command:
             self.stdout.write(f"  ... and {len(all_repos) - 20} more")
         self.stdout.write("")
 
-        return TeamContext(team=team, team_id=team_id, user_id=user_id, all_repos=all_repos, first_repo=all_repos[0])
+        return TeamContext(
+            team=team,
+            team_id=team_id,
+            user_id=user_id,
+            all_repos=all_repos,
+            first_repo=all_repos[0],
+            second_repo=all_repos[1],
+        )
 
     # --- Case execution -------------------------------------------------------
 
     def _run_case(self, case: Case, *, ctx: TeamContext, flags: RunFlags) -> CaseResult:
-        text = case.text_template.format(first_repo=ctx.first_repo)
-        thread_messages = [
-            {**msg, "text": msg["text"].format(first_repo=ctx.first_repo)} for msg in case.thread_messages
-        ]
+        substitutions = ctx.repo_substitutions
+        text = case.text_template.format(**substitutions)
+        thread_messages = [{**msg, "text": msg["text"].format(**substitutions)} for msg in case.thread_messages]
 
         self.stdout.write(self.style.MIGRATE_HEADING(f"── {case.name} ──"))
         self.stdout.write(f"  text:     {text}")
         self.stdout.write(f"  expected: {case.expected_stage}/{case.expected_outcome}")
 
+        rule_ids = []
+        for priority, (rule_text, repo_template) in enumerate(case.routing_rules):
+            rule = RepoRoutingRule.objects.create(
+                team_id=ctx.team_id,
+                rule_text=rule_text,
+                repository=repo_template.format(**substitutions),
+                priority=priority,
+            )
+            rule_ids.append(rule.id)
+            self.stdout.write(f"  rule:     {rule.rule_text} → {rule.repository} (temporary)")
+
+        try:
+            result = self._run_stages(case, text, thread_messages, ctx=ctx, flags=flags)
+        finally:
+            if rule_ids:
+                RepoRoutingRule.objects.filter(id__in=rule_ids).delete()
+
+        if case.expected_repo_template:
+            result.expected_repo = case.expected_repo_template.format(**substitutions)
+        return result
+
+    def _run_stages(
+        self, case: Case, text: str, thread_messages: list[dict[str, str]], *, ctx: TeamContext, flags: RunFlags
+    ) -> CaseResult:
         # Stage 1: cascade (synchronous, no LLM). Mirrors `cascade_posthog_code_repository_activity`,
         # because reading only the mention here would pass cases that production sends to the agent.
         explicit = _extract_explicit_repo(text, ctx.all_repos) or _extract_explicit_repo_from_thread(
@@ -535,10 +614,11 @@ class Command:
         for r in results:
             badge = {"PASS": self.style.SUCCESS, "FAIL": self.style.ERROR, "SKIP": self.style.WARNING}[r.status]
             actual = f"{r.actual_stage}/{r.actual_outcome}"
-            detail = f" ({r.detail})" if r.detail and r.status == "PASS" else ""
+            detail = f" ({r.detail})" if r.detail and r.status != "SKIP" else ""
             self.stdout.write(f"  {badge(r.status):>14s}  {r.case.name:24s}  → {actual}{detail}")
             if r.status == "FAIL":
-                self.stdout.write(f"        expected {r.case.expected_stage}/{r.case.expected_outcome}")
+                expected_repo = f" ({r.expected_repo})" if r.expected_repo else ""
+                self.stdout.write(f"        expected {r.case.expected_stage}/{r.case.expected_outcome}{expected_repo}")
             if r.case.note and r.status != "SKIP":
                 self.stdout.write(
                     textwrap.fill(r.case.note, width=100, initial_indent="        note: ", subsequent_indent=" " * 14)
