@@ -455,7 +455,7 @@ class TestContextLayerAPI(APIBaseTest):
         assert proposed.status_code == 200, proposed.content
         assert proposed.json() == {"path": f"projects/{self.team.id}/spaces/growth.md", "exists": False}
 
-    def test_agent_route_accepts_organization_scopes_from_an_interactive_task(self, _flag) -> None:
+    def test_agent_route_accepts_task_scopes_from_an_interactive_task(self, _flag) -> None:
         self._enable()
         with team_scope(self.team.id):
             channel = tasks_facade.resolve_channel(self.team.id, self.user.id, name="growth", star=False)
@@ -467,7 +467,7 @@ class TestContextLayerAPI(APIBaseTest):
             channel_id=channel.id,
         )
         token = self._bearer(
-            "organization:read organization:write task:write internal_run:read",
+            "task:read task:write internal_run:read",
             scoped_teams=[self.team.id],
             sandbox_task_id=task.id,
         )
@@ -598,7 +598,7 @@ class TestContextLayerAPI(APIBaseTest):
             team=self.team, created_by=self.user, title="agent work", channel_id=channel.id
         )
         token = self._bearer(
-            "task:read task:write internal_run:read organization:write",
+            "task:read task:write internal_run:read",
             scoped_teams=[self.team.id],
             sandbox_task_id=task.id,
         )
@@ -624,7 +624,7 @@ class TestContextLayerAPI(APIBaseTest):
 
     def test_pages_reject_task_scopes_without_run_provenance(self, _flag) -> None:
         self._enable()
-        token = self._bearer("task:read task:write internal_run:read", scoped_teams=[self.team.id])
+        token = self._bearer("task:read task:write", scoped_teams=[self.team.id])
         self.client.logout()
         response = self.client.get(
             f"{self.agent_url}/pages/",

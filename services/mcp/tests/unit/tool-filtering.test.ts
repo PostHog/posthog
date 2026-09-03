@@ -716,9 +716,12 @@ describe('Tool Filtering - Scoped Teams', () => {
     })
 
     it('keeps project-scoped tools visible when scopedTeams is non-empty', () => {
-        const tools = getToolsForFeatures({ scopedTeams: [42] })
+        const tools = getToolsForFeatures({ scopedTeams: [42], featureFlags: { 'context-layer': true } })
         expect(tools).toContain('dashboard-get')
         expect(tools).toContain('feature-flag-get-all')
+        expect(tools).toContain('context-wiki-channel-resolve')
+        expect(tools).toContain('context-wiki-page-retrieve')
+        expect(tools).toContain('context-wiki-page-update')
     })
 
     it('keeps org-scope tools visible when scopedTeams is empty (unscoped token)', () => {
@@ -958,9 +961,9 @@ describe('Tool Filtering - Feature Flags', () => {
         }
     })
 
-    it('keeps public context wiki tools separate from internal loop tools', () => {
+    it('keeps ordinary task context wiki tools separate from loop tools', () => {
         const definitions = getToolDefinitions()
-        expect(definitions['context-wiki-page-update']!.required_scopes).toEqual(['organization:write'])
+        expect(definitions['context-wiki-page-update']!.required_scopes).toEqual(['task:write', 'internal_run:read'])
         expect(definitions['loop-context-wiki-page-update']!.required_scopes).toEqual([
             'task:write',
             'loop_context_internal:write',

@@ -455,15 +455,13 @@ class ContextLayerAgentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     read_actions = ["page", "channel_page"]
     write_actions = ["update_page", "commits"]
 
-    # Which task scope each action accepts, and the provenance marker that has to
-    # come with it. A sandbox run lands commits; a context-maintaining loop run
-    # reads and rewrites its own page. Ordinary runs use organization scopes for
-    # page operations, then the write path binds them to their task channel.
-    _RUN_SCOPES = {
-        "commits": ("task:write", INTERNAL_RUN_SCOPE),
-        "page": ("task:read", LOOP_CONTEXT_INTERNAL_SCOPE),
-        "channel_page": ("task:read", LOOP_CONTEXT_INTERNAL_SCOPE),
-        "update_page": ("task:write", LOOP_CONTEXT_INTERNAL_SCOPE),
+    # Each task scope must come with server-minted run provenance. Page actions
+    # accept ordinary and loop runs; the write path binds each to its own target.
+    _RUN_TASK_SCOPES = {
+        "commits": "task:write",
+        "page": "task:read",
+        "channel_page": "task:read",
+        "update_page": "task:write",
     }
 
     def dangerously_get_required_scopes(self, request: Request, view=None) -> list[str] | None:  # noqa: ANN001
@@ -477,13 +475,16 @@ class ContextLayerAgentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         deriving. One consequence of INTERNAL: a `*` (full access) token does not
         short-circuit this check, so it has to carry the organization scope too.
         """
-        required = self._RUN_SCOPES.get(self.action)
-        if required is not None:
-            task_scope, provenance_scope = required
+        task_scope = self._RUN_TASK_SCOPES.get(self.action)
+        if task_scope is not None:
             access_token = get_oauth_access_token(request)
             token_scopes = set((getattr(access_token, "scope", "") or "").split())
-            if provenance_scope in token_scopes:
-                return [task_scope, provenance_scope]
+            provenance_scopes = (
+                (INTERNAL_RUN_SCOPE,) if self.action == "commits" else (LOOP_CONTEXT_INTERNAL_SCOPE, INTERNAL_RUN_SCOPE)
+            )
+            for provenance_scope in provenance_scopes:
+                if provenance_scope in token_scopes:
+                    return [task_scope, provenance_scope]
         if self.action in self.write_actions:
             return ["organization:write"]
         if self.action in self.read_actions:
