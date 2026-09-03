@@ -40,6 +40,12 @@ unit-testable against the real `git` binary without booting the app
   Behind the `skills-store-in-sandbox` flag (off → 404, flag service unavailable → 503).
   `llm_skill:read`, which the sandbox OAuth token already carries. Throttled per user, so one caller
   cannot 429 the rest of the project. Consumer-facing contract: `docs/internal/skills/skill-bundle-api.md`.
+- **Sandbox run state** — `select_skill_stubs` in `adapters.py` is the same stub walk without the zip.
+  The tasks worker calls it when it builds a run's processing context and writes the entries into
+  `TaskRun.state["store_skills"]` (`products/tasks/backend/logic/services/store_skills.py`); the sandbox
+  agent renders one pointer `SKILL.md` per entry into `~/.claude/skills` and `~/.agents/skills`
+  (`products/desktop/packages/agent/src/server/store-skills.ts`), skipping any name a bundled skill
+  already uses. The stub file the agent writes must stay in step with `render_skill_stub_md`.
 - **Zip import** — `POST /api/projects/:team/llm_skills/import` (multipart `file` field, a spec
   skill `.zip`) → creates the skill (web-authenticated, `llm_skill:write`). The inverse of
   export: `parse_skill_zip` reads `SKILL.md` frontmatter + bundled files. Round-trips with export.

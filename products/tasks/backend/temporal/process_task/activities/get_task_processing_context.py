@@ -2,6 +2,7 @@ import json
 import hashlib
 from dataclasses import dataclass
 from datetime import timedelta
+from typing import Any
 
 from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
@@ -30,6 +31,7 @@ from products.tasks.backend.constants import (
     RTK_DISABLED_FEATURE_FLAG,
     SANDBOX_EVENT_INGEST_FEATURE_FLAG,
     SANDBOX_ROTATION_FEATURE_FLAG,
+    STORE_SKILLS_STATE_KEY,
     get_vm_sandbox_flag_payload,
     is_same_run_resume_state,
     vm_sandbox_allowed_origin_products,
@@ -56,6 +58,7 @@ from products.tasks.backend.logic.services.sandbox_config import (
     MAX_SANDBOX_MEMORY_GB,
     MAX_SANDBOX_TTL_SECONDS,
 )
+from products.tasks.backend.logic.services.store_skills import resolve_store_skills
 from products.tasks.backend.models import SandboxCustomImage, SandboxEnvironment, Task, TaskRun
 from products.tasks.backend.temporal.constants import resolve_inactivity_timeout, resolve_max_run_duration
 from products.tasks.backend.temporal.oauth import is_interactive_signals_run
@@ -1181,10 +1184,21 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         or False
     )  # Ensure we get a boolean value even if the flag is missing
     emit_agent_log(run_id, "debug", f"pr_loop_enabled: {pr_loop_enabled} for this task run")
+    state_updates: dict[str, Any] = {PR_LOOP_ENABLED_STATE_KEY: pr_loop_enabled}
+    # The sandbox agent renders these into its skill roots at session start. Resolved here so the
+    # sandbox needs no extra request on its boot path, and best-effort: a store failure must not
+    # stop the run, it only leaves the sandbox without store skills for this session.
     try:
-        TaskRun.update_state_atomic(task_run.id, updates={PR_LOOP_ENABLED_STATE_KEY: pr_loop_enabled})
+        store_skills = resolve_store_skills(team, actor_user or task.created_by, distinct_id=distinct_id, run_id=run_id)
     except Exception as e:
-        log_with_activity_context("pr_loop_enabled_stamp_failed", run_id=run_id, error=str(e))
+        log_with_activity_context("store_skills_resolve_failed", run_id=run_id, error=str(e))
+        store_skills = None
+    if store_skills is not None:
+        state_updates[STORE_SKILLS_STATE_KEY] = store_skills
+    try:
+        TaskRun.update_state_atomic(task_run.id, updates=state_updates)
+    except Exception as e:
+        log_with_activity_context("run_state_stamp_failed", run_id=run_id, error=str(e))
     pi_persistent_streaming = task.runtime == Task.Runtime.PI and not is_slack_interaction_state(state)
     sandbox_event_ingest_override = state.get("sandbox_event_ingest_enabled")
     if pi_persistent_streaming and not isinstance(sandbox_event_ingest_override, bool):
