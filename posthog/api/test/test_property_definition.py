@@ -800,13 +800,13 @@ class TestPropertyDefinitionAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("plain list", "", 0),
-            ("scoped flag only", "?event_names=%5B%22%24pageview%22%5D", 1),
-            ("filtered by event", "?event_names=%5B%22%24pageview%22%5D&filter_by_event_names=true", 2),
+            ("plain list", "", 0, False),
+            ("scoped flag only", "?event_names=%5B%22%24pageview%22%5D", 1, True),
+            ("filtered by event", "?event_names=%5B%22%24pageview%22%5D&filter_by_event_names=true", 2, False),
         ]
     )
     def test_list_reads_event_properties_only_when_the_request_needs_them(
-        self, _name: str, query_string: str, expected_reads: int
+        self, _name: str, query_string: str, expected_reads: int, flag_from_join: bool
     ) -> None:
         # The list runs a count statement and a page statement. A read of posthog_eventproperty in
         # a statement that does not need it scans every property of the project for nothing.
@@ -823,6 +823,9 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         assert len([sql for sql in definition_queries if "posthog_eventproperty" in sql]) == expected_reads
         # A FULL OUTER JOIN stops the planner from seeking the project-scoped index.
         assert not any("FULL OUTER JOIN" in sql for sql in definition_queries)
+        # The flag comes from a join, which can spill. Read from a subquery in the SELECT list, it
+        # is a SubPlan that scans the event properties again per row once its hash is too large.
+        assert any("LEFT JOIN (" in sql for sql in definition_queries) == flag_from_join
 
     def test_property_definition_project_id_coalesce(self):
         # Create legacy property with only team_id (old style)

@@ -212,6 +212,7 @@ class QueryContext:
     numerical_filter: str = ""
     search_query: str = ""
     seen_on_events_filter: str = ""
+    seen_on_events_join: str = ""
     is_feature_flag_filter: str = ""
     excluded_properties_filter: str = ""
 
@@ -219,6 +220,8 @@ class QueryContext:
     order_by_seen_on_events: bool = False
 
     event_property_field: str = "NULL"
+
+    seen_on_events_join_alias = "seen_on_events"
 
     params: dict = dataclasses.field(default_factory=dict)
 
@@ -310,25 +313,26 @@ class QueryContext:
         parsed_event_names = list(map(str, json.loads(event_names) if event_names else []))
 
         seen_on_events_filter = ""
+        seen_on_events_join = ""
         event_property_field = "NULL"
         order_by_seen_on_events = False
 
         if self.should_join_event_property:
-            seen_property_names = self._seen_property_names(bool(parsed_event_names))
             if filter_by_event_names:
+                seen_property_names = self._seen_property_names(bool(parsed_event_names))
                 seen_on_events_filter = f"AND {self.property_definition_table}.name IN ({seen_property_names})"
-            if parsed_event_names:
-                # With the filter above applied, every returned row is seen on the events.
-                event_property_field = (
-                    "true"
-                    if filter_by_event_names
-                    else f"{self.property_definition_table}.name IN ({seen_property_names})"
-                )
-                order_by_seen_on_events = not filter_by_event_names
+                if parsed_event_names:
+                    # With the filter above applied, every returned row is seen on the events.
+                    event_property_field = "true"
+            elif parsed_event_names:
+                seen_on_events_join = self._seen_on_events_join()
+                event_property_field = f"{self.seen_on_events_join_alias}.property IS NOT NULL"
+                order_by_seen_on_events = True
 
         return dataclasses.replace(
             self,
             seen_on_events_filter=seen_on_events_filter,
+            seen_on_events_join=seen_on_events_join,
             event_property_field=event_property_field,
             order_by_seen_on_events=order_by_seen_on_events,
             params={**self.params, "event_names": parsed_event_names},
@@ -443,6 +447,7 @@ class QueryContext:
         query = f"""
             SELECT {self.property_definition_fields}, {self.event_property_field} AS is_seen_on_filtered_events
             FROM {self.table}
+            {self.seen_on_events_join}
             WHERE coalesce({self.property_definition_table}.project_id, {self.property_definition_table}.team_id) = %(project_id)s
               AND type = %(type)s
               AND coalesce(group_type_index, -1) = %(group_type_index)s
@@ -467,13 +472,27 @@ class QueryContext:
         return query
 
     def _seen_property_names(self, scoped_to_event_names: bool) -> str:
-        # A semi-join, so Postgres removes the duplicate property names itself and reads
-        # posthog_eventproperty once per statement.
+        # Only for the WHERE clause, where Postgres pulls the subquery up into a semi-join. It
+        # removes the duplicate property names itself and reads posthog_eventproperty once.
         event_filter = "AND event = ANY(%(event_names)s)" if scoped_to_event_names else ""
         return f"""
                 SELECT property
                 FROM posthog_eventproperty
                 WHERE coalesce(project_id, team_id) = %(project_id)s {event_filter}
+            """
+
+    def _seen_on_events_join(self) -> str:
+        # A join, because the flag is read in the SELECT list. Postgres runs a SELECT-list IN as a
+        # SubPlan that hashes the event properties and cannot spill that hash, so it scans them
+        # again for each definition row as soon as the hash is too large for memory. A join can
+        # spill. DISTINCT keeps the join from repeating a definition seen on several events.
+        return f"""
+            LEFT JOIN (
+                SELECT DISTINCT property
+                FROM posthog_eventproperty
+                WHERE coalesce(project_id, team_id) = %(project_id)s AND event = ANY(%(event_names)s)
+            ) {self.seen_on_events_join_alias}
+            ON {self.seen_on_events_join_alias}.property = {self.property_definition_table}.name
             """
 
 
