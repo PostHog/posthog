@@ -10,6 +10,7 @@ one `exec` bucket.
 from datetime import datetime, timedelta
 from typing import Any
 
+from django.conf import settings
 from django.utils import timezone
 
 import structlog
@@ -69,12 +70,14 @@ def discover_measured_teams(window_days: int = MEASURED_WINDOW_DAYS, limit: int 
     """Projects with recent MCP Analytics traffic: the measured-server universe.
 
     Raw ClickHouse rather than HogQL because HogQL execution is scoped to one team and
-    this is the one cross-team question the pipeline asks.
+    this is the one cross-team question the pipeline asks. The table is qualified
+    because the connection's default database is not the posthog database in every
+    environment.
     """
     rows = sync_execute(
-        """
+        f"""
         SELECT DISTINCT team_id
-        FROM events
+        FROM {settings.CLICKHOUSE_DATABASE}.events
         WHERE event = '$mcp_tool_call'
             AND timestamp >= now() - INTERVAL %(window_days)s DAY
             AND JSONExtractString(properties, '$mcp_source') = %(source)s
