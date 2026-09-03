@@ -488,6 +488,7 @@ class UserAccessControl:
         return list(
             cast(Any, self._user)
             .role_memberships.filter(role__organization_id=self._organization_id)
+            .filter(Q(organization_member__isnull=True) | Q(organization_member__organization_id=self._organization_id))
             .values_list("role_id", flat=True)
         )
 

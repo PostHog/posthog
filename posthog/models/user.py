@@ -562,9 +562,8 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
             try:
                 from products.access_control.backend.models.role import RoleMembership
 
-                RoleMembership.objects.create(
-                    role_id=organization.default_role_id, user=self, organization_member=membership
-                )
+                role = organization.roles.get(id=organization.default_role_id)
+                RoleMembership.objects.create(role=role, user=self, organization_member=membership)
             except Exception as e:
                 capture_exception(
                     e,
