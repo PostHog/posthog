@@ -41,8 +41,8 @@ class TestContentAutopilotAPI(APIBaseTest):
     def _profiles_url(self, suffix: str = "") -> str:
         return f"/api/projects/{self.team.id}/web_analytics_content_autopilot_profiles/{suffix}"
 
-    def _runs_url(self, suffix: str = "") -> str:
-        return f"/api/projects/{self.team.id}/web_analytics_content_autopilot_runs/{suffix}"
+    def _runs_url(self, suffix: str = "", *, team_id: int | None = None) -> str:
+        return f"/api/projects/{team_id or self.team.id}/web_analytics_content_autopilot_runs/{suffix}"
 
     def _proposals_url(self, suffix: str = "") -> str:
         return f"/api/projects/{self.team.id}/web_analytics_content_autopilot_proposals/{suffix}"
@@ -173,11 +173,23 @@ class TestContentAutopilotAPI(APIBaseTest):
 
         self.assertEqual(statuses, [status.HTTP_200_OK, status.HTTP_200_OK, status.HTTP_429_TOO_MANY_REQUESTS])
 
-    def test_start_and_cancel_expose_durable_run_transitions(self) -> None:
-        profile = create_content_autopilot_profile(self.team)
+    def _child_environment(self) -> Team:
+        return Team.objects.create(
+            organization=self.organization,
+            project=self.team.project,
+            parent_team=self.team,
+            name="Child environment",
+        )
 
-        started = self.client.post(self._runs_url("start/"), {"profile_id": str(profile.id)}, format="json")
-        canceled = self.client.post(self._runs_url(f"{started.json()['id']}/cancel/"), format="json")
+    @parameterized.expand([("root_project", False), ("child_environment", True)])
+    def test_start_and_cancel_expose_durable_run_transitions(self, _name: str, through_child: bool) -> None:
+        profile = create_content_autopilot_profile(self.team)
+        team_id = self._child_environment().id if through_child else self.team.id
+
+        started = self.client.post(
+            self._runs_url("start/", team_id=team_id), {"profile_id": str(profile.id)}, format="json"
+        )
+        canceled = self.client.post(self._runs_url(f"{started.json()['id']}/cancel/", team_id=team_id), format="json")
 
         self.assertEqual(started.status_code, status.HTTP_202_ACCEPTED, started.json())
         self.assertEqual(started.json()["input_snapshot"]["confidence"], "lower")

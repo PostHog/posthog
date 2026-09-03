@@ -72,6 +72,9 @@ class ContentAutopilotViewSetMixin(TeamAndOrgViewSetMixin):
         ):
             raise PermissionDenied("This feature is not available.")
 
+    def _should_skip_parents_filter(self) -> bool:
+        return True
+
     def handle_exception(self, exc: Exception) -> Response:
         if isinstance(exc, ContentAutopilotLifecycleError | ContentAutopilotExportError):
             exc = ValidationError(str(exc))
