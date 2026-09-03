@@ -1487,6 +1487,13 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
   private async resolveStoredSession(): Promise<StoredSessionInput | null> {
     const stored = this.authSession.getCurrent();
     if (!stored) return null;
+    // A stale scope version means the stored refresh token was granted under
+    // permissions the app no longer requests. Refusing it here, at the one
+    // place every session-refresh path resolves the stored token, stops a
+    // caller that skips the explicit reauth checks (doInitialize,
+    // attemptSessionRecovery) from resurrecting the old-scope session behind
+    // the reauth prompt's back.
+    if (stored.scopeVersion < OAUTH_SCOPE_VERSION) return null;
 
     const refreshToken = await this.cipher.decrypt(
       stored.refreshTokenEncrypted,
