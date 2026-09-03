@@ -1101,6 +1101,53 @@ class TestHogFlowAPI(APIBaseTest):
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
         assert response.status_code == expected_status, response.json()
 
+    def test_hog_flow_conversion_window_only_patch_keeps_the_goal(self):
+        # DRF replaces a nested object rather than merging it, so a PATCH carrying only the window used
+        # to store an empty goal. The workflow kept measuring nothing, with a 200 and no error to say so.
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
+        )
+        hog_flow["conversion"] = {
+            "filters": [],
+            "window": "7d",
+            "events": [{"filters": {"events": [{"id": "purchase", "name": "purchase", "type": "events"}]}}],
+        }
+        created = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert created.status_code == 201, created.json()
+        flow_id = created.json()["id"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"conversion": {"window": "14d"}},
+            format="json",
+        )
+
+        assert response.status_code == 200, response.json()
+        conversion = response.json()["conversion"]
+        assert conversion["window"] == "14d"
+        assert len(conversion["events"]) == 1, conversion
+
+    def test_hog_flow_conversion_goal_can_still_be_cleared_explicitly(self):
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
+        )
+        hog_flow["conversion"] = {
+            "filters": [],
+            "window": "7d",
+            "events": [{"filters": {"events": [{"id": "purchase", "name": "purchase", "type": "events"}]}}],
+        }
+        created = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        flow_id = created.json()["id"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"conversion": {"window": "14d", "events": []}},
+            format="json",
+        )
+
+        assert response.status_code == 200, response.json()
+        assert response.json()["conversion"]["events"] == []
+
     def test_hog_flow_conversion_window_minutes_error_names_the_unit(self):
         hog_flow, _ = self._create_hog_flow_with_action(
             {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}

@@ -3152,6 +3152,15 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
 
         conversion = data.get("conversion")
         if conversion is not None:
+            # DRF replaces a nested object rather than merging it, so a PATCH carrying only the window
+            # arrives without the goal and the lines below would store it as empty — leaving a workflow
+            # that measures nothing, with no error to say so. Carry the omitted halves over from the
+            # stored value; a caller that means to clear one sends it explicitly as [].
+            if self.partial and instance and isinstance(instance.conversion, dict):
+                for key in ("filters", "events"):
+                    if key not in conversion and instance.conversion.get(key) is not None:
+                        conversion[key] = instance.conversion[key]
+                data["conversion"] = conversion
             filters = conversion.get("filters")
             if filters:
                 serializer = HogFunctionFiltersSerializer(data={"properties": filters}, context=self.context)
