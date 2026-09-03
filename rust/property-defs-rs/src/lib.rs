@@ -13,6 +13,7 @@ use metrics_consts::{
 use types::{Event, Update};
 
 use ahash::AHashSet;
+use cache_warming::TeamWarmer;
 use tokio::sync::mpsc::error::TrySendError;
 use tracing::{error, info, warn};
 use update_cache::Cache;
@@ -25,6 +26,7 @@ use crate::{
 pub mod api;
 pub mod app_context;
 pub mod batch_ingestion;
+pub mod cache_warming;
 pub mod config;
 pub mod group_type_resolver;
 pub mod measuring_channel;
@@ -147,6 +149,7 @@ pub async fn update_producer_loop(
     config: Config,
     consumer: SingleTopicConsumer,
     shared_cache: Arc<Cache>,
+    mut warmer: Option<TeamWarmer>,
     channel: MeasuringSender<Update>,
     handle: lifecycle::Handle,
 ) {
@@ -221,6 +224,10 @@ pub async fn update_producer_loop(
             {
                 skipped_due_to_team_filter.increment(1);
                 continue;
+            }
+
+            if let Some(warmer) = warmer.as_mut() {
+                warmer.notice(event.team_id, event.project_id);
             }
 
             let updates = event.into_updates_with(

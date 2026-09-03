@@ -6,6 +6,7 @@ use lifecycle::{ComponentOptions, Manager};
 use property_defs_rs::{
     api::v1::{query::Manager as QueryManager, routing::apply_routes},
     app_context::AppContext,
+    cache_warming::{run_warming_worker, TeamWarmer, Warming, WarmingLimits},
     config::Config,
     measuring_channel::measuring_channel,
     metrics_buckets::bucket_overrides,
@@ -152,6 +153,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Start the lifecycle monitor before spawning components
     let guard = manager.monitor_background();
 
+    // Lazy per-team cache warming (see cache_warming.rs). Reads go to a dedicated pool,
+    // preferably a reader endpoint, so they never compete with batch writes.
+    let warming = if config.cache_warming_enabled {
+        let read_url = if config.database_read_url.is_empty() {
+            &config.database_url
+        } else {
+            &config.database_read_url
+        };
+        let warm_pool = PgPoolOptions::new()
+            .max_connections(config.cache_warming_concurrency.max(1) as u32)
+            .connect_lazy(read_url)?;
+        let (warming, rx) = Warming::new(config.cache_warming_queue_depth);
+        tokio::spawn(run_warming_worker(
+            rx,
+            warming.clone(),
+            warm_pool,
+            cache.clone(),
+            WarmingLimits::from_config(&config),
+            config.cache_warming_concurrency,
+        ));
+        info!("Cache warming enabled");
+        Some(warming)
+    } else {
+        None
+    };
+
     // Spawn N producer loops (Kafka consumers -> channel)
     for _ in 0..config.worker_loop_count {
         let h = producer_handle.clone();
@@ -159,6 +186,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             config.clone(),
             consumer.clone(),
             cache.clone(),
+            warming.clone().map(TeamWarmer::new),
             tx.clone(),
             h,
         ));

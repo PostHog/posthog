@@ -23,6 +23,35 @@ pub struct Config {
     #[envconfig(default = "300")]
     pub pg_max_lifetime_secs: u64,
 
+    // === Cache warming ===
+    // Lazily backfill the dedup caches from Postgres the first time a team's events arrive
+    // after boot. A fresh pod otherwise re-discovers what Postgres holds by issuing hours of
+    // no-op upserts; warming replaces that with a bounded read per team.
+    #[envconfig(default = "false")]
+    pub cache_warming_enabled: bool,
+
+    // Read-only connection string for warming queries, e.g. an Aurora reader endpoint.
+    // Empty falls back to database_url. Warming reads must not compete with batch writes
+    // for the writer pool, so this gets its own pool either way.
+    #[envconfig(default = "")]
+    pub database_read_url: String,
+
+    // Teams warmed at the same time. Also sizes the warming connection pool.
+    #[envconfig(default = "2")]
+    pub cache_warming_concurrency: usize,
+
+    // Per-team row caps. Teams with more rows than this get a partial warm: the remainder
+    // of their keyspace recurs too rarely to cache, so reading it buys nothing.
+    #[envconfig(default = "2000000")]
+    pub cache_warming_eventprops_per_team_limit: i64,
+    #[envconfig(default = "1000000")]
+    pub cache_warming_propdefs_per_team_limit: i64,
+
+    // Teams waiting to be warmed. When the queue is full a team is dropped and re-noticed
+    // on a later event, so a deep rebalance cannot pile up unbounded work.
+    #[envconfig(default = "10000")]
+    pub cache_warming_queue_depth: usize,
+
     #[envconfig(nested = true)]
     pub kafka: KafkaConfig,
 

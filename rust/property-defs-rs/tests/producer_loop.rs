@@ -70,6 +70,7 @@ async fn test_producer_flushes_a_partial_batch_when_events_stop_arriving() {
         config.clone(),
         consumer,
         cache,
+        None,
         tx,
         handle.clone(),
     ));

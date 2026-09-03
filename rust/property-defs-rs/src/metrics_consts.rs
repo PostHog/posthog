@@ -84,3 +84,9 @@ pub const V2_PROP_DEFS_DROPPED_UNCACHED: &str = "propdefs_v2_propdefs_dropped_un
 // target table. Stripped rows stay in the shared dedup cache on purpose, so the dead
 // tenant's events stop re-issuing the same failing write.
 pub const V2_BATCH_ROWS_DROPPED_FK: &str = "propdefs_v2_batch_rows_dropped_fk";
+
+// Cache warming: lazy per-team backfill of the dedup caches from a Postgres
+// reader, so a fresh pod stops re-writing definitions Postgres already has.
+pub const CACHE_WARMING_TEAMS: &str = "prop_defs_cache_warming_teams";
+pub const CACHE_WARMING_ROWS: &str = "prop_defs_cache_warming_rows";
+pub const CACHE_WARMING_TEAM_TIME: &str = "prop_defs_cache_warming_team_ms";
