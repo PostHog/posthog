@@ -55,6 +55,7 @@ const server: MCPGatewayServerApi = {
     description: 'Issues, projects, and cycles.',
     category: 'productivity',
     template_auth_type: 'oauth',
+    auth_type: 'oauth',
     is_team_enabled: true,
     icon_key: '',
     icon_domain: 'linear.app',
