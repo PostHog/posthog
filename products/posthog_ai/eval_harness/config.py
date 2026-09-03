@@ -21,7 +21,19 @@ class BaseEvalCase(BaseModel):
     """Human-readable name for this eval case."""
 
     prompt: str
-    """Natural language task description for the agent or model."""
+    """Natural language task description for the agent or model.
+
+    The first turn of the conversation. Append follow-up user messages via
+    ``followups``."""
+
+    followups: list[str] = Field(default_factory=list)
+    """Follow-up user messages, sent one turn at a time after ``prompt``.
+
+    Empty (the default) runs a single-turn case exactly as before. Non-empty
+    keeps the same agent session alive across ``1 + len(followups)`` turns —
+    for suites that grade how routing or behavior changes over a conversation.
+    Sandboxed cases only; the one-shot runner executes a single model call per
+    case and never reads this field."""
 
     expected: dict[str, Any] = Field(default_factory=dict)
     """Expected values for scoring, keyed by scorer ``_name()``.

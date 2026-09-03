@@ -229,22 +229,86 @@ class FirstRelevantTool(Scorer):
     when every relevant call in the earliest turn used the target. A turn that
     fires a typed runner and ``execute-sql`` together is a hedge, not a route,
     and fails whichever of the two the case expects.
+
+    ``turn=N`` (1-indexed) grades one turn of a multi-turn case instead of the
+    whole conversation: it reads slice ``N - 1`` of the runner's ``turn_logs``
+    (one cumulative-log slice per completed turn) and seeds the parser with
+    that turn's prompt from ``turn_prompts``. A missing slice scores ``None``,
+    not ``0.0`` — a turn that never ran is infrastructure noise, not an agent
+    routing failure.
+
+    ``tool`` overrides the per-case ``expected[...]["tool"]`` target. A
+    multi-turn case carries one ``expected`` dict for every turn, so a scorer
+    whose turn has a different target from the rest (e.g. a turn that must
+    route to ``execute-sql`` while the others expect ``query-trends``) passes
+    its own.
+
+    Each turn's scorer needs a distinct output name, or the four per-turn
+    ``Score`` objects collide on one key: the per-case ``scores`` dict keeps
+    only the last turn's value, and the rollup blends the manipulation-check
+    turn into the recovery metric. So a ``turn`` scorer defaults its name to
+    ``first_relevant_tool_t{turn}`` (override with ``name``). The per-case
+    ``expected`` lookup still uses the shared ``first_relevant_tool`` key, so a
+    renamed scorer keeps finding its target.
     """
 
-    def __init__(self, *, relevant_tools: frozenset[str]) -> None:
+    _EXPECTED_KEY = "first_relevant_tool"
+
+    def __init__(
+        self,
+        *,
+        relevant_tools: frozenset[str],
+        turn: int | None = None,
+        tool: str | None = None,
+        name: str | None = None,
+    ) -> None:
         self.relevant_tools = relevant_tools
+        self.turn = turn
+        self.tool = tool
+        if name is not None:
+            self._label = name
+        elif turn is not None:
+            self._label = f"{self._EXPECTED_KEY}_t{turn}"
+        else:
+            self._label = self._EXPECTED_KEY
 
     def _name(self) -> str:
-        return "first_relevant_tool"
+        return self._label
 
     def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
-        target = _read_tool(expected, self._name())
+        target = self.tool or _read_tool(expected, self._EXPECTED_KEY)
         if not target:
-            return Score(name=self._name(), score=None, metadata={"reason": f"No {self._name()}.tool on case"})
+            return Score(name=self._name(), score=None, metadata={"reason": f"No {self._EXPECTED_KEY}.tool on case"})
 
-        parser = _build_parser(output)
-        if parser is None:
+        raw_log = (output or {}).get("raw_log")
+        initial_prompt = ((output or {}).get("prompt") or "") if isinstance(output, dict) else ""
+        if self.turn is not None:
+            # Grade one turn of a multi-turn case. Turn logs are cumulative-log
+            # slices: they carry no user_message line, so seed the parser with the
+            # turn's own prompt. A missing slice means the turn never ran — infra
+            # noise, not an agent failure, so skip rather than score 0.
+            turn_logs = (output or {}).get("turn_logs")
+            turn_prompts = (output or {}).get("turn_prompts")
+            if not isinstance(turn_logs, list) or self.turn < 1 or self.turn > len(turn_logs):
+                return Score(
+                    name=self._name(),
+                    score=None,
+                    metadata={"reason": f"No turn {self.turn} log slice", "tool": target},
+                )
+            raw_log = turn_logs[self.turn - 1]
+            if isinstance(turn_prompts, list) and len(turn_prompts) >= self.turn:
+                prompt = turn_prompts[self.turn - 1]
+                initial_prompt = prompt if isinstance(prompt, str) else ""
+            if not raw_log:
+                return Score(
+                    name=self._name(),
+                    score=None,
+                    metadata={"reason": f"Turn {self.turn} log slice is empty", "tool": target},
+                )
+
+        if not raw_log:
             return Score(name=self._name(), score=0.0, metadata={"reason": "No raw log", "tool": target})
+        parser = LogParser.cached(raw_log, initial_prompt=initial_prompt)
 
         candidates = [
             call for call in parser.get_tool_calls() if not call.is_error and call.name in self.relevant_tools

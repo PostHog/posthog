@@ -319,3 +319,23 @@ class TestAgentRunFailureDetection:
     ) -> None:
         artifacts = AgentArtifacts(exit_code=1 if stderr else 0, stderr=stderr, tool_call_count=tool_call_count)
         assert runner.agent_never_ran(artifacts) is expected
+
+
+class TestSliceTurnLogs:
+    def test_slices_by_turn_line_marks(self) -> None:
+        log = "\n".join(f'{{"line": {i}}}' for i in range(5))
+        assert runner._slice_turn_logs(log, [2, 5]) == [
+            '{"line": 0}\n{"line": 1}',
+            '{"line": 2}\n{"line": 3}\n{"line": 4}',
+        ]
+
+    def test_single_turn_spans_the_whole_log(self) -> None:
+        log = "\n".join(f'{{"line": {i}}}' for i in range(3))
+        assert runner._slice_turn_logs(log, [3]) == [log]
+
+    def test_marks_past_the_line_count_disable_slicing(self) -> None:
+        log = "\n".join(f'{{"line": {i}}}' for i in range(3))
+        assert runner._slice_turn_logs(log, [2, 9]) is None
+
+    def test_a_malformed_line_disables_slicing(self) -> None:
+        assert runner._slice_turn_logs('{"line": 0}\nnot json\n{"line": 1}', [1, 3]) is None

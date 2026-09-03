@@ -65,6 +65,13 @@ def _default_case_timeout() -> int:
     return DEFAULT_CASE_TIMEOUT_SECONDS
 
 
+# Multi-turn cases poll once per turn, each poll with its own budget, so a
+# single turn's budget cannot cover a whole conversation. Lifecycle scales the
+# per-case timeout by this factor when a selected module declares multi-turn
+# cases (see discovery.MULTI_TURN_MODULE_MARKER).
+MULTI_TURN_CASE_TIMEOUT_MULTIPLIER = 3
+
+
 def _default_team_setup_concurrency() -> int:
     if os.getenv("CODER") is not None or os.getenv("CI") is not None:
         return MANAGED_TEAM_SETUP_CONCURRENCY

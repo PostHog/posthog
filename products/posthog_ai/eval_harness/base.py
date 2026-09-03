@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import time
 import uuid
 import asyncio
@@ -7,7 +8,10 @@ import logging
 from collections.abc import Sequence
 from dataclasses import replace
 from functools import partial
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
+
+import orjson
 
 from .acp_log import ParsedLog, parse_log
 from .config import AgentArtifacts, BaseEvalCase, SandboxedEvalCase
@@ -189,7 +193,7 @@ class _BaseEvalRun:
 
     def _case_input(self, case: BaseEvalCase) -> dict[str, Any]:
         """The JSON-safe ``input`` dict a case round-trips through Braintrust as."""
-        return {"name": case.name, "prompt": case.prompt}
+        return {"name": case.name, "prompt": case.prompt, "followups": case.followups}
 
     def _build_eval_cases(self) -> list[CaseSpec]:
         eval_cases: list[CaseSpec] = []
@@ -304,6 +308,46 @@ class _BaseEvalRun:
         # not as agent 0s dragging the averages.
         error_count = sum(1 for r in result.results if r.error is not None)
         await self.ctx.reporter.record_summary(self.experiment_name, result.summary, error_count=error_count)
+
+        if os.getenv("EXPORT_EVAL_RESULTS"):
+            self._export_case_results(result)
+
+    def _export_case_results(self, result: ExperimentResult) -> None:
+        """Write one JSONL row per case x trial to the run's local log dir.
+
+        The reporter's ``eval_results.jsonl`` carries only per-experiment
+        aggregates, and ``eval_harness/logs/`` case logs overwrite each other
+        across trials — neither supports a paired case-level analysis. The data
+        already lives in ``ExperimentResult.results``; persist it here.
+        ``trial_index`` groups the trials of one case: scores from the same
+        trial index are comparable across runs of the same case set, but a
+        trial index is a repetition counter, not a fixed condition.
+        """
+        rows_by_trial: dict[str, int] = {}
+        rows: list[dict[str, Any]] = []
+        for case_result in result.results:
+            case_name = case_result.input.get("name", "") if isinstance(case_result.input, dict) else ""
+            if not case_name:
+                continue
+            trial_index = rows_by_trial.get(case_name, 0)
+            rows_by_trial[case_name] = trial_index + 1
+            rows.append(
+                {
+                    "run_id": self.experiment_id,
+                    "experiment": self.experiment_name,
+                    "case_name": case_name,
+                    "trial_index": trial_index,
+                    "scores": case_result.scores,
+                    "error": case_result.error,
+                }
+            )
+        path = Path(self.run_log_dir) / "case_results.jsonl"
+        try:
+            with open(path, "wb") as f:
+                for row in rows:
+                    f.write(orjson.dumps(row) + b"\n")
+        except OSError:
+            logger.exception("Failed to export per-case results for '%s'", self.experiment_name)
 
     async def run(self) -> ExperimentResult:
         eval_cases = self._build_eval_cases()
@@ -491,6 +535,8 @@ class _SandboxedEvalRun(_BaseEvalRun):
             "last_message": last_message,
             "messages": messages,
             "raw_log": result.raw_log,
+            "turn_logs": result.turn_logs,
+            "turn_prompts": [eval_case.prompt, *eval_case.followups],
             "seed": seed_result,
             "prompt": eval_case.prompt,
         }
@@ -499,6 +545,7 @@ class _SandboxedEvalRun(_BaseEvalRun):
         eval_case = SandboxedEvalCase(
             name=input["name"],
             prompt=input["prompt"],
+            followups=list(input.get("followups") or []),
             repo_fixture=input.get("repo_fixture", ""),
         )
         original_case = self.cases_by_name.get(input["name"])

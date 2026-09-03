@@ -57,6 +57,7 @@ async def test_reporter_output_is_labeled_and_reserves_pass_for_the_run(
         agent_model="gpt-5",
         max_sandboxes=4,
         trials=1,
+        case_timeout_seconds=900,
     )
     await reporter.suite_started("cli_mcp/eval_workflow::eval_verify_event_before_query")
     await reporter.experiment_started("sandboxed-cli-mcp-verify-event-cli", 1, tmp_path)

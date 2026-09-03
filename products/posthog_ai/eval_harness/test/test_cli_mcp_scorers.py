@@ -133,6 +133,7 @@ def test_first_relevant_tool_grades_the_answer_route(
 
     assert result.score == expected_score
     assert result.metadata.get("first_relevant_tools") == expected_turn_tools
+    assert result.name == "first_relevant_tool"
 
 
 @parameterized.expand(
@@ -174,3 +175,69 @@ def test_did_not_cite_raw_sql_is_none_when_the_typed_tool_was_never_called() -> 
     )
 
     assert result.score is None
+
+
+def _multi_turn_output(turn_commands: list[str], *, turn_index: int, total_turns: int = 4) -> dict:
+    """Build the runner's multi-turn output shape, with a real log only in one slice.
+
+    Each slice carries distinct SQL so the process-wide ``LogParser.cached`` key
+    never collides across parameterizations. ``turn_index`` is 0-based.
+    """
+    turn_logs = [f'{{"filler-turn": {i}}}' for i in range(total_turns)]
+    turn_logs[turn_index] = _raw_log([[turn_commands[turn_index]]])
+    return {
+        "raw_log": turn_logs[turn_index],
+        "prompt": "turn 1 prompt",
+        "turn_logs": turn_logs,
+        "turn_prompts": [f"turn {i + 1} prompt" for i in range(total_turns)],
+    }
+
+
+@parameterized.expand(
+    [
+        ("turn3_recovers_to_typed", 2, "call query-trends {}", "query-trends", 1.0),
+        ("turn3_stays_on_sql", 2, _sql_command(_ANSWER_SQL), "query-trends", 0.0),
+        ("turn2_sql_matches_its_override", 1, _sql_command(_ANSWER_SQL), "execute-sql", 1.0),
+    ]
+)
+def test_first_relevant_tool_grades_a_single_turn(
+    _name: str, turn_index: int, command: str, target: str, expected_score: float
+) -> None:
+    commands = [command] * 4
+    output = _multi_turn_output(commands, turn_index=turn_index)
+
+    result = FirstRelevantTool(relevant_tools=ANALYSIS_QUERY_TOOLS, turn=turn_index + 1, tool=target)._run_eval_sync(
+        output,
+        expected={"first_relevant_tool": {"tool": "query-trends"}},
+    )
+
+    assert result.score == expected_score
+    # A distinct name per turn keeps the four per-turn scores from colliding on
+    # one key in the per-case export and the rollup.
+    assert result.name == f"first_relevant_tool_t{turn_index + 1}"
+
+
+def test_first_relevant_tool_turn_reads_expected_tool_without_override() -> None:
+    output = _multi_turn_output(["call query-trends {}"] * 4, turn_index=2)
+
+    result = FirstRelevantTool(relevant_tools=ANALYSIS_QUERY_TOOLS, turn=3)._run_eval_sync(
+        output,
+        expected={"first_relevant_tool": {"tool": "query-trends"}},
+    )
+
+    assert result.score == 1.0
+    # Name diverges by turn, but the expected lookup still resolves under the
+    # shared base key.
+    assert result.name == "first_relevant_tool_t3"
+
+
+def test_first_relevant_tool_turn_skips_a_missing_slice() -> None:
+    output = _multi_turn_output(["call query-trends {}"] * 4, turn_index=2)
+
+    result = FirstRelevantTool(relevant_tools=ANALYSIS_QUERY_TOOLS, turn=9)._run_eval_sync(
+        output,
+        expected={"first_relevant_tool": {"tool": "query-trends"}},
+    )
+
+    assert result.score is None
+    assert "No turn 9 log slice" in result.metadata["reason"]

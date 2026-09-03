@@ -1,9 +1,13 @@
 """MCP routing evals for prompts that sound like raw SQL requests.
 
-The typed cases ask for trends, funnels, or retention without naming the
-PostHog analysis. They must call the matching typed runner rather than
-``execute-sql``. The controls require row-level or windowed work, so they must
-call ``execute-sql`` without using a typed query runner.
+The typed cases ask for trends, funnels, retention, stickiness, or lifecycle
+without naming the PostHog analysis. They must call the matching typed runner
+rather than ``execute-sql``. The controls require row-level or windowed work,
+so they must call ``execute-sql`` without using a typed query runner.
+
+Entity search against the ``system.*`` catalog (e.g. "do we already have an
+insight for X?") is a separate failure mode with its own dedicated suite —
+see ``retrieval/eval_system_table_search.py`` — and isn't duplicated here.
 """
 
 from __future__ import annotations
@@ -15,7 +19,9 @@ from products.posthog_ai.eval_harness.scorers import NoToolCall
 from products.posthog_ai.evals.cli_mcp.scorers import FirstRelevantTool
 from products.posthog_ai.evals.product_analytics.scorers import INSIGHT_WRITE_TOOLS
 
-ANALYSIS_QUERY_TOOLS = frozenset({"query-trends", "query-funnel", "query-retention", "execute-sql"})
+ANALYSIS_QUERY_TOOLS = frozenset(
+    {"query-trends", "query-funnel", "query-retention", "query-stickiness", "query-lifecycle", "execute-sql"}
+)
 
 
 def _routing_case(*, name: str, prompt: str, target_tool: str) -> SandboxedEvalCase:
@@ -78,6 +84,36 @@ async def eval_sql_shaped_typed_query_routing(ctx: EvalContext) -> None:
             name="retention_repeat_uploads",
             prompt="For users whose first uploaded_file was in the last 8 weeks, how many were still uploading each week after?",
             target_tool="query-retention",
+        ),
+        _routing_case(
+            name="retention_signup_to_login_by_plan",
+            prompt="What's the day-1 and day-7 return rate for people who signed up in the last 4 weeks, split by personal vs. business plan?",
+            target_tool="query-retention",
+        ),
+        _routing_case(
+            name="trends_multi_series_uploads_and_downloads",
+            prompt="Show weekly counts of uploaded_file and downloaded_file side by side over the last 8 weeks",
+            target_tool="query-trends",
+        ),
+        _routing_case(
+            name="trends_compare_invited_vs_new_signups",
+            prompt="Compare weekly signups from invited team members versus new account signups over the last 8 weeks",
+            target_tool="query-trends",
+        ),
+        _routing_case(
+            name="funnel_time_to_first_upload",
+            prompt="How long does it typically take someone to upload their first file after signing up?",
+            target_tool="query-funnel",
+        ),
+        _routing_case(
+            name="stickiness_weekly_repeat_downloads",
+            prompt="Of people who downloaded a file in the last 4 weeks, how many days a week do they typically come back and download again?",
+            target_tool="query-stickiness",
+        ),
+        _routing_case(
+            name="lifecycle_pageview_composition",
+            prompt="Break last month's active website visitors into new, returning, and lapsed",
+            target_tool="query-lifecycle",
         ),
     ]
 
