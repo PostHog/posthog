@@ -897,6 +897,21 @@ describe('scoutFleetLogic', () => {
             expect(logic.values.scoutRunCosts.get('run-priced')).toBe(5.11)
         })
 
+        it('sends no further batches once the deployment reports it cannot price runs', async () => {
+            // `available: false` is the same answer for every batch, and each one costs the backend
+            // a run-row read and a traceback, so asking again buys nothing.
+            const runIds = Array.from({ length: 201 }, (_, index) => `run-${index}`)
+            mockSignalsScoutRunsRecentPerScout.mockResolvedValue(runIds.map((run_id) => makeRun({ run_id })))
+            mockSignalsScoutRunsTokenCosts.mockResolvedValue({ costs: [], available: false })
+            await mountAsStaff(true)
+
+            logic.actions.loadScoutRuns()
+            await expectLogic(logic).toDispatchActions(['loadScoutRunsSuccess', 'loadScoutRunCostsSuccess'])
+
+            expect(mockSignalsScoutRunsTokenCosts).toHaveBeenCalledTimes(1)
+            expect(logic.values.scoutRunCosts.size).toBe(0)
+        })
+
         it('keeps the batches that answered when a later batch fails', async () => {
             // A materialized fleet is more run ids than one request carries, so the loader sends
             // several. Discarding the whole load over one failed batch blanks every tooltip in the

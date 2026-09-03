@@ -767,6 +767,12 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                                 run_ids: runIds.slice(start, start + RUN_COST_BATCH_LIMIT),
                             })
                             breakpoint()
+                            // This deployment has no internal project to price runs against, so the
+                            // remaining batches would answer the same way and each one costs the
+                            // backend a run-row read and a traceback. Every cost stays unknown.
+                            if (!response.available) {
+                                break
+                            }
                             for (const cost of response.costs) {
                                 if (cost.token_cost_usd !== null) {
                                     costs.set(cost.run_id, cost.token_cost_usd)
