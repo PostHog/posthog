@@ -262,7 +262,6 @@ export const customerTasksLogic: LogicWrapper<customerTasksLogicType> = kea<cust
                     openCreateModal: () => true,
                     openEditModal: () => true,
                     closeModal: () => false,
-                    createTask: () => false,
                 },
             ],
             modalTask: [
@@ -271,7 +270,6 @@ export const customerTasksLogic: LogicWrapper<customerTasksLogicType> = kea<cust
                     openCreateModal: () => null,
                     openEditModal: (_: CustomerTaskApi | null, a: { task: CustomerTaskApi }) => a.task,
                     closeModal: () => null,
-                    createTask: () => null,
                 },
             ],
             draftName: [

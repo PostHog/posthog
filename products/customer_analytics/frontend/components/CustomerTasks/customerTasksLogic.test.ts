@@ -106,6 +106,28 @@ describe('customerTasksLogic', () => {
         })
     })
 
+    test('keeps the create form and its drafts when the create fails', async () => {
+        const toast = jest.spyOn(lemonToast, 'error').mockImplementation(() => '' as never)
+        mockCreate.mockRejectedValueOnce(
+            new ApiError(undefined, 400, undefined, { assigned_to_id: 'Select a member of this project.' })
+        )
+        logic = customerTasksLogic({ context: 'account', accountId: 'account-1' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.openCreateModal()
+        logic.actions.setDraftName('Follow up')
+        logic.actions.setDraftDescription('Ask about the renewal')
+        logic.actions.submitModal()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.modalOpen).toBe(true)
+        expect(logic.values.draftName).toBe('Follow up')
+        expect(logic.values.draftDescription).toBe('Ask about the renewal')
+        expect(toast).toHaveBeenCalledWith('Select a member of this project.')
+        toast.mockRestore()
+    })
+
     test.each([
         ['assigns', null, 'account-1'],
         ['removes', { id: 'account-1', name: 'Acme' }, null],
