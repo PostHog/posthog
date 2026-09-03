@@ -390,6 +390,20 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         taxonomy_warnings = [warning for warning in metadata.warnings if "project taxonomy" in warning.message]
         self.assertEqual(taxonomy_warnings, [])
 
+    def test_metadata_warns_for_virtual_property_bracket_access(self):
+        # Dot access (`properties.$virt_is_bot`) is remapped by the resolver onto the computed field, but
+        # bracket access reads the raw JSON blob, where the virtual value is never stored. So a bracket
+        # reference to a virtual property returns an empty value and must still warn, unlike the dot form.
+        PropertyDefinition.objects.create(team=self.team, name="$geoip_country_code")
+
+        metadata = self._select("SELECT properties['$virt_is_bot'] FROM events")
+
+        taxonomy_warnings = [warning for warning in metadata.warnings if "project taxonomy" in warning.message]
+        self.assertEqual(
+            [warning.message for warning in taxonomy_warnings],
+            ["Property '$virt_is_bot' was not found in this project taxonomy."],
+        )
+
     def test_metadata_warns_for_unknown_virtual_property(self):
         # A `$virt_`-prefixed name that is not a real virtual property (e.g. a typo) is still unknown,
         # so the warning must state it, rather than the prefix silently passing validation.
