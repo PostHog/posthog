@@ -134,7 +134,7 @@ import {
   type ExistingPrCheckoutResult,
 } from "./pr-checkout";
 import { createRtkSavingsNotification } from "./rtk-savings";
-import { RunUsageAccumulator } from "./run-usage";
+import { RunUsageAccumulator, reportRunUsage, seedRunUsage } from "./run-usage";
 import { jsonRpcRequestSchema, validateCommandParams } from "./schemas";
 import type { AgentServerConfig, ClaudeCodeConfig } from "./types";
 import { waitForFile } from "./wait-for-file";
@@ -1847,6 +1847,7 @@ export class AgentServer {
       preTask?.repositories ??
       (preTask?.repository ? [preTask.repository] : []);
 
+    seedRunUsage(this.runUsage, preTaskRun?.state.token_usage);
     this.prewarmedRun = preTaskRun?.state.prewarmed === true;
     this.prewarmedStartupTurnPending = this.prewarmedRun;
 
@@ -4186,30 +4187,29 @@ ${unsupportedDeliverable}`;
 - If you created a local file but no upload or delivery tool is available, say that plainly and summarize the result in Slack instead.`;
   }
 
-  /**
-   * What to do when a cloud run has no way to reach the user's code.
-   *
-   * Repository access on a cloud run comes from the user's own GitHub connection in
-   * PostHog, so a run can legitimately start without one — nothing is checked out and
-   * there are no credentials to push with. The Slack mention path used to refuse those
-   * mentions outright, which walled off every question that only looked like it needed
-   * code; it now starts the run and leaves the judgement here, where the request itself
-   * is visible. The settings link is built from this run's own host and project so it
-   * lands the user in the right region rather than a hardcoded one.
-   *
-   * Appended to every cloud branch on purpose: a checkout is not proof of access. A
-   * public repository clones with no token at all, so a run can hold the code and still
-   * have no way to push it.
-   */
-  private buildSourceControlAccessInstructions(): string {
+  private buildGithubAccessInstructions(hasGithubToken: boolean): string {
+    if (hasGithubToken) {
+      return `
+## GitHub access
+You have GitHub access in this session.`;
+    }
+
     const settingsUrl = `${this.config.apiUrl.replace(/\/$/, "")}/project/${this.config.projectId}/settings/user-personal-integrations`;
     return `
-## When you cannot reach the code
-You may have no repository checked out, or no credentials to push and open a pull request with.
-- Answer the part of the request that does not need the code first — questions about PostHog, their data, or their configuration are all still answerable.
-- If the request turns out not to need a code change at all, just answer it and say nothing about GitHub.
-- Only if it genuinely needs a code change, say so plainly and link them to ${settingsUrl} to connect GitHub, then ask them to come back to you.
-- Do not work around it: no guessing at file contents you cannot read, and no starting a change you have no way to deliver.`;
+## GitHub access
+You do not have GitHub access in this session.
+- You can read repository content that is already in the workspace.
+- You can clone an exact public repository. Do not call \`list_repos\` without GitHub access.
+- Codebase analysis and code review require readable repository content.
+- Code changes also require publishing access.
+- If the required access is unavailable, do not replace the requested code work with generic guidance or PostHog data analysis.
+- Tell the user to connect GitHub at ${settingsUrl}.
+- The connection applies to a new task, not this task.
+- Write the access explanation first.
+- Then call \`show_actions\` with one \`compose\` action.
+- Use the label \`Try again in a new task\` and prefill the original repository request.
+- Include the exact \`owner/repo\` in the action when you know it.
+- Do not guess file contents. Do not start a change that you cannot deliver.`;
   }
 
   private buildCloudSystemPrompt(
@@ -4350,7 +4350,7 @@ Optimize for the fewest shell round trips.
 When you create a non-code file the user should be able to download (such as a report, chart, image, archive, or data file), call the \`upload_artifact\` tool with its path before your final reply. In your final reply, link to the download URL returned by the tool—never link to the file's local workspace path. Files left in the workspace don't reach the user. Don't upload source code or repository changes—those belong in a commit or PR.`;
 
     // Closes out every branch below, so a new section is added once rather than five times.
-    const commonInstructions = `${signedCommitInstructions}${stackInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}${this.buildSlackDeliveryInstructions()}${this.buildSourceControlAccessInstructions()}`;
+    const commonInstructions = `${signedCommitInstructions}${stackInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}${this.buildSlackDeliveryInstructions()}${this.buildGithubAccessInstructions(hasGithubToken)}`;
 
     const whyContextInstruction = `   - Add a brief **Why** to the body — one or two sentences capturing the reason the user asked for this change (the motivation, not a restatement of the diff). Keep it short.`;
     const publicRepoSafetyInstruction = `   - **Public-repo safety.** Treat the target repository as public-readable unless you have verified otherwise. The PR title, description, and commit messages must not contain private operational scale (exact event counts, internal row volumes, customer-usage percentages), customer names / emails / companies, references to internal tickets or incidents, the contents of Slack threads (do not quote or paraphrase what was said), or unreleased roadmap details. Linking to the originating Slack thread is fine and encouraged — Slack links are auth-gated and useful as context — as are channel references like "raised in #team-foo". Describe findings qualitatively ("present on nearly all X events, absent from Y") rather than with quantitative figures pulled from analytics queries — the reasoning that uses those numbers can stay in the thread; the PR copy cannot.`;
@@ -5500,13 +5500,13 @@ ${commonInstructions}
     if (!this.runUsage.add(usage)) return;
     const payload = this.session?.payload;
     if (!payload) return;
-    void this.posthogAPI
-      .updateTaskRun(payload.task_id, payload.run_id, {
-        state: { token_usage: this.runUsage.snapshot() },
-      })
-      .catch((error) => {
-        this.logger.warn("Failed to report run token usage", error);
-      });
+    reportRunUsage(
+      this.runUsage,
+      this.posthogAPI,
+      payload.task_id,
+      payload.run_id,
+      this.logger,
+    );
   }
 
   private handleAcpTransportMessage(message: unknown): void {

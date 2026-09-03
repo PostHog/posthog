@@ -13,6 +13,7 @@ from posthog.llm.gateway_client import (
     build_async_anthropic_client,
     build_async_openai_client,
     build_openai_client,
+    get_anthropic_gateway_client,
     get_async_anthropic_gateway_client,
     get_async_llm_client,
     get_llm_client,
@@ -185,6 +186,23 @@ class TestGetAsyncAnthropicGatewayClient:
         )
 
         assert client.default_headers.get("x-posthog-use-bedrock-fallback") == expected_header_value
+
+
+class TestGetAnthropicGatewayClient:
+    @patch("posthog.llm.gateway_client.settings")
+    def test_uses_the_python_gateway_native_messages_base(self, mock_settings):
+        mock_settings.LLM_GATEWAY_URL = "http://gateway:8080/"
+        mock_settings.LLM_GATEWAY_API_KEY = "test-key"
+
+        client = get_anthropic_gateway_client(
+            product="posthog_ai",
+            team_id=42,
+            default_headers={"x-posthog-property-source_product": "notebook_widget"},
+        )
+
+        assert str(client.base_url) == "http://gateway:8080/posthog_ai/"
+        assert client.default_headers["x-posthog-property-team_id"] == "42"
+        assert client.default_headers["x-posthog-property-source_product"] == "notebook_widget"
 
 
 class TestResolveAIGatewayConfig:
@@ -418,31 +436,44 @@ class TestBuildAnthropicClient:
     @override_settings(AI_GATEWAY_URL=AI_GATEWAY_URL, AI_GATEWAY_API_KEY=AI_GATEWAY_KEY)
     @patch("posthog.llm.gateway_client.httpx.Client")
     @patch("posthog.llm.gateway_client.Anthropic")
-    def test_matches_the_async_variant(self, mock_anthropic, mock_httpx):
-        result = build_anthropic_client(ai_product="signals_grouping", ai_stage="match", team_id=42)
+    def test_gateway_mode_uses_native_messages_base_and_preserves_attribution(self, mock_anthropic, mock_httpx):
+        result = build_anthropic_client(
+            "posthog_ai",
+            ai_product="posthog_ai",
+            trace_id="notebook-widget-job-1",
+            properties={"source_product": "notebook_widget"},
+            distinct_id="team-42",
+            team_id=42,
+        )
 
-        mock_httpx.assert_called_once_with(trust_env=False)
         kwargs = mock_anthropic.call_args.kwargs
         assert kwargs["api_key"] == AI_GATEWAY_KEY
         assert kwargs["base_url"] == "https://ai-gateway.example"
         assert kwargs["http_client"] is mock_httpx.return_value
         headers = kwargs["default_headers"]
+        assert headers["X-PostHog-Trace-Id"] == "notebook-widget-job-1"
+        assert headers["X-PostHog-Distinct-Id"] == "team-42"
+        assert headers["X-PostHog-Product"] == "posthog_ai"
         assert json.loads(headers["X-PostHog-Properties"]) == {
-            "ai_product": "signals_grouping",
-            "ai_stage": "match",
+            "ai_product": "posthog_ai",
+            "source_product": "notebook_widget",
             "team_id": "42",
         }
-        assert headers["X-PostHog-Product"] == "signals_grouping"
-        assert headers["X-PostHog-Trace-Id"] == TEAM_42_TRACE_ID
         assert result is mock_anthropic.return_value
 
     @override_settings(AI_GATEWAY_URL="", AI_GATEWAY_API_KEY="")
-    def test_raises_when_the_gateway_is_unconfigured(self):
-        # There is no sync Python-gateway Messages route; a caller picks its shape before getting here.
-        with pytest.raises(ValueError):
-            build_anthropic_client(ai_product="signals", team_id=42)
+    @patch("posthog.llm.gateway_client.get_anthropic_gateway_client")
+    def test_python_fallback_preserves_product_trace_and_properties(self, mock_get_anthropic):
+        result = build_anthropic_client(
+            "posthog_ai",
+            trace_id="notebook-widget-job-1",
+            properties={"source_product": "notebook_widget"},
+            team_id=42,
+        )
 
-    @override_settings(AI_GATEWAY_URL=AI_GATEWAY_URL, AI_GATEWAY_API_KEY="")
-    def test_raises_on_a_half_applied_env(self):
-        with pytest.raises(ValueError):
-            build_anthropic_client(ai_product="signals", team_id=42)
+        kwargs = mock_get_anthropic.call_args.kwargs
+        assert kwargs["team_id"] == 42
+        assert kwargs["use_bedrock_fallback"] is False
+        assert kwargs["default_headers"]["traceparent"].startswith("00-")
+        assert kwargs["default_headers"]["x-posthog-property-source_product"] == "notebook_widget"
+        assert result is mock_get_anthropic.return_value

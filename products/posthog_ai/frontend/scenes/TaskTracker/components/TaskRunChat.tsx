@@ -1,6 +1,8 @@
 import { BindLogic, useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { runInteractionLogic, type RunInteractionLogicProps } from 'products/posthog_ai/frontend/api/logics'
@@ -188,6 +190,11 @@ function LiveComposer({ logicProps }: { logicProps: RunInteractionLogicProps }):
                             // While the run is live its harness is fixed to whatever the sandbox booted; once
                             // terminal the next send starts a fresh run, which may pick any harness.
                             lockedRuntimeAdapter={isTerminal ? null : logicProps.currentRuntimeAdapter}
+                            onOpenDefaultSettings={() =>
+                                router.actions.push(
+                                    urls.settings('environment-task-agents', 'task-agent-my-preference')
+                                )
+                            }
                         />
                     </Composer.Footer>
                 </Composer.Frame>

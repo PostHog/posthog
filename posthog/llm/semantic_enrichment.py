@@ -231,7 +231,7 @@ def build_enrichment_client(product: Product, team_id: int) -> _MessagesClient |
     than falling back onto a route the product has never exercised.
     """
     if resolve_ai_gateway_config():
-        return _MessagesClient(build_anthropic_client(ai_product=product, team_id=team_id))
+        return _MessagesClient(build_anthropic_client(product, ai_product=product, team_id=team_id))
     return _ChatClient(get_llm_client(product=product, team_id=team_id))
 
 

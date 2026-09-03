@@ -198,6 +198,31 @@ def get_async_anthropic_gateway_client(
     )
 
 
+def get_anthropic_gateway_client(
+    product: Product = "django",
+    team_id: int | None = None,
+    use_bedrock_fallback: bool = False,
+    default_headers: Mapping[str, str] | None = None,
+) -> Anthropic:
+    """Synchronous variant of :func:`get_async_anthropic_gateway_client`."""
+    if not settings.LLM_GATEWAY_URL or not settings.LLM_GATEWAY_API_KEY:
+        raise ValueError("LLM_GATEWAY_URL and LLM_GATEWAY_API_KEY must be configured")
+
+    headers = dict(default_headers or {})
+    if team_id is not None:
+        headers.update(_team_id_header(team_id))
+    if use_bedrock_fallback:
+        headers["x-posthog-use-bedrock-fallback"] = "true"
+
+    base_url = f"{settings.LLM_GATEWAY_URL.rstrip('/')}/{product}"
+    return Anthropic(
+        base_url=base_url,
+        api_key=settings.LLM_GATEWAY_API_KEY,
+        default_headers=headers or None,
+        http_client=httpx.Client(trust_env=False),
+    )
+
+
 def _gateway_misconfig(url: str, api_key: str) -> str | None:
     """Return a reason string if the gateway env is half-applied or malformed, else None."""
     if not (url and api_key):
@@ -408,13 +433,21 @@ def build_async_anthropic_client(
     """
     gateway = resolve_ai_gateway_config()
     if gateway:
+        properties = {
+            key: value
+            for key, value in {
+                "ai_stage": ai_stage,
+                "team_id": str(team_id) if team_id is not None else None,
+            }.items()
+            if value
+        }
         return AsyncAnthropic(
             api_key=gateway.api_key,
             base_url=_anthropic_gateway_base_url(gateway.url),
             default_headers=ai_gateway_headers(
                 ai_product=ai_product,
                 trace_id=team_trace_id(team_id),
-                properties=_anthropic_attribution_properties(ai_stage, team_id),
+                properties=properties,
             ),
             http_client=httpx.AsyncClient(trust_env=False),
         )
@@ -422,32 +455,39 @@ def build_async_anthropic_client(
 
 
 def build_anthropic_client(
+    product: Product,
     ai_product: str | None = None,
-    ai_stage: str | None = None,
+    trace_id: str | None = None,
+    properties: Mapping[str, str] | None = None,
+    distinct_id: str | None = None,
     team_id: int | None = None,
+    use_bedrock_fallback: bool = False,
 ) -> Anthropic:
-    """Sync Anthropic client against the Go ai-gateway.
+    """Build a native Anthropic client for synchronous Django worker code.
 
-    Unlike :func:`build_async_anthropic_client` this has no Python-gateway fallback: the Python
-    gateway serves the sync caller on its Chat Completions route, so a caller picks its shape from
-    `resolve_ai_gateway_config()` and only reaches here once that resolved. Raises if it has not.
+    The Anthropic SDK appends ``/v1/messages``, so the Go client removes the OpenAI ``/v1``
+    suffix. The Python fallback retains the product route and legacy observability headers.
     """
     gateway = resolve_ai_gateway_config()
-    if gateway is None:
-        raise ValueError("AI_GATEWAY_URL and AI_GATEWAY_API_KEY must resolve before building this client")
-    return Anthropic(
-        api_key=gateway.api_key,
-        base_url=_anthropic_gateway_base_url(gateway.url),
-        default_headers=ai_gateway_headers(
-            ai_product=ai_product,
-            trace_id=team_trace_id(team_id),
-            properties=_anthropic_attribution_properties(ai_stage, team_id),
-        ),
-        http_client=httpx.Client(trust_env=False),
+    if gateway:
+        labels = dict(properties or {})
+        if team_id is not None:
+            labels["team_id"] = str(team_id)
+        return Anthropic(
+            api_key=gateway.api_key,
+            base_url=_anthropic_gateway_base_url(gateway.url),
+            default_headers=ai_gateway_headers(
+                ai_product=ai_product,
+                trace_id=trace_id or team_trace_id(team_id),
+                properties=labels,
+                distinct_id=distinct_id,
+            ),
+            http_client=httpx.Client(trust_env=False),
+        )
+    fallback_headers = _python_gateway_observability_headers(trace_id, None, properties)
+    return get_anthropic_gateway_client(
+        product,
+        team_id=team_id,
+        use_bedrock_fallback=use_bedrock_fallback,
+        default_headers=fallback_headers,
     )
-
-
-def _anthropic_attribution_properties(ai_stage: str | None, team_id: int | None) -> dict[str, str]:
-    """Blob labels for an Anthropic-native gateway client; unset labels are omitted."""
-    labels = {"ai_stage": ai_stage, "team_id": str(team_id) if team_id is not None else None}
-    return {key: value for key, value in labels.items() if value}
