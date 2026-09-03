@@ -459,6 +459,13 @@ class SearchReplayVisionObservationsTool(ReplayVisionGatesMixin, MaxTool):
         """Sync gate + scope resolution — runs before the embedding HTTP call. Returns
         `(scope, None)` when search should proceed, or `(None, short_circuit)` when the caller should return
         the short-circuit (content, artifact) tuple as-is. Exactly one half is non-None."""
+        # The embedding worker rejects opted-out orgs, but a cached query vector would skip that call.
+        if not is_ai_data_processing_approved(self._team.id):
+            return None, (
+                "Searching Replay Vision observations needs AI data processing enabled for the organization "
+                "(Settings > AI).",
+                {"error": "ai_consent_required"},
+            )
         scope = self._resolve_scanner_scope(scanner_id)
         if scope is None:
             # `not found` doubles as `no access` so we never leak a scanner's existence.
