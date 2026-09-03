@@ -301,6 +301,28 @@ describe('processAiEvent()', () => {
             expect(result.properties!.$ai_tool_call_count).toBe(2)
         })
 
+        // The middleware writes $ai_cost_passthrough and processCost reads it. Both
+        // halves have their own tests, so only a test through the whole pipeline
+        // catches the two sides drifting apart.
+        it('keeps the Vercel AI Gateway reported cost end to end', () => {
+            event.properties = {
+                $ai_ingestion_source: 'otel',
+                'ai.operationId': 'ai.generateText.doGenerate',
+                'gen_ai.provider.name': 'gateway',
+                'gen_ai.response.model': 'openai/gpt-4o-mini',
+                'gen_ai.usage.input_tokens': 100,
+                'gen_ai.usage.output_tokens': 50,
+                'ai.response.providerMetadata': JSON.stringify({ gateway: { cost: '0.001234' } }),
+            }
+
+            const result = processAiEvent(event)
+
+            expect(result.properties!.$ai_total_cost_usd).toBe(0.001234)
+            expect(result.properties!.$ai_cost_model_source).toBe(CostModelSource.Passthrough)
+            expect(result.properties!.$ai_input_cost_usd).toBeUndefined()
+            expect(result.properties!.$ai_output_cost_usd).toBeUndefined()
+        })
+
         it('uses total output tokens for non-Gemini AI SDK v7 reasoning models', () => {
             event.properties = {
                 $ai_ingestion_source: 'otel',
@@ -852,6 +874,11 @@ describe('processAiEvent()', () => {
             const result = processAiEvent(event)
 
             expect(result.properties!.$ai_total_cost_usd).toBe(0.5)
+            // Without the passthrough flag, a supplied total does not skip the
+            // estimate: the input/output split is still computed from the model.
+            expect(result.properties!.$ai_input_cost_usd).toBe(20)
+            expect(result.properties!.$ai_output_cost_usd).toBe(10)
+            expect(result.properties!.$ai_cost_model_source).not.toBe(CostModelSource.Passthrough)
         })
 
         it('preserves user-provided request_cost when model-based calculation happens', () => {
@@ -903,6 +930,37 @@ describe('processAiEvent()', () => {
 
             expect(result.properties!.$ai_total_cost_usd).toBe(5)
             expect(result.properties!.$ai_cost_model_source).toBe(CostModelSource.Passthrough)
+        })
+
+        it.each([true, 'true'])('passes the total through when $ai_cost_passthrough is %p', (flag) => {
+            event.properties!.$ai_cost_passthrough = flag
+            event.properties!.$ai_total_cost_usd = 0.000372
+
+            const result = processAiEvent(event)
+
+            expect(result.properties!.$ai_total_cost_usd).toBe(0.000372)
+            expect(result.properties!.$ai_cost_model_source).toBe(CostModelSource.Passthrough)
+            expect(result.properties!.$ai_input_cost_usd).toBeUndefined()
+            expect(result.properties!.$ai_output_cost_usd).toBeUndefined()
+        })
+
+        it('ignores $ai_cost_passthrough when no usable total is present', () => {
+            event.properties!.$ai_cost_passthrough = true
+
+            const result = processAiEvent(event)
+
+            expect(result.properties!.$ai_total_cost_usd).toBe(30)
+            expect(result.properties!.$ai_cost_model_source).not.toBe(CostModelSource.Passthrough)
+        })
+
+        // "false" must read as off, not as a truthy string.
+        it('treats a non-truthy $ai_cost_passthrough as off', () => {
+            event.properties!.$ai_cost_passthrough = 'false'
+
+            const result = processAiEvent(event)
+
+            expect(result.properties!.$ai_input_cost_usd).toBe(20)
+            expect(result.properties!.$ai_cost_model_source).not.toBe(CostModelSource.Passthrough)
         })
 
         // A usable cost has to come out as the parsed number, not the original string,

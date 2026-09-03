@@ -1,10 +1,9 @@
 ---
 name: signals-scout-skills-store
 description: >
-  Skill-hygiene scout for the team's PostHog skills store, read entirely via the MCP skill tools.
-  Watches recently-changed skills — plus a slow rotation over the most-used, highest-leverage ones — for statically-verifiable authoring violations:
-  vague descriptions, bloated bodies, dead bundled-file links, kitchen-sink scope, committed secrets.
-  Files each non-compliant skill as a report in the inbox, with the copy-ready fix inside.
+  Skill-hygiene scout for the team's PostHog skills store. Watches recently-changed and most-
+  used skills for authoring violations — vague descriptions, bloated bodies, dead file links,
+  kitchen-sink scope, committed secrets.
 compatibility: >
   Designed for the PostHog Signals agent in a Claude sandbox with PostHog MCP scopes:
   read-only plus signal_scout_internal:write (for scratchpad) + signal_scout_report:write (for emit-report/edit-report, granted because this scout authors reports directly via the report channel).

@@ -317,6 +317,9 @@ export const manifest: ProductManifest = {
                 search?: string
                 tab?: string
                 msg?: string
+                // Only string values are valid query params. An object (e.g. the filters array)
+                // would stringify to "[object Object]" and corrupt the URL, so reject it at compile time.
+                [key: string]: string | undefined
             }
         ): string => {
             const encodePathSegment = (value: string): string => {
@@ -330,7 +333,13 @@ export const manifest: ProductManifest = {
                     (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`
                 )
             }
-            const queryParams = new URLSearchParams(params)
+            const definedParams: Record<string, string> = {}
+            for (const [key, value] of Object.entries(params ?? {})) {
+                if (value !== undefined) {
+                    definedParams[key] = value
+                }
+            }
+            const queryParams = new URLSearchParams(definedParams)
             const stringifiedParams = queryParams.toString()
             return `/ai-observability/traces/${encodePathSegment(id)}${stringifiedParams ? `?${stringifiedParams}` : ''}`
         },

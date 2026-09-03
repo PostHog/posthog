@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 import pytest
 from unittest.mock import patch
 
@@ -6,10 +8,14 @@ from django.test import override_settings
 import requests
 
 from posthog.llm.wizard_gateway_token import (
+    NO_OVERRIDE,
     WizardGatewayMintError,
+    WizardLimitOverride,
     mint_wizard_gateway_token,
+    parse_limit_override,
     wizard_gateway_base_url,
     wizard_gateway_configured,
+    wizard_limit_override,
     wizard_product_node,
 )
 
@@ -202,11 +208,82 @@ class TestMintWizardGatewayToken:
             mint_wizard_gateway_token(obo="org_1", user="user_1")
         assert post.call_args.kwargs["json"]["cap_usd"] == "12.500000"
 
+    def test_an_override_cap_replaces_the_setting(self):
+        minted = {"token": "phe_x", "expires_at": "2026-08-22T00:00:00Z"}
+        with patch("posthog.llm.wizard_gateway_token.requests.post", return_value=_Response(201, minted)) as post:
+            mint_wizard_gateway_token(obo="org_1", user="user_1", cap_usd=Decimal("30"))
+        assert post.call_args.kwargs["json"]["cap_usd"] == "30.000000"
+
     def test_secret_never_appears_in_the_error(self):
         with patch("posthog.llm.wizard_gateway_token.requests.post", return_value=_Response(403)):
             with pytest.raises(WizardGatewayMintError) as raised:
                 mint_wizard_gateway_token(obo="org_1", user="user_1")
         assert "phs_wizard_secret" not in str(raised.value)
+
+
+class TestParseLimitOverride:
+    @pytest.mark.parametrize(
+        "raw,expected",
+        [
+            (
+                {"cap_usd": "30", "mints_per_day": 100},
+                WizardLimitOverride(cap_usd=Decimal("30.000000"), mints_per_day=100),
+            ),
+            (
+                '{"cap_usd": 12.5, "mints_per_day": "50"}',
+                WizardLimitOverride(cap_usd=Decimal("12.500000"), mints_per_day=50),
+            ),
+            ({"mints_per_day": 100}, WizardLimitOverride(cap_usd=None, mints_per_day=100)),
+            ({"cap_usd": "lots", "mints_per_day": 100}, WizardLimitOverride(cap_usd=None, mints_per_day=100)),
+            (
+                {"cap_usd": "30", "mints_per_day": 0},
+                WizardLimitOverride(cap_usd=Decimal("30.000000"), mints_per_day=None),
+            ),
+            (None, NO_OVERRIDE),
+            ("not json", NO_OVERRIDE),
+            ([], NO_OVERRIDE),
+            ({}, NO_OVERRIDE),
+        ],
+    )
+    def test_payload_is_validated_field_by_field(self, raw, expected):
+        assert parse_limit_override(raw) == expected
+
+    @pytest.mark.parametrize("cap", ["0", "-5", "31", "20000", "NaN", "Infinity", "1e100000", "0.0000001", True, None])
+    def test_a_cap_outside_the_gateway_contract_is_ignored(self, cap):
+        assert parse_limit_override({"cap_usd": cap}) == NO_OVERRIDE
+
+    @pytest.mark.parametrize("mints", [0, -1, 151, 2.5, "2.5", "abc", True, None])
+    def test_mints_outside_the_bounds_are_ignored(self, mints):
+        assert parse_limit_override({"mints_per_day": mints}) == NO_OVERRIDE
+
+
+class TestWizardLimitOverride:
+    def test_evaluates_the_flag_for_the_user_org_and_project(self):
+        with patch(
+            "posthog.llm.wizard_gateway_token.posthoganalytics.get_feature_flag_payload",
+            return_value={"cap_usd": "30"},
+        ) as get_payload:
+            override = wizard_limit_override(
+                distinct_id="d1", email="eng@posthog.com", organization_id="org_1", team_id=7
+            )
+
+        assert override == WizardLimitOverride(cap_usd=Decimal("30.000000"), mints_per_day=None)
+        get_payload.assert_called_once_with(
+            "wizard-gateway-limit-override",
+            "d1",
+            person_properties={"email": "eng@posthog.com", "organization_id": "org_1", "team_id": "7"},
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
+
+    def test_a_flag_outage_fails_closed(self):
+        with patch(
+            "posthog.llm.wizard_gateway_token.posthoganalytics.get_feature_flag_payload",
+            side_effect=RuntimeError("down"),
+        ):
+            assert (
+                wizard_limit_override(distinct_id="d1", email=None, organization_id="org_1", team_id=7) == NO_OVERRIDE
+            )
 
 
 class TestWizardGatewayConfigured:

@@ -1,8 +1,10 @@
-//! Domain layer: the static analysis of a run's pinned conditions, and the census over it.
-//! Depends on `condition`, `ids`, and `cohort-core`.
+//! Domain layer: the static analysis of a run's pinned conditions, the census over it, and the
+//! per-chunk projection derived from it. Depends on `condition`, `ids`, `plan`, `projection`, and
+//! `cohort-core`.
 //!
-//! Nothing in the scan path consumes the analysis yet: it is published as counters and one log line
-//! per run, so the shape of real catalogs is known before anything is built on it.
+//! Two consumers read the same analysis. The scan path narrows each chunk's SELECT through
+//! [`ConditionAnalyses::projection`]; the census reports per run what real catalogs look like, which
+//! is what says whether the narrowing can pay on a given team's event mix.
 //!
 //! The census is shaped around the question a later projection pass has to answer, which is
 //! per event name rather than per condition. A scan selects columns for a whole event, so one
@@ -26,6 +28,8 @@ use cohort_core::hogvm::analysis::{
 
 use super::condition::PinnedCondition;
 use super::ids::ConditionHash;
+use super::plan::ActiveConditions;
+use super::projection::ChunkProjection;
 
 /// What one condition turned out to need. Ordered so a census renders the same way every time.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -76,9 +80,9 @@ impl ConditionClass {
             (EvaluationClass::EventOnly { .. }, Projection::FullColumns(reason))
             | (EvaluationClass::General, Projection::FullColumns(reason)) => match reason {
                 FullColumnsReason::Unanalyzable(_) => Self::Unanalyzable,
-                FullColumnsReason::BarePropertiesRoot | FullColumnsReason::BarePersonRoot => {
-                    Self::FullColumns
-                }
+                FullColumnsReason::BarePropertiesRoot
+                | FullColumnsReason::BarePersonRoot
+                | FullColumnsReason::RepresentationSensitiveCall => Self::FullColumns,
             },
             (EvaluationClass::General, Projection::Reads(_)) => Self::Projectable,
         }
@@ -141,6 +145,16 @@ impl ConditionAnalyses {
             );
         }
         Self { by_hash }
+    }
+
+    /// What a scan over the conditions active on one chunk has to select.
+    ///
+    /// Takes the active set rather than the run's whole condition list: a window that has slid past
+    /// the chunk's day contributes nothing to that chunk's evaluation, so widening the scan for it
+    /// would read columns no condition on that day reads. An active hash with no analysis fails
+    /// closed inside [`ChunkProjection::derive`].
+    pub fn projection(&self, active: &ActiveConditions) -> ChunkProjection {
+        ChunkProjection::derive(active.iter().map(|hash| self.by_hash.get(hash)))
     }
 
     /// Count the conditions by class, and account for each event name what a projection over it
@@ -386,7 +400,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::domain::Lookback;
+    use crate::domain::{BlobSource, Lookback};
 
     fn hash(value: &str) -> ConditionHash {
         ConditionHash::parse(value).expect("test hashes are 16 ASCII bytes")
@@ -688,6 +702,44 @@ mod tests {
         assert!(!full.contains("more)"), "the uncapped line does not elide");
         // Nothing narrow was found, so the read dump cannot carry these names either.
         assert_eq!(census.render_reads(), "");
+    }
+
+    /// A chunk's projection is derived from the conditions active on its day, not from the run's
+    /// whole list. A window that has slid past the day cannot affect its evaluation, so the wide
+    /// read of a condition outside it must not cost that chunk its narrow scan.
+    #[test]
+    fn a_chunks_projection_ignores_conditions_that_are_not_active_on_it() {
+        let conditions = [
+            condition("narrow0000000000", "signup"),
+            condition("wide000000000000", "checkout"),
+        ];
+        let catalog = filters(&[
+            ("narrow0000000000", "signup", property_condition()),
+            ("wide000000000000", "checkout", bare_properties()),
+        ]);
+        let analyses = ConditionAnalyses::build(&conditions, &catalog);
+
+        let narrow_only = ActiveConditions::new([hash("narrow0000000000")]);
+        let ChunkProjection::Projected(plan) = analyses.projection(&narrow_only) else {
+            panic!("the narrow condition alone must project");
+        };
+        match &plan.properties {
+            BlobSource::Keys(keys) => assert_eq!(keys.iter().collect::<Vec<_>>(), ["plan"]),
+            other => panic!("expected key-filtered properties, got {other:?}"),
+        }
+
+        let both = ActiveConditions::new([hash("narrow0000000000"), hash("wide000000000000")]);
+        assert_eq!(analyses.projection(&both), ChunkProjection::FullColumns);
+    }
+
+    /// An active hash the frozen catalog carried no bytecode for never reached the analyzer, so its
+    /// reads are unknown and the chunk has to take every column.
+    #[test]
+    fn an_active_hash_without_an_analysis_projects_full_columns() {
+        let conditions = [condition("nobytecode000000", "purchase")];
+        let analyses = ConditionAnalyses::build(&conditions, &filters(&[]));
+        let active = ActiveConditions::new([hash("nobytecode000000")]);
+        assert_eq!(analyses.projection(&active), ChunkProjection::FullColumns);
     }
 
     #[test]

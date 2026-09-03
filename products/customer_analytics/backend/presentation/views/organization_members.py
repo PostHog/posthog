@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from django.db.models import Q, QuerySet, Value
+from django.db.models import F, Q, QuerySet, Value
 from django.db.models.functions import Concat
 
 from drf_spectacular.utils import extend_schema
@@ -43,7 +43,12 @@ class OrganizationMembersForAccountViewSet(
             return OrganizationMembership.objects.none()
         # Ordering kept (not removed): pagination needs a stable, index-backed order; `-joined_at`
         # is served by the (organization, -joined_at) composite index when filtering by organization_id.
-        queryset = organization_members_base_queryset().filter(organization_id=organization_id).order_by("-joined_at")
+        queryset = (
+            organization_members_base_queryset()
+            .filter(organization_id=organization_id)
+            .annotate(last_login=F("user__last_login"))
+            .order_by("-joined_at")
+        )
         search = self.request.query_params.get("search", "")
         if len(search) > MAX_SEARCH_LENGTH:
             raise serializers.ValidationError(

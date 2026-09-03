@@ -69,6 +69,16 @@ describe("prepareTaskInput", () => {
     expect(input.codexModelAccess).toBe("own-subscription");
   });
 
+  it("preserves the selected Claude model access", () => {
+    const input = prepareTaskInput("do the thing", [], {
+      workspaceMode: "local",
+      adapter: "claude",
+      claudeModelAccess: "own-subscription",
+    });
+
+    expect(input.claudeModelAccess).toBe("own-subscription");
+  });
+
   it("drops customInstructions for cloud when none is set", () => {
     const input = prepareTaskInput("do the thing", [], {
       workspaceMode: "cloud",

@@ -14,9 +14,9 @@
  * * `teams` - Microsoft Teams
  * * `github` - GitHub
  */
-export type ChannelSourceEnumApi = (typeof ChannelSourceEnumApi)[keyof typeof ChannelSourceEnumApi]
+export type ChannelEnumApi = (typeof ChannelEnumApi)[keyof typeof ChannelEnumApi]
 
-export const ChannelSourceEnumApi = {
+export const ChannelEnumApi = {
     Widget: 'widget',
     Email: 'email',
     Slack: 'slack',
@@ -128,7 +128,7 @@ export interface TicketPersonApi {
 export interface TicketApi {
     readonly id: string
     readonly ticket_number: number
-    readonly channel_source: ChannelSourceEnumApi
+    readonly channel_source: ChannelEnumApi
     readonly channel_detail: ChannelDetailEnumApi | null
     readonly distinct_id: string
     /** Ticket status: new, open, pending, on_hold, or resolved
@@ -397,6 +397,8 @@ export interface TicketMessageApi {
     readonly author_name: string
     /** True for internal notes not visible to the customer. */
     readonly is_private: boolean
+    /** True when the complete inbound email body can be retrieved. */
+    readonly has_full_email_content: boolean
     /** Edit count. 0 means never edited. */
     readonly version: number
     readonly created_at: string
@@ -411,6 +413,16 @@ export interface PaginatedTicketMessageListApi {
     results: TicketMessageApi[]
 }
 
+export interface TicketFullEmailApi {
+    /** Full inbound email body in Markdown. */
+    readonly content: string
+}
+
+export interface TicketErrorApi {
+    detail: string
+    error_type?: string
+}
+
 /**
  * Payload for updating a private note on a ticket.
  */
@@ -422,11 +434,6 @@ export interface PatchedTicketNoteUpdateRequestApi {
     message?: string
     /** Optional TipTap rich content JSON. Omit or pass null to clear previous rich content so the thread falls back to the markdown message. */
     rich_content?: unknown
-}
-
-export interface TicketErrorApi {
-    detail: string
-    error_type?: string
 }
 
 /**
@@ -533,6 +540,12 @@ export interface ComposeTicketApi {
     message: string
     /** TipTap rich content JSON for formatted messages. */
     rich_content?: unknown
+    /**
+     * Tags to apply to the new ticket, e.g. to mark its source. Each is normalized (lowercased, trimmed). Up to 100.
+     * @maxItems 100
+     * @items.maxLength 255
+     */
+    tags?: string[]
 }
 
 export interface ComposeTicketResponseApi {
