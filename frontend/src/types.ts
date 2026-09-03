@@ -723,6 +723,7 @@ export interface CorrelationConfigType {
 export interface ProjectType extends ProjectBasicType {
     created_at: string
     is_pending_deletion: boolean
+    tags?: string[]
 }
 
 export interface TeamSurveyConfigType {
@@ -4515,11 +4516,6 @@ export enum FeatureFlagStatus {
     ARCHIVED = 'archived',
     DELETED = 'deleted',
     UNKNOWN = 'unknown',
-}
-
-export interface FeatureFlagStatusResponse {
-    status: FeatureFlagStatus
-    reason: string
 }
 
 export interface CombinedFeatureFlagAndValueType {

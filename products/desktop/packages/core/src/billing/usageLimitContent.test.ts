@@ -25,6 +25,21 @@ describe("usageLimitContent", () => {
     expect(content.actionLabel).toBeNull();
   });
 
+  it.each([true, false] as const)(
+    "never sends a billing prompt for an unavailable model (canManageBilling=%s)",
+    (canManageBilling) => {
+      const content = usageLimitContent({
+        cause: "model_unavailable",
+        resetLabel: null,
+        subscribed: false,
+        canManageBilling,
+      });
+      expect(content.title).toBe("This model isn't available");
+      expect(content.description).toContain("Pick another model");
+      expect(content.actionLabel).toBeNull();
+    },
+  );
+
   it.each([
     // Confirmed-free org: allocation used up, the fix is adding a card.
     [false, "Free usage used up", "Add payment method"],

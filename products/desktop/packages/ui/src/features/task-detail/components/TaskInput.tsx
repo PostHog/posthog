@@ -722,6 +722,9 @@ export function TaskInput({
     fastModeOption,
     isLoading: isPreviewLoading,
     setConfigOption,
+    resetToDefault,
+    isDefaultSelection,
+    resetToDefaultDisabled,
   } = usePreviewConfig(adapter, { allHarnessModels: true });
 
   const lastAppliedDeepLinkConfigKey = useRef<string | undefined>(undefined);
@@ -1689,6 +1692,9 @@ export function TaskInput({
                         modelAccess={composerModelAccess}
                         showBillingMenu
                         workspaceMode={workspaceMode}
+                        isDefaultSelection={isDefaultSelection}
+                        onResetToDefault={resetToDefault}
+                        resetToDefaultDisabled={resetToDefaultDisabled}
                       />
                     )
                   }
