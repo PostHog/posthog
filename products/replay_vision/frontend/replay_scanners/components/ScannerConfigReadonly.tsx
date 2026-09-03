@@ -465,7 +465,7 @@ export function ScannerConfigReadonly({ scanner }: { scanner: ReplayScanner }): 
                             {scanner.enabled ? 'Runs automatically on a schedule' : 'Runs on-demand only'}
                         </span>
                     </div>
-                    <LemonCard className="p-4" hoverEffect={false}>
+                    <LemonCard className="p-4 flex-1" hoverEffect={false}>
                         <CardHeader icon={<IconInfo />} title="Overview" />
                         <div className="flex flex-col gap-3">
                             <LabeledRow label="Type">
