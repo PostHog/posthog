@@ -19,6 +19,7 @@ import { toAccessControlLevel } from '~/lib/utils/accessControlUtils'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, type UserBasicType } from '~/types'
 
+import { datasetsEmptyState } from '../emptyState/datasetsEmptyState'
 import type { DatasetReadApi as Dataset } from '../generated/api.schemas'
 import { DATASETS_PER_PAGE, aiObservabilityDatasetsLogic, getDatasetDetailUrl } from './aiObservabilityDatasetsLogic'
 
@@ -26,6 +27,7 @@ export const scene: SceneExport = {
     component: AIObservabilityDatasetsScene,
     logic: aiObservabilityDatasetsLogic,
     productKey: ProductKey.AI_OBSERVABILITY,
+    emptyState: datasetsEmptyState,
 }
 
 export function AIObservabilityDatasetsScene(): JSX.Element {

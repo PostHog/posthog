@@ -17,6 +17,7 @@ import type {
     ProductEmptyStateMode,
     ProductEmptyStatePrimaryAction,
     ProductEmptyStateText,
+    ProductEmptyStateWizard,
 } from './types'
 
 export interface ProductEmptyStateProps {
@@ -37,6 +38,17 @@ function resolvePrimaryAction(
     return 'label' in primaryAction ? primaryAction : primaryAction[mode]
 }
 
+/** A single wizard covers every mode; a mode-keyed one applies only to the modes it names. */
+function resolveWizard(
+    wizard: ProductEmptyStateConfig['wizard'],
+    mode: ProductEmptyStateMode
+): ProductEmptyStateWizard | undefined {
+    if (!wizard) {
+        return undefined
+    }
+    return 'slug' in wizard ? wizard : wizard[mode]
+}
+
 /**
  * The product setup empty state: pitch + install command on the left, an animated
  * preview of the product filled with example data on the right. Shown before
@@ -44,8 +56,9 @@ function resolvePrimaryAction(
  * `emptyState` on the scene's `SceneExport` and the app shell gates for you).
  */
 export function ProductEmptyState({ config, mode }: ProductEmptyStateProps): JSX.Element {
-    const { wizardCommand, isCloudOrDev } = useWizardCommand(config.wizard?.slug, {
-        pinProjectId: config.wizard?.pinProjectId,
+    const wizard = resolveWizard(config.wizard, mode)
+    const { wizardCommand, isCloudOrDev } = useWizardCommand(wizard?.slug, {
+        pinProjectId: wizard?.pinProjectId,
     })
     const { skipEmptyState } = useActions(productSetupStatusLogic({ productKey: config.productKey }))
 
@@ -57,7 +70,7 @@ export function ProductEmptyState({ config, mode }: ProductEmptyStateProps): JSX
     const text: ProductEmptyStateText = { ...config.text['needs-setup'], ...config.text[mode] }
 
     // Wizard commands only work against cloud; self-hosted falls back to the manual path.
-    const showWizard = !!config.wizard && isCloudOrDev
+    const showWizard = !!wizard && isCloudOrDev
 
     const manualUrl = config.manualSetupUrl ?? config.docsUrl
     const Hedgehog = config.hedgehog

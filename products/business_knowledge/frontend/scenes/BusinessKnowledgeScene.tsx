@@ -10,25 +10,25 @@ import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { ProductKey } from '~/queries/schema/schema-general'
 
-import type { RefreshIntervalOption } from '../api'
 import { CreateKnowledgeSourceModal } from '../components/CreateKnowledgeSourceModal'
 import { EditKnowledgeSourceModal } from '../components/EditKnowledgeSourceModal'
 import { RefreshStatusCell } from '../components/RefreshStatusCell'
 import { StatusTag } from '../components/StatusTag'
-import { type AggregatedGap, KnowledgeSource, businessKnowledgeLogic } from './businessKnowledgeLogic'
-
-const REFRESH_INTERVAL_OPTIONS: RefreshIntervalOption[] = [
-    { value: 'manual', label: 'Manual only' },
-    { value: '1h', label: 'Every hour' },
-    { value: '6h', label: 'Every 6 hours' },
-    { value: '24h', label: 'Every day' },
-    { value: '7d', label: 'Every week' },
-]
+import { businessKnowledgeEmptyState } from '../emptyState/businessKnowledgeEmptyState'
+import {
+    type AggregatedGap,
+    KnowledgeSource,
+    REFRESH_INTERVAL_OPTIONS,
+    businessKnowledgeLogic,
+} from './businessKnowledgeLogic'
 
 export const scene: SceneExport = {
     component: BusinessKnowledgeScene,
     logic: businessKnowledgeLogic,
+    productKey: ProductKey.BUSINESS_KNOWLEDGE,
+    emptyState: businessKnowledgeEmptyState,
 }
 
 export function BusinessKnowledgeScene(): JSX.Element {

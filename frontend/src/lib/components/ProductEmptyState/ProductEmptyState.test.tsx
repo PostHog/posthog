@@ -1,4 +1,7 @@
 import { cleanup, render, screen } from '@testing-library/react'
+import { expectLogic } from 'kea-test-utils'
+
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { ProductKey } from '~/queries/schema/schema-general'
@@ -87,6 +90,36 @@ describe('ProductEmptyState', () => {
 
         expect(!!screen.queryByTestId('enable-experiments')).toBe(expected)
         // The hint introduces the action, so it leaves with it rather than dangling.
+        expect(!!screen.queryByText('Hint')).toBe(expected)
+    })
+
+    // An install command keyed to `needs-setup` must not survive into `waiting-for-data`:
+    // events already flow, so there is nothing left to install.
+    it.each([
+        ['needs-setup' as const, true],
+        ['waiting-for-data' as const, false],
+    ])('in %s renders a needs-setup-only wizard: %s', async (mode, expected) => {
+        // preflightLogic is already mounted with cloud off; the wizard card only renders on cloud.
+        useMocks({ get: { '/_preflight/': { cloud: true } } })
+        preflightLogic.actions.loadPreflight()
+        await expectLogic(preflightLogic).toDispatchActions(['loadPreflightSuccess'])
+        const modeKeyedConfig: ProductEmptyStateConfig = {
+            ...config,
+            primaryAction: undefined,
+            text: {
+                'needs-setup': { headline: 'Headline', lead: 'Lead', hint: 'Hint' },
+                'waiting-for-data': { headline: 'Waiting' },
+            },
+            wizard: { 'needs-setup': { slug: 'experiments' } },
+        }
+
+        render(<ProductEmptyState config={modeKeyedConfig} mode={mode} />)
+
+        if (expected) {
+            expect(await screen.findByLabelText(/Copy command/)).toBeTruthy()
+        } else {
+            expect(screen.queryByLabelText(/Copy command/)).toBeNull()
+        }
         expect(!!screen.queryByText('Hint')).toBe(expected)
     })
 })

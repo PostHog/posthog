@@ -4,8 +4,12 @@ import type { Mocks } from '~/mocks/utils'
 
 import { actionsEmptyState } from 'products/actions/frontend/emptyState/actionsEmptyState'
 import { aiObservabilityEmptyState } from 'products/ai_observability/frontend/emptyState/aiObservabilityEmptyState'
+import { clustersEmptyState } from 'products/ai_observability/frontend/emptyState/clustersEmptyState'
+import { datasetsEmptyState } from 'products/ai_observability/frontend/emptyState/datasetsEmptyState'
+import { evaluationsEmptyState } from 'products/ai_observability/frontend/emptyState/evaluationsEmptyState'
 import { llmPromptsEmptyState } from 'products/ai_observability/frontend/emptyState/llmPromptsEmptyState'
 import { annotationsEmptyState } from 'products/annotations/frontend/emptyState/annotationsEmptyState'
+import { businessKnowledgeEmptyState } from 'products/business_knowledge/frontend/emptyState/businessKnowledgeEmptyState'
 import { webScriptsEmptyState } from 'products/cdp/frontend/emptyState/webScriptsEmptyState'
 import { cohortsEmptyState } from 'products/cohorts/frontend/emptyState/cohortsEmptyState'
 import { supportEmptyState } from 'products/conversations/frontend/emptyState/supportEmptyState'
@@ -115,6 +119,40 @@ export const LLMPromptsNeedsSetup: ProductEmptyStateStory = productEmptyStateSto
 export const SkillsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(llmSkillsEmptyState, 'needs-setup', {
     mocks: { get: { '/api/projects/:team_id/llm_skills/': [200, emptyEntityList] } },
 })
+
+export const DatasetsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(datasetsEmptyState, 'needs-setup', {
+    mocks: { get: { '/api/projects/:team_id/datasets/': [200, emptyEntityList] } },
+})
+
+export const EvaluationsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
+    evaluationsEmptyState,
+    'needs-setup',
+    {
+        mocks: {
+            get: {
+                '/api/projects/:team_id/evaluations/': [200, emptyEntityList],
+                '/api/projects/:team_id/evaluation_directories/': [200, []],
+            },
+        },
+    }
+)
+
+// Clusters detection is three-state: no AI events, AI events but no clustering run
+// yet, and runs. The default query mock answers the run query with no rows.
+export const ClustersNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(clustersEmptyState, 'needs-setup')
+
+export const ClustersWaitingForData: ProductEmptyStateStory = productEmptyStateStory(
+    clustersEmptyState,
+    'waiting-for-data'
+)
+
+export const BusinessKnowledgeNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
+    businessKnowledgeEmptyState,
+    'needs-setup',
+    {
+        mocks: { get: { '/api/projects/:team_id/business_knowledge/sources/': [200, emptyEntityList] } },
+    }
+)
 
 export const EndpointsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(endpointsEmptyState, 'needs-setup', {
     mocks: { get: { '/api/projects/:team_id/endpoints/': [200, emptyEntityList] } },
