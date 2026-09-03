@@ -18,10 +18,6 @@ import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
 import { dashboardLogic } from './dashboardLogic'
 import { EmptyDashboardComponent } from './EmptyDashboardComponent'
 
-jest.mock('./emptyDashboardAiStarterPrompts', () => ({
-    EmptyDashboardAiStarterPrompts: () => <div>Create a chart from a question</div>,
-}))
-
 const MOCK_DASHBOARD: DashboardType<QueryBasedInsightModel> = {
     id: 5,
     name: 'Test Dashboard',
@@ -107,7 +103,7 @@ describe('EmptyDashboardComponent', () => {
         ).toBeInTheDocument()
         expect(screen.getByText('Add an existing chart')).toBeInTheDocument()
         expect(screen.getByText('or View Web Analytics')).toBeInTheDocument()
-        expect(screen.getByText('Create a chart from a question')).toBeInTheDocument()
+        expect(screen.getByText('What do you want to learn?')).toBeInTheDocument()
 
         logic.unmount()
     })
