@@ -108,13 +108,14 @@ APP_STORE_CONNECT_ANALYTICS_INACTIVE_ERROR = (
     "new request, which only an Admin key can create. Give the key the Admin role, then reconnect."
 )
 
-# No app generates this stream's report, so the table can never gain a row. Apple starts a report
-# type only for an Admin key, so a key that reads reports but cannot start one leaves the table
-# empty. `AppStoreConnectSource.get_non_retryable_errors` matches on this text to fail fast.
+# No app generates this stream's report, so the table can never gain a row. This state is reached
+# only where an active report request already exists, so the key's role is not the cause and an
+# Admin key cannot change the outcome. The message therefore names the report, not a role.
+# `AppStoreConnectSource.get_non_retryable_errors` matches on this text to fail fast.
 APP_STORE_CONNECT_ANALYTICS_REPORT_UNAVAILABLE_ERROR = (
     "App Store Connect does not generate this analytics report for any of your apps, so this table "
-    "has no data to sync. Apple starts an analytics report only for a key with the Admin role. Give "
-    "the key the Admin role and reconnect, or unselect this table if your account cannot get this report."
+    "has no data to sync. PostHog turned syncing off for this table. Turn it back on once App Store "
+    "Connect lists this report for one of your apps, or leave it off if your account cannot get it."
 )
 
 # A sales or subscription report sync started without a vendor number. `/v1/salesReports` can't be
