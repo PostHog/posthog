@@ -83,7 +83,7 @@ describe('ReplayCaptureDiagnosticsPanel', () => {
                 />
             )
 
-            expect(screen.getByText('The recorder was still loading when the session ended')).toBeInTheDocument()
+            expect(screen.getByText('The recorder had not finished loading yet')).toBeInTheDocument()
         })
 
         it('renders a status posthog-js never emits as unknown', () => {
@@ -203,7 +203,7 @@ describe('ReplayCaptureDiagnosticsPanel', () => {
 
             render(<ReplayCaptureDiagnosticsPanel sessionId="session-456" />)
 
-            expect(screen.getByText('The recorder was still loading when the session ended')).toBeInTheDocument()
+            expect(screen.getByText('The recorder had not finished loading yet')).toBeInTheDocument()
         })
 
         it('renders nothing when properties are null after loading', () => {

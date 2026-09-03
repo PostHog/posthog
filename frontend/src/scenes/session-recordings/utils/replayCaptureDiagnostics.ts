@@ -82,10 +82,13 @@ const pickSignals = (properties: Record<string, any>): Record<string, unknown> =
 }
 
 // posthog-js loads the recorder as a separate chunk. Until that chunk takes over, the SDK
-// reports `disabled`, so the first events of a page load say `disabled` on a session that
-// records fine. Only a session that reported nothing else can be read as replay being off.
-// Ordered most to least informative: the first status the session reached wins.
-const STATUSES_BEYOND_DISABLED = [
+// reports `disabled` and then `lazy_loading`, so the first events of a page load carry one of
+// them on a session that records fine. Neither settles what the rest of the session did.
+const STARTUP_STATUSES = ['disabled', 'lazy_loading']
+
+// Statuses that say more than a startup snapshot, most to least informative: the first one the
+// session reached wins.
+const STATUSES_BEYOND_STARTUP = [
     'active',
     'sampled',
     'buffering',
@@ -130,8 +133,9 @@ export function diagnoseReplayCapture(
     const eventStatus = properties['$recording_status']
     const sessionStatuses = context?.sessionRecordingStatuses ?? []
     // The session got at least this far, even if this one event was captured before it did.
-    const statusReachedLater =
-        eventStatus === 'disabled' ? STATUSES_BEYOND_DISABLED.find((s) => sessionStatuses.includes(s)) : undefined
+    const statusReachedLater = STARTUP_STATUSES.includes(eventStatus)
+        ? STATUSES_BEYOND_STARTUP.find((s) => s !== eventStatus && sessionStatuses.includes(s))
+        : undefined
 
     const diagnosis = diagnoseSignals(properties, statusReachedLater ?? eventStatus)
     if (!statusReachedLater) {
@@ -304,10 +308,10 @@ function diagnoseSignals(properties: Record<string, any>, recordingStatus: unkno
     if (recordingStatus === 'lazy_loading') {
         return {
             verdict: 'recorder_loading',
-            headline: 'The recorder was still loading when the session ended',
+            headline: 'The recorder had not finished loading yet',
             reasons: [
-                'PostHog loads the recorder as a separate file after the SDK starts. This session ended before that file took over, so no snapshots were captured.',
-                'Short visits and slow networks hit this most. It is not a settings problem, and the same visitor usually records fine on a longer page view.',
+                'PostHog loads the recorder as a separate file after the SDK starts. When this event was captured, that file had not taken over yet, so the recorder was not producing snapshots.',
+                'This is normal early in a page load. If the visit ended around this point, that is the likely reason there is no recording. Short visits and slow networks are the usual cause, and it is not a settings problem.',
             ],
             rawSignals,
             suggestedActions: [troubleshootingAction],

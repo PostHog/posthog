@@ -320,6 +320,32 @@ describe('diagnoseReplayCapture', () => {
         expect(result.reasons[0]).toContain(sessionStatus)
     })
 
+    it('re-reads a lazy_loading event against a session that got further', () => {
+        const properties = { $recording_status: 'lazy_loading' }
+
+        expect(diagnoseReplayCapture(properties).verdict).toBe('recorder_loading')
+
+        const result = diagnoseReplayCapture(properties, {
+            sessionRecordingStatuses: ['lazy_loading', 'active'],
+        })
+        expect(result.verdict).not.toBe('recorder_loading')
+        expect(result.reasons[0]).toContain('active')
+    })
+
+    it('keeps the recorder_loading verdict when the session never got past loading', () => {
+        const result = diagnoseReplayCapture(
+            { $recording_status: 'lazy_loading' },
+            { sessionRecordingStatuses: ['disabled', 'lazy_loading'] }
+        )
+        expect(result.verdict).toBe('recorder_loading')
+        expect(result.reasons[0]).not.toContain('Later in the session')
+    })
+
+    it.each(['lazy_loading', 'disabled'])('a %s snapshot alone does not claim the session ended', (status) => {
+        const result = diagnoseReplayCapture({ $recording_status: status })
+        expect([result.headline, ...result.reasons].join(' ')).not.toMatch(/session ended/i)
+    })
+
     it('keeps the disabled verdict when the whole session agrees', () => {
         const result = diagnoseReplayCapture(
             { $recording_status: 'disabled', $session_recording_remote_config: { enabled: false } },
