@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 
-import { HogFlowAction } from '~/cdp/schema/hogflow'
+import { HogFlowAction, isRowScopedTrigger } from '~/cdp/schema/hogflow'
 import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
 
 import { findNextAction } from '../hogflow-utils'
@@ -23,17 +23,31 @@ function hashToUnitInterval(key: string): number {
     return Number(digest.readBigUInt64BE(0) >> 4n) / LONG_SCALE
 }
 
-/** The [0, total) value a cohort is selected with: stable per person when sticky, otherwise random. */
-function getBucketValue(invocation: CyclotronJobInvocationHogFlow, action: Action, total: number): number {
-    if (!action.config.sticky_assignment) {
-        return Math.random() * total
+/** The identity a sticky split keys on, or undefined when the run has none that survives a re-run. */
+function getStableId(invocation: CyclotronJobInvocationHogFlow): string | undefined {
+    const trigger = invocation.hogFlow.trigger
+    if (isRowScopedTrigger(trigger)) {
+        // Warehouse rows have no person, and every row's synthetic event carries the same placeholder
+        // distinct_id, which would put a whole sync in one cohort. The row's uuid changes each sync,
+        // so the only identity that holds across re-runs is the column the trigger names as its key.
+        const value = trigger.key_property ? invocation.state?.event?.properties?.[trigger.key_property] : undefined
+        return value === undefined || value === null || value === '' ? undefined : String(value)
     }
 
     // state.personId is the person UUID stamped at enqueue for batch runs, so a transient person
     // lookup failure keys the same bucket the resolved person would. Accounts-audience runs carry
     // no person at all by design; the account's group key rides in the trigger event's distinct_id,
     // which is the stable unit those runs bucket on.
-    const stableId = invocation.person?.id ?? invocation.state?.personId ?? invocation.state?.event?.distinct_id
+    return invocation.person?.id ?? invocation.state?.personId ?? invocation.state?.event?.distinct_id
+}
+
+/** The [0, total) value a cohort is selected with: stable per person when sticky, otherwise random. */
+function getBucketValue(invocation: CyclotronJobInvocationHogFlow, action: Action, total: number): number {
+    if (!action.config.sticky_assignment) {
+        return Math.random() * total
+    }
+
+    const stableId = getStableId(invocation)
     if (!stableId) {
         // Nothing stable to key on. Falling back to random keeps the run moving instead of failing it.
         return Math.random() * total

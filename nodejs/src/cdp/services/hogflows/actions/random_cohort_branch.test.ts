@@ -259,5 +259,75 @@ describe('getRandomCohort', () => {
 
             expect(getRandomCohort(withoutPerson, action)).toEqual(findActionById(invocation.hogFlow, 'cohort_c'))
         })
+
+        describe('warehouse-row triggers', () => {
+            const WAREHOUSE_DISTINCT_ID = 'data-warehouse-table-distinct-id-do-not-use'
+            let delivery = 0
+
+            const rowRun = (properties: Record<string, unknown>): CyclotronJobInvocationHogFlow => {
+                const run = createExampleHogFlowInvocation(invocation.hogFlow)
+                delete run.person
+                run.state!.event.distinct_id = WAREHOUSE_DISTINCT_ID
+                // The producer mixes the sync job id into the uuid, so it differs every delivery.
+                run.state!.event.uuid = `delivery_${delivery++}`
+                run.state!.event.properties = properties
+                return run
+            }
+
+            const setTrigger = (key_property?: string): void => {
+                invocation.hogFlow.trigger = {
+                    type: 'data-warehouse-table',
+                    table_name: 'src.rows',
+                    filters: {},
+                    key_property,
+                }
+            }
+
+            it('never keys on the shared placeholder distinct id', () => {
+                setTrigger()
+                ;(Math.random as jest.Mock).mockRestore()
+                jest.spyOn(Math, 'random')
+
+                const assignments = new Set(
+                    Array.from({ length: 200 }, (_, i) => getRandomCohort(rowRun({ id: i }), action).id)
+                )
+
+                expect(assignments.size).toBe(3)
+                expect(Math.random).toHaveBeenCalled()
+            })
+
+            it('keys on the trigger key property so a re-synced row keeps its cohort', () => {
+                setTrigger('account_id')
+
+                for (let i = 0; i < 10; i++) {
+                    const first = getRandomCohort(rowRun({ account_id: `acct_${i}`, mrr: 1 }), action)
+                    const resynced = getRandomCohort(rowRun({ account_id: `acct_${i}`, mrr: 2 }), action)
+                    expect(resynced).toEqual(first)
+                }
+                expect(Math.random).not.toHaveBeenCalled()
+            })
+
+            it('spreads rows with distinct key values across cohorts', () => {
+                setTrigger('account_id')
+
+                const assignments = new Set(
+                    Array.from(
+                        { length: 200 },
+                        (_, i) => getRandomCohort(rowRun({ account_id: `acct_${i}` }), action).id
+                    )
+                )
+
+                expect(assignments.size).toBe(3)
+            })
+
+            it('falls back to random when a row is missing its key property', () => {
+                setTrigger('account_id')
+                ;(Math.random as jest.Mock).mockReturnValue(0.8)
+
+                expect(getRandomCohort(rowRun({ other: 1 }), action)).toEqual(
+                    findActionById(invocation.hogFlow, 'cohort_c')
+                )
+            })
+        })
     })
 })
