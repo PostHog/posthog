@@ -3144,6 +3144,7 @@ export class PostHogAPIClient {
     sources_enabled: string[];
     sources_watching: string[];
     sources_newly_enabled: boolean;
+    model?: string | null;
   }): Promise<{ task_id: string; channel_id: string }> {
     const teamId = await this.getTeamId();
     const urlPath = `/api/projects/${teamId}/task_channels/onboarding_session_test/`;
