@@ -677,7 +677,7 @@ export interface TicketViewFiltersApi {
     sla?: TicketSlaFilterEnumApi
     /** AI triage outcomes to include. 'in_progress' matches tickets still being triaged. */
     aiTriageResult?: AiTriageResultEnumApi[]
-    /** Assignees to match (any of): 'unassigned', 'me' (resolved to the requesting user), or an object with type ('user' or 'role') and id. The legacy single-value shape is accepted and normalized to a list. */
+    /** Assignees to match (any of): 'unassigned', 'me' (resolved to the requesting user), or an object with type ('user' or 'role') and id. Send a list. Views saved earlier can hold a single value instead of a list, or the value 'all'. Wrap a single value in a list, and replace 'all' with an empty list to apply no assignee filter. */
     assignee?: TicketViewFiltersApiAssigneeItem[]
     /** Tag names to match, combined according to tagsMatch. */
     tags?: string[]

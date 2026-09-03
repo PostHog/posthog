@@ -2097,7 +2097,7 @@
         }
     },
     "conversations-views-update": {
-        "description": "Update a saved ticket view by its short_id. Can change the name, the saved `filters`, and is_favorited. Sending `filters` replaces the whole object rather than merging into it, so read the current filters with conversations-views-retrieve first and send them back with your edits applied. Omit `filters` entirely to leave the saved criteria untouched. is_favorited only affects the calling user.",
+        "description": "Update a saved ticket view by its short_id. Can change the name, the saved `filters`, and is_favorited. Sending `filters` replaces the whole object rather than merging into it, so read the current filters with conversations-views-retrieve first and send them back with your edits applied. Omit `filters` entirely to leave the saved criteria untouched. If a value read back from the view is rejected, convert it to the shape its field describes and send it again. Do not drop the field, because that widens the view for everyone on the team. is_favorited only affects the calling user.",
         "category": "Conversations",
         "feature": "conversations",
         "summary": "Update saved ticket view",
