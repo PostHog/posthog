@@ -1172,6 +1172,18 @@ describe('survey utils', () => {
             expect(query).toContain("length(trim(coalesce(q0_answer, ''))) = 0")
         })
 
+        it('reads the merged submissions once rather than once per question', () => {
+            const survey = buildSurvey(true)
+
+            const query = buildAggregateQuery(survey, buildFilters(survey))
+
+            // ClickHouse inlines a CTE instead of materializing it, so counting each question in
+            // its own UNION ALL branch re-runs the whole merge per branch. Measured at roughly
+            // twice the runtime on a four-question survey before this collapsed to one arrayJoin.
+            expect(query).not.toContain('UNION ALL')
+            expect(query!.match(/argMaxIf\(q0_raw/g)).toHaveLength(1)
+        })
+
         it('does not alias the merged timestamp back onto the column the merge orders by', () => {
             const survey = buildSurvey(true)
 

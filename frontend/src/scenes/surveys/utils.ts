@@ -848,68 +848,64 @@ export function buildAggregateQuery(survey: Survey, filters: SurveyQueryFilters)
         return null
     }
 
-    const branches: string[] = []
+    // Each entry emits the (question_id, label) pairs one submission contributes to one question.
+    // They are concatenated and unrolled with a single arrayJoin so the merge below is read once,
+    // rather than once per question: a ClickHouse CTE is inlined, so a UNION ALL branch per
+    // question would re-run the whole merge per branch.
+    const labelPairs: string[] = []
+    const noPairs = '[]'
 
-    // Every branch counts submissions rather than events, since the merge below has already
-    // collapsed each submission to one row.
     for (const { question, index } of questions) {
         const answer = mergedAnswerAlias(index)
+        const questionId = `'${question.id}'`
+        // The merged answer is nullable, and a nullable label would not match the literal pairs
+        // below when the arrays are concatenated.
+        const answerLabel = `coalesce(toString(${answer}), '')`
 
         if (question.type === SurveyQuestionType.Rating || question.type === SurveyQuestionType.SingleChoice) {
-            branches.push(`SELECT '${question.id}' AS question_id,
-                ${answer} AS label,
-                count() AS cnt
-            FROM merged_submissions
-            WHERE isNotNull(${answer})
-            GROUP BY label`)
+            labelPairs.push(`if(isNotNull(${answer}), [(${questionId}, ${answerLabel})], ${noPairs})`)
 
             if (question.type === SurveyQuestionType.SingleChoice && question.optional) {
-                branches.push(`SELECT '${question.id}' AS question_id,
-                    '__no_response__' AS label,
-                    count() AS cnt
-                FROM merged_submissions
-                WHERE ${buildAnswerIsEmptyExpr(answer, question)}`)
+                labelPairs.push(
+                    `if(${buildAnswerIsEmptyExpr(answer, question)}, [(${questionId}, '__no_response__')], ${noPairs})`
+                )
             }
         } else if (question.type === SurveyQuestionType.MultipleChoice) {
-            branches.push(`SELECT '${question.id}' AS question_id,
-                trim(BOTH '"\\'' FROM arrayJoin(${answer})) AS label,
-                count() AS cnt
-            FROM merged_submissions
-            GROUP BY label HAVING isNotNull(label) AND label != ''`)
-
-            branches.push(`SELECT '${question.id}' AS question_id,
-                '__total__' AS label,
-                count() AS cnt
-            FROM merged_submissions
-            WHERE length(${answer}) > 0`)
+            labelPairs.push(
+                `arrayMap(choice -> (${questionId}, choice),
+                    arrayFilter(choice -> choice != '',
+                        arrayMap(choice -> trim(BOTH '"\\'' FROM choice), ${answer})))`
+            )
+            labelPairs.push(`if(length(${answer}) > 0, [(${questionId}, '__total__')], ${noPairs})`)
 
             if (question.optional) {
-                branches.push(`SELECT '${question.id}' AS question_id,
-                    '__no_response__' AS label,
-                    count() AS cnt
-                FROM merged_submissions
-                WHERE length(${answer}) = 0`)
+                labelPairs.push(`if(length(${answer}) = 0, [(${questionId}, '__no_response__')], ${noPairs})`)
             }
         } else if (question.type === SurveyQuestionType.Open) {
-            branches.push(`SELECT '${question.id}' AS question_id,
-                '__total__' AS label,
-                count() AS cnt
-            FROM merged_submissions
-            WHERE isNotNull(${answer})`)
+            labelPairs.push(`if(isNotNull(${answer}), [(${questionId}, '__total__')], ${noPairs})`)
         }
     }
 
-    if (branches.length === 0) {
+    if (labelPairs.length === 0) {
         return null
     }
 
-    // One CTE shared by every branch, so the merge runs once instead of once per question.
     const mergedSubmissions = buildMergedSubmissionsSubquery(survey, filters, questions)
 
-    return `WITH merged_submissions AS (
-        ${mergedSubmissions}
-    )
-    SELECT question_id, label, cnt FROM (${branches.join('\nUNION ALL\n')}) LIMIT 50000`
+    return `SELECT
+            tupleElement(question_label, 1) AS question_id,
+            tupleElement(question_label, 2) AS label,
+            count() AS cnt
+        FROM (
+            SELECT arrayJoin(arrayConcat(
+                ${labelPairs.join(',\n                ')}
+            )) AS question_label
+            FROM (
+                ${mergedSubmissions}
+            )
+        )
+        GROUP BY question_id, label
+        LIMIT 50000`
 }
 
 export function buildOpenEndedQuery(
