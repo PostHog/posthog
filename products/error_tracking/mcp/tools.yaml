@@ -38,6 +38,9 @@ tools:
     error-tracking-alerts-retrieve:
         operation: error_tracking_alerts_retrieve
         enabled: false
+    error-tracking-alerts-threads-retrieve:
+        operation: error_tracking_alerts_threads_retrieve
+        enabled: false
     error-tracking-alerts-update:
         operation: error_tracking_alerts_update
         enabled: false
