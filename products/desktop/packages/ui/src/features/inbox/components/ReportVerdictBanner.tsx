@@ -303,7 +303,7 @@ export function ReportVerdictBanner({
     report.status === "deleted";
   const showActions = !isTerminalReport;
   const shouldComposeImplementation =
-    report.status === "pending_input" && !hasExistingPr && canCreatePr;
+    variant === "full" && !hasExistingPr && canCreatePr;
 
   // Keyboard actions use the same guards as their buttons so shortcuts cannot
   // bypass loading, disabled, or duplicate-work states.

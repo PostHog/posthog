@@ -228,29 +228,32 @@ describe("ReportVerdictBanner", () => {
     expect(screen.queryByText("Ask about it")).not.toBeInTheDocument();
   });
 
-  it("opens the task composer when a report waiting on input can be implemented", async () => {
-    const user = userEvent.setup();
-    render(
-      <ReportVerdictBanner
-        report={{
-          ...report,
-          status: "pending_input",
-          actionability: "requires_human_input",
-        }}
-      />,
-    );
+  it.each([
+    ["ready", "immediately_actionable"],
+    ["ready", "requires_human_input"],
+    ["pending_input", "requires_human_input"],
+  ] as const)(
+    "opens the task composer for a %s report that is %s",
+    async (status, actionability) => {
+      const user = userEvent.setup();
+      render(
+        <ReportVerdictBanner report={{ ...report, status, actionability }} />,
+      );
 
-    await user.click(screen.getByText("Implement"));
+      expect(screen.queryByText("Create PR")).not.toBeInTheDocument();
+      await user.click(screen.getByText("Implement"));
 
-    expect(openTaskInput).toHaveBeenCalledWith({
-      initialPrompt: "Implement the recommended next step in this report.",
-      initialCloudRepository: undefined,
-      reportAssociation: {
-        reportId: report.id,
-        title: report.title,
-      },
-    });
-  });
+      expect(openTaskInput).toHaveBeenCalledWith({
+        initialPrompt: "Implement the recommended next step in this report.",
+        initialCloudRepository: undefined,
+        reportAssociation: {
+          reportId: report.id,
+          title: report.title,
+        },
+      });
+      expect(createPrReport).not.toHaveBeenCalled();
+    },
+  );
 
   it("uses the PR shortcut to open an existing PR", async () => {
     const user = userEvent.setup();
