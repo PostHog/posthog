@@ -104,6 +104,10 @@ export const replayScannerSceneLogic = kea<replayScannerSceneLogicType>([
             } else {
                 searchParams.tab = values.activeTab
             }
+            // The query belongs to the Search tab; carrying it to another tab would re-run it on return.
+            if (values.activeTab !== ReplayScannerTab.Search) {
+                delete searchParams.q
+            }
             return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
         },
     })),
