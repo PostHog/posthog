@@ -69,11 +69,9 @@ def start_web_memory_sampler() -> None:
     gradual climb toward the cgroup limit that precedes an OOM kill is visible in both
     metrics and PostHog logs rather than only on infra dashboards.
 
-    MUST be called post-fork, from inside each worker (see posthog/wsgi.py). A server that
-    forks workers from a parent process that imported this module leaves the parent's threads
-    behind — an import-time start would only ever sample the idle parent, never the workers
-    that serve requests. The pid guard re-arms per process because the once-flag is
-    copy-on-write-inherited from the parent.
+    MUST be called from inside each worker (see posthog/wsgi.py), because threads do not
+    survive a fork and the idle process that started one is not the one serving requests.
+    The pid guard re-arms per process so an inherited once-flag cannot suppress the start.
 
     Interval is set by WEB_MEMORY_SAMPLE_INTERVAL_SECONDS (default 30); set it to 0 or less
     to disable. Best-effort and idempotent — never breaks startup."""

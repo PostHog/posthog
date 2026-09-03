@@ -54,11 +54,11 @@ pays for it:
 
 ## Validated levers
 
-- **Web: one worker → first `/_health` 118s → ~18s.** The biggest cheap win.
-  `bin/docker-server` runs **4** workers by default, each paying a full Django
-  import. A preview serves one user, so `GRANIAN_WORKERS=1` kills the redundancy.
+- **Web: one worker.** `bin/docker-server` runs **4** by default, each paying a full
+  Django import. A preview serves one user, so `GRANIAN_WORKERS=1` drops the rest.
   Applied in `stack.py` `write_override` and in the golden's own bake
-  (hogland `scripts/posthog-preview-setup.sh`).
+  (hogland `scripts/posthog-preview-setup.sh`). The 118s→18s figure in the table
+  above predates granian and has not been re-measured.
 - **Tighter poll intervals** (`run_long`/`wait_http_ok` 10s → 3s): each completed
   step otherwise sits on up to 10s of dead air before we notice; a handful of
   steps adds up.
@@ -138,8 +138,6 @@ encodes them, but they're easy to regress, so they live here too:
 - **`compose run` has no `--no-build`.** Only a _present_ image stops it from
   silently starting dev-full's ~20-min `build: .`. Pull the image upfront and
   hard-fail if it's absent — don't discover the build at the migrate step.
-- **Recreate web with a clean `up`** (`--force-recreate` if web must be replaced)
-  rather than `compose restart web`.
 - **Restore sizing must match the baked spec exactly** — 8 vCPU / 16384 MiB /
   100 GiB / mirrored. "Omit to inherit" is unreliable server-side; a mismatch is
   rejected. (NB: the SDK sends `disk_mbps=0` = unthrottled; the `hogland` CLI

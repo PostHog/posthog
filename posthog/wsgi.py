@@ -39,8 +39,7 @@ try:
     # Resolve the URLconf now, at module load. The lazy API router otherwise builds on
     # each worker's FIRST LIVE REQUEST — k8s probes (/_livez, /_readyz) short-circuit in
     # middleware and never warm it — costing seconds per worker after every deploy.
-    # Building it here pays the cost once in the parent, whose frozen heap the workers
-    # then share copy-on-write. Non-web processes
+    # Building it here moves the cost to worker boot instead. Non-web processes
     # (celery, temporal, migrate, shell) never load this module and keep the lazy win.
     from django.urls import get_resolver
 
@@ -86,11 +85,10 @@ def _log_web_worker_started() -> None:
 
 _log_web_worker_started()
 
-# Workers are forked from a parent process that already imported this module, so the
-# query_cache RedisCluster must be discovered post-fork: a client built here at
-# import time would be inherited -- sockets and all -- by every worker. Defer the
-# prewarm to the first request so discovery runs in the worker; the factory also
-# pid-guards the cache as a backstop. (start_continuous_profiling/initialize_otel
+# The query_cache RedisCluster must be discovered by the process that uses it: a client
+# built at import time is inherited, sockets and all, by anything forked afterwards.
+# Defer the prewarm to the first request; the factory also pid-guards the cache as a
+# backstop. (start_continuous_profiling/initialize_otel
 # above still run pre-fork here, unlike asgi.py which defers them -- that is a
 # separate, pre-existing concern, not addressed by this change.)
 #
@@ -105,8 +103,8 @@ def application(environ, start_response):
     if not _prewarmed:
         prewarm_query_cache_cluster_in_background()
         validate_configured_web_bot_auth_private_keys_in_background()
-        # A thread started before a fork does not survive into the worker, so start the
-        # sampler here to measure the process that actually serves requests.
+        # Threads do not survive a fork, so start the sampler from the process that
+        # actually serves requests.
         start_web_memory_sampler()
         # Signal handlers install only from the main thread, so this logs a handled failure
         # when the server calls the app off it. Inert unless the env flag is set.

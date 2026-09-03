@@ -14,8 +14,6 @@ Recipe (mount-over-image — the default, ~minutes per PR):
     ``/code/frontend/dist``. Mounting the source swaps the BACKEND code live — no
     per-PR build. (Frontend stays at the image's version; frontend hot-mount is a
     later iteration.) DEBUG=0 is required: the prod image lacks DEBUG-only apps.
-  - ``wait_for_health`` waits on the clean ``up`` rather than restarting the web
-    container (use ``--force-recreate`` if web ever needs replacing).
   - DB coherence: the restored golden's DB was migrated + seeded against the same
     image tag, so a restore only needs the PR's *delta* migrations on top
     (``migrate`` + ``migrate_clickhouse``). Reseeding is skipped — the golden is
@@ -280,8 +278,8 @@ class PostHogPreviewStack:
         #
         # A web recreate still happens in up_web — but only to bind-mount the PR's
         # backend source over the image's /code (you can't add a mount to a
-        # running container). On the warm golden that's a warm single-worker import,
-        # not the old cold rebuild; #315's win
+        # running container). On the warm golden that's a warm single-worker import
+        # rather than a cold rebuild; #315's win
         # is making that recreate warm and serving the frontend relative
         # (JS_URL=""), not removing it. Keeping the env constant means web only
         # ever recreates for the mount, never for config drift.
@@ -531,8 +529,7 @@ class PostHogPreviewStack:
         self.backend.run_long(script, name="up-deps", timeout=900)
 
     def up_web(self) -> None:
-        # Clean `up` rather than `restart`. --no-build reuses
-        # the pulled image; the override mounts PR source over its /code.
+        # --no-build reuses the pulled image; the override mounts PR source over its /code.
         #
         # The temporal worker comes up here, alongside web and for the same
         # reason: you can't add a bind mount to a running container, so the

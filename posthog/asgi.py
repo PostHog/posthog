@@ -24,11 +24,10 @@ logger = structlog.get_logger(__name__)
 # NOTE: OTel, continuous profiling, and the web-memory sampler init are deferred to first
 # request via _ensure_post_fork_init() below. They start background threads (OTel's
 # BatchSpanProcessor, Pyroscope's native profiler, the sampler's loop) that cannot survive
-# fork(). A server that imports this module in a parent process and forks workers from
-# it hands the children dead thread state and corrupted mutexes, causing SIGSEGV /
-# SIGABRT on the worker. Deferring to first request ensures threads start in the actual
-# worker process. This is safe across all server types: Granian uses spawn (not fork),
-# runserver is single-process, and Celery doesn't import this file.
+# fork(): a child inherits dead thread state and corrupted mutexes, causing SIGSEGV /
+# SIGABRT. Deferring also puts _start_event_loop_lag_heartbeat on the worker's running
+# loop, which import time has no access to, and keeps importing this module free of
+# side effects for tests that patch _ensure_post_fork_init.
 _post_fork_initialized = False
 
 _LOOP_LAG_HEARTBEAT_SECONDS = 1.0
