@@ -8,8 +8,8 @@ import { AnyDataNode } from '~/queries/schema/schema-general'
 import { columnConfiguratorLogic } from './columnConfiguratorLogic'
 
 export function EditColumnModal({ metadataSource }: { metadataSource: AnyDataNode }): JSX.Element {
-    const { columns, editingColumn, editingColumnIndex } = useValues(columnConfiguratorLogic)
-    const { setColumns, closeColumnEditor } = useActions(columnConfiguratorLogic)
+    const { editingColumn, editingColumnIndex } = useValues(columnConfiguratorLogic)
+    const { saveEditedColumn, closeColumnEditor } = useActions(columnConfiguratorLogic)
 
     return (
         <LemonModal
@@ -22,9 +22,7 @@ export function EditColumnModal({ metadataSource }: { metadataSource: AnyDataNod
         >
             <HogQLEditor
                 value={editingColumn}
-                onChange={(value) =>
-                    setColumns(columns.map((column, index) => (index === editingColumnIndex ? value : column)))
-                }
+                onChange={saveEditedColumn}
                 metadataSource={metadataSource}
                 submitText="Save column"
             />

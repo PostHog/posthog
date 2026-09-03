@@ -105,6 +105,9 @@ export interface columnConfiguratorLogicActions {
     save: () => {
         value: true
     }
+    saveEditedColumn: (expression: string) => {
+        expression: string
+    }
     selectColumn: (column: string) => {
         column: string
     }
@@ -159,6 +162,7 @@ export const columnConfiguratorLogic = kea<columnConfiguratorLogicType>([
         save: true,
         toggleSaveAsDefault: true,
         openColumnEditor: (index: number) => ({ index }),
+        saveEditedColumn: (expression: string) => ({ expression }),
         closeColumnEditor: true,
     }),
     loaders(({ props }) => ({
@@ -239,6 +243,14 @@ export const columnConfiguratorLogic = kea<columnConfiguratorLogicType>([
         }
     }),
     listeners(({ actions, values, props }) => ({
+        saveEditedColumn: ({ expression }) => {
+            const index = values.editingColumnIndex
+            // An empty expression makes the query fail, so keep the editor open instead of replacing the column.
+            if (index === null || !expression.trim()) {
+                return
+            }
+            actions.setColumns(values.columns.map((column, i) => (i === index ? expression : column)))
+        },
         loadSavedColumnConfigurationSuccess: ({ savedColumnConfiguration }) => {
             if (savedColumnConfiguration) {
                 props.setColumns(savedColumnConfiguration.columns)

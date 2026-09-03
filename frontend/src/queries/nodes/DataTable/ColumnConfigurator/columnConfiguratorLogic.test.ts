@@ -50,10 +50,25 @@ describe('columnConfiguratorLogic', () => {
             editingColumn: 'ant',
         })
 
-        await expectLogic(logic, () => logic.actions.setColumns(['a', 'b', 'anteater', 'aardvark'])).toMatchValues({
+        await expectLogic(logic, () => logic.actions.saveEditedColumn('anteater')).toMatchValues({
             columns: ['a', 'b', 'anteater', 'aardvark'],
             editingColumnIndex: null,
             editingColumn: null,
+        })
+    })
+
+    it.each([
+        ['empty', ''],
+        ['whitespace only', '   '],
+        ['a newline', '\n'],
+    ])('keeps the editor open when the edited expression is %s', async (_, expression) => {
+        await expectLogic(logic, () => {
+            logic.actions.openColumnEditor(2)
+            logic.actions.saveEditedColumn(expression)
+        }).toMatchValues({
+            columns: startingColumns,
+            editingColumnIndex: 2,
+            editingColumn: 'ant',
         })
     })
 
