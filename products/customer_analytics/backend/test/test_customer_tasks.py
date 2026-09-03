@@ -7,7 +7,7 @@ from unittest.mock import patch
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
-from rest_framework import status
+from rest_framework import serializers, status
 
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, PersonalAPIKey, Team, User
@@ -18,7 +18,9 @@ from products.access_control.backend.models.access_control import AccessControl
 from products.customer_analytics.backend.logic import customer_tasks
 from products.customer_analytics.backend.models import Account, CustomerTask, CustomerTaskActivity
 from products.customer_analytics.backend.presentation.views.customer_tasks import (
+    CustomerTaskActivityQuerySerializer,
     CustomerTaskCreateSerializer,
+    CustomerTaskListQuerySerializer,
     CustomerTaskUpdateSerializer,
 )
 
@@ -36,6 +38,22 @@ class CustomerTaskSerializerTest(SimpleTestCase):
         update_serializer = CustomerTaskUpdateSerializer(data={"properties": {"source": "sync"}}, partial=True)
         assert not update_serializer.is_valid()
         assert "properties" in update_serializer.errors
+
+    @parameterized.expand(
+        [
+            ("list", CustomerTaskListQuerySerializer),
+            ("activities", CustomerTaskActivityQuerySerializer),
+        ]
+    )
+    def test_page_limit_rejects_zero(self, _name: str, serializer_class: type[serializers.Serializer]) -> None:
+        # A zero limit would leave the paginator's next link pointing at the same offset.
+        zero_limit = serializer_class(data={"limit": 0})
+        assert not zero_limit.is_valid()
+        assert "limit" in zero_limit.errors
+
+        smallest_limit = serializer_class(data={"limit": 1})
+        assert smallest_limit.is_valid(), smallest_limit.errors
+        assert smallest_limit.validated_data["limit"] == 1
 
 
 class CustomerTaskAPI(APIBaseTest):

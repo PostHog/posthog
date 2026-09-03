@@ -204,7 +204,7 @@ class CustomerTaskListQuerySerializer(serializers.Serializer):
         help_text="Sort by task name, status, assignee, deadline, last update, account, or creation time. Prefix with - for descending order.",
     )
     limit = serializers.IntegerField(
-        required=False, default=50, min_value=0, max_value=100, help_text="Page size, up to 100."
+        required=False, default=50, min_value=1, max_value=100, help_text="Page size, from 1 to 100."
     )
     offset = serializers.IntegerField(required=False, default=0, min_value=0, help_text="Number of rows to skip.")
 
@@ -222,7 +222,7 @@ class CustomerTaskListQuerySerializer(serializers.Serializer):
 
 class CustomerTaskActivityQuerySerializer(serializers.Serializer):
     limit = serializers.IntegerField(
-        required=False, default=50, min_value=0, max_value=100, help_text="Page size, up to 100."
+        required=False, default=50, min_value=1, max_value=100, help_text="Page size, from 1 to 100."
     )
     offset = serializers.IntegerField(required=False, default=0, min_value=0, help_text="Number of rows to skip.")
 
