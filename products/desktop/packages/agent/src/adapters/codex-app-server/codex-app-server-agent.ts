@@ -65,6 +65,11 @@ import { LOCAL_TOOLS_MCP_NAME } from "../local-tools";
 import { visiblePromptBlocks } from "../prompt-blocks";
 import { resolveSpokenNarration } from "../session-meta";
 import {
+  handleUsageCommand,
+  isUsageCommand,
+  type UsageCommandConfig,
+} from "../usage-command";
+import {
   AppServerClient,
   type AppServerClientHandlers,
   type AppServerRpc,
@@ -263,6 +268,7 @@ export interface CodexAppServerAgentOptions {
   onStructuredOutput?: (output: Record<string, unknown>) => Promise<void>;
   /** Test seam: build the JSON-RPC client (defaults to spawning the process). */
   rpcFactory?: (handlers: AppServerClientHandlers) => AppServerRpc;
+  usageCommand?: UsageCommandConfig;
 }
 
 /**
@@ -330,7 +336,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
     client: AgentSideConnection,
     options: CodexAppServerAgentOptions,
   ) {
-    super(client);
+    super(client, options.usageCommand);
     this.logger =
       options.logger ??
       new Logger({ debug: true, prefix: "[CodexAppServerAgent]" });
@@ -854,6 +860,20 @@ export class CodexAppServerAgent extends BaseAcpAgent {
       return isSteer
         ? { stopReason: "end_turn", _meta: { steer: true } }
         : { stopReason: "end_turn" };
+    }
+    if (
+      this.usageCommandConfig &&
+      !isSteer &&
+      !this.turns.isRunning &&
+      !this.turns.isPending &&
+      isUsageCommand(params)
+    ) {
+      return handleUsageCommand({
+        client: this.client,
+        sessionId: this.sessionId,
+        params,
+        config: this.usageCommandConfig,
+      });
     }
     this.cancelNextGoalTurn = false;
     // Reopen the notification gate (a prior interrupt may have left session.cancelled set).

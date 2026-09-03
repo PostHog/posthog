@@ -222,6 +222,10 @@ export class PostHogAPIClient {
     return getLlmGatewayUrl(this.baseUrl);
   }
 
+  getGatewayUsageUrl(): string {
+    return getGatewayUsageUrl(this.baseUrl);
+  }
+
   /**
    * The gateway user node for the signed-in person, or null when the credential
    * resolves to no user (a task-scoped token). This is the distinct id, not the

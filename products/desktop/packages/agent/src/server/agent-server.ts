@@ -117,7 +117,11 @@ import type {
 import { resourceLink } from "../utils/acp-content";
 import { AsyncMutex } from "../utils/async-mutex";
 import { withTimeout } from "../utils/common";
-import { resolveGatewayProduct, resolveGatewayTarget } from "../utils/gateway";
+import {
+  getGatewayUsageUrl,
+  resolveGatewayProduct,
+  resolveGatewayTarget,
+} from "../utils/gateway";
 import { resolveGithubToken } from "../utils/github-token";
 import { Logger } from "../utils/logger";
 import { logAgentshRuntimeInfo } from "./agentsh-runtime";
@@ -1945,6 +1949,14 @@ export class AgentServer {
       deviceType: deviceInfo.type,
       logWriter,
       logger: this.logger,
+      usageCommand:
+        gatewayEnv.usageUrl && gatewayEnv.usageAuthToken
+          ? {
+              url: gatewayEnv.usageUrl,
+              authToken: gatewayEnv.usageAuthToken,
+              projectId: gatewayEnv.posthogProjectId,
+            }
+          : undefined,
       claudeGatewayEnv: runtimeAdapter !== "codex" ? gatewayEnv : undefined,
       codexOptions:
         runtimeAdapter === "codex"
@@ -4810,6 +4822,8 @@ ${commonInstructions}
       anthropicCustomHeaders: customHeaders,
       openaiCustomHeaders,
       posthogProjectId: String(projectId),
+      usageUrl: getGatewayUsageUrl(apiUrl, product),
+      usageAuthToken: apiKey,
     };
   }
 

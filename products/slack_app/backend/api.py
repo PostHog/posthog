@@ -245,6 +245,7 @@ class RulesCommand:
         "add",
         "remove",
         "help",
+        "usage",
         "deprecated_default_repo",
         "project_show",
         "project_set",
@@ -910,6 +911,9 @@ def parse_rules_command(text: str) -> RulesCommand | None:
 
     if re.fullmatch(r"help", cleaned, flags=re.IGNORECASE):
         return RulesCommand(action="help")
+
+    if re.fullmatch(r"usage", cleaned, flags=re.IGNORECASE):
+        return RulesCommand(action="usage")
 
     # Intercept legacy `default repo` verbs so `default repo set org/repo` doesn't
     # fall through into the explicit-repo cascade and spawn a junk task.

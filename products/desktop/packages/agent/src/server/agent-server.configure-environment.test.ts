@@ -341,6 +341,10 @@ describe("AgentServer.configureEnvironment", () => {
     expect(env.openaiBaseUrl).toBe(
       "https://gateway.us.posthog.com/slack_app/v1",
     );
+    expect(env.usageUrl).toBe(
+      "https://gateway.us.posthog.com/v1/usage/slack_app",
+    );
+    expect(env.usageAuthToken).toBe("test-api-key");
   });
 
   it("prefers slack_app over background_agents when both signals are present", () => {

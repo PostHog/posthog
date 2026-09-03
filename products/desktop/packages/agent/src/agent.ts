@@ -245,6 +245,17 @@ export class Agent {
       claudeGatewayEnv,
       claudeMachineAuth: claudeSubscription ? machineClaudeAuth() : undefined,
       contextWiki: options.contextWiki,
+      usageCommand:
+        gatewayConfig && this.posthogAPI
+          ? {
+              url: this.posthogAPI.getGatewayUsageUrl(),
+              authToken: gatewayConfig.apiKey,
+              projectId:
+                this.posthogApiConfig?.projectId != null
+                  ? String(this.posthogApiConfig.projectId)
+                  : undefined,
+            }
+          : undefined,
       codexOptions:
         options.adapter === "codex" && (codexSubscription || gatewayConfig)
           ? {

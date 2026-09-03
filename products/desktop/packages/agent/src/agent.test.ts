@@ -128,6 +128,11 @@ describe("Agent", () => {
         anthropicAuthToken: "token",
       }),
     );
+    expect(config.usageCommand).toEqual({
+      url: "https://gateway.us.posthog.com/v1/usage/posthog_code",
+      authToken: "token",
+      projectId: "1",
+    });
   });
 
   it("stops before starting Codex without authentication", async () => {
