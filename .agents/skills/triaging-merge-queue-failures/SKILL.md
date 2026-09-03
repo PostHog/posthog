@@ -130,10 +130,14 @@ Before reading any log, open the workflow run behind each failing check and list
 ```bash
 RUN=<run id from the failing check's details_url>
 gh api "repos/$REPO/actions/runs/$RUN" --jq '{name, conclusion}'
-gh api "repos/$REPO/actions/runs/$RUN/jobs?per_page=100" \
-  --jq '.jobs[] | select(.conclusion != "success" and .conclusion != "skipped")
-        | "\(.conclusion)\t\(.name)"'
+for pg in 1 2 3 4; do
+  gh api "repos/$REPO/actions/runs/$RUN/jobs?per_page=100&page=$pg" \
+    --jq '.jobs[] | select(.conclusion != "success" and .conclusion != "skipped")
+          | "\(.conclusion)\t\(.name)"'
+done
 ```
+
+Page all the way through. A sharded matrix here runs past 100 jobs, and a real failure sitting on an unread page reads as the cancellation class below.
 
 Read the answer off that list, not off the check name — a real failure is reported through a gate too, so the name never separates the two:
 
@@ -170,7 +174,7 @@ Do not route this to `/fixing-flaky-tests`. There is no flaky test — the tests
 
 **Verdict: requeue once.** Apply the same retry gate as entry 5: count this head's attempts with `attempts $REPO <n> <head_oid>` and add nothing if a retry already happened. Say in the verdict that the attempt was cancelled rather than failed, so the author does not go looking for a broken test.
 
-If this class is a recurring drag rather than a one-off, the fix belongs in the workflows, not here: gates on `if: ${{ !cancelled() }}` never run on a cancelled run, so the required check records as `cancelled` and this entry stops matching.
+Do not reach for a workflow-side fix. Putting the gate on `if: ${{ !cancelled() }}` looks like it removes the false red, but a gate that does not run reports `skipped`, and branch protection counts a skipped required check as passing — so it trades a red check that blocks an untested run for a green one that lets it through. `AGENTS.md`, under "Forcing the full CI matrix on a draft", covers that failure mode. If this class is a recurring drag rather than a one-off, still requeue, and raise it with the team that owns the queue the way entry 6 says to — repeated requeues are not a fix for it.
 
 ### 4. Does the failure look real and reproducible in this PR?
 
