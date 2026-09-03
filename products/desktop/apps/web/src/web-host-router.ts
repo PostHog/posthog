@@ -350,9 +350,9 @@ const workspaceStubRouter = router({
     .input(z.object({ taskId: z.string() }))
     .mutation(({ input }) => webTaskMetadataStore.togglePin(input.taskId)),
   markViewed: publicProcedure
-    .input(z.object({ taskId: z.string() }))
+    .input(z.object({ taskId: z.string(), activityAt: z.string().optional() }))
     .mutation(({ input }) => {
-      webTaskMetadataStore.markViewed(input.taskId);
+      webTaskMetadataStore.markViewed(input.taskId, input.activityAt);
     }),
   markActivity: publicProcedure
     .input(z.object({ taskId: z.string() }))

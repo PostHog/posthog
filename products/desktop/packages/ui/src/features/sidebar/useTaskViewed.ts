@@ -6,6 +6,12 @@ import { useHostTRPC, useHostTRPCClient } from "@posthog/host-router/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useMemo, useRef } from "react";
 
+function timestampOrZero(value: string | null | undefined): number {
+  if (!value) return 0;
+  const timestamp = Date.parse(value);
+  return Number.isNaN(timestamp) ? 0 : timestamp;
+}
+
 export function useTaskViewed() {
   const trpc = useHostTRPC();
   const hostClient = useHostTRPCClient();
@@ -24,15 +30,26 @@ export function useTaskViewed() {
   );
 
   const markViewedMutation = useMutation({
-    mutationFn: ({ taskId }: { taskId: string }) =>
-      hostClient.workspace.markViewed.mutate({ taskId }),
-    onMutate: async ({ taskId }) => {
+    mutationFn: ({
+      taskId,
+      activityAt,
+    }: {
+      taskId: string;
+      activityAt?: string;
+    }) => hostClient.workspace.markViewed.mutate({ taskId, activityAt }),
+    onMutate: async ({ taskId, activityAt }) => {
       await queryClient.cancelQueries({ queryKey: timestampsQueryKey });
       const previous =
         queryClient.getQueryData<Record<string, RawTaskTimestamp>>(
           timestampsQueryKey,
         );
-      const now = new Date().toISOString();
+      const lastViewedAt = new Date(
+        Math.max(
+          Date.now(),
+          timestampOrZero(activityAt),
+          timestampOrZero(previous?.[taskId]?.lastActivityAt),
+        ),
+      ).toISOString();
       queryClient.setQueryData<Record<string, RawTaskTimestamp>>(
         timestampsQueryKey,
         (old) => {
@@ -40,13 +57,13 @@ export function useTaskViewed() {
             return {
               [taskId]: {
                 pinnedAt: null,
-                lastViewedAt: now,
+                lastViewedAt,
                 lastActivityAt: null,
               },
             };
           return {
             ...old,
-            [taskId]: { ...old[taskId], lastViewedAt: now },
+            [taskId]: { ...old[taskId], lastViewedAt },
           };
         },
       );
@@ -107,8 +124,8 @@ export function useTaskViewed() {
   const markActivityMutationRef = useRef(markActivityMutation);
   markActivityMutationRef.current = markActivityMutation;
 
-  const markAsViewed = useCallback((taskId: string) => {
-    markViewedMutationRef.current.mutate({ taskId });
+  const markAsViewed = useCallback((taskId: string, activityAt?: string) => {
+    markViewedMutationRef.current.mutate({ taskId, activityAt });
   }, []);
 
   const markActivity = useCallback((taskId: string) => {
