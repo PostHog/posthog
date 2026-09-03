@@ -34778,6 +34778,21 @@ export namespace Schemas {
     }
 
     /**
+     * How the recordings tab's in-session exposure scope reads on this experiment.
+     */
+    export interface ExperimentInSessionExposure {
+      /** Whether the in-session exposure scope can answer for this experiment. Mirrors the recordings query, which refuses `experiment_exposure.in_session` exactly when this is false. */
+      available: boolean;
+      /**
+         * Why the in-session scope can't answer for this experiment, worded for display next to the disabled option. Null when available.
+         * @nullable
+         */
+      unavailable_reason: string | null;
+      /** True when in-session evidence is the stamped `$feature/<flag_key>` property, which means the flag was active in the session, rather than the exposure event itself being captured there. Copy must not claim the exposure was captured in the session when this is set. */
+      uses_stamped_fallback: boolean;
+    }
+
+    /**
      * * `manual` - Manual
      * * `agent_mcp` - Agent (MCP)
      * * `cold_run` - Cold Run
@@ -44627,6 +44642,8 @@ export namespace Schemas {
     export interface RecordingsQueryExperimentExposureFilter {
       /** Experiment whose exposed persons' sessions to show. Must belong to the environment the query runs in. */
       experiment_id: number;
+      /** Only sessions carrying in-session exposure evidence: an event matching the experiment's exposure criteria inside the session (with the stamped `$feature/<flag_key>` property standing in when the exposure event was never captured with a session id). Defaults to all exposed persons' sessions from first exposure onward. */
+      in_session?: boolean | null;
       /** Narrow to persons exposed to this variant. Defaults to all of the experiment's variants. */
       variant?: string | null;
     }
@@ -67788,6 +67805,21 @@ export namespace Schemas {
       readonly events_retention_enforced?: boolean;
     }
 
+    export interface PatchedTeamTracingConfig {
+      /**
+         * Span or resource attribute keys whose values should match a person's distinct_id — a span links to a person when any of these attributes holds one of their distinct IDs. Defaults to ['posthogDistinctId'], the key the posthog-js / posthog-react-native SDKs attach to the OTel signals they emit. Add keys only if your pipeline emits the person identifier under different attributes.
+         * @maxItems 10
+         * @items.maxLength 200
+         */
+      tracing_distinct_id_attribute_keys?: string[];
+      /**
+         * Ordered list of span or resource attribute keys whose values hold the PostHog session ID. Detection checks keys in order, then falls back to common session ID attribute conventions; the first key with a value wins. Defaults to ['sessionId'], the key the posthog-js / posthog-react-native SDKs attach to the OTel signals they emit. Add keys only if your pipeline emits the session ID under different attributes.
+         * @maxItems 10
+         * @items.maxLength 200
+         */
+      tracing_session_id_attribute_keys?: string[];
+    }
+
     /**
      * Payload for updating a private note on a ticket.
      */
@@ -85967,6 +85999,21 @@ export namespace Schemas {
       owner_team: string;
       /** False when the GitHub source has no team_members snapshot synced: the trend then has no honest team attribution and `points` is empty. */
       has_membership_data: boolean;
+    }
+
+    export interface TeamTracingConfig {
+      /**
+         * Span or resource attribute keys whose values should match a person's distinct_id — a span links to a person when any of these attributes holds one of their distinct IDs. Defaults to ['posthogDistinctId'], the key the posthog-js / posthog-react-native SDKs attach to the OTel signals they emit. Add keys only if your pipeline emits the person identifier under different attributes.
+         * @maxItems 10
+         * @items.maxLength 200
+         */
+      tracing_distinct_id_attribute_keys: string[];
+      /**
+         * Ordered list of span or resource attribute keys whose values hold the PostHog session ID. Detection checks keys in order, then falls back to common session ID attribute conventions; the first key with a value wins. Defaults to ['sessionId'], the key the posthog-js / posthog-react-native SDKs attach to the OTel signals they emit. Add keys only if your pipeline emits the session ID under different attributes.
+         * @maxItems 10
+         * @items.maxLength 200
+         */
+      tracing_session_id_attribute_keys: string[];
     }
 
     /**
