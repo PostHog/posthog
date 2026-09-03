@@ -75,7 +75,14 @@ export function MyTicketsScene(): JSX.Element {
     } else if (view === 'restore' && !hasIdentityMode) {
         pane = <RestoreTickets />
     } else if (view === 'ticket' && currentTicket) {
-        pane = <Ticket fillParent backButtonClassName="lg:hidden" />
+        pane = (
+            <Ticket
+                fillParent
+                backButtonClassName="@min-[48rem]/main-content:hidden"
+                messagesMinHeight="300px"
+                messagesMaxHeight="none"
+            />
+        )
     } else {
         pane = (
             <div className="flex items-center justify-center border border-dashed rounded-lg text-muted-alt h-full min-h-80">
@@ -91,11 +98,16 @@ export function MyTicketsScene(): JSX.Element {
                 description="Support conversations with the PostHog team"
                 resourceType={{ type: 'conversation' }}
             />
-            <div className="flex flex-col lg:flex-row flex-1 min-h-0 gap-4 overflow-hidden">
-                <div className="w-full lg:w-96 shrink-0 min-h-0 overflow-hidden lg:h-full">
+            {/* Overflow clipping is only safe in the side-by-side row, where the list has a bounded
+                height and its inner scroller can run. Stacked, the list is content-sized; clipping
+                here would hide tickets and leave the thread with no height. */}
+            <div className="flex flex-col gap-4 @min-[48rem]/main-content:flex-row @min-[48rem]/main-content:flex-1 @min-[48rem]/main-content:min-h-0 @min-[48rem]/main-content:overflow-hidden">
+                <div className="w-full @min-[48rem]/main-content:w-96 @min-[48rem]/main-content:shrink-0 @min-[48rem]/main-content:min-h-0 @min-[48rem]/main-content:h-full @min-[48rem]/main-content:overflow-hidden">
                     <TicketsList selectedTicketId={view === 'ticket' ? (currentTicket?.id ?? null) : null} />
                 </div>
-                <div className="flex-1 min-w-0 min-h-0 w-full flex flex-col">{pane}</div>
+                <div className="w-full min-w-0 min-h-80 @min-[48rem]/main-content:flex-1 @min-[48rem]/main-content:min-h-0 @min-[48rem]/main-content:flex @min-[48rem]/main-content:flex-col">
+                    {pane}
+                </div>
             </div>
         </SceneContent>
     )
