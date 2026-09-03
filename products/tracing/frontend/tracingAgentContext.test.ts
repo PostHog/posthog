@@ -84,6 +84,16 @@ describe('tracingAgentContext', () => {
             ])
         })
 
+        // rootSpans has no viewer facet: the span list never sends it and the backend reads an
+        // omitted value as false, so the mode the mirror picks stays a flatSpans question.
+        it.each([
+            ['rootSpans is false', { rootSpans: false }, 'traces'],
+            ['rootSpans is true', { rootSpans: true }, 'traces'],
+            ['flatSpans comes along with rootSpans', { rootSpans: true, flatSpans: true }, 'spans'],
+        ])('leaves the view mode to flatSpans when %s', (_name, query, expected) => {
+            expect(apmSpansQueryToViewerFilters({ query }).viewMode).toBe(expected)
+        })
+
         it('ignores an orderBy the viewer cannot sort by', () => {
             const result = apmSpansQueryToViewerFilters({ query: { orderBy: 'latest' } })
 

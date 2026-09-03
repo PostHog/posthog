@@ -166,6 +166,9 @@ function spanFilter(key: string, value: string[]): UniversalFiltersGroupValue {
  * fold into the filter group as span-column filters, the same way the facet rail writes them. An
  * omitted field resets to the viewer default so the page shows the query's results exactly, with
  * the same complete-query semantics the tool ran with.
+ *
+ * rootSpans has no viewer facet to mirror: the span list never sends it, and the backend reads an
+ * omitted value as false, so only flatSpans picks the view mode.
  */
 export function apmSpansQueryToViewerFilters(input: Record<string, unknown>): Partial<TracingFilters> {
     // All query-apm-spans params are nested inside `query`; fall back to the raw input defensively.
