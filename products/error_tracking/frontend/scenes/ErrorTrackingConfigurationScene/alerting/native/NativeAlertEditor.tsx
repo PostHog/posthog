@@ -21,7 +21,7 @@ import { AlertPreview } from './AlertPreview'
 import { THROTTLE_OPTIONS, TRIGGER_OPTIONS, nativeAlertEditorLogic, splitChannel } from './nativeAlertEditorLogic'
 
 export function NativeAlertEditor(): JSX.Element {
-    const { isOpen, draft, preview, previewLoading, savingLoading, deletingLoading, saveDisabledReason } =
+    const { isOpen, draft, preview, previewLoading, previewError, savingLoading, deletingLoading, saveDisabledReason } =
         useValues(nativeAlertEditorLogic)
     const {
         closeEditor,
@@ -185,7 +185,12 @@ export function NativeAlertEditor(): JSX.Element {
                         </div>
                     </div>
 
-                    <AlertPreview preview={preview} loading={previewLoading} channelLabel={channelLabel} />
+                    <AlertPreview
+                        preview={preview}
+                        loading={previewLoading}
+                        error={previewError}
+                        channelLabel={channelLabel}
+                    />
                 </div>
             </div>
         </LemonModal>

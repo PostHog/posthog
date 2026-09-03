@@ -400,7 +400,8 @@ class TestErrorTrackingAlertPreview(APIBaseTest):
         assert root["event"] == "$error_tracking_issue_reopened"
         assert "TypeError" in root["text"]
         assert root["blocks"][0]["type"] == "header"
-        assert body["messages"][2]["text"].startswith("✅ Resolved by")
+        assert body["messages"][2]["text"] == "✅ Resolved"
+        assert self.user.email not in str(body)
         assert "Resolved" in body["messages"][3]["text"] or any(
             "Resolved" in element.get("text", "")
             for block in body["messages"][3]["blocks"]

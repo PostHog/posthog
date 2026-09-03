@@ -290,9 +290,9 @@ class ErrorTrackingAlertViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
         """The Slack thread an alert would open, rendered from the project's most recent issue."""
         params = ErrorTrackingAlertPreviewParamsSerializer(data=request.query_params)
         params.is_valid(raise_exception=True)
-        actor_email = request.user.email if isinstance(request.user, User) else None
+        # A scoped read token must not learn its owner's email from the sample replies.
         try:
-            preview = alerts_facade.preview_alert_messages(self.team.id, params.validated_data["trigger"], actor_email)
+            preview = alerts_facade.preview_alert_messages(self.team.id, params.validated_data["trigger"], None)
         except alerts_facade.AlertValidationError as err:
             raise ValidationError(str(err)) from err
         return Response(ErrorTrackingAlertPreviewSerializer(preview).data)
