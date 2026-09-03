@@ -331,6 +331,10 @@ export class PiAgentServer {
         hasSession: this.session !== null,
         bootMs: this.sessionReadyBootMs,
         sessionInitMs: this.sessionInitMs,
+        boot: {
+          totalMs: this.sessionReadyBootMs,
+          launcherToProcessMs: this.config.launcherToProcessMs,
+        },
       }),
     );
 
@@ -587,12 +591,17 @@ export class PiAgentServer {
       typeof this.config.claudeCode?.systemPrompt === "string"
         ? this.config.claudeCode.systemPrompt
         : this.config.claudeCode?.systemPrompt?.append;
+    // A repo-less run gets the tools to discover and clone a repository, and the
+    // channel prompt that names them. Derive both from one condition so the tools
+    // and the prompt that describes them can never disagree.
+    const channelMode = !this.config.repositoryPath;
     const taskContext: TaskContext = {
       projectId: this.config.projectId,
       apiHost: this.config.apiUrl,
       taskId: this.config.taskId,
       cwd,
       environment: "cloud",
+      channelMode,
       additionalInstructions: configuredSystemPrompt,
     };
     const attributionHeaders = buildPosthogPropertyHeaderRecord({
@@ -617,7 +626,7 @@ export class PiAgentServer {
     });
 
     const extensions: PiRuntimeExtension[] = ["context-wiki"];
-    if (!this.config.repositoryPath) {
+    if (channelMode) {
       extensions.push("repository-tools");
     }
     if (this.config.autoPublish === true && this.config.createPr !== false) {

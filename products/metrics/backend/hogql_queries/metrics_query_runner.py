@@ -21,6 +21,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -143,7 +144,13 @@ class MetricsQueryRunner(AnalyticsQueryRunner[MetricsQueryResponse]):
 
     def _calculate(self) -> MetricsQueryResponse:
         self._enforce_alpha_gate_for_anonymous_viewers()
-        series = run_metric_query(team=self.team, request=self._to_request())
+        try:
+            series = run_metric_query(team=self.team, request=self._to_request())
+        except ValueError as exc:
+            # The facade signals user errors (bad formula, unknown clause alias, bad
+            # quantile) with ValueError; /query only exposes typed errors, so a bare
+            # ValueError would surface as a 500 instead of a 400.
+            raise ExposedHogQLError(str(exc)) from exc
         return MetricsQueryResponse(
             results=[
                 MetricsQuerySeries(

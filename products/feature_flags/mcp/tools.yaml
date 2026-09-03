@@ -92,6 +92,15 @@ tools:
     environments-evaluation-context-suggestions-destroy:
         operation: environments_evaluation_context_suggestions_destroy
         enabled: false
+    feature-flag-archive:
+        operation: feature_flags_archive_create
+        enabled: false
+    feature-flag-disable:
+        operation: feature_flags_disable_create
+        enabled: false
+    feature-flag-enable:
+        operation: feature_flags_enable_create
+        enabled: false
     feature-flag-get-all:
         operation: feature_flags_list
         enabled: true
@@ -142,6 +151,9 @@ tools:
         param_overrides:
             id:
                 cast: string-int
+    feature-flag-unarchive:
+        operation: feature_flags_unarchive_create
+        enabled: false
     feature-flags-activity-retrieve:
         operation: feature_flags_activity_retrieve
         enabled: true
