@@ -29,7 +29,7 @@ from posthog.temporal.common.utils import close_db_connections
 
 from products.signals.backend.auto_start import maybe_autostart_from_report_artefacts
 from products.signals.backend.daily_limit import capture_signal_report_daily_limit_paused, daily_report_limit_gate
-from products.signals.backend.models import SignalReport, SignalTeamConfig
+from products.signals.backend.models import SIGNALS_AT_RUN_INCREMENT, SignalReport, SignalTeamConfig
 from products.signals.backend.quota import (
     capture_signal_report_quota_paused,
     record_quota_check_failed_open,
@@ -60,9 +60,9 @@ from products.signals.backend.temporal.signal_queries import (
 from products.signals.backend.temporal.types import (
     IMPLEMENTATION_DEBOUNCE_SECONDS,
     NEW_SELF_DRIVING_GRACE,
-    RERESEARCH_MAX_SIGNALS,
     SignalData,
     SignalReportSummaryWorkflowInputs,
+    next_research_bucket,
 )
 
 logger = structlog.get_logger(__name__)
@@ -727,7 +727,9 @@ async def mark_report_in_progress_activity(input: MarkReportInProgressInput) -> 
             report = SignalReport.objects.select_for_update().get(id=input.report_id, team_id=input.team_id)
             if report.status == SignalReport.Status.IN_PROGRESS:
                 return report.run_count, True
-            updated_fields = report.transition_to(SignalReport.Status.IN_PROGRESS, signals_at_run_increment=3)
+            updated_fields = report.transition_to(
+                SignalReport.Status.IN_PROGRESS, signals_at_run_increment=SIGNALS_AT_RUN_INCREMENT
+            )
             report.save(update_fields=updated_fields)
             return report.run_count, False
 
@@ -800,6 +802,11 @@ async def mark_report_ready_activity(input: MarkReportReadyInput) -> bool:
                 # Previous attempt took the re-promotion branch; preserve has_new_signals=True.
                 return True, report.run_count, True
             updated_fields = report.transition_to(SignalReport.Status.READY, title=input.title, summary=input.summary)
+            # The pass is only now known to have covered anything, so this is where the count the
+            # bucket schedule reads is written. A run that failed or paused earlier leaves the
+            # previous value standing and so leaves the report's next bucket where it was.
+            report.signals_researched = input.processed_signal_count
+            updated_fields = [*updated_fields, "signals_researched"]
             if input.charts is not None:
                 report.charts = input.charts
                 updated_fields = [*updated_fields, "charts"]
@@ -810,9 +817,13 @@ async def mark_report_ready_activity(input: MarkReportReadyInput) -> bool:
                 report.validation_prompt = input.validation_prompt
                 updated_fields = [*updated_fields, "validation_prompt"]
             report.save(update_fields=updated_fields)
-            # Loop to re-research only if new signals arrived and we're within the cap; past
-            # RERESEARCH_MAX_SIGNALS the report stays READY instead of re-running over a large set.
-            has_new_signals = input.processed_signal_count < report.signal_count <= RERESEARCH_MAX_SIGNALS
+            # Loop to re-research only if the signals that arrived during the run carried the report
+            # to its next bucket. Same predicate as the grouping promotion gate, so a signal landing
+            # mid-run is researched on the schedule it would have had if it had landed after. The
+            # bucket is strictly above what this run processed, so reaching it also means new
+            # signals arrived.
+            bucket = next_research_bucket(report.researched_signal_count)
+            has_new_signals = bucket is not None and report.signal_count >= bucket
             if has_new_signals:
                 # If more signals arrived while the report was being processed, we want to
                 # re-promote it back to candidate and loop to also process new signals

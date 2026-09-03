@@ -2618,6 +2618,10 @@ export interface InsightModel extends Cacheable, WithAccessControl {
     favorited?: boolean
     order: number | null
     result: any
+    /** Result column names, served alongside `result`. SQL insights draw from these. */
+    columns?: string[] | null
+    /** ClickHouse type of each entry in `columns`, as [name, type] pairs. */
+    types?: string[][] | null
     deleted: boolean
     saved: boolean
     created_at: string
@@ -7321,6 +7325,7 @@ export type CyclotronJobInputSchemaType = {
         | 'task_repository'
         | 'task_mcp_installations'
         | 'signals_scout'
+        | 'task_skills'
     key: string
     label: string
     choices?: { value: string; label: string }[]
