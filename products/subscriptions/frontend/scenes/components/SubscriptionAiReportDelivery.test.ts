@@ -95,6 +95,6 @@ describe('SubscriptionAiReportDelivery helpers', () => {
 
         const failure = screen.getByText(/This query ran out of memory/)
         expect(failure.closest('.LemonBanner--error')).not.toBeNull()
-        expect(screen.getByRole('link', { name: docsUrl }).getAttribute('href')).toBe(docsUrl)
+        expect(screen.getByText(docsUrl).closest('a')?.getAttribute('href')).toBe(docsUrl)
     })
 })
