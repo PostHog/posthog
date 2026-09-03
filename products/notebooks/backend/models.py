@@ -188,6 +188,12 @@ class KernelRuntime(UUIDTModel):
     # arrive out of order, so a slow older callback must not overwrite a newer snapshot. Runs
     # are created before dispatch, so created_at orders them the same way the kernel ran them.
     frames_run_created_at = models.DateTimeField(null=True, blank=True)
+    # The shape this sandbox was actually provisioned with. The notebook holds the configured
+    # shape, which a live kernel does not adopt until it restarts, so pricing the running sandbox
+    # needs the size recorded here rather than derived from the notebook. Null on rows created
+    # before this was captured.
+    provisioned_cpu_cores = models.FloatField(null=True, blank=True)
+    provisioned_memory_gb = models.FloatField(null=True, blank=True)
 
     class Meta:
         db_table = "posthog_kernelruntime"
