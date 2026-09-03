@@ -40,6 +40,11 @@ COUNT_TILES_WITH_NO_FILTERS_HASH_INTERVAL_SECONDS = get_from_env(
 CACHED_RESULTS_TTL_DAYS = 7
 CACHED_RESULTS_TTL = CACHED_RESULTS_TTL_DAYS * 24 * 60 * 60
 
+# How long a finished async query stays resolvable by its query ID after its status record is
+# gone, by falling back to the query cache. Bounded separately from CACHED_RESULTS_TTL because
+# every async query writes one of these keys to the app Redis.
+ASYNC_QUERY_HANDLE_TTL_SECONDS = get_from_env("ASYNC_QUERY_HANDLE_TTL_SECONDS", 24 * 60 * 60, type_cast=int)
+
 # TTL for cache entries written by API keys or OAuth clients outside any insight or dashboard.
 # retention_ttl in posthog/query_cache/cache.py decides which writes get it.
 CACHED_RESULTS_PROGRAMMATIC_TTL = get_from_env("CACHED_RESULTS_PROGRAMMATIC_TTL", 24 * 60 * 60, type_cast=int)

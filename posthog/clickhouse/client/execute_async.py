@@ -104,10 +104,10 @@ class QueryStatusManager:
 
     def _store_handle(self, query_status: QueryStatus, cache_key: Optional[str]) -> None:
         # The status record above carries the result payload, so it is short-lived. This handle
-        # carries only the outcome and the cache key, and it lives as long as the query cache
-        # entry does. A client that polls after the status record is gone (a browser tab that
-        # stayed hidden, an API script that resumed late) can still be served from the cache
-        # instead of getting a 404 for a result that exists.
+        # carries only the outcome and the cache key, and it outlives the status record by
+        # ASYNC_QUERY_HANDLE_TTL_SECONDS. A client that polls after the status record is gone
+        # (a browser tab that stayed hidden, an API script that resumed late) can still be
+        # served from the cache instead of getting a 404 for a result that exists.
         fields = {
             "complete": "1" if query_status.complete else "0",
             "error": "1" if query_status.error else "0",
@@ -117,7 +117,7 @@ class QueryStatusManager:
         if cache_key:
             fields["cache_key"] = cache_key
         self.redis_client.hset(self.handle_key, mapping=fields)
-        self.redis_client.expire(self.handle_key, settings.CACHED_RESULTS_TTL)
+        self.redis_client.expire(self.handle_key, settings.ASYNC_QUERY_HANDLE_TTL_SECONDS)
 
     def _status_from_handle(self, resolve_cached_results: bool) -> QueryStatus:
         raw_handle = self.redis_client.hgetall(self.handle_key)
