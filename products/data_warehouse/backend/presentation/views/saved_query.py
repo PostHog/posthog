@@ -53,6 +53,7 @@ from products.access_control.backend.presentation.access_control import (
 from products.data_modeling.backend.facade.api import MAX_LOOKBACK_SECONDS, get_incremental_config
 from products.data_modeling.backend.facade.models import (
     DataModelingJob,
+    DataModelingJobEngine,
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryColumnAnnotation,
     Edge,
@@ -453,16 +454,46 @@ class DataWarehouseSavedQuerySerializerMixin:
     This mixin is intended to be used with serializers.ModelSerializer subclasses.
     """
 
+    def _serving_run(self, view: DataWarehouseSavedQuery) -> DataModelingJob | None:
+        """The newest materialization run that serves this view, or None if it has never run.
+
+        Prefers the prefetched job so a list of views costs one query. Falls back to a lookup for
+        the detail route, which has no prefetch.
+        """
+        try:
+            jobs = view.jobs  # type: ignore[attr-defined]
+            return jobs[0] if jobs else None
+        except AttributeError:
+            return (
+                DataModelingJob.objects.filter(saved_query_id=view.id)
+                .exclude(engine=DataModelingJobEngine.DUCKGRES)
+                .order_by("-last_run_at")
+                .first()
+            )
+
     @extend_schema_field(serializers.DateTimeField(allow_null=True))
     def get_last_run_at(self, view: DataWarehouseSavedQuery) -> datetime | None:
-        try:
-            jobs = view.jobs  # type: ignore
-            if len(jobs) > 0:
-                return jobs[0].last_run_at
-        except Exception:
-            pass
+        run = self._serving_run(view)
+        return run.last_run_at if run is not None else view.last_run_at
 
-        return view.last_run_at
+    @extend_schema_field(serializers.ChoiceField(choices=DataWarehouseSavedQuery.Status.choices, allow_null=True))
+    def get_status(self, view: DataWarehouseSavedQuery) -> str | None:
+        run = self._serving_run(view)
+        if run is None:
+            return view.status
+        # Modified means "edited and not materialized since", which no run can express. A run that
+        # happened after the edit answers it, so the column only wins while the edit is the newer fact.
+        edited_since_the_run = (
+            view.status == DataWarehouseSavedQuery.Status.MODIFIED
+            and view.updated_at is not None
+            and view.updated_at > run.last_run_at
+        )
+        return view.status if edited_since_the_run else run.status
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_latest_error(self, view: DataWarehouseSavedQuery) -> str | None:
+        run = self._serving_run(view)
+        return run.error if run is not None else view.latest_error
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_sync_frequency(self, schema: DataWarehouseSavedQuery):
@@ -542,6 +573,8 @@ class DataWarehouseSavedQueryMinimalSerializer(
         read_only=True, help_text=SYNC_FREQUENCY_MANAGED_BY_DAG_HELP_TEXT
     )
     last_run_at = serializers.SerializerMethodField(read_only=True)
+    status = serializers.SerializerMethodField(read_only=True)
+    latest_error = serializers.SerializerMethodField(read_only=True)
     managed_viewset_kind = serializers.SerializerMethodField(read_only=True)
     folder_id = serializers.UUIDField(source="folder.id", read_only=True, allow_null=True)
     folder_name = serializers.CharField(source="folder.name", read_only=True, allow_null=True)
@@ -688,6 +721,8 @@ class DataWarehouseSavedQuerySerializer(
     sync_frequency_bounds = serializers.SerializerMethodField(read_only=True, help_text=SYNC_FREQUENCY_BOUNDS_HELP_TEXT)
     latest_history_id = serializers.SerializerMethodField(read_only=True)
     last_run_at = serializers.SerializerMethodField(read_only=True)
+    status = serializers.SerializerMethodField(read_only=True)
+    latest_error = serializers.SerializerMethodField(read_only=True)
     managed_viewset_kind = serializers.SerializerMethodField(read_only=True)
     suspended = serializers.SerializerMethodField(read_only=True)
     folder_id = TeamScopedPrimaryKeyRelatedField(
@@ -1529,7 +1564,11 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
                 "managed_viewset",
                 "column_annotations",
                 Prefetch(
-                    "datamodelingjob_set", queryset=DataModelingJob.objects.order_by("-last_run_at")[:1], to_attr="jobs"
+                    "datamodelingjob_set",
+                    queryset=DataModelingJob.objects.exclude(engine=DataModelingJobEngine.DUCKGRES).order_by(
+                        "-last_run_at"
+                    )[:1],
+                    to_attr="jobs",
                 ),
             )
             .exclude(deleted=True)

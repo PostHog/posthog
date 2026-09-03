@@ -11,6 +11,7 @@ from django.core.exceptions import ValidationError
 from django.db import connection
 from django.test import SimpleTestCase
 from django.test.utils import CaptureQueriesContext
+from django.utils import timezone
 
 from parameterized import parameterized
 
@@ -26,6 +27,16 @@ from products.data_modeling.backend.facade.models import (
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryColumnAnnotation,
     Edge,
+    Node,
+    NodeType,
+)
+from products.data_modeling.backend.facade.models import (
+    DAG,
+    DataModelingJob,
+    DataModelingJobEngine,
+    DataWarehouseManagedViewSet,
+    DataWarehouseSavedQuery,
+    DataWarehouseSavedQueryColumnAnnotation,
     Node,
     NodeType,
 )
@@ -2627,3 +2638,103 @@ class TestSavedQueryDescription(APIBaseTest):
         results = self.client.get(self._base()).json()["results"]
         described = {v["name"]: v.get("description") for v in results}
         assert described["described_view"] == "Listed description."
+
+
+class TestSavedQueryStateComesFromTheServingRun(APIBaseTest):
+    """The serializer reports run state from the newest serving run, not the frozen v1 columns."""
+
+    def _view(self, name: str, **column_state) -> DataWarehouseSavedQuery:
+        return DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name=name,
+            query={"kind": "HogQLQuery", "query": "SELECT 1 AS a"},
+            created_by=self.user,
+            **column_state,
+        )
+
+    def _run(self, view, status, *, minutes_ago=1, error=None, engine=None):
+        return DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=view,
+            status=status,
+            error=error,
+            engine=engine or DataModelingJobEngine.CLICKHOUSE,
+            last_run_at=timezone.now() - timedelta(minutes=minutes_ago),
+        )
+
+    def _detail(self, view) -> dict:
+        response = self.client.get(f"/api/environments/{self.team.id}/warehouse_saved_queries/{view.id}/")
+        self.assertEqual(response.status_code, 200, response.content)
+        return response.json()
+
+    def _from_list(self, view) -> dict:
+        response = self.client.get(f"/api/environments/{self.team.id}/warehouse_saved_queries/")
+        self.assertEqual(response.status_code, 200, response.content)
+        return next(row for row in response.json()["results"] if row["id"] == str(view.id))
+
+    def _edited_after_its_run(self, view) -> None:
+        # update() skips auto_now, which is the only way to place the edit after the run
+        DataWarehouseSavedQuery.objects.filter(id=view.id).update(updated_at=timezone.now())
+
+    def test_the_newest_run_reports_the_failure_the_frozen_columns_never_saw(self):
+        view = self._view("blank_columns")
+        self._run(view, DataModelingJob.Status.FAILED, error="Query exceeded timeout limit")
+
+        body = self._detail(view)
+
+        self.assertEqual(body["status"], "Failed")
+        self.assertEqual(body["latest_error"], "Query exceeded timeout limit")
+
+    def test_a_view_that_recovered_stops_reporting_its_old_failure(self):
+        view = self._view(
+            "recovered",
+            status=DataWarehouseSavedQuery.Status.FAILED,
+            latest_error="months ago, under v1",
+        )
+        self._run(view, DataModelingJob.Status.FAILED, minutes_ago=90, error="months ago, under v1")
+        self._run(view, DataModelingJob.Status.COMPLETED, minutes_ago=5)
+
+        body = self._detail(view)
+
+        self.assertEqual(body["status"], "Completed")
+        self.assertIsNone(body["latest_error"])
+
+    def test_a_duckgres_shadow_does_not_stand_in_for_the_serving_run(self):
+        view = self._view("shadowed")
+        self._run(view, DataModelingJob.Status.FAILED, minutes_ago=30, error="the real failure")
+        self._run(view, DataModelingJob.Status.COMPLETED, minutes_ago=1, engine=DataModelingJobEngine.DUCKGRES)
+
+        body = self._detail(view)
+
+        self.assertEqual(body["status"], "Failed")
+        self.assertEqual(body["latest_error"], "the real failure")
+
+    def test_modified_survives_while_the_edit_is_newer_than_the_run(self):
+        view = self._view("edited_since", status=DataWarehouseSavedQuery.Status.MODIFIED)
+        self._run(view, DataModelingJob.Status.COMPLETED, minutes_ago=10)
+        self._edited_after_its_run(view)
+
+        self.assertEqual(self._detail(view)["status"], "Modified")
+
+    def test_modified_is_answered_by_a_run_that_happened_after_the_edit(self):
+        view = self._view("materialized_since", status=DataWarehouseSavedQuery.Status.MODIFIED)
+        self._edited_after_its_run(view)
+        self._run(view, DataModelingJob.Status.COMPLETED, minutes_ago=0)
+
+        self.assertEqual(self._detail(view)["status"], "Completed")
+
+    def test_modified_survives_when_the_view_has_never_run(self):
+        view = self._view("never_ran", status=DataWarehouseSavedQuery.Status.MODIFIED)
+
+        self.assertEqual(self._detail(view)["status"], "Modified")
+
+    def test_the_list_route_agrees_with_the_detail_route(self):
+        # the two read through different halves of _serving_run: prefetch on list, lookup on detail
+        view = self._view("both_routes", status=DataWarehouseSavedQuery.Status.FAILED, latest_error="stale")
+        self._run(view, DataModelingJob.Status.COMPLETED, minutes_ago=2)
+
+        detail, listed = self._detail(view), self._from_list(view)
+
+        self.assertEqual(detail["status"], listed["status"])
+        self.assertEqual(detail["latest_error"], listed["latest_error"])
+        self.assertEqual(listed["status"], "Completed")

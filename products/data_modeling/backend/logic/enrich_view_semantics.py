@@ -38,6 +38,7 @@ from posthog.llm.semantic_enrichment import (
 from posthog.models import Team
 from posthog.temporal.common.client import sync_connect
 
+from products.data_modeling.backend.logic.saved_query_freshness import saved_query_materialized_at
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.datawarehouse_saved_query_column_annotation import (
     DataWarehouseSavedQueryColumnAnnotation,
@@ -87,6 +88,11 @@ def _view_columns(saved_query: DataWarehouseSavedQuery) -> list[dict[str, Any]]:
     return result
 
 
+def _has_sampleable_rows(saved_query: DataWarehouseSavedQuery) -> bool:
+    """Whether a materialized table with a run behind it exists to read a sample from."""
+    return bool(saved_query.table_id) and saved_query_materialized_at(saved_query) is not None
+
+
 def compute_enrichment_hash(saved_query: DataWarehouseSavedQuery) -> str:
     """Fingerprint the inputs that would change the descriptions: query text, column set, and whether a
     row sample is available. The `sample_bit` flips once the view is first materialized (table + last run),
@@ -97,7 +103,7 @@ def compute_enrichment_hash(saved_query: DataWarehouseSavedQuery) -> str:
     column_pairs = sorted(
         (name, _clickhouse_type(column_meta)) for name, column_meta in (saved_query.columns or {}).items()
     )
-    sample_bit = "sampled" if (saved_query.table_id and saved_query.last_run_at) else "unsampled"
+    sample_bit = "sampled" if _has_sampleable_rows(saved_query) else "unsampled"
     payload = json.dumps([query_str, column_pairs, sample_bit], sort_keys=True)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
@@ -369,7 +375,7 @@ def enrich_view_semantics_sync(team_id: int, saved_query_id: str) -> dict[str, A
         business_context = get_team_business_context(team)
         lineage = _gather_lineage(team, saved_query, query_str)
         # Only sample a materialized view — running the raw view query for an unmaterialized one is unbounded.
-        row_sample = _get_row_sample(saved_query) if (saved_query.table_id and saved_query.last_run_at) else []
+        row_sample = _get_row_sample(saved_query) if _has_sampleable_rows(saved_query) else []
         prompt = build_bounded_view_enrichment_prompt(
             view_name=saved_query.name,
             query_definition=query_str,

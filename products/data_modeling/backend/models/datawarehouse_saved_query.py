@@ -85,6 +85,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         COMPLETED = "Completed"
         FAILED = "Failed"
         RUNNING = "Running"
+        SKIPPED = "Skipped"
 
     class Origin(models.TextChoices):
         """Possible origin of this SavedQuery"""
