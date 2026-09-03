@@ -386,7 +386,6 @@ const RecordingPropertyFilter = z.object({
         z.literal('click_count'),
         z.literal('keypress_count'),
         z.literal('mouse_activity_count'),
-        z.literal('surfacing_score'),
     ]),
     label: z.string().optional(),
     operator: PropertyOperator,
