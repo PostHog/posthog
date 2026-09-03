@@ -1,15 +1,14 @@
 import { DateTime } from 'luxon'
 
 import { PersonMessage } from '~/common/persons/person-message'
-import { InternalPersonWithDistinctId, LifecycleMarkPerson } from '~/common/persons/repositories/person-repository'
 import { PersonRepositoryTransaction } from '~/common/persons/repositories/person-repository-transaction'
-import { CreatePersonResult, MoveDistinctIdsResult } from '~/common/utils/db/db'
+import { CreatePersonResult } from '~/common/utils/db/db'
 import { BatchWritingStore } from '~/ingestion/common/stores/batch-writing-store'
 import { Properties } from '~/plugin-scaffold'
-import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '~/types'
+import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt } from '~/types'
 
+import { MergeMode } from './person-merge-types'
 import { EventOps } from './person-update'
-import { PersonsStoreTransaction } from './persons-store-transaction'
 
 export type FlushResult = {
     messages: PersonMessage[]
@@ -18,39 +17,113 @@ export type FlushResult = {
     uuid?: string
 }
 
-export interface PersonsStore extends BatchWritingStore<FlushResult> {
-    /**
-     * Executes a function within a transaction
-     * @param description - Description of the transaction for logging
-     * @param transaction - Function to execute within the transaction, receives a transaction interface
-     */
-    inTransaction<T>(description: string, transaction: (tx: PersonsStoreTransaction) => Promise<T>): Promise<T>
+/** One source distinct id to merge into the target, with the event that asked for it. */
+export interface MergePersonsSource {
+    distinctId: string
+    eventUuid: string
+}
 
+/**
+ * Per-source verdicts a merge can answer. Both backends share the
+ * vocabulary; 'skipped_race' and the 'failed_*' verdicts come only
+ * from the Postgres merge's retrying transaction, and 'error' only
+ * from the saga.
+ */
+export type MergePersonsOutcome =
+    | 'merged'
+    | 'noop_same_person'
+    | 'attached'
+    | 'skipped_illegal'
+    | 'skipped_already_identified'
+    | 'skipped_conflict'
+    | 'skipped_move_limit'
+    | 'skipped_race'
+    | 'failed_source_not_found'
+    | 'failed_target_not_found'
+    | 'failed_source_has_distinct_ids'
+    | 'error'
+
+export interface MergePersonsSourceResult {
+    sourceDistinctId: string
+    outcome: MergePersonsOutcome
+    /** The source person the verdict speaks about, when the backend resolved one. */
+    sourcePersonUuid?: string
     /**
-     * Fetches a person by team ID and distinct ID for checking existence
-     * Uses read replica when available
+     * The source person this verdict destroyed, present only on a merged
+     * source. Merging away is permanent, so a caller may reconcile cached
+     * state against it without re-reading, including entries cached under
+     * distinct ids the request never named.
      */
+    sourcePersonId?: string
+}
+
+export interface MergePersonsRequest {
+    teamId: number
+    targetDistinctId: string
+    /**
+     * Ordered; earlier sources beat later ones on property precedence,
+     * the target beats all. More than one source only from a fold plan.
+     */
+    sources: MergePersonsSource[]
+    /**
+     * The source belonging to the event that initiated this request; not
+     * always the first source, because a fold plan's first event can be
+     * dropped before the person step. When a folded merge finds no target
+     * person, the Postgres merge bootstraps this source first.
+     */
+    triggerSourceDistinctId?: string
+    /** The merge event's property ops; each backend applies them to the survivor its own way. */
+    eventOps: EventOps
+    /**
+     * The merge-triggering event's uuid, the idempotency root: backends
+     * derive their durable op ids from it, so a repeated delivery of the
+     * same event must present the same value and cannot merge twice.
+     */
+    eventUuid: string
+    /** $merge_dangerously legally merges already-identified sources; $identify does not. */
+    allowIdentifiedSources: boolean
+    /**
+     * The caller's move policy, from the same config the processor's
+     * over-limit handling reads. The Postgres merge bounds its
+     * distinct-id moves by it; the saga backend uses LIMIT/ASYNC's limit
+     * as its move-limit guard and falls back to its own configured
+     * guard for SYNC, which the saga cannot run unbounded.
+     */
+    mergeMode: MergeMode
+    /** Merge event created_at, epoch millis; becomes the survivor's when older. */
+    createdAtMs: number
+}
+
+export type MergeFoldAbortReason = 'limit' | 'conflict' | 'deadlock' | 'error'
+
+export interface MergePersonsResult {
+    /** The surviving person; null when the merge settled without one. */
+    survivor: InternalPerson | null
+    results: MergePersonsSourceResult[]
+    /** Post-commit ClickHouse production the caller may chain on; absent when the backend produced before returning. */
+    kafkaAck?: Promise<void>
+    /**
+     * Whether the caller still needs its follow-up property update;
+     * false when person creation already applied the event's properties.
+     * Absent means true.
+     */
+    survivorNeedsUpdate?: boolean
+    /** Multi-source only: the folded transaction rolled back untouched; the caller falls back to per-event merges. */
+    foldAborted?: MergeFoldAbortReason
+}
+
+/** Which person-storage backend a store writes to. Labels metrics whose causes differ between them. */
+export type PersonsBackend = 'postgres' | 'personhog'
+
+export interface PersonsStore extends BatchWritingStore<FlushResult> {
+    readonly backend: PersonsBackend
+
+    /** Existence-class read; replica-backed where the backend has one. */
     fetchForChecking(teamId: number, distinctId: string, batchId: number): Promise<InternalPerson | null>
 
-    /**
-     * Fetches a person by team ID and distinct ID with a row-level lock
-     * Always uses primary database
-     */
+    /** Update-class read from the authoritative side; its answer feeds writes. */
     fetchForUpdate(teamId: number, distinctId: string, batchId: number): Promise<InternalPerson | null>
 
-    /**
-     * Batched fetchForUpdate for folded merges: resolves and row-locks all
-     * persons behind the given distinct_ids in one statement.
-     */
-    fetchPersonsForUpdateByDistinctIds(
-        teamId: number,
-        distinctIds: string[],
-        batchId: number
-    ): Promise<InternalPersonWithDistinctId[]>
-
-    /**
-     * Creates a new person
-     */
     createPerson(
         createdAt: DateTime,
         properties: Properties,
@@ -65,17 +138,6 @@ export interface PersonsStore extends BatchWritingStore<FlushResult> {
         tx: PersonRepositoryTransaction | undefined,
         batchId: number
     ): Promise<CreatePersonResult>
-
-    /**
-     * Updates an existing person for merge operations
-     */
-    updatePersonForMerge(
-        person: InternalPerson,
-        update: Partial<InternalPerson>,
-        distinctId: string,
-        batchId: number,
-        tx?: PersonRepositoryTransaction
-    ): Promise<[InternalPerson, PersonMessage[], boolean]>
 
     /**
      * Applies one event's extracted ops to a person, resolving what they
@@ -105,122 +167,15 @@ export interface PersonsStore extends BatchWritingStore<FlushResult> {
     ): Promise<[InternalPerson, PersonMessage[], boolean]>
 
     /**
-     * Deletes a person
+     * Merge the sources into the target through this backend's own merge
+     * machinery (the identity service's saga, or the PostgresPersonMerge
+     * the Postgres store runs internally). Settled verdicts come back as
+     * per-source outcomes; retryable Postgres conflicts throw for the
+     * caller's retry loop.
      */
-    deletePerson(person: InternalPerson, distinctId: string, tx?: PersonRepositoryTransaction): Promise<PersonMessage[]>
+    mergePersons(request: MergePersonsRequest, batchId: number): Promise<MergePersonsResult>
 
-    /**
-     * Claims the persons in the lifecycle mark table for a merge; at most one live
-     * operation may hold a person. Held until the transaction commits.
-     */
-    claimLifecycleMarks(
-        opId: string,
-        teamId: number,
-        persons: LifecycleMarkPerson[],
-        distinctId: string,
-        tx?: PersonRepositoryTransaction
-    ): Promise<void>
-
-    /** Releases a merge's lifecycle marks; same transaction as the claim. */
-    releaseLifecycleMarks(
-        opId: string,
-        teamId: number,
-        distinctId: string,
-        tx?: PersonRepositoryTransaction
-    ): Promise<void>
-
-    /** Whether the person is live; only meaningful while holding its lifecycle mark. */
-    isPersonLive(person: InternalPerson, distinctId: string, tx?: PersonRepositoryTransaction): Promise<boolean>
-
-    /**
-     * Adds a distinct ID to a person
-     */
-    addDistinctId(
-        person: InternalPerson,
-        distinctId: string,
-        version: number,
-        tx: PersonRepositoryTransaction | undefined,
-        batchId: number
-    ): Promise<PersonMessage[]>
-
-    /**
-     * Moves distinct IDs from one person to another
-     */
-    moveDistinctIds(
-        source: InternalPerson,
-        target: InternalPerson,
-        distinctId: string,
-        limit: number | undefined,
-        tx: PersonRepositoryTransaction,
-        batchId: number
-    ): Promise<MoveDistinctIdsResult>
-
-    /**
-     * Batched unlimited moveDistinctIds for folded merges
-     */
-    moveDistinctIdsFromPersons(
-        sources: InternalPerson[],
-        target: InternalPerson,
-        distinctId: string,
-        tx: PersonRepositoryTransaction,
-        batchId: number
-    ): Promise<MoveDistinctIdsResult>
-
-    /**
-     * Batched deletePerson for folded merges; all persons must belong to one team
-     */
-    deletePersons(
-        persons: InternalPerson[],
-        distinctId: string,
-        tx?: PersonRepositoryTransaction
-    ): Promise<PersonMessage[]>
-
-    /**
-     * Distinct-id counts per person id, for the folded-merge limit pre-check
-     */
-    countDistinctIdsForPersons(
-        teamId: Team['id'],
-        personIds: InternalPerson['id'][],
-        distinctId: string,
-        tx: PersonRepositoryTransaction
-    ): Promise<Map<string, number>>
-
-    /**
-     * Updates cohorts and feature flags for merged persons
-     */
-    updateCohortsAndFeatureFlagsForMerge(
-        teamID: Team['id'],
-        sourcePersonID: InternalPerson['id'],
-        targetPersonID: InternalPerson['id'],
-        distinctId: string,
-        tx?: PersonRepositoryTransaction
-    ): Promise<void>
-
-    /**
-     * Batched updateCohortsAndFeatureFlagsForMerge for folded merges
-     */
-    updateCohortsAndFeatureFlagsForMergeBatch(
-        teamID: Team['id'],
-        sourcePersonIDs: InternalPerson['id'][],
-        targetPersonID: InternalPerson['id'],
-        distinctId: string,
-        tx?: PersonRepositoryTransaction
-    ): Promise<void>
-
-    /**
-     * Returns the size of the person properties
-     */
     personPropertiesSize(personId: string, teamId: number): Promise<number>
-
-    /**
-     * Fetch distinct ids for a person inside a transaction-aware wrapper
-     */
-    fetchPersonDistinctIds(
-        person: InternalPerson,
-        distinctId: string,
-        limit: number | undefined,
-        tx: PersonRepositoryTransaction
-    ): Promise<string[]>
 
     /**
      * Stop any background work (e.g., periodic metric emission) and flush
@@ -230,15 +185,8 @@ export interface PersonsStore extends BatchWritingStore<FlushResult> {
     shutdown(): Promise<void>
 
     /**
-     * Removes a distinct ID from the cache
-     */
-    removeDistinctIdFromCache(teamId: number, distinctId: string): void
-
-    /**
-     * Prefetches persons by team ID and distinct ID to warm up the cache.
-     * Each entry may carry its own batchId for cache eviction tracking, allowing a
-     * single DB fetch to service entries that belong to different concurrent batches.
-     * @param teamDistinctIds - A list of team IDs and distinct IDs to prefetch
+     * Best-effort cache warmer. Entries carry their own batchIds so one
+     * fetch can serve concurrent batches' eviction tracking.
      */
     prefetchPersons(teamDistinctIds: { teamId: number; distinctId: string; batchId: number }[]): Promise<void>
 
