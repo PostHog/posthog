@@ -3504,7 +3504,9 @@ class TestChunkedRereadAfterRecoveryConflict:
         should_use_incremental_field: bool,
         rows_before_conflict: int,
         primary_keys: list[str] | None = None,
-        key_is_nullable: bool = False,
+        nullable_value: bool | str = False,
+        has_id_column: bool = False,
+        has_duplicate_pks: bool = False,
     ) -> list[int]:
         @contextmanager
         def fake_tunnel():
@@ -3513,8 +3515,13 @@ class TestChunkedRereadAfterRecoveryConflict:
         fake_table = mock.Mock()
         fake_table.to_arrow_schema.return_value = pa.schema([pa.field("id", pa.int64())])
         fake_table.type = "table"
-        fake_table.columns = [PostgreSQLColumn(name="id", data_type="integer", nullable=key_is_nullable)]
-        fake_table.__contains__ = mock.Mock(return_value=False)
+        # `nullable` is annotated `bool`, but `_get_table` really does pass the
+        # information_schema "YES"/"NO" string for a table. That mismatch is the bug under test,
+        # so the fake has to reproduce it rather than respect the annotation.
+        fake_table.columns = [
+            PostgreSQLColumn(name="id", data_type="integer", nullable=nullable_value)  # type: ignore[arg-type]
+        ]
+        fake_table.__contains__ = mock.Mock(return_value=has_id_column)
 
         scan = self._Scan(list(self._ROWS))
         connection = self._Connection(self._NamedCursor(rows_before_conflict, scan))
@@ -3527,6 +3534,7 @@ class TestChunkedRereadAfterRecoveryConflict:
             patch(f"{module}._is_read_replica", return_value=True),
             patch(f"{module}._is_duckdb_connection", return_value=False),
             patch(f"{module}._get_primary_keys", return_value=primary_keys),
+            patch(f"{module}._has_duplicate_primary_keys", return_value=has_duplicate_pks),
             patch(f"{module}._is_partitioned_table", return_value=False),
             patch(f"{module}._get_table_chunk_size", return_value=_TableChunking(batch_rows=2, fetch_rows=2)),
             patch(f"{module}._get_rows_to_sync", return_value=len(self._ROWS)),
@@ -3552,15 +3560,33 @@ class TestChunkedRereadAfterRecoveryConflict:
             return [row["id"] for table in cast(Iterable[Any], response.items()) for row in table.to_pylist()]
 
     @pytest.mark.parametrize(
-        "should_use_incremental_field,rows_before_conflict",
-        [(False, 0), (True, 2)],
-        ids=["full_refresh_has_no_order_of_its_own", "incremental_read_is_ordered_by_its_cursor"],
+        "should_use_incremental_field,rows_before_conflict,nullable_value,primary_keys,has_id_column",
+        [
+            (False, 0, False, ["id"], False),
+            (False, 0, "NO", ["id"], False),
+            (False, 0, "NO", None, True),
+            (True, 2, False, ["id"], False),
+        ],
+        ids=[
+            "declared_key_with_boolean_nullable",
+            "declared_key_with_information_schema_nullable_string",
+            "assumed_id_that_is_unique_and_not_null",
+            "incremental_read_is_ordered_by_its_cursor",
+        ],
     )
-    def test_chunked_reread_yields_every_row_exactly_once(self, should_use_incremental_field, rows_before_conflict):
+    def test_chunked_reread_yields_every_row_exactly_once(
+        self, should_use_incremental_field, rows_before_conflict, nullable_value, primary_keys, has_id_column
+    ):
+        # `_get_table` reports nullability as a bool for a materialised view but as the
+        # information_schema "YES"/"NO" string for a table, and "NO" is truthy. Reading it naively
+        # made every real table look nullable, which disabled seeking for the whole fleet. The
+        # assumed-`id` case is here so a gate that rejects every fallback key cannot pass either.
         ids = self._read_ids(
             should_use_incremental_field=should_use_incremental_field,
             rows_before_conflict=rows_before_conflict,
-            primary_keys=["id"],
+            primary_keys=primary_keys,
+            nullable_value=nullable_value,
+            has_id_column=has_id_column,
         )
 
         assert sorted(ids) == [row[0] for row in self._ROWS]
@@ -3570,19 +3596,34 @@ class TestChunkedRereadAfterRecoveryConflict:
             self._read_ids(should_use_incremental_field=False, rows_before_conflict=2, primary_keys=["id"])
 
     @pytest.mark.parametrize(
-        "rows_before_conflict,primary_keys,key_is_nullable",
-        [(0, None, False), (2, None, False), (0, ["id"], True)],
-        ids=["no_key_at_all", "no_key_at_all_after_rows_written", "key_column_is_nullable"],
+        "rows_before_conflict,nullable_value,has_id_column,has_duplicate_pks",
+        [
+            (0, False, False, False),
+            (2, False, False, False),
+            (0, True, True, False),
+            (0, "YES", True, False),
+            (0, "NO", True, True),
+        ],
+        ids=[
+            "no_key_at_all",
+            "no_key_at_all_after_rows_written",
+            "assumed_id_is_nullable",
+            "assumed_id_is_nullable_as_information_schema_string",
+            "assumed_id_has_duplicates",
+        ],
     )
     def test_full_refresh_without_a_seekable_key_fails_non_retryably(
-        self, rows_before_conflict, primary_keys, key_is_nullable
+        self, rows_before_conflict, nullable_value, has_id_column, has_duplicate_pks
     ):
+        # No declared key, so the assumed `id` only qualifies once proven unique and NOT NULL.
         with pytest.raises(Exception) as exc_info:
             self._read_ids(
                 should_use_incremental_field=False,
                 rows_before_conflict=rows_before_conflict,
-                primary_keys=primary_keys,
-                key_is_nullable=key_is_nullable,
+                primary_keys=None,
+                nullable_value=nullable_value,
+                has_id_column=has_id_column,
+                has_duplicate_pks=has_duplicate_pks,
             )
 
         message = str(exc_info.value)

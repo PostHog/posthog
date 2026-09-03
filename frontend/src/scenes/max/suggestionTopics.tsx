@@ -1,18 +1,16 @@
 import { IconBook } from '@posthog/icons'
 
-import { urls } from 'scenes/urls'
-
 import { FileSystemIconType } from '~/queries/schema/schema-general'
 
-/** One suggestion inside a capability. `content` is the prompt sent to PostHog AI. */
-export interface CapabilitySuggestion {
+/** One suggestion inside a topic. `content` is the prompt sent to PostHog AI. */
+export interface TopicSuggestion {
     /**
      * The prompt sent to PostHog AI. For `requiresUserInput` cards this is the instruction prefix
      * (no trailing "…"); the input shows it as a hint and the user's text is appended on send.
-     * For docs-style capabilities this is also the text shown in the list.
+     * For docs-style topics this is also the text shown in the list.
      */
     content: string
-    /** Card-style display; omit for docs-style capabilities (which render `content` as plain text). */
+    /** Card-style display; omit for docs-style topics (which render `content` as plain text). */
     title?: string
     description?: string
     /**
@@ -22,11 +20,11 @@ export interface CapabilitySuggestion {
      */
     requiresUserInput?: boolean
     hint?: string
-    /** Icon override for the card; falls back to the capability's icon. */
+    /** Icon override for the card; falls back to the topic's icon. */
     iconType?: FileSystemIconType
 }
 
-export interface Capability {
+export interface SuggestionTopic {
     key: string
     label: string
     iconType: FileSystemIconType
@@ -35,45 +33,65 @@ export interface Capability {
     /**
      * 'cards' (default): icon + title + description cards. 'docs': a plain question list (like
      * production's Docs suggestions) so it reads as an explanation, not an action. Card-style
-     * capabilities should have exactly 4 suggestions so every block is the same height.
+     * topics should have exactly 4 suggestions so every block is the same height.
      */
     variant?: 'cards' | 'docs'
-    suggestions: CapabilitySuggestion[]
+    suggestions: TopicSuggestion[]
 }
 
-/** Shared across both experiment arms — routes to the PostHog Desktop beta in the inbox. */
-export const CODE_CAPABILITY = {
+/** The Code badge rendered next to the topics; opens the self-driving intro modal. */
+export const CODE_BADGE = {
     key: 'code',
     label: 'Code',
-    to: urls.inbox(),
     beta: true as const,
 }
 
 /**
- * A few docs prompts included in every arm so newcomers can learn about PostHog. Rendered as a
- * plain question list (docs variant), matching the Docs suggestions we show in production.
+ * A few docs prompts so newcomers can learn about PostHog. The sidebar renders these as a
+ * plain question list (docs variant), matching the Docs suggestions we show in production;
+ * the homepage suggestion cards use the title/description pair instead.
  */
-const LEARN_CAPABILITY: Capability = {
+const LEARN_TOPIC: SuggestionTopic = {
     key: 'learn',
     label: 'Learn',
     iconType: 'default_icon_type',
     icon: <IconBook />,
     variant: 'docs',
     suggestions: [
-        { content: 'How can I create a feature flag?' },
-        { content: 'Where do I watch session replays?' },
-        { content: 'Help me set up an experiment' },
-        { content: 'Explain autocapture' },
-        { content: 'How can I capture an exception?' },
+        {
+            title: 'Create a feature flag',
+            description: 'How flags work and how to set one up',
+            content: 'How can I create a feature flag?',
+        },
+        {
+            title: 'Watch session replays',
+            description: 'Where to find recordings of real user sessions',
+            content: 'Where do I watch session replays?',
+        },
+        {
+            title: 'Set up an experiment',
+            description: 'Get help configuring your first A/B test',
+            content: 'Help me set up an experiment',
+        },
+        {
+            title: 'Understand autocapture',
+            description: 'What events PostHog collects automatically',
+            content: 'Explain autocapture',
+        },
+        {
+            title: 'Capture exceptions',
+            description: 'Send errors to error tracking',
+            content: 'How can I capture an exception?',
+        },
     ],
 }
 
 /**
- * Capability badges on the homepage and the PostHog AI sidebar, one per PostHog product. Prompt
+ * Suggestion topics on the homepage and the PostHog AI sidebar, one per PostHog product. Prompt
  * content is drawn from the existing `QUESTION_SUGGESTIONS_DATA` on the PostHog AI scene so the
  * two surfaces stay in sync.
  */
-export const HOMEPAGE_CAPABILITIES: Capability[] = [
+export const HOMEPAGE_SUGGESTION_TOPICS: SuggestionTopic[] = [
     {
         key: 'analytics',
         label: 'Analytics',
@@ -275,5 +293,5 @@ export const HOMEPAGE_CAPABILITIES: Capability[] = [
             },
         ],
     },
-    LEARN_CAPABILITY,
+    LEARN_TOPIC,
 ]
