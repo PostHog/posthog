@@ -41,8 +41,9 @@ unavailable interval's deltas. Counter timestamps are limited to seven days
 behind and 24 hours ahead of the current time, with at most 16 series per
 scope and bucket.
 
-The local cluster endpoint is `redis://127.0.0.1:6390`. Start it and run its
-integration test with:
+The dev stack runs the cluster on 6390 from both sides, so a host client uses
+`redis://127.0.0.1:6390` and the service container uses
+`redis://valkey-cluster:6390`. Start it and run its integration test with:
 
 ```sh
 docker compose -f docker-compose.dev.yml up -d valkey-cluster
@@ -135,7 +136,7 @@ Raise the load to find where a machine stops scaling:
 
 | Env var | Default | |
 | --- | --- | --- |
-| `USAGE_INGESTION_E2E_LOAD_REQUESTS` | 5000 | total requests, 10% of them retries |
+| `USAGE_INGESTION_E2E_LOAD_REQUESTS` | 5000 | total requests, 10% of them retries, minimum 320 |
 | `USAGE_INGESTION_E2E_LOAD_CONCURRENCY` | 128 | requests in flight |
 | `USAGE_INGESTION_E2E_LOAD_CHANNELS` | 8 | gRPC connections the load spreads over |
 

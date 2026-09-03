@@ -140,43 +140,17 @@ impl CounterAccumulator {
             CounterScope::Organization(organization_id),
         ];
         let mut pending = self.pending.lock().expect("usage counter mutex poisoned");
-        for scope in &scopes {
-            let entries = pending.get(scope);
-            for bucket in buckets {
-                let entry = CounterEntry {
-                    bucket,
-                    field: field.clone(),
-                };
-                if entries.is_some_and(|entries| {
-                    !entries.contains_key(&entry)
-                        && entries
-                            .keys()
-                            .filter(|existing| existing.bucket == bucket)
-                            .count()
-                            >= MAX_SERIES_PER_BUCKET
-                }) {
-                    return Err(CounterAddError::TooManySeries);
-                }
-                if entries
-                    .and_then(|entries| entries.get(&entry))
-                    .is_some_and(|current| current.checked_add(quantity).is_none())
-                {
-                    return Err(CounterAddError::Overflow);
-                }
-            }
-        }
+        let mut rejection = None;
         for scope in scopes {
-            let entries = pending.entry(scope).or_default();
-            for bucket in buckets {
-                *entries
-                    .entry(CounterEntry {
-                        bucket,
-                        field: field.clone(),
-                    })
-                    .or_default() += quantity;
+            // An organization aggregates the series of every team below it, so it saturates
+            // first. Rejecting per scope keeps the team projection alive when it does.
+            if let Err(error) =
+                add_to_scope(pending.entry(scope).or_default(), buckets, &field, quantity)
+            {
+                rejection = Some(error);
             }
         }
-        Ok(())
+        rejection.map_or(Ok(()), Err)
     }
 
     pub fn drain(&self) -> Vec<ScopeCounters> {
@@ -201,12 +175,26 @@ impl CounterAccumulator {
     }
 }
 
+/// A flushed scope: commands sent, and deltas the Redis-side series cap refused.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct ScopeFlush {
+    pub commands: usize,
+    pub capped: usize,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct FlushOutcome {
+    pub commands: usize,
+    /// Refused by the series cap, which is the projection working as designed.
+    pub capped: usize,
+    /// Lost because a scope's transaction failed.
+    pub dropped: usize,
+    pub failed_scopes: usize,
+}
+
 #[async_trait]
 pub trait CounterStore: Send + Sync {
-    async fn flush_scope(
-        &self,
-        counters: ScopeCounters,
-    ) -> Result<(usize, usize), redis::RedisError>;
+    async fn flush_scope(&self, counters: ScopeCounters) -> Result<ScopeFlush, redis::RedisError>;
 }
 
 /// Cluster-aware store. Each scope is one transaction, and every key in it has the same hash tag.
@@ -233,10 +221,7 @@ impl RedisCounterStore {
 
 #[async_trait]
 impl CounterStore for RedisCounterStore {
-    async fn flush_scope(
-        &self,
-        counters: ScopeCounters,
-    ) -> Result<(usize, usize), redis::RedisError> {
+    async fn flush_scope(&self, counters: ScopeCounters) -> Result<ScopeFlush, redis::RedisError> {
         let entry_count = counters.entries.len();
         let mut pipeline = redis::pipe();
         pipeline.atomic();
@@ -255,7 +240,10 @@ impl CounterStore for RedisCounterStore {
         let mut connection = self.connection(&counters.scope).lock().await;
         let accepted = pipeline.query_async::<Vec<i64>>(&mut *connection).await?;
         let accepted = accepted.into_iter().filter(|result| *result == 1).count();
-        Ok((accepted * 2, entry_count - accepted))
+        Ok(ScopeFlush {
+            commands: accepted * 2,
+            capped: entry_count - accepted,
+        })
     }
 }
 
@@ -271,22 +259,72 @@ pub fn counter_key(scope: &CounterScope, bucket: Bucket) -> String {
     )
 }
 
+/// Both buckets of one scope move together, so a rejected series leaves the scope untouched.
+fn add_to_scope(
+    entries: &mut HashMap<CounterEntry, i64>,
+    buckets: [Bucket; 2],
+    field: &str,
+    quantity: i64,
+) -> Result<(), CounterAddError> {
+    let mut totals = [0_i64; 2];
+    for (bucket, total) in buckets.into_iter().zip(&mut totals) {
+        let entry = CounterEntry {
+            bucket,
+            field: field.to_string(),
+        };
+        *total = match entries.get(&entry) {
+            Some(current) => current
+                .checked_add(quantity)
+                .ok_or(CounterAddError::Overflow)?,
+            None => {
+                if entries
+                    .keys()
+                    .filter(|existing| existing.bucket == bucket)
+                    .count()
+                    >= MAX_SERIES_PER_BUCKET
+                {
+                    return Err(CounterAddError::TooManySeries);
+                }
+                quantity
+            }
+        };
+    }
+    for (bucket, total) in buckets.into_iter().zip(totals) {
+        entries.insert(
+            CounterEntry {
+                bucket,
+                field: field.to_string(),
+            },
+            total,
+        );
+    }
+    Ok(())
+}
+
 fn usage_field(usage_key: &str, unit: &str) -> String {
     // The length prefix keeps the pair unambiguous even if a producer uses a delimiter in a name.
     format!("{}:{usage_key}{unit}", usage_key.len())
 }
 
-pub async fn flush(store: Arc<dyn CounterStore>, counters: Vec<ScopeCounters>) -> (usize, usize) {
+pub async fn flush(store: Arc<dyn CounterStore>, counters: Vec<ScopeCounters>) -> FlushOutcome {
     let results = stream::iter(counters)
         .map(|counters| {
             let store = Arc::clone(&store);
             async move {
                 let entries = counters.entries.len();
                 match store.flush_scope(counters).await {
-                    Ok((commands, dropped)) => (commands, dropped),
+                    Ok(flushed) => FlushOutcome {
+                        commands: flushed.commands,
+                        capped: flushed.capped,
+                        ..FlushOutcome::default()
+                    },
                     Err(error) => {
                         warn!(%error, dropped_deltas = entries, "usage counter flush failed");
-                        (0, entries)
+                        FlushOutcome {
+                            dropped: entries,
+                            failed_scopes: 1,
+                            ..FlushOutcome::default()
+                        }
                     }
                 }
             }
@@ -294,12 +332,14 @@ pub async fn flush(store: Arc<dyn CounterStore>, counters: Vec<ScopeCounters>) -
         .buffer_unordered(FLUSH_CONCURRENCY)
         .collect::<Vec<_>>()
         .await;
-    results.into_iter().fold(
-        (0, 0),
-        |(commands, dropped), (next_commands, next_dropped)| {
-            (commands + next_commands, dropped + next_dropped)
-        },
-    )
+    results
+        .into_iter()
+        .fold(FlushOutcome::default(), |total, next| FlushOutcome {
+            commands: total.commands + next.commands,
+            capped: total.capped + next.capped,
+            dropped: total.dropped + next.dropped,
+            failed_scopes: total.failed_scopes + next.failed_scopes,
+        })
 }
 
 pub fn spawn_flush_task(
@@ -338,14 +378,20 @@ pub fn spawn_flush_task(
             let counters = accumulator.drain();
             metrics::gauge!("usage_ingestion_redis_counter_accumulator_scopes")
                 .set(counters.len() as f64);
-            let (commands, dropped) = flush(Arc::clone(store.as_ref().unwrap()), counters).await;
+            let outcome = flush(Arc::clone(store.as_ref().unwrap()), counters).await;
             metrics::histogram!("usage_ingestion_redis_counter_flush_seconds")
                 .record(started.elapsed().as_secs_f64());
             metrics::counter!("usage_ingestion_redis_counter_commands_flushed_total")
-                .increment(commands as u64);
+                .increment(outcome.commands as u64);
             metrics::counter!("usage_ingestion_redis_counter_dropped_deltas_total")
-                .increment(dropped as u64);
-            if dropped > 0 {
+                .increment(outcome.dropped as u64);
+            metrics::counter!(
+                "usage_ingestion_redis_counter_rejected_deltas_total",
+                "reason" => "too_many_series"
+            )
+            .increment(outcome.capped as u64);
+            // Only a failed transaction means the connection is suspect. A capped series does not.
+            if outcome.failed_scopes > 0 {
                 metrics::counter!("usage_ingestion_redis_counter_errors_total").increment(1);
                 store = None;
             }
@@ -442,5 +488,36 @@ mod tests {
             overflow.add(43, organization_id, "events", "event", 1, now),
             Err(CounterAddError::Overflow)
         );
+    }
+
+    #[test]
+    fn saturated_organization_still_lets_a_team_count() {
+        let organization_id = Uuid::nil();
+        let accumulator = CounterAccumulator::default();
+        let now = Utc::now();
+        for index in 0..MAX_SERIES_PER_BUCKET {
+            accumulator
+                .add(
+                    index as i64 + 1,
+                    organization_id,
+                    &format!("events_{index}"),
+                    "event",
+                    1,
+                    now,
+                )
+                .unwrap();
+        }
+
+        assert_eq!(
+            accumulator.add(99, organization_id, "one_too_many", "event", 7, now),
+            Err(CounterAddError::TooManySeries)
+        );
+        let drained = accumulator.drain();
+        let team = drained
+            .iter()
+            .find(|counters| counters.scope == CounterScope::Team(99))
+            .expect("the team scope should still hold its own series");
+        assert_eq!(team.entries.len(), 2);
+        assert!(team.entries.values().all(|quantity| *quantity == 7));
     }
 }

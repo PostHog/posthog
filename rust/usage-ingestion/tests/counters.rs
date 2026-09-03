@@ -46,10 +46,11 @@ async fn counters_are_atomic_per_scope_and_do_not_cross_slots() {
             .await
             .expect("failed to connect to Valkey Cluster"),
     );
-    let (commands, dropped) = flush(Arc::clone(&store), accumulator.drain()).await;
-    assert_eq!(dropped, 0);
+    let outcome = flush(Arc::clone(&store), accumulator.drain()).await;
+    assert_eq!(outcome.dropped, 0);
+    assert_eq!(outcome.capped, 0);
     // 1,024 teams plus one shared organization; hour + day, HINCRBY + EXPIRE NX each.
-    assert_eq!(commands, (SCOPES as usize + 1) * 4);
+    assert_eq!(outcome.commands, (SCOPES as usize + 1) * 4);
 
     let client = ClusterClient::new([redis_url()]).expect("invalid Valkey Cluster URL");
     let mut connection = client
@@ -119,8 +120,9 @@ async fn counters_are_atomic_per_scope_and_do_not_cross_slots() {
             timestamp,
         )
         .expect("test retry should enter the counter accumulator");
-    let (_, retry_dropped) = flush(Arc::clone(&store), retry.drain()).await;
-    assert_eq!(retry_dropped, 0);
+    let retry_outcome = flush(Arc::clone(&store), retry.drain()).await;
+    assert_eq!(retry_outcome.dropped, 0);
+    assert_eq!(retry_outcome.capped, 0);
     let retried_hourly_ttl: i64 = redis::cmd("TTL")
         .arg(&hour_key)
         .query_async(&mut connection)

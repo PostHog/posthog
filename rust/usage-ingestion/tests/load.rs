@@ -44,6 +44,9 @@ const MIN_BYTES_PER_COUNTER_KEY: usize = 64;
 // This is the Redis budget for one hourly or daily hash with the four usage fields below.
 // Raise it deliberately when adding counter series, rather than letting per-request data grow it.
 const MAX_BYTES_PER_COUNTER_KEY: usize = 1024;
+/// Only a tenth of the requests are retries, and they alone fill the retry hour bucket. It
+/// needs every team and usage key for the counter assertions to hold.
+const MIN_REQUESTS: usize = TEAMS * USAGE_KEYS.len() * 10;
 
 const USAGE_KEYS: [(&str, &str); 4] = [
     ("events_captured", "event"),
@@ -91,7 +94,11 @@ async fn sustains_thousands_of_concurrent_requests() {
     let requests = env_usize("USAGE_INGESTION_E2E_LOAD_REQUESTS", 5_000);
     let concurrency = env_usize("USAGE_INGESTION_E2E_LOAD_CONCURRENCY", 128);
     let channels = env_usize("USAGE_INGESTION_E2E_LOAD_CHANNELS", 8);
-    assert!(requests >= 100 && concurrency >= 1 && channels >= 1);
+    assert!(
+        requests >= MIN_REQUESTS,
+        "USAGE_INGESTION_E2E_LOAD_REQUESTS must be at least {MIN_REQUESTS}"
+    );
+    assert!(concurrency >= 1 && channels >= 1);
 
     let retries = requests / 10;
     let unique = requests - retries;
@@ -209,13 +216,14 @@ async fn sustains_thousands_of_concurrent_requests() {
         throughput / baseline_throughput,
     );
 
-    let (counter_commands, dropped_deltas) = flush(Arc::clone(&store), accumulator.drain()).await;
+    let outcome = flush(Arc::clone(&store), accumulator.drain()).await;
     assert_eq!(
-        dropped_deltas, 0,
+        (outcome.dropped, outcome.capped),
+        (0, 0),
         "Valkey dropped counter deltas under request load"
     );
     assert_eq!(
-        counter_commands,
+        outcome.commands,
         (TEAMS + 1) * USAGE_KEYS.len() * BUCKETS_PER_SCOPE * 2,
         "the service should aggregate request counters by scope and series"
     );
