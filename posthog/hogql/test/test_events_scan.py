@@ -168,3 +168,9 @@ class TestFindEventsScans(TestCase):
         (finding,) = find_events_scans(parse_select(query), DATABASE)
         self.assertEqual(query[finding.start : finding.end], "events")
         self.assertEqual(finding.property_names, ("plan", "tier"))
+
+    def test_exclusion_filters_still_warn_but_do_not_feed_the_hint(self) -> None:
+        query = "SELECT count() FROM events WHERE properties.$host NOT IN ('localhost') AND timestamp >= today()"
+        (finding,) = find_events_scans(parse_select(query), DATABASE)
+        self.assertEqual(finding.reason, EventsScanReason.PROPERTY_FILTER_WITHOUT_EVENT)
+        self.assertEqual(finding.property_names, ())

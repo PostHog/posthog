@@ -62,6 +62,17 @@ _MONOTONIC_TIMESTAMP_FUNCTIONS = frozenset(
 )
 _MONOTONIC_TIMESTAMP_PREFIX = "toStartOf"
 _FILTERS_PLACEHOLDER = "filters"
+# Comparisons an `event IN (...)` list could stand in for. Exclusions like NOT IN or != cannot.
+_POSITIVE_COMPARE_OPS = frozenset(
+    {
+        ast.CompareOperationOp.Eq,
+        ast.CompareOperationOp.In,
+        ast.CompareOperationOp.GlobalIn,
+        ast.CompareOperationOp.Like,
+        ast.CompareOperationOp.ILike,
+    }
+)
+_POSITIVE_COMPARE_FUNCTIONS = frozenset({"equals", "in", "globalIn", "like", "ilike"})
 
 
 class EventsScanReason(StrEnum):
@@ -367,11 +378,17 @@ def _bounds_timestamp(expr: ast.Expr, aliases: set[str]) -> bool:
 
 
 class _PredicateFields(TraversingVisitor):
-    """The fields a predicate reads, without descending into subqueries, which filter their own tables."""
+    """The fields a predicate reads, without descending into subqueries, which filter their own tables.
+
+    Fields under a positive comparison are kept apart: those are the properties an event list could
+    replace, so only they feed the "events seen with" hint.
+    """
 
     def __init__(self) -> None:
         self.fields: list[ast.Field] = []
-        self.array_accesses: list[ast.ArrayAccess] = []
+        self.positive_fields: list[ast.Field] = []
+        self.positive_array_accesses: list[ast.ArrayAccess] = []
+        self._positive_depth = 0
 
     @classmethod
     def collect(cls, predicate: ast.Expr) -> "_PredicateFields":
@@ -385,11 +402,32 @@ class _PredicateFields(TraversingVisitor):
     def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
         return None
 
+    def visit_compare_operation(self, node: ast.CompareOperation) -> None:
+        self._visit_comparison(
+            node.op in _POSITIVE_COMPARE_OPS, lambda: super(_PredicateFields, self).visit_compare_operation(node)
+        )
+
+    def visit_call(self, node: ast.Call) -> None:
+        positive = node.name in _POSITIVE_COMPARE_FUNCTIONS and len(node.args) == 2
+        self._visit_comparison(positive, lambda: super(_PredicateFields, self).visit_call(node))
+
+    def _visit_comparison(self, positive: bool, visit_children) -> None:
+        if positive:
+            self._positive_depth += 1
+        try:
+            visit_children()
+        finally:
+            if positive:
+                self._positive_depth -= 1
+
     def visit_field(self, node: ast.Field) -> None:
         self.fields.append(node)
+        if self._positive_depth:
+            self.positive_fields.append(node)
 
     def visit_array_access(self, node: ast.ArrayAccess) -> None:
-        self.array_accesses.append(node)
+        if self._positive_depth:
+            self.positive_array_accesses.append(node)
         super().visit_array_access(node)
 
     @property
@@ -398,13 +436,13 @@ class _PredicateFields(TraversingVisitor):
 
     def event_property_names(self, aliases: set[str]) -> tuple[str, ...]:
         names: dict[str, None] = {}
-        for field in self.fields:
+        for field in self.positive_fields:
             chain = field.chain
             if len(chain) == 2 and chain[0] == _PROPERTIES:
                 names[str(chain[1])] = None
             elif len(chain) == 3 and chain[0] in aliases and chain[1] == _PROPERTIES:
                 names[str(chain[2])] = None
-        for access in self.array_accesses:
+        for access in self.positive_array_accesses:
             array, key = access.array, access.property
             if not isinstance(array, ast.Field) or not isinstance(key, ast.Constant) or not isinstance(key.value, str):
                 continue

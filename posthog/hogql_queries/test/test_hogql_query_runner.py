@@ -8,6 +8,7 @@ from parameterized import parameterized
 
 from posthog.schema import (
     CachedHogQLQueryResponse,
+    DateRange,
     EventsScanWarning,
     EventsScanWarningReason,
     HogQLFilters,
@@ -529,9 +530,11 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     def test_response_warns_about_events_scans_from_the_sql_as_written(self):
         query = "SELECT count() FROM events WHERE properties.plan = 'pro' AND {filters}"
-        response = HogQLQueryRunner(query=HogQLQuery(query=query), team=self.team).calculate()
+        response = HogQLQueryRunner(
+            query=HogQLQuery(query=query, filters=HogQLFilters(dateRange=DateRange(date_from="-7d"))), team=self.team
+        ).calculate()
 
-        # `{filters}` supplies the date range, so only the missing event name is reported
+        # The check runs on the expanded query: `{filters}` became the date range, so only the event name is missing
         scan_warnings = [warning for warning in response.warnings or [] if isinstance(warning, EventsScanWarning)]
         self.assertEqual(
             [warning.reason for warning in scan_warnings], [EventsScanWarningReason.PROPERTY_FILTER_WITHOUT_EVENT]

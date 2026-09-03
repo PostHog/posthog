@@ -306,18 +306,19 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         )
         if paginator:
             response = response.model_copy(update={**paginator.response_params(), "results": paginator.results})
-        scan_warnings = self._events_scan_warnings()
+        scan_warnings = self._events_scan_warnings(query)
         if scan_warnings:
             response.warnings = [*(response.warnings or []), *scan_warnings]
         return response
 
-    def _events_scan_warnings(self) -> list[EventsScanWarning]:
-        """Advisory warnings from the SQL as written: `{filters}` and variables are applied in
-        `to_query` and must not count as the user's own filters. An external connection has no events table."""
+    def _events_scan_warnings(self, query: ast.SelectQuery | ast.SelectSetQuery) -> list[EventsScanWarning]:
+        """Advisory warnings on the query that runs, with `{filters}` and variables applied: what ClickHouse
+        reads is what counts, whichever part of the UI put the filter there. An external connection has no
+        events table."""
         if self.query.connectionId is not None:
             return []
         try:
-            return events_scan_warnings(parse_select(self.query.query), self.shared_database)
+            return events_scan_warnings(query, self.shared_database)
         except Exception:
             logger.exception("hogql_events_scan_check_failed", team_id=self.team.pk)
             return []
