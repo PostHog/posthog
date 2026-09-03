@@ -22,7 +22,7 @@ from posthog.models.team.team import Team
 from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.mcp_store.backend.facade.api import resolve_agent_gateway_server_ids
-from products.slack_app.backend.facade.api import slack_channel_is_approved
+from products.slack_app.backend.facade.api import slack_artifact_delivery_state_updates, slack_channel_is_approved
 from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.slack_app.backend.slack_thread import SlackThreadContext
 from products.tasks.backend.facade import contracts
@@ -274,6 +274,8 @@ def create_workflow_task(
             # rest of the transaction.
             slack_binding = _resolve_slack_binding(team.id, slack_context)
             thread_context = slack_binding.thread_context if slack_binding is not None else None
+            if slack_binding is not None:
+                extra_run_state.update(slack_artifact_delivery_state_updates(slack_binding.integration))
             # Derived from the thread context rather than tested separately, because the two
             # must travel together: a context passed without an explicit origin defaults the
             # run to "slack", which flips actor and credential resolution to a Slack steering

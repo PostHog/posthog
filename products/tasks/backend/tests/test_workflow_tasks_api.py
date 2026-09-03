@@ -169,6 +169,8 @@ class TestWorkflowTasksAPI(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         run = TaskRun.objects.get(id=response.json()["run_id"])
         assert "end_run_when_done" not in run.state
+        assert run.state["slack_artifact_delivery"] == "message"
+        assert run.state["slack_chart_delivery"] is True
         assert SlackThreadTaskMapping.objects.filter(task_run=run).exists()
 
     def test_hands_the_agent_its_prompt_when_it_boots(self) -> None:
