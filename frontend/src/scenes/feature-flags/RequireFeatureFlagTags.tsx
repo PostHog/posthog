@@ -21,7 +21,7 @@ export function RequireFeatureFlagTags(): JSX.Element {
         <LemonSwitch
             data-attr="require-feature-flag-tags-switch"
             onChange={handleToggle}
-            label="Require tags on new flags"
+            label="Require tags on feature flags"
             bordered
             checked={currentTeam?.feature_flag_policy_config?.require_tags || false}
             disabled={currentTeamLoading}
