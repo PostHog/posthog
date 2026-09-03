@@ -1178,9 +1178,9 @@ class TestQueryRetrieve(APIBaseTest):
         self.valid_query_id = "12345"
         self.invalid_query_id = "invalid-query-id"
 
-    def _store_status(self, **fields) -> None:
+    def _store_status(self, cache_key: str | None = None, **fields) -> None:
         QueryStatusManager(self.valid_query_id, self.team_id).store_query_status(
-            QueryStatus(id=self.valid_query_id, team_id=self.team_id, **fields)
+            QueryStatus(id=self.valid_query_id, team_id=self.team_id, **fields), cache_key=cache_key
         )
 
     def _store_finished_query(self, results: list, labels: list[str] | None = None) -> None:
@@ -1188,7 +1188,7 @@ class TestQueryRetrieve(APIBaseTest):
         QueryCache(team_id=self.team_id, cache_key=cache_key).store_result(
             response={"results": results, "cache_key": cache_key, "is_cached": False}, target_age=None
         )
-        self._store_status(complete=True, error=False, labels=labels, results={"cache_key": cache_key})
+        self._store_status(complete=True, error=False, labels=labels, cache_key=cache_key)
 
     def test_with_valid_query_id(self):
         self._store_finished_query(["result1", "result2"])
@@ -1202,7 +1202,7 @@ class TestQueryRetrieve(APIBaseTest):
         self.assertEqual(response.status_code, 404)
 
     def test_finished_query_whose_result_left_the_cache(self):
-        self._store_status(complete=True, error=False, results={"cache_key": "cache_gone"})
+        self._store_status(complete=True, error=False, cache_key="cache_gone")
         response = self.client.get(f"/api/environments/{self.team.id}/query/{self.valid_query_id}/")
         self.assertEqual(response.status_code, 404)
         self.assertEqual(response.json()["code"], "query_result_expired")

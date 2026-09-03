@@ -69,9 +69,9 @@ class QueryStatusManager:
     KEY_PREFIX_RUNNING_QUERIES = "running_queries"
 
     # The status record is a small hash: state, timings, task id, error, and once the query
-    # finishes the cache key of its result. The result itself is never copied here. A poll for a
-    # finished query reads it from the query cache through that key, so the record can stay
-    # small enough to keep for a day while the result lives in the cache tier.
+    # finishes the cache key of its result. A query-runner result is never copied here. A poll
+    # for a finished query reads it from the query cache through that key, so the record can
+    # stay small enough to keep for a day while the result lives in the cache tier.
     _DATETIME_FIELDS = ("start_time", "pickup_time", "end_time")
     _INT_FIELDS = ("insight_id", "dashboard_id")
     _STRING_FIELDS = ("task_id", "error_message", "error_code")
@@ -101,12 +101,13 @@ class QueryStatusManager:
         self,
         query_status: QueryStatus,
         ttl_seconds: Optional[int] = None,
+        cache_key: Optional[str] = None,
     ) -> None:
-        """Write the record. `query_status.results` is never stored; the record points at the
-        result through the cache key it carries."""
+        """Write the record. `results` is stored as given. A query-runner result does not go in
+        it: the caller passes its cache key and the poll reads the result from the query cache."""
         ttl = ttl_seconds if ttl_seconds is not None else settings.ASYNC_QUERY_STATUS_TTL_SECONDS
         query_status.expiration_time = datetime.datetime.now(datetime.UTC) + datetime.timedelta(seconds=ttl)
-        fields: dict[str, str] = {
+        fields: dict[str | bytes, str] = {
             "complete": "1" if query_status.complete else "0",
             "error": "1" if query_status.error else "0",
         }
@@ -124,7 +125,8 @@ class QueryStatusManager:
                 fields[name] = value.isoformat()
         if query_status.labels is not None:
             fields["labels"] = json.dumps(query_status.labels).decode("utf-8")
-        cache_key = query_status.results.get("cache_key") if isinstance(query_status.results, dict) else None
+        if query_status.results is not None:
+            fields["results"] = json.dumps(query_status.results).decode("utf-8")
         if cache_key:
             fields["cache_key"] = cache_key
         self.redis_client.hset(self.status_key, mapping=fields)
@@ -209,7 +211,10 @@ class QueryStatusManager:
         )
 
         if query_status.complete and not query_status.error and resolve_results:
-            query_status.results = self._load_result(record.get("cache_key"))
+            if record.get("results"):
+                query_status.results = json.loads(record["results"])
+            else:
+                query_status.results = self._load_result(record.get("cache_key"))
 
         if show_progress and not query_status.complete:
             query_status.query_progress = self.get_clickhouse_progresses()
@@ -325,6 +330,7 @@ def execute_process_query(
 
     query_status.error = True  # Assume error in case nothing below ends up working
     query_status.complete = True
+    cache_key: Optional[str] = None
 
     trigger = "chained" if "chained" in (query_status.labels or []) else ""
     if trigger == "chained":
@@ -350,7 +356,7 @@ def execute_process_query(
             results = results.model_dump(by_alias=True)
         logger.info("Got results for team %s query %s", team_id, query_id)
         query_status.error = False
-        query_status.results = results
+        cache_key = results.get("cache_key")
         process_duration = (datetime.datetime.now(datetime.UTC) - query_status.pickup_time) / datetime.timedelta(
             seconds=1
         )
@@ -368,7 +374,6 @@ def execute_process_query(
     except Exception as err:
         from products.access_control.backend.facade.user_access_control import UserAccessControlError
 
-        query_status.results = None  # Clear results in case they are faulty
         is_user_safe_error = isinstance(
             err, APIException | ExposedHogQLError | ExposedCHQueryError | UserAccessControlError
         )
@@ -389,13 +394,10 @@ def execute_process_query(
         # Do not raise here, the task itself did its job and we cannot recover
     finally:
         query_status.end_time = datetime.datetime.now(datetime.UTC)
-        manager.store_query_status(query_status)
-        cache_key = None
+        manager.store_query_status(query_status, cache_key=cache_key)
         try:
-            if query_status.results:
-                cache_key = query_status.results.get("cache_key")
-                if cache_key:
-                    manager.unregister_cache_key_mapping(cache_key)
+            if cache_key:
+                manager.unregister_cache_key_mapping(cache_key)
         except Exception as e:
             capture_exception(e, {"cache_key": cache_key})
 
@@ -528,10 +530,9 @@ def record_blocking_query_result(team_id: int, query_id: str, result: dict) -> N
         complete=True,
         error=False,
         end_time=datetime.datetime.now(datetime.UTC),
-        results=result,
     )
     QueryStatusManager(query_id, team_id).store_query_status(
-        query_status, ttl_seconds=settings.BLOCKING_QUERY_STATUS_TTL_SECONDS
+        query_status, ttl_seconds=settings.BLOCKING_QUERY_STATUS_TTL_SECONDS, cache_key=result.get("cache_key")
     )
 
 

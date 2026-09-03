@@ -70,14 +70,14 @@ class TestQueryStatusManager(SimpleTestCase):
     def test_is_empty(self):
         self.assertRaises(QueryNotFoundError, lambda: self.manager.get_query_status(True))
 
-    def test_never_stores_the_result_payload(self):
+    def test_hands_back_results_stored_as_given(self):
         self.query_status.complete = True
-        self.query_status.results = {"results": [1, 2, 3], "cache_key": "cache_abc"}
+        self.query_status.results = {"object_key": "frames/abc.arrow"}
         self.manager.store_query_status(self.query_status)
 
-        record = {k.decode(): v.decode() for k, v in get_client().hgetall(self.manager.status_key).items()}
-        assert record["cache_key"] == "cache_abc"
-        assert "results" not in record
+        status = self.manager.get_query_status()
+
+        assert status.results == {"object_key": "frames/abc.arrow"}
 
     def test_failed_query_keeps_its_error(self):
         self.query_status.complete = True
@@ -95,14 +95,13 @@ class TestQueryStatusManager(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("result_without_cache_key", {"results": [1, 2, 3]}),
-            ("cache_entry_gone", {"results": [], "cache_key": "cache_missing"}),
+            ("no_cache_key", None),
+            ("cache_entry_gone", "cache_missing"),
         ]
     )
-    def test_finished_query_without_a_cached_result_is_expired(self, _name, results):
+    def test_finished_query_without_a_cached_result_is_expired(self, _name, cache_key):
         self.query_status.complete = True
-        self.query_status.results = results
-        self.manager.store_query_status(self.query_status)
+        self.manager.store_query_status(self.query_status, cache_key=cache_key)
 
         with self.assertRaises(QueryResultExpiredError):
             self.manager.get_query_status()
@@ -250,8 +249,7 @@ class TestExecuteProcessQuery(TestCase):
         self.manager.store_query_status(query_status)
         query_status.complete = True
         query_status.error = False
-        query_status.results = {"results": "never stored", "cache_key": cache_key}
-        self.manager.store_query_status(query_status)
+        self.manager.store_query_status(query_status, cache_key=cache_key)
 
         status = self.manager.get_query_status()
 
