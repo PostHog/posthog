@@ -54,7 +54,7 @@ import { ACCOUNT_CUSTOM_PROPERTY_OPERATOR_ALLOWLIST } from 'products/customer_an
 import 'products/workflows/frontend/Workflows/hogflows/registry/triggers'
 
 import { workflowLogic } from '../../workflowLogic'
-import { HogFlowEventFilters, WORKFLOW_OPERATOR_ALLOWLIST } from '../filters/HogFlowFilters'
+import { HogFlowEventFilters, HogFlowPropertyFilters, WORKFLOW_OPERATOR_ALLOWLIST } from '../filters/HogFlowFilters'
 import { TriggerFrequencyOption, getRegisteredTriggerTypes } from '../registry/triggers/triggerTypeRegistry'
 import { HogFlowAction } from '../types'
 import { batchTriggerLogic, getAudienceDedupeKey, hogFlowSendsEmail } from './batchTriggerLogic'
@@ -409,12 +409,35 @@ function StepTriggerConfigurationEvents({
                     setFilters={(filters) =>
                         setWorkflowActionConfig(action.id, {
                             type: 'event',
-                            filters: { ...filters, filter_test_accounts: filterTestAccounts },
+                            // The event filter only returns events/actions, so carry the global
+                            // property array through or an event edit drops it.
+                            filters: {
+                                ...filters,
+                                properties: config.filters?.properties,
+                                filter_test_accounts: filterTestAccounts,
+                            },
                         })
                     }
                     filtersKey={`workflow-trigger-${action.id}`}
                     typeKey="workflow-trigger"
                     buttonCopy="Add trigger event"
+                />
+            </LemonField.Pure>
+
+            <LemonField.Pure
+                label="Additional filters"
+                info="These filters apply to every trigger event above. Use them for conditions shared across all events, such as a SQL expression."
+            >
+                <HogFlowPropertyFilters
+                    filters={config.filters ?? {}}
+                    setFilters={(filters) =>
+                        setWorkflowActionConfig(action.id, {
+                            type: 'event',
+                            filters: { ...config.filters, properties: filters?.properties ?? [] },
+                        })
+                    }
+                    filtersKey={`workflow-trigger-${action.id}`}
+                    buttonCopy="Add filter"
                 />
             </LemonField.Pure>
 
