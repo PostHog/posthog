@@ -273,6 +273,7 @@ class TestFacadeReadsAndMappers(TestCase):
             state={
                 "initial_prompt_override": "framed prompt",
                 "end_run_when_done": True,
+                "store_skills": [{"name": "my-skill", "description": "Mine.", "version": 1}],
                 "sandbox_jwt_kid": "secret",
             },
         )
@@ -285,6 +286,8 @@ class TestFacadeReadsAndMappers(TestCase):
         # The finish-tool gate reads this key at agent boot; a filter that drops it makes
         # every unbound workflow run idle out instead of ending itself.
         assert detail.state.get("end_run_when_done") == (True if include_agent_state else None)
+        # The agent writes these into its skill roots at boot; dropped, it installs none.
+        assert ("store_skills" in detail.state) is include_agent_state
         assert "sandbox_jwt_kid" not in detail.state
 
     def test_get_task_run_maps_all_fields(self):
