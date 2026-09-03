@@ -48,14 +48,12 @@ function QuerySection({
     title,
     description,
     queries,
-    buttonType,
     dataAttr,
     onPick,
 }: {
     title: string
     description: string
     queries: string[]
-    buttonType: 'secondary' | 'tertiary'
     dataAttr: string
     onPick: (query: string) => void
 }): JSX.Element {
@@ -69,7 +67,7 @@ function QuerySection({
                 {queries.map((query) => (
                     <LemonButton
                         key={query}
-                        type={buttonType}
+                        type="secondary"
                         size="small"
                         onClick={() => onPick(query)}
                         data-attr={dataAttr}
@@ -207,7 +205,6 @@ export function ObservationSearchTab({ scanner }: { scanner: ReplayScanner | nul
                                 title="Recent searches"
                                 description="Searches that returned results, saved in this browser."
                                 queries={recentQueries}
-                                buttonType="tertiary"
                                 dataAttr="vision-search-recent"
                                 onPick={runQuery}
                             />
@@ -216,7 +213,6 @@ export function ObservationSearchTab({ scanner }: { scanner: ReplayScanner | nul
                             title="Suggested searches"
                             description={suggestionDescription(crossScanner, suggestedQueries.length > 0)}
                             queries={tryQueries}
-                            buttonType="secondary"
                             dataAttr="vision-search-example"
                             onPick={runQuery}
                         />
