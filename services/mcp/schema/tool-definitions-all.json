@@ -1686,7 +1686,7 @@
         "feature_flag_behavior": "disable"
     },
     "channel-list": {
-        "description": "List the project's channels (public channels plus the requester's personal #me channel). Use this to resolve a channel id from its name before creating or listing canvases or reading instructions.",
+        "description": "List the project's channels (public channels plus the requester's personal #me channel). Use this to resolve a channel id from its name before creating or listing canvases or reading instructions. A project can hold hundreds of channels, so pass `limit` (with `offset`) to read one page: the paged response carries `count` and `next`, and without `limit` you get every channel in one array.",
         "category": "Tasks",
         "feature": "tasks",
         "summary": "List channels",
