@@ -1,7 +1,9 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
-import { Component, type ReactNode } from 'react'
+import { act, cleanup, render, screen } from '@testing-library/react'
+import { Component, Suspense, lazy, type ReactNode } from 'react'
+
+import { requireBootExport } from 'lib/utils/retryImport'
 
 import { ChunkLoadErrorBoundary } from './ChunkLoadErrorBoundary'
 
@@ -103,6 +105,38 @@ describe('ChunkLoadErrorBoundary', () => {
         expect(
             screen.queryByText('Failed to fetch dynamically imported module: /static/react-json-view.js')
         ).not.toBeInTheDocument()
+    })
+
+    it.each([
+        ['the boot chunk arrives without bootApp', { App: () => <div>app</div> }],
+        ['the app chunk arrives without App', { bootApp: () => {} }],
+    ])('reloads when %s', async (_label, staleChunk) => {
+        const reload = jest.fn()
+        // The shape of the entry's lazy factory (frontend/src/index.tsx) against a stale chunk:
+        // the module loads, but an export the boot path needs is gone.
+        const StaleApp = lazy(() =>
+            Promise.resolve<{ bootApp?: () => void; App?: () => JSX.Element }>(staleChunk).then((module) => {
+                const bootApp = requireBootExport(module, 'bootApp')
+                const AppComponent = requireBootExport(module, 'App')
+                bootApp()
+                return { default: AppComponent }
+            })
+        )
+
+        await act(async () => {
+            render(
+                <TestErrorBoundary>
+                    <ChunkLoadErrorBoundary reload={reload}>
+                        <Suspense fallback={<div>loading</div>}>
+                            <StaleApp />
+                        </Suspense>
+                    </ChunkLoadErrorBoundary>
+                </TestErrorBoundary>
+            )
+        })
+
+        expect(reload).toHaveBeenCalledTimes(1)
+        expect(screen.queryByText(/resolved without its/)).not.toBeInTheDocument()
     })
 
     it('lets non-chunk errors bubble to the parent error boundary', () => {
