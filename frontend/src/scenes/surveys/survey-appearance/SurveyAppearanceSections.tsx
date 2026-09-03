@@ -61,6 +61,8 @@ interface SurveyAppearanceInputProps {
     placeholder?: string
     disabledReason?: string | null
     inputType?: 'text' | 'color'
+    /** Cleans a pasted declaration up when the edit ends. Only for fields that hold a CSS value. */
+    isCSSValue?: boolean
 }
 
 function SurveyAppearanceInput({
@@ -72,6 +74,7 @@ function SurveyAppearanceInput({
     placeholder,
     disabledReason,
     inputType = 'text',
+    isCSSValue = false,
 }: SurveyAppearanceInputProps): JSX.Element {
     const { surveysStylingAvailable } = useValues(surveysLogic)
     const disabled = !surveysStylingAvailable || !!disabledReason
@@ -85,6 +88,9 @@ function SurveyAppearanceInput({
 
     function onEditingDone(): void {
         setIsEditing(false)
+        if (!isCSSValue) {
+            return
+        }
         const normalizedValue = normalizeCSSValue(value)
         if (normalizedValue !== undefined && normalizedValue !== value) {
             onChange(normalizedValue)
@@ -145,6 +151,7 @@ export function SurveyContainerAppearance({
                     disabledReason={disabledReason}
                     label="Survey width"
                     info="Min-width is always set to 300px"
+                    isCSSValue
                 />
                 <SurveyAppearanceInput
                     value={appearance.boxPadding}
@@ -152,6 +159,7 @@ export function SurveyContainerAppearance({
                     error={validationErrors?.boxPadding}
                     disabledReason={disabledReason}
                     label="Box padding"
+                    isCSSValue
                 />
                 <SurveyAppearanceInput
                     value={appearance.borderRadius}
@@ -159,6 +167,7 @@ export function SurveyContainerAppearance({
                     error={validationErrors?.borderRadius}
                     disabledReason={disabledReason}
                     label="Border radius"
+                    isCSSValue
                 />
                 <SurveyAppearanceInput
                     value={appearance.boxShadow}
@@ -166,6 +175,7 @@ export function SurveyContainerAppearance({
                     error={validationErrors?.boxShadow}
                     disabledReason={disabledReason}
                     label="Box shadow"
+                    isCSSValue
                 />
                 <LemonField.Pure
                     label="Font family"
@@ -191,6 +201,7 @@ export function SurveyContainerAppearance({
                     disabledReason={disabledReason}
                     label="z-index"
                     info="If the survey popup is hidden, set this value higher than the overlapping element's zIndex."
+                    isCSSValue
                 />
             </div>
 
@@ -267,6 +278,7 @@ export function SurveyColorsAppearance({
                 disabledReason={disabledReason}
                 label="Survey background"
                 inputType="color"
+                isCSSValue
             />
             <SurveyAppearanceInput
                 value={appearance.textColor}
@@ -276,6 +288,7 @@ export function SurveyColorsAppearance({
                 label="Question text"
                 placeholder="Leave empty for auto-contrast"
                 inputType="color"
+                isCSSValue
             />
             <SurveyAppearanceInput
                 value={appearance.borderColor}
@@ -284,6 +297,7 @@ export function SurveyColorsAppearance({
                 disabledReason={disabledReason}
                 label="Border"
                 inputType="color"
+                isCSSValue
             />
             <SurveyAppearanceInput
                 value={appearance.inputBackground}
@@ -294,6 +308,7 @@ export function SurveyColorsAppearance({
                 disabledReason={disabledReason}
                 label="Input background"
                 inputType="color"
+                isCSSValue
             />
             <SurveyAppearanceInput
                 value={appearance.inputTextColor}
@@ -303,6 +318,7 @@ export function SurveyColorsAppearance({
                 label="Input text"
                 placeholder="Leave empty for auto-contrast"
                 inputType="color"
+                isCSSValue
             />
             {customizeRatingButtons && (
                 <SurveyAppearanceInput
@@ -312,6 +328,7 @@ export function SurveyColorsAppearance({
                     disabledReason={disabledReason}
                     label="Selected rating"
                     inputType="color"
+                    isCSSValue
                 />
             )}
             <SurveyAppearanceInput
@@ -321,6 +338,7 @@ export function SurveyColorsAppearance({
                 disabledReason={disabledReason}
                 label="Button background"
                 inputType="color"
+                isCSSValue
             />
             <SurveyAppearanceInput
                 value={appearance.submitButtonTextColor}
@@ -330,6 +348,7 @@ export function SurveyColorsAppearance({
                 label="Button text"
                 placeholder="Leave empty for auto-contrast"
                 inputType="color"
+                isCSSValue
             />
             {customizePlaceholderText && (
                 <SurveyAppearanceInput
