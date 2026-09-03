@@ -188,6 +188,10 @@ export function copyPiRpcHost(): Plugin {
       );
       const bundledAgents = join(dirname(source), "bundled-agents");
       const orchestrationSkills = join(dirname(source), "skills");
+      const localToolsMcpServer = join(
+        dirname(source),
+        "../adapters/codex-app-server/local-tools-mcp-server.js",
+      );
       if (!existsSync(productEngineerResources)) {
         throw new Error(
           `[copy-pi-rpc-host] Unable to find product engineer resources at ${productEngineerResources}. Build @posthog/agent first.`,
@@ -203,8 +207,22 @@ export function copyPiRpcHost(): Plugin {
           `[copy-pi-rpc-host] Unable to find orchestration skills at ${orchestrationSkills}. Build @posthog/agent first.`,
         );
       }
+      if (!existsSync(localToolsMcpServer)) {
+        throw new Error(
+          `[copy-pi-rpc-host] Unable to find local tools MCP server at ${localToolsMcpServer}. Build @posthog/agent first.`,
+        );
+      }
 
       copyFileSync(source, join(buildDirectory, "rpc-host.js"));
+      const localToolsBuildDirectory = join(
+        buildDirectory,
+        "adapters/codex-app-server",
+      );
+      mkdirSync(localToolsBuildDirectory, { recursive: true });
+      copyFileSync(
+        localToolsMcpServer,
+        join(localToolsBuildDirectory, "local-tools-mcp-server.js"),
+      );
       cpSync(
         productEngineerResources,
         join(buildDirectory, "product-engineer"),
