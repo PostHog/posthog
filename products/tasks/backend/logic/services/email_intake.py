@@ -51,11 +51,8 @@ class InboundTaskEmail:
     subject: str
     body: str
     sender_authenticated: bool
-    # The quoted mail the sender replied to, when there is one. A reply to a PostHog
-    # notification carries the failure report here, which is the context the task needs.
     quoted_body: str = ""
-    # Set from Auto-Submitted and similar headers so an out-of-office reply to our
-    # acknowledgement cannot start a task.
+    # An out-of-office reply to the acknowledgement must not start a task.
     is_auto_reply: bool = False
 
 
@@ -153,8 +150,7 @@ def start_task_from_email(team: Team, email: InboundTaskEmail) -> EmailTaskIntak
             interaction_origin="email",
         )
     except IntegrityError:
-        # Mailgun retried a delivery that was still being processed; the unique
-        # origin_key index refused the second insert, so the first one owns the task.
+        # A Mailgun retry raced the first delivery; the unique origin_key index gives the first insert the task.
         existing_id = _task_id_for_origin_key(origin_key)
         if existing_id is None:
             raise

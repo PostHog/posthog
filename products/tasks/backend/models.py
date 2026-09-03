@@ -3815,8 +3815,7 @@ class TeamTasksConfig(models.Model):
     # Same shape as SlackSettings.ai_preferences; validated as a whole triple on write
     # (see logic/services/ai_run_defaults.py).
     ai_run_preferences = models.JSONField(null=True, blank=True)
-    # Secret half of the project's task inbox address (``code-<token>@<inbound domain>``).
-    # Null means the project has no inbox address and mail cannot start tasks here.
+    # Null means the project has no task inbox address, so mail cannot start tasks here.
     email_inbound_token = models.CharField(max_length=64, null=True, blank=True, unique=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

@@ -1142,7 +1142,6 @@ def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], 
             "views": views,
             "site_url": settings.SITE_URL,
         },
-        # Replying to the failure report starts a task in the project's task inbox.
         reply_to=_task_inbox_address(team),
     )
 
