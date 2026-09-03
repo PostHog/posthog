@@ -21,6 +21,9 @@ import {
   listSessionsInput,
   listSessionsOutput,
   notifySessionContextInput,
+  piSubscriptionLoginOutput,
+  piSubscriptionStatusInput,
+  piSubscriptionStatusOutput,
   promptInput,
   promptOutput,
   reconnectSessionInput,
@@ -125,6 +128,40 @@ export const agentRouter = router({
   codexSubscriptionSignOut: publicProcedure.mutation(({ ctx }) =>
     ctx.container.get<AgentService>(AGENT_SERVICE).signOutCodexSubscription(),
   ),
+
+  piSubscriptionStatus: publicProcedure
+    .input(piSubscriptionStatusInput)
+    .output(piSubscriptionStatusOutput)
+    .query(({ ctx, input }) =>
+      ctx.container
+        .get<AgentService>(AGENT_SERVICE)
+        .getPiSubscriptionStatus(input.provider),
+    ),
+
+  piSubscriptionLoginStart: publicProcedure
+    .input(piSubscriptionStatusInput)
+    .output(piSubscriptionLoginOutput)
+    .mutation(({ ctx, input }) =>
+      ctx.container
+        .get<AgentService>(AGENT_SERVICE)
+        .startPiSubscriptionLogin(input.provider),
+    ),
+
+  piSubscriptionSignOut: publicProcedure
+    .input(piSubscriptionStatusInput)
+    .mutation(({ ctx, input }) =>
+      ctx.container
+        .get<AgentService>(AGENT_SERVICE)
+        .signOutPiSubscription(input.provider),
+    ),
+
+  piSubscriptionLoginCancel: publicProcedure
+    .input(piSubscriptionStatusInput)
+    .mutation(({ ctx, input }) =>
+      ctx.container
+        .get<AgentService>(AGENT_SERVICE)
+        .cancelPiSubscriptionLogin(input.provider),
+    ),
 
   reconnect: publicProcedure
     .input(reconnectSessionInput)
