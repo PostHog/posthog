@@ -8,6 +8,7 @@ const SCHEME_RE = /^[a-zA-Z][a-zA-Z\d+.-]*:/;
 const FILE_SCHEME_RE = /^file:/i;
 // `path/to/file.ts:12`, `path/to/file.ts:12-40`, and `path/to/file.ts#L12`.
 const LINE_SUFFIX_RE = /^(.*[^/])(?::(\d+)(?:-\d+)?|#L(\d+))$/;
+const LINE_FRAGMENT_RE = /^#L\d+$/;
 const WINDOWS_DRIVE_RE = /^\/[a-zA-Z]:/;
 
 function splitLineSuffix(path: string): FileHrefTarget {
@@ -17,13 +18,21 @@ function splitLineSuffix(path: string): FileHrefTarget {
   return { path: match[1], line: line > 0 ? line : null };
 }
 
-function pathFromFileUrl(href: string): string | null {
+function pathFromFileUrl(href: string): FileHrefTarget | null {
   try {
     const url = new URL(href);
     // `file://host/share` names another machine, which this app cannot read.
     if (url.hostname && url.hostname !== "localhost") return null;
-    const path = decodeURIComponent(url.pathname);
-    return WINDOWS_DRIVE_RE.test(path) ? path.slice(1) : path;
+    // Split the line off the raw text. `#L12` sits in the fragment, outside
+    // the pathname, and a percent-encoded `:` or `#` belongs to the filename.
+    const target = splitLineSuffix(
+      LINE_FRAGMENT_RE.test(url.hash) ? url.pathname + url.hash : url.pathname,
+    );
+    const path = decodeURIComponent(target.path);
+    return {
+      path: WINDOWS_DRIVE_RE.test(path) ? path.slice(1) : path,
+      line: target.line,
+    };
   } catch {
     return null;
   }
@@ -45,10 +54,7 @@ export function parseFileHref(
   const trimmed = href?.trim();
   if (!trimmed) return null;
   if (trimmed.startsWith("#") || trimmed.startsWith("?")) return null;
-  if (FILE_SCHEME_RE.test(trimmed)) {
-    const path = pathFromFileUrl(trimmed);
-    return path ? splitLineSuffix(path) : null;
-  }
+  if (FILE_SCHEME_RE.test(trimmed)) return pathFromFileUrl(trimmed);
   if (SCHEME_RE.test(trimmed)) return null;
   // A protocol-relative URL (`//example.com/x`) is a web page, not a path.
   if (trimmed.startsWith("//")) return null;

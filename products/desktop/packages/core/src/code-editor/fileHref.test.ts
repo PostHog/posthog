@@ -58,6 +58,17 @@ describe("parseFileHref", () => {
     });
   });
 
+  it.each([
+    ["file:///repo/src/App.tsx#L12", { path: "/repo/src/App.tsx", line: 12 }],
+    ["file:///repo/src/App.tsx:79", { path: "/repo/src/App.tsx", line: 79 }],
+    ["file:///C:/repo/App.tsx#L12", { path: "C:/repo/App.tsx", line: 12 }],
+    ["file:///repo/src/App%3A12", { path: "/repo/src/App:12", line: null }],
+    ["file:///repo/src/App%23L12", { path: "/repo/src/App#L12", line: null }],
+    ["file:///repo/src/App.tsx#top", { path: "/repo/src/App.tsx", line: null }],
+  ])("reads %s", (href, expected) => {
+    expect(parseFileHref(href)).toEqual(expected);
+  });
+
   it("rejects a file URL on another host", () => {
     expect(parseFileHref("file://server/share/App.tsx")).toBeNull();
   });
