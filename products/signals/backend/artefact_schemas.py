@@ -547,10 +547,9 @@ class ImplementationDecision(BaseModel):
     """Content schema for an `implementation_decision` artefact: whether the latest look at a report
     changed the fix enough to replace the pull request the report already has.
 
-    Written once per re-research pass by the research agent, and by a scout that rewrites a report it
-    owns. One shape for both producers, so auto-start reads the decision the same way regardless of
-    who made it. System-generated: read-only through the generic artefact API, since a fabricated
-    decision would close someone's open PR.
+    Written once per re-research pass by the research agent, its only writer. System-generated:
+    read-only through the generic artefact API, since a fabricated decision would close someone's
+    open PR.
     """
 
     supersede: bool = Field(
@@ -666,9 +665,9 @@ _ARTEFACT_TYPE_BY_MODEL: Mapping[type[BaseModel], str] = {model: t for t, model 
 # be created or edited directly.
 # `code_review` is likewise system-generated — the ReviewHog workflow is its only writer; accepting
 # it through the API would let a caller fabricate review receipts for reviews that never ran.
-# `implementation_decision` is system-generated too: the research pipeline and the scout report tools
-# are its only writers, and it is what closes a report's open pull request and opens a replacement,
-# so a caller must not be able to write one directly.
+# `implementation_decision` is system-generated too: the research pipeline is its only writer, and
+# it is what closes a report's open pull request and opens a replacement, so a caller must not be
+# able to write one directly.
 NON_WRITABLE_ARTEFACT_TYPES: frozenset[str] = frozenset(
     {"video_segment", "title_change", "summary_change", "code_review", "implementation_decision"}
 )
