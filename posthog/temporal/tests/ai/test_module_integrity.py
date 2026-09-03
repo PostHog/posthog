@@ -1,5 +1,5 @@
 from posthog.temporal import ai
-from posthog.temporal.ai_observability import (
+from posthog.temporal.ai_observability.worker_registry import (
     ACTIVITIES as LLM_ANALYTICS_ACTIVITIES,
     WORKFLOWS as LLM_ANALYTICS_WORKFLOWS,
 )

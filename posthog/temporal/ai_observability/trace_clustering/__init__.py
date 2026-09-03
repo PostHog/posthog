@@ -1,21 +1,2 @@
-"""Trace clustering workflow exports."""
-
-from posthog.temporal.ai_observability.trace_clustering.activities import (
-    emit_cluster_events_activity,
-    generate_cluster_labels_activity,
-    perform_clustering_compute_activity,
-)
-from posthog.temporal.ai_observability.trace_clustering.aggregates import compute_cluster_aggregates_activity
-from posthog.temporal.ai_observability.trace_clustering.coordinator import TraceClusteringCoordinatorWorkflow
-from posthog.temporal.ai_observability.trace_clustering.workflow import DailyTraceClusteringWorkflow
-
-__all__ = [
-    # Workflows
-    "DailyTraceClusteringWorkflow",
-    "TraceClusteringCoordinatorWorkflow",
-    # Activities
-    "perform_clustering_compute_activity",
-    "generate_cluster_labels_activity",
-    "compute_cluster_aggregates_activity",
-    "emit_cluster_events_activity",
-]
+# Deliberately empty: API code imports `.constants` and `.models` from this package, so an
+# aggregator here would pull the clustering compute and the labeling agent with them.

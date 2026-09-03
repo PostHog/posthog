@@ -21,7 +21,7 @@ with workflow.unsafe.imports_passed_through():
 
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.temporal.ai import AI_ACTIVITIES, AI_WORKFLOWS, POSTHOG_CODE_SLACK_ACTIVITIES, POSTHOG_CODE_SLACK_WORKFLOWS
-from posthog.temporal.ai_observability import (
+from posthog.temporal.ai_observability.worker_registry import (
     ACTIVITIES as LLM_ANALYTICS_ACTIVITIES,
     EVAL_ACTIVITIES as LLM_ANALYTICS_EVAL_ACTIVITIES,
     EVAL_WORKFLOWS as LLM_ANALYTICS_EVAL_WORKFLOWS,

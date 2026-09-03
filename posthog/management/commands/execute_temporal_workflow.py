@@ -9,7 +9,7 @@ from django.core.management.base import BaseCommand
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 
 from posthog.temporal.ai import AI_WORKFLOWS
-from posthog.temporal.ai_observability import WORKFLOWS as LLM_ANALYTICS_WORKFLOWS
+from posthog.temporal.ai_observability.worker_registry import WORKFLOWS as LLM_ANALYTICS_WORKFLOWS
 from posthog.temporal.backfill_group_type_created_at import WORKFLOWS as BACKFILL_GROUP_TYPE_CREATED_AT_WORKFLOWS
 from posthog.temporal.common.client import connect
 from posthog.temporal.data_modeling import WORKFLOWS as DATA_MODELING_WORKFLOWS
