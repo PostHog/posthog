@@ -106,9 +106,9 @@ class TestFeatureFlagRequireTags(APIBaseTest):
         request = APIRequestFactory().post("/")
         request.user = self.user
 
-        updated = update_flag(flag, {"active": False}, team=self.team, user=self.user, request=request)
+        updated = update_flag(flag, {"name": "Renamed"}, team=self.team, user=self.user, request=request)
 
-        assert updated.active is False
+        assert updated.name == "Renamed"
 
     def test_create_with_a_blank_tag_is_rejected_when_required(self) -> None:
         self._require_tags(True)
