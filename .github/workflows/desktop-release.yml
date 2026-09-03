@@ -20,7 +20,7 @@ jobs:
               id: app-token
               uses: getsentry/action-github-app-token@5c1e90706fe007857338ac1bfbd7a4177db2f789 # v4.0.0
               with:
-                  app_id: ${{ secrets.GH_APP_ARRAY_RELEASER_APP_ID }}
+                  app_id: ${{ vars.GH_APP_ARRAY_RELEASER_APP_ID }}
                   private_key: ${{ secrets.GH_APP_ARRAY_RELEASER_PRIVATE_KEY }}
 
             - name: Extract version from tag
@@ -65,23 +65,23 @@ jobs:
             NODE_ENV: production
             npm_config_arch: ${{ matrix.arch }}
             npm_config_platform: darwin
-            VITE_POSTHOG_API_KEY: ${{ secrets.VITE_POSTHOG_API_KEY }}
-            VITE_POSTHOG_API_HOST: ${{ secrets.VITE_POSTHOG_API_HOST }}
+            VITE_POSTHOG_API_KEY: ${{ vars.VITE_POSTHOG_API_KEY }}
+            VITE_POSTHOG_API_HOST: ${{ vars.VITE_POSTHOG_API_HOST }}
             VITE_POSTHOG_UI_HOST: ${{ vars.VITE_POSTHOG_UI_HOST }}
             POSTHOG_SOURCEMAP_API_KEY: ${{ secrets.DESKTOP_POSTHOG_SOURCEMAP_API_KEY }}
-            POSTHOG_ENV_ID: ${{ secrets.DESKTOP_POSTHOG_ENV_ID }}
+            POSTHOG_ENV_ID: ${{ vars.DESKTOP_POSTHOG_ENV_ID }}
             POSTHOG_HOST: ${{ secrets.DESKTOP_POSTHOG_HOST }}
             CSC_LINK: ${{ secrets.APPLE_CODESIGN_CERT_BASE64 }}
             CSC_KEY_PASSWORD: ${{ secrets.APPLE_CODESIGN_CERT_PASSWORD }}
-            APPLE_ID: ${{ secrets.APPLE_ID }}
+            APPLE_ID: ${{ vars.APPLE_ID }}
             APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-            APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+            APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
         steps:
             - name: Get app token
               id: app-token
               uses: getsentry/action-github-app-token@5c1e90706fe007857338ac1bfbd7a4177db2f789 # v4.0.0
               with:
-                  app_id: ${{ secrets.GH_APP_ARRAY_RELEASER_APP_ID }}
+                  app_id: ${{ vars.GH_APP_ARRAY_RELEASER_APP_ID }}
                   private_key: ${{ secrets.GH_APP_ARRAY_RELEASER_PRIVATE_KEY }}
 
             - name: Checkout
@@ -141,13 +141,13 @@ jobs:
             - name: Configure AWS credentials
               uses: aws-actions/configure-aws-credentials@254c19bd240aabef8777f48595e9d2d7b972184b # v6.2.1
               with:
-                  role-to-assume: ${{ secrets.AWS_TWIG_APP_ASSETS_ROLE_ARN }}
-                  aws-region: ${{ secrets.AWS_TWIG_APP_ASSETS_REGION }}
+                  role-to-assume: ${{ vars.AWS_TWIG_APP_ASSETS_ROLE_ARN }}
+                  aws-region: ${{ vars.AWS_TWIG_APP_ASSETS_REGION }}
                   mask-aws-account-id: true
                   unset-current-credentials: true
 
             - name: Download BerkeleyMono fonts from S3
-              run: aws s3 cp s3://${{ secrets.AWS_TWIG_APP_ASSETS_BUCKET }}/fonts/BerkeleyMono/ apps/code/assets/fonts/BerkeleyMono/ --recursive
+              run: aws s3 cp s3://${{ vars.AWS_TWIG_APP_ASSETS_BUCKET }}/fonts/BerkeleyMono/ apps/code/assets/fonts/BerkeleyMono/ --recursive
 
             - name: Build electron-trpc package
               run: pnpm --filter @posthog/electron-trpc run build
@@ -266,7 +266,7 @@ jobs:
             - name: Configure AWS credentials for the update feed
               uses: aws-actions/configure-aws-credentials@254c19bd240aabef8777f48595e9d2d7b972184b # v6.2.1
               with:
-                  role-to-assume: ${{ secrets.AWS_DESKTOP_APP_RELEASES_ROLE_ARN }}
+                  role-to-assume: ${{ vars.AWS_DESKTOP_APP_RELEASES_ROLE_ARN }}
                   aws-region: us-east-1
                   mask-aws-account-id: true
                   unset-current-credentials: true
@@ -317,18 +317,18 @@ jobs:
         env:
             NODE_OPTIONS: '--max-old-space-size=8192'
             NODE_ENV: production
-            VITE_POSTHOG_API_KEY: ${{ secrets.VITE_POSTHOG_API_KEY }}
-            VITE_POSTHOG_API_HOST: ${{ secrets.VITE_POSTHOG_API_HOST }}
+            VITE_POSTHOG_API_KEY: ${{ vars.VITE_POSTHOG_API_KEY }}
+            VITE_POSTHOG_API_HOST: ${{ vars.VITE_POSTHOG_API_HOST }}
             VITE_POSTHOG_UI_HOST: ${{ vars.VITE_POSTHOG_UI_HOST }}
             POSTHOG_SOURCEMAP_API_KEY: ${{ secrets.DESKTOP_POSTHOG_SOURCEMAP_API_KEY }}
-            POSTHOG_ENV_ID: ${{ secrets.DESKTOP_POSTHOG_ENV_ID }}
+            POSTHOG_ENV_ID: ${{ vars.DESKTOP_POSTHOG_ENV_ID }}
             POSTHOG_HOST: ${{ secrets.DESKTOP_POSTHOG_HOST }}
         steps:
             - name: Get app token
               id: app-token
               uses: getsentry/action-github-app-token@5c1e90706fe007857338ac1bfbd7a4177db2f789 # v4.0.0
               with:
-                  app_id: ${{ secrets.GH_APP_ARRAY_RELEASER_APP_ID }}
+                  app_id: ${{ vars.GH_APP_ARRAY_RELEASER_APP_ID }}
                   private_key: ${{ secrets.GH_APP_ARRAY_RELEASER_PRIVATE_KEY }}
 
             - name: Checkout
@@ -440,7 +440,7 @@ jobs:
             - name: Configure AWS credentials for the update feed
               uses: aws-actions/configure-aws-credentials@254c19bd240aabef8777f48595e9d2d7b972184b # v6.2.1
               with:
-                  role-to-assume: ${{ secrets.AWS_DESKTOP_APP_RELEASES_ROLE_ARN }}
+                  role-to-assume: ${{ vars.AWS_DESKTOP_APP_RELEASES_ROLE_ARN }}
                   aws-region: us-east-1
                   mask-aws-account-id: true
                   unset-current-credentials: true
@@ -501,18 +501,18 @@ jobs:
         env:
             NODE_OPTIONS: '--max-old-space-size=8192'
             NODE_ENV: production
-            VITE_POSTHOG_API_KEY: ${{ secrets.VITE_POSTHOG_API_KEY }}
-            VITE_POSTHOG_API_HOST: ${{ secrets.VITE_POSTHOG_API_HOST }}
+            VITE_POSTHOG_API_KEY: ${{ vars.VITE_POSTHOG_API_KEY }}
+            VITE_POSTHOG_API_HOST: ${{ vars.VITE_POSTHOG_API_HOST }}
             VITE_POSTHOG_UI_HOST: ${{ vars.VITE_POSTHOG_UI_HOST }}
             POSTHOG_SOURCEMAP_API_KEY: ${{ secrets.DESKTOP_POSTHOG_SOURCEMAP_API_KEY }}
-            POSTHOG_ENV_ID: ${{ secrets.DESKTOP_POSTHOG_ENV_ID }}
+            POSTHOG_ENV_ID: ${{ vars.DESKTOP_POSTHOG_ENV_ID }}
             POSTHOG_HOST: ${{ secrets.DESKTOP_POSTHOG_HOST }}
         steps:
             - name: Get app token
               id: app-token
               uses: getsentry/action-github-app-token@5c1e90706fe007857338ac1bfbd7a4177db2f789 # v4.0.0
               with:
-                  app_id: ${{ secrets.GH_APP_ARRAY_RELEASER_APP_ID }}
+                  app_id: ${{ vars.GH_APP_ARRAY_RELEASER_APP_ID }}
                   private_key: ${{ secrets.GH_APP_ARRAY_RELEASER_PRIVATE_KEY }}
 
             - name: Checkout
@@ -623,7 +623,7 @@ jobs:
             - name: Configure AWS credentials for the update feed
               uses: aws-actions/configure-aws-credentials@254c19bd240aabef8777f48595e9d2d7b972184b # v6.2.1
               with:
-                  role-to-assume: ${{ secrets.AWS_DESKTOP_APP_RELEASES_ROLE_ARN }}
+                  role-to-assume: ${{ vars.AWS_DESKTOP_APP_RELEASES_ROLE_ARN }}
                   aws-region: us-east-1
                   mask-aws-account-id: true
                   unset-current-credentials: true
@@ -674,7 +674,7 @@ jobs:
               id: app-token
               uses: getsentry/action-github-app-token@5c1e90706fe007857338ac1bfbd7a4177db2f789 # v4.0.0
               with:
-                  app_id: ${{ secrets.GH_APP_ARRAY_RELEASER_APP_ID }}
+                  app_id: ${{ vars.GH_APP_ARRAY_RELEASER_APP_ID }}
                   private_key: ${{ secrets.GH_APP_ARRAY_RELEASER_PRIVATE_KEY }}
 
             - name: Extract version from tag
@@ -774,7 +774,7 @@ jobs:
             - name: Configure AWS credentials for the update feed
               uses: aws-actions/configure-aws-credentials@254c19bd240aabef8777f48595e9d2d7b972184b # v6.2.1
               with:
-                  role-to-assume: ${{ secrets.AWS_DESKTOP_APP_RELEASES_ROLE_ARN }}
+                  role-to-assume: ${{ vars.AWS_DESKTOP_APP_RELEASES_ROLE_ARN }}
                   aws-region: us-east-1
                   mask-aws-account-id: true
                   unset-current-credentials: true

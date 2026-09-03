@@ -40,15 +40,15 @@ jobs:
             NODE_ENV: production
             npm_config_arch: arm64
             npm_config_platform: darwin
-            VITE_POSTHOG_API_KEY: ${{ secrets.VITE_POSTHOG_API_KEY }}
-            VITE_POSTHOG_API_HOST: ${{ secrets.VITE_POSTHOG_API_HOST }}
+            VITE_POSTHOG_API_KEY: ${{ vars.VITE_POSTHOG_API_KEY }}
+            VITE_POSTHOG_API_HOST: ${{ vars.VITE_POSTHOG_API_HOST }}
             VITE_POSTHOG_UI_HOST: ${{ vars.VITE_POSTHOG_UI_HOST }}
             # Sign both builds with the same identity so Squirrel.Mac accepts the swap.
             # Notarization is skipped: it is a Gatekeeper concern, not what the in-place
             # update verifies, and locally built bundles carry no quarantine attribute.
             CSC_LINK: ${{ secrets.APPLE_CODESIGN_CERT_BASE64 }}
             CSC_KEY_PASSWORD: ${{ secrets.APPLE_CODESIGN_CERT_PASSWORD }}
-            APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+            APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
             SKIP_NOTARIZE: '1'
         steps:
             - name: Checkout
@@ -92,13 +92,13 @@ jobs:
             - name: Configure AWS credentials
               uses: aws-actions/configure-aws-credentials@254c19bd240aabef8777f48595e9d2d7b972184b # v6.2.1
               with:
-                  role-to-assume: ${{ secrets.AWS_TWIG_APP_ASSETS_ROLE_ARN }}
-                  aws-region: ${{ secrets.AWS_TWIG_APP_ASSETS_REGION }}
+                  role-to-assume: ${{ vars.AWS_TWIG_APP_ASSETS_ROLE_ARN }}
+                  aws-region: ${{ vars.AWS_TWIG_APP_ASSETS_REGION }}
                   mask-aws-account-id: true
                   unset-current-credentials: true
 
             - name: Download BerkeleyMono fonts from S3
-              run: aws s3 cp s3://${{ secrets.AWS_TWIG_APP_ASSETS_BUCKET }}/fonts/BerkeleyMono/ apps/code/assets/fonts/BerkeleyMono/ --recursive
+              run: aws s3 cp s3://${{ vars.AWS_TWIG_APP_ASSETS_BUCKET }}/fonts/BerkeleyMono/ apps/code/assets/fonts/BerkeleyMono/ --recursive
 
             - name: Build workspace packages
               run: |

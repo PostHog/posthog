@@ -55,15 +55,15 @@ jobs:
             NODE_ENV: production
             npm_config_arch: ${{ matrix.arch }}
             npm_config_platform: darwin
-            VITE_POSTHOG_API_KEY: ${{ secrets.VITE_POSTHOG_API_KEY }}
-            VITE_POSTHOG_API_HOST: ${{ secrets.VITE_POSTHOG_API_HOST }}
+            VITE_POSTHOG_API_KEY: ${{ vars.VITE_POSTHOG_API_KEY }}
+            VITE_POSTHOG_API_HOST: ${{ vars.VITE_POSTHOG_API_HOST }}
             VITE_POSTHOG_UI_HOST: ${{ vars.VITE_POSTHOG_UI_HOST }}
             # No sourcemap secrets: without them the posthog vite plugin skips
             # release creation and sourcemap upload, keeping test builds
             # hermetic instead of calling the prod API and flaking on it.
             CSC_LINK: ${{ secrets.APPLE_CODESIGN_CERT_BASE64 }}
             CSC_KEY_PASSWORD: ${{ secrets.APPLE_CODESIGN_CERT_PASSWORD }}
-            APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+            APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
             # Sign but do not notarize. This build-test verifies the packaging pipeline,
             # not Gatekeeper distribution; the runner can launch a signed-but-unnotarized
             # app for the smoke test. Notarization runs only in the tag release
@@ -117,13 +117,13 @@ jobs:
             - name: Configure AWS credentials
               uses: aws-actions/configure-aws-credentials@254c19bd240aabef8777f48595e9d2d7b972184b # v6.2.1
               with:
-                  role-to-assume: ${{ secrets.AWS_TWIG_APP_ASSETS_ROLE_ARN }}
-                  aws-region: ${{ secrets.AWS_TWIG_APP_ASSETS_REGION }}
+                  role-to-assume: ${{ vars.AWS_TWIG_APP_ASSETS_ROLE_ARN }}
+                  aws-region: ${{ vars.AWS_TWIG_APP_ASSETS_REGION }}
                   mask-aws-account-id: true
                   unset-current-credentials: true
 
             - name: Download BerkeleyMono fonts from S3
-              run: aws s3 cp s3://${{ secrets.AWS_TWIG_APP_ASSETS_BUCKET }}/fonts/BerkeleyMono/ apps/code/assets/fonts/BerkeleyMono/ --recursive
+              run: aws s3 cp s3://${{ vars.AWS_TWIG_APP_ASSETS_BUCKET }}/fonts/BerkeleyMono/ apps/code/assets/fonts/BerkeleyMono/ --recursive
 
             - name: Build workspace packages
               run: |
@@ -243,8 +243,8 @@ jobs:
         env:
             NODE_OPTIONS: '--max-old-space-size=8192'
             NODE_ENV: production
-            VITE_POSTHOG_API_KEY: ${{ secrets.VITE_POSTHOG_API_KEY }}
-            VITE_POSTHOG_API_HOST: ${{ secrets.VITE_POSTHOG_API_HOST }}
+            VITE_POSTHOG_API_KEY: ${{ vars.VITE_POSTHOG_API_KEY }}
+            VITE_POSTHOG_API_HOST: ${{ vars.VITE_POSTHOG_API_HOST }}
             VITE_POSTHOG_UI_HOST: ${{ vars.VITE_POSTHOG_UI_HOST }}
         steps:
             - name: Checkout
@@ -358,8 +358,8 @@ jobs:
         env:
             NODE_OPTIONS: '--max-old-space-size=8192'
             NODE_ENV: production
-            VITE_POSTHOG_API_KEY: ${{ secrets.VITE_POSTHOG_API_KEY }}
-            VITE_POSTHOG_API_HOST: ${{ secrets.VITE_POSTHOG_API_HOST }}
+            VITE_POSTHOG_API_KEY: ${{ vars.VITE_POSTHOG_API_KEY }}
+            VITE_POSTHOG_API_HOST: ${{ vars.VITE_POSTHOG_API_HOST }}
             VITE_POSTHOG_UI_HOST: ${{ vars.VITE_POSTHOG_UI_HOST }}
         steps:
             - name: Checkout
