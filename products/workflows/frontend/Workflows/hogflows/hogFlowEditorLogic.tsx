@@ -1978,8 +1978,12 @@ export interface hogFlowEditorLogicActions {
     onDragOver: (event: DragEvent) => {
         event: DragEvent<Element>
     }
-    onDrop: (event?: DragEvent) => {
+    onDrop: (
+        event?: DragEvent,
+        targetEdge?: HogFlowEdge
+    ) => {
         event: DragEvent<Element> | undefined
+        targetEdge: HogFlowEdge | undefined
     }
     onEdgesChange: (edges: EdgeChange<HogFlowActionEdge>[]) => {
         edges: EdgeChange<HogFlowActionEdge>[]
@@ -2055,7 +2059,11 @@ export interface hogFlowEditorLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         nodesById: (nodes: HogFlowActionNode[]) => Record<string, HogFlowActionNode>
-        selectedNode: (nodes: HogFlowActionNode[], selectedNodeId: string | null) => HogFlowActionNode | null
+        selectedNode: (
+            nodes: HogFlowActionNode[],
+            selectedNodeId: string | null,
+            workflow: HogFlow
+        ) => HogFlowActionNode | null
         selectedNodeCanBeDeleted: (
             selectedNode: HogFlowActionNode | null,
             nodes: HogFlowActionNode[],
@@ -2112,7 +2120,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         }),
         setReactFlowWrapper: (reactFlowWrapper: RefObject<HTMLDivElement>) => ({ reactFlowWrapper }),
         onDragOver: (event: DragEvent) => ({ event }),
-        onDrop: (event?: DragEvent) => ({ event }),
+        onDrop: (event?: DragEvent, targetEdge?: HogFlowEdge) => ({ event, targetEdge }),
         setNodeToBeAdded: (nodeToBeAdded: CreateActionType | HogFlowActionNode | null) => ({ nodeToBeAdded }),
         setHighlightedDropzoneNodeId: (highlightedDropzoneNodeId: string | null) => ({ highlightedDropzoneNodeId }),
         setMode: (mode: HogFlowEditorMode) => ({ mode }),
@@ -2240,9 +2248,30 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             },
         ],
         selectedNode: [
-            (s) => [s.nodes, s.selectedNodeId],
-            (nodes: HogFlowActionNode[], selectedNodeId: string | null) => {
-                return nodes.find((node) => node.id === selectedNodeId) ?? null
+            (s) => [s.nodes, s.selectedNodeId, s.workflow],
+            (
+                nodes: HogFlowActionNode[],
+                selectedNodeId: string | null,
+                workflow: HogFlow
+            ): HogFlowActionNode | null => {
+                const node = nodes.find((node) => node.id === selectedNodeId)
+                if (node || !selectedNodeId) {
+                    return node ?? null
+                }
+
+                const action = workflow.actions.find((action) => action.id === selectedNodeId)
+                return action
+                    ? ({
+                          id: action.id,
+                          type: 'action',
+                          data: action,
+                          position: { x: 0, y: 0 },
+                          deletable: !['trigger', 'exit'].includes(action.type),
+                          selectable: true,
+                          draggable: false,
+                          connectable: false,
+                      } satisfies HogFlowActionNode)
+                    : null
             },
         ],
         selectedNodeCanBeDeleted: [
@@ -2583,12 +2612,18 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 event.dataTransfer.dropEffect = 'move'
             },
 
-            onDrop: ({ event }) => {
+            onDrop: ({ event, targetEdge }) => {
                 event?.preventDefault()
                 const dropzoneNode = values.dropzoneNodes.find((x) => x.id === values.highlightedDropzoneNodeId)
 
-                if (values.nodeToBeAdded && dropzoneNode) {
-                    const edgeToInsertNodeInto = dropzoneNode?.data.edge
+                if (values.nodeToBeAdded && (dropzoneNode || targetEdge)) {
+                    const edgeToInsertNodeInto = targetEdge
+                        ? ({
+                              id: getEdgeId(targetEdge),
+                              source: targetEdge.from,
+                              target: targetEdge.to,
+                          } as HogFlowActionEdge)
+                        : dropzoneNode!.data.edge
 
                     // Check if nodeToBeAdded is a HogFlowActionNode (has 'data' property) or CreateActionType
                     const isHogFlowActionNode = 'data' in values.nodeToBeAdded
@@ -2636,7 +2671,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                     const branchEdges = isHogFlowActionNode
                         ? 0
                         : ((partialNewAction as CreateActionType).branchEdges ?? 0)
-                    const isBranchJoinDropzone = dropzoneNode?.data.isBranchJoinDropzone ?? false
+                    const isBranchJoinDropzone = !targetEdge && (dropzoneNode?.data.isBranchJoinDropzone ?? false)
 
                     if (!step) {
                         throw new Error(`Step not found for action type: ${newAction}`)
@@ -2944,6 +2979,8 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
     }),
     events(({ actions, values }) => ({
         afterMount: () => {
+            actions.resetFlowFromHogFlow(values.workflow)
+
             const handleKeyDown = (e: KeyboardEvent): void => {
                 if (e.key === 'Escape') {
                     if (values.isCopyingNode) {
