@@ -615,6 +615,8 @@ export interface NotebookSQLV2StateResponseApi {
     content?: unknown
     /** The notebook's kernel runtime state and compute config. */
     kernel: NotebookKernelStateApi
+    /** The notebook's declared variables, in display order. A SQL cell reads one as a `{name}` placeholder and a Python cell as a global; a cell that reads an undeclared name fails to run. */
+    variables: NotebookVariableApi[]
     /** Every cell in document order, with its dependency edges and derived run state. */
     cells: NotebookCellStateApi[]
 }

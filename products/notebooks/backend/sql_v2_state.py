@@ -3,8 +3,10 @@ needs to drive cells — which cells exist, what each depends on, and which are 
 
 Staleness is derived, not stored: a cell is stale when re-running it now would execute
 different code than its last completed run. For SQL cells that comparison uses the
-CTE-resolved code (upstream definitions inline into the stored run code, so an upstream
-edit changes the resolution); for Python cells it falls back to raw-code drift plus
+variable-bound, CTE-resolved code (notebook variables and upstream definitions inline into
+the stored run code, so a changed value or an upstream edit changes the resolution; a
+relative date variable resolves against the clock, so a cell reading one reads stale once
+time has moved on); for Python cells it falls back to raw-code drift plus
 upstream run recency (python runs materialize inputs by run, but the run row does not
 record which input runs were used).
 """
@@ -20,6 +22,11 @@ from products.notebooks.backend.facade.contracts import NotebookCellLimitExceede
 from products.notebooks.backend.models import NotebookNodeRun
 from products.notebooks.backend.python_analysis import analyze_python_globals
 from products.notebooks.backend.sql_v2_references import _TableReferenceCollector, resolve_sql_v2_references
+from products.notebooks.backend.sql_v2_variables import (
+    NotebookVariable,
+    build_notebook_variables,
+    substitute_hogql_variables,
+)
 from products.notebooks.backend.util import (
     _get_markdown_notebook_markdown,
     _iter_markdown_component_blocks,
@@ -137,6 +144,7 @@ def _is_stale(
     latest_run: NotebookNodeRun,
     cells_by_node: dict[str, NotebookCellState],
     latest_done_by_node: dict[str, NotebookNodeRun],
+    variables: list[NotebookVariable],
 ) -> bool:
     if cell.cell_type == "sql":
         refs: dict[str, str | None] = {}
@@ -147,11 +155,15 @@ def _is_stale(
                 upstream_run.code if upstream_run is not None and upstream.cell_type == "sql" else None
             )
         try:
-            return resolve_sql_v2_references(cell.code, refs) != latest_run.code
+            # Same order as dispatch (resolve_sql_node_run): variables bind before the CTE
+            # merge, so a changed variable value changes the resolution and marks the cell
+            # stale, while an unchanged one compares equal to the stored run code.
+            return resolve_sql_v2_references(substitute_hogql_variables(cell.code, variables), refs) != latest_run.code
         except Exception:
             # No resolvable definition for a referenced upstream (never ran, renamed,
-            # deleted): whatever produced the last result no longer reflects the
-            # document, which is exactly what stale means.
+            # deleted) or a variable the notebook no longer declares: whatever produced
+            # the last result no longer reflects the document, which is exactly what
+            # stale means.
             return True
     if cell.code.strip() != latest_run.code.strip():
         return True
@@ -180,6 +192,7 @@ def annotate_run_state(cells: list[NotebookCellState], team_id: int, notebook: A
             latest_done_by_node[run.node_id] = run
 
     cells_by_node = {cell.node_id: cell for cell in cells}
+    variables = build_notebook_variables(notebook.variables or [], notebook.team.timezone_info)
     for cell in cells:
         if cell.cell_type not in ("sql", "python"):
             continue
@@ -199,7 +212,7 @@ def annotate_run_state(cells: list[NotebookCellState], team_id: int, notebook: A
         if latest.status == NotebookNodeRun.Status.RUNNING:
             cell.status = "running"
         elif latest.status == NotebookNodeRun.Status.DONE and _is_stale(
-            cell, latest, cells_by_node, latest_done_by_node
+            cell, latest, cells_by_node, latest_done_by_node, variables
         ):
             cell.status = "stale"
         else:

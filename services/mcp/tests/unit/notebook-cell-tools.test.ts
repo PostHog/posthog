@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { addCellHandler } from '@/tools/notebooks/addCell'
 import { createMarkdownHandler } from '@/tools/notebooks/createMarkdown'
 import { deleteCellHandler } from '@/tools/notebooks/deleteCell'
+import { setVariablesHandler } from '@/tools/notebooks/setVariables'
 import { updateCellHandler } from '@/tools/notebooks/updateCell'
 import { formatNotebookWidgetCatalogForAgents } from '@/tools/notebooks/widgetCatalog'
 import { getToolDefinition } from '@/tools/toolDefinitions'
@@ -15,10 +16,12 @@ type AddCellParams = Parameters<typeof addCellHandler>[1]
 interface MockState {
     markdown: string
     version: number
+    variables: any[]
     saveBodies: any[]
     runBodies: any[]
     runStatusResponses: any[]
     createBodies: any[]
+    patchBodies: any[]
 }
 
 function markdownContent(markdown: string): Record<string, unknown> {
@@ -39,7 +42,22 @@ function createMockContext(state: MockState): Context {
             return next
         }
         if (opts.method === 'GET') {
-            return { short_id: 'aBcD1234', content: markdownContent(state.markdown), version: state.version }
+            return {
+                short_id: 'aBcD1234',
+                content: markdownContent(state.markdown),
+                version: state.version,
+                variables: state.variables,
+            }
+        }
+        if (opts.method === 'PATCH') {
+            state.patchBodies.push(opts.body)
+            state.variables = opts.body.variables
+            return {
+                short_id: 'aBcD1234',
+                content: markdownContent(state.markdown),
+                version: state.version,
+                variables: state.variables,
+            }
         }
         if (opts.method === 'POST' && path.endsWith('/sql_v2/run/')) {
             state.runBodies.push(opts.body)
@@ -71,8 +89,17 @@ function createMockContext(state: MockState): Context {
     } as unknown as Context
 }
 
-function makeState(markdown: string): MockState {
-    return { markdown, version: 3, saveBodies: [], runBodies: [], runStatusResponses: [], createBodies: [] }
+function makeState(markdown: string, variables: any[] = []): MockState {
+    return {
+        markdown,
+        version: 3,
+        variables,
+        saveBodies: [],
+        runBodies: [],
+        runStatusResponses: [],
+        createBodies: [],
+        patchBodies: [],
+    }
 }
 
 const DONE_STATUS = {
@@ -113,15 +140,18 @@ describe('notebook cell tools', () => {
         expect(catalogPrompt).toContain('groupTypeIndex: Numeric group type index.')
     })
 
-    it('add sql cell inserts the tag, runs with sibling refs, and writes the result back', async () => {
-        const state = makeState('# Doc\n\n<SQLV2 nodeId="up" code="select 1" returnVariable="events_df" />\n')
+    it('add sql cell inserts the tag, runs with sibling refs and variables, and writes the result back', async () => {
+        const country = { name: 'country', type: 'string', value: 'US' }
+        const state = makeState('# Doc\n\n<SQLV2 nodeId="up" code="select 1" returnVariable="events_df" />\n', [
+            country,
+        ])
         state.runStatusResponses.push(DONE_STATUS)
         const context = createMockContext(state)
 
         const result = await addCellHandler(context, {
             notebook_id: 'aBcD1234',
             cell_type: 'sql',
-            code: 'select * from events_df',
+            code: 'select * from events_df where country = {country}',
         })
 
         expect(result.node_id).toBeTruthy()
@@ -130,16 +160,18 @@ describe('notebook cell tools', () => {
         // First save inserts the cell; the tag carries identity, code, and name.
         const inserted = state.saveBodies[0].content.content[0].attrs.markdown
         expect(inserted).toContain(`nodeId="${result.node_id}"`)
-        expect(inserted).toContain('code="select * from events_df"')
+        expect(inserted).toContain('code="select * from events_df where country = {country}"')
         expect(inserted).toContain('returnVariable="sql_df"')
         expect(state.saveBodies[0].version).toBe(3)
 
-        // The run carries the whole sibling namespace as refs; backend filters usage.
+        // The run carries the whole sibling namespace as refs and the notebook's saved
+        // variables; the backend filters usage and fails a `{name}` it was not handed.
         expect(state.runBodies[0]).toMatchObject({
             node_id: result.node_id,
             node_type: 'hogql',
             output_name: 'sql_df',
             refs: { events_df: { node_id: 'up', kind: 'hogql' } },
+            variables: [country],
         })
 
         // Second save writes runId + result into the tag so the editor renders the output.
@@ -391,11 +423,78 @@ describe('notebook cell tools', () => {
 
         expect(state.saveBodies[0].content.content[0].attrs.markdown).toContain('code="select 2"')
         expect(state.runBodies[0]).toMatchObject({ node_id: 'target', code: 'select 2' })
+        expect(state.runBodies[0]).not.toHaveProperty('variables')
         expect(result.stale_dependents).toEqual([{ node_id: 'reader', dataframe_name: 'out' }])
         // Write-back replaces the stale runId in place.
         const writtenBack = state.saveBodies[1].content.content[0].attrs.markdown
         expect(writtenBack).toContain('runId="run-1"')
         expect(writtenBack).not.toContain('runId="old"')
+    })
+
+    it('set variables replaces the list and reports the cells that read a changed one', async () => {
+        const state = makeState(
+            [
+                '# Doc',
+                '',
+                '<SQLV2 nodeId="by_country" code="select {country}, {limit}" returnVariable="df" />',
+                '',
+                '<PythonV2 nodeId="reader" code="df.head(limit)" returnVariable="out" />',
+                '',
+                '<SQLV2 nodeId="unrelated" code="select 1" returnVariable="one" />',
+                '',
+            ].join('\n'),
+            [
+                { name: 'country', type: 'string', value: 'US' },
+                { name: 'limit', type: 'number', value: 10 },
+            ]
+        )
+        const context = createMockContext(state)
+
+        const result = await setVariablesHandler(context, {
+            notebook_id: 'aBcD1234',
+            variables: [
+                { name: 'country', type: 'string', value: 'US' },
+                { name: 'limit', type: 'number', value: 25 },
+            ],
+        })
+
+        expect(state.patchBodies).toEqual([
+            {
+                variables: [
+                    { name: 'country', type: 'string', value: 'US' },
+                    { name: 'limit', type: 'number', value: 25 },
+                ],
+            },
+        ])
+        expect(result.variables).toEqual(state.variables)
+        // Only `limit` changed: the SQL cell reads it as `{limit}`, the Python cell as a global.
+        expect(result.stale_cells).toEqual([
+            { node_id: 'by_country', dataframe_name: 'df' },
+            { node_id: 'reader', dataframe_name: 'out' },
+        ])
+        expect((result as any)[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toContain('<notebook-cell-refs')
+    })
+
+    it.each([
+        {
+            label: 'a duplicate name',
+            variables: [
+                { name: 'x', type: 'string' as const },
+                { name: 'x', type: 'number' as const },
+            ],
+            message: /unique/,
+        },
+        {
+            label: "a cell's dataframe name",
+            variables: [{ name: 'df', type: 'string' as const, value: 'a' }],
+            message: /dataframe_name/,
+        },
+    ])('set variables rejects $label without saving', async ({ variables, message }) => {
+        const state = makeState('<SQLV2 nodeId="s" code="select 1" returnVariable="df" />\n')
+        const context = createMockContext(state)
+
+        await expect(setVariablesHandler(context, { notebook_id: 'aBcD1234', variables })).rejects.toThrow(message)
+        expect(state.patchBodies).toEqual([])
     })
 
     it('delete cell removes the tag and lists orphaned dependents', async () => {

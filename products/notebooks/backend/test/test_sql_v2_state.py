@@ -18,6 +18,7 @@ from products.notebooks.backend.sql_v2_state import (
     extract_cells,
     validate_cell_count,
 )
+from products.notebooks.backend.sql_v2_variables import NotebookVariable, substitute_hogql_variables
 
 
 def markdown_content(markdown: str) -> dict[str, Any]:
@@ -196,6 +197,27 @@ class TestNotebookCellState(APIBaseTest):
         self._run(notebook, "up", "select 2 as x", NotebookNodeRun.Status.DONE)
         assert build_notebook_cell_state(self.team.id, notebook)[1].status == "stale"
 
+    def test_sql_cell_reading_a_variable_is_done_until_the_value_changes(self) -> None:
+        notebook = self._notebook('<SQLV2 nodeId="s" code="select {country} as c" returnVariable="df" />')
+        notebook.variables = [{"name": "country", "type": "string", "value": "US"}]
+        notebook.save()
+        self._run(
+            notebook,
+            "s",
+            substitute_hogql_variables("select {country} as c", [NotebookVariable(name="country", value="US")]),
+            NotebookNodeRun.Status.DONE,
+        )
+        assert build_notebook_cell_state(self.team.id, notebook)[0].status == "done"
+
+        notebook.variables = [{"name": "country", "type": "string", "value": "DE"}]
+        notebook.save()
+        assert build_notebook_cell_state(self.team.id, notebook)[0].status == "stale"
+
+        # Deleting the declaration leaves nothing to bind the placeholder to.
+        notebook.variables = []
+        notebook.save()
+        assert build_notebook_cell_state(self.team.id, notebook)[0].status == "stale"
+
     def test_sql_cell_referencing_never_run_upstream_is_stale(self) -> None:
         notebook = self._notebook(
             '<SQLV2 nodeId="up" code="select 1" returnVariable="df" />\n\n'
@@ -210,12 +232,15 @@ class TestNotebookCellState(APIBaseTest):
             '<SQLV2 nodeId="s" code="select 1" returnVariable="df" />\n\n'
             '<PythonV2 nodeId="p" code="x = df.head()" returnVariable="x" />'
         )
+        notebook.variables = [{"name": "limit", "type": "number", "value": 10}]
+        notebook.save()
         self._run(notebook, "s", "select 1", NotebookNodeRun.Status.DONE)
 
         response = self.client.get(f"/api/projects/{self.team.id}/notebooks/{notebook.short_id}/sql_v2/state/")
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
         assert data["notebook_id"] == notebook.short_id
+        assert data["variables"] == [{"name": "limit", "type": "number", "value": 10}]
         assert '<SQLV2 nodeId="s"' in data["markdown"]
         assert data["content"] is None
         assert data["kernel"]["status"] == "stopped"

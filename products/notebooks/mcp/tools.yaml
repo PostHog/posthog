@@ -102,10 +102,11 @@ tools:
         enrich_url: '{notebook_id}'
         title: Get notebook
         description: >
-            The full notebook view: title, markdown source, and every cell with its code, dataframe name,
-            depends_on/dependents edges, and derived status — 'stale' means re-running the cell now would execute
-            different code than its last completed run (the cell or an upstream changed), so its displayed result is
-            outdated. Use this to read or orient in a notebook, find which cells need re-running after edits, and decide
+            The full notebook view: title, markdown source, the notebook's variables (name, type, value; a SQL cell
+            reads one as `{name}`, a Python cell as a global — change them with notebooks-set-variables), and every
+            cell with its code, dataframe name, depends_on/dependents edges, and derived status — 'stale' means
+            re-running the cell now would execute different code than its last completed run (the cell, an upstream,
+            or a variable it reads changed), so its displayed result is outdated. Use this to read or orient in a notebook, find which cells need re-running after edits, and decide
             re-run order (walk stale cells in dependency order with notebooks-update-cell, omitting code). Legacy
             rich-text notebooks return their raw document in content instead of markdown.
         feature_flag: revamped-py-notebooks

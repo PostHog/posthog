@@ -241,6 +241,37 @@ export function directDependents(
     return dependents
 }
 
+/**
+ * Cells whose code reads one of the given notebook variables: a SQL cell as a bare `{name}`
+ * placeholder, a Python cell as a plain global. The Python scan is a word-boundary match, so a
+ * false positive only reports an extra cell to re-run.
+ */
+export function variableReaders(
+    cells: CellTagBlock[],
+    variableNames: string[]
+): { node_id: string; dataframe_name?: string }[] {
+    const names = variableNames.filter((name) => DATAFRAME_NAME_REGEX.test(name))
+    if (!names.length) {
+        return []
+    }
+    const sqlReference = new RegExp(`\\{(?:${names.join('|')})\\}`)
+    const pythonReference = new RegExp(`\\b(?:${names.join('|')})\\b`)
+    const readers: { node_id: string; dataframe_name?: string }[] = []
+    for (const cell of cells) {
+        if (!cell.nodeId || (cell.tagName !== 'SQLV2' && cell.tagName !== 'PythonV2')) {
+            continue
+        }
+        const reference = cell.tagName === 'SQLV2' ? sqlReference : pythonReference
+        if (reference.test(cell.code)) {
+            readers.push({
+                node_id: cell.nodeId,
+                ...(cell.returnVariable ? { dataframe_name: cell.returnVariable } : {}),
+            })
+        }
+    }
+    return readers
+}
+
 export function uniqueDataframeName(base: string, cells: CellTagBlock[]): string {
     const used = new Set(cells.map((cell) => cell.returnVariable.toLowerCase()).filter(Boolean))
     if (!used.has(base.toLowerCase())) {

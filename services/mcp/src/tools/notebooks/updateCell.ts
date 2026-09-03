@@ -75,6 +75,7 @@ export const updateCellHandler: ToolBase<typeof NotebooksUpdateCellSchema, Updat
         code,
         output_name: existing.returnVariable,
         refs: collectRunRefs(cells, params.node_id),
+        variables: initial.notebook.variables,
     })
     const outcome = await awaitRun(context, notebookPath, runId)
     await applyMarkdownEdit(context, params.notebook_id, (current) => {

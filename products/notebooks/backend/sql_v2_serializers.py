@@ -443,6 +443,13 @@ class NotebookSQLV2StateResponseSerializer(serializers.Serializer):
         ),
     )
     kernel = NotebookKernelStateSerializer(help_text="The notebook's kernel runtime state and compute config.")
+    variables = NotebookVariableSerializer(
+        many=True,
+        help_text=(
+            "The notebook's declared variables, in display order. A SQL cell reads one as a `{name}` "
+            "placeholder and a Python cell as a global; a cell that reads an undeclared name fails to run."
+        ),
+    )
     cells = NotebookCellStateSerializer(
         many=True,
         help_text="Every cell in document order, with its dependency edges and derived run state.",

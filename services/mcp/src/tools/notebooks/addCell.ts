@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from 'uuid'
 import { z } from 'zod'
 
+import type { Schemas } from '@/api/generated'
 import type { Context, ToolBase } from '@/tools/types'
 
 import {
@@ -111,7 +112,8 @@ async function runAndWriteBack(
     nodeType: 'hogql' | 'python',
     code: string,
     outputName: string,
-    cells: CellTagBlock[]
+    cells: CellTagBlock[],
+    variables: Schemas.NotebookVariable[] | undefined
 ): Promise<ShapedRunResult> {
     const projectId = await context.stateManager.getProjectId()
     const notebookPath = notebookPathFor(projectId, notebookId)
@@ -122,6 +124,7 @@ async function runAndWriteBack(
         code,
         output_name: outputName,
         refs,
+        variables,
     })
     const outcome = await awaitRun(context, notebookPath, runId)
     // Mirror the editor's write-back so humans opening the notebook see the result: runId
@@ -249,7 +252,8 @@ export const addCellHandler: ToolBase<typeof NotebooksAddCellSchema, AddCellResu
         params.cell_type === 'sql' ? 'hogql' : 'python',
         params.code!,
         dataframeName,
-        parseCellTags(markdown)
+        parseCellTags(markdown),
+        initial.notebook.variables
     )
     return wrapRunResultAsInformational({ node_id: nodeId, dataframe_name: dataframeName, run })
 }
