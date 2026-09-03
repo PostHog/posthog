@@ -4,10 +4,13 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from datetime import date
+from types import TracebackType
 from typing import Any, Literal
 
 import pytest
 from unittest.mock import MagicMock, call, patch
+
+import psycopg
 
 from posthog.temporal.warehouse_sources_queue_partition_management import activities as activities_module
 from posthog.temporal.warehouse_sources_queue_partition_management.activities import (
@@ -519,3 +522,43 @@ async def test_activity_logs_s3_deleted_count(activity_environment) -> None:
     ]
     assert len(completion_calls) == 1
     assert completion_calls[0].kwargs["s3_deleted_count"] == 2
+
+
+# Credential hygiene
+
+
+def _connect_refused(*args: Any, **kwargs: Any) -> None:
+    # The SDK snapshots f_locals of every frame in the traceback; drop the call args so this
+    # stand-in's frame does not itself hold the URL the test asserts on.
+    del args, kwargs
+    raise psycopg.OperationalError("connection refused")
+
+
+def _frames_holding(tb: TracebackType | None, needle: str) -> list[str]:
+    hits: list[str] = []
+    while tb is not None:
+        if needle in repr(tb.tb_frame.f_locals):
+            hits.append(tb.tb_frame.f_code.co_qualname)
+        tb = tb.tb_next
+    return hits
+
+
+_SECRET = "invented-secret"
+
+
+@pytest.mark.asyncio
+async def test_connect_failure_keeps_database_url_out_of_traceback_locals() -> None:
+    with (
+        patch.object(
+            activities_module.settings,
+            "WAREHOUSE_SOURCES_DATABASE_URL",
+            f"postgres://alice:{_SECRET}@db.example.com/app",
+        ),
+        patch.object(activities_module.psycopg.Connection, "connect", _connect_refused),
+        pytest.raises(psycopg.OperationalError) as exc_info,
+    ):
+        await manage_warehouse_sources_queue_partitions()
+
+    # Computed outside the assert so pytest's rewriter does not bind the needle into this frame.
+    hits = _frames_holding(exc_info.value.__traceback__, _SECRET)
+    assert hits == []
