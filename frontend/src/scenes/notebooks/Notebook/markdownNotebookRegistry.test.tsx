@@ -71,13 +71,15 @@ describe('markdownNotebookRegistry', () => {
     describe('getMarkdownRegistryForFeatureFlags', () => {
         it('offers a single SQL and Python cell, gated by the revamped notebooks flag', () => {
             // The unified insert surface: SQLV2 ("SQL") and PythonV2 ("Python") are the only
-            // insertable code cells with the flag on; the legacy SQL/Python cells and the
-            // legacy query node render but must never be insertable in markdown notebooks.
+            // insertable code cells with the flag on. The legacy query node renders but must never
+            // be insertable, and the removed legacy code cells are not registered at all: the
+            // content migration rewrites them to SQLV2/PythonV2 before the registry sees them.
             const flagOn = getMarkdownRegistryForFeatureFlags({ [FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS]: true })
             expect(flagOn.components.SQLV2.insertCommand).toBeTruthy()
             expect(flagOn.components.PythonV2.insertCommand).toBeTruthy()
-            for (const legacyTag of ['Query', 'Python', 'DuckSQL', 'HogQLSQL']) {
-                expect(flagOn.components[legacyTag].insertCommand).toBeUndefined()
+            expect(flagOn.components.Query.insertCommand).toBeUndefined()
+            for (const legacyTag of ['Python', 'DuckSQL', 'HogQLSQL']) {
+                expect(flagOn.components).not.toHaveProperty(legacyTag)
             }
 
             const flagOff = getMarkdownRegistryForFeatureFlags({})

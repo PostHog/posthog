@@ -615,7 +615,7 @@ after`)
                                     attrs: { level: 2 },
                                     content: [{ type: 'text', text: 'Where to improve' }],
                                 },
-                                { type: NotebookNodeType.Python, attrs: { code: 'print(1)', hideFilters: true } },
+                                { type: NotebookNodeType.PythonV2, attrs: { code: 'print(1)', hideFilters: true } },
                             ],
                         },
                     ],
@@ -628,14 +628,14 @@ after`)
         expect(markdown).toContain('> Quoted context')
         expect(markdown).toContain('\n\n<Query ')
         expect(markdown).toContain('> ## Where to improve')
-        expect(markdown).toContain('\n\n<Python ')
+        expect(markdown).toContain('\n\n<PythonV2 ')
         expect(markdown).not.toContain('> <')
 
         const parsed = parseMarkdownNotebook(markdown)
         expect(parsed.errors).toEqual([])
         expect(parsed.nodes.flatMap((node) => (node.type === 'component' ? [node.tagName] : []))).toEqual([
             'Query',
-            'Python',
+            'PythonV2',
         ])
         const quotedHeading = parsed.nodes.find((node) => node.type === 'heading')
         expect(quotedHeading?.type === 'heading' && quotedHeading.blockquote).toBe(true)

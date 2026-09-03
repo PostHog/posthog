@@ -71,21 +71,11 @@ import type { NotebookCollabCursorApi } from 'products/notebooks/frontend/genera
 import type { CommentType, UserType } from '../../../types'
 import {
     buildNotebookDependencyGraph,
-    collectDuckSqlNodes,
-    collectHogqlSqlNodes,
     collectNodeIndices,
-    collectPythonNodes,
     collectNotebookFrameNodes,
     collectSqlV2Nodes,
 } from '../Nodes/notebookNodeContent'
-import type {
-    DuckSqlNodeSummary,
-    HogqlSqlNodeSummary,
-    NotebookDependencyGraph,
-    PythonNodeSummary,
-    NotebookFrameNodeSummary,
-    SqlV2NodeSummary,
-} from '../Nodes/notebookNodeContent'
+import type { NotebookDependencyGraph, NotebookFrameNodeSummary, SqlV2NodeSummary } from '../Nodes/notebookNodeContent'
 import type { notebookNodeLogicType } from '../Nodes/notebookNodeLogic'
 import { NotebookNodeType, NotebookSyncStatus, NotebookTarget, NotebookType } from '../types'
 import type { NotebookListItemType, NotebookVariableApi } from '../types'
@@ -311,8 +301,6 @@ export interface notebookLogicValues {
     containerSize: 'medium' | 'small'
     content: JSONContent
     dependencyGraph: NotebookDependencyGraph
-    duckSqlNodeIndices: Map<string, number>
-    duckSqlNodeSummaries: DuckSqlNodeSummary[]
     editingNodeIds: Record<string, true>
     editingNodeLogics: BuiltLogic<notebookNodeLogicType>[]
     findNodeLogic: (type: NotebookNodeType, attributes: Record<string, any>) => notebookNodeLogicType | null
@@ -321,8 +309,6 @@ export interface notebookLogicValues {
     getSharedCachedInlineQueryResults: (nodeId: string | null | undefined) => AnyResponseType | null
     getSharedCachedInsight: (shortId: string | null | undefined) => InsightModel | null
     hasUnsavedVariables: boolean
-    hogqlSqlNodeIndices: Map<string, number>
-    hogqlSqlNodeSummaries: HogqlSqlNodeSummary[]
     isEditable: boolean
     isLocalOnly: boolean
     isShareModalOpen: boolean
@@ -354,8 +340,6 @@ export interface notebookLogicValues {
     notebookPresenceParticipants: NotebookPresenceParticipant[]
     personUUIDFromCanvasOverride: string | null
     previewContent: JSONContent | null
-    pythonNodeIndices: Map<string, number>
-    pythonNodeSummaries: PythonNodeSummary[]
     runnableVariables: NotebookVariable[]
     shortId: string
     shouldBeEditable: boolean
@@ -683,16 +667,10 @@ export interface notebookLogicMeta {
             nodeLogics: Record<string, BuiltLogic<notebookNodeLogicType>>,
             content: JSONContent
         ) => BuiltLogic<notebookNodeLogicType>[]
-        pythonNodeSummaries: (content: JSONContent) => PythonNodeSummary[]
-        duckSqlNodeSummaries: (content: JSONContent) => DuckSqlNodeSummary[]
-        hogqlSqlNodeSummaries: (content: JSONContent) => HogqlSqlNodeSummary[]
         sqlV2NodeSummaries: (content: JSONContent) => SqlV2NodeSummary[]
         frameNodeSummaries: (content: JSONContent) => NotebookFrameNodeSummary[]
         dependencyGraph: (content: JSONContent) => NotebookDependencyGraph
-        pythonNodeIndices: (content: JSONContent) => Map<string, number>
         sqlNodeIndices: (content: JSONContent) => Map<string, number>
-        duckSqlNodeIndices: (content: JSONContent) => Map<string, number>
-        hogqlSqlNodeIndices: (content: JSONContent) => Map<string, number>
         isShowingLeftColumn: (showHistory: boolean) => boolean
         variables: (localVariables: NotebookVariable[] | null, notebook: NotebookType | null) => NotebookVariable[]
         variableErrors: (variables: NotebookVariable[], content: JSONContent) => (string | null)[]
@@ -1429,17 +1407,9 @@ export const notebookLogic = kea<notebookLogicType>([
             },
         ],
 
-        pythonNodeSummaries: [(s) => [s.content], (content: JSONContent) => collectPythonNodes(content)],
-        duckSqlNodeSummaries: [(s) => [s.content], (content: JSONContent) => collectDuckSqlNodes(content)],
-        hogqlSqlNodeSummaries: [(s) => [s.content], (content: JSONContent) => collectHogqlSqlNodes(content)],
         sqlV2NodeSummaries: [(s) => [s.content], (content: JSONContent) => collectSqlV2Nodes(content)],
         frameNodeSummaries: [(s) => [s.content], (content: JSONContent) => collectNotebookFrameNodes(content)],
         dependencyGraph: [(s) => [s.content], (content: JSONContent) => buildNotebookDependencyGraph(content)],
-
-        pythonNodeIndices: [
-            (s) => [s.content],
-            (content: JSONContent) => collectNodeIndices(content, (node) => node.type === NotebookNodeType.Python),
-        ],
 
         sqlNodeIndices: [
             (s) => [s.content],
@@ -1451,14 +1421,6 @@ export const notebookLogic = kea<notebookLogicType>([
                         (isHogQLQuery(node.attrs?.query) ||
                             (node.attrs?.query?.source && isHogQLQuery(node.attrs.query.source)))
                 ),
-        ],
-        duckSqlNodeIndices: [
-            (s) => [s.content],
-            (content: JSONContent) => collectNodeIndices(content, (node) => node.type === NotebookNodeType.DuckSQL),
-        ],
-        hogqlSqlNodeIndices: [
-            (s) => [s.content],
-            (content: JSONContent) => collectNodeIndices(content, (node) => node.type === NotebookNodeType.HogQLSQL),
         ],
 
         isShowingLeftColumn: [(s) => [s.showHistory], (showHistory: boolean) => showHistory],

@@ -4836,63 +4836,6 @@ const api = {
         ): Promise<Record<string, any>> {
             return await new ApiRequest().notebook(notebookId).withAction('kernel/execute').create({ data })
         },
-        async hogqlExecute(
-            notebookId: NotebookType['short_id'],
-            data: { query: string }
-        ): Promise<{ columns?: string[]; results?: any[]; error?: string }> {
-            return await new ApiRequest().notebook(notebookId).withAction('hogql/execute').create({ data })
-        },
-        async kernelExecuteStream(
-            notebookId: NotebookType['short_id'],
-            data: {
-                code: string
-                return_variables?: boolean
-                timeout?: number
-            },
-            {
-                onMessage,
-                onError,
-                signal,
-            }: {
-                onMessage: (data: EventSourceMessage) => void
-                onError: (error: any) => void
-                signal?: AbortSignal
-            }
-        ): Promise<void> {
-            const url = new ApiRequest().notebook(notebookId).withAction('kernel/execute/stream').assembleFullUrl(true)
-            await api.stream(url, {
-                method: 'POST',
-                data,
-                onMessage,
-                onError,
-                signal,
-            })
-        },
-        async kernelDataframe(
-            notebookId: NotebookType['short_id'],
-            params: {
-                variable_name: string
-                offset?: number
-                limit?: number
-                timeout?: number
-            }
-        ): Promise<{
-            columns: string[]
-            rows: Record<string, any>[]
-            rowCount: number
-        }> {
-            const response = await new ApiRequest()
-                .notebook(notebookId)
-                .withAction('kernel/dataframe')
-                .withQueryString(params)
-                .get()
-
-            return {
-                columns: response.columns ?? [],
-                rows: response.rows ?? [],
-                rowCount: response.row_count ?? 0,
-            }
-        },
         async kernelStart(notebookId: NotebookType['short_id']): Promise<Record<string, any>> {
             return await new ApiRequest().notebook(notebookId).withAction('kernel/start').create()
         },

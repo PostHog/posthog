@@ -54,8 +54,8 @@ describe('MarkdownNotebookV2Renderer UI', () => {
     beforeEach(async () => {
         localStorage.clear()
         initKeaTests()
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.NOTEBOOK_PYTHON], {
-            [FEATURE_FLAGS.NOTEBOOK_PYTHON]: true,
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS], {
+            [FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS]: true,
         })
         jest.spyOn(api.notebooks, 'collabStream').mockResolvedValue(undefined as any)
 
