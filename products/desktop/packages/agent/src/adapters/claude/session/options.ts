@@ -92,6 +92,7 @@ export interface BuildOptionsParams {
   systemPrompt?: Options["systemPrompt"];
   userProvidedOptions?: Options;
   sessionId: string;
+  taskId?: string;
   isResume: boolean;
   forkSession?: boolean;
   additionalDirectories?: string[];
@@ -181,7 +182,7 @@ function buildMcpServers(
 
 function buildEnvironment(
   gateway?: GatewayEnv,
-  sessionId?: string,
+  aiSessionId?: string,
   bedrockGatewayVariant?: BedrockGatewayVariant,
   contextWiki?: ContextWikiEnv,
   machineAuth?: MachineClaudeAuth,
@@ -212,7 +213,7 @@ function buildEnvironment(
   if (machineAuth) {
     applyMachineClaudeAuth(env, machineAuth);
   } else {
-    applyGatewayAuth(env, gateway, sessionId, bedrockGatewayVariant);
+    applyGatewayAuth(env, gateway, aiSessionId, bedrockGatewayVariant);
   }
   applyContextWikiEnv(env, contextWiki);
   return env;
@@ -221,7 +222,7 @@ function buildEnvironment(
 function applyGatewayAuth(
   env: Record<string, string>,
   gateway: GatewayEnv | undefined,
-  sessionId: string | undefined,
+  aiSessionId: string | undefined,
   bedrockGatewayVariant: BedrockGatewayVariant | undefined,
 ): void {
   // Custom HTTP headers reach the model only through the Claude CLI subprocess,
@@ -242,9 +243,9 @@ function applyGatewayAuth(
   if (projectId) {
     headerLines.push(buildPosthogProjectHeaderLines(Number(projectId)));
   }
-  if (sessionId) {
+  if (aiSessionId) {
     headerLines.push(
-      buildPosthogPropertyHeaderLines({ $ai_session_id: sessionId }),
+      buildPosthogPropertyHeaderLines({ $ai_session_id: aiSessionId }),
     );
   }
   // The two Bedrock headers are mutually exclusive at the gateway: it dispatches
@@ -594,9 +595,12 @@ export function buildSessionOptions(params: BuildOptionsParams): Options {
       params.mcpServers,
       loadUserClaudeJsonMcpServers(params.cwd, params.logger),
     ),
+    // Feedback events stamp the task id as $ai_session_id, so generations
+    // carry the same id for LLMA to group a task's runs and ratings together.
+    // A session without a task keeps the agent session id.
     env: buildEnvironment(
       params.gatewayEnv,
-      params.sessionId,
+      params.taskId ?? params.sessionId,
       params.bedrockGatewayVariant,
       params.contextWiki,
       params.machineAuth,

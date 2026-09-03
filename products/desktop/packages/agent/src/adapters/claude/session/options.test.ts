@@ -446,6 +446,16 @@ describe("buildSessionOptions", () => {
         expect(headers).toBe(expected);
       },
     );
+
+    it("stamps the task id as the LLMA session id so generations group with feedback", () => {
+      const headers = buildSessionOptions({
+        ...makeParams(),
+        taskId: "task-123",
+      }).env?.ANTHROPIC_CUSTOM_HEADERS;
+
+      expect(headers).toContain("x-posthog-property-$ai_session_id: task-123");
+      expect(headers).not.toContain("test-session");
+    });
   });
 
   describe("machineAuth (own Claude subscription)", () => {

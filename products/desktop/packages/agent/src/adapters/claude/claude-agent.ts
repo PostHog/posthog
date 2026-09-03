@@ -2801,6 +2801,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       systemPrompt,
       userProvidedOptions: meta?.claudeCode?.options,
       sessionId,
+      taskId: resolveTaskId(meta),
       isResume,
       forkSession,
       additionalDirectories: [
