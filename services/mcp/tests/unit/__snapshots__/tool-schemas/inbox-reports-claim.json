@@ -1,0 +1,21 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "description": "A UUID string identifying this signal report.",
+            "type": "string"
+        },
+        "pr_url": {
+            "description": "Optional GitHub pull request to attach to the claim. The report may be claimed without one.",
+            "format": "uri",
+            "type": "string"
+        },
+        "release": {
+            "default": false,
+            "description": "Release ownership while preserving any attached pull request.",
+            "type": "boolean"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

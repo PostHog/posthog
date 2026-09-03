@@ -9,6 +9,10 @@
             "description": "Filter by whether the latest actionability judgment says the issue is already being handled. False also includes older reports where that judgment did not record a value.",
             "type": "boolean"
         },
+        "assignee": {
+            "description": "Use 'me' to return reports claimed by the current user, task, or MCP agent.",
+            "type": "string"
+        },
         "channel_id": {
             "description": "Narrow to reports assigned to one space (channel). Absent or empty means all reports regardless of assignment.",
             "type": "string"
@@ -18,7 +22,7 @@
             "type": "boolean"
         },
         "has_implementation_pr": {
-            "description": "Filter reports by whether a shipped implementation pull request exists. 'true' keeps only reports with a PR; 'false' keeps only those without. Pair with count_only=true to return only the filtered total.",
+            "description": "Filter reports by whether an implementation pull request is attached. 'true' keeps only reports with a PR; 'false' keeps only those without. Pair with count_only=true to return only the filtered total.",
             "type": "boolean"
         },
         "include_all_statuses": {
@@ -84,6 +88,10 @@
         "teammate_uuid": {
             "description": "PostHog user UUID used when scope=teammate.",
             "type": "string"
+        },
+        "unclaimed": {
+            "description": "Filter by whether the report has neither an owner nor an open or unknown PR.",
+            "type": "boolean"
         },
         "use_priority_preference": {
             "description": "When true and priority is omitted, include priorities at or above the requesting user's personal PR-generation threshold, falling back to the project threshold.",
