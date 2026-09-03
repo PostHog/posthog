@@ -196,7 +196,6 @@ logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
 
 LEGACY_INSIGHT_ENDPOINTS_BLOCKED_FLAG = "legacy-insight-endpoints-disabled"
-LEGACY_INSIGHT_FILTERS_BLOCKED_FLAG = "legacy-insight-filters-disabled"
 
 
 EXPORT_QUERY_CACHE_MISS = Counter(
@@ -268,26 +267,6 @@ def is_legacy_insight_endpoint_blocked(user: Any, team: Team) -> bool:
 
     return feature_enabled_or_false(
         LEGACY_INSIGHT_ENDPOINTS_BLOCKED_FLAG,
-        str(distinct_id),
-        groups={
-            "organization": str(team.organization_id),
-            "project": str(team.id),
-        },
-        group_properties={
-            "organization": {"id": str(team.organization_id)},
-            "project": {"id": str(team.id)},
-        },
-        send_feature_flag_events=False,
-    )
-
-
-def is_legacy_insight_filters_blocked(user: Any, team: Team) -> bool:
-    distinct_id = getattr(user, "distinct_id", None)
-    if not distinct_id:
-        return False
-
-    return feature_enabled_or_false(
-        LEGACY_INSIGHT_FILTERS_BLOCKED_FLAG,
         str(distinct_id),
         groups={
             "organization": str(team.organization_id),
@@ -729,19 +708,34 @@ class InsightSerializer(InsightBasicSerializer):
             "timezone",
             "refreshing",
             "is_cached",
+            # A read still serves the stored filters of an insight written before queries.
+            "filters",
         )
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         query = attrs.get("query") if "query" in attrs else None
-        using_legacy_filters = "filters" in attrs and attrs.get("filters") is not None and query in (None, {})
-        if using_legacy_filters and is_legacy_insight_filters_blocked(
-            self.context["request"].user, self.context["get_team"]()
-        ):
-            raise PermissionDenied("Creating or updating insights with legacy filters is not available for this user.")
+        # `filters` is read-only, so DRF drops it before validation. The raw payload is the only
+        # place a legacy write still shows up, and it has to be answered rather than ignored.
+        sent_filters = self.initial_data.get("filters")
+        using_legacy_filters = sent_filters is not None and query in (None, {})
+        if using_legacy_filters:
+            # Opens with the sentence the deprecation notice told these callers to expect.
+            raise PermissionDenied(
+                "Creating or updating insights with legacy filters is not available for this user. "
+                "Send a query object instead. See https://posthog.com/docs/api/insights"
+            )
+
+        if self.instance is None and query in (None, {}):
+            raise ValidationError(
+                {
+                    "query": "Creating an insight needs a query. See https://posthog.com/docs/api/insights",
+                }
+            )
 
         validate_insight_write(
             query=query,
-            filters=attrs.get("filters"),
+            # No write reaches the stored filters, so only the query needs judging.
+            filters=None,
             # A write that omits `query` keeps the stored one, which is still what renders.
             unchanged_query=None if "query" in attrs else getattr(self.instance, "query", None),
             team=self.context["get_team"](),

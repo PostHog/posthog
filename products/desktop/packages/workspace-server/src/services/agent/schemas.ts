@@ -253,6 +253,8 @@ export type RtkStatus = z.infer<typeof rtkStatusOutput>;
 
 export const codexSubscriptionStatusOutput = z.object({
   loginState: z.enum(["logged-in", "logged-out", "unknown"]),
+  email: z.string().optional(),
+  subscriptionType: z.string().optional(),
 });
 
 export type CodexSubscriptionStatus = z.infer<
@@ -261,6 +263,9 @@ export type CodexSubscriptionStatus = z.infer<
 
 export const claudeSubscriptionStatusOutput = z.object({
   loginState: z.enum(["logged-in", "logged-out", "unknown"]),
+  email: z.string().optional(),
+  organization: z.string().optional(),
+  subscriptionType: z.string().optional(),
 });
 
 export type ClaudeSubscriptionStatus = z.infer<

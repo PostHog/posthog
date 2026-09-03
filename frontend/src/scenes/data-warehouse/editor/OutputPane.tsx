@@ -34,6 +34,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { tryJsonParse } from 'lib/utils/json'
 import { InsightErrorState, StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { HogQLBoldNumber } from 'scenes/insights/views/BoldNumber/BoldNumber'
@@ -623,6 +624,7 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
     const vizKey = useMemo(() => `SQLEditorScene`, [])
 
     const [selectedRow, setSelectedRow] = useState<Record<string, any> | null>(null)
+    const [selectedJson, setSelectedJson] = useState<object | null>(null)
 
     const setProgress = useCallback((loadId: string, progress: number) => {
         setProgressCache((prev) => ({ ...prev, [loadId]: progress }))
@@ -742,7 +744,23 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
                             return <TZLabel time={value} timestampStyle="absolute" />
                         }
 
-                        return value
+                        const parsedJson: unknown =
+                            typeof value === 'string' && cleanClickhouseType(type) === 'String'
+                                ? tryJsonParse(value)
+                                : null
+                        if (!parsedJson || typeof parsedJson !== 'object') {
+                            return value
+                        }
+
+                        return (
+                            <button
+                                type="button"
+                                className="block h-full w-full truncate text-left"
+                                onClick={() => setSelectedJson(parsedJson)}
+                            >
+                                {value}
+                            </button>
+                        )
                     },
                 }
             }) ?? []),
@@ -913,6 +931,11 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
                 columns={response?.columns || []}
                 columnKeys={response?.columns?.map((column: string, index: number) => `${column}_${index}`) || []}
             />
+            <LemonModal title="JSON" isOpen={selectedJson !== null} onClose={() => setSelectedJson(null)} width={800}>
+                <pre className="max-h-[70vh] overflow-auto whitespace-pre-wrap break-words font-mono">
+                    {selectedJson ? JSON.stringify(selectedJson, null, 2) : ''}
+                </pre>
+            </LemonModal>
         </div>
     )
 }
