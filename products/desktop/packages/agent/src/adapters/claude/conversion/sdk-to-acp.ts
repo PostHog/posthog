@@ -61,6 +61,7 @@ interface AnthropicMessageWithContent {
     content: AnthropicMessageContent;
     model?: string;
   };
+  isApiErrorMessage?: boolean;
 }
 
 type ChunkHandlerContext = {
@@ -1176,7 +1177,8 @@ function shouldSkipUserAssistantMessage(
 ): boolean {
   return (
     isSdkLocalCommandMessage(message.message.content) ||
-    isLoginRequiredMessage(message)
+    isLoginRequiredMessage(message) ||
+    message.isApiErrorMessage === true
   );
 }
 
