@@ -94,6 +94,10 @@
                     },
                     "type": "array"
                 },
+                "sessionId": {
+                    "description": "Scope results to one session ID. Matched server-side against the team's configured session-id log attribute keys plus the built-in conventions, in both log attributes and resource attributes.",
+                    "type": "string"
+                },
                 "severityLevels": {
                     "default": [],
                     "description": "Filter by log severity levels.",
