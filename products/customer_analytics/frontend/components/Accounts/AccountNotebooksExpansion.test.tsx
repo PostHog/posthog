@@ -97,5 +97,10 @@ describe('AccountNotebooksExpansion', () => {
         } else {
             expect(screen.queryByText('Tasks')).not.toBeInTheDocument()
         }
+        // Mounting the tasks logic loads tasks, so an expanded row must not mount it without the tab.
+        const mountedTasksLogic = (useMountedLogic as jest.Mock).mock.calls.some(
+            ([logic]: [{ kind?: string }]) => logic?.kind === 'tasks'
+        )
+        expect(mountedTasksLogic).toBe(visible)
     })
 })

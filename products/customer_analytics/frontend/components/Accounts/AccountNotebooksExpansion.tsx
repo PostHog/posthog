@@ -169,6 +169,13 @@ function UsefulLinks({ accountId }: { accountId: string }): JSX.Element {
     )
 }
 
+// Mount-only: keeps the account's task data cached across tab switches, and stays behind the
+// tasks flag so a team without the tab loads nothing; renders nothing.
+function CustomerTasksMount({ accountId }: { accountId: string }): null {
+    useMountedLogic(customerTasksLogic({ context: 'account', accountId }))
+    return null
+}
+
 export function AccountNotebooksExpansion({
     accountId,
     externalId,
@@ -190,7 +197,6 @@ export function AccountNotebooksExpansion({
     useMountedLogic(accountConversationsLogic({ accountId }))
     useMountedLogic(accountEmailThreadsLogic({ accountId }))
     useMountedLogic(accountMeetingsLogic({ accountId }))
-    useMountedLogic(customerTasksLogic({ context: 'account', accountId }))
     const { setSearchTerm, setSorting, createNote } = useActions(logic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { activeTabFor } = useValues(accountsExpansionLogic)
@@ -266,6 +272,9 @@ export function AccountNotebooksExpansion({
             className="sticky left-0 w-[100cqw] max-w-full overflow-x-hidden p-3 bg-bg-light"
             data-attr="account-expansion"
         >
+            {!!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CUSTOMER_TASKS] && (
+                <CustomerTasksMount accountId={accountId} />
+            )}
             <div className="flex gap-4">
                 <div className="w-fit shrink-0 flex flex-col gap-4">
                     <UsefulLinks accountId={accountId} />
