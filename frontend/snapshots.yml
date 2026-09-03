@@ -8257,13 +8257,13 @@ snapshots:
     scenes-app-posthog-ai-tools--thread-with-sql-query-overflow--light:
         hash: v1.k794b7964.998984fe26c3f9ce26629da81e63f19891aa45441c08b9ae5dccf1d497c9bddd.DdAh6vm68mAVp3cDCyYG54XXY4qjsjbYA_Zd7aY-AHY
     scenes-app-project-homepage--no-primary-dashboard--dark:
-        hash: v1.k794b7964.af9b4385991c80eee5264faf1d07d49b87761318e2305fb5514958086edc1f58.ZJdq0-sDWJFgyjsPctN1fx7YpMsXFoi-1o_vlTuOAhI
+        hash: v1.k794b7964.70707572ec3098ed0c916ac56ec8618ccd95b7b270cffb5a5425d447622912d5.Izwpm_cSdfGfQ1bysk9MbTHFu8B9R1YDo0NDluAAgnA
     scenes-app-project-homepage--no-primary-dashboard--light:
-        hash: v1.k794b7964.7c3fdb6ce7a31af8bd8ace431cfaadd663f8ffe276f49bf223e8bc638ecfa450.C6gh9sndZStKZhEfFjDYY3T0mgsXPGH_Q0v92i3hqzg
+        hash: v1.k794b7964.45567c13e93e1def5dabfea7b6a4a5a47253482e6dd5c587be257ae5b9374639.fFB5rU1nd1nzktqGMRc5P0xZg5nJcxhywEnhdqT9awo
     scenes-app-project-homepage--project-homepage--dark:
-        hash: v1.k794b7964.af9b4385991c80eee5264faf1d07d49b87761318e2305fb5514958086edc1f58.1tkbdKT7hTynpGkCGRVO93dX9A-VwsbzjNwGjSkHRLg
+        hash: v1.k794b7964.70707572ec3098ed0c916ac56ec8618ccd95b7b270cffb5a5425d447622912d5.Dayhp1AO69NWJL7h-i4nDDzqeXSh_3lNJjcRDBvOASU
     scenes-app-project-homepage--project-homepage--light:
-        hash: v1.k794b7964.7c3fdb6ce7a31af8bd8ace431cfaadd663f8ffe276f49bf223e8bc638ecfa450.8_eynLhjWE_werwIrum7FChveeSzc4NQvUjA_X43guQ
+        hash: v1.k794b7964.45567c13e93e1def5dabfea7b6a4a5a47253482e6dd5c587be257ae5b9374639.IC346vxEHrTKcFor0vVTajrOk8lCGCu3C5pdFW2iTOQ
     scenes-app-replay-vision--observation-detail--dark:
         hash: v1.k794b7964.2fe170e544ea302e2e752a2b742f8dcf49710909f54cdc6c911b245fa9403391.POKP1RHFnlV8cfwSDsAsUOY76QdhwKfc4Xryvh1TPkI
     scenes-app-replay-vision--observation-detail--light:

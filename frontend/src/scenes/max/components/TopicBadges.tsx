@@ -9,40 +9,39 @@ import { cn } from 'lib/utils/css-classes'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
 
-import { CODE_CAPABILITY, Capability, CapabilitySuggestion } from '../maxCapabilities'
+import { CODE_BADGE, SuggestionTopic, TopicSuggestion } from '../suggestionTopics'
 import { nextTypingDelayMs } from '../utils/typing'
+import { SuggestionCard } from './SuggestionCard'
 
 // Colors the product icons (via iconForType's ProductIconWrapper). Applied inside the components so
 // they look identical on every surface, not only where an ancestor happens to set it (e.g. /home).
-const COLORFUL_ICONS = 'group/colorful-product-icons colorful-product-icons-true'
+export const COLORFUL_ICONS = 'group/colorful-product-icons colorful-product-icons-true'
 
 /**
  * Baseline height of the suggestion-cards / recents-grid swap area. Each surface can grow beyond it
  * when its content needs more space.
  */
-export const CAPABILITY_CARDS_HEIGHT_PX = 184
+export const SUGGESTION_CARDS_HEIGHT_PX = 184
 
-function badgeIcon(capability: Capability): JSX.Element {
-    return capability.icon ?? iconForType(capability.iconType)
+function badgeIcon(topic: SuggestionTopic): JSX.Element {
+    return topic.icon ?? iconForType(topic.iconType)
 }
 
-export interface CapabilityBadgesProps {
-    capabilities: Capability[]
+export interface TopicBadgesProps {
+    topics: SuggestionTopic[]
     selectedKey: string | null
     onSelect: (key: string | null) => void
     className?: string
 }
 
-/** Row of PostHog AI capability badges (+ the Desktop beta badge). Selection is owned by the parent. */
-export function CapabilityBadges({
-    capabilities,
-    selectedKey,
-    onSelect,
-    className,
-}: CapabilityBadgesProps): JSX.Element | null {
+// pinned: the `capability-*` data-attr values below predate the topic naming and are frozen;
+// autocapture dashboards depend on them, so the rename stops at code symbols.
+
+/** Row of PostHog AI topic badges (+ the Desktop beta badge). Selection is owned by the parent. */
+export function TopicBadges({ topics, selectedKey, onSelect, className }: TopicBadgesProps): JSX.Element | null {
     const isProductAutonomyEnabled = useFeatureFlag('PRODUCT_AUTONOMY')
 
-    if (!capabilities.length) {
+    if (!topics.length) {
         return null
     }
 
@@ -54,17 +53,17 @@ export function CapabilityBadges({
                 className
             )}
         >
-            {capabilities.map((capability) => (
+            {topics.map((topic) => (
                 <LemonButton
-                    key={capability.key}
+                    key={topic.key}
                     size="small"
                     type="secondary"
-                    active={selectedKey === capability.key}
-                    icon={badgeIcon(capability)}
-                    onClick={() => onSelect(selectedKey === capability.key ? null : capability.key)}
-                    data-attr={`capability-badge-${capability.key}`}
+                    active={selectedKey === topic.key}
+                    icon={badgeIcon(topic)}
+                    onClick={() => onSelect(selectedKey === topic.key ? null : topic.key)}
+                    data-attr={`capability-badge-${topic.key}`}
                 >
-                    {capability.label}
+                    {topic.label}
                 </LemonButton>
             ))}
 
@@ -72,12 +71,12 @@ export function CapabilityBadges({
                 <LemonButton
                     size="small"
                     type="secondary"
-                    to={CODE_CAPABILITY.to}
+                    to={CODE_BADGE.to}
                     icon={<IconCode />}
                     data-attr="capability-badge-code"
                 >
                     <span className="flex items-center gap-1.5">
-                        {CODE_CAPABILITY.label}
+                        {CODE_BADGE.label}
                         <LemonTag type="warning" size="small">
                             Beta
                         </LemonTag>
@@ -88,8 +87,8 @@ export function CapabilityBadges({
     )
 }
 
-export interface CapabilitySuggestionsProps {
-    capability: Capability
+export interface TopicSuggestionsProps {
+    topic: SuggestionTopic
     /** Called per keystroke of the typewriter animation, and once more with the full prompt. */
     onType: (text: string) => void
     /** Send the fully typed prompt to PostHog AI. */
@@ -100,22 +99,16 @@ export interface CapabilitySuggestionsProps {
 }
 
 /**
- * The suggestion cards for a selected capability. Fills its parent's baseline height (`h-full`).
+ * The suggestion cards for a selected topic. Fills its parent's baseline height (`h-full`).
  */
-export function CapabilitySuggestions({
-    capability,
-    onType,
-    onSubmit,
-    onFillIn,
-    className,
-}: CapabilitySuggestionsProps): JSX.Element {
+export function TopicSuggestions({ topic, onType, onSubmit, onFillIn, className }: TopicSuggestionsProps): JSX.Element {
     // Cancels an in-flight typewriter animation (new click, or unmount).
     const cancelTypingRef = useRef<(() => void) | null>(null)
     useEffect(() => () => cancelTypingRef.current?.(), [])
 
     // Type the prompt at a human pace, then either send it, or — for a fill-in prompt — add a
     // trailing space and hand the hint to the parent so it can show the postfix cue.
-    const runSuggestion = (suggestion: CapabilitySuggestion): void => {
+    const runSuggestion = (suggestion: TopicSuggestion): void => {
         cancelTypingRef.current?.()
         const { content, requiresUserInput, hint } = suggestion
         let cancelled = false
@@ -153,35 +146,38 @@ export function CapabilitySuggestions({
 
     // Docs-style: a plain question list (like production's Docs suggestions), reading as an
     // explanation rather than an action. Card-style: icon + bold title + description.
-    const isDocs = capability.variant === 'docs'
+    const isDocs = topic.variant === 'docs'
     return (
         <div
             className={cn('w-full h-full px-3 flex flex-col gap-px', COLORFUL_ICONS, className)}
             data-attr="capability-suggestions"
         >
-            {capability.suggestions.map((suggestion) => {
-                const iconType: FileSystemIconType = suggestion.iconType ?? capability.iconType
+            {topic.suggestions.map((suggestion) => {
+                const iconType: FileSystemIconType = suggestion.iconType ?? topic.iconType
+                if (isDocs) {
+                    return (
+                        <LemonButton
+                            key={suggestion.content}
+                            className="flex-1 min-h-0"
+                            fullWidth
+                            type="tertiary"
+                            onClick={() => runSuggestion(suggestion)}
+                            data-attr={`capability-suggestion-${topic.key}`}
+                        >
+                            <span className="text-sm font-normal text-left truncate w-full">{suggestion.content}</span>
+                        </LemonButton>
+                    )
+                }
                 return (
-                    <LemonButton
+                    <SuggestionCard
                         key={suggestion.content}
                         className="flex-1 min-h-0"
-                        fullWidth
-                        type={isDocs ? 'tertiary' : undefined}
+                        title={suggestion.title ?? suggestion.content}
+                        description={suggestion.description}
+                        icon={iconForType(iconType)}
                         onClick={() => runSuggestion(suggestion)}
-                        icon={isDocs ? undefined : iconForType(iconType)}
-                        data-attr={`capability-suggestion-${capability.key}`}
-                    >
-                        {isDocs ? (
-                            <span className="text-sm font-normal text-left truncate w-full">{suggestion.content}</span>
-                        ) : (
-                            <div className="flex flex-col text-left leading-tight min-w-0">
-                                <span className="text-sm font-semibold truncate">{suggestion.title}</span>
-                                <span className="text-xs text-secondary font-normal truncate">
-                                    {suggestion.description}
-                                </span>
-                            </div>
-                        )}
-                    </LemonButton>
+                        data-attr={`capability-suggestion-${topic.key}`}
+                    />
                 )
             })}
         </div>
