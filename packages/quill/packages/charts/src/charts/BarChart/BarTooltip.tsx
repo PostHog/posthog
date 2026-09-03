@@ -76,7 +76,7 @@ function narrowSeriesByCursor<Meta>(
         return ctx
     }
     const seriesList = ctx.seriesData.map((entry) => entry.series)
-    const { hits } = resolveBarsAtCursor({
+    const { hits, strictHit } = resolveBarsAtCursor({
         series: seriesList,
         label: ctx.label,
         dataIndex: ctx.dataIndex,
@@ -90,6 +90,9 @@ function narrowSeriesByCursor<Meta>(
     if (hits.size === 0) {
         return null
     }
+    // Same floored-rect geometry as click routing, so the tooltip's converted/track split
+    // can't disagree with what a click at the same position resolves to.
+    const inTrackArea = layout === 'grouped' ? strictHit == null : undefined
     let visibleKey: string | null = null
     let visibleDataIndex: number | null = null
     if (isStackedLayout(layout)) {
@@ -129,7 +132,7 @@ function narrowSeriesByCursor<Meta>(
             const value = typeof raw === 'number' && Number.isFinite(raw) ? raw : entry.value
             return { ...entry, value }
         })
-        return { ...ctx, seriesData: revalued, dataIndex: di, hoveredSeriesKey }
+        return { ...ctx, seriesData: revalued, dataIndex: di, hoveredSeriesKey, inTrackArea }
     }
-    return { ...ctx, seriesData: filtered, hoveredSeriesKey }
+    return { ...ctx, seriesData: filtered, hoveredSeriesKey, inTrackArea }
 }

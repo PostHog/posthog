@@ -186,6 +186,12 @@ export interface TooltipContext<Meta = unknown> {
      *  false` (e.g. a drop-off filler segment), so callers must not assume a matching
      *  `seriesData` entry exists. */
     hoveredSeriesKey?: string
+    /** Grouped bar layouts only: `true` when the cursor is in a bar's band slot but beyond its
+     *  filled value extent — the track region above (vertical) or past (horizontal) the bar.
+     *  Measured against the same laid-out rects as click routing (including `minBarSize`
+     *  flooring), so a tooltip and `PointClickData.inTrackArea` classify a position identically.
+     *  `undefined` for other layouts and for pinned rebuilds with no cursor. */
+    inTrackArea?: boolean
     /** Pixel position (relative to the chart container) for anchoring the tooltip.
      *  `width` (optional) is the horizontal data-extent centered on `x` — bar charts
      *  populate it with the band width so {@link Tooltip} can anchor at the band edge
@@ -457,6 +463,12 @@ export interface BarsConfig {
      *  that segment. So a multi-series (breakdown) stack floors only its top segment — this is aimed
      *  at single-series volume charts and grouped bars. Defaults to 0 (exact heights). */
     minBarSize?: number
+    /** Where the `minBarSize` floor applies. `always` (default) floors the static layer, the hover
+     *  highlight, and hit-testing alike. `hover` keeps the static layer at the true value and floors
+     *  only the hover highlight and hit-testing — the bar stays honest at rest and "grows" to a
+     *  clickable nub under the cursor. Used by funnel charts, where a floored resting bar would
+     *  overstate a near-zero conversion rate. */
+    minBarSizeScope?: 'always' | 'hover'
     /** Horizontal bar charts only — minimum px per row. When many rows would otherwise crush into
      *  an unreadable strip, the chart expands its container height so each row has at least this
      *  much vertical space (label height + breathing room). Defaults to `24`. Pass `0` to opt out. */

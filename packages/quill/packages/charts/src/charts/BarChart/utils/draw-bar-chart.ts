@@ -90,6 +90,7 @@ export interface DrawBarChartStaticArgs {
     barTrack: boolean
     barShadow: BarsConfig['shadow']
     barFillStyle: BarFillStyle
+    minBarSizeScope?: BarsConfig['minBarSizeScope']
 }
 
 /** The full static pass: grid, bars, optional tracks, optional drop shadow and rounded stack
@@ -110,12 +111,16 @@ export function drawBarChartStatic(
         barTrack,
         barShadow,
         barFillStyle,
+        minBarSizeScope,
     }: DrawBarChartStaticArgs
 ): void {
-    const d3Scales = (scales._private as BarChartPrivate | undefined)?.__barChart
-    if (!d3Scales) {
+    const rawScales = (scales._private as BarChartPrivate | undefined)?.__barChart
+    if (!rawScales) {
         return
     }
+    // Hover-scoped flooring: the static layer draws true sizes; the floored rects live only in
+    // the hover highlight and hit-testing, which read minBarSize from the committed scales.
+    const d3Scales = minBarSizeScope === 'hover' ? { ...rawScales, minBarSize: undefined } : rawScales
 
     const baseDrawCtx: DrawContext = {
         ctx,
@@ -238,8 +243,10 @@ export function drawBarHoverItems(
     if (hoveredBandPills.length > 0) {
         clipToRoundedRects(ctx, hoveredBandPills, barCornerRadius)
     }
-    for (const { series: s, bar, isTrackHighlight } of items) {
-        if (isTrackHighlight) {
+    for (const { series: s, bar, isTrackHighlight, isBarReveal } of items) {
+        if (isBarReveal) {
+            drawBarHighlight(ctx, bar, barColorAt(s, bar.dataIndex), highlightRadius)
+        } else if (isTrackHighlight) {
             const parsed = d3Color(barColorAt(s, bar.dataIndex))
             // Always translucent — the bar color direct would paint an opaque full-height
             // block if d3 can't parse the color.

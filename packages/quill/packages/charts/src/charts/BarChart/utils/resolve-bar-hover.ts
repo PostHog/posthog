@@ -16,6 +16,10 @@ export interface BarHoverItem {
     series: ResolvedSeries
     bar: BarRect
     isTrackHighlight: boolean
+    /** Draw the bar in its plain series color instead of the darkened highlight shade — used to
+     *  reveal a `minBarSize`-floored bar while the cursor is on its track, so a near-invisible
+     *  resting bar shows where its clickable extent is. */
+    isBarReveal?: boolean
 }
 
 export interface ResolvedBarHover {
@@ -98,6 +102,13 @@ export function resolveBarHoverItems(
                 !cursorBeyondTrackCeiling(s, bar, d3Scales, hoverPosition, isHorizontal)
             items.push({ series: s, bar, isTrackHighlight })
             composition += isTrackHighlight ? 't' : 'b'
+            // A floored bar may be invisible at rest (hover-scoped minBarSize), so surface it
+            // while its track is hovered. For a bar drawn at (or naturally above) the floor this
+            // repaints the same pixels in the same color — a no-op.
+            const extent = isHorizontal ? bar.width : bar.height
+            if (isTrackHighlight && d3Scales.minBarSize != null && extent <= d3Scales.minBarSize) {
+                items.push({ series: s, bar, isTrackHighlight: false, isBarReveal: true })
+            }
         }
     }
     if (items.length === 0) {

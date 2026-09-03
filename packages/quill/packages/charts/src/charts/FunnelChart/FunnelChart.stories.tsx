@@ -80,6 +80,31 @@ export const WithStepFooter: Story = {
     },
 }
 
+// A near-zero conversion rests at its true (sub-pixel) size — hover the last step to reveal the
+// floored clickable nub at the baseline.
+export const NearZeroConversion: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        const tiny = funnelFromCounts([
+            { label: STEPS[0], count: 52400 },
+            { label: STEPS[1], count: 7921 },
+            { label: STEPS[2], count: 31 },
+        ])
+        return (
+            <Stage width={640}>
+                <FunnelChart
+                    steps={tiny.steps}
+                    series={tiny.series}
+                    theme={theme}
+                    onStepClick={({ stepIndex, converted }) =>
+                        alert(`${converted ? 'Converted' : 'Dropped off'} · step ${stepIndex + 1}`)
+                    }
+                />
+            </Stage>
+        )
+    },
+}
+
 export const FewStepsClustered: Story = {
     render: () => {
         const theme = useReactiveTheme()
