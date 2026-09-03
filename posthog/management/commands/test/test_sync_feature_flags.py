@@ -5,7 +5,7 @@ from django.core.management import call_command
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
-class TestSyncDesktopFeatureFlags(BaseTest):
+class TestSyncFeatureFlags(BaseTest):
     def test_syncs_desktop_flags_and_is_idempotent(self) -> None:
         existing_filters = {
             "groups": [{"properties": [], "rollout_percentage": 25}],
