@@ -38,12 +38,12 @@ class TestExperimentPSAKAuth(APIBaseTest):
         self.client.logout()
 
     def _auth_headers(self, token: str) -> dict[str, str]:
-        return {"HTTP_AUTHORIZATION": f"Bearer {token}"}
+        return {"Authorization": f"Bearer {token}"}
 
     def test_psak_can_list_experiments(self) -> None:
         response = self.client.get(
             f"/api/projects/{self.team.id}/experiments/",
-            **self._auth_headers(self.token),
+            headers=self._auth_headers(self.token),
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
@@ -59,7 +59,7 @@ class TestExperimentPSAKAuth(APIBaseTest):
     def test_psak_can_retrieve_experiment(self) -> None:
         response = self.client.get(
             f"/api/projects/{self.team.id}/experiments/{self.experiment.id}/",
-            **self._auth_headers(self.token),
+            headers=self._auth_headers(self.token),
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
@@ -91,7 +91,7 @@ class TestExperimentPSAKAuth(APIBaseTest):
             f"/api/projects/{self.team.id}/experiments/{path_suffix}",
             data=body,
             content_type="application/json",
-            **self._auth_headers(wide_token),
+            headers=self._auth_headers(wide_token),
         )
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
@@ -101,7 +101,7 @@ class TestExperimentPSAKAuth(APIBaseTest):
 
         response = self.client.get(
             f"/api/projects/{self.team.id}/experiments/",
-            **self._auth_headers(token),
+            headers=self._auth_headers(token),
         )
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
@@ -112,7 +112,7 @@ class TestExperimentPSAKAuth(APIBaseTest):
 
         response = self.client.get(
             f"/api/projects/{self.team.id}/experiments/",
-            **self._auth_headers(other_token),
+            headers=self._auth_headers(other_token),
         )
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
