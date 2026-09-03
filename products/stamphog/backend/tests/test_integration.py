@@ -2301,6 +2301,7 @@ def test_mint_fails_closed_when_the_gateway_ignores_the_model_pin(team, stamphog
     mint = MagicMock(side_effect=[_mint_response(201, {"token": "phe_run"}), _mint_response(200, {"revoked": True})])
     unpinned_before = activities.AI_GATEWAY_TOKEN_MINTS.labels(result="unpinned")._value.get()
     ok_before = activities.AI_GATEWAY_TOKEN_MINTS.labels(result="ok")._value.get()
+    error_before = activities.AI_GATEWAY_TOKEN_MINTS.labels(result="error")._value.get()
 
     with (
         override_settings(**_GO_GATEWAY_SETTINGS, STAMPHOG_REVIEWER_TOKEN_ALLOWED_MODELS=["claude-sonnet-5"]),
@@ -2315,8 +2316,10 @@ def test_mint_fails_closed_when_the_gateway_ignores_the_model_pin(team, stamphog
     _, revoke_call = mint.call_args_list
     assert revoke_call.args == ("https://ai-gateway.test/v1/tokens/revoke",)
     assert revoke_call.kwargs["json"] == {"token": "phe_run"}
+    # One mint counts once: unpinned, never ok or error as well.
     assert activities.AI_GATEWAY_TOKEN_MINTS.labels(result="unpinned")._value.get() == unpinned_before + 1
     assert activities.AI_GATEWAY_TOKEN_MINTS.labels(result="ok")._value.get() == ok_before
+    assert activities.AI_GATEWAY_TOKEN_MINTS.labels(result="error")._value.get() == error_before
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
