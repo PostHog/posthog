@@ -39,6 +39,7 @@ hcl/
   check.sh                 # CI guard (offline): validate + diff every node vs golden + verify golden/ & sql/ are fresh
   dump-live.sh             # CI gate step 1 (live): introspect the migrated OPS/LOGS nodes into HCL dumps
   check-live.sh            # CI gate step 2 (offline): diff those dumps vs golden — catches migrations that desync from the HCL
+  check-cloud.sh           # manual, needs sibling checkouts: compose vs the cloud node dumps + posthog-cloud-infra still composes
   exclude.hcl              # objects the gate drops (transient + cross-cluster proxies + out-of-band-managed, not in the managed set)
   diff.sh                  # preview the DDL your uncommitted edits produce, per node
   gen-golden.sh            # (re)generate golden/  — hclexp load per node
@@ -225,6 +226,24 @@ Edit the existing `patch_*` block in that env's layer (cloud envs: in posthog-cl
 The cloud envs compose the same base layers, vendored by commit sha, plus private per-env `overrides/` (mat\_ columns and other cloud-only deltas), in posthog-cloud-infra's `clickhouse/hcl/`.
 After a base change merges here, a **base-ref bump PR** there advances the pinned sha, regenerates the cloud goldens (your change now appears in every env's composed output), and produces the ordered migration SQL for the cloud clusters.
 That PR runs the strict check (goldens asserted, baseline exact), so the golden movement the compose gate waved through gets reviewed and applied there.
+
+### Checking both sides locally (`check-cloud.sh`)
+
+`check.sh` is hermetic and deliberately knows nothing about the cloud.
+`check-cloud.sh` is the manual pass that answers the two questions it cannot, given the sibling checkouts:
+
+```bash
+bash posthog/clickhouse/hcl/check-cloud.sh            # ../clickhouse-schema and ../posthog-cloud-infra
+bash posthog/clickhouse/hcl/check-cloud.sh prod-us    # one env
+DUMPS=<path> CLOUD_INFRA=<path> bash posthog/clickhouse/hcl/check-cloud.sh
+```
+
+It reconciles every composed node against the per-node dumps in PostHog/clickhouse-schema, and replays the compose gate against your working tree, so you learn before pushing whether a layer you moved or renamed breaks posthog-cloud-infra.
+Each half is skipped, loudly, when its checkout is absent.
+It copies posthog-cloud-infra's tree to a scratch dir before vendoring into it, so it never leaves that checkout in a state that disagrees with its own `base-ref`.
+
+A red run is not a build break: the dump repo refreshes daily, so its answer changes without this repo changing.
+Read it as drift to catalog or a fix to make.
 
 ## Build a node from scratch
 
