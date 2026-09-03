@@ -17,12 +17,14 @@ const {
   useFolderInstructions,
   useContextLayerFlag,
   useChannelWikiContext,
+  useContextWikiPage,
   taskInputProps,
 } = vi.hoisted(() => ({
   track: vi.fn(),
   useFolderInstructions: vi.fn(),
   useContextLayerFlag: vi.fn(),
   useChannelWikiContext: vi.fn(),
+  useContextWikiPage: vi.fn(),
   taskInputProps: vi.fn(),
 }));
 
@@ -102,6 +104,7 @@ vi.mock("@posthog/ui/features/feature-flags/useContextLayerFlag", () => ({
 }));
 vi.mock("@posthog/ui/features/context-wiki/hooks/useContextWiki", () => ({
   useChannelWikiContext,
+  useContextWikiPage,
 }));
 vi.mock("@posthog/ui/shell/analytics", () => ({ track }));
 vi.mock("@tanstack/react-query", () => ({
@@ -143,6 +146,7 @@ describe("SpaceNewTask context panel", () => {
     useFolderInstructions.mockReset();
     useContextLayerFlag.mockReturnValue(false);
     useChannelWikiContext.mockReturnValue(NO_WIKI_PAGE);
+    useContextWikiPage.mockReturnValue({ data: undefined });
     taskInputProps.mockReset();
     useTaskInputPrefillStore.setState({ prefill: {} });
   });
@@ -300,6 +304,27 @@ describe("SpaceNewTask context panel", () => {
       screen.queryByText("project-bluebird CONTEXT.md"),
     ).not.toBeInTheDocument();
     expect(viewContextCalls()).toHaveLength(1);
+  });
+
+  it("previews the wiki page a resolved context path points at", async () => {
+    const user = userEvent.setup();
+    useContextLayerFlag.mockReturnValue(true);
+    useChannelWikiContext.mockReturnValue({
+      ...NO_WIKI_PAGE,
+      path: "spaces/project-bluebird.md",
+      useLegacy: false,
+    });
+    useFolderInstructions.mockReturnValue({ data: { content: "legacy body" } });
+    useContextWikiPage.mockReturnValue({
+      data: { content: "# Wiki page\n\nBackground." },
+    });
+
+    renderNewTask();
+
+    await user.click(screen.getByRole("button", { name: "context-chip" }));
+
+    expect(screen.getByText("spaces/project-bluebird.md")).toBeInTheDocument();
+    expect(screen.getByText("Background.")).toBeInTheDocument();
   });
 
   it("leaves the chip non-interactive when the channel has no CONTEXT.md", () => {

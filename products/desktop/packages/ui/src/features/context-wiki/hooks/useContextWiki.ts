@@ -100,13 +100,13 @@ export function useContextWikiTree() {
   );
 }
 
-export function useContextWikiPage(path: string) {
+export function useContextWikiPage(path: string | null) {
   return useAuthenticatedQuery<ContextWikiPage | null>(
-    CONTEXT_WIKI_PAGE_KEY(path),
-    (client) => client.getContextWikiPage(path),
+    CONTEXT_WIKI_PAGE_KEY(path ?? ""),
+    (client) => client.getContextWikiPage(path as string),
     // The pane remounts per selection, so revisits inside this window render
     // from cache; a stale-head save still fails safe via the 409 conflict.
-    { staleTime: 30_000 },
+    { enabled: path !== null, staleTime: 30_000 },
   );
 }
 

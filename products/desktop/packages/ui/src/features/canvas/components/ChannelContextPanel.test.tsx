@@ -67,7 +67,7 @@ describe("ChannelContextPanel", () => {
     const user = userEvent.setup();
     const onClose = renderPanel();
     await user.click(
-      screen.getByRole("button", { name: "Close CONTEXT.md panel" }),
+      screen.getByRole("button", { name: "Close context panel" }),
     );
     expect(onClose).toHaveBeenCalledTimes(1);
   });

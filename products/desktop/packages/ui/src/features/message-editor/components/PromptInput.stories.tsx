@@ -128,6 +128,8 @@ interface HarnessProps
   showSteerQueue?: boolean;
   contextUsage?: ContextUsage | null;
   channelContext?: boolean;
+  /** Name of the space's context-wiki page, shown as a read-only chip. */
+  channelContextPage?: string;
 }
 
 function PromptInputHarness({
@@ -141,6 +143,7 @@ function PromptInputHarness({
   showSteerQueue = true,
   contextUsage = mockUsage,
   channelContext = false,
+  channelContextPage,
   ...props
 }: HarnessProps) {
   const ref = useRef<EditorHandle>(null);
@@ -209,8 +212,17 @@ function PromptInputHarness({
         ) : undefined
       }
       submitAdornment={
-        channelContext ? (
-          <ChannelContextChip channelName="engineering" onRemove={() => {}} />
+        channelContextPage ? (
+          <ChannelContextChip
+            label={channelContextPage}
+            channelName="engineering"
+          />
+        ) : channelContext ? (
+          <ChannelContextChip
+            label="CONTEXT.md"
+            channelName="engineering"
+            onRemove={() => {}}
+          />
         ) : undefined
       }
       {...props}
@@ -256,6 +268,7 @@ const meta: Meta<typeof PromptInputHarness> = {
     showHistory: { control: "boolean" },
     showSteerQueue: { control: "boolean" },
     channelContext: { control: "boolean" },
+    channelContextPage: { control: "text" },
     hideDefaultToolbar: { control: "boolean" },
     editorHeight: { control: "radio", options: ["default", "large"] },
     placeholder: { control: "text" },
@@ -434,6 +447,11 @@ export const AttachmentsWithChannelContext: Story = {
 export const ChannelContextOnly: Story = {
   name: "Attachments: channel CONTEXT.md only",
   args: { sessionId: "sb-context-only", channelContext: true },
+};
+
+export const WikiContextOnly: Story = {
+  name: "Attachments: space wiki page only",
+  args: { sessionId: "sb-wiki-context", channelContextPage: "engineering.md" },
 };
 
 export const AttachmentsAndChipsAndText: Story = {

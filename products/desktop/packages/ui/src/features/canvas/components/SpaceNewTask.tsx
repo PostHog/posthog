@@ -8,7 +8,10 @@ import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannels
 import { useChannelTaskMutations } from "@posthog/ui/features/canvas/hooks/useChannelTasks";
 import { useFolderInstructions } from "@posthog/ui/features/canvas/hooks/useFolderInstructions";
 import { useTaskChannels } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
-import { useChannelWikiContext } from "@posthog/ui/features/context-wiki/hooks/useContextWiki";
+import {
+  useChannelWikiContext,
+  useContextWikiPage,
+} from "@posthog/ui/features/context-wiki/hooks/useContextWiki";
 import { useContextLayerFlag } from "@posthog/ui/features/feature-flags/useContextLayerFlag";
 import { TaskInput } from "@posthog/ui/features/task-detail/components/TaskInput";
 import { getTaskInputSessionId } from "@posthog/ui/features/task-detail/taskInputSession";
@@ -59,6 +62,10 @@ export function SpaceNewTask({ channelId }: { channelId: string }) {
   // tasks created here start with the shared context. Absent/empty is fine.
   const { data: instructions } = useFolderInstructions(channelId);
   const channelContext = wiki.useLegacy ? instructions?.content : undefined;
+  // A resolved wiki page reaches the agent as a path, so the composer has to
+  // load the page itself to show what the prompt carries.
+  const { data: wikiPage } = useContextWikiPage(wiki.path ?? null);
+  const contextBody = wiki.path ? wikiPage?.content : channelContext;
 
   // Right-side preview of the CONTEXT.md, opened from the composer's chip so the
   // user can read what will be sent before submitting (mirrors the post-submit
@@ -177,23 +184,22 @@ export function SpaceNewTask({ channelId }: { channelId: string }) {
               suggestion_label: label,
             })
           }
-          onContextChipClick={
-            channelContext ? handleContextChipClick : undefined
-          }
+          onContextChipClick={contextBody ? handleContextChipClick : undefined}
         />
       </div>
       <ResizableSidebar
-        open={contextPanelOpen && !!channelContext}
+        open={contextPanelOpen && !!contextBody}
         width={contextPanelWidth}
         setWidth={setContextPanelWidth}
         isResizing={contextPanelResizing}
         setIsResizing={setContextPanelResizing}
         side="right"
       >
-        {contextPanelOpen && channelContext ? (
+        {contextPanelOpen && contextBody ? (
           <ChannelContextPanel
             channelName={channelName}
-            body={channelContext}
+            contextPath={wiki.path}
+            body={contextBody}
             onClose={() => setContextPanelOpen(false)}
           />
         ) : null}
