@@ -135,7 +135,7 @@ export function ModelSwitchCacheDialog({
                 {taskUsage !== undefined && (
                   <div className="flex items-center justify-between gap-4">
                     <Text className="text-[12px] text-muted-foreground">
-                      Task cost so far
+                      Session cost so far
                     </Text>
                     <Text className="shrink-0 font-medium text-[12px] text-foreground tabular-nums">
                       {formatCostUsd(taskUsage.total_cost_usd)}

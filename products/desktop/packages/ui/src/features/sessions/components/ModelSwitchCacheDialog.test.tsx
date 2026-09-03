@@ -41,7 +41,7 @@ describe("ModelSwitchCacheDialog", () => {
       />,
     );
 
-    expect(screen.getByText("Task cost so far")).toBeInTheDocument();
+    expect(screen.getByText("Session cost so far")).toBeInTheDocument();
     expect(screen.getByText("$12.90")).toBeInTheDocument();
   });
 
