@@ -1,5 +1,6 @@
 import {
     MOCK_DEFAULT_BASIC_USER,
+    MOCK_DEFAULT_ORGANIZATION,
     MOCK_DEFAULT_PROJECT,
     MOCK_DEFAULT_TEAM,
     MOCK_ORGANIZATION_ID,
@@ -15,6 +16,7 @@ import { dayjs } from 'lib/dayjs'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
@@ -1506,13 +1508,15 @@ describe('featureFlagLogic', () => {
         let newLogic: ReturnType<typeof featureFlagLogic.build>
         let copyRequests: Record<string, unknown>[]
 
-        function createAndCopyMocks(copyResponse: CopyFlagsResponseApi): Parameters<typeof useMocks>[0] {
+        function createAndCopyMocks(
+            copyResult: [number, CopyFlagsResponseApi | Record<string, unknown>]
+        ): Parameters<typeof useMocks>[0] {
             return {
                 post: {
                     '/api/projects/:team_id/feature_flags/': () => [201, MOCK_FEATURE_FLAG],
                     '/api/organizations/:organization_id/feature_flags/copy_flags': async ({ request }) => {
                         copyRequests.push((await request.json()) as Record<string, unknown>)
-                        return [200, copyResponse]
+                        return copyResult
                     },
                 },
             }
@@ -1533,6 +1537,15 @@ describe('featureFlagLogic', () => {
             copyRequests = []
             newLogic = featureFlagLogic({ id: 'new' })
             newLogic.mount()
+            // Named teams so the toasts resolve real project names instead of the "Project N" fallback
+            organizationLogic.actions.loadCurrentOrganizationSuccess({
+                ...MOCK_DEFAULT_ORGANIZATION,
+                teams: [
+                    MOCK_DEFAULT_TEAM,
+                    { ...MOCK_DEFAULT_TEAM, id: TARGET_A, name: 'Marketing' },
+                    { ...MOCK_DEFAULT_TEAM, id: TARGET_B, name: 'Docs' },
+                ],
+            })
         })
 
         afterEach(() => {
@@ -1541,19 +1554,23 @@ describe('featureFlagLogic', () => {
 
         it('copies the created flag to each selected project and reports where it landed', async () => {
             useMocks(
-                createAndCopyMocks({
-                    success: [copiedFlagInProject(TARGET_A), copiedFlagInProject(TARGET_B)],
-                    failed: [],
-                })
+                createAndCopyMocks([
+                    200,
+                    {
+                        success: [copiedFlagInProject(TARGET_A), copiedFlagInProject(TARGET_B)],
+                        failed: [],
+                    },
+                ])
             )
 
             await expectLogic(newLogic, () => {
                 newLogic.actions.setAlsoCreateInProjects([TARGET_A, TARGET_B])
                 newLogic.actions.saveFeatureFlag({ ...NEW_FLAG, key: MOCK_FEATURE_FLAG.key })
-            })
-                .toDispatchActions(['saveFeatureFlagSuccess'])
-                .toFinishAllListeners()
+            }).toDispatchActions(['saveFeatureFlagSuccess'])
 
+            // Asserted at the point saveFeatureFlagSuccess dispatched, without draining listeners
+            // first: the copy must complete inside the saveFeatureFlag loader, or featureFlagLoading
+            // drops mid-copy and a second submit can fire a second create.
             expect(copyRequests).toHaveLength(1)
             expect(copyRequests[0]).toEqual({
                 feature_flag_key: MOCK_FEATURE_FLAG.key,
@@ -1561,14 +1578,16 @@ describe('featureFlagLogic', () => {
                 target_project_ids: [TARGET_A, TARGET_B],
             })
             expect(lemonToast.success).toHaveBeenCalledWith(
-                expect.stringContaining(`Flag also created in Project ${TARGET_A} and Project ${TARGET_B}`)
+                expect.stringContaining('Flag also created in Marketing and Docs')
             )
             // The picker resets so the next new-flag form starts empty
             expect(newLogic.values.alsoCreateInProjects).toEqual([])
+
+            await expectLogic(newLogic).toFinishAllListeners()
         })
 
         it('makes no copy call when no additional projects are selected', async () => {
-            useMocks(createAndCopyMocks({ success: [], failed: [] }))
+            useMocks(createAndCopyMocks([200, { success: [], failed: [] }]))
 
             await expectLogic(newLogic, () => {
                 newLogic.actions.saveFeatureFlag({ ...NEW_FLAG, key: MOCK_FEATURE_FLAG.key })
@@ -1579,23 +1598,94 @@ describe('featureFlagLogic', () => {
             expect(copyRequests).toHaveLength(0)
         })
 
+        it('keeps the save successful and reports an error when the copy request itself fails', async () => {
+            useMocks(createAndCopyMocks([500, { type: 'server_error', detail: 'Copy failed' }]))
+
+            await expectLogic(newLogic, () => {
+                newLogic.actions.setAlsoCreateInProjects([TARGET_A, TARGET_B])
+                newLogic.actions.saveFeatureFlag({ ...NEW_FLAG, key: MOCK_FEATURE_FLAG.key })
+            })
+                .toDispatchActions(['saveFeatureFlagSuccess'])
+                .toFinishAllListeners()
+
+            expect(lemonToast.error).toHaveBeenCalledWith(
+                expect.stringContaining('Copy to Marketing and Docs failed: Copy failed')
+            )
+        })
+
+        it('reports an overwritten same-key flag separately from created ones', async () => {
+            useMocks(
+                createAndCopyMocks([
+                    200,
+                    {
+                        success: [
+                            { ...copiedFlagInProject(TARGET_A), updated_existing: true },
+                            copiedFlagInProject(TARGET_B),
+                        ],
+                        failed: [],
+                    },
+                ])
+            )
+
+            await expectLogic(newLogic, () => {
+                newLogic.actions.setAlsoCreateInProjects([TARGET_A, TARGET_B])
+                newLogic.actions.saveFeatureFlag({ ...NEW_FLAG, key: MOCK_FEATURE_FLAG.key })
+            })
+                .toDispatchActions(['saveFeatureFlagSuccess'])
+                .toFinishAllListeners()
+
+            expect(lemonToast.warning).toHaveBeenCalledWith(expect.stringContaining('Flag also created in Docs'))
+            expect(lemonToast.warning).toHaveBeenCalledWith(
+                expect.stringContaining('an existing flag with this key was overwritten in Marketing')
+            )
+        })
+
+        it('surfaces dependency warnings from an otherwise successful copy', async () => {
+            useMocks(
+                createAndCopyMocks([
+                    200,
+                    {
+                        success: [
+                            {
+                                ...copiedFlagInProject(TARGET_A),
+                                flag_dependency_warnings: ['Dependency "parent-flag" is missing in the target'],
+                            },
+                        ],
+                        failed: [],
+                    },
+                ])
+            )
+
+            await expectLogic(newLogic, () => {
+                newLogic.actions.setAlsoCreateInProjects([TARGET_A])
+                newLogic.actions.saveFeatureFlag({ ...NEW_FLAG, key: MOCK_FEATURE_FLAG.key })
+            })
+                .toDispatchActions(['saveFeatureFlagSuccess'])
+                .toFinishAllListeners()
+
+            expect(lemonToast.warning).toHaveBeenCalledWith(expect.stringContaining('parent-flag'))
+        })
+
         it.each([
             [
                 'a failed project',
-                { project_id: MOCK_TEAM_ID + 2, error_message: 'No access to this project', approval_pending: false },
-                `copy to Project ${MOCK_TEAM_ID + 2} failed: No access to this project`,
+                { project_id: TARGET_B, error_message: 'No access to this project', approval_pending: false },
+                'copy to Docs failed: No access to this project',
             ],
             [
                 'an approval-pending project',
-                { project_id: MOCK_TEAM_ID + 2, error_message: 'Approval required', approval_pending: true },
-                `copy to Project ${MOCK_TEAM_ID + 2} needs approval (a change request was created)`,
+                { project_id: TARGET_B, error_message: 'Approval required', approval_pending: true },
+                'copy to Docs needs approval (a change request was created)',
             ],
         ])('surfaces %s distinctly instead of swallowing it', async (_desc, failedEntry, expectedFragment) => {
             useMocks(
-                createAndCopyMocks({
-                    success: [copiedFlagInProject(TARGET_A)],
-                    failed: [failedEntry],
-                })
+                createAndCopyMocks([
+                    200,
+                    {
+                        success: [copiedFlagInProject(TARGET_A)],
+                        failed: [failedEntry],
+                    },
+                ])
             )
 
             await expectLogic(newLogic, () => {
@@ -1606,9 +1696,7 @@ describe('featureFlagLogic', () => {
                 .toFinishAllListeners()
 
             expect(lemonToast.warning).toHaveBeenCalledWith(expect.stringContaining(expectedFragment))
-            expect(lemonToast.warning).toHaveBeenCalledWith(
-                expect.stringContaining(`Flag also created in Project ${TARGET_A}`)
-            )
+            expect(lemonToast.warning).toHaveBeenCalledWith(expect.stringContaining('Flag also created in Marketing'))
         })
     })
 

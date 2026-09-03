@@ -40,7 +40,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { stringifyWithBigInts } from 'lib/utils/json'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { objectsEqual } from 'lib/utils/objects'
-import { humanList, slugify } from 'lib/utils/strings'
+import { capitalizeFirstLetter, humanList, slugify } from 'lib/utils/strings'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
 import { FeatureFlagsTab, featureFlagsLogic, isFeatureFlagsTab } from 'scenes/feature-flags/featureFlagsLogic'
 import { projectLogic } from 'scenes/projectLogic'
@@ -128,7 +128,12 @@ import { uniformAggregationGroupTypeIndex } from './defaultReleaseConditionsUtil
 import { FeatureFlagArchivedSource, reportFeatureFlagArchived } from './featureFlagArchiveDialog'
 import { checkFeatureFlagConfirmation } from './featureFlagConfirmationLogic'
 import type { FlagIntent } from './featureFlagIntentWarningLogic'
-import { aggregateCopyResponse, errorMessageFrom } from './flagSelectionLogic'
+import {
+    ProjectSelectOption,
+    aggregateCopyResponse,
+    errorMessageFrom,
+    projectSelectOptions,
+} from './flagSelectionLogic'
 import {
     ScheduleOccurrence,
     expandScheduleOccurrences,
@@ -545,22 +550,39 @@ async function copyNewFlagToAdditionalProjects(
 
     const pendingApproval = aggregated.failed.filter((failure) => failure.approvalPending)
     const hardFailures = aggregated.failed.filter((failure) => !failure.approvalPending)
+    // The endpoint overwrites a same-key flag in a target project instead of creating one,
+    // so overwrites get their own clause and downgrade the toast to a warning.
+    const overwritten = aggregated.copied?.updatedProjectIds ?? []
+    const created = aggregated.copied?.projectIds.filter((projectId) => !overwritten.includes(projectId)) ?? []
+    // Group hard failures that share a message (e.g. one rejected request expanded per
+    // target), so the toast says it once instead of once per project.
+    const failuresByMessage = new Map<string, string[]>()
+    for (const failure of hardFailures) {
+        const names = failuresByMessage.get(failure.errorMessage) ?? []
+        names.push(projectName(failure.projectId))
+        failuresByMessage.set(failure.errorMessage, names)
+    }
     const parts = [
-        aggregated.copied ? `flag also created in ${humanList(aggregated.copied.projectIds.map(projectName))}` : null,
+        created.length > 0 ? `flag also created in ${humanList(created.map(projectName))}` : null,
+        overwritten.length > 0
+            ? `an existing flag with this key was overwritten in ${humanList(overwritten.map(projectName))}`
+            : null,
         pendingApproval.length > 0
             ? `copy to ${humanList(pendingApproval.map((failure) => projectName(failure.projectId)))} needs approval (a change request was created)`
             : null,
-        ...hardFailures.map((failure) => `copy to ${projectName(failure.projectId)} failed: ${failure.errorMessage}`),
+        ...Array.from(
+            failuresByMessage,
+            ([errorMessage, names]) => `copy to ${humanList(names)} failed: ${errorMessage}`
+        ),
     ].filter((part): part is string => part !== null)
 
     const level =
-        aggregated.failed.length === 0
+        aggregated.failed.length === 0 && overwritten.length === 0
             ? 'success'
             : aggregated.copied || pendingApproval.length > 0
               ? 'warning'
               : 'error'
-    const message = parts.join(', ')
-    lemonToast[level](message.charAt(0).toUpperCase() + message.slice(1))
+    lemonToast[level](capitalizeFirstLetter(parts.join(', ')))
     if (aggregated.warnings.length > 0) {
         lemonToast.warning(aggregated.warnings.join(' '))
     }
@@ -806,11 +828,7 @@ export interface featureFlagLogicValues {
     activeSchedules: ScheduledChangeType[]
     activeTab: FeatureFlagsTab
     aggregationTargetName: string
-    alsoCreateInProjectOptions: {
-        key: string
-        label: string
-        value: number
-    }[]
+    alsoCreateInProjectOptions: ProjectSelectOption[]
     alsoCreateInProjects: number[]
     availableTabs: FeatureFlagsTab[]
     breadcrumbs: Breadcrumb[]
@@ -2006,11 +2024,7 @@ export interface featureFlagLogicMeta {
         alsoCreateInProjectOptions: (
             currentOrganization: OrganizationType | null,
             currentProjectId: number | null
-        ) => {
-            key: string
-            label: string
-            value: number
-        }[]
+        ) => ProjectSelectOption[]
         hasEncryptedPayloadBeenSaved: (featureFlag: FeatureFlagType, props: any) => boolean | undefined
         hasExperiment: (featureFlag: FeatureFlagType) => boolean | null
         showStaleFlagBanner: (featureFlag: FeatureFlagType, flagStatus: FeatureFlagStatusResponseApi | null) => boolean
@@ -3023,8 +3037,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             intent_context: ProductIntentContext.FEATURE_FLAG_CREATED,
                         })
                         // Copy into the extra projects inside this loader so featureFlagLoading
-                        // stays true until the copies resolve, which keeps the Save button
-                        // disabled through the copy phase.
+                        // stays true until the copies resolve. FeatureFlag.tsx swaps the form for
+                        // a skeleton while that flag is set, which blocks a second submit through
+                        // the copy phase.
                         const alsoCreateIn = values.alsoCreateInProjects.filter(
                             (projectId) => projectId !== values.currentProjectId
                         )
@@ -4543,14 +4558,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         // only has access to one project, which hides the picker.
         alsoCreateInProjectOptions: [
             (s) => [s.currentOrganization, s.currentProjectId],
-            (
-                currentOrganization: OrganizationType | null,
-                currentProjectId: number | null
-            ): { key: string; label: string; value: number }[] =>
-                (currentOrganization?.teams ?? [])
-                    .filter((team) => team.id !== currentProjectId)
-                    .map((team) => ({ key: String(team.id), label: team.name, value: team.id }))
-                    .sort((a, b) => a.label.localeCompare(b.label)),
+            (currentOrganization: OrganizationType | null, currentProjectId: number | null): ProjectSelectOption[] =>
+                projectSelectOptions(currentOrganization?.teams, currentProjectId),
         ],
         hasEncryptedPayloadBeenSaved: [
             (s) => [s.featureFlag, s.props],

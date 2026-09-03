@@ -15,7 +15,7 @@ import { projectLogic } from 'scenes/projectLogic'
 import { featureFlagsPartialUpdate } from 'products/feature_flags/frontend/generated/api'
 import type { CopyFlagsResponseApi } from 'products/feature_flags/frontend/generated/api.schemas'
 
-import type { OrganizationType } from '../../types'
+import type { OrganizationType, TeamBasicType } from '../../types'
 import { featureFlagsLogic } from './featureFlagsLogic'
 
 export type FlagRolloutState = 'fully_rolled_out' | 'not_rolled_out' | 'partial'
@@ -201,6 +201,23 @@ export function splitCopiedByOverwrite(copied: BulkCopyResult['copied']): {
         .map((entry) => ({ key: entry.key, projectIds: entry.updatedProjectIds }))
         .filter((entry) => entry.projectIds.length > 0)
     return { newCopies, overwrites }
+}
+
+export interface ProjectSelectOption {
+    key: string
+    label: string
+    value: number
+}
+
+/** Copy-destination options for a project picker: the org's teams minus one excluded project, sorted by name. */
+export function projectSelectOptions(
+    teams: TeamBasicType[] | null | undefined,
+    excludeProjectId: number | null
+): ProjectSelectOption[] {
+    return (teams ?? [])
+        .filter((team) => team.id !== excludeProjectId)
+        .map((team) => ({ key: String(team.id), label: team.name, value: team.id }))
+        .sort((a, b) => a.label.localeCompare(b.label))
 }
 
 export function getBulkCopyDisabledReason(selectedCount: number, extraReason?: string | null): string | undefined {

@@ -75,6 +75,7 @@ import {
     validateVariantRolloutSum,
 } from './featureFlagLogic'
 import { FeatureFlagReleaseConditionsCollapsible } from './FeatureFlagReleaseConditionsCollapsible'
+import { BULK_COPY_MAX_TARGET_PROJECTS } from './flagSelectionLogic'
 import { PercentageInput } from './PercentageInput'
 
 interface SortableVariantHeaderProps {
@@ -167,7 +168,6 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
         expandAdvancedOnEdit,
         hasEncryptedPayloadBeenSaved,
         hasEarlyAccessFeatures,
-        featureFlagLoading,
         alsoCreateInProjects,
         alsoCreateInProjectOptions,
     } = useValues(featureFlagLogic)
@@ -429,7 +429,6 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                 htmlType="submit"
                                 form="feature-flag"
                                 size="small"
-                                loading={featureFlagLoading}
                             >
                                 Save
                             </LemonButton>
@@ -526,23 +525,21 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                 {isNewFeatureFlag && alsoCreateInProjectOptions.length > 0 && (
                                     <>
                                         <LemonDivider />
-                                        <div className="flex flex-col gap-2">
-                                            <LemonLabel
-                                                info="The flag is created in the current project, then copied to each selected project. If a project requires approval for flag changes, a change request is created there instead."
-                                                showOptional
-                                            >
-                                                Also create in these projects
-                                            </LemonLabel>
+                                        <LemonField.Pure
+                                            label="Also create in these projects"
+                                            info="The flag is created in the current project, then copied to each selected project. If a project already has a flag with this key, that flag is overwritten. If a project requires approval for flag changes, a change request is created there instead."
+                                            showOptional
+                                        >
                                             <LemonInputSelect<number>
                                                 mode="multiple"
                                                 value={alsoCreateInProjects}
                                                 onChange={setAlsoCreateInProjects}
                                                 options={alsoCreateInProjectOptions}
+                                                limit={BULK_COPY_MAX_TARGET_PROJECTS}
                                                 placeholder="Select projects"
-                                                disabled={featureFlagLoading}
                                                 data-attr="feature-flag-also-create-in-projects"
                                             />
-                                        </div>
+                                        </LemonField.Pure>
                                     </>
                                 )}
                             </div>
