@@ -33,20 +33,28 @@ export function GitHubRepoSummary({
      * Setup URL callback can be dispatched to the right team/personal handler. */
     onBeforeManage?: (installationId: string) => Promise<void> | void
 }): JSX.Element {
-    const manageButton = installationId ? (
+    // One opener for both controls. It seeds the server-side callback state (best-effort) before
+    // opening the GitHub installation page, so the eventual Setup URL callback is routed to the right
+    // team/personal handler. Both controls call this, so neither can reach GitHub with the state
+    // unseeded.
+    const openInstallation = installationId
+        ? async (): Promise<void> => {
+              try {
+                  await onBeforeManage?.(installationId)
+              } catch {
+                  // Failing to seed state is non-fatal — the server falls back to UserIntegration
+                  // membership detection. We surface the GitHub page either way.
+              }
+              window.open(manageInstallationUrl(installationId, accountType, accountName), '_blank')
+          }
+        : null
+
+    const manageButton = openInstallation ? (
         <LemonButton
             size="xsmall"
             type="secondary"
             icon={<IconGear />}
-            onClick={async () => {
-                try {
-                    await onBeforeManage?.(installationId)
-                } catch {
-                    // Failing to seed state is non-fatal — the server falls back to UserIntegration
-                    // membership detection. We surface the GitHub page either way.
-                }
-                window.open(manageInstallationUrl(installationId, accountType, accountName), '_blank')
-            }}
+            onClick={openInstallation}
             tooltip={repoNames.length > 0 ? 'Manage repository access on GitHub' : 'Configure repository access'}
         />
     ) : null
@@ -80,21 +88,17 @@ export function GitHubRepoSummary({
                 ? `${repoNames.length} selected ${noun}`
                 : `${repoNames.length} ${noun} accessible`
         const hiddenCount = repoNames.length - 3
-        // The overflow count reads as a link, so it has to lead somewhere: the tooltip names every
-        // repository, and the link opens the GitHub page that controls which ones we can see.
+        // The overflow count reads as a link and opens the GitHub page that controls repository
+        // access (the tooltip names every repository). It routes through `openInstallation` as a
+        // link-styled button, not a bare anchor, so a modifier or middle click can't reach GitHub
+        // before the callback state is seeded.
         const overflow =
             hiddenCount > 0 ? (
                 <>
                     {' '}
                     <Tooltip title={repoNames.join(', ')}>
-                        {installationId ? (
-                            <Link
-                                to={manageInstallationUrl(installationId, accountType, accountName)}
-                                target="_blank"
-                                onClick={() => void onBeforeManage?.(installationId)}
-                            >
-                                and {hiddenCount} more
-                            </Link>
+                        {openInstallation ? (
+                            <Link onClick={openInstallation}>and {hiddenCount} more</Link>
                         ) : (
                             <span>and {hiddenCount} more</span>
                         )}
