@@ -1,3 +1,6 @@
+// Bundled with the vendor stylesheet so these overrides always come after it in the cascade.
+@import '../../../../node_modules/maplibre-gl/dist/maplibre-gl.css';
+
 .maplibregl-ctrl-attrib-button:focus,
 .maplibregl-ctrl-group button:focus {
     box-shadow: 0 0 2px 2px var(--color-accent);

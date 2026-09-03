@@ -1,3 +1,5 @@
+import marketingAnalyticsPreviewStylesheetUrl from './MarketingAnalyticsPreview.scss?url'
+
 import * as megaphonePng from '@posthog/brand/hoggies/png/megaphone'
 import { IconMegaphone } from '@posthog/icons'
 
@@ -43,5 +45,6 @@ export const marketingAnalyticsEmptyState: SceneProductEmptyState = {
         docsUrl: 'https://posthog.com/docs/web-analytics/marketing-analytics',
         previewLabel: 'Your channels, once connected',
         Preview: MarketingAnalyticsPreview,
+        previewStylesheet: marketingAnalyticsPreviewStylesheetUrl,
     },
 }

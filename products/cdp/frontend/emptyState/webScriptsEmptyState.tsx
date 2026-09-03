@@ -1,3 +1,5 @@
+import webScriptPreviewStylesheetUrl from './WebScriptPreview.scss?url'
+
 import * as codeBubblePng from '@posthog/brand/hoggies/png/code-bubble'
 import { IconPlug } from '@posthog/icons'
 
@@ -36,5 +38,6 @@ export const webScriptsEmptyState: SceneProductEmptyState = {
         docsUrl: 'https://posthog.com/docs/cdp',
         previewLabel: 'Your scripts, once created',
         Preview: WebScriptPreview,
+        previewStylesheet: webScriptPreviewStylesheetUrl,
     },
 }

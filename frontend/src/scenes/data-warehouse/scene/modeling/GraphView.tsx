@@ -1,5 +1,3 @@
-import '@xyflow/react/dist/style.css'
-
 import {
     Background,
     BackgroundVariant,
@@ -15,6 +13,7 @@ import { useEffect, useRef } from 'react'
 import { IconArrowRight, IconCollapse, IconDatabase, IconExpand } from '@posthog/icons'
 import { LemonButton, LemonSegmentedButton } from '@posthog/lemon-ui'
 
+import { useXyflowStylesheet } from 'lib/hooks/useXyflowStylesheet'
 import { IconArrowDown } from 'lib/lemon-ui/icons'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
@@ -214,6 +213,9 @@ function GraphViewContent(): JSX.Element {
 // single implicit graph, so dataModelingLogic can drop its multi-DAG selection/viewport machinery and
 // this canvas collapses to <LineageGraph variant="canvas"> with search/legend passed as `panels`.
 export function GraphView(): JSX.Element {
+    if (!useXyflowStylesheet()) {
+        return <div className="w-full h-full" />
+    }
     return (
         <ReactFlowProvider>
             <GraphViewContent />

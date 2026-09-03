@@ -1,3 +1,7 @@
+// The canvas renders the real hosted survey markup, so it needs the public hosted survey
+// stylesheet first and its own overrides after it in the cascade.
+@import '../../../../public/surveys/hosted-survey.css';
+
 // Inline-editable affordances on the hosted survey canvas. The canvas should
 // feel like editing text in place — no input chrome, just the rendered text
 // with a cursor when active.

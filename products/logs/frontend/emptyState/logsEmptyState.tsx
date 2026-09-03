@@ -1,3 +1,5 @@
+import logsPreviewStylesheetUrl from './LogsPreview.scss?url'
+
 import * as greekPng from '@posthog/brand/hoggies/png/greek'
 import { IconLive } from '@posthog/icons'
 
@@ -30,5 +32,6 @@ export const logsEmptyState: SceneProductEmptyState = {
         manualSetupUrl: 'https://posthog.com/docs/logs/installation',
         previewLabel: 'Your log stream, once connected',
         Preview: LogsPreview,
+        previewStylesheet: logsPreviewStylesheetUrl,
     },
 }

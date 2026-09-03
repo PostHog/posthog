@@ -1,3 +1,5 @@
+import dataWarehousePreviewStylesheetUrl from './DataWarehousePreview.scss?url'
+
 import * as organizedPng from '@posthog/brand/hoggies/png/organized'
 import { IconDatabase } from '@posthog/icons'
 
@@ -38,6 +40,7 @@ export const dataWarehouseEmptyState: SceneProductEmptyState = {
         docsUrl: 'https://posthog.com/docs/data-warehouse',
         previewLabel: 'Your sources, once connected',
         Preview: DataWarehousePreview,
+        previewStylesheet: dataWarehousePreviewStylesheetUrl,
         // Skipping would reveal three empty source tables; connecting one is the only next step.
         skippable: false,
     },

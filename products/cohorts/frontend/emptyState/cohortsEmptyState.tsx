@@ -1,3 +1,5 @@
+import cohortsPreviewStylesheetUrl from './CohortsPreview.scss?url'
+
 import * as partyPng from '@posthog/brand/hoggies/png/party'
 import { IconPeople } from '@posthog/icons'
 
@@ -36,5 +38,6 @@ export const cohortsEmptyState: SceneProductEmptyState = {
         docsUrl: 'https://posthog.com/docs/data/cohorts',
         previewLabel: 'Your cohorts, once created',
         Preview: CohortsPreview,
+        previewStylesheet: cohortsPreviewStylesheetUrl,
     },
 }

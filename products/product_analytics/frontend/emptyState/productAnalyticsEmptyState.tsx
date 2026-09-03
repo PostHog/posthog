@@ -1,3 +1,5 @@
+import productAnalyticsPreviewStylesheetUrl from './ProductAnalyticsPreview.scss?url'
+
 import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass-2'
 import { IconGraph } from '@posthog/icons'
 
@@ -32,5 +34,6 @@ export const productAnalyticsEmptyState: SceneProductEmptyState = {
         docsUrl: 'https://posthog.com/docs/product-analytics/insights',
         previewLabel: 'Your insights, once created',
         Preview: ProductAnalyticsPreview,
+        previewStylesheet: productAnalyticsPreviewStylesheetUrl,
     },
 }

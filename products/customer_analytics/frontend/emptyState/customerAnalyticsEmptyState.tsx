@@ -1,3 +1,5 @@
+import customerAnalyticsPreviewStylesheetUrl from './CustomerAnalyticsPreview.scss?url'
+
 import * as businessEvolutionPng from '@posthog/brand/hoggies/png/business-evolution'
 import { IconPeople } from '@posthog/icons'
 
@@ -36,5 +38,6 @@ export const customerAnalyticsEmptyState: SceneProductEmptyState = {
         docsUrl: 'https://posthog.com/docs/customer-analytics',
         previewLabel: 'Your accounts, once grouped',
         Preview: CustomerAnalyticsPreview,
+        previewStylesheet: customerAnalyticsPreviewStylesheetUrl,
     },
 }

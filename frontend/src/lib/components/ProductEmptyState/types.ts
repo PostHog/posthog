@@ -136,6 +136,11 @@ export interface ProductEmptyStateConfig {
     previewLabel: string
     /** Self-animating signature preview populated with realistic fake data */
     Preview: ComponentType<{ mode: ProductEmptyStateMode }>
+    /**
+     * URL of the preview's stylesheet, from `import url from './XPreview.scss?url'`. The empty
+     * state attaches it before the preview renders, so the sheet stays out of the boot CSS.
+     */
+    previewStylesheet?: string
     /** Product-specific live status line (e.g. a "listening for events" indicator), rendered under the command block */
     statusIndicator?: ReactNode
     /**

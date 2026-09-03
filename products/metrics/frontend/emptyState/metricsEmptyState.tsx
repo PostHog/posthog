@@ -1,3 +1,5 @@
+import metricsPreviewStylesheetUrl from './MetricsPreview.scss?url'
+
 import * as chartPng from '@posthog/brand/hoggies/png/chart'
 import { IconGraph } from '@posthog/icons'
 
@@ -36,5 +38,6 @@ export const metricsEmptyState: SceneProductEmptyState = {
         docsUrl: 'https://posthog.com/docs/metrics',
         previewLabel: 'Your metrics, once connected',
         Preview: MetricsPreview,
+        previewStylesheet: metricsPreviewStylesheetUrl,
     },
 }

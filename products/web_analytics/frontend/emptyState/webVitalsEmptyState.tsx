@@ -1,3 +1,5 @@
+import webVitalsPreviewStylesheetUrl from './WebVitalsPreview.scss?url'
+
 import * as drivingHogzillaPng from '@posthog/brand/hoggies/png/driving-hogzilla'
 import { IconPieChart } from '@posthog/icons'
 
@@ -57,5 +59,6 @@ export const webVitalsEmptyState: SceneProductEmptyState = {
         docsUrl: 'https://posthog.com/docs/web-analytics/web-vitals',
         previewLabel: 'Your vitals, once samples arrive',
         Preview: WebVitalsPreview,
+        previewStylesheet: webVitalsPreviewStylesheetUrl,
     },
 }

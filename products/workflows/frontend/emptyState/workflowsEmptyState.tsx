@@ -1,3 +1,5 @@
+import workflowsPreviewStylesheetUrl from './WorkflowsPreview.scss?url'
+
 import * as workflowsPng from '@posthog/brand/hoggies/png/workflows'
 import { IconDecisionTree } from '@posthog/icons'
 
@@ -39,5 +41,6 @@ export const workflowsEmptyState: SceneProductEmptyState = {
         docsUrl: 'https://posthog.com/docs/workflows',
         previewLabel: 'Your journeys, once running',
         Preview: WorkflowsPreview,
+        previewStylesheet: workflowsPreviewStylesheetUrl,
     },
 }

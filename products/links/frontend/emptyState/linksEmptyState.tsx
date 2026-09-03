@@ -1,3 +1,5 @@
+import linkPreviewStylesheetUrl from './LinkPreview.scss?url'
+
 import * as megaphonePng from '@posthog/brand/hoggies/png/megaphone'
 import { IconExternal } from '@posthog/icons'
 
@@ -34,5 +36,6 @@ export const linksEmptyState: SceneProductEmptyState = {
         skippable: false,
         previewLabel: 'Your links, once created',
         Preview: LinkPreview,
+        previewStylesheet: linkPreviewStylesheetUrl,
     },
 }

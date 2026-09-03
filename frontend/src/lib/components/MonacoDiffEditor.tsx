@@ -4,6 +4,8 @@ import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState }
 // adapted from https://github.com/react-monaco-editor/react-monaco-editor/blob/d2fd2521e0557c880dec93acaab9a087f025426c/src/diff.tsx
 import 'lib/monaco/monacoEnvironment'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import monacoStylesheetUrl from 'lib/monaco/monacoStylesheet.css?url'
+import { useStylesheet } from 'lib/utils/lazyStylesheet'
 
 export interface MonacoDiffEditorProps {
     width?: number | string
@@ -212,4 +214,25 @@ function MonacoDiffEditor(
     )
 }
 
-export default forwardRef(MonacoDiffEditor)
+const MonacoDiffEditorWithRef = forwardRef(MonacoDiffEditor)
+
+function MonacoDiffEditorWhenStyled(
+    props: MonacoDiffEditorProps,
+    ref: React.ForwardedRef<{ editor: monaco.editor.IStandaloneDiffEditor | null }>
+): JSX.Element {
+    const styled = useStylesheet(monacoStylesheetUrl)
+    if (!styled) {
+        return (
+            <div
+                className="relative"
+                // eslint-disable-next-line react/forbid-dom-props
+                style={{ width: processSize(props.width ?? '100%'), height: processSize(props.height ?? '100%') }}
+            >
+                {props.loading}
+            </div>
+        )
+    }
+    return <MonacoDiffEditorWithRef {...props} ref={ref} />
+}
+
+export default forwardRef(MonacoDiffEditorWhenStyled)

@@ -9,6 +9,7 @@ import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedAr
 import { TeamMembershipLevel } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { cn } from 'lib/utils/css-classes'
+import { useStylesheet } from 'lib/utils/lazyStylesheet'
 import { useWizardCommand } from 'scenes/onboarding/shared/useWizardCommand'
 
 import { productSetupStatusLogic } from './productSetupStatusLogic'
@@ -62,6 +63,7 @@ export function ProductEmptyState({ config, mode }: ProductEmptyStateProps): JSX
     const manualUrl = config.manualSetupUrl ?? config.docsUrl
     const Hedgehog = config.hedgehog
     const Preview = config.Preview
+    const previewStyled = useStylesheet(config.previewStylesheet)
     const hedgehogBeside = config.hedgehogPlacement === 'beside'
 
     const primaryAction = resolvePrimaryAction(config.primaryAction, mode)
@@ -233,7 +235,7 @@ export function ProductEmptyState({ config, mode }: ProductEmptyStateProps): JSX
                     />
                     {config.previewLabel}
                 </div>
-                <Preview mode={mode} />
+                {previewStyled && <Preview mode={mode} />}
             </div>
         </div>
     )

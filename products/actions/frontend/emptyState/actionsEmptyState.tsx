@@ -1,3 +1,5 @@
+import actionsPreviewStylesheetUrl from './ActionsPreview.scss?url'
+
 import * as cursorPng from '@posthog/brand/hoggies/png/cursor'
 import { IconCursorClick } from '@posthog/icons'
 
@@ -41,5 +43,6 @@ export const actionsEmptyState: SceneProductEmptyState = {
         docsUrl: 'https://posthog.com/docs/data/actions',
         previewLabel: 'Your actions, once created',
         Preview: ActionsPreview,
+        previewStylesheet: actionsPreviewStylesheetUrl,
     },
 }

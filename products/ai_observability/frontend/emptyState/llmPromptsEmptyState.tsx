@@ -1,3 +1,5 @@
+import lLMPromptPreviewStylesheetUrl from './LLMPromptPreview.scss?url'
+
 import * as deskWizardPng from '@posthog/brand/hoggies/png/desk-wizard'
 import { IconLlmPromptManagement } from '@posthog/icons'
 
@@ -41,5 +43,6 @@ export const llmPromptsEmptyState: SceneProductEmptyState = {
         docsUrl: 'https://posthog.com/docs/prompt-management',
         previewLabel: 'Your prompts, once created',
         Preview: LLMPromptPreview,
+        previewStylesheet: lLMPromptPreviewStylesheetUrl,
     },
 }

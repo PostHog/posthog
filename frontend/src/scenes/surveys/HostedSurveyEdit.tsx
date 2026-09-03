@@ -1,4 +1,4 @@
-import '../../../public/surveys/hosted-survey.css'
+import hostedSurveyCanvasStylesheetUrl from './hosted-canvas/HostedSurveyCanvas.scss?url'
 
 import { DndContext, DragEndEvent } from '@dnd-kit/core'
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
@@ -24,6 +24,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { SortableDragIcon } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { useStylesheet } from 'lib/utils/lazyStylesheet'
 import { Customization } from 'scenes/surveys/survey-appearance/SurveyCustomization'
 import { SurveyTranslationFields } from 'scenes/surveys/SurveyTranslationFields'
 import { SurveyTranslations } from 'scenes/surveys/SurveyTranslations'
@@ -409,6 +410,7 @@ export function HostedSurveyEdit({ id }: { id: string }): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const [showFlowModal, setShowFlowModal] = useState(false)
     const [viewport, setViewport] = useState<'desktop' | 'mobile'>('desktop')
+    const canvasStyled = useStylesheet(hostedSurveyCanvasStylesheetUrl)
 
     const surveyTranslationsEnabled = !!featureFlags[FEATURE_FLAGS.SURVEYS_TRANSLATIONS]
     const activeLanguage = surveyTranslationsEnabled ? editingLanguage : null
@@ -536,21 +538,23 @@ export function HostedSurveyEdit({ id }: { id: string }): JSX.Element {
                         onDeleteQuestion={deleteSurveyQuestion}
                         onIframeEmbeddingChange={(checked) => setSurveyValue('enable_iframe_embedding', checked)}
                     />
-                    <div className="HostedSurveyCanvasLayout">
-                        <HostedSurveyCanvas
-                            survey={previewSurvey}
-                            activePageIndex={activePageIndex}
-                            isConfirmation={isConfirmationSelected}
-                            viewport={viewport}
-                        />
-                        <HostedSurveySettingsPanel
-                            activePageIndex={activePageIndex}
-                            isConfirmation={isConfirmationSelected}
-                            viewport={viewport}
-                            onViewportChange={setViewport}
-                            onRemoveConfirmation={removeConfirmationScreen}
-                        />
-                    </div>
+                    {canvasStyled && (
+                        <div className="HostedSurveyCanvasLayout">
+                            <HostedSurveyCanvas
+                                survey={previewSurvey}
+                                activePageIndex={activePageIndex}
+                                isConfirmation={isConfirmationSelected}
+                                viewport={viewport}
+                            />
+                            <HostedSurveySettingsPanel
+                                activePageIndex={activePageIndex}
+                                isConfirmation={isConfirmationSelected}
+                                viewport={viewport}
+                                onViewportChange={setViewport}
+                                onRemoveConfirmation={removeConfirmationScreen}
+                            />
+                        </div>
+                    )}
                 </div>
 
                 {surveyTranslationsEnabled ? (

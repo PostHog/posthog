@@ -1,3 +1,5 @@
+import sessionReplayPreviewStylesheetUrl from './SessionReplayPreview.scss?url'
+
 import * as directorPng from '@posthog/brand/hoggies/png/director'
 import { IconRewindPlay } from '@posthog/icons'
 
@@ -51,5 +53,6 @@ export const sessionReplayEmptyState: SceneProductEmptyState = {
         docsUrl: 'https://posthog.com/docs/session-replay',
         previewLabel: 'Your recordings, once sessions arrive',
         Preview: SessionReplayPreview,
+        previewStylesheet: sessionReplayPreviewStylesheetUrl,
     },
 }

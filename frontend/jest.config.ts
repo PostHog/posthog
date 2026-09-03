@@ -180,6 +180,7 @@ const config: Config = {
     // A map from regular expressions to module names or to arrays of module names that allow to stub out resources with a single module
     moduleNameMapper: {
         '^.+\\.(css|less|scss|svg|png)$': '<rootDir>/src/test/mocks/styleMock.js',
+        '^.+\\.(css|scss)\\?url$': '<rootDir>/src/test/mocks/stylesheetUrlMock.js',
         // @posthog/brand PNG subpaths resolve to .mjs modules that build a URL via
         // `new URL("./x.png", import.meta.url)` — import.meta is unavailable under Sucrase/CJS,
         // so mock them to the styleMock string instead of executing them.

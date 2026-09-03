@@ -16,6 +16,8 @@ import postcss from 'postcss'
 import postcssPresetEnv from 'postcss-preset-env'
 import ts from 'typescript'
 
+import { lazyStylesheetPlugin, stubMonacoCssPlugin } from './lazyStylesheets.mjs'
+
 // Re-exported for one-shot builds outside buildInParallel (e.g. the toolbar loader, which is
 // built after the toolbar app build so it can embed the hashed entry filename). Consumers
 // depend on @posthog/esbuilder, not on esbuild directly, so pnpm's strict node_modules
@@ -247,6 +249,8 @@ export const commonConfig = {
                 })
             },
         },
+        lazyStylesheetPlugin({ hashed: !isDev }),
+        stubMonacoCssPlugin(),
         sassPlugin({
             async transform(source, resolveDir, filePath) {
                 const plugins = [tailwindcss, autoprefixer, postcssPresetEnv({ stage: 0 })]

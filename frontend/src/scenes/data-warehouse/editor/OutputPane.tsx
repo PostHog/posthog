@@ -1,5 +1,4 @@
-import './DataGrid.scss'
-import 'react-data-grid/lib/styles.css'
+import dataGridStylesheetUrl from './DataGrid.scss?url'
 
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
@@ -34,6 +33,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { useStylesheet } from 'lib/utils/lazyStylesheet'
 import { InsightErrorState, StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { HogQLBoldNumber } from 'scenes/insights/views/BoldNumber/BoldNumber'
@@ -1164,6 +1164,7 @@ const Content = ({
     // query is still in flight restarts the count (a local isLoading-keyed timer wouldn't).
     const { loadingTimeSeconds } = useValues(dataNodeLogic)
     const [sortColumns, setSortColumns] = useState<SortColumn[]>([])
+    const gridStyled = useStylesheet(dataGridStylesheetUrl)
 
     const sortedRows = useMemo(() => {
         if (!sortColumns.length) {
@@ -1305,7 +1306,7 @@ const Content = ({
                 <QueryWarningsBanner warnings={response?.warnings} />
                 {rows.length === 0 ? (
                     <EmptyResultsState />
-                ) : (
+                ) : !gridStyled ? null : (
                     <TabScroller data-attr="sql-editor-output-pane-results">
                         <DataGrid
                             className={clsx(isDarkModeOn ? 'rdg-dark h-full' : 'rdg-light h-full', 'ph-no-capture')}

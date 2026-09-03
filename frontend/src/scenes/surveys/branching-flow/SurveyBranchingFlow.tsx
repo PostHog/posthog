@@ -1,7 +1,7 @@
-import '@xyflow/react/dist/style.css'
-
 import { Background, Controls, ReactFlow, useEdgesState, useNodesState } from '@xyflow/react'
 import { useEffect } from 'react'
+
+import { useXyflowStylesheet } from 'lib/hooks/useXyflowStylesheet'
 
 import { Survey } from '~/types'
 
@@ -22,6 +22,7 @@ export const nodeTypes = {
 }
 
 export function SurveyBranchingFlow({ survey }: SurveyBranchingFlowProps): JSX.Element {
+    const styled = useXyflowStylesheet()
     const [nodes, setNodes, onNodesChange] = useNodesState<SurveyFlowNode>([])
     const [edges, setEdges, onEdgesChange] = useEdgesState<SurveyFlowEdge>([])
 
@@ -39,6 +40,10 @@ export function SurveyBranchingFlow({ survey }: SurveyBranchingFlowProps): JSX.E
                 setEdges(graphEdges)
             })
     }, [survey, setNodes, setEdges])
+
+    if (!styled) {
+        return <div className="w-full h-full" />
+    }
 
     return (
         <div className="w-full h-full">
