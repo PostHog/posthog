@@ -202,6 +202,12 @@ class SignalUserAutonomyConfig(UUIDModel):
         verbose_name_plural = "Signal user autonomy configs"
 
 
+# What a summary run adds to `signal_count` when it stamps `signals_at_run` on the way into
+# `in_progress`, so the report does not re-promote on the first few signals that land during the
+# run. `SignalReport.researched_signal_count` subtracts it to recover the count a run started on.
+SIGNALS_AT_RUN_INCREMENT = 3
+
+
 class InvalidStatusTransition(Exception):
     def __init__(self, from_status: str, to_status: str):
         self.from_status = from_status
@@ -247,6 +253,12 @@ class SignalReport(UUIDModel):
     signals_at_run = models.IntegerField(default=0)
     # How many times the summary workflow has run for this report (incremented on each CANDIDATE -> IN_PROGRESS).
     run_count = models.IntegerField(default=0)
+    # The cumulative signal count the last *completed* research pass covered, and the only input to
+    # when the next pass runs (see next_research_bucket). Written when a run reaches READY, not when
+    # it starts, so a run that pauses on the quota gate before researching anything costs the report
+    # nothing. Null means no completed pass has recorded it, which covers reports researched before
+    # the column existed; read `researched_signal_count`, which reconstructs it from `signals_at_run`.
+    signals_researched = models.IntegerField(null=True, blank=True)
 
     # LLM-generated during signal matching
     title = models.TextField(null=True, blank=True)
@@ -276,6 +288,12 @@ class SignalReport(UUIDModel):
     # recount it against SignalTeamConfig.max_reports_per_day. Null for reports that predate the
     # field or never surfaced.
     first_visible_at = models.DateTimeField(null=True, blank=True)
+    # When the report's inbox notification was dispatched. A report notifies once, ever: research
+    # settles every time a new signal carries the report to its next bucket, and each settle starts
+    # the notification workflow again, so without this a report re-notified per research pass. Set
+    # once and never cleared, so it survives past Temporal's history retention window — a workflow
+    # ID de-duplication would not. Null for reports that never notified or predate the field.
+    inbox_notified_at = models.DateTimeField(null=True, blank=True)
 
     # Video segment clustering fields
     cluster_centroid = deprecate_field(
@@ -304,6 +322,21 @@ class SignalReport(UUIDModel):
                 name="signals_report_first_visible",
             ),
         ]
+
+    @property
+    def researched_signal_count(self) -> int:
+        """The cumulative signal count the last completed research pass covered.
+
+        `signals_researched` is null until a run reaches READY under code that writes it, so a report
+        researched before the column existed is read back from `signals_at_run`: every run stamps it
+        as the starting count plus `SIGNALS_AT_RUN_INCREMENT`, and a READY report always carries a
+        run's stamp rather than a snooze's, because a snooze moves the report to POTENTIAL and only
+        another run returns it to READY. The next completed pass writes the column and retires the
+        reconstruction for that report.
+        """
+        if self.signals_researched is not None:
+            return self.signals_researched
+        return max(self.signals_at_run - SIGNALS_AT_RUN_INCREMENT, 0)
 
     def transition_to(
         self,

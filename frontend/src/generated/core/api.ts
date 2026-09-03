@@ -16,6 +16,7 @@ import type {
     CIMDVerificationTokenWithValueApi,
     CimdVerificationTokensListParams,
     DomainsListParams,
+    DomainsScimLogsRetrieveParams,
     EnterprisePropertyDefinitionApi,
     EventIngestionRestrictionApi,
     ExportedAssetApi,
@@ -32,6 +33,7 @@ import type {
     GitHubReposResponseApi,
     IdentityProviderConfigApi,
     IdentityProviderConfigsListParams,
+    IdentityProviderConfigsScimLogsRetrieveParams,
     InvitesListParams,
     LeakedKeyReportApi,
     LeakedKeyReportResponseApi,
@@ -55,6 +57,7 @@ import type {
     PaginatedOrganizationOAuthApplicationListApi,
     PaginatedProjectBackwardCompatBasicListApi,
     PaginatedProjectSecretAPIKeyListApi,
+    PaginatedSCIMRequestLogApi,
     PaginatedUploadedMediaListApi,
     PaginatedUserGitHubIntegrationListResponseListApi,
     PaginatedUserListApi,
@@ -64,6 +67,7 @@ import type {
     PatchedFileSystemShortcutApi,
     PatchedIdentityProviderConfigApi,
     PatchedOrganizationDomainApi,
+    PatchedProductIntroSeenApi,
     PatchedProjectBackwardCompatApi,
     PatchedProjectSecretAPIKeyApi,
     PatchedUserApi,
@@ -99,6 +103,7 @@ import type {
     UsersIntegrationsListParams,
     UsersListParams,
     UsersLoginSessionsListParams,
+    UsersProductIntroSeenPartialUpdate200,
     VerifyEmailRequestApi,
 } from './api.schemas'
 
@@ -397,16 +402,33 @@ export const domainsDestroy = async (organizationId: string, id: string, options
     })
 }
 
-export const getDomainsScimLogsRetrieveUrl = (organizationId: string, id: string) => {
-    return `/api/organizations/${organizationId}/domains/${id}/scim/logs/`
+export const getDomainsScimLogsRetrieveUrl = (
+    organizationId: string,
+    id: string,
+    params?: DomainsScimLogsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/organizations/${organizationId}/domains/${id}/scim/logs/?${stringifiedParams}`
+        : `/api/organizations/${organizationId}/domains/${id}/scim/logs/`
 }
 
 export const domainsScimLogsRetrieve = async (
     organizationId: string,
     id: string,
+    params?: DomainsScimLogsRetrieveParams,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getDomainsScimLogsRetrieveUrl(organizationId, id), {
+): Promise<PaginatedSCIMRequestLogApi> => {
+    return apiMutator<PaginatedSCIMRequestLogApi>(getDomainsScimLogsRetrieveUrl(organizationId, id, params), {
         ...options,
         method: 'GET',
     })
@@ -544,6 +566,41 @@ export const identityProviderConfigsDestroy = async (
         ...options,
         method: 'DELETE',
     })
+}
+
+export const getIdentityProviderConfigsScimLogsRetrieveUrl = (
+    organizationId: string,
+    id: string,
+    params?: IdentityProviderConfigsScimLogsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/organizations/${organizationId}/identity_provider_configs/${id}/scim/logs/?${stringifiedParams}`
+        : `/api/organizations/${organizationId}/identity_provider_configs/${id}/scim/logs/`
+}
+
+export const identityProviderConfigsScimLogsRetrieve = async (
+    organizationId: string,
+    id: string,
+    params?: IdentityProviderConfigsScimLogsRetrieveParams,
+    options?: RequestInit
+): Promise<PaginatedSCIMRequestLogApi> => {
+    return apiMutator<PaginatedSCIMRequestLogApi>(
+        getIdentityProviderConfigsScimLogsRetrieveUrl(organizationId, id, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getIdentityProviderConfigsScimTokenCreateUrl = (organizationId: string, id: string) => {
@@ -3062,6 +3119,34 @@ export const usersOnboardingSkipCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(onboardingSkipRequestApi),
+    })
+}
+
+export const getUsersProductIntroSeenPartialUpdateUrl = (uuid: string) => {
+    return `/api/users/${uuid}/product_intro_seen/`
+}
+
+/**
+ * Record that this user has seen one product intro.
+ *
+ * Separate from the `has_seen_product_intro_for` field on the main user PATCH, which requires a
+ * recently authenticated session. Dismissing an intro must not depend on that: a re-auth prompt
+ * would cover the intro it interrupts, and the dismissal would never persist. Nothing reachable
+ * here changes an account, an organization, or a profile.
+ *
+ * Merging server-side also keeps two intros dismissed from separate tabs from dropping each
+ * other's key, which a read-modify-write of the whole map cannot avoid.
+ */
+export const usersProductIntroSeenPartialUpdate = async (
+    uuid: string,
+    patchedProductIntroSeenApi?: PatchedProductIntroSeenApi,
+    options?: RequestInit
+): Promise<UsersProductIntroSeenPartialUpdate200> => {
+    return apiMutator<UsersProductIntroSeenPartialUpdate200>(getUsersProductIntroSeenPartialUpdateUrl(uuid), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedProductIntroSeenApi),
     })
 }
 

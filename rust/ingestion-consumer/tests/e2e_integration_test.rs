@@ -23,6 +23,7 @@ use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
+use common_kafka_consumer::{TopicOffsetLedger, TopicPartition};
 use ingestion_consumer::consumer::{IngestionConsumer, IngestionConsumerOptions};
 use ingestion_consumer::discovery::reconcile_membership;
 use ingestion_consumer::dispatcher::Dispatcher;
@@ -429,18 +430,31 @@ struct Harness {
     topic: String,
     /// Consumer group id, kept so `restart_consumer` rejoins the same group.
     group_id: String,
+    /// The running consumer's offset ledger, for observing its generations.
+    pub ledger: Arc<TopicOffsetLedger>,
     max_in_flight: usize,
     deferred_flush_timeout: Duration,
 }
 
 /// Build a Kafka consumer subscribed to `topic` in `group_id`, configured like
 /// the production batch consumer (no auto commit/store, earliest reset). The
-/// short session timeout makes group handovers observable quickly in tests.
-/// `instance_id` opts into static membership (`group.instance.id`).
+/// short session timeout and heartbeat make group handovers observable
+/// quickly in tests. `instance_id` opts into static membership
+/// (`group.instance.id`).
 fn make_kafka_consumer(
     topic: &str,
     group_id: &str,
     instance_id: Option<&str>,
+) -> StreamConsumer<SentinelContext> {
+    make_kafka_consumer_with_context(topic, group_id, instance_id, SentinelContext::detached())
+}
+
+/// Like `make_kafka_consumer`, under a context the test keeps a hand on.
+fn make_kafka_consumer_with_context(
+    topic: &str,
+    group_id: &str,
+    instance_id: Option<&str>,
+    context: SentinelContext,
 ) -> StreamConsumer<SentinelContext> {
     let mut config = ClientConfig::new();
     config
@@ -450,13 +464,13 @@ fn make_kafka_consumer(
         .set("enable.auto.commit", "false")
         .set("enable.auto.offset.store", "false")
         .set("session.timeout.ms", "6000")
+        .set("heartbeat.interval.ms", "1000")
         .set("socket.timeout.ms", "5000");
     if let Some(id) = instance_id {
         config.set("group.instance.id", id);
     }
-    let kafka_consumer: StreamConsumer<SentinelContext> = config
-        .create_with_context(SentinelContext::detached())
-        .expect("kafka consumer");
+    let kafka_consumer: StreamConsumer<SentinelContext> =
+        config.create_with_context(context).expect("kafka consumer");
     kafka_consumer.subscribe(&[topic]).expect("subscribe");
     kafka_consumer
 }
@@ -603,7 +617,11 @@ impl Harness {
         let _monitor = manager.monitor_background();
 
         let group_id = format!("e2e-{}", Uuid::new_v4());
-        let kafka_consumer = make_kafka_consumer(topic, &group_id, None);
+        let context = SentinelContext::detached();
+        let ledger = context
+            .topic_offset_ledger()
+            .expect("a detached context carries a ledger");
+        let kafka_consumer = make_kafka_consumer_with_context(topic, &group_id, None, context);
 
         let consumer = IngestionConsumer::from_parts(
             kafka_consumer,
@@ -637,6 +655,7 @@ impl Harness {
             _probe_token: probe_token,
             topic: topic.to_string(),
             group_id,
+            ledger,
             max_in_flight,
             deferred_flush_timeout,
         }
@@ -674,7 +693,12 @@ impl Harness {
         let handle = manager.register("consumer", ComponentOptions::new());
         self.shutdown = handle.shutdown_token();
 
-        let kafka_consumer = make_kafka_consumer(&self.topic, &self.group_id, None);
+        let context = SentinelContext::detached();
+        self.ledger = context
+            .topic_offset_ledger()
+            .expect("a detached context carries a ledger");
+        let kafka_consumer =
+            make_kafka_consumer_with_context(&self.topic, &self.group_id, None, context);
         let consumer = IngestionConsumer::from_parts(
             kafka_consumer,
             Arc::clone(&dispatcher),
@@ -2504,6 +2528,156 @@ async fn second_consumer_joining_the_group_preserves_all_messages() {
     harness.stop().await;
 }
 
+/// A partition leaves for a second consumer while a batch is in flight, and
+/// returns when that consumer shuts down. The first consumer keeps polling
+/// under the held batch, so the rebalance lands before the batch settles:
+/// its offsets are stamped under generations the revoke replaced, and they
+/// drop as stale instead of landing on the new assignment. The returned
+/// partition then starts another generation. A ledger bug here would
+/// surface as ledger errors or a wedged loop, so continued delivery after
+/// both handovers is the health signal.
+#[tokio::test]
+async fn partition_lost_and_regained_keeps_the_consumer_alive() {
+    let topic = format!("e2e-regain-{}", Uuid::new_v4());
+    // Room for many in-flight batches, so the first consumer keeps polling
+    // while its batches are held and the rebalance can land underneath them.
+    let harness = Harness::start(
+        &topic,
+        2,
+        2,
+        128,
+        Duration::from_secs(60),
+        fast_registry_config(),
+    )
+    .await;
+    let producer = make_producer();
+    let partitions = [
+        TopicPartition::new(topic.clone(), 0),
+        TopicPartition::new(topic.clone(), 1),
+    ];
+
+    // Hold the first batch in flight while the group changes underneath it.
+    let mut guards: Vec<Option<tokio::sync::OwnedMutexGuard<()>>> = Vec::new();
+    for w in &harness.workers {
+        guards.push(Some(w.block().await));
+    }
+    for seq in 0..5usize {
+        produce(&producer, &topic, 0, "tok", "user-1", seq).await;
+        produce(&producer, &topic, 1, "tok", "user-2", seq).await;
+    }
+    wait_until(Duration::from_secs(10), "work to reach a worker", || {
+        harness.workers.iter().any(|w| w.arrived_count() > 0)
+    })
+    .await;
+    let generations_before: Vec<u64> = partitions
+        .iter()
+        .map(|partition| harness.ledger.generation(partition))
+        .collect();
+
+    // A second consumer joins and takes a partition away.
+    let worker_urls: Vec<String> = harness.workers.iter().map(|w| w.url.clone()).collect();
+    let registry2 = Arc::new(WorkerRegistry::new(&worker_urls, fast_registry_config()));
+    let probe2 = CancellationToken::new();
+    Arc::clone(&registry2).start_probing(probe2.clone());
+    let dispatcher2 = Arc::new(Dispatcher::new(Arc::clone(&registry2)));
+    let transport2 = Arc::new(test_transport());
+    let mut manager2 = Manager::builder("e2e-regain-c2")
+        .with_trap_signals(false)
+        .build();
+    let handle2 = manager2.register("consumer", ComponentOptions::new());
+    let shutdown2 = handle2.shutdown_token();
+    let consumer2 = IngestionConsumer::from_parts(
+        make_kafka_consumer(&topic, &harness.group_id, None),
+        dispatcher2,
+        transport2,
+        worker_urls,
+        IngestionConsumerOptions {
+            batch_size: 50,
+            batch_size_bytes: 0,
+            batch_timeout: Duration::from_millis(100),
+            max_in_flight_batches: 1,
+            group_id: "e2e-test".to_string(),
+            deferred_flush_timeout: Duration::from_secs(60),
+            debug_recorder: None,
+        },
+        handle2,
+    );
+    let task2 = tokio::spawn(async move { consumer2.process().await });
+
+    // The first consumer polls only while its polls return messages, and
+    // only a polling consumer takes part in a rebalance: a trickle holds it
+    // in the poll loop until the rebalance has reached its ledger. Every
+    // trickle batch is held like the first one.
+    let rebalanced = || {
+        partitions
+            .iter()
+            .zip(&generations_before)
+            .any(|(partition, before)| harness.ledger.generation(partition) > *before)
+    };
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    let mut trickle_seq = 1000usize;
+    while !rebalanced() {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "timed out waiting for the rebalance to reach the first consumer's ledger"
+        );
+        produce(&producer, &topic, 0, "tok", "user-1", trickle_seq).await;
+        trickle_seq += 1;
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+
+    // Release the held batch: its offsets are stamped under generations the
+    // rebalance replaced, so they settle as stale.
+    guards.clear();
+    for seq in 5..10usize {
+        produce(&producer, &topic, 0, "tok", "user-1", seq).await;
+        produce(&producer, &topic, 1, "tok", "user-2", seq).await;
+    }
+    wait_until(
+        Duration::from_secs(30),
+        "every message to be delivered across the join",
+        || {
+            ["user-1", "user-2"].iter().all(|user| {
+                let delivered: HashSet<usize> = harness
+                    .workers
+                    .iter()
+                    .flat_map(|w| w.seqs_for(user))
+                    .collect();
+                (0..10).all(|s| delivered.contains(&s))
+            })
+        },
+    )
+    .await;
+
+    // The second consumer leaves; its partition returns to the first under a
+    // new generation and must consume as a fresh assignment.
+    shutdown2.cancel();
+    let _ = tokio::time::timeout(Duration::from_secs(5), task2).await;
+    probe2.cancel();
+
+    for seq in 10..15usize {
+        produce(&producer, &topic, 0, "tok", "user-1", seq).await;
+        produce(&producer, &topic, 1, "tok", "user-2", seq).await;
+    }
+    wait_until(
+        Duration::from_secs(30),
+        "the returned partition to consume under its new assignment",
+        || {
+            ["user-1", "user-2"].iter().all(|user| {
+                let delivered: HashSet<usize> = harness
+                    .workers
+                    .iter()
+                    .flat_map(|w| w.seqs_for(user))
+                    .collect();
+                (10..15).all(|s| delivered.contains(&s))
+            })
+        },
+    )
+    .await;
+
+    harness.stop().await;
+}
+
 /// A same-name pod restart racing its old instance: a second member joins with
 /// the same `group.instance.id`, so the broker fences the first. The fenced
 /// instance's client is permanently dead — the consumer must exit (so the pod
@@ -2871,6 +3045,78 @@ async fn nacking_worker_fences_worker_stream_and_reroutes_in_order() {
         batch2_seqs,
         vec![4, 5, 6, 7],
         "post-fence messages for user-1 missing or out-of-order on the live worker: {live_seqs:?}"
+    );
+
+    harness.stop().await;
+}
+
+/// One routing key arriving on two partitions: a partition-count change
+/// leaves a key's backlog on its old partition while new messages land on the
+/// new one. The dispatcher merges such a key into one sub-batch (the pin
+/// table is partition-blind), so the batcher must split the completion back
+/// per partition — mis-attributed coverage would leave the poll uncommitted
+/// and wedge the consumer. Two waves prove commits keep flowing: with
+/// max_in_flight = 1, the second wave can only deliver after the first wave's
+/// polls completed.
+#[tokio::test]
+async fn same_key_across_partitions_completes_and_commits() {
+    let topic = format!("e2e-cross-partition-key-{}", Uuid::new_v4());
+    let harness = Harness::start(
+        &topic,
+        2,
+        1,
+        1,
+        Duration::from_secs(60),
+        fast_registry_config(),
+    )
+    .await;
+    let producer = make_producer();
+
+    for seq in 0..3usize {
+        produce(&producer, &topic, 0, "tok", "user-1", seq).await;
+    }
+    for seq in 3..6usize {
+        produce(&producer, &topic, 1, "tok", "user-1", seq).await;
+    }
+    harness.wait_for(6, Duration::from_secs(15)).await;
+
+    for seq in 6..9usize {
+        produce(&producer, &topic, 0, "tok", "user-1", seq).await;
+    }
+    for seq in 9..12usize {
+        produce(&producer, &topic, 1, "tok", "user-1", seq).await;
+    }
+    harness.wait_for(12, Duration::from_secs(15)).await;
+
+    // Everything delivered exactly once; cross-partition interleaving is
+    // free, but each partition's own sequence must arrive in order.
+    let seqs = harness.workers[0].seqs_for("user-1");
+    let mut sorted = seqs.clone();
+    sorted.sort_unstable();
+    assert_eq!(
+        sorted,
+        (0..12).collect::<Vec<_>>(),
+        "every message must land exactly once; got {seqs:?}"
+    );
+    let partition_0: Vec<usize> = seqs
+        .iter()
+        .copied()
+        .filter(|s| *s < 3 || (6..9).contains(s))
+        .collect();
+    let partition_1: Vec<usize> = seqs
+        .iter()
+        .copied()
+        .filter(|s| (3..6).contains(s) || *s >= 9)
+        .collect();
+    assert_eq!(
+        partition_0,
+        vec![0, 1, 2, 6, 7, 8],
+        "partition 0 must keep offset order"
+    );
+    assert_eq!(
+        partition_1,
+        vec![3, 4, 5, 9, 10, 11],
+        "partition 1 must keep offset order"
     );
 
     harness.stop().await;

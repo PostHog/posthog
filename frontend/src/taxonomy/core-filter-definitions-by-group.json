@@ -2424,6 +2424,15 @@
             ],
             "label": "MCP transport"
         },
+        "$mcp_vendor_client": {
+            "description": "Vendor client header the MCP client sent on the transport (x-anthropic-client), captured raw. The strongest harness signal: clientInfo.name can't tell one vendor surface from another, but this header can.",
+            "examples": [
+                "ClaudeCode",
+                "ClaudeAI",
+                "Cowork"
+            ],
+            "label": "MCP vendor client"
+        },
         "$mcp_version": {
             "description": "Server-resolved MCP version. May differ from the version the client reported because of the mcp-version-2 feature flag.",
             "examples": [
@@ -3739,12 +3748,12 @@
             "label": "MCP transport (unprefixed)"
         },
         "mcp_vendor_client": {
-            "description": "Vendor/client identity derived from the request context for the MCP call (e.g. the coding agent or app behind the request).",
+            "description": "Older unprefixed variant of $mcp_vendor_client, stamped only by PostHog's hosted MCP server. Coalesce both keys when querying vendor identity directly; the harness resolution in MCP analytics already does.",
             "examples": [
                 "ClaudeCode",
                 "ClaudeAI"
             ],
-            "label": "MCP vendor client"
+            "label": "MCP vendor client (legacy)"
         },
         "mcp_version": {
             "description": "Older unprefixed variant of $mcp_version. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_version for new dashboards.",
@@ -3798,17 +3807,6 @@
         "sccid": {
             "description": "Snapchat Click ID",
             "label": "sccid"
-        },
-        "source": {
-            "description": "Which PostHog surface the work came from. The surface values are 'web' (the app in a browser), 'posthog_ai' (Max), 'desktop' (the PostHog Desktop app), 'mobile' (the PostHog mobile app), 'slack' (the Slack app), 'mcp' (a third-party agent over MCP), 'cli', and 'api' (a direct API call). On API events, PostHog's own surfaces report themselves, so 'mcp' measures other people's agents. The $mcp_* events are stamped by the MCP server instead, which cannot read the OAuth grant that identifies the Desktop app, so a Desktop request can still show as 'mcp' on those. 'posthog_code' covers the headless coding agents: the cloud agent and the local agent. 'self_driving' is Signals: scouts, report implementations, and scout chat. 'wizard' is the setup agent and 'terraform' is the Terraform provider. Four values are machines rather than surfaces: 'cache_warming', 'alert', 'export', and 'subscription'. Two unrelated properties share this name, so filter to a specific event before breaking down by it. The app also uses 'source' for which control fired an event, with values like 'menu', 'keyboard-shortcut', and 'card_drag_handle'. Some backend paths use it for something else again: 'static' on $http_log, 'blob_v2', 'blob', 'listing' and 'realtime' on the session replay snapshot events, 'mcpcat' on the legacy MCP events, and 'template' or 'custom' on 'mcp_store server installed'. Two surface values also collide with older control names: on 'switched site mode', 'desktop' means the device-mode control rather than the app, and on the AI report events, 'slack' means the delivery channel.",
-            "examples": [
-                "web",
-                "posthog_ai",
-                "mcp",
-                "desktop",
-                "api"
-            ],
-            "label": "Source"
         },
         "token": {
             "description": "Token used for authentication.",
@@ -4679,6 +4677,15 @@
                 "streamable-http"
             ],
             "label": "MCP transport"
+        },
+        "$mcp_vendor_client": {
+            "description": "Vendor client header the MCP client sent on the transport (x-anthropic-client), captured raw. The strongest harness signal: clientInfo.name can't tell one vendor surface from another, but this header can.",
+            "examples": [
+                "ClaudeCode",
+                "ClaudeAI",
+                "Cowork"
+            ],
+            "label": "MCP vendor client"
         },
         "$mcp_version": {
             "description": "Server-resolved MCP version. May differ from the version the client reported because of the mcp-version-2 feature flag.",
@@ -7493,6 +7500,15 @@
             ],
             "label": "MCP transport"
         },
+        "$mcp_vendor_client": {
+            "description": "Vendor client header the MCP client sent on the transport (x-anthropic-client), captured raw. The strongest harness signal: clientInfo.name can't tell one vendor surface from another, but this header can.",
+            "examples": [
+                "ClaudeCode",
+                "ClaudeAI",
+                "Cowork"
+            ],
+            "label": "MCP vendor client"
+        },
         "$mcp_version": {
             "description": "Server-resolved MCP version. May differ from the version the client reported because of the mcp-version-2 feature flag.",
             "examples": [
@@ -8803,12 +8819,12 @@
             "label": "MCP transport (unprefixed)"
         },
         "mcp_vendor_client": {
-            "description": "Vendor/client identity derived from the request context for the MCP call (e.g. the coding agent or app behind the request).",
+            "description": "Older unprefixed variant of $mcp_vendor_client, stamped only by PostHog's hosted MCP server. Coalesce both keys when querying vendor identity directly; the harness resolution in MCP analytics already does.",
             "examples": [
                 "ClaudeCode",
                 "ClaudeAI"
             ],
-            "label": "MCP vendor client"
+            "label": "MCP vendor client (legacy)"
         },
         "mcp_version": {
             "description": "Older unprefixed variant of $mcp_version. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_version for new dashboards.",
@@ -8862,17 +8878,6 @@
         "sccid": {
             "description": "Snapchat Click ID Data from the last time this user was seen.",
             "label": "Latest sccid"
-        },
-        "source": {
-            "description": "Which PostHog surface the work came from. The surface values are 'web' (the app in a browser), 'posthog_ai' (Max), 'desktop' (the PostHog Desktop app), 'mobile' (the PostHog mobile app), 'slack' (the Slack app), 'mcp' (a third-party agent over MCP), 'cli', and 'api' (a direct API call). On API events, PostHog's own surfaces report themselves, so 'mcp' measures other people's agents. The $mcp_* events are stamped by the MCP server instead, which cannot read the OAuth grant that identifies the Desktop app, so a Desktop request can still show as 'mcp' on those. 'posthog_code' covers the headless coding agents: the cloud agent and the local agent. 'self_driving' is Signals: scouts, report implementations, and scout chat. 'wizard' is the setup agent and 'terraform' is the Terraform provider. Four values are machines rather than surfaces: 'cache_warming', 'alert', 'export', and 'subscription'. Two unrelated properties share this name, so filter to a specific event before breaking down by it. The app also uses 'source' for which control fired an event, with values like 'menu', 'keyboard-shortcut', and 'card_drag_handle'. Some backend paths use it for something else again: 'static' on $http_log, 'blob_v2', 'blob', 'listing' and 'realtime' on the session replay snapshot events, 'mcpcat' on the legacy MCP events, and 'template' or 'custom' on 'mcp_store server installed'. Two surface values also collide with older control names: on 'switched site mode', 'desktop' means the device-mode control rather than the app, and on the AI report events, 'slack' means the delivery channel.",
-            "examples": [
-                "web",
-                "posthog_ai",
-                "mcp",
-                "desktop",
-                "api"
-            ],
-            "label": "Source"
         },
         "token": {
             "description": "Token used for authentication.",
