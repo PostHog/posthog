@@ -557,22 +557,22 @@ class UserAccessControl:
         Adds the 3 main filter options to the query
         """
         filters = self._db_filters(filters)
-        return (
-            Q(  # Access controls applying to this team
-                **filters, organization_member=None, role=None
-            )
-            | Q(  # Access controls applying to this user
-                # Scoped to this organization for the same reason as `_user_role_ids`: a row can name
-                # a membership the user holds in a *different* organization, and such a row must not
-                # grant or deny anything here.
-                **filters,
-                organization_member__user=self._user,
-                organization_member__organization_id=self._organization_id,
-                role=None,
-            )
-            | Q(  # Access controls applying to this user's roles
-                **filters, organization_member=None, role__in=self._user_role_ids
-            )
+        q = Q(  # Access controls applying to this team
+            **filters, organization_member=None, role=None
+        )
+
+        # Access controls applying to this user. The membership is already cached, so match its id
+        # directly - filtering on `organization_member__user` joins posthog_organizationmembership
+        # on every read. The id also carries the organization scope, for the same reason as
+        # `_user_role_ids`: a row can name a membership the user holds in a *different*
+        # organization, and such a row must not grant or deny anything here. Without a membership
+        # in this organization, no row can apply to the user, so the branch is left out.
+        membership = self._organization_membership
+        if membership is not None:
+            q |= Q(**filters, organization_member_id=membership.id, role=None)
+
+        return q | Q(  # Access controls applying to this user's roles
+            **filters, organization_member=None, role__in=self._user_role_ids
         )
 
     @staticmethod
