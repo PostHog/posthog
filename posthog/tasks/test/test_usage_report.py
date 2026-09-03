@@ -3295,8 +3295,8 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
 
     @parameterized.expand(
         [
-            # 1.5 GB ingested, retained for an arbitrary (non-tier) 45 days: 67.5 GB-days of storage,
-            # so logs_retention_mb_days_in_period = 67_500 (67_500_000_000 byte-days // 1_000_000).
+            # 1.5 GB at a non-tier 45 days = 67.5 GB-days, so logs_retention_mb_days_in_period = 67_500
+            # (67_500_000_000 byte-days // 1_000_000).
             (
                 "arbitrary_retention_days",
                 {
@@ -3328,8 +3328,8 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
                     "logs_retention_mb_days_in_period": 0,
                 },
             ),
-            # Per-tier metrics run in parallel with byte-days: 2 GB at 30 days + 1 GB at 14 days.
-            # Tier MB report per tier; byte-days = 2_000*30 + 1_000*14 = 74_000 MB-days.
+            # Per-tier and byte-days in parallel: 2 GB at 30 days + 1 GB at 14 days. Each tier reports
+            # its own MB; byte-days = 2_000*30 + 1_000*14 = 74_000 MB-days.
             (
                 "per_tier_and_byte_days_in_parallel",
                 {

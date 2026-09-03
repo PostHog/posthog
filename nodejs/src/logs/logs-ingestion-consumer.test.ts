@@ -1446,7 +1446,7 @@ describe('LogsIngestionConsumer', () => {
 
             const messages = getProducedKafkaMessages().filter((m) => m.topic === KAFKA_APP_METRICS_2)
 
-            // 7 base metrics + the per-tier retention metric + retention_byte_days, emitted in parallel.
+            // 7 base metrics + per-tier retention + retention_byte_days.
             expect(messages).toHaveLength(9)
 
             const metricNames = messages.map((m) => parseMetricValue(m.value)?.metric_name)
@@ -1531,7 +1531,7 @@ describe('LogsIngestionConsumer', () => {
 
             const messages = getProducedKafkaMessages().filter((m) => m.topic === KAFKA_APP_METRICS_2)
 
-            // 4 non-zero base metrics (no dropped) + per-tier retention + retention_byte_days rows
+            // 4 non-zero base metrics (no dropped) + per-tier retention + retention_byte_days.
             expect(messages).toHaveLength(6)
             const metricNames = messages.map((m) => parseMetricValue(m.value)?.metric_name)
             expect(metricNames).not.toContain('bytes_dropped')
@@ -1586,7 +1586,7 @@ describe('LogsIngestionConsumer', () => {
 
             const messages = getProducedKafkaMessages().filter((m) => m.topic === KAFKA_APP_METRICS_2)
 
-            // 4 base metrics + per-tier retention + retention_byte_days per team (no dropped) = 12 total
+            // 4 base metrics + per-tier retention + retention_byte_days per team (no dropped) = 12 total.
             expect(messages).toHaveLength(12)
 
             const team1Messages = messages.filter((m) => parseMetricValue(m.value)?.team_id === team.id)

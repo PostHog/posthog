@@ -78,7 +78,7 @@ export interface LogsIngestionConsumerDeps {
 /** Ingestion default when `logs_settings.retention_days` is unset; must be in `TeamSerializer.VALID_RETENTION_DAYS`. */
 export const DEFAULT_LOGS_RETENTION_DAYS = 14
 
-/** Retention tiers that get their own per-tier usage metric; total = sum across all tiers. */
+/** Retention day counts that get their own per-tier usage metric. */
 const RETENTION_USAGE_TIERS = new Set([14, 30, 90])
 
 function retentionBytesMetricName(retentionDays: number): string | null {
@@ -1124,11 +1124,10 @@ export class LogsIngestionConsumer {
             if (retentionMetric) {
                 this.queueUsageMetric(teamId, retentionMetric, stats.bytesAllowed)
             }
-            // Byte-days: ingested bytes weighted by how long they are retained. Emitted in parallel with
-            // the per-tier metric above so the two can be compared before billing moves off fixed tiers;
-            // byte-days scales to any retention day count. Summed over a period this is total
-            // storage-duration; average retention = retention_byte_days / bytes_ingested. Uses the
-            // credit-adjusted `bytesAllowed`, so it reconciles with `bytes_ingested`.
+            // Byte-days: ingested bytes weighted by retention days. Summed over a period it is total
+            // storage-duration and scales to any retention day count (average retention =
+            // retention_byte_days / bytes_ingested). Uses credit-adjusted `bytesAllowed` to reconcile
+            // with `bytes_ingested`. Runs beside the per-tier metric above until billing leaves fixed tiers.
             this.queueUsageMetric(teamId, 'retention_byte_days', stats.bytesAllowed * stats.retentionDays)
             const source = this.appSource === 'traces' ? 'apm_traces' : 'logs'
             // These records are per-flush aggregates, not one per billed thing, so there is no

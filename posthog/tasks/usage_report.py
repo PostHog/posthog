@@ -355,16 +355,15 @@ class UsageReportCounters:
     logs_bytes_in_period: int
     logs_records_in_period: int
     logs_mb_in_period: int
-    # MB ingested while each retention tier was active. A team that changes retention mid-period has
-    # bytes under more than one tier. Each tier is floored to whole MB independently (bytes // 1_000_000),
-    # so the tiers sum to at most logs_mb_in_period and usually slightly less. Emitted in parallel with
-    # logs_retention_mb_days_in_period while billing moves off fixed tiers.
+    # MB ingested under each retention tier. A team that changes retention mid-period splits across
+    # tiers. Each tier floors to whole MB independently (bytes // 1_000_000), so the tiers sum to at
+    # most logs_mb_in_period. Runs beside logs_retention_mb_days_in_period until billing leaves fixed tiers.
     logs_retention_14d_mb_in_period: int
     logs_retention_30d_mb_in_period: int
     logs_retention_90d_mb_in_period: int
-    # Byte-days of retention, floored to whole MB-days (retention_byte_days // 1_000_000). Ingested bytes
-    # weighted by how many days they are retained, so it scales to any retention day count. Report-only,
-    # like logs_mb_in_period. Average retention days = logs_retention_mb_days_in_period / logs_mb_in_period.
+    # Byte-days of retention floored to whole MB-days (retention_byte_days // 1_000_000): ingested bytes
+    # weighted by retention days, so it scales to any retention day count. Report-only, like
+    # logs_mb_in_period. Average retention days = logs_retention_mb_days_in_period / logs_mb_in_period.
     logs_retention_mb_days_in_period: int
     # Per-SDK split of logs_records_in_period, which on its own has no SDK dimension. Keyed off the
     # telemetry.sdk.name resource attribute each SDK sets on every record. See SDK_TELEMETRY_NAMES.
@@ -2521,13 +2520,12 @@ def get_teams_with_logs_retention_bytes_in_period(
     end: datetime,
 ) -> dict[str, list[tuple[int, int]]]:
     """
-    Returns log bytes ingested while each retention tier (14d/30d/90d) was active, grouped by team.
+    Returns log bytes ingested under each retention tier (14d/30d/90d), grouped by team.
 
-    The logs-ingestion consumer emits a per-tier `bytes_ingested_retention_{14,30,90}d` metric into
-    `app_metrics2` alongside the total `bytes_ingested`. Result is keyed by the short tier suffix
-    used on `UsageReportCounters` (`14d`, `30d`, `90d`); each value is a list of `(team_id, count)`
-    tuples ready for `convert_team_usage_rows_to_dict`. Emitted in parallel with `retention_byte_days`
-    (see `get_teams_with_logs_retention_byte_days_in_period`) while billing moves off fixed tiers.
+    The consumer emits a per-tier `bytes_ingested_retention_{14,30,90}d` metric into `app_metrics2`.
+    Keyed by the tier suffix on `UsageReportCounters` (`14d`, `30d`, `90d`); each value is a list of
+    `(team_id, count)` tuples for `convert_team_usage_rows_to_dict`. Runs beside `retention_byte_days`
+    (`get_teams_with_logs_retention_byte_days_in_period`) until billing leaves fixed tiers.
     """
     with tags_context(product=Product.LOGS, feature=Feature.USAGE_REPORT):
         rows = sync_execute(
@@ -2562,13 +2560,13 @@ def get_teams_with_logs_retention_byte_days_in_period(
     end: datetime,
 ) -> TeamUsageRows:
     """
-    Returns byte-days of log retention grouped by team: ingested bytes weighted by their retention days.
+    Returns byte-days of log retention grouped by team: ingested bytes weighted by retention days.
 
-    The logs-ingestion consumer emits a single `retention_byte_days` metric into `app_metrics2` alongside
-    the total `bytes_ingested` (`retention_byte_days = bytes_ingested * retention_days`, summed per flush).
-    Summing it over the period gives total storage-duration, so it scales to any retention day count
-    instead of a fixed set of tiers. Average retention days over the period = `retention_byte_days` /
-    `bytes_ingested`. Each `(team_id, count)` tuple is ready for `convert_team_usage_rows_to_dict`.
+    The consumer emits one `retention_byte_days` metric into `app_metrics2`
+    (`retention_byte_days = bytes_ingested * retention_days`, summed per flush). Summed over the period
+    it is total storage-duration and scales to any retention day count. Average retention days =
+    `retention_byte_days` / `bytes_ingested`. Each `(team_id, count)` tuple is ready for
+    `convert_team_usage_rows_to_dict`.
     """
     with tags_context(product=Product.LOGS, feature=Feature.USAGE_REPORT):
         return sync_execute(

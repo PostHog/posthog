@@ -123,8 +123,8 @@ def _canned_query_payload(query_name: str, team_a_id: int, team_b_id: int, *extr
     if query_name == "teams_with_event_count_in_period":
         return [(team_a_id, 100), (team_b_id, 50), *extra_total_rows]
     if query_name == "teams_with_logs_retention_byte_days_in_period":
-        # 2_500_000 byte-days floors to 2 MB-days, so a dropped floor or a raw-bytes
-        # passthrough fails the assertion instead of matching by accident.
+        # 2_500_000 byte-days floors to 2 MB-days, so a dropped floor or raw-bytes passthrough
+        # fails the assertion instead of matching by accident.
         return [(team_a_id, 2_500_000)]
     if query_name == "teams_with_recording_count_in_period":
         return [(team_a_id, 8)]
