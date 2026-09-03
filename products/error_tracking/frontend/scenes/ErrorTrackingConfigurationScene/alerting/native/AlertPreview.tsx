@@ -93,10 +93,12 @@ function Message({ message, edited }: { message: ErrorTrackingAlertPreviewMessag
 export function AlertPreview({
     preview,
     loading,
+    error,
     channelLabel,
 }: {
     preview: ErrorTrackingAlertPreviewApi | null
     loading: boolean
+    error: string | null
     channelLabel: string | null
 }): JSX.Element {
     const messages = preview?.messages ?? []
@@ -117,7 +119,11 @@ export function AlertPreview({
                 ) : null}
             </div>
             <div className="flex flex-col gap-3 p-4 border rounded bg-surface-primary">
-                {loading && !preview ? (
+                {error ? (
+                    <span className="text-sm text-secondary">
+                        The preview could not be loaded. The alert can still be saved.
+                    </span>
+                ) : loading || !preview ? (
                     <>
                         <LemonSkeleton className="h-6 w-2/3" />
                         <LemonSkeleton className="h-4 w-1/2" />
