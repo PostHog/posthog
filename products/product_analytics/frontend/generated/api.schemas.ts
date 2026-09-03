@@ -181,7 +181,7 @@ export interface ElementStatsApi {
     /** Number of events matching this element chain */
     count: number
     /**
-     * Stable identity of the raw element chain (hash computed before any attribute filtering), for deduplicating rows across pages
+     * Hash of the chain as the server grouped it; combine with type to deduplicate rows across pages
      * @nullable
      */
     hash: string | null
@@ -8036,6 +8036,8 @@ export interface ChartSettingsApi {
     goalLines?: GoalLineApi[] | null
     heatmap?: HeatmapSettingsApi | null
     leftYAxisSettings?: YAxisSettingsApi | null
+    /** Where the legend sits relative to the chart. Unset falls back per chart type: right for pie, top for the rest. */
+    legendPosition?: LegendPositionApi | null
     pie?: PieChartSettingsApi | null
     /** Per-breakdown-value color customizations. Keyed by the raw breakdown column value. */
     resultCustomizations?: ChartSettingsApiResultCustomizations

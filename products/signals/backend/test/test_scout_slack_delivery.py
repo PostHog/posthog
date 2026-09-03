@@ -1,3 +1,5 @@
+import uuid
+
 import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
@@ -368,16 +370,26 @@ class TestScoutSlackDelivery(BaseTest):
         assert not any(text.endswith("…") for text in section_texts)
         assert any(tail_marker in text for text in section_texts)
 
-    def test_threaded_short_report_posts_one_reply_per_heading_section(self) -> None:
+    @parameterized.expand(
+        [
+            ("headings", "Lead line.\n\n## First\nshort body\n\n### Detail\ndeeper body\n\n## Second\nshort body"),
+            (
+                "bold_labels",
+                "Lead line.\n\n**First**\n\nshort body\n\n**Detail** - deeper body\n\n**Second**\n\nshort body",
+            ),
+        ]
+    )
+    def test_threaded_short_report_posts_one_reply_per_section(self, _name: str, summary: str) -> None:
         # The bug: threading only kicked in past the section cap, so a typical digest that fits one
-        # section posted as one wall of text. A report with headings now threads at any length, and
-        # a sub-heading rides in its parent's reply instead of opening one of its own.
+        # section posted as one wall of text. A report now threads at any length, whether it labels
+        # its sections with headings or in bold, and a sub-section rides in its parent's reply
+        # instead of opening one of its own.
         emission = self._make_emission()
         report = SignalReport.objects.create(
             team=self.team,
             status=SignalReport.Status.READY,
             title="Checkout failures",
-            summary="Lead line.\n\n## First\nshort body\n\n### Detail\ndeeper body\n\n## Second\nshort body",
+            summary=summary,
         )
         integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
         fake_client = MagicMock()
@@ -403,6 +415,11 @@ class TestScoutSlackDelivery(BaseTest):
         lead_sections = [block["text"]["text"] for block in calls[0].kwargs["blocks"] if block["type"] == "section"]
         assert lead_sections == ["Lead line."]
         first_reply, second_reply = calls[1].kwargs, calls[2].kwargs
+        # Slack rejects a client_msg_id that is not a UUID, and the reply loop swallows the error,
+        # so a malformed id costs every reply while the delivery still reports success.
+        reply_ids = [first_reply["client_msg_id"], second_reply["client_msg_id"]]
+        assert [str(uuid.UUID(reply_id)) for reply_id in reply_ids] == reply_ids
+        assert len(set(reply_ids)) == 2
         assert first_reply["thread_ts"] == "1785418710.000600"
         assert "First" in first_reply["blocks"][0]["text"]["text"]
         assert "Detail" in first_reply["blocks"][0]["text"]["text"]
@@ -410,9 +427,9 @@ class TestScoutSlackDelivery(BaseTest):
         assert "Second" in second_reply["blocks"][0]["text"]["text"]
         assert calls[3].kwargs["blocks"][0]["type"] == "context"
 
-    def test_threaded_report_without_headings_posts_a_single_message(self) -> None:
-        # Headings are the seams threading splits on. A summary with none has nothing to split, so it
-        # stays one channel message rather than being cut mid-prose.
+    def test_threaded_report_without_section_labels_posts_a_single_message(self) -> None:
+        # Headings and bold labels are the seams threading splits on. A summary with neither has
+        # nothing to split, so it stays one channel message rather than being cut mid-prose.
         emission = self._make_emission()
         report = SignalReport.objects.create(
             team=self.team,

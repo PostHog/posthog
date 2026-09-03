@@ -7,7 +7,7 @@ import type { Context, ToolBase } from '@/tools/types'
 // The review card's input is exactly the `loops-create` body, so the card's "Create loop"
 // button can forward the reviewed config unchanged. This tool doesn't write anything — it
 // echoes the config back so the UI app can render it for confirmation.
-const schema = LoopsCreateBody
+const schema = LoopsCreateBody()
 
 type Params = z.infer<typeof schema>
 

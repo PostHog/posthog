@@ -154,7 +154,6 @@ export function WindowComparisonCard({
                             unit={deltaUnit ?? '%'}
                             goodWhenDown={goodWhenDown}
                             precision={deltaPrecision}
-                            vs="vs the previous window"
                         />
                     </div>
                     <div className="flex flex-col gap-1.5">

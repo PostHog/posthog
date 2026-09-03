@@ -2920,7 +2920,6 @@ describe('sqlEditorLogic', () => {
                 true,
                 undefined,
                 undefined,
-                undefined,
                 false,
                 undefined,
                 incremental

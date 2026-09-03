@@ -96,7 +96,7 @@ Then **preview the prompt before anyone enables it**:
 Then link the user to the scanner (`/project/<project_id>/replay-vision/<scanner_id>`) and let **them** enable it — enabling starts real spend, so that click stays human. Two closing reminders for the user:
 
 - The scanner does **not** stop when the experiment does — disable it at conclusion.
-- A scheduled per-variant summary or Slack alert over the findings is one `vision-actions-create` away, once the observations look trustworthy.
+- For a scheduled summary or a Slack alert over the findings, point the user to the scanner's Scouts and Alerts tabs once the observations look trustworthy.
 
 ## Limits to state, not hide
 

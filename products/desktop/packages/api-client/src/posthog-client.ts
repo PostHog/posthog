@@ -2394,13 +2394,10 @@ export class PostHogAPIClient {
   }
 
   async listEvaluations(projectId: number): Promise<Evaluation[]> {
-    const data = await this.api.get(
-      "/api/environments/{project_id}/evaluations/",
-      {
-        path: { project_id: projectId.toString() },
-        query: { limit: 200 },
-      },
-    );
+    const data = await this.api.get("/api/projects/{project_id}/evaluations/", {
+      path: { project_id: projectId.toString() },
+      query: { limit: 200 },
+    });
     return data.results ?? [];
   }
 
@@ -2410,7 +2407,7 @@ export class PostHogAPIClient {
     updates: { enabled: boolean },
   ): Promise<Evaluation> {
     return await this.api.patch(
-      "/api/environments/{project_id}/evaluations/{id}/",
+      "/api/projects/{project_id}/evaluations/{id}/",
       {
         path: {
           project_id: projectId.toString(),
@@ -2734,7 +2731,7 @@ export class PostHogAPIClient {
     if (ids.length === 0) return [];
     const TASK_SUMMARIES_MAX_PAGES = 50;
     const teamId = await this.getTeamId();
-    const all: Schemas.TaskSummary[] = [];
+    const all: Schemas.TaskSummaryDTO[] = [];
     let urlPath: string = `/api/projects/${teamId}/tasks/summaries/`;
     for (let i = 0; i < TASK_SUMMARIES_MAX_PAGES; i++) {
       const url = new URL(`${this.api.baseUrl}${urlPath}`);
@@ -2751,7 +2748,8 @@ export class PostHogAPIClient {
           `Failed to fetch task summaries: ${response.statusText}`,
         );
       }
-      const page = (await response.json()) as Schemas.PaginatedTaskSummaryList;
+      const page =
+        (await response.json()) as Schemas.PaginatedTaskSummaryDTOList;
       all.push(...page.results);
       if (!page.next) return all;
       const nextUrl = new URL(page.next);
@@ -2872,7 +2870,7 @@ export class PostHogAPIClient {
         body: {
           ...taskOptions,
           origin_product: originProduct ?? "user_created",
-        } as unknown as Schemas.Task,
+        } as unknown as Schemas.TaskCreate,
       }),
     );
 
@@ -2881,7 +2879,7 @@ export class PostHogAPIClient {
 
   async updateTask(
     taskId: string,
-    updates: Partial<Schemas.Task>,
+    updates: Schemas.PatchedTaskWrite,
   ): Promise<Task> {
     const teamId = await this.getTeamId();
     const data = await this.api.patch(
@@ -2898,13 +2896,10 @@ export class PostHogAPIClient {
   /**
    * Mirror this device's archive state onto the task, so every client agrees on
    * what is archived — and so the list endpoint, which hides archived tasks,
-   * counts what the app actually shows. `archived` is on the write serializer
-   * but not yet in the generated schema.
+   * counts what the app actually shows.
    */
   async setTaskArchived(taskId: string, archived: boolean): Promise<void> {
-    await this.updateTask(taskId, {
-      archived,
-    } as unknown as Partial<Schemas.Task>);
+    await this.updateTask(taskId, { archived });
   }
 
   async deleteTask(taskId: string) {
@@ -4109,7 +4104,7 @@ export class PostHogAPIClient {
       throw new Error(`Failed to resume run in cloud: ${response.statusText}`);
     }
 
-    const data = (await response.json()) as Schemas.TaskRunDetail;
+    const data = (await response.json()) as Schemas.TaskRunDetailDTO;
     return normalizeTaskRunResponse(data, { teamId, taskId });
   }
 
@@ -4129,7 +4124,7 @@ export class PostHogAPIClient {
     }
 
     const data =
-      (await response.json()) as Partial<Schemas.PaginatedTaskRunDetailList>;
+      (await response.json()) as Partial<Schemas.PaginatedTaskRunDetailDTOList>;
     return (data.results ?? []).map((run) =>
       normalizeTaskRunResponse(run, { teamId, taskId }),
     );
@@ -4150,7 +4145,7 @@ export class PostHogAPIClient {
       throw new Error(`Failed to fetch task run: ${response.statusText}`);
     }
 
-    const data = (await response.json()) as Schemas.TaskRunDetail;
+    const data = (await response.json()) as Schemas.TaskRunDetailDTO;
     return normalizeTaskRunResponse(data, { teamId, taskId });
   }
 
@@ -4183,7 +4178,7 @@ export class PostHogAPIClient {
       throw new Error(`Failed to create task run: ${response.statusText}`);
     }
 
-    const data = (await response.json()) as Schemas.TaskRunDetail;
+    const data = (await response.json()) as Schemas.TaskRunDetailDTO;
     return normalizeTaskRunResponse(data, { teamId, taskId });
   }
 
@@ -4214,7 +4209,7 @@ export class PostHogAPIClient {
       throw new Error(`Failed to start task run: ${response.statusText}`);
     }
 
-    const data = (await response.json()) as Schemas.Task;
+    const data = (await response.json()) as Schemas.TaskDetailDTO;
     return normalizeTaskResponse(data, { teamId });
   }
 
@@ -4250,8 +4245,7 @@ export class PostHogAPIClient {
     runId: string,
   ): Promise<{ analysis_task_id: string; created: boolean }> {
     const teamId = await this.getTeamId();
-    const data = await this.api.post(
-      //@ts-expect-error this is not in the generated client
+    return await this.api.post(
       `/api/projects/{project_id}/tasks/{task_id}/runs/{id}/analyze/`,
       {
         path: {
@@ -4261,7 +4255,6 @@ export class PostHogAPIClient {
         },
       },
     );
-    return data as { analysis_task_id: string; created: boolean };
   }
 
   /**
@@ -6926,7 +6919,7 @@ export class PostHogAPIClient {
         const scope = `event = '$exception' AND properties.$exception_issue_id = '${hogqlEscape(id)}' AND timestamp >= now() - INTERVAL 30 DAY`;
         const [issue, totals, daily] = await Promise.all([
           this.api.get(
-            "/api/environments/{project_id}/error_tracking/issues/{id}/",
+            "/api/projects/{project_id}/error_tracking/issues/{id}/",
             { path: { project_id: projectId, id } },
           ),
           this.runQuery({
@@ -7169,7 +7162,7 @@ export class PostHogAPIClient {
       }
       case "eval": {
         const evaluation = await this.api.get(
-          "/api/environments/{project_id}/evaluations/{id}/",
+          "/api/projects/{project_id}/evaluations/{id}/",
           { path: { project_id: projectId, id } },
         );
         return shapeEvaluationPreview(evaluation);
