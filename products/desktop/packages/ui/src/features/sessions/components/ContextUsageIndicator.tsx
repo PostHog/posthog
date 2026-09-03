@@ -24,16 +24,23 @@ const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
 interface ContextUsageIndicatorProps {
   usage: ContextUsage | null;
   taskId?: string;
+  originProduct?: string;
   focused?: boolean;
 }
 
 export function ContextUsageIndicator({
   usage,
   taskId,
+  originProduct,
   focused = true,
 }: ContextUsageIndicatorProps) {
+  const costEnabled = originProduct === "user_created";
   const costVisible = useFeatureFlag(TASK_COST_VISIBLE_FLAG);
-  const { data: taskUsage } = useTaskUsage(taskId, focused);
+  const { data: fetchedTaskUsage } = useTaskUsage(
+    taskId,
+    costEnabled && focused,
+  );
+  const taskUsage = costEnabled ? fetchedTaskUsage : undefined;
 
   if (!usage) return null;
 
