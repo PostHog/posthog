@@ -37,10 +37,34 @@ class TestRecoverLinksFromHtml:
         result = recover_links_from_html(text, html)
         assert "[Attiva l'inoltro](https://host.example/activate?t=abc)" in result
 
-    def test_leaves_text_untouched_when_url_already_present(self) -> None:
+    def test_wraps_url_already_present_instead_of_relinking(self) -> None:
         text = "Confirm at https://host.example/activate?t=abc now"
         html = '<a href="https://host.example/activate?t=abc">Confirm</a>'
-        assert recover_links_from_html(text, html) == text
+        assert recover_links_from_html(text, html) == "Confirm at <https://host.example/activate?t=abc> now"
+
+    @parameterized.expand(
+        [
+            ("trailing_tilde", "Open https://clicks.example/f/a/token~ please"),
+            ("trailing_tildes", "Open https://clicks.example/f/a/token~~/enc~ please"),
+            ("trailing_dot", "Open https://clicks.example/go. please"),
+        ]
+    )
+    def test_wraps_bare_url_so_trailing_punctuation_survives(self, _name: str, text: str) -> None:
+        # A bare tracking URL keeps its terminal punctuation only when wrapped; the
+        # renderer's GFM autolink literal would otherwise trim it and break the link.
+        url = text.split("Open ", 1)[1].rsplit(" please", 1)[0]
+        result = recover_links_from_html(text, "")
+        assert f"<{url}>" in result
+
+    def test_does_not_double_wrap_recovered_link(self) -> None:
+        text = "Please confirm.\nAttiva l'inoltro"
+        html = '<a href="https://clicks.example/f/a/token~">Attiva l\'inoltro</a>'
+        result = recover_links_from_html(text, html)
+        assert result == "Please confirm.\n[Attiva l'inoltro](https://clicks.example/f/a/token~)"
+
+    def test_leaves_existing_angle_autolink_untouched(self) -> None:
+        text = "Confirm at <https://host.example/activate~> now"
+        assert recover_links_from_html(text, "") == text
 
     def test_only_first_occurrence_is_linked(self) -> None:
         text = "click here and also click here"
