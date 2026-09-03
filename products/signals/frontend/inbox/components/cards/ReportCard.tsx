@@ -1,4 +1,5 @@
 import clsx from 'clsx'
+import { useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconHide, IconUndo } from '@posthog/icons'
@@ -11,6 +12,7 @@ import { ScoutLink } from 'lib/signals/ScoutLink'
 import { scoutDisplayName } from 'lib/signals/signalCardSourceLine'
 import { PrBadge } from 'lib/signals/SignalReportPrBadge'
 
+import { prCiStatusLogic } from '../../logics/prCiStatusLogic'
 import {
     INBOX_SECTION_LEGACY_TAB,
     InboxReportSectionKey,
@@ -161,6 +163,10 @@ export function ReportCard({
         onDismiss,
     })
 
+    // Painted from the shared map the report lists fill; absent until (or unless) GitHub answers.
+    const { ciStatusByReportId } = useValues(prCiStatusLogic)
+    const ciStatus = preview ? null : ciStatusByReportId[report.id]
+
     const isRefunded = !!report.refund
     const showsDismiss = !!onDismiss || !redesign
 
@@ -188,7 +194,8 @@ export function ReportCard({
                 <div
                     className={clsx(
                         'min-w-0 break-words font-semibold text-sm leading-snug text-balance',
-                        hasPr && 'pr-14'
+                        // A CI glyph widens the pill, so the title gives back the space it takes.
+                        hasPr && (ciStatus ? 'pr-24' : 'pr-14')
                     )}
                 >
                     {conventionalTitle && (
@@ -276,6 +283,7 @@ export function ReportCard({
                             // stay keyboard-focusable inside the otherwise non-routable card.
                             prUrl={preview ? null : prUrl}
                             state={derivePrState(report.status, report.implementation_pr_merged === true)}
+                            ciStatus={ciStatus}
                         />
                     </div>
                 ) : null}

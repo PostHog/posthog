@@ -27,6 +27,7 @@ from posthog.models.github_integration_base import (
     GITHUB_BRANCH_CACHE_TTL_SECONDS,
     GITHUB_REPOSITORY_CACHE_TTL_SECONDS,
     GitHubIntegrationBase,
+    PullRequestRef,
 )
 from posthog.models.integration import (
     GitHubInstallationAccessFetchError,
@@ -2290,3 +2291,52 @@ class TestGitHubIntegrationPullRequestBabysitSnapshot(BaseTest):
             result = self._github().get_pull_request_babysit_snapshot(BABYSIT_PR_URL)
 
         assert result["success"] is False
+
+
+class TestGitHubIntegrationPullRequestCiStatuses(BaseTest):
+    def _github(self) -> GitHubIntegration:
+        return GitHubIntegration(_create_github_integration(self.team))
+
+    @staticmethod
+    def _rollup(state: str | None) -> dict:
+        return {"pullRequest": {"commits": {"nodes": [{"commit": {"statusCheckRollup": {"state": state}}}]}}}
+
+    def test_one_call_resolves_every_pull_request_against_its_own_reference(self):
+        # The whole point of the batch: a list of PRs costs one GraphQL call, and each rollup lands on
+        # the reference it was asked about. A mismatch here paints CI onto the wrong report.
+        references = [
+            PullRequestRef(owner="acme", repo="widgets", number=7),
+            PullRequestRef(owner="acme", repo="widgets", number=8),
+            PullRequestRef(owner="other", repo="thing", number=3),
+        ]
+        payload = {"pr0": self._rollup("SUCCESS"), "pr1": self._rollup("FAILURE"), "pr2": self._rollup(None)}
+
+        with patch.object(GitHubIntegration, "_gh_graphql", return_value=payload) as mock_graphql:
+            statuses = self._github().get_pull_request_ci_statuses(references)
+
+        mock_graphql.assert_called_once()
+        assert statuses == {references[0]: "passing", references[1]: "failing", references[2]: "none"}
+        variables = mock_graphql.call_args.args[1]
+        assert variables["owner2"] == "other" and variables["repo2"] == "thing" and variables["number2"] == 3
+
+    def test_pull_requests_github_did_not_answer_for_are_left_out(self):
+        # GitHub returns partial data when an alias hits a permission error, so an unreadable PR must
+        # not take the readable ones down with it.
+        readable = PullRequestRef(owner="acme", repo="widgets", number=7)
+        unreadable = PullRequestRef(owner="private", repo="repo", number=1)
+
+        with patch.object(GitHubIntegration, "_gh_graphql", return_value={"pr0": self._rollup("PENDING"), "pr1": None}):
+            statuses = self._github().get_pull_request_ci_statuses([readable, unreadable])
+
+        assert statuses == {readable: "pending"}
+
+    def test_more_pull_requests_than_one_batch_holds_are_split_across_calls(self):
+        # Without chunking a big inbox would build one query past GitHub's node limit and get nothing.
+        batch_size = GitHubIntegration.PR_CI_STATUS_BATCH_SIZE
+        references = [PullRequestRef(owner="acme", repo="widgets", number=n) for n in range(batch_size + 1)]
+
+        with patch.object(GitHubIntegration, "_gh_graphql", return_value={}) as mock_graphql:
+            self._github().get_pull_request_ci_statuses(references)
+
+        assert mock_graphql.call_count == 2
+        assert len(mock_graphql.call_args_list[1].args[1]) == 3  # owner/repo/number of the one leftover

@@ -6,6 +6,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { derivePrState } from 'lib/signals/prState'
 import { userLogic } from 'scenes/userLogic'
 
 import type { UserType } from '~/types'
@@ -29,6 +30,7 @@ import { isInboxRedesignEnabled } from '../utils/inboxRedesign'
 import { inboxBulkActionsLogic } from './inboxBulkActionsLogic'
 import { buildSignalReportListOrdering, inboxFiltersLogic } from './inboxFiltersLogic'
 import type { InboxFilterState, InboxSortDirection, InboxSortField } from './inboxFiltersLogic'
+import { prCiStatusLogic } from './prCiStatusLogic'
 
 const PAGE_SIZE = 50
 
@@ -150,6 +152,7 @@ export interface reportListLogicValues {
     hasMore: boolean
     isLoaded: boolean
     listApiParams: any
+    openPrReportIds: string[]
     loadedContext: {
         hasActiveFilters: boolean
         scope: InboxScope
@@ -200,6 +203,13 @@ export interface reportListLogicActions {
     toggleSourceProduct: (source: string) => {
         source: string
     } // inboxFiltersLogic
+    trackReports: (
+        source: string,
+        reportIds: string[]
+    ) => {
+        reportIds: string[]
+        source: string
+    } // prCiStatusLogic
     dismissReport: (
         reportId: string,
         dismissal: DismissalFeedback
@@ -286,6 +296,7 @@ export interface reportListLogicActions {
 export interface reportListLogicMeta {
     key: 'dismissed' | 'monitoring' | 'needs-decision' | 'not-actionable' | 'resolved'
     __keaTypeGenInternalSelectorTypes: {
+        openPrReportIds: (reports: SignalReport[]) => string[]
         primarySectionKey: (featureFlags: FeatureFlagsSet) => InboxReportSectionKey
         listApiParams: (
             searchQuery: string,
@@ -365,6 +376,8 @@ export const reportListLogic = kea<reportListLogicType>([
                 'setFilters',
                 'clearFilters',
             ],
+            prCiStatusLogic,
+            ['trackReports'],
         ],
     })),
 
@@ -532,6 +545,19 @@ export const reportListLogic = kea<reportListLogicType>([
             (s) => [s.reportsResponse],
             (reportsResponse: ReportListResponse | null): boolean => reportsResponse !== null,
         ],
+        // The loaded rows whose pull request is still open, so the pill can say whether CI is red.
+        // A merged or closed pull request is left out: its checks are history, not something to act on.
+        openPrReportIds: [
+            (s) => [s.reports],
+            (reports: SignalReport[]): string[] =>
+                reports
+                    .filter(
+                        (report) =>
+                            !!report.implementation_pr_url &&
+                            derivePrState(report.status, report.implementation_pr_merged === true) === 'open'
+                    )
+                    .map((report) => report.id),
+        ],
         // Total matching the *loaded* results — from the same response, so it can never be stale
         // relative to `reports` the way the separately-loaded badge `count` can (filter/refresh races).
         totalCount: [
@@ -557,6 +583,11 @@ export const reportListLogic = kea<reportListLogicType>([
     }),
 
     listeners(({ actions, values, props }) => ({
+        // Announce this section's open pull requests so their CI state is resolved in one batch. Both
+        // loaders report: the first page and each appended page bring rows that need painting. An
+        // empty announcement matters too, because it retires the rows a narrowed filter dropped.
+        loadReportsSuccess: () => actions.trackReports(props.sectionKey, values.openPrReportIds),
+        loadMoreReportsSuccess: () => actions.trackReports(props.sectionKey, values.openPrReportIds),
         // First For-you count for the primary section: if the user has no reports suggested to
         // them, default to Entire project so they don't land on an empty inbox. Only when they haven't
         // picked a scope themselves, and only once the user's uuid has resolved (so the count is

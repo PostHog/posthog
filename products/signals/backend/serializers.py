@@ -3,7 +3,7 @@ from collections.abc import Mapping
 from datetime import datetime
 from typing import cast
 
-from django.db.models import Q
+from django.db.models import Q, TextChoices
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema_field
@@ -1061,6 +1061,40 @@ class PullRequestChecksResponseSerializer(serializers.Serializer):
     """Response for the PR checks endpoint — the CI status of a report's implementation PR."""
 
     checks = PullRequestCheckSerializer(many=True, read_only=True)
+
+
+class PullRequestCiStatus(TextChoices):
+    """Coarse rollup of a pull request's checks, as mapped from GitHub's status check rollup."""
+
+    PASSING = "passing", "Passing"
+    FAILING = "failing", "Failing"
+    PENDING = "pending", "Pending"
+    NONE = "none", "No checks"
+
+
+class PullRequestCiStatusSerializer(serializers.Serializer):
+    """The CI rollup of one report's implementation pull request."""
+
+    report_id = serializers.UUIDField(
+        read_only=True, help_text="Report whose implementation pull request this status describes."
+    )
+    ci_status = serializers.ChoiceField(
+        read_only=True,
+        choices=PullRequestCiStatus.choices,
+        help_text="Rollup of the pull request's checks on its head commit: 'passing' (nothing failed), "
+        "'failing', 'pending' (checks are still running), or 'none' (the head commit has no checks).",
+    )
+
+
+class PullRequestCiStatusesResponseSerializer(serializers.Serializer):
+    """Response for the batch PR CI status endpoint, for painting CI state onto a list of reports."""
+
+    statuses = PullRequestCiStatusSerializer(
+        many=True,
+        read_only=True,
+        help_text="One entry per requested report whose CI state resolved. Reports without an open "
+        "implementation pull request, and reports GitHub could not answer for, are left out.",
+    )
 
 
 class PullRequestCommentReactionSerializer(serializers.Serializer):

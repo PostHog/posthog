@@ -1,9 +1,11 @@
-import { IconPullRequest, type IconProps } from '@posthog/icons'
+import { IconCheckCircle, IconPullRequest, IconSpinner, IconWarning, type IconProps } from '@posthog/icons'
 import { Link, Tooltip } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
 
-import { PR_BADGE_STATE, type PrBadgeState } from './prState'
+import type { PullRequestCiStatusEnumApi } from 'products/signals/frontend/generated/api.schemas'
+
+import { PR_BADGE_STATE, PR_CI_GLYPH, prCiGlyphStatus, type PrBadgeState } from './prState'
 
 function IconGitMerge(props: IconProps): JSX.Element {
     return (
@@ -25,14 +27,21 @@ export function PrBadge({
     prNumber,
     prUrl,
     state,
+    ciStatus,
 }: {
     prNumber: string
     prUrl?: string | null
     state: PrBadgeState
+    /** CI rollup of the pull request, when it is known. Only an open pull request shows one. */
+    ciStatus?: PullRequestCiStatusEnumApi | null
 }): JSX.Element {
     const { label, className, hoverClassName } = PR_BADGE_STATE[state]
     const StateIcon =
         state === 'merged' ? IconGitMerge : state === 'closed' ? IconGitPullRequestClosed : IconPullRequest
+    const glyphStatus = prCiGlyphStatus(state, ciStatus)
+    const glyph = glyphStatus ? PR_CI_GLYPH[glyphStatus] : null
+    const CiIcon = glyphStatus === 'failing' ? IconWarning : glyphStatus === 'pending' ? IconSpinner : IconCheckCircle
+    const description = glyph ? `${label}, ${glyph.label}` : label
     const badge = (
         <span
             className={cn(
@@ -43,21 +52,30 @@ export function PrBadge({
         >
             <StateIcon className="size-3" />
             <span className="font-mono tabular-nums">#{prNumber}</span>
+            {glyph && (
+                <CiIcon
+                    className={cn(
+                        'size-3',
+                        glyph.className,
+                        glyphStatus === 'pending' && 'animate-spin motion-reduce:animate-none'
+                    )}
+                />
+            )}
         </span>
     )
 
     if (!prUrl) {
-        return <Tooltip title={`Pull request #${prNumber} (${label})`}>{badge}</Tooltip>
+        return <Tooltip title={`Pull request #${prNumber} (${description})`}>{badge}</Tooltip>
     }
 
     return (
-        <Tooltip title={`Open pull request #${prNumber} (${label}) on GitHub`}>
+        <Tooltip title={`Open pull request #${prNumber} (${description}) on GitHub`}>
             <Link
                 to={prUrl}
                 target="_blank"
                 disableClientSideRouting
                 onClick={(e) => e.stopPropagation()}
-                aria-label={`Open pull request #${prNumber} (${label}) on GitHub`}
+                aria-label={`Open pull request #${prNumber} (${description}) on GitHub`}
                 className="no-underline"
             >
                 {badge}

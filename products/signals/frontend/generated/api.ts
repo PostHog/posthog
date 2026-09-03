@@ -32,6 +32,7 @@ import type {
     PauseUntilRequestApi,
     ProjectProfileApi,
     PullRequestChecksResponseApi,
+    PullRequestCiStatusesResponseApi,
     PullRequestCommentsResponseApi,
     PullRequestReviewCommentCreateApi,
     PullRequestReviewCommentCreateResponseApi,
@@ -78,6 +79,7 @@ import type {
     SignalsProcessingListParams,
     SignalsReportArtefactsListParams,
     SignalsReportsListParams,
+    SignalsReportsPrCiStatusesParams,
     SignalsScoutConfigListParams,
     SignalsScoutConfigSyncParams,
     SignalsScoutMembersListParams,
@@ -686,6 +688,37 @@ export const signalsReportsBulkStateCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(signalReportBulkStateRequestApi),
+    })
+}
+
+export const getSignalsReportsPrCiStatusesUrl = (projectId: string, params: SignalsReportsPrCiStatusesParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/reports/pr_ci_statuses/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/reports/pr_ci_statuses/`
+}
+
+/**
+ * Resolve the coarse CI rollup of the pull requests several reports opened, so a list of reports can show which pull requests are red without opening each report. One GitHub call covers the whole batch, and the answers are cached briefly and shared across callers. A report is left out when it has no open implementation pull request, and also when GitHub could not answer for it (no integration reaches the repository, a rate limit, an upstream failure), so a caller shows no CI state for it rather than an error. For the individual checks behind the rollup, use `pr_checks`.
+ * @summary Fetch CI status for several reports' implementation PRs
+ */
+export const signalsReportsPrCiStatuses = async (
+    projectId: string,
+    params: SignalsReportsPrCiStatusesParams,
+    options?: RequestInit
+): Promise<PullRequestCiStatusesResponseApi> => {
+    return apiMutator<PullRequestCiStatusesResponseApi>(getSignalsReportsPrCiStatusesUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

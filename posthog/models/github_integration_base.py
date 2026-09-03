@@ -1603,6 +1603,59 @@ class GitHubIntegrationBase:
             "updated_at": pr.get("updatedAt"),
         }
 
+    # Pull requests per aliased CI-rollup query. Each alias reads one PR and the check rollup of its
+    # head commit, so a batch this size stays well inside GitHub's GraphQL node limit, and a failed
+    # batch costs one call rather than the whole list.
+    PR_CI_STATUS_BATCH_SIZE = 25
+
+    def get_pull_request_ci_statuses(self, references: Iterable[PullRequestRef]) -> dict[PullRequestRef, str]:
+        """The coarse CI rollup of many pull requests, keyed by reference.
+
+        Values use the same vocabulary as :meth:`get_pull_request_snapshot`'s ``ci_status``
+        (``passing`` / ``failing`` / ``pending`` / ``none``). One GraphQL call covers up to
+        ``PR_CI_STATUS_BATCH_SIZE`` pull requests, which is what makes this affordable for a list of
+        pull requests rather than a single one.
+
+        A pull request this installation cannot read is left out of the result instead of raising, so
+        one unreachable repository still lets the rest of the batch resolve. Rate limits raise
+        :class:`GitHubRateLimitError`, a denied egress budget raises ``GitHubEgressBudgetExhausted``,
+        and other failures raise ``GitHubIntegrationError``. Callers own the back-off for all three.
+        """
+        unique = list(dict.fromkeys(references))
+        statuses: dict[PullRequestRef, str] = {}
+        for start in range(0, len(unique), self.PR_CI_STATUS_BATCH_SIZE):
+            batch = unique[start : start + self.PR_CI_STATUS_BATCH_SIZE]
+            declarations = ", ".join(
+                f"$owner{i}: String!, $repo{i}: String!, $number{i}: Int!" for i in range(len(batch))
+            )
+            selections = "\n".join(
+                f"  pr{i}: repository(owner: $owner{i}, name: $repo{i}) {{"
+                f" pullRequest(number: $number{i}) {{ commits(last: 1) {{ nodes {{ commit {{"
+                f" statusCheckRollup {{ state }} }} }} }} }} }}"
+                for i in range(len(batch))
+            )
+            variables: dict[str, Any] = {}
+            for i, reference in enumerate(batch):
+                variables[f"owner{i}"] = reference.owner
+                variables[f"repo{i}"] = reference.repo
+                variables[f"number{i}"] = reference.number
+
+            data = self._gh_graphql(
+                f"query({declarations}) {{\n{selections}\n}}",
+                variables,
+                endpoint="/graphql:pullRequestCiStatuses",
+            )
+            for i, reference in enumerate(batch):
+                pull_request = ((data or {}).get(f"pr{i}") or {}).get("pullRequest")
+                if not pull_request:
+                    continue
+                rollup_nodes = ((pull_request.get("commits") or {}).get("nodes")) or []
+                rollup_state = None
+                if rollup_nodes:
+                    rollup_state = ((rollup_nodes[0].get("commit") or {}).get("statusCheckRollup") or {}).get("state")
+                statuses[reference] = self._map_ci_status(rollup_state)
+        return statuses
+
     _PR_BABYSIT_SNAPSHOT_QUERY = """
     query($owner: String!, $repo: String!, $number: Int!) {
       repository(owner: $owner, name: $repo) {

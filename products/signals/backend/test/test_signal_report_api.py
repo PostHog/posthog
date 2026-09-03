@@ -16,10 +16,10 @@ from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from parameterized import parameterized
-from rest_framework import status
+from rest_framework import exceptions, status
 from social_django.models import UserSocialAuth
 
-from posthog.egress.github.transport import GitHubEgressBudgetExhausted
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
 from posthog.models import OAuthApplication
 from posthog.models.team.team import Team
@@ -33,6 +33,7 @@ from posthog.temporal.oauth import (
 
 from products.signals.backend.artefact_schemas import ChannelAssignment
 from products.signals.backend.implementation_pr import (
+    ImplementationPr,
     fetch_implementation_pr_state_for_reports,
     fetch_implementation_pr_urls_for_reports,
 )
@@ -55,7 +56,11 @@ from products.signals.backend.task_run_artefacts import (
     record_implementation_task,
     record_report_task,
 )
-from products.signals.backend.views import classify_report_list_client
+from products.signals.backend.views import (
+    PR_CI_STATUS_MAX_REPORTS,
+    classify_report_list_client,
+    parse_pr_ci_status_report_ids,
+)
 from products.tasks.backend.facade.api import Channel
 from products.tasks.backend.facade.repo_selection_types import RepoSelectionResult
 
@@ -2971,3 +2976,206 @@ class TestSignalReportPrEndpoints(APIBaseTest):
             response = self.client.get(self._comments_url(str(report.id)))
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {"comments": comments}
+
+
+class TestPrCiStatusReportIdsParsing(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("missing", None),
+            ("blank", "   "),
+            ("only_separators", ",,"),
+            ("not_a_uuid", "not-a-uuid"),
+            ("one_bad_id_among_good_ones", "3f1e0f4a-0000-4000-8000-000000000001,nope"),
+        ]
+    )
+    def test_an_unusable_report_ids_param_is_rejected(self, _name, raw):
+        # A list scan asks about ids it holds, so a malformed list is the caller's bug. Answering for
+        # the ids that happen to parse would hide it behind rows that quietly never show CI state.
+        with self.assertRaises(exceptions.ValidationError):
+            parse_pr_ci_status_report_ids(raw)
+
+    def test_more_ids_than_one_request_may_ask_about_are_rejected(self):
+        raw = ",".join(str(uuid.uuid4()) for _ in range(PR_CI_STATUS_MAX_REPORTS + 1))
+        with self.assertRaises(exceptions.ValidationError):
+            parse_pr_ci_status_report_ids(raw)
+
+    def test_padded_ids_are_accepted(self):
+        report_id = uuid.uuid4()
+        assert parse_pr_ci_status_report_ids(f" {report_id} , {report_id} ") == [report_id, report_id]
+
+
+class TestSignalReportPrCiStatuses(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        # The resolved statuses are cached per team, repo, and PR, so a test must not read what an
+        # earlier one warmed.
+        cache.clear()
+        self.addCleanup(cache.clear)
+
+    def _create_report(self, title: str) -> SignalReport:
+        return SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.READY,
+            title=title,
+            summary="Test summary",
+            signal_count=1,
+        )
+
+    def _url(self, report_ids) -> str:
+        query = urlencode({"report_ids": ",".join(str(report_id) for report_id in report_ids)})
+        return f"/api/projects/{self.team.id}/signals/reports/pr_ci_statuses/?{query}"
+
+    @staticmethod
+    def _pr(number: int, *, merged: bool = False) -> ImplementationPr:
+        return ImplementationPr(url=f"https://github.com/PostHog/posthog/pull/{number}", merged=merged)
+
+    def _patch_github(self):
+        github = patch("products.signals.backend.views.GitHubIntegration.first_for_team_repository").start()
+        self.addCleanup(patch.stopall)
+        return github
+
+    def test_open_prs_resolve_in_one_batch_and_everything_else_is_left_out(self):
+        # The mapping is the whole contract: a report has to get its own PR's CI state, and a merged
+        # or PR-less report must not be painted at all. One GitHub call covers the page.
+        red = self._create_report("red")
+        green = self._create_report("green")
+        landed = self._create_report("landed")
+        without_pr = self._create_report("no pr")
+        github = self._patch_github()
+        github.return_value.get_pull_request_ci_statuses.side_effect = lambda references: {
+            reference: ("failing" if reference.number == 7 else "passing") for reference in references
+        }
+
+        with patch(
+            "products.signals.backend.views.fetch_implementation_pr_state_for_reports",
+            return_value={
+                str(red.id): self._pr(7),
+                str(green.id): self._pr(8),
+                str(landed.id): self._pr(9, merged=True),
+            },
+        ):
+            response = self.client.get(self._url([red.id, green.id, landed.id, without_pr.id]))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert sorted(response.json()["statuses"], key=lambda entry: entry["report_id"]) == sorted(
+            [
+                {"report_id": str(red.id), "ci_status": "failing"},
+                {"report_id": str(green.id), "ci_status": "passing"},
+            ],
+            key=lambda entry: entry["report_id"],
+        )
+        github.return_value.get_pull_request_ci_statuses.assert_called_once()
+        requested = github.return_value.get_pull_request_ci_statuses.call_args.args[0]
+        assert sorted(reference.number for reference in requested) == [7, 8]
+        github.assert_called_once_with(
+            self.team.id,
+            "PostHog/posthog",
+            source="signals_pr_ci_status",
+            priority=Priority.NORMAL,
+        )
+
+    def test_a_second_scan_reads_the_cached_status_instead_of_calling_github(self):
+        # Every list load and poll would otherwise cost a GitHub call per open PR.
+        report = self._create_report("cached")
+        github = self._patch_github()
+        github.return_value.get_pull_request_ci_statuses.side_effect = lambda references: dict.fromkeys(
+            references, "passing"
+        )
+
+        with patch(
+            "products.signals.backend.views.fetch_implementation_pr_state_for_reports",
+            return_value={str(report.id): self._pr(7)},
+        ):
+            first = self.client.get(self._url([report.id]))
+            second = self.client.get(self._url([report.id]))
+
+        assert first.json() == second.json() == {"statuses": [{"report_id": str(report.id), "ci_status": "passing"}]}
+        github.return_value.get_pull_request_ci_statuses.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("no_integration_reaches_the_repository", "lookup", None),
+            ("the_lookup_is_rate_limited", "lookup", GitHubRateLimitError("slow down")),
+            ("the_lookup_is_shed", "lookup", GitHubEgressBudgetExhausted("shed")),
+            ("the_fetch_is_rate_limited", "fetch", GitHubRateLimitError("slow down")),
+            ("the_fetch_is_shed", "fetch", GitHubEgressBudgetExhausted("shed")),
+            ("the_fetch_fails_upstream", "fetch", Exception("boom")),
+        ]
+    )
+    def test_the_list_still_loads_when(self, _name, failing_step, failure):
+        # CI state decorates a list the reader already has. A GitHub problem has to cost them the
+        # glyph, never the list.
+        report = self._create_report("unreachable")
+        github = self._patch_github()
+        if failing_step == "lookup":
+            github.return_value = None
+            github.side_effect = failure
+        else:
+            github.return_value.get_pull_request_ci_statuses.side_effect = failure
+
+        with patch(
+            "products.signals.backend.views.fetch_implementation_pr_state_for_reports",
+            return_value={str(report.id): self._pr(7)},
+        ):
+            response = self.client.get(self._url([report.id]))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"statuses": []}
+
+    def test_another_teams_report_is_never_answered_for(self):
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        other_report = SignalReport.objects.create(
+            team=other_team, status=SignalReport.Status.READY, title="theirs", summary="s", signal_count=1
+        )
+        github = self._patch_github()
+
+        with patch(
+            "products.signals.backend.views.fetch_implementation_pr_state_for_reports",
+            return_value={str(other_report.id): self._pr(7)},
+        ) as fetch_pr_state:
+            response = self.client.get(self._url([other_report.id]))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"statuses": []}
+        fetch_pr_state.assert_not_called()
+        github.assert_not_called()
+
+    def test_a_malformed_report_ids_param_is_a_400(self):
+        # Wiring guard for the parsing covered in TestPrCiStatusReportIdsParsing.
+        response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/pr_ci_statuses/?report_ids=nope")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @parameterized.expand([("resolved", SignalReport.Status.RESOLVED), ("failed", SignalReport.Status.FAILED)])
+    def test_a_terminal_report_costs_no_github_call(self, _name, report_status):
+        # Its pull request has landed or been closed, so the pill never shows a CI glyph for it and
+        # the fetch would be spent on something no reader can act on.
+        report = self._create_report("terminal")
+        SignalReport.objects.filter(id=report.id).update(status=report_status)
+        github = self._patch_github()
+
+        with patch(
+            "products.signals.backend.views.fetch_implementation_pr_state_for_reports",
+            return_value={str(report.id): self._pr(7)},
+        ) as fetch_pr_state:
+            response = self.client.get(self._url([report.id]))
+
+        assert response.json() == {"statuses": []}
+        fetch_pr_state.assert_not_called()
+        github.assert_not_called()
+
+    def test_a_pull_request_github_cannot_read_is_not_probed_again(self):
+        # The repository probe and the query would otherwise run on every list load and every poll
+        # for a pull request that is never going to resolve.
+        report = self._create_report("unreadable")
+        github = self._patch_github()
+        github.return_value = None
+
+        with patch(
+            "products.signals.backend.views.fetch_implementation_pr_state_for_reports",
+            return_value={str(report.id): self._pr(7)},
+        ):
+            first = self.client.get(self._url([report.id]))
+            second = self.client.get(self._url([report.id]))
+
+        assert first.json() == second.json() == {"statuses": []}
+        github.assert_called_once()
