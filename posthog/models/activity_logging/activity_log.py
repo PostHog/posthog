@@ -229,6 +229,13 @@ class ActivityLog(UUIDTModel):
                 fields=["team_id", "-created_at"],
                 name="idx_alog_team_created_at",
             ),
+            # Activity tabs: load_activity filters team_id + scope and orders by -created_at, with
+            # no impersonation or system filter, so the partial index above cannot serve it. This
+            # full index keeps the page read and the paginator count on an index scan.
+            models.Index(
+                fields=["team_id", "scope", "-created_at"],
+                name="idx_alog_team_scope_crtd_full",
+            ),
         ]
 
     team_id = models.PositiveIntegerField(null=True)
