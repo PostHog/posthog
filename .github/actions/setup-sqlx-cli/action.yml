@@ -4,11 +4,21 @@ description: |
     Uses actions/cache to avoid recompiling from source on every run.
     The binary is pinned to a specific version for reproducibility.
 
+    Owns the Rust toolchain it needs. The cache key is a version pin, so a hit is
+    the normal outcome and nothing is compiled; a caller that installs Rust up
+    front pays for it on every job to cover the rare miss. ci-e2e-playwright.yml
+    calls this action with no Rust anywhere in the workflow, so before this the
+    first miss there had no compiler to build with.
+
 inputs:
     version:
         description: 'sqlx-cli version to install (e.g. 0.8.0)'
         required: false
         default: '0.8.0'
+    toolchain:
+        description: 'Rust toolchain used to build sqlx-cli when the cache misses.'
+        required: false
+        default: '1.91.1'
 
 runs:
     using: composite
@@ -19,6 +29,13 @@ runs:
           with:
               path: ${{ runner.temp }}/sqlx-cli
               key: sqlx-cli-${{ inputs.version }}-${{ runner.os }}-${{ runner.arch }}
+
+        - name: Install Rust to build sqlx-cli
+          if: steps.cache-sqlx-cli.outputs.cache-hit != 'true'
+          uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+          with:
+              toolchain: ${{ inputs.toolchain }}
+              components: cargo
 
         - name: Build sqlx-cli on cache miss
           if: steps.cache-sqlx-cli.outputs.cache-hit != 'true'
