@@ -36,7 +36,9 @@ pub const TOMBSTONE_KEY_LEN: usize = 2 + 8 + 16;
 /// `cf_stage2` key: per-`(cohort, person)` membership state.
 ///
 /// The field order is the encoded byte order, so the derived `Ord` sorts exactly as
-/// [`Stage2Key::encode`] does and a sorted batch read walks the CF forwards.
+/// [`Stage2Key::encode`] does and a batch read issued in key order reaches the CF in its own
+/// order. That buys determinism, not locality: the key is cohort-major, so one person's rows
+/// across N cohorts sit in N separate regions.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct Stage2Key {
     pub partition_id: u16,
@@ -609,6 +611,53 @@ mod tests {
         let mut wrong_discriminant = encoded;
         wrong_discriminant[STAGE2_KEY_LEN] = 2;
         assert!(Stage2DirtyKey::decode(&wrong_discriminant).is_err());
+    }
+
+    /// The derived `Ord` is only right while the field order matches `encode`; a field reorder
+    /// would compile and silently break it.
+    #[test]
+    fn stage2_key_derived_order_matches_its_encoding() {
+        let keys = [
+            Stage2Key {
+                partition_id: 1,
+                team_id: 0,
+                cohort_id: 0,
+                person_id: person(0),
+            },
+            Stage2Key {
+                partition_id: 0,
+                team_id: u64::MAX,
+                cohort_id: 0,
+                person_id: person(0),
+            },
+            Stage2Key {
+                partition_id: 0,
+                team_id: 1,
+                cohort_id: u64::MAX,
+                person_id: person(0),
+            },
+            Stage2Key {
+                partition_id: 0,
+                team_id: 1,
+                cohort_id: 2,
+                person_id: person(u128::MAX),
+            },
+            Stage2Key {
+                partition_id: 0,
+                team_id: 1,
+                cohort_id: 2,
+                person_id: person(3),
+            },
+        ];
+        for a in &keys {
+            for b in &keys {
+                assert_eq!(
+                    a.cmp(b),
+                    a.encode().as_slice().cmp(b.encode().as_slice()),
+                    "{a:?} vs {b:?}",
+                );
+            }
+        }
     }
 
     #[test]

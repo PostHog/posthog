@@ -681,7 +681,7 @@ pub(crate) async fn handle_seed(
             return;
         }
     };
-    for (key, state) in &diff.placeholders {
+    for (key, state) in &diff.stage1_writes {
         staged.put_stage2(key, &state.encode());
     }
 
@@ -731,7 +731,7 @@ pub(crate) async fn handle_seed(
             return;
         }
     }
-    let mut changes: Vec<CohortMembershipChange> = recompute.changes.clone();
+    let mut changes = std::mem::take(&mut recompute.changes);
 
     tag_seed(&mut changes, tile.run_id());
     // Only the cascade topic can re-evaluate cohort-of-cohort referrers; gate-off builds nothing.
@@ -1986,7 +1986,9 @@ mod tests {
 
         /// A new tenure over the same store, catalog, and sinks: fresh offset trackers and
         /// in-memory queues, the way a restart or rebalance re-assigns the partition at
-        /// `Offset::Stored` and replays whatever a hold pinned.
+        /// `Offset::Stored` and replays whatever a hold pinned. The clock is kept: a real tenure
+        /// mints a fresh one whose first stamp is wall time, later than anything the last tenure
+        /// minted, which the shared clock also guarantees.
         fn restart(&mut self) {
             self.deps.seed_tracker = Arc::new(OffsetTracker::new());
             self.deps.merge_tracker = Arc::new(OffsetTracker::new());
@@ -1995,6 +1997,28 @@ mod tests {
             self.queue = EvictionQueue::new();
             self.reconcile_queue =
                 ReconcileQueue::new(0, self.deps.reconcile.backlog.clone(), self.handle.clone());
+        }
+
+        /// Drain the queued reconcile to completion, one page per tick, the way the worker does.
+        async fn drain_reconcile(&mut self, partition_id: u16) {
+            let sink = self.membership.clone();
+            for _ in 0..64 {
+                if self.reconcile_queue.len() == 0 {
+                    return;
+                }
+                let last_updated = self.clock.next();
+                crate::workers::reconcile::handle_reconcile_drain(
+                    partition_id,
+                    &self.handle,
+                    &self.catalog,
+                    &sink,
+                    &self.deps,
+                    &mut self.reconcile_queue,
+                    &last_updated,
+                )
+                .await;
+            }
+            panic!("the reconcile never completed");
         }
 
         fn register_key(&self, partition_id: u16, person: Uuid, cohort_id: u64) -> Stage2Key {
@@ -2190,48 +2214,24 @@ mod tests {
         );
     }
 
+    /// A non-member downstream was never told about gets no register row: nothing downstream
+    /// needs one, and a reconcile page has nothing to repair for it. The Unchanged replay is just
+    /// as silent.
     #[tokio::test]
-    async fn unchanged_non_member_seed_restores_an_explicit_false_register_without_emission() {
+    async fn a_never_told_non_member_seed_writes_no_register_and_emits_nothing() {
         let person = Uuid::from_u128(0x5EED);
         let partition_id = partition_of(TEAM, &person, COHORT_PARTITION_COUNT) as u16;
         let mut shell = Shell::new(vec![(1, wrap(vec![multiple_leaf_json(7, "gte", 3)]))]);
         let tile = tile_for(person, today(), 1);
-        let register_key = Stage2Key {
-            partition_id,
-            team_id: TEAM.0 as u64,
-            cohort_id: 1,
-            person_id: person,
-        };
 
         shell
             .run(partition_id, SeedWork::Tile(tile.clone()), 0)
             .await;
-        let registered = Stage2State::decode(
-            &shell
-                .store
-                .get_stage2(&register_key)
-                .unwrap()
-                .expect("seeded non-member has a register row"),
-        )
-        .unwrap();
-        assert!(!registered.in_cohort);
+        assert!(shell.register(partition_id, person, 1).is_none());
         assert!(shell.sink.changes().is_empty());
 
-        shell
-            .store
-            .write_batch(|batch| batch.delete_stage2(&register_key))
-            .unwrap();
         shell.run(partition_id, SeedWork::Tile(tile), 1).await;
-
-        let restored = Stage2State::decode(
-            &shell
-                .store
-                .get_stage2(&register_key)
-                .unwrap()
-                .expect("Unchanged replay restores the false register"),
-        )
-        .unwrap();
-        assert!(!restored.in_cohort);
+        assert!(shell.register(partition_id, person, 1).is_none());
         assert!(shell.sink.changes().is_empty());
         assert_eq!(shell.committable(partition_id), Some(2));
     }
@@ -2673,6 +2673,135 @@ mod tests {
         assert_eq!(changes[1].status, MembershipStatus::Entered);
         assert!(shell.register(partition_id, person, 2).unwrap().in_cohort);
         assert_eq!(shell.committable(partition_id), Some(2));
+    }
+
+    /// Membership acked, then the cascade leg failed, then a later tile in the same tenure retracts
+    /// the leaf. The register still reads the `false` the held apply pre-wrote and never advanced,
+    /// so a register-only diff would read `false == false` and stay silent; the minted `Left` is
+    /// what retires the entry downstream holds, and the redelivery then has nothing to repair.
+    #[tokio::test]
+    async fn a_minted_retraction_is_emitted_after_an_acked_entry_held_on_its_cascade() {
+        let person = Uuid::from_u128(0x5EED);
+        let partition_id = partition_of(TEAM, &person, COHORT_PARTITION_COUNT) as u16;
+        // `lte 3`: one event is a member, nine are not.
+        let mut shell = Shell::with_cascade(
+            vec![(1, wrap(vec![multiple_leaf_json(7, "lte", 3)]))],
+            crate::producer::CaptureCascadeSink::failing_first(1),
+        );
+
+        shell
+            .run(
+                partition_id,
+                SeedWork::Tile(tile_for(person, today(), 1)),
+                0,
+            )
+            .await;
+        assert_eq!(
+            shell.sink.changes().len(),
+            1,
+            "the Entered acked downstream"
+        );
+        assert_eq!(shell.committable(partition_id), None, "held on the cascade");
+        assert_eq!(
+            shell
+                .register(partition_id, person, 1)
+                .map(|state| state.in_cohort),
+            Some(false),
+            "the bit never advanced past the failed cascade",
+        );
+
+        // A hold pauses nothing: the next tile on the partition still applies, and stage 1 mints
+        // `Left` because the count now exceeds the comparator.
+        shell
+            .run(
+                partition_id,
+                SeedWork::Tile(tile_for(person, today(), 9)),
+                1,
+            )
+            .await;
+        let changes = shell.sink.changes();
+        assert_eq!(changes.len(), 2, "the retraction is emitted");
+        assert_eq!(changes[1].status, MembershipStatus::Left);
+
+        // The redelivery merges to `Unchanged`, mints nothing, and finds the register in agreement.
+        shell.restart();
+        shell
+            .run(
+                partition_id,
+                SeedWork::Tile(tile_for(person, today(), 1)),
+                0,
+            )
+            .await;
+
+        let changes = shell.sink.changes();
+        assert_eq!(changes.len(), 2, "nothing left to repair");
+        assert_eq!(
+            downstream(&changes),
+            BTreeMap::from([((1, person.to_string()), MembershipStatus::Left)]),
+        );
+        assert_eq!(shell.committable(partition_id), Some(1));
+    }
+
+    /// A reconcile page drained over a held tile finds the row stage 1 recorded and repairs it,
+    /// which is why an emitting apply records its row before the produce. The redelivery then
+    /// finds the register in agreement and stays silent.
+    #[tokio::test]
+    async fn a_reconcile_page_repairs_a_held_tile_and_its_redelivery_is_silent() {
+        let person = Uuid::from_u128(0x5EED);
+        let partition_id = partition_of(TEAM, &person, COHORT_PARTITION_COUNT) as u16;
+        let mut shell = Shell::with_sink(
+            vec![(1, wrap(vec![single_leaf_json(7)]))],
+            CaptureSink::failing_first(1),
+            CaptureSeedTileSink::new(),
+        );
+        shell.deps.reconcile.enabled = true;
+        // The reconcile guard pins the run to the cohort's behavioral shape.
+        let mut builder = TeamFiltersBuilder::default();
+        builder
+            .add_cohort(CohortId(1), TEAM, &wrap(vec![single_leaf_json(7)]))
+            .unwrap();
+        builder.set_behavioral_shape_hash(
+            CohortId(1),
+            BehavioralShapeHash::parse("0123456789abcdef").unwrap(),
+        );
+        shell.catalog = Arc::new(CatalogHandle::from_catalog(FilterCatalog::from_teams([(
+            TEAM,
+            builder.freeze(UTC),
+        )])));
+        let tile = tile_for(person, today(), 1);
+
+        shell
+            .run(partition_id, SeedWork::Tile(tile.clone()), 4)
+            .await;
+        assert!(shell.sink.changes().is_empty(), "held before any emission");
+        assert_eq!(
+            shell
+                .register(partition_id, person, 1)
+                .map(|state| state.in_cohort),
+            Some(false),
+            "the row the page has to find",
+        );
+
+        shell
+            .run(partition_id, SeedWork::Reconcile(reconcile_for(1, 1)), 5)
+            .await;
+        shell.drain_reconcile(partition_id).await;
+
+        let changes = shell.sink.changes();
+        assert_eq!(changes.len(), 1, "the page found the row and repaired it");
+        assert_eq!(changes[0].origin, Some(ChangeOrigin::Reconcile));
+        assert_eq!(changes[0].status, MembershipStatus::Entered);
+        assert!(shell.register(partition_id, person, 1).unwrap().in_cohort);
+
+        shell.restart();
+        shell.run(partition_id, SeedWork::Tile(tile), 4).await;
+
+        assert_eq!(
+            shell.sink.changes().len(),
+            1,
+            "nothing left for the redelivery to repair"
+        );
+        assert_eq!(shell.committable(partition_id), Some(5));
     }
 
     /// A seeded flip that never cascades leaves cohort-of-cohort referrers permanently stale.

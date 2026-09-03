@@ -2502,9 +2502,10 @@ async fn seed_arm_flushes_buffered_event_changes_first_and_marks_both_trackers()
     );
 }
 
-/// A failed seed emission holds only the seed tracker; the events tracker is unaffected.
+/// A failed seed emission holds only the seed tracker; the events tracker is unaffected, and the
+/// next tenure's redelivery re-emits the lost change.
 #[tokio::test]
-async fn seed_produce_failure_holds_the_seed_tracker_but_not_the_events_tracker() {
+async fn seed_produce_failure_holds_only_the_seed_tracker_and_the_redelivery_re_emits() {
     let (_dir, store) = temp_store();
     let filters = build_team_filters(vec![(CohortId(1), cohort(vec![behavioral_leaf(7)]))]);
     let alice = person(1);
