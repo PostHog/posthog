@@ -171,7 +171,6 @@
 1 products/review_hog/backend/reviewer/persistence.py
 1 products/review_hog/backend/reviewer/tests/test_select_perspectives.py
 1 products/review_hog/backend/reviewer/tools/publish_review.py
-1 products/review_hog/backend/temporal/types.py
 1 products/review_hog/backend/tests/test_prompt_injection_guards.py
 1 products/signals/backend/scout_harness/inactivity.py
 1 products/signals/backend/scout_harness/tools/report.py
@@ -1504,7 +1503,7 @@
 2 products/web_analytics/backend/hogql_queries/web_stats_lazy_precompute.py
 2 products/web_analytics/backend/path_cleaning_suggestions/service.py
 22 products/batch_exports/backend/service.py
-26 products/review_hog/backend/temporal/activities.py
+23 products/review_hog/backend/temporal/activities.py
 3 ee/api/vercel/types.py
 3 ee/clickhouse/views/test/test_clickhouse_trends.py
 3 posthog/api/app_metrics2.py
