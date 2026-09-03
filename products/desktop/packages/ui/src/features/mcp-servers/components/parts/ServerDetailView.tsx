@@ -125,11 +125,6 @@ export function ServerDetailView({
                 {statusLabel}
               </Badge>
             )}
-            {template?.is_coming_soon && (
-              <Badge color="gray" variant="soft">
-                Coming soon
-              </Badge>
-            )}
           </Flex>
           {description && (
             <Text color="gray" className="text-sm">
@@ -174,14 +169,14 @@ export function ServerDetailView({
                 variant="solid"
                 size="2"
                 onClick={onConnect}
-                disabled={isInstalling || template?.is_coming_soon}
+                disabled={isInstalling}
               >
                 {isInstalling ? (
                   <Spinner size="1" />
                 ) : (
                   <DownloadSimple size={12} />
                 )}
-                {template?.is_coming_soon ? "Coming soon" : "Connect"}
+                Connect
               </Button>
             )}
             {installation && (
