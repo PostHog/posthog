@@ -790,6 +790,17 @@ class TestCustomBotDefinitions(ClickhouseTestMixin, BaseTest):
 
         assert (is_bot, name) == (True, "Load test")
 
+    def test_a_rule_on_a_numeric_property_matches_its_string_value(self):
+        # Screen width and height are stored as numbers. The rule matches against the string form,
+        # so the pattern "800" catches a screen width of 800. Without the cast, multiMatchAllIndices
+        # gets a number and the query fails to compile rather than matching.
+        is_bot, name, _category = self._classify(
+            [_custom_bot(name="Headless viewport", key=CustomBotField.FIELD_SCREEN_WIDTH, pattern="800")],
+            {"$raw_user_agent": CHROME_USER_AGENT, "$screen_width": 800},
+        )
+
+        assert (is_bot, name) == (True, "Headless viewport")
+
     @parameterized.expand(
         [
             # Someone who writes a rule for a bot PostHog already knows means to relabel it, so
