@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import secrets
+from datetime import datetime
 from typing import TypedDict, TypeVar
 
 from django.conf import settings
@@ -415,6 +416,10 @@ def _resolve_supersede(report: SignalReport, decision: ImplementationDecision | 
     two PRs, and what bounds replacements to at most one per research pass. Research itself is
     capped, so no separate cap is needed here; the last pass a report gets is also the one with the
     most evidence, so it must stay able to correct the PR.
+
+    ``decision`` must be the one the report's current pass wrote. `run_count` cannot tell that on
+    its own, because it rises when a pass starts rather than when a pass concludes, so the caller
+    drops an older decision before it gets here (see `maybe_autostart_from_report_artefacts`).
     """
     if decision is None or not decision.supersede:
         return NO_SUPERSEDE
@@ -920,13 +925,18 @@ async def maybe_autostart_implementation_task(
         return
 
 
-async def _latest_artefact_as(report_id: str, artefact_type: str, model_cls: type[_M]) -> _M | None:
-    """Parse the latest artefact of ``artefact_type`` for a report (append-only, latest-wins)."""
-    artefact = (
-        await SignalReportArtefact.objects.filter(report_id=report_id, type=artefact_type)
-        .order_by("-created_at")
-        .afirst()
-    )
+async def _latest_artefact_as(
+    report_id: str, artefact_type: str, model_cls: type[_M], *, written_after: datetime | None = None
+) -> _M | None:
+    """Parse the latest artefact of ``artefact_type`` for a report (append-only, latest-wins).
+
+    ``written_after`` ignores an artefact written before that moment, for a type whose content
+    describes one research pass and must not be read on a later one.
+    """
+    artefacts = SignalReportArtefact.objects.filter(report_id=report_id, type=artefact_type)
+    if written_after is not None:
+        artefacts = artefacts.filter(created_at__gte=written_after)
+    artefact = await artefacts.order_by("-created_at").afirst()
     if artefact is None:
         return None
     try:
@@ -987,7 +997,11 @@ async def maybe_autostart_from_report_artefacts(*, team_id: int, report_id: str)
     When the latest reviewers artefact was user-edited, the task runs as that editing user (not a
     named colleague) — see `_latest_reviewers_content` and `triggering_user_id`.
     """
-    report = await SignalReport.objects.filter(id=report_id, team_id=team_id).only("title", "summary").afirst()
+    report = (
+        await SignalReport.objects.filter(id=report_id, team_id=team_id)
+        .only("title", "summary", "last_run_at")
+        .afirst()
+    )
     if report is None or not report.title or not report.summary:
         logger.info(
             "signals auto-start re-eval skipped",
@@ -1023,8 +1037,17 @@ async def maybe_autostart_from_report_artefacts(*, team_id: int, report_id: str)
     priority = await _latest_artefact_as(
         report_id, SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT, PriorityAssessment
     )
+    # Only the pass that is the report's latest may supersede. `run_count` rises when the next pass
+    # *starts*, so it re-opens the supersede gate before that pass has concluded anything, and this
+    # re-evaluation also runs from a reviewer edit while the pass is still researching. Reading the
+    # earlier pass's decision then would open a replacement for a replacement, and the handover
+    # would close the pull request that is already under review. `last_run_at` is stamped when a
+    # pass starts, so a decision older than it belongs to a pass the report has moved on from.
     implementation_decision = await _latest_artefact_as(
-        report_id, SignalReportArtefact.ArtefactType.IMPLEMENTATION_DECISION, ImplementationDecision
+        report_id,
+        SignalReportArtefact.ArtefactType.IMPLEMENTATION_DECISION,
+        ImplementationDecision,
+        written_after=report.last_run_at,
     )
     # Empty / unresolved reviewers no longer short-circuit here: `maybe_autostart_implementation_task`
     # falls back to the member who enabled signals for the team (for the system/scout path, gated by

@@ -1,11 +1,13 @@
 import re
 import json
+from datetime import timedelta
 from types import SimpleNamespace
 
 import pytest
 from unittest.mock import patch
 
 from django.apps import apps
+from django.utils import timezone
 
 from asgiref.sync import sync_to_async
 from social_django.models import UserSocialAuth
@@ -884,6 +886,70 @@ async def test_quota_gate_blocks_autostart_only_when_enforced(enforced):
         )
 
     assert (mock_create.call_count == 0) is enforced
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize("written_during_current_pass", [True, False])
+async def test_only_the_current_passs_implementation_decision_is_read(written_during_current_pass):
+    """`run_count` rises when a pass starts, so it re-opens the supersede gate before the new pass
+    has decided anything. A reviewer edit landing then must not re-consume the earlier pass's
+    decision: that opens a replacement for a replacement and closes a PR already under review."""
+
+    def _setup() -> tuple[Team, SignalReport]:
+        organization = Organization.objects.create(name="stale-decision-org")
+        team = Team.objects.create(organization=organization, name="stale-decision-team")
+        run_started_at = timezone.now() - timedelta(minutes=10)
+        report = SignalReport.objects.create(
+            team=team,
+            status=SignalReport.Status.READY,
+            title="t",
+            summary="s",
+            signal_count=0,
+            total_weight=0.0,
+            run_count=2,
+            implemented_at_run_count=1,
+            last_run_at=run_started_at,
+        )
+        for artefact_type, content in (
+            (
+                SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT,
+                {
+                    "explanation": "Clear fix in the affected module.",
+                    "actionability": ActionabilityChoice.IMMEDIATELY_ACTIONABLE.value,
+                    "already_addressed": False,
+                },
+            ),
+            (
+                SignalReportArtefact.ArtefactType.REPO_SELECTION,
+                {"repository": "owner/repo", "reason": "Linked GitHub repository found in the report content."},
+            ),
+            (
+                SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
+                {"explanation": "Affects many sessions.", "priority": Priority.P2.value},
+            ),
+        ):
+            SignalReportArtefact.objects.create(
+                team=team, report=report, type=artefact_type, content=json.dumps(content)
+            )
+        decision = SignalReportArtefact.objects.create(
+            team=team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.IMPLEMENTATION_DECISION,
+            content=json.dumps({"supersede": True, "reason": "the root cause moved"}),
+        )
+        # `created_at` is auto_now_add, so the pass it belongs to is set with an update().
+        offset = timedelta(minutes=5) if written_during_current_pass else timedelta(minutes=-5)
+        SignalReportArtefact.objects.filter(id=decision.id).update(created_at=run_started_at + offset)
+        return team, report
+
+    team, report = await sync_to_async(_setup)()
+
+    with patch("products.signals.backend.auto_start.maybe_autostart_implementation_task") as mock_autostart:
+        await maybe_autostart_from_report_artefacts(team_id=team.id, report_id=str(report.id))
+
+    passed_decision = mock_autostart.call_args.kwargs["implementation_decision"]
+    assert (passed_decision is not None) is written_during_current_pass
 
 
 @pytest.mark.asyncio
