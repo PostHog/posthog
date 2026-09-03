@@ -370,10 +370,10 @@ function SummarizeAllButton({
                         type="primary"
                         size="small"
                         loading={loading}
-                        disabledReason="AI data processing must be approved to summarize traces"
+                        disabledReason="AI data processing must be approved to summarize the session"
                         data-attr="llm-session-summarize-all"
                     >
-                        Summarize all traces
+                        Summarize session
                     </LemonButton>
                 </AccessControlAction>
             </AIConsentPopoverWrapper>
@@ -391,7 +391,7 @@ function SummarizeAllButton({
                 loading={loading}
                 data-attr="llm-session-summarize-all"
             >
-                Summarize all traces
+                Summarize session
             </LemonButton>
         </AccessControlAction>
     )
