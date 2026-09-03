@@ -213,6 +213,7 @@ const conversationsTicketsRetrieve = (): ToolBase<
             'session_id',
             'person',
             'email_from',
+            'identity_verified',
             'email_to',
             'email_subject',
             'distinct_id',
