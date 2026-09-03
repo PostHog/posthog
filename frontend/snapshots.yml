@@ -8325,9 +8325,9 @@ snapshots:
     scenes-app-replay-vision--scanner-on-demand--light:
         hash: v1.k794b7964.d6b1a876ab50b940e9bcbe27164922f5c564a01c25c56bbc8955255a2d47173f.DOdeCbLwHWJmW1H1uAYkxdvHS2rpSR6froY4FXuOW7s
     scenes-app-replay-vision--scanner-scan-drought--dark:
-        hash: v1.k794b7964.72a30b649581a8ddfab3938d808745ec59c8835be0d09b2ba9ebc36e0ec3ccb2.tdSNB9Z9hc5xRYFhCZXGJq8bjVsIL0eaMeMpUWNoRWU
+        hash: v1.k794b7964.47963d3ee2fc2934b80cfd51b0db411baf326710d528c8995ed7eecbae4d6faa.zV2CxUwodEqwEiQT5_Tr3XAFLhkhAGTY3z8LUm97USo
     scenes-app-replay-vision--scanner-scan-drought--light:
-        hash: v1.k794b7964.3fc8ddca236998f0b042cd1539adbbfd027b231ad1d931fbd374829173190ec9.79G-dm1PKe4P6CJnsTKI9t0y8ddXYPZQV-DtsJqpwk0
+        hash: v1.k794b7964.d3e3119d983ea105adcd26771cfdfbe14e082892971e48cb4000de6ca48e44df.pfdBzR5cE9sN8GjQF_54zIi5OvM-4nGsvyzsZd9TLSk
     scenes-app-replay-vision--scanner-scouts--dark:
         hash: v1.k794b7964.174b7e25770bf4078971ec6b27ede47c0e76f7b08d54ae2744b1df565358a306.j4XgQXlEtlJH60fRmBnJhujHhRN2iVkocBhPgNkOwgE
     scenes-app-replay-vision--scanner-scouts--light:
@@ -8353,9 +8353,9 @@ snapshots:
     scenes-app-replay-vision--startup-program-cap--light:
         hash: v1.k794b7964.1f2fc262b5c742019e78b9fd8a13820c73291ee4c8086a34b01e8cdd47e31248.WubeGDNAdkP-6NxslVXFGWzr-pHvVfeYQQfEBk4LGj0
     scenes-app-replay-vision--summarizer-overview--dark:
-        hash: v1.k794b7964.308f2be72bf5de78256b32b4b66e9145939dad4198830c210fb2e227ac72ef2e.370AqRlsMg1JflYllw0ar6uTnzGb0hGM-Nr_9LcQ1xc
+        hash: v1.k794b7964.e42cf686d09f2f56d8c71ee727daa188b9035845f140039d1fcf97d1a6015bd8.n5bkjIKQiygb6-ZU2bU4zvxctlG1ydVjGgj-8NNcMlo
     scenes-app-replay-vision--summarizer-overview--light:
-        hash: v1.k794b7964.099cc1596e288a869426dec004e0d3e6ae35de1ca2ec7f0264f775911010b0d9.eTbr9P9h5LFG5AtPxCE0tZn7Hxp4GvNnGI9zYmMI86o
+        hash: v1.k794b7964.170aad973eff971cc58688cabbd435de4bb7427078c256504cbbdcc62ecd91ae.LQ4Rpyb8e8Hp-gd3XvRvpLBx3CS_qA6LisevEJdAm3I
     scenes-app-replay-vision--usage-tab--dark:
         hash: v1.k794b7964.adcd33918c09bfe0779ee7a51b77ee173de0cdd74d66300ea01d173280068d48.ib0BfEMTsMIEACC9iavsKKP4h8jNle7YTt9dvkkw4-o
     scenes-app-replay-vision--usage-tab--light:
