@@ -1,9 +1,9 @@
 import { MakeLogicType, actions, kea, path, reducers, selectors } from 'kea'
 
-import type { ExperimentMetric } from '~/queries/schema/schema-general'
+import { getDefaultFunnelMetric } from 'scenes/experiments/utils'
 
-import type { ExperimentMetricUnion } from '../../../queries/schema/schema-general'
-import { getDefaultFunnelMetric } from '../utils'
+import type { ExperimentMetric } from '~/queries/schema/schema-general'
+import type { ExperimentMetricUnion } from '~/queries/schema/schema-general'
 
 export const METRIC_CONTEXTS = {
     primary: {

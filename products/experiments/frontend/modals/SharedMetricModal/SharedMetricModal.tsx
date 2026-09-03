@@ -4,16 +4,17 @@ import { LemonBanner, LemonButton, LemonInput, LemonLabel, LemonModal, Link } fr
 
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { pluralize } from 'lib/utils/strings'
+import { InlineTagEditor } from 'scenes/experiments/SharedMetrics/InlineTagEditor'
+import { SharedMetric } from 'scenes/experiments/SharedMetrics/sharedMetricLogic'
+import { sharedMetricsLogic } from 'scenes/experiments/SharedMetrics/sharedMetricsLogic'
 import { urls } from 'scenes/urls'
 
 import { tagsModel } from '~/models/tagsModel'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { Experiment } from '~/types'
 
-import { InlineTagEditor } from '../SharedMetrics/InlineTagEditor'
-import { SharedMetric } from '../SharedMetrics/sharedMetricLogic'
-import { sharedMetricsLogic } from '../SharedMetrics/sharedMetricsLogic'
-import { MetricContext } from './experimentMetricModalLogic'
+import { MetricContext } from 'products/experiments/frontend/modals/ExperimentMetricModal/experimentMetricModalLogic'
+
 import { sharedMetricModalLogic } from './sharedMetricModalLogic'
 
 export function SharedMetricModal({

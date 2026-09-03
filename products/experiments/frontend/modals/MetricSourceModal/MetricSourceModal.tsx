@@ -3,10 +3,12 @@ import { useActions, useValues } from 'kea'
 import { IconWarning } from '@posthog/icons'
 import { LemonModal, Link } from '@posthog/lemon-ui'
 
-import { experimentLogic } from '../experimentLogic'
-import { experimentMetricModalLogic } from './experimentMetricModalLogic'
+import { experimentLogic } from 'scenes/experiments/experimentLogic'
+
+import { experimentMetricModalLogic } from 'products/experiments/frontend/modals/ExperimentMetricModal/experimentMetricModalLogic'
+import { sharedMetricModalLogic } from 'products/experiments/frontend/modals/SharedMetricModal/sharedMetricModalLogic'
+
 import { metricSourceModalLogic } from './metricSourceModalLogic'
-import { sharedMetricModalLogic } from './sharedMetricModalLogic'
 
 const METRIC_COUNT_WARNING_THRESHOLD = 3
 

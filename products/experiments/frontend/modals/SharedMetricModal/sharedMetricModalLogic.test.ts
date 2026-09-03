@@ -6,7 +6,8 @@ import { useMocks } from '~/mocks/jest'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
-import { METRIC_CONTEXTS } from './experimentMetricModalLogic'
+import { METRIC_CONTEXTS } from 'products/experiments/frontend/modals/ExperimentMetricModal/experimentMetricModalLogic'
+
 import { MODAL_PAGE_SIZE, sharedMetricModalLogic } from './sharedMetricModalLogic'
 
 const metric = (id: number, kind: NodeKind = NodeKind.ExperimentMetric, tags: string[] = []): any => ({
