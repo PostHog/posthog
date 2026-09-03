@@ -23,12 +23,17 @@ export function computeMagnitudeAxisIds(datasets: readonly (readonly number[])[]
         .flatMap((magnitude, seriesIndex) => (magnitude === null ? [] : [{ magnitude, seriesIndex }]))
         .sort((a, b) => a.magnitude - b.magnitude)
 
+    const gaps: { pos: number; gap: number }[] = []
+    let previousMagnitude: number | null = null
+    measured.forEach(({ magnitude }, pos) => {
+        if (previousMagnitude !== null) {
+            gaps.push({ pos, gap: magnitude - previousMagnitude })
+        }
+        previousMagnitude = magnitude
+    })
+
     const splitPositions = new Set(
-        measured
-            .flatMap((entry, k) => {
-                const previous = measured[k - 1]
-                return previous ? [{ pos: k, gap: entry.magnitude - previous.magnitude }] : []
-            })
+        gaps
             .filter(({ gap }) => gap >= MAGNITUDE_GAP)
             .sort((a, b) => b.gap - a.gap)
             .slice(0, MAX_Y_AXES - 1)
