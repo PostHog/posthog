@@ -23,23 +23,25 @@ class MCPRegistryToolSerializer(serializers.ModelSerializer):
     input_schema = JSONDictField(
         help_text="JSON Schema for the tool's input. Only populated for probed (tools_list) tools."
     )
-    source = serializers.ChoiceField(
-        choices=["tools_list", "analytics"],
-        help_text="Where we learned about this tool: a probed tools/list (authoritative schema) "
-        "or MCP Analytics usage (proof of real calls, no schema).",
-    )
     last_seen_at = serializers.DateTimeField(help_text="Last time this tool was observed by either source.")
 
     class Meta:
         model = MCPRegistryTool
         fields = ["name", "description", "input_schema", "source", "last_seen_at"]
+        # `source` shadows DRF's Field.source when declared as a class attribute, so it
+        # stays auto-generated (a ChoiceField from the model) and documented here.
+        extra_kwargs = {
+            "source": {
+                "help_text": "Where we learned about this tool: a probed tools/list (authoritative schema) "
+                "or MCP Analytics usage (proof of real calls, no schema).",
+            },
+        }
 
 
 class MCPMeasuredStatsSerializer(serializers.ModelSerializer):
     window_days = serializers.IntegerField(help_text="Aggregation window in days.")
     calls = serializers.IntegerField(help_text="Tool calls observed in the window.")
     sessions = serializers.IntegerField(help_text="Distinct MCP sessions observed in the window.")
-    errors = serializers.IntegerField(help_text="Errored tool calls in the window.")
     error_rate_pct = serializers.FloatField(help_text="Errors as a percentage of calls.")
     intent_coverage_pct = serializers.FloatField(
         help_text="Percentage of calls carrying an agent-written intent ($mcp_intent)."
@@ -74,6 +76,11 @@ class MCPMeasuredStatsSerializer(serializers.ModelSerializer):
             "link_candidates",
             "computed_at",
         ]
+        # `errors` shadows Serializer.errors when declared as a class attribute, so it
+        # stays auto-generated (an IntegerField from the model) and documented here.
+        extra_kwargs = {
+            "errors": {"help_text": "Errored tool calls in the window."},
+        }
 
 
 class MCPRankingScoreInfoSerializer(serializers.Serializer):
