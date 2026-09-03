@@ -20,6 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.external_data_job 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import (
     NON_RETRYABLE_ERROR_RETRY_LIMIT,
     _get_redis,
+    advance_incremental_field_last_value_on_complete,
     handle_corrupted_delta_log,
     handle_non_retryable_error,
     handle_reset_or_full_refresh,
@@ -33,9 +34,57 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.e
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     MissingPrimaryKeysException,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
 
 _EXTRACT_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract"
+
+
+@pytest.mark.asyncio
+async def test_advances_source_boundary_only_after_completion() -> None:
+    resource = SourceResponse(
+        name="messages",
+        items=lambda: [],
+        primary_keys=["id"],
+        incremental_field_last_value_on_complete="2026-07-29T12:00:00Z",
+    )
+    schema = MagicMock(should_use_incremental_field=True)
+    logger = AsyncMock()
+
+    def fake_pool(function):
+        async def call(*args, **kwargs):
+            return function(*args, **kwargs)
+
+        return call
+
+    with patch(f"{_EXTRACT_MODULE}.database_sync_to_async_pool", fake_pool):
+        await advance_incremental_field_last_value_on_complete(resource, schema, logger)
+
+    schema.refresh_from_db.assert_called_once_with()
+    schema.update_incremental_field_value.assert_called_once_with("2026-07-29T12:00:00Z")
+
+
+@pytest.mark.asyncio
+async def test_stages_source_boundary_for_v3_load() -> None:
+    resource = SourceResponse(
+        name="messages",
+        items=lambda: [],
+        primary_keys=["id"],
+        incremental_field_last_value_on_complete="2026-07-29T12:00:00Z",
+    )
+    schema = MagicMock(should_use_incremental_field=True)
+
+    def fake_pool(function):
+        async def call(*args, **kwargs):
+            return function(*args, **kwargs)
+
+        return call
+
+    with patch(f"{_EXTRACT_MODULE}.database_sync_to_async_pool", fake_pool):
+        await advance_incremental_field_last_value_on_complete(resource, schema, AsyncMock(), staging_run_uuid="run-1")
+
+    schema.stage_incremental_field_value.assert_called_once_with("run-1", "2026-07-29T12:00:00Z")
+    schema.update_incremental_field_value.assert_not_called()
 
 
 class TestResolvePrimaryKeys:

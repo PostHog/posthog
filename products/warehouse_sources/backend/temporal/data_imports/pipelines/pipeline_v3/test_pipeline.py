@@ -172,6 +172,21 @@ class TestAttemptScopedRunUuid:
         mock_reset.assert_not_called()
 
 
+@pytest.mark.asyncio
+async def test_empty_sync_advances_source_completion_boundary() -> None:
+    pipeline = _make_pipeline()
+
+    with patch(
+        "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline.advance_incremental_field_last_value_on_complete",
+        new_callable=AsyncMock,
+    ) as advance_boundary:
+        await pipeline._finalize(row_count=0)
+
+    advance_boundary.assert_awaited_once_with(
+        pipeline._resource, pipeline._schema, pipeline._logger, log_prefix="V3 Pipeline: "
+    )
+
+
 class TestExtractionFailureDoesNotCleanupS3:
     @pytest.mark.asyncio
     async def test_s3_files_preserved_when_extraction_fails(self) -> None:
