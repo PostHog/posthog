@@ -2,6 +2,8 @@ import { DiffEditor } from '@monaco-editor/react'
 
 import 'lib/monaco/monacoEnvironment'
 import { initHogLanguage } from 'lib/monaco/languages/hog'
+import monacoStylesheetUrl from 'lib/monaco/monacoStylesheet.css?url'
+import { useStylesheet } from 'lib/utils/lazyStylesheet'
 
 export interface DiffProps {
     before: string
@@ -10,6 +12,9 @@ export interface DiffProps {
 }
 
 export function Diff({ before, after, language }: DiffProps): JSX.Element {
+    if (!useStylesheet(monacoStylesheetUrl)) {
+        return <div className="h-[300px]" />
+    }
     return (
         <DiffEditor
             height="300px"

@@ -1,5 +1,3 @@
-import '@xyflow/react/dist/style.css'
-
 import {
     Background,
     BackgroundVariant,
@@ -14,6 +12,7 @@ import {
 import { useValues } from 'kea'
 import { useCallback, useEffect, useRef } from 'react'
 
+import { useXyflowStylesheet } from 'lib/hooks/useXyflowStylesheet'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
@@ -123,6 +122,9 @@ function FunnelFlowGraphContent(): JSX.Element {
 }
 
 export function FunnelFlowGraph(): JSX.Element {
+    if (!useXyflowStylesheet()) {
+        return <div className="w-full h-full" />
+    }
     return (
         <ReactFlowProvider>
             <FunnelFlowGraphContent />

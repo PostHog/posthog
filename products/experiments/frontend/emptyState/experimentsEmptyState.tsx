@@ -1,3 +1,5 @@
+import experimentPreviewStylesheetUrl from './ExperimentPreview.scss?url'
+
 import * as experimentPng from '@posthog/brand/hoggies/png/experiment'
 import { IconFlask } from '@posthog/icons'
 
@@ -40,5 +42,6 @@ export const experimentsEmptyState: SceneProductEmptyState = {
         docsUrl: 'https://posthog.com/docs/experiments',
         previewLabel: 'Your results, once running',
         Preview: ExperimentPreview,
+        previewStylesheet: experimentPreviewStylesheetUrl,
     },
 }

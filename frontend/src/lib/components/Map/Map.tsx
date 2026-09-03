@@ -1,5 +1,4 @@
-import './Maplibre.scss'
-import 'maplibre-gl/dist/maplibre-gl.css'
+import maplibreStylesheetUrl from './Maplibre.scss?url'
 
 import { DARK, LIGHT, layers } from '@protomaps/basemaps'
 import { useValues } from 'kea'
@@ -10,6 +9,7 @@ import useResizeObserver from 'use-resize-observer'
 
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { themeLogic } from 'lib/logic/themeLogic'
+import { useStylesheet } from 'lib/utils/lazyStylesheet'
 
 const protocol = new Protocol()
 maplibregl.addProtocol('pmtiles', protocol.tile)
@@ -31,6 +31,7 @@ export interface MapProps {
 
 export function Map({ className, ...rest }: MapProps): JSX.Element {
     const { isCloudOrDev } = useValues(preflightLogic)
+    const styled = useStylesheet(maplibreStylesheetUrl)
 
     if (!isCloudOrDev) {
         return (
@@ -39,6 +40,10 @@ export function Map({ className, ...rest }: MapProps): JSX.Element {
                 <p>The map is currently only available in cloud deployments.</p>
             </div>
         )
+    }
+
+    if (!styled) {
+        return <div className={className} />
     }
 
     return <MapComponent className={className} {...rest} />

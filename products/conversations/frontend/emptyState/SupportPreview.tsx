@@ -1,5 +1,3 @@
-import './SupportPreview.scss'
-
 import type { ProductEmptyStateMode } from 'lib/components/ProductEmptyState/types'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner'

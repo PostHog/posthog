@@ -1,3 +1,5 @@
+import tracingPreviewStylesheetUrl from './TracingPreview.scss?url'
+
 import * as xRayPng from '@posthog/brand/hoggies/png/x-ray'
 import { IconListTree } from '@posthog/icons'
 
@@ -29,5 +31,6 @@ export const tracingEmptyState: SceneProductEmptyState = {
         docsUrl: 'https://posthog.com/docs/tracing',
         previewLabel: 'Your traces, once connected',
         Preview: TracingPreview,
+        previewStylesheet: tracingPreviewStylesheetUrl,
     },
 }

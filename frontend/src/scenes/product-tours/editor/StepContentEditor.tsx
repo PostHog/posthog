@@ -1,4 +1,4 @@
-import './StepContentEditor.scss'
+import stepContentEditorStylesheetUrl from './StepContentEditor.scss?url'
 
 import { JSONContent } from '@tiptap/core'
 import { Color } from '@tiptap/extension-color'
@@ -24,6 +24,7 @@ import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { useStylesheet } from 'lib/utils/lazyStylesheet'
 
 import { DEFAULT_APPEARANCE } from '../constants'
 import { productTourLogic } from '../productTourLogic'
@@ -73,6 +74,7 @@ export function StepContentEditor({
         productTourLogic({ id: tourId })
     )
     const { updateSelectedStep } = useActions(productTourLogic({ id: tourId }))
+    const styled = useStylesheet(stepContentEditorStylesheetUrl)
 
     const appearance = productTourForm.content?.appearance
     const isBanner = productTour ? isBannerAnnouncement(productTour) : false
@@ -545,6 +547,10 @@ export function StepContentEditor({
             <FooterPreview tourId={tourId} />
         </div>
     )
+
+    if (!styled) {
+        return <div className="StepContentEditor flex flex-col gap-4" />
+    }
 
     return (
         <div ref={dropRef} className="StepContentEditor flex flex-col gap-4">

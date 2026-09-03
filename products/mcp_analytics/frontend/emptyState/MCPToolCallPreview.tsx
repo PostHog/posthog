@@ -1,5 +1,3 @@
-import './MCPToolCallPreview.scss'
-
 import { sparkPaths } from 'lib/components/ProductEmptyState/previewSparkline'
 import type { ProductEmptyStateMode } from 'lib/components/ProductEmptyState/types'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'

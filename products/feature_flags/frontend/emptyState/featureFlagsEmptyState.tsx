@@ -1,3 +1,5 @@
+import featureFlagPreviewStylesheetUrl from './FeatureFlagPreview.scss?url'
+
 import * as trafficControllerPng from '@posthog/brand/hoggies/png/traffic-controller'
 import { IconToggle } from '@posthog/icons'
 
@@ -40,5 +42,6 @@ export const featureFlagsEmptyState: SceneProductEmptyState = {
         docsUrl: 'https://posthog.com/docs/feature-flags',
         previewLabel: 'Your flags, once created',
         Preview: FeatureFlagPreview,
+        previewStylesheet: featureFlagPreviewStylesheetUrl,
     },
 }

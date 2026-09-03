@@ -1,5 +1,3 @@
-import '@xyflow/react/dist/style.css'
-
 import {
     Background,
     BackgroundVariant,
@@ -16,6 +14,8 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect, useMemo, useRef } from 'react'
 
 import { IconInfo } from '@posthog/icons'
+
+import { useXyflowStylesheet } from 'lib/hooks/useXyflowStylesheet'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
@@ -124,6 +124,9 @@ function HogFlowEditorContent(): JSX.Element {
 
 export function HogFlowEditor(): JSX.Element {
     const { logicProps } = useValues(workflowLogic)
+    if (!useXyflowStylesheet()) {
+        return <div className="w-full h-full" />
+    }
     return (
         <ReactFlowProvider>
             <BindLogic logic={hogFlowEditorLogic} props={logicProps}>

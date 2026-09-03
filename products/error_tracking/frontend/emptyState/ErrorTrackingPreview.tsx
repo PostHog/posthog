@@ -1,5 +1,3 @@
-import './ErrorTrackingPreview.scss'
-
 import { Spinner } from '@posthog/lemon-ui'
 
 import type { ProductEmptyStateMode } from 'lib/components/ProductEmptyState/types'

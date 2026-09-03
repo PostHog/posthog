@@ -52,6 +52,18 @@ declare module '*.md?raw' {
     export default content
 }
 
+// A stylesheet imported with ?url stays out of the boot CSS. The import is the URL of the
+// built file, for lib/utils/lazyStylesheet to attach when the component renders.
+declare module '*.scss?url' {
+    const href: string
+    export default href
+}
+
+declare module '*.css?url' {
+    const href: string
+    export default href
+}
+
 // This fixes TS2882 errors when side-effect importing .scss files
 declare module '*.scss'
 

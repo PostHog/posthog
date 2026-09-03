@@ -1,3 +1,5 @@
+import annotationsPreviewStylesheetUrl from './AnnotationsPreview.scss?url'
+
 import * as reporterPng from '@posthog/brand/hoggies/png/reporter'
 import { IconNotification } from '@posthog/icons'
 
@@ -32,5 +34,6 @@ export const annotationsEmptyState: SceneProductEmptyState = {
         docsUrl: 'https://posthog.com/docs/data/annotations',
         previewLabel: 'Your annotations, once created',
         Preview: AnnotationsPreview,
+        previewStylesheet: annotationsPreviewStylesheetUrl,
     },
 }

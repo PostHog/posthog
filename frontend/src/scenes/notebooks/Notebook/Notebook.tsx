@@ -1,4 +1,4 @@
-import './Notebook.scss'
+import notebookStylesheetUrl from './Notebook.scss?url'
 
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
@@ -9,6 +9,7 @@ import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { useStylesheet } from 'lib/utils/lazyStylesheet'
 import { NotebookLogicProps, notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
@@ -57,6 +58,7 @@ export function Notebook({
     const { notebook, notebookLoading, isEditable, isTemplate, notebookMissing } = useValues(logic)
     const { duplicateNotebook, loadNotebook, setEditable, setLocalContent, setContainerSize } = useActions(logic)
     const { isMarkdownExpanded } = useValues(notebookSettingsLogic)
+    const styled = useStylesheet(notebookStylesheetUrl)
 
     useEffect(() => {
         if (initialContent && mode === 'canvas') {
@@ -99,7 +101,7 @@ export function Notebook({
 
     return (
         <BindLogic logic={notebookLogic} props={logicProps}>
-            {!notebook && notebookLoading ? (
+            {(!notebook && notebookLoading) || !styled ? (
                 <NotebookLoadingState />
             ) : notebookMissing ? (
                 <NotFound object="notebook" />

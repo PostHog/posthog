@@ -1,3 +1,5 @@
+import replayVisionObservationPreviewStylesheetUrl from './ReplayVisionObservationPreview.scss?url'
+
 import * as noirDeskPng from '@posthog/brand/hoggies/png/noir-5'
 import { IconEye } from '@posthog/icons'
 
@@ -39,5 +41,6 @@ export const replayVisionEmptyState: SceneProductEmptyState = {
         docsUrl: visionDocsUrl(),
         previewLabel: 'Example scanner results',
         Preview: ReplayVisionObservationPreview,
+        previewStylesheet: replayVisionObservationPreviewStylesheetUrl,
     },
 }

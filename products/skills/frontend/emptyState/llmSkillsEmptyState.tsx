@@ -1,3 +1,5 @@
+import lLMSkillPreviewStylesheetUrl from './LLMSkillPreview.scss?url'
+
 import * as puzzlePng from '@posthog/brand/hoggies/png/puzzle'
 import { IconLlmPromptManagement } from '@posthog/icons'
 
@@ -40,5 +42,6 @@ export const llmSkillsEmptyState: SceneProductEmptyState = {
         skippable: false,
         previewLabel: 'Your skills, once published',
         Preview: LLMSkillPreview,
+        previewStylesheet: lLMSkillPreviewStylesheetUrl,
     },
 }

@@ -1,3 +1,5 @@
+import dashboardsPreviewStylesheetUrl from './DashboardsPreview.scss?url'
+
 import * as chartPng from '@posthog/brand/hoggies/png/chart'
 import { IconDashboard } from '@posthog/icons'
 
@@ -32,5 +34,6 @@ export const dashboardsEmptyState: SceneProductEmptyState = {
         docsUrl: 'https://posthog.com/docs/product-analytics/dashboards',
         previewLabel: 'Your dashboard, once created',
         Preview: DashboardsPreview,
+        previewStylesheet: dashboardsPreviewStylesheetUrl,
     },
 }

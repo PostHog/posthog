@@ -1,3 +1,5 @@
+import userInterviewPreviewStylesheetUrl from './UserInterviewPreview.scss?url'
+
 import * as reporterPng from '@posthog/brand/hoggies/png/reporter'
 import { IconMicrophone } from '@posthog/icons'
 
@@ -34,5 +36,6 @@ export const userInterviewsEmptyState: SceneProductEmptyState = {
         skippable: false,
         previewLabel: 'Your research, once responses arrive',
         Preview: UserInterviewPreview,
+        previewStylesheet: userInterviewPreviewStylesheetUrl,
     },
 }

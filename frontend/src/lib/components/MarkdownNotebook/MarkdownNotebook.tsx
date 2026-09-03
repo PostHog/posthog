@@ -1,5 +1,3 @@
-import './MarkdownNotebook.scss'
-
 import clsx from 'clsx'
 import {
     ClipboardEvent as ReactClipboardEvent,
@@ -26,12 +24,15 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { downloadFile } from 'lib/utils/dom'
+import { useStylesheet } from 'lib/utils/lazyStylesheet'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 
 // Monaco is heavy, so the markdown source editor only loads when the source drawer opens.
 const LazyCodeEditor = lazyWithRetry(() =>
     import('lib/monaco/CodeEditor').then((module) => ({ default: module.CodeEditor }))
 )
+
+import markdownNotebookStylesheetUrl from './MarkdownNotebook.scss?url'
 
 import { mergeNotebookMarkdownChanges } from './collaboration'
 import {
@@ -574,6 +575,9 @@ class MarkdownNotebookCrashReporter extends Component<{ children: ReactNode }, M
 }
 
 export function MarkdownNotebook(props: MarkdownNotebookProps): JSX.Element {
+    if (!useStylesheet(markdownNotebookStylesheetUrl)) {
+        return <div className="MarkdownNotebook" />
+    }
     return (
         <MarkdownNotebookCrashReporter>
             <MarkdownNotebookEditor {...props} />

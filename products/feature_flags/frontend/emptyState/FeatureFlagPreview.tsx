@@ -1,5 +1,3 @@
-import './FeatureFlagPreview.scss'
-
 import * as noir1Png from '@posthog/brand/hoggies/png/noir-1'
 import * as partyPng from '@posthog/brand/hoggies/png/party'
 

@@ -1,3 +1,5 @@
+import earlyAccessFeaturePreviewStylesheetUrl from './EarlyAccessFeaturePreview.scss?url'
+
 import * as rocketPng from '@posthog/brand/hoggies/png/rocket'
 import { IconRocket } from '@posthog/icons'
 
@@ -41,5 +43,6 @@ export const earlyAccessFeaturesEmptyState: SceneProductEmptyState = {
         docsUrl: 'https://posthog.com/docs/feature-flags/early-access-feature-management',
         previewLabel: 'Your betas, once published',
         Preview: EarlyAccessFeaturePreview,
+        previewStylesheet: earlyAccessFeaturePreviewStylesheetUrl,
     },
 }

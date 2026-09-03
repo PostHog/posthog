@@ -1,3 +1,5 @@
+import supportPreviewStylesheetUrl from './SupportPreview.scss?url'
+
 import * as phoneCallPng from '@posthog/brand/hoggies/png/phone-call'
 import { IconSupport } from '@posthog/icons'
 
@@ -36,5 +38,6 @@ export const supportEmptyState: SceneProductEmptyState = {
         docsUrl: 'https://posthog.com/docs/support',
         previewLabel: 'Your inbox, once tickets arrive',
         Preview: SupportPreview,
+        previewStylesheet: supportPreviewStylesheetUrl,
     },
 }

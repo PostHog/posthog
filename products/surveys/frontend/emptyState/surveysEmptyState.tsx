@@ -1,3 +1,5 @@
+import surveysPreviewStylesheetUrl from './SurveysPreview.scss?url'
+
 import * as reporterPng from '@posthog/brand/hoggies/png/reporter'
 import { IconMessage } from '@posthog/icons'
 
@@ -31,6 +33,7 @@ export const surveysEmptyState: SceneProductEmptyState = {
         docsUrl: 'https://posthog.com/docs/surveys',
         previewLabel: 'Responses, once your survey is live',
         Preview: SurveysPreview,
+        previewStylesheet: surveysPreviewStylesheetUrl,
         // Skipping would reveal a bare empty list; creating a survey is the only next step.
         skippable: false,
     },

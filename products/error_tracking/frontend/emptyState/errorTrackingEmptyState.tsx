@@ -1,3 +1,5 @@
+import errorTrackingPreviewStylesheetUrl from './ErrorTrackingPreview.scss?url'
+
 import { IconWarning } from '@posthog/icons'
 
 import { WarningHog } from 'lib/components/hedgehogs'
@@ -52,5 +54,6 @@ export const errorTrackingEmptyState: SceneProductEmptyState = {
         manualSetupUrl: 'https://posthog.com/docs/error-tracking/installation',
         previewLabel: 'Issues, once exceptions arrive',
         Preview: ErrorTrackingPreview,
+        previewStylesheet: errorTrackingPreviewStylesheetUrl,
     },
 }

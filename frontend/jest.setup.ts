@@ -142,6 +142,14 @@ jest.mock('lib/utils/concurrencyController', () => {
     return { ConcurrencyController }
 })
 
+// jsdom never fetches a <link rel="stylesheet">, so its load event never fires and a component
+// behind useStylesheet would stay on its placeholder forever. Tests do not check styling, so
+// report every lazy stylesheet as attached.
+jest.mock('lib/utils/lazyStylesheet', () => ({
+    loadStylesheet: (): Promise<void> => Promise.resolve(),
+    useStylesheet: (): boolean => true,
+}))
+
 // Mock posthog-js surveys-preview to avoid ESM import issues in tests
 jest.mock('posthog-js/dist/surveys-preview', () => ({
     renderFeedbackWidgetPreview: jest.fn(),

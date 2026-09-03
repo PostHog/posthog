@@ -1,5 +1,3 @@
-import '@xyflow/react/dist/style.css'
-
 import { Background, BackgroundVariant, Controls, MiniMap, Panel, ReactFlow, ReactFlowProvider } from '@xyflow/react'
 import { useValues } from 'kea'
 import { ReactNode } from 'react'
@@ -7,6 +5,7 @@ import { ReactNode } from 'react'
 import { IconArchive } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
 
+import { useXyflowStylesheet } from 'lib/hooks/useXyflowStylesheet'
 import { ElkDirection } from 'scenes/data-warehouse/scene/modeling/types'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
@@ -104,7 +103,8 @@ function LineageGraphContent(props: LineageGraphProps): JSX.Element {
 }
 
 export function LineageGraph(props: LineageGraphProps): JSX.Element {
-    if (props.loading) {
+    const styled = useXyflowStylesheet()
+    if (props.loading || !styled) {
         return (
             <div className="flex items-center justify-center w-full h-full">
                 <Spinner />

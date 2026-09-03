@@ -79,6 +79,7 @@ Statuses: `loading` (not yet known - the gate holds a spinner, never flashes the
 
 This is not a flat mock - the bar is "fun and involved", and the references set it:
 
+- **Styles go in `XPreview.scss`, declared on the config, not imported by the component.** Add `import xPreviewStylesheetUrl from './XPreview.scss?url'` to the config module and set `previewStylesheet: xPreviewStylesheetUrl`. `ProductEmptyState` attaches the sheet before it renders the preview, which keeps every preview's CSS out of the boot stylesheet. A plain `import './XPreview.scss'` in the component puts it straight back.
 - **Layer 2-3 small cards** that tell one story together (a list + the mini app it drives + a stat card with a chart), not a single panel of rows.
 - **One real interaction with a visible payoff.** Drive it with a hidden checkbox/radio and `:checked ~` styles - clicking a flag row flips a mini app's UI and steps a conversion chart up at a "Released" marker; picking a variant highlights its interval and re-skins the app. No React state, no JS timers (`setInterval` is banned; CSS keyframes only).
 - **Ambient motion so it feels alive at rest:** a trace segment cycling along a sparkline, a pulsing "Running" dot - subtle and continuous. Do **not** auto-toggle the interactive state on a loop - a UI that flips itself reads as broken, not alive; the user flips it, ambient motion does the rest.

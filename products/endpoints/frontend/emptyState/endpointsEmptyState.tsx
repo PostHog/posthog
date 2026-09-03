@@ -1,3 +1,5 @@
+import endpointPreviewStylesheetUrl from './EndpointPreview.scss?url'
+
 import * as codeBubblePng from '@posthog/brand/hoggies/png/code-bubble'
 import { IconEndpoints } from '@posthog/icons'
 
@@ -32,5 +34,6 @@ export const endpointsEmptyState: SceneProductEmptyState = {
         docsUrl: 'https://posthog.com/docs/endpoints',
         previewLabel: 'Your endpoints, once created',
         Preview: EndpointPreview,
+        previewStylesheet: endpointPreviewStylesheetUrl,
     },
 }

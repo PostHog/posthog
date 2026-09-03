@@ -1,3 +1,5 @@
+import mCPToolCallPreviewStylesheetUrl from './MCPToolCallPreview.scss?url'
+
 import * as robotPng from '@posthog/brand/hoggies/png/robot'
 import { IconMCP } from '@posthog/icons'
 
@@ -41,6 +43,7 @@ export const mcpAnalyticsEmptyState: SceneProductEmptyState = {
         manualSetupUrl: 'https://posthog.com/docs/mcp-analytics/installation',
         previewLabel: 'Tool calls, once connected',
         Preview: MCPToolCallPreview,
+        previewStylesheet: mCPToolCallPreviewStylesheetUrl,
         statusIndicator: <MCPListeningIndicator />,
     },
 }

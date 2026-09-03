@@ -1,3 +1,5 @@
+import productTourPreviewStylesheetUrl from './ProductTourPreview.scss?url'
+
 import * as directorPng from '@posthog/brand/hoggies/png/director'
 import { IconSpotlight } from '@posthog/icons'
 
@@ -38,5 +40,6 @@ export const productToursEmptyState: SceneProductEmptyState = {
         docsUrl: 'https://posthog.com/docs/product-tours',
         previewLabel: 'Your tours, once live',
         Preview: ProductTourPreview,
+        previewStylesheet: productTourPreviewStylesheetUrl,
     },
 }
