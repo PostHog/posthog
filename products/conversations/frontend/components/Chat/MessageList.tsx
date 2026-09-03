@@ -247,7 +247,7 @@ export function MessageList({
         // hold: it takes the caller's className and the height bounds, and stays the flex child
         // callers lay out against. Without that, a caller's spacing (e.g. `mb-3`) would land inside
         // the wrapper and stop separating the thread from whatever follows it.
-        <div className={`relative flex flex-col flex-1 ${className}`} style={{ minHeight, maxHeight }}>
+        <div className={`relative flex flex-col flex-1 min-h-0 ${className}`} style={{ minHeight, maxHeight }}>
             <div
                 ref={containerRef}
                 onScroll={handleScroll}

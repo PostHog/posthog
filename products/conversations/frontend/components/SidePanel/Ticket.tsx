@@ -3,6 +3,8 @@ import { useActions, useValues } from 'kea'
 import { IconArrowLeft } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonTag } from '@posthog/lemon-ui'
 
+import { cn } from 'lib/utils/css-classes'
+
 import { MessageInput } from '../Chat/MessageInput'
 import { MessageList } from '../Chat/MessageList'
 import { sidepanelTicketsLogic } from './sidepanelTicketsLogic'
@@ -12,6 +14,10 @@ interface TicketProps {
     showBackButton?: boolean
     /** Lets master-detail layouts show the back button only at widths where the panes stack */
     backButtonClassName?: string
+    /** Fill a bounded parent (the full-screen scene pane). The side panel must not opt in: its
+     *  parent height is auto, and overflow-hidden plus a 400px message cap would leave an empty
+     *  card below the composer. */
+    fillParent?: boolean
     messagesMinHeight?: string
     messagesMaxHeight?: string
 }
@@ -19,15 +25,21 @@ interface TicketProps {
 export function Ticket({
     showBackButton = true,
     backButtonClassName,
-    messagesMinHeight = '300px',
-    messagesMaxHeight = '400px',
+    fillParent = false,
+    messagesMinHeight = fillParent ? '0' : '300px',
+    messagesMaxHeight = fillParent ? 'none' : '400px',
 }: TicketProps): JSX.Element {
     const { messages, messagesLoading, messageSending, currentTicket } = useValues(sidepanelTicketsLogic)
     const { sendMessage, setView } = useActions(sidepanelTicketsLogic)
 
     return (
-        <div className="flex flex-col h-full bg-surface-primary border rounded-lg p-2">
-            <div className="flex items-center gap-2">
+        <div
+            className={cn(
+                'flex flex-col h-full bg-surface-primary border rounded-lg p-2',
+                fillParent && 'min-h-0 overflow-hidden'
+            )}
+        >
+            <div className="flex items-center gap-2 shrink-0">
                 {showBackButton && (
                     <LemonButton
                         icon={<IconArrowLeft />}
@@ -62,7 +74,7 @@ export function Ticket({
                 className="mb-3"
                 isCustomerView
             />
-            <div className="border-t pt-3">
+            <div className="border-t pt-3 shrink-0">
                 <MessageInput
                     onSendMessage={(content, _richContent, _isPrivate, onSuccess) => sendMessage(content, onSuccess)}
                     messageSending={messageSending}

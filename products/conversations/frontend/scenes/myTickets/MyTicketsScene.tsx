@@ -23,10 +23,6 @@ export const scene: SceneExport = {
     logic: myTicketsSceneLogic,
 }
 
-// Sized against the viewport so the thread fills the page without the scene itself scrolling
-const PANE_MIN_HEIGHT = 'min(400px, calc(100svh - 16rem))'
-const PANE_MAX_HEIGHT = 'calc(100svh - 16rem)'
-
 export function MyTicketsScene(): JSX.Element {
     const { view, currentTicket, newTicketDraftRevision, isBillingResolved } = useValues(sidepanelTicketsLogic)
     const { preflight } = useValues(preflightLogic)
@@ -79,33 +75,27 @@ export function MyTicketsScene(): JSX.Element {
     } else if (view === 'restore' && !hasIdentityMode) {
         pane = <RestoreTickets />
     } else if (view === 'ticket' && currentTicket) {
-        pane = (
-            <Ticket
-                backButtonClassName="lg:hidden"
-                messagesMinHeight={PANE_MIN_HEIGHT}
-                messagesMaxHeight={PANE_MAX_HEIGHT}
-            />
-        )
+        pane = <Ticket fillParent backButtonClassName="lg:hidden" />
     } else {
         pane = (
-            <div className="flex items-center justify-center border border-dashed rounded-lg text-muted-alt min-h-[min(400px,calc(100svh-16rem))]">
+            <div className="flex items-center justify-center border border-dashed rounded-lg text-muted-alt h-full min-h-80">
                 Select a ticket to view the conversation
             </div>
         )
     }
 
     return (
-        <SceneContent>
+        <SceneContent className="flex-1 min-h-0 pb-4">
             <SceneTitleSection
                 name="Your tickets"
                 description="Support conversations with the PostHog team"
                 resourceType={{ type: 'conversation' }}
             />
-            <div className="flex flex-col lg:flex-row items-start gap-4">
-                <div className="w-full lg:w-96 shrink-0 overflow-y-auto max-h-[calc(100svh-16rem)]">
+            <div className="flex flex-col lg:flex-row flex-1 min-h-0 gap-4 overflow-hidden">
+                <div className="w-full lg:w-96 shrink-0 min-h-0 overflow-hidden lg:h-full">
                     <TicketsList selectedTicketId={view === 'ticket' ? (currentTicket?.id ?? null) : null} />
                 </div>
-                <div className="flex-1 min-w-0 w-full">{pane}</div>
+                <div className="flex-1 min-w-0 min-h-0 w-full flex flex-col">{pane}</div>
             </div>
         </SceneContent>
     )
