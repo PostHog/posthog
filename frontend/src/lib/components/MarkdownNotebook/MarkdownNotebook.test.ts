@@ -748,17 +748,28 @@ continued line
         expect(serializeMarkdownNotebook(document)).toEqual(markdown)
     })
 
-    it('round-trips multiline string component props', () => {
-        const markdown = `<SummaryCard id="${TEST_AI_CONVERSATION_ID}" summary=${JSON.stringify('## Summary\nDone')} />`
+    it.each([
+        [
+            'escaped line breaks',
+            `<SummaryCard id="${TEST_AI_CONVERSATION_ID}" summary=${JSON.stringify('## Summary\nDone')} />`,
+            'SummaryCard',
+            { id: TEST_AI_CONVERSATION_ID, summary: '## Summary\nDone' },
+        ],
+        [
+            'literal line breaks',
+            `<PythonV2 title="Event galaxy" code="import pandas as pd
+
+points = pd.DataFrame()" />`,
+            'PythonV2',
+            { title: 'Event galaxy', code: 'import pandas as pd\n\npoints = pd.DataFrame()' },
+        ],
+    ])('round-trips component string props with %s', (_name, markdown, tagName, props) => {
         const document = parseMarkdownNotebook(markdown)
 
         expect(document.nodes[0]).toMatchObject({
             type: 'component',
-            tagName: 'SummaryCard',
-            props: {
-                id: TEST_AI_CONVERSATION_ID,
-                summary: '## Summary\nDone',
-            },
+            tagName,
+            props,
         })
         expect(serializeMarkdownNotebook(document)).toEqual(markdown)
     })

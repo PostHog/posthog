@@ -388,50 +388,74 @@ def _read_markdown_component_block(lines: list[str], line_index: int) -> tuple[s
         next_line_index += 1
 
     if not found_terminator:
+        # The first blank line remains the fallback boundary for malformed tags. Cross it only
+        # when the complete tag parses, so an unfinished component cannot consume later blocks.
+        for multiline_end_index in range(next_line_index + 1, len(lines)):
+            end_line = lines[multiline_end_index].strip()
+            if not end_line.endswith("/>") and f"</{tag_name}>" not in end_line:
+                continue
+            multiline_raw = "\n".join(lines[line_index : multiline_end_index + 1]).strip()
+            _, is_valid = _parse_markdown_component_props_with_status(multiline_raw)
+            if is_valid:
+                return tag_name, multiline_raw, multiline_end_index + 1
+
+    if not found_terminator:
         return None
 
     return tag_name, "\n".join(raw_lines).strip(), next_line_index + 1
 
 
 def _parse_markdown_component_props(raw: str) -> dict[str, Any]:
+    props, _ = _parse_markdown_component_props_with_status(raw)
+    return props
+
+
+def _parse_markdown_component_props_with_status(raw: str) -> tuple[dict[str, Any], bool]:
     match = _MARKDOWN_COMPONENT_TAG_REGEX.match(raw)
     if not match:
-        return {}
+        return {}, False
 
     props: dict[str, Any] = {}
     source = match.group(2) or ""
     index = 0
     while index < len(source):
-        while index < len(source) and source[index].isspace():
-            index += 1
+        index = _skip_markdown_component_whitespace(source, index)
         if index >= len(source):
             break
 
         name_match = _MARKDOWN_COMPONENT_PROP_NAME_REGEX.match(source[index:])
         if not name_match:
-            break
+            return props, False
 
         name = name_match.group(1)
         index += len(name)
-        while index < len(source) and source[index].isspace():
-            index += 1
+        index = _skip_markdown_component_whitespace(source, index)
 
         if index >= len(source) or source[index] != "=":
             props[name] = True
             continue
 
         index += 1
-        while index < len(source) and source[index].isspace():
-            index += 1
+        index = _skip_markdown_component_whitespace(source, index)
 
-        value, index = _read_markdown_component_prop_value(source, index)
+        value, index, is_valid = _read_markdown_component_prop_value(source, index)
+        if not is_valid:
+            return props, False
         if _is_markdown_notebook_prop_value(value):
             props[name] = value
+        else:
+            return props, False
 
-    return props
+    return props, True
 
 
-def _read_markdown_component_prop_value(source: str, index: int) -> tuple[Any, int]:
+def _skip_markdown_component_whitespace(source: str, index: int) -> int:
+    while index < len(source) and source[index].isspace():
+        index += 1
+    return index
+
+
+def _read_markdown_component_prop_value(source: str, index: int) -> tuple[Any, int, bool]:
     first_char = source[index] if index < len(source) else ""
 
     if first_char in {"'", '"'}:
@@ -449,24 +473,24 @@ def _read_markdown_component_prop_value(source: str, index: int) -> tuple[Any, i
                     try:
                         parsed_value = json.loads(source[index : next_index + 1])
                         if isinstance(parsed_value, str):
-                            return html.unescape(parsed_value), next_index + 1
+                            return html.unescape(parsed_value), next_index + 1, True
                     except (TypeError, ValueError):
                         pass
-                return html.unescape(value), next_index + 1
+                return html.unescape(value), next_index + 1, True
             value += character
             next_index += 1
-        return None, next_index
+        return None, next_index, False
 
     if first_char == "{":
         balanced = _read_balanced_markdown_expression(source, index)
         if balanced is None:
-            return None, len(source)
+            return None, len(source), False
         value, next_index = balanced
-        return _parse_markdown_expression_value(value), next_index
+        return _parse_markdown_expression_value(value), next_index, True
 
     raw_match = _MARKDOWN_COMPONENT_RAW_PROP_VALUE_REGEX.match(source[index:])
     raw = raw_match.group(1) if raw_match else ""
-    return _parse_markdown_expression_value(raw), index + len(raw)
+    return _parse_markdown_expression_value(raw), index + len(raw), bool(raw)
 
 
 def _read_balanced_markdown_expression(source: str, index: int) -> tuple[str, int] | None:

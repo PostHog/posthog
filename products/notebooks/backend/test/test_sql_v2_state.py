@@ -35,6 +35,7 @@ class TestCellExtractionAndEdges(SimpleTestCase):
             "# Doc\n\n"
             '<SQLV2 nodeId="s1" code="select 1" returnVariable="df" />\n\n'
             '<PythonV2 nodeId="p1" code="out = df.head()" returnVariable="out" />\n\n'
+            '<PythonV2 nodeId="p2" code="import pandas as pd\n\nout = pd.DataFrame()" returnVariable="multiline" />\n\n'
             '<Query nodeId="q1" query={{"kind":"SavedInsightNode","shortId":"abc"}} />\n\n'
             '<SQLV2 code="select 2" returnVariable="anon" />\n\n'
             '<RevenueCard metric="arr" />\n'
@@ -43,8 +44,10 @@ class TestCellExtractionAndEdges(SimpleTestCase):
         assert [(c.node_id, c.cell_type, c.dataframe_name) for c in cells] == [
             ("s1", "sql", "df"),
             ("p1", "python", "out"),
+            ("p2", "python", "multiline"),
             ("q1", "saved_insight", ""),
         ]
+        assert cells[2].code == "import pandas as pd\n\nout = pd.DataFrame()"
 
     def test_rich_text_content_yields_no_cells(self) -> None:
         assert extract_cells({"type": "doc", "content": [{"type": "paragraph"}]}) == []

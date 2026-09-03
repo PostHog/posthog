@@ -268,6 +268,10 @@ function serializeNodeUncached(node: NotebookBlockNode): string {
         return serializeImageNode(node)
     }
     if (node.type === 'component') {
+        const multilineSource = getUnchangedMultilineComponentSource(node)
+        if (multilineSource) {
+            return multilineSource
+        }
         return `<${node.tagName}${serializeComponentProps(node.props)} />`
     }
     return ''
@@ -1091,8 +1095,8 @@ function parseComponentBlock(lines: string[], lineIndex: number): BlockParseResu
     let nextLineIndex = lineIndex
     let foundTerminator = false
 
-    // Components are block-level: a blank line ends the scan so an unterminated tag can
-    // never swallow the rest of the document
+    // Keep the first blank line as the fallback boundary so a malformed tag cannot swallow
+    // the document. A second pass crosses it only when every prop in the complete tag parses.
     while (nextLineIndex < lines.length && (nextLineIndex === lineIndex || lines[nextLineIndex].trim())) {
         rawLines.push(lines[nextLineIndex])
         const raw = rawLines.join('\n').trim()
@@ -1101,6 +1105,16 @@ function parseComponentBlock(lines: string[], lineIndex: number): BlockParseResu
             break
         }
         nextLineIndex += 1
+    }
+
+    if (!foundTerminator && tagName) {
+        const multilineComponent = parseMultilineComponentTag(lines, lineIndex, tagName)
+        if (multilineComponent) {
+            return {
+                node: multilineComponent.node,
+                nextLineIndex: multilineComponent.endLineIndex + 1,
+            }
+        }
     }
 
     const raw = rawLines.join('\n').trim()
@@ -1120,6 +1134,30 @@ function parseComponentBlock(lines: string[], lineIndex: number): BlockParseResu
         nextLineIndex: nextLineIndex + 1,
         error: parsed.error ? { ...parsed.error, line: lineIndex + 1 } : undefined,
     }
+}
+
+function parseMultilineComponentTag(
+    lines: string[],
+    lineIndex: number,
+    tagName: string
+): { node: NotebookComponentBlockNode; endLineIndex: number } | null {
+    for (let endLineIndex = lineIndex + 1; endLineIndex < lines.length; endLineIndex++) {
+        const endLine = lines[endLineIndex].trim()
+        if (!endLine.endsWith('/>') && !endLine.includes(`</${tagName}>`)) {
+            continue
+        }
+
+        const parsed = parseComponentTag(
+            lines
+                .slice(lineIndex, endLineIndex + 1)
+                .join('\n')
+                .trim()
+        )
+        if (parsed.node && !parsed.node.errors?.length) {
+            return { node: parsed.node, endLineIndex }
+        }
+    }
+    return null
 }
 
 function makeComponentFallbackParagraph(raw: string): NotebookTextBlockNode {
@@ -1342,6 +1380,19 @@ function serializeComponentProps(props: NotebookComponentProps): string {
         .map(([key, value]) => (value === true ? ` ${key}` : ` ${key}=${serializePropValue(value)}`))
         .join('')
     return serialized
+}
+
+function getUnchangedMultilineComponentSource(node: NotebookComponentBlockNode): string | null {
+    if (!node.raw?.includes('\n')) {
+        return null
+    }
+
+    const parsed = parseComponentTag(node.raw)
+    if (!parsed.node || parsed.node.errors?.length) {
+        return null
+    }
+
+    return getNodeFingerprint(parsed.node) === getNodeFingerprint(node) ? node.raw : null
 }
 
 function getSerializableComponentProps(props: NotebookComponentProps): NotebookComponentProps {
