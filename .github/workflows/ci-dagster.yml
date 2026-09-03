@@ -375,25 +375,13 @@ jobs:
               with:
                   version: '0.11.28'
 
-            - name: Restore test durations from cache
+            - name: Download the last published durations
               # The selector's full-run cutoff and shard sizing read .test_durations,
-              # which is not in the repo. This job runs on a GitHub-hosted runner, so
-              # the Depot-side cache misses and the fallback below is the usual path.
-              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
-              with:
-                  path: .test_durations
-                  key: posthog-test-durations-${{ github.run_id }}
-                  restore-keys: |
-                      posthog-test-durations-
-
-            - name: Fall back to the last published durations
-              # .test_durations is not in the repo. The timing workflow refreshes the
-              # cache several times a day and publishes the same files as an artifact
-              # of its own runs. On a cache miss (retention lapsed, timing workflow
-              # down for two weeks) take the newest artifact; if that is gone too,
-              # pytest-split splits by count and turbo-discover sizes from file counts
-              # until the next timing run.
-              if: ${{ hashFiles('.test_durations') == '' }}
+              # which is not in the repo. The timing workflow saves it to the Actions
+              # cache from a Depot runner. GitHub-hosted jobs like this one read a
+              # separate cache store, so a cache restore here can never hit. Take the
+              # artifact the timing workflow publishes instead; if that is gone too,
+              # the selector estimates without durations until the next timing run.
               continue-on-error: true
               env:
                   GH_TOKEN: ${{ github.token }}
@@ -401,7 +389,7 @@ jobs:
                   run_id=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci-backend-update-test-timing.yml \
                       --branch master --status success --limit 1 --json databaseId --jq '.[0].databaseId // empty')
                   if [ -z "$run_id" ]; then
-                      echo "::warning::No successful timing run to fall back to, sharding without durations"
+                      echo "::warning::No successful timing run, sharding without durations"
                       exit 0
                   fi
                   gh run download "$run_id" --repo "$GITHUB_REPOSITORY" --name test-durations --dir . \

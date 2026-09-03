@@ -1,3 +1,4 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { NEW_QUERY_STARTED_ERROR_MESSAGE } from 'lib/utils/kea-logic-builders'
@@ -413,6 +414,82 @@ describe('metricsViewerLogic', () => {
         logic.actions.saveAsInsight()
         await expectLogic(logic).toDispatchActions(['saveAsInsightSuccess'])
         expect(logic.values.isAddToDashboardModalOpen).toBe(false)
+    })
+
+    // "Create alert" surfaces the shared insight-alert flow for a metric: it saves the query as
+    // an insight (reusing it while unchanged) and routes to that insight's alerts page, rather
+    // than building a parallel metrics-specific alert model.
+    it('create alert saves the insight and routes to its alerts page', async () => {
+        const push = jest.spyOn(router.actions, 'push').mockImplementation(() => {})
+        jest.mocked(insightsApi.create).mockImplementation(
+            async (insight: any) => ({ id: 1, short_id: 'abc123', ...insight }) as any
+        )
+        logic.actions.setMetricName('queue_depth')
+
+        logic.actions.createAlert()
+        await expectLogic(logic).toDispatchActions(['saveAsInsightSuccess'])
+        expect(insightsApi.create).toHaveBeenCalledTimes(1)
+        expect(push).toHaveBeenCalledWith('/insights/abc123/alerts')
+        push.mockRestore()
+    })
+
+    it('create alert reuses the saved insight while the query is unchanged', async () => {
+        const push = jest.spyOn(router.actions, 'push').mockImplementation(() => {})
+        jest.mocked(insightsApi.create).mockImplementation(
+            async (insight: any) =>
+                ({ id: 1, short_id: 'abc123', ...insight, query: { ...insight.query, version: 1 } }) as any
+        )
+        logic.actions.setMetricName('queue_depth')
+
+        logic.actions.createAlert()
+        await expectLogic(logic).toDispatchActions(['saveAsInsightSuccess'])
+        expect(insightsApi.create).toHaveBeenCalledTimes(1)
+
+        push.mockClear()
+        // Unchanged query: route straight to the alerts page without a duplicate save.
+        logic.actions.createAlert()
+        await expectLogic(logic).toDispatchActions(['createAlert'])
+        expect(insightsApi.create).toHaveBeenCalledTimes(1)
+        expect(push).toHaveBeenCalledWith('/insights/abc123/alerts')
+        push.mockRestore()
+    })
+
+    it('create alert saves a fresh insight after the query changes', async () => {
+        const push = jest.spyOn(router.actions, 'push').mockImplementation(() => {})
+        jest.mocked(insightsApi.create).mockImplementation(
+            async (insight: any) => ({ id: 1, short_id: 'abc123', ...insight }) as any
+        )
+        logic.actions.setMetricName('queue_depth')
+        logic.actions.createAlert()
+        await expectLogic(logic).toDispatchActions(['saveAsInsightSuccess'])
+
+        logic.actions.setAggregation('rate')
+        logic.actions.createAlert()
+        await expectLogic(logic).toDispatchActions(['saveAsInsightSuccess'])
+        expect(insightsApi.create).toHaveBeenCalledTimes(2)
+        push.mockRestore()
+    })
+
+    // The armed createAlert flag must clear after routing: if it stayed set, a later plain
+    // "Save as insight" would be mis-routed to the alerts page (and its toast suppressed).
+    it('a plain save after a create-alert save does not route to the alerts page', async () => {
+        const push = jest.spyOn(router.actions, 'push').mockImplementation(() => {})
+        jest.mocked(insightsApi.create).mockImplementation(
+            async (insight: any) => ({ id: 1, short_id: 'abc123', ...insight }) as any
+        )
+        logic.actions.setMetricName('queue_depth')
+
+        logic.actions.createAlert()
+        await expectLogic(logic).toDispatchActions(['saveAsInsightSuccess'])
+        expect(push).toHaveBeenCalledWith('/insights/abc123/alerts')
+        expect(logic.values.pendingAlert).toBe(false)
+
+        push.mockClear()
+        logic.actions.setAggregation('rate')
+        logic.actions.saveAsInsight()
+        await expectLogic(logic).toDispatchActions(['saveAsInsightSuccess'])
+        expect(push).not.toHaveBeenCalled()
+        push.mockRestore()
     })
 
     // A failed query (bad regex, 500) used to render the same "No data" empty state as a genuinely

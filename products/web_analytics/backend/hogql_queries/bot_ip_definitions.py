@@ -130,7 +130,7 @@ BOT_IP_DEFINITIONS: dict[str, BotIPDefinition] = {
 _IPV4_MAPPED_OFFSET = 96
 
 
-def _ipv6_prefix_groups(cidrs: tuple[str, ...]) -> tuple[tuple[int, tuple[str, ...]], ...]:
+def ipv6_prefix_groups(cidrs: tuple[str, ...]) -> tuple[tuple[int, tuple[str, ...]], ...]:
     groups: dict[int, list[str]] = {}
     for cidr in cidrs:
         network = ip_network(cidr)
@@ -147,7 +147,7 @@ def _ipv6_prefix_groups(cidrs: tuple[str, ...]) -> tuple[tuple[int, tuple[str, .
 @cache
 def bot_ip_prefix_groups_by_definition() -> tuple[tuple[str, tuple[tuple[int, tuple[str, ...]], ...]], ...]:
     """Per-definition (prefixlen, network addresses) groups, for labeled lookups (bot name etc.)."""
-    return tuple((key, _ipv6_prefix_groups(definition.networks)) for key, definition in BOT_IP_DEFINITIONS.items())
+    return tuple((key, ipv6_prefix_groups(definition.networks)) for key, definition in BOT_IP_DEFINITIONS.items())
 
 
 @cache
@@ -156,4 +156,4 @@ def merged_bot_ip_prefix_groups() -> tuple[tuple[int, tuple[str, ...]], ...]:
     all_networks = [ip_network(cidr) for definition in BOT_IP_DEFINITIONS.values() for cidr in definition.networks]
     v4 = collapse_addresses(n for n in all_networks if n.version == 4)
     v6 = collapse_addresses(n for n in all_networks if n.version == 6)
-    return _ipv6_prefix_groups(tuple(str(n) for n in [*v4, *v6]))
+    return ipv6_prefix_groups(tuple(str(n) for n in [*v4, *v6]))
