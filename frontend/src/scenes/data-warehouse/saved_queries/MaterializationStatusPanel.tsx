@@ -22,6 +22,7 @@ import { IncrementalConfigOptions } from '../editor/IncrementalConfigFields'
 import { dataWarehouseViewsLogic } from './dataWarehouseViewsLogic'
 import { materializationJobsLogic } from './materializationJobsLogic'
 import { computeJobDuration, jobLogsWindow } from './materializationJobUtils'
+import { MaterializationRunErrorCell } from './MaterializationRunErrorCell'
 import {
     SyncFrequencySelect,
     SyncFrequencyValue,
@@ -522,7 +523,7 @@ export function MaterializationStatusPanel({
                             title: 'Status',
                             dataIndex: 'status',
                             render: (_, job: DataModelingJob) => {
-                                const { status, error, rows_materialized, rows_expected } = job
+                                const { status, rows_materialized, rows_expected } = job
                                 const statusToType: Record<string, LemonTagType> = {
                                     Completed: 'success',
                                     Failed: 'danger',
@@ -553,14 +554,7 @@ export function MaterializationStatusPanel({
                                     )
                                 }
 
-                                const statusTag =
-                                    error && status !== 'Completed' ? (
-                                        <Tooltip title={error} interactive>
-                                            <LemonTag type={type}>{status}</LemonTag>
-                                        </Tooltip>
-                                    ) : (
-                                        <LemonTag type={type}>{status}</LemonTag>
-                                    )
+                                const statusTag = <LemonTag type={type}>{status}</LemonTag>
                                 return (
                                     <div className="flex items-center gap-1">
                                         {statusTag}
@@ -572,6 +566,13 @@ export function MaterializationStatusPanel({
                                     </div>
                                 )
                             },
+                        },
+                        {
+                            title: 'Error',
+                            dataIndex: 'error',
+                            render: (_, { error, status }: DataModelingJob) => (
+                                <MaterializationRunErrorCell error={error} status={status} />
+                            ),
                         },
                         {
                             title: 'Rows',
