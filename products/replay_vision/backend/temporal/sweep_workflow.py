@@ -61,10 +61,8 @@ class SweepScannerWorkflow(PostHogWorkflow):
 
     @wf.run
     async def run(self, inputs: SweepScannerInputs) -> None:
-        # Vision actions are removed; pre-patch in-flight sweeps recorded this dispatch and must
-        # replay the same commands, so the legacy path stays behind the patch until they drain.
-        if not wf.patched("drop-vision-action-dispatch-2026-09"):
-            await self._dispatch_due_vision_actions_legacy(inputs)
+        # Declared until no history carrying the marker can replay.
+        wf.deprecate_patch("drop-vision-action-dispatch-2026-09")
 
         # Same heartbeat keeps the prompt recommendation fresh. The activity self-gates to at most one
         # regeneration per day and only when ratings changed, so the 5-minute sweep cadence is fine.
@@ -216,33 +214,6 @@ class SweepScannerWorkflow(PostHogWorkflow):
             start_to_close_timeout=dt.timedelta(seconds=30),
             retry_policy=common.RetryPolicy(maximum_attempts=3),
         )
-
-    async def _dispatch_due_vision_actions_legacy(self, inputs: SweepScannerInputs) -> None:
-        """Replay-only: schedules the removed vision-action commands by name so old histories match."""
-        try:
-            due = await wf.execute_activity(
-                "evaluate_due_vision_actions_activity",
-                {"scanner_id": str(inputs.scanner_id), "team_id": inputs.team_id},
-                start_to_close_timeout=dt.timedelta(seconds=30),
-                # No worker registers this activity any more, so retrying only stalls the tick.
-                retry_policy=common.RetryPolicy(maximum_attempts=1),
-            )
-            for d in due or []:
-                try:
-                    await wf.start_child_workflow(
-                        "process-vision-action",
-                        d,
-                        id=f"process-vision-action-{d['vision_action_id']}",
-                        task_queue=settings.REPLAY_VISION_TASK_QUEUE,
-                        parent_close_policy=wf.ParentClosePolicy.ABANDON,
-                        execution_timeout=dt.timedelta(hours=1),
-                    )
-                except WorkflowAlreadyStartedError:
-                    pass
-                except Exception:
-                    wf.logger.exception("replay_vision.vision_action_claim_dispatch_failed")
-        except Exception:
-            wf.logger.exception("replay_vision.vision_action_dispatch_failed")
 
     async def _start_child(self, inputs: SweepScannerInputs, candidate: CandidateSessionPayload) -> None:
         try:
