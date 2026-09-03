@@ -1,4 +1,7 @@
-use std::{cell::RefCell, cmp::Ordering, collections::HashMap, fmt::Display, rc::Rc, str::FromStr};
+use std::{
+    cell::RefCell, cmp::Ordering, collections::HashMap, fmt::Display, rc::Rc, str::FromStr,
+    sync::Arc,
+};
 
 use chrono::NaiveDate;
 use indexmap::IndexMap;
@@ -87,11 +90,83 @@ impl From<LocalCallable> for Callable {
 // hog has "primitives", which are copied by e.g, "get_local", and "objects", which are passed around by reference. This is distinct from the
 // "Heap" allocated stuff, which is used for things which must outlive all references to themselves on the stack, e.g. upvalues.
 
+/// The object map used by [`HogLiteral::Object`]. Insertion-ordered like the reference VMs;
+/// hashed with `ahash` instead of the default SipHash — object keys sit under every property
+/// read/write and SipHash was a measured ~5% of interpreter self-time. ahash stays a keyed,
+/// DoS-resistant hash, which matters because keys come from user programs.
+pub type HogMap = IndexMap<String, HogValue, ahash::RandomState>;
+
+/// The payload of [`HogLiteral::String`]. `Owned` is a plain heap string (globals, native-fn
+/// results, computed strings); `Shared` is a refcounted slice of the pre-decoded token stream,
+/// so pushing a string *constant* is a refcount bump instead of a malloc+copy (the ~90-write
+/// geoip loop pushes ~3 constants per write, two of which are popped and dropped within a few
+/// ops). Equality is content-based across the two arms.
+#[derive(Debug, Clone)]
+pub enum HogStr {
+    Owned(String),
+    Shared(Arc<str>),
+}
+
+impl std::ops::Deref for HogStr {
+    type Target = str;
+
+    fn deref(&self) -> &str {
+        match self {
+            HogStr::Owned(s) => s,
+            HogStr::Shared(s) => s,
+        }
+    }
+}
+
+impl PartialEq for HogStr {
+    fn eq(&self, other: &Self) -> bool {
+        **self == **other
+    }
+}
+
+impl HogStr {
+    pub fn as_str(&self) -> &str {
+        self
+    }
+
+    /// Extract an owned `String`, moving without a copy when this is `Owned`.
+    pub fn into_string(self) -> String {
+        match self {
+            HogStr::Owned(s) => s,
+            HogStr::Shared(s) => (*s).to_string(),
+        }
+    }
+}
+
+impl From<String> for HogStr {
+    fn from(value: String) -> Self {
+        HogStr::Owned(value)
+    }
+}
+
+impl From<&str> for HogStr {
+    fn from(value: &str) -> Self {
+        HogStr::Owned(value.to_string())
+    }
+}
+
+impl From<Arc<str>> for HogStr {
+    fn from(value: Arc<str>) -> Self {
+        HogStr::Shared(value)
+    }
+}
+
+impl Display for HogStr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum HogLiteral {
     Number(Num),
     Boolean(bool),
-    String(String),
+    String(HogStr),
     Array(Vec<HogValue>),
     // A tuple is an array that prints as `(a, b)` and whose `typeof` is "tuple"; for every other
     // operation it behaves exactly like an array (the reference duck-types it as an array with an
@@ -99,9 +174,12 @@ pub enum HogLiteral {
     Tuple(Vec<HogValue>),
     // Insertion-ordered (IndexMap, not HashMap) to match the reference VMs: object literals,
     // `keys()`/`values()`, JSON serialization, and `print` all preserve the order keys were added.
-    Object(IndexMap<String, HogValue>),
-    Callable(Callable),
-    Closure(Closure),
+    // Object/Callable/Closure payloads are boxed so the enum stays small (~32 bytes instead of
+    // 120): every stack push/pop, clone, and heap emplacement moves the enum by value, and the
+    // memmove of the large inline payloads was a measured hot spot.
+    Object(Box<HogMap>),
+    Callable(Box<Callable>),
+    Closure(Box<Closure>),
     Null,
 }
 
@@ -161,7 +239,7 @@ impl HogValue {
                 // plain miss for the reference (Map.get), never an error.
                 let key_lit = chain[0].deref(heap)?;
                 let found = match key_lit {
-                    HogLiteral::String(key) => map.get(key),
+                    HogLiteral::String(key) => map.get(key.as_str()),
                     HogLiteral::Number(n) => map.get(&num_key_string(n)),
                     _ => None,
                 };
@@ -573,7 +651,7 @@ impl FromHogLiteral for String {
                 "String".to_string(),
             ));
         };
-        Ok(s)
+        Ok(s.into_string())
     }
 }
 
@@ -666,6 +744,12 @@ impl From<bool> for HogLiteral {
 
 impl From<String> for HogLiteral {
     fn from(value: String) -> Self {
+        Self::String(HogStr::Owned(value))
+    }
+}
+
+impl From<HogStr> for HogLiteral {
+    fn from(value: HogStr) -> Self {
         Self::String(value)
     }
 }
@@ -692,13 +776,19 @@ impl From<HashMap<String, HogValue>> for HogLiteral {
     fn from(value: HashMap<String, HogValue>) -> Self {
         // External callers handing us an unordered HashMap get arbitrary key order; internal
         // object construction (Dict op, json_to_hog) builds the IndexMap directly, in order.
-        Self::Object(value.into_iter().collect())
+        Self::Object(Box::new(value.into_iter().collect()))
     }
 }
 
 impl From<IndexMap<String, HogValue>> for HogLiteral {
     fn from(value: IndexMap<String, HogValue>) -> Self {
-        Self::Object(value)
+        Self::Object(Box::new(value.into_iter().collect()))
+    }
+}
+
+impl From<HogMap> for HogLiteral {
+    fn from(value: HogMap) -> Self {
+        Self::Object(Box::new(value))
     }
 }
 
@@ -770,7 +860,7 @@ impl TryFrom<Num> for serde_json::Number {
         match value {
             // All my homies hate floating point numbers
             Num::Float(value) => serde_json::Number::from_f64(value)
-                .ok_or(VmError::InvalidNumber(format!("{value:?}"))),
+                .ok_or_else(|| VmError::InvalidNumber(format!("{value:?}"))),
             Num::Integer(value) => Ok(value.into()),
         }
     }
@@ -915,7 +1005,7 @@ pub fn construct_free_standing(current: JsonValue, depth: usize) -> Result<HogVa
         JsonValue::Null => Ok(HogLiteral::Null.into()),
         JsonValue::Bool(b) => Ok(HogLiteral::Boolean(b).into()),
         JsonValue::Number(n) => Ok(HogLiteral::Number(n.into()).into()),
-        JsonValue::String(s) => Ok(HogLiteral::String(s).into()),
+        JsonValue::String(s) => Ok(HogLiteral::from(s).into()),
         JsonValue::Array(arr) => {
             let mut values = Vec::new();
             for value in arr {
@@ -924,11 +1014,11 @@ pub fn construct_free_standing(current: JsonValue, depth: usize) -> Result<HogVa
             Ok(HogLiteral::Array(values).into())
         }
         JsonValue::Object(obj) => {
-            let mut map = IndexMap::new();
+            let mut map = HogMap::default();
             for (key, value) in obj {
                 map.insert(key, construct_free_standing(value, depth + 1)?);
             }
-            Ok(HogLiteral::Object(map).into())
+            Ok(HogLiteral::Object(Box::new(map)).into())
         }
     }
 }
