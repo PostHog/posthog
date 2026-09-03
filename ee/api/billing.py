@@ -485,6 +485,12 @@ class BillingTimeSeriesResponseSerializer(serializers.Serializer):
     next = serializers.CharField(required=False, allow_blank=True)
 
 
+class BillingTeamOptionsResponseSerializer(serializers.Serializer):
+    team_id_options = serializers.ListField(
+        child=serializers.IntegerField(), help_text="Project ids that appear in the organization's usage reports."
+    )
+
+
 class BillingPeriodResponseSerializer(serializers.Serializer):
     current_period_start = serializers.DateTimeField(
         allow_null=True,
@@ -1105,6 +1111,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         detail=False,
         url_path="usage/team_options",
         permission_classes=[permissions.IsAuthenticated, HasBillingUsageSpendReadAccess],
+        responses={200: BillingTeamOptionsResponseSerializer},
     )
     def usage_team_options(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         """The project ids the project filter offers, loaded apart from the charts.
