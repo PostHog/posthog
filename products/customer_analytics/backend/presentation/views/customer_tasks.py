@@ -28,6 +28,11 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.customer_analytics.backend.facade import api, contracts
 from products.customer_analytics.backend.facade.constants import CUSTOMER_ANALYTICS_CUSTOMER_TASKS_FLAG
 
+_ASSIGNED_TO_ERROR = "assigned_to must be me, unassigned, or a project member ID."
+# posthog_user.id is an int4 column, and DRF never runs full_clean, so an ID past this bound would
+# fail in Postgres with a 500 rather than being rejected here.
+_MAX_MEMBER_ID = 2147483647
+
 _ORDERING_CHOICES = [
     "name",
     "-name",
@@ -209,9 +214,17 @@ class CustomerTaskListQuerySerializer(serializers.Serializer):
     offset = serializers.IntegerField(required=False, default=0, min_value=0, help_text="Number of rows to skip.")
 
     def validate_assigned_to(self, value: str) -> str:
-        if value not in {"me", "unassigned"} and not value.isdigit():
-            raise serializers.ValidationError("assigned_to must be me, unassigned, or a project member ID.")
-        return value
+        if value in {"me", "unassigned"}:
+            return value
+        # str.isdigit() is not enough on its own: it accepts characters like "²" that int() then
+        # rejects, and the filter casts this value to an int.
+        try:
+            member_id = int(value)
+        except ValueError:
+            raise serializers.ValidationError(_ASSIGNED_TO_ERROR) from None
+        if not 1 <= member_id <= _MAX_MEMBER_ID:
+            raise serializers.ValidationError(_ASSIGNED_TO_ERROR)
+        return str(member_id)
 
     def validate_statuses(self, value: str) -> tuple[str, ...]:
         values = tuple(part.strip() for part in value.split(","))

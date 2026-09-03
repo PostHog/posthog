@@ -41,6 +41,30 @@ class CustomerTaskSerializerTest(SimpleTestCase):
 
     @parameterized.expand(
         [
+            # str.isdigit() accepts this one, but the filter's int() cast does not.
+            ("a superscript digit", "²", None),
+            ("an unparseable name", "someone", None),
+            ("a zero id", "0", None),
+            ("an id past int4", "99999999999999999999", None),
+            ("a member id", "7", "7"),
+            ("a non-decimal digit", "٢", "2"),
+            ("the me shorthand", "me", "me"),
+        ]
+    )
+    def test_assigned_to_filter_only_accepts_a_usable_member_id(
+        self, _name: str, value: str, expected: str | None
+    ) -> None:
+        serializer = CustomerTaskListQuerySerializer(data={"assigned_to": value})
+
+        if expected is None:
+            assert not serializer.is_valid()
+            assert "assigned_to" in serializer.errors
+            return
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data["assigned_to"] == expected
+
+    @parameterized.expand(
+        [
             ("list", CustomerTaskListQuerySerializer),
             ("activities", CustomerTaskActivityQuerySerializer),
         ]
