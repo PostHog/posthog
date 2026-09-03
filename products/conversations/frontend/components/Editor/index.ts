@@ -1,6 +1,7 @@
 export {
     SupportEditor,
     serializeToMarkdown,
+    serializeToPlainText,
     SUPPORT_EXTENSIONS,
     SUPPORT_PREVIEW_EXTENSIONS,
     serializationOptions,

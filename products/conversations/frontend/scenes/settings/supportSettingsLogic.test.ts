@@ -1,3 +1,4 @@
+import { JSONContent } from '@tiptap/core'
 import { expectLogic } from 'kea-test-utils'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -163,6 +164,34 @@ describe('supportSettingsLogic', () => {
 
             logic.actions.updateCurrentTeamFailure('update failed')
             expect(logic.values.aiSuggestionsLoading).toBe(false)
+        })
+    })
+
+    describe('saveGreetingText', () => {
+        const greetingDoc = (text: string): JSONContent => ({
+            type: 'doc',
+            content: [{ type: 'paragraph', content: text ? [{ type: 'text', text }] : [] }],
+        })
+
+        // A whitespace-only greeting serializes to an empty fallback but stays a non-empty rich doc,
+        // so saving it would show a blank greeting on new widgets and the default on old ones. The
+        // saver must skip it; a greeting with visible text still saves.
+        it.each<[string, string, boolean]>([
+            ['visible text saves', 'Hey there', true],
+            ['whitespace-only skips the save', '   ', false],
+        ])('%s', async (_label, text, shouldSave) => {
+            logic = supportSettingsLogic()
+            logic.mount()
+
+            if (shouldSave) {
+                await expectLogic(logic, () => {
+                    logic.actions.saveGreetingText(greetingDoc(text))
+                }).toDispatchActions(['updateCurrentTeam'])
+            } else {
+                await expectLogic(logic, () => {
+                    logic.actions.saveGreetingText(greetingDoc(text))
+                }).toNotHaveDispatchedActions(['updateCurrentTeam'])
+            }
         })
     })
 

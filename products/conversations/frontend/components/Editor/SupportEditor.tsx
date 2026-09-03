@@ -158,6 +158,8 @@ export type SupportEditorProps = {
     disabled?: boolean
     minRows?: number
     className?: string
+    /** Drop member mentions — use on public surfaces like the widget greeting, where a mention publishes an internal user ID. */
+    disableMentions?: boolean
 }
 
 const DEFAULT_INITIAL_CONTENT: JSONContent = {
@@ -264,6 +266,14 @@ export const SUPPORT_EXTENSIONS = [
     LinkOnPasteExtension,
     SupportCodeBlockExtension,
 ]
+
+// The widget greeting is published in the per-token config that every site visitor receives
+// unauthenticated, so it drops member mentions. A mention carries an internal user ID and means
+// nothing to a visitor. Removing both the suggestion trigger and the node keeps a mention out of
+// the saved rich content and its plain-text fallback.
+export const SUPPORT_GREETING_EXTENSIONS = SUPPORT_EXTENSIONS.filter(
+    (extension) => extension !== MentionsExtension && extension !== RichContentNodeMention
+)
 
 export const SUPPORT_PREVIEW_EXTENSIONS = [
     MentionsExtension,
@@ -467,6 +477,48 @@ function serializeListNode(node: JSONContent, ordered: boolean, indent: string):
     return lines.join('\n')
 }
 
+/**
+ * Serialize tiptap JSON to plain text for the widget's fallback greeting field.
+ *
+ * A widget that predates the rich-content key renders this field verbatim and has no markdown
+ * parser, so the text must carry no markdown syntax or backslash escapes. Formatting marks are
+ * dropped. A link keeps its visible label, and when the destination differs from the label the URL
+ * follows in parentheses so the destination stays reachable as readable text.
+ */
+export function serializeToPlainText(content: JSONContent): string {
+    return serializePlainTextNode(content)
+        .replace(/\n{3,}/g, '\n\n')
+        .trim()
+}
+
+function serializePlainTextNode(node: JSONContent): string {
+    if (!node) {
+        return ''
+    }
+
+    if (node.type === 'text') {
+        const text = node.text || ''
+        const href = (node.marks || []).find((m) => m.type === 'link')?.attrs?.href
+        return href && href !== text ? `${text} (${href})` : text
+    }
+
+    switch (node.type) {
+        case 'paragraph':
+        case 'codeBlock':
+            return (node.content || []).map(serializePlainTextNode).join('') + '\n\n'
+        case 'listItem':
+            return (node.content || []).map(serializePlainTextNode).join('').trim() + '\n'
+        case 'hardBreak':
+            return '\n'
+        case 'image':
+            return node.attrs?.alt ? String(node.attrs.alt) : ''
+        case RichContentNodeType.Mention:
+            return `@member:${node.attrs?.id}`
+        default:
+            return (node.content || []).map(serializePlainTextNode).join('')
+    }
+}
+
 export function SupportEditor({
     initialContent,
     placeholder,
@@ -477,6 +529,7 @@ export function SupportEditor({
     disabled = false,
     minRows,
     className,
+    disableMentions = false,
 }: SupportEditorProps): JSX.Element {
     const [isDragging, setIsDragging] = useState<boolean>(false)
     const [ttEditor, setTTEditor] = useState<TTEditor | null>(null)
@@ -501,7 +554,7 @@ export function SupportEditor({
 
     const editor = useRichContentEditor({
         extensions: [
-            ...SUPPORT_EXTENSIONS,
+            ...(disableMentions ? SUPPORT_GREETING_EXTENSIONS : SUPPORT_EXTENSIONS),
             Placeholder.configure({ placeholder }),
             CommandEnterExtension.configure({ onPressCmdEnter }),
             LinkShortcutExtension.configure({ onLinkShortcut: handleLinkShortcut }),

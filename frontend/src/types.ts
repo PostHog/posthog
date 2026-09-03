@@ -748,6 +748,8 @@ export enum ActivationTaskStatus {
 export interface ConversationsSettings {
     widget_enabled?: boolean
     widget_greeting_text?: string
+    /** Rich variant of the greeting in TipTap JSON. Renders clickable links; falls back to widget_greeting_text when absent. */
+    widget_greeting_rich_content?: JSONContent | null
     widget_color?: string
     widget_public_token?: string | null
     widget_domains?: string[] | null
