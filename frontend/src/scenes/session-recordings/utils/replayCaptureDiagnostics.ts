@@ -144,6 +144,20 @@ const isSampledOutByTriggerGroup = (value: unknown): boolean => {
     return value.every((group) => group?.matched === true && group?.sampled === false)
 }
 
+// The status to read when this event does not settle one itself. The recorder writes the status,
+// so an event captured by another SDK on the same session carries none, and the newest event of a
+// session can be one of those. The set carries no timestamps, so it says the session got further,
+// never when it did.
+const statusFromSession = (eventStatus: string | undefined, sessionStatuses: string[]): string | undefined => {
+    if (!eventStatus) {
+        return [...STATUSES_BEYOND_STARTUP, ...STARTUP_STATUSES].find((s) => sessionStatuses.includes(s))
+    }
+    if (STARTUP_STATUSES.includes(eventStatus)) {
+        return STATUSES_BEYOND_STARTUP.find((s) => s !== eventStatus && sessionStatuses.includes(s))
+    }
+    return undefined
+}
+
 export function diagnoseReplayCapture(
     eventProperties: Record<string, any> | null | undefined,
     context?: DiagnosisContext
@@ -151,11 +165,7 @@ export function diagnoseReplayCapture(
     const properties = eventProperties ?? {}
     const eventStatus = properties['$recording_status']
     const sessionStatuses = context?.sessionRecordingStatuses ?? []
-    // The session got at least this far on another event. The set carries no timestamps, so it
-    // says the session got further, never when it did.
-    const statusElsewhere = STARTUP_STATUSES.includes(eventStatus)
-        ? STATUSES_BEYOND_STARTUP.find((s) => s !== eventStatus && sessionStatuses.includes(s))
-        : undefined
+    const statusElsewhere = statusFromSession(eventStatus, sessionStatuses)
 
     if (statusElsewhere === undefined) {
         return diagnoseSignals(properties, eventStatus)
@@ -166,10 +176,13 @@ export function diagnoseReplayCapture(
     }
 
     const diagnosis = diagnoseSignals(properties, statusElsewhere)
+    const eventReports = eventStatus
+        ? `This event reports \`${eventStatus}\``
+        : 'This event carries no recording status'
     return {
         ...diagnosis,
         reasons: [
-            `This event reports \`${eventStatus}\`, and elsewhere in the session the SDK reported \`${statusElsewhere}\`.`,
+            `${eventReports}, and elsewhere in the session the SDK reported \`${statusElsewhere}\`.`,
             ...diagnosis.reasons,
         ],
     }
@@ -358,8 +371,8 @@ function diagnoseSignals(
             verdict: 'recorder_ran',
             headline: 'The recorder was running in this session',
             reasons: [
-                `This event reports \`${recordingStatus}\`, but the session also reported \`${statusProvingTheRecorderRan}\`, so the recorder did start.`,
-                'The signals on this event were captured while the recorder was not running, so they do not say what happened to the recording.',
+                `The session reported \`${statusProvingTheRecorderRan}\`, so the recorder did start.`,
+                'The signals on this event do not say what stopped the recording from reaching PostHog.',
                 'The recording may still be processing, or it may not have met the minimum duration set for this project.',
             ],
             rawSignals,

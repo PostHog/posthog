@@ -372,6 +372,16 @@ describe('diagnoseReplayCapture', () => {
         expect([result.headline, ...result.reasons].join(' ')).not.toMatch(/later in the session/i)
     })
 
+    it.each([
+        ['active', 'recorder_ran'],
+        ['lazy_loading', 'recorder_loading'],
+        ['disabled', 'recorder_not_started'],
+    ])('reads the session %s when the latest event carries no status', (sessionStatus, expected) => {
+        const result = diagnoseReplayCapture({}, { sessionRecordingStatuses: ['disabled', sessionStatus] })
+        expect(result.verdict).toBe(expected)
+        expect(result.reasons.join(' ')).toContain(sessionStatus)
+    })
+
     it('keeps a cause this event proves over the session reporting the recorder ran', () => {
         const result = diagnoseReplayCapture(
             { $recording_status: 'disabled', $session_recording_remote_config: { enabled: false } },
