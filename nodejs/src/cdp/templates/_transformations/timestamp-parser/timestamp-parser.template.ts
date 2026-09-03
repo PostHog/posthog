@@ -27,11 +27,15 @@ if (typeof(ts) == 'string') {
     dt := ts > 999999999999 ? fromUnixTimestampMilli(ts) : fromUnixTimestamp(ts)
 }
 
-if (dt != null) {
+// A string that is not a real timestamp still yields a DateTime, so check that a date part comes
+// back as a real number before writing anything. An unparseable timestamp gives null or NaN, and
+// NaN fails self-equality, so both are rejected here and no junk properties are written.
+let year := dt != null ? extract('year', dt) : null
+if (year != null and year == year) {
     returnEvent.properties['day_of_the_week'] := formatDateTime(dt, '%W')
     returnEvent.properties['day'] := extract('day', dt)
     returnEvent.properties['month'] := extract('month', dt)
-    returnEvent.properties['year'] := extract('year', dt)
+    returnEvent.properties['year'] := year
     returnEvent.properties['hour'] := extract('hour', dt)
     returnEvent.properties['minute'] := extract('minute', dt)
 }

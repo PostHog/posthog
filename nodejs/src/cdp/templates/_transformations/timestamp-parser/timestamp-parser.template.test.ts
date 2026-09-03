@@ -32,6 +32,32 @@ describe('timestamp-parser.template', () => {
         expect(result.properties.minute).toBe(37)
     })
 
+    it('parses a numeric unix timestamp in seconds', async () => {
+        // 2024-01-01T13:37:00Z as unix seconds. Cast because the globals type declares a string
+        // timestamp, but SDKs can send a numeric one, which this template handles.
+        mockGlobals = tester.createGlobals({
+            event: { timestamp: 1704116220 as unknown as string, properties: {} },
+        })
+
+        const result = await invoke(mockGlobals)
+
+        expect(result.properties.year).toBe(2024)
+        expect(result.properties.hour).toBe(13)
+        expect(result.properties.minute).toBe(37)
+    })
+
+    it('writes no date properties for an unparseable timestamp', async () => {
+        mockGlobals = tester.createGlobals({
+            event: { timestamp: 'not a real timestamp', properties: { keep: 'me' } },
+        })
+
+        const result = await invoke(mockGlobals)
+
+        expect(result.properties.year).toBeUndefined()
+        expect(result.properties.day_of_the_week).toBeUndefined()
+        expect(result.properties.keep).toBe('me')
+    })
+
     it('leaves the event unchanged when there is no timestamp', async () => {
         mockGlobals = tester.createGlobals({
             event: { timestamp: '', properties: { keep: 'me' } },
