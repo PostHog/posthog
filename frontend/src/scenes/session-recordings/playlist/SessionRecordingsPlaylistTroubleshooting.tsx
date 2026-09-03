@@ -8,13 +8,13 @@ import { sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic
 export const SessionRecordingsPlaylistTroubleshooting = (): JSX.Element => {
     const { hideViewedRecordings } = useValues(playerSettingsLogic)
     const { setHideViewedRecordings } = useActions(playerSettingsLogic)
-    const { hiddenRecordingsCount, totalFiltersCount } = useValues(sessionRecordingsPlaylistLogic)
+    const { hiddenRecordingsCount, totalFiltersCount, isScopedByCaller } = useValues(sessionRecordingsPlaylistLogic)
     const { setShowSettings, setFilters, resetFilters } = useActions(sessionRecordingsPlaylistLogic)
 
-    // The list can be empty for different reasons. Name the true one instead of always
-    // blaming retention or ad blockers, which only apply when nothing was ever captured.
     const recordingsAreHidden = hideViewedRecordings !== false
     const hasFilters = totalFiltersCount > 0
+    // Clearing would drop the caller's scoping, leaving a list that no longer matches the surface.
+    const canClearFilters = hasFilters && !isScopedByCaller
 
     return (
         <>
@@ -41,7 +41,7 @@ export const SessionRecordingsPlaylistTroubleshooting = (): JSX.Element => {
                             </LemonButton>
                         </li>
                     )}
-                    {hasFilters && (
+                    {canClearFilters && (
                         <li>
                             <LemonButton
                                 type="secondary"
@@ -65,25 +65,21 @@ export const SessionRecordingsPlaylistTroubleshooting = (): JSX.Element => {
                             Search over the last 30 days
                         </LemonButton>
                     </li>
-                    {!hasFilters && (
-                        <>
-                            <LemonDivider dashed={true} />
-                            <li>
-                                <Link to="https://posthog.com/docs/session-replay/data-retention" target="_blank">
-                                    Recordings might be outside the retention period
-                                </Link>
-                            </li>
-                            <LemonDivider dashed={true} />
-                            <li>
-                                <Link
-                                    to="https://posthog.com/docs/session-replay/troubleshooting#4-adtracking-blockers"
-                                    target="_blank"
-                                >
-                                    An ad blocker might be preventing recordings
-                                </Link>
-                            </li>
-                        </>
-                    )}
+                    <LemonDivider dashed={true} />
+                    <li>
+                        <Link to="https://posthog.com/docs/session-replay/data-retention" target="_blank">
+                            Recordings might be outside the retention period
+                        </Link>
+                    </li>
+                    <LemonDivider dashed={true} />
+                    <li>
+                        <Link
+                            to="https://posthog.com/docs/session-replay/troubleshooting#4-adtracking-blockers"
+                            target="_blank"
+                        >
+                            An ad blocker might be preventing recordings
+                        </Link>
+                    </li>
                 </ul>
             </div>
         </>
