@@ -109,6 +109,7 @@ function assistantMessage(
   apiId: string,
   content: Array<Record<string, unknown>>,
   parentToolUseId: string | null = null,
+  model?: string,
 ): SDKAssistantMessage {
   return {
     type: "assistant",
@@ -119,6 +120,7 @@ function assistantMessage(
       id: apiId,
       role: "assistant",
       content,
+      model,
     },
   } as unknown as SDKAssistantMessage;
 }
@@ -160,6 +162,34 @@ describe("assembled assistant text fallback", () => {
     );
     expect(chunkTexts(updates, "agent_message_chunk")).toEqual(["full answer"]);
   });
+
+  it.each([
+    { model: "<synthetic>", expected: [] },
+    {
+      model: "zai-org/glm-5.3-flash",
+      expected: ["API Error: Content block is not a thinking block"],
+    },
+  ])(
+    "filters content-block errors from $model assistant messages",
+    async ({ model, expected }) => {
+      const { context, updates } = createHandlerContext();
+      await handleUserAssistantMessage(
+        assistantMessage(
+          "msg_1",
+          [
+            {
+              type: "text",
+              text: "API Error: Content block is not a thinking block",
+            },
+          ],
+          null,
+          model,
+        ),
+        context,
+      );
+      expect(chunkTexts(updates, "agent_message_chunk")).toEqual(expected);
+    },
+  );
 
   it("drops assembled text that already streamed live", async () => {
     const { context, updates } = createHandlerContext();
