@@ -317,3 +317,20 @@ class TestVerdictChangeFollowup(NonAtomicBaseTest):
 
         self.alert_check.refresh_from_db()
         assert self.alert_check.targets_notified == {}
+
+    @patch(
+        "posthog.temporal.ai.anomaly_investigation.workflow.dispatch_alert_notification",
+        side_effect=RuntimeError("destination lookup failed"),
+    )
+    def test_follow_up_failure_does_not_fail_the_activity(self, _mock_dispatch) -> None:
+        _deliver_investigation_outcome(
+            alert=self.alert,
+            alert_check=self.alert_check,
+            verdict="false_positive",
+            previous_verdict="true_positive",
+            summary="The spike is a bot crawl.",
+            notebook_short_id=None,
+        )
+
+        self.alert_check.refresh_from_db()
+        assert self.alert_check.targets_notified == {}

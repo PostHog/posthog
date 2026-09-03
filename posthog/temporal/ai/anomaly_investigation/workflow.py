@@ -601,6 +601,9 @@ def _dispatch_verdict_change_followup(
     Caller holds the row lock. The marker on `targets_notified` is the idempotency guard, so
     an activity retry past a successful send cannot notify twice. It is written only once a
     destination accepts the send, so a failed enqueue leaves the follow-up retryable.
+
+    Never raises into the activity: a correction that cannot be sent is not worth a second
+    agent run.
     """
     if not previous_verdict or verdict == previous_verdict:
         return
@@ -620,16 +623,32 @@ def _dispatch_verdict_change_followup(
     extra_properties = (
         {"investigation_notebook_url": absolute_uri(f"/notebooks/{notebook_short_id}")} if notebook_short_id else None
     )
-    # A key of its own: the check id already carries a delivery record per recipient from
-    # the notification sent at fire time, and the email sender drops a second send under the
-    # same campaign. Stable across retries, so at-most-once per recipient still holds.
-    deliveries = dispatch_alert_notification(
-        alert,
-        check,
-        breaches,
-        extra_properties=extra_properties,
-        idempotency_key=f"{check.id}:investigation-verdict-change",
-    )
+    try:
+        # The savepoint keeps a database failure inside the dispatch from poisoning the
+        # caller's transaction once the handler below swallows it.
+        with transaction.atomic():
+            # A key of its own: the check id already carries a delivery record per recipient
+            # from the notification sent at fire time, and the email sender drops a second
+            # send under the same campaign. Stable across retries, so at-most-once per
+            # recipient still holds.
+            deliveries = dispatch_alert_notification(
+                alert,
+                check,
+                breaches,
+                extra_properties=extra_properties,
+                idempotency_key=f"{check.id}:investigation-verdict-change",
+            )
+    except Exception:
+        # Best-effort, like the signal emit: the verdict is persisted and the user already
+        # has the fire notification, so raising would rerun the whole agent for one
+        # correction message. The safety net cannot recover this check either — it only
+        # picks up checks that were never notified.
+        logger.exception(
+            "anomaly_investigation.verdict_change_followup_failed",
+            alert_id=str(alert.id),
+            alert_check_id=str(check.id),
+        )
+        return
     if not deliveries:
         # A failed enqueue and an alert with no destinations look the same from here, so
         # leave the marker unset. A later attempt can then send again, and an alert with no
