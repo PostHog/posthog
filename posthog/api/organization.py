@@ -9,7 +9,7 @@ from django.shortcuts import get_object_or_404
 import posthoganalytics
 from drf_spectacular.utils import extend_schema, extend_schema_field
 from opentelemetry import trace
-from rest_framework import exceptions, permissions, serializers, status, viewsets
+from rest_framework import exceptions, permissions, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -630,51 +630,19 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     groups=groups(organization),
                 )
 
-    def _sync_ai_data_processing_group_property(self, request: Request, response: Response) -> None:
-        """Republish AI-processing consent onto the organization group as soon as it is toggled.
-
-        The daily usage report publishes the same property, which is a day too slow for
-        anything that has to know the answer BEFORE it starts work: support tooling reads
-        the group to tell an engineer that a flow gated on this consent
-        (`_impersonation_ai_processing_block` in posthog/api/oauth/views.py) cannot succeed,
-        rather than letting them find out at the last step.
-
-        Published from the saved response, not from `request.data`, so a rejected update
-        never publishes a value the organization does not have. Collapses null to False,
-        matching the gate: only an explicit True is approval.
-        """
-        if "is_ai_data_processing_approved" not in request.data:
-            return
-        if not status.is_success(response.status_code):
-            return
-        organization_id = response.data.get("id")
-        if not organization_id:
-            return
-        posthoganalytics.group_identify(
-            group_type="organization",
-            group_key=str(organization_id),
-            properties={
-                "is_ai_data_processing_approved": response.data.get("is_ai_data_processing_approved") is True,
-            },
-        )
-
     def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         self._capture_organization_setting_events(request)
 
         # Set user context for activity logging
         with ImpersonatedContext(request):
-            response = super().update(request, *args, **kwargs)
-        self._sync_ai_data_processing_group_property(request, response)
-        return response
+            return super().update(request, *args, **kwargs)
 
     def partial_update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         self._capture_organization_setting_events(request)
 
         # Set user context for activity logging
         with ImpersonatedContext(request):
-            response = super().partial_update(request, *args, **kwargs)
-        self._sync_ai_data_processing_group_property(request, response)
-        return response
+            return super().partial_update(request, *args, **kwargs)
 
     def perform_create(self, serializer):
         # Set user context for activity logging
