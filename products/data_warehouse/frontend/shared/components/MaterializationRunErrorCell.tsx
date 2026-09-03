@@ -1,6 +1,6 @@
+import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
-import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { DataModelingJobStatus } from '~/types'
 
@@ -23,20 +23,23 @@ const PRESENTATION_BY_STATUS: Record<DataModelingJobStatus, RunErrorPresentation
     Running: { dialogTitle: 'Run message', copyNoun: 'message', textClass: 'text-secondary' },
 }
 
+const LINES_SHOWN_BEFORE_EXPANSION = 20
+
 function openRunErrorDialog(error: string, presentation: RunErrorPresentation): void {
     LemonDialog.open({
         title: presentation.dialogTitle,
         maxWidth: '40rem',
         content: (
-            <pre className="whitespace-pre-wrap break-words text-xs font-mono max-h-[60vh] overflow-y-auto m-0">
+            <CodeSnippet
+                language={Language.Text}
+                wrap
+                compact
+                thing={presentation.copyNoun}
+                maxLinesWithoutExpansion={LINES_SHOWN_BEFORE_EXPANSION}
+            >
                 {error}
-            </pre>
+            </CodeSnippet>
         ),
-        tertiaryButton: {
-            children: 'Copy',
-            preventClosing: true,
-            onClick: () => void copyToClipboard(error, presentation.copyNoun),
-        },
         primaryButton: { children: 'Close' },
     })
 }

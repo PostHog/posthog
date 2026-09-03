@@ -28,7 +28,7 @@ describe('MaterializationRunErrorCell', () => {
 
         expect(await screen.findByText(title)).toBeInTheDocument()
         expect(screen.getByText(/DB::Exception: Syntax error/)).toBeInTheDocument()
-        expect(screen.getByText('Copy')).toBeInTheDocument()
+        expect(document.querySelector('[data-attr="copy-code-button"]')).toBeInTheDocument()
 
         fireEvent.click(screen.getByText('Close'))
         await waitFor(() => expect(screen.queryByText(title)).not.toBeInTheDocument())
