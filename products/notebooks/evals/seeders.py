@@ -6,13 +6,14 @@ for reaching the case's own team, and the notebook scorers grade the documents a
 rows the agent left there rather than what the transcript claims.
 
 Seeders run synchronously in the case's freshly cloned team, so they can write straight
-to ClickHouse with the same ``TEST=1`` helpers the pytest suites use.
+to ClickHouse with the same ``TEST=1`` helpers the pytest suites use, and mirror what they
+plant into the persons database the way cloning the team mirrors the demo's own persons.
 """
 
 from __future__ import annotations
 
 import uuid
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 from django.utils import timezone
@@ -22,6 +23,8 @@ from posthog.models.event.util import bulk_create_events
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.group.util import raw_create_group_ch
 from posthog.models.person.util import create_person, create_person_distinct_id
+from posthog.persons_db import persons_db_connection
+from posthog.persons_seed import insert_seed_distinct_id, insert_seed_person
 
 from products.notebooks.evals.synthesizer import CHURN_TOKEN, SIGNUP_EVENT, ChurnAccount, build_churn_needle
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext
@@ -42,6 +45,42 @@ _MB_PER_PLANTED_FILE = 5
 
 def _workspace_name(account: ChurnAccount) -> str:
     return f"{account.name} workspace"
+
+
+def _person_uuid(team_id: int, account: ChurnAccount) -> uuid.UUID:
+    return uuid.uuid5(uuid.NAMESPACE_URL, f"{team_id}:{account.distinct_id}")
+
+
+def _person_properties(account: ChurnAccount) -> dict[str, Any]:
+    return {"email": account.email, "name": account.name}
+
+
+def _seed_persons_db(
+    team_id: int,
+    accounts: tuple[ChurnAccount, ...],
+    *,
+    created_at: datetime,
+    last_seen_at: datetime,
+) -> None:
+    """Mirror the planted persons into the persons database.
+
+    Cloning a team syncs the demo's own persons there, and personhog serves exact person
+    lookups from it, so a person planted only in ClickHouse would be the one account in
+    the team that a lookup by id or distinct id cannot hydrate.
+    """
+    with persons_db_connection(writer=True, autocommit=True) as conn:
+        for account in accounts:
+            person_id = insert_seed_person(
+                conn,
+                team_id=team_id,
+                properties=_person_properties(account),
+                is_identified=True,
+                uuid=_person_uuid(team_id, account),
+                version=0,
+                created_at=created_at,
+                last_seen_at=last_seen_at,
+            )
+            insert_seed_distinct_id(conn, team_id=team_id, person_id=person_id, distinct_id=account.distinct_id)
 
 
 def _group_properties(account: ChurnAccount, uploads: int) -> dict[str, Any]:
@@ -99,10 +138,12 @@ def seed_churn_signal(context: CustomPromptSandboxContext) -> dict[str, Any]:
     person_created_at = now - timedelta(days=needle.active_window_days[0] + 5)
     uploads = sum(1 for planted in needle.schedule if planted.event == "uploaded_file")
 
+    _seed_persons_db(team.id, needle.accounts, created_at=person_created_at, last_seen_at=newest_planted_at)
+
     events: list[dict[str, Any]] = []
     for account in needle.accounts:
-        person_uuid = uuid.uuid5(uuid.NAMESPACE_URL, f"{team.id}:{account.distinct_id}")
-        person_properties = {"email": account.email, "name": account.name}
+        person_uuid = _person_uuid(team.id, account)
+        person_properties = _person_properties(account)
         create_person(
             team_id=team.id,
             version=0,

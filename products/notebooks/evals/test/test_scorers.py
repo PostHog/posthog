@@ -118,6 +118,7 @@ def test_planted_persons_are_last_seen_at_their_newest_event(team: Team) -> None
         patch("products.notebooks.evals.seeders.create_person_distinct_id"),
         patch("products.notebooks.evals.seeders.bulk_create_events") as bulk_create_events,
         patch("products.notebooks.evals.seeders.raw_create_group_ch"),
+        patch("products.notebooks.evals.seeders._seed_persons_db"),
     ):
         seed_churn_signal(CustomPromptSandboxContext(team_id=team.id, user_id=1))
 
@@ -150,6 +151,7 @@ def test_every_planted_account_key_gets_a_group_row(team: Team) -> None:
         patch("products.notebooks.evals.seeders.create_person_distinct_id"),
         patch("products.notebooks.evals.seeders.bulk_create_events") as bulk_create_events,
         patch("products.notebooks.evals.seeders.raw_create_group_ch") as raw_create_group_ch,
+        patch("products.notebooks.evals.seeders._seed_persons_db"),
     ):
         seed_churn_signal(CustomPromptSandboxContext(team_id=team.id, user_id=1))
 
@@ -162,3 +164,24 @@ def test_every_planted_account_key_gets_a_group_row(team: Team) -> None:
 
     assert event_keys and event_keys == set(planted)
     assert all(CHURN_TOKEN in properties["name"].lower() for properties in planted.values())
+
+
+@pytest.mark.django_db
+def test_planted_persons_reach_the_persons_database(team: Team) -> None:
+    with (
+        patch("products.notebooks.evals.seeders.create_person"),
+        patch("products.notebooks.evals.seeders.create_person_distinct_id"),
+        patch("products.notebooks.evals.seeders.bulk_create_events") as bulk_create_events,
+        patch("products.notebooks.evals.seeders.raw_create_group_ch"),
+        patch("products.notebooks.evals.seeders.persons_db_connection"),
+        patch("products.notebooks.evals.seeders.insert_seed_person", return_value=1) as insert_seed_person,
+        patch("products.notebooks.evals.seeders.insert_seed_distinct_id") as insert_seed_distinct_id,
+    ):
+        seed_churn_signal(CustomPromptSandboxContext(team_id=team.id, user_id=1))
+
+    event_distinct_ids = {event["distinct_id"] for event in bulk_create_events.call_args.args[0]}
+    seeded_distinct_ids = {call.kwargs["distinct_id"] for call in insert_seed_distinct_id.call_args_list}
+    newest_event = max(event["timestamp"] for event in bulk_create_events.call_args.args[0])
+
+    assert event_distinct_ids and seeded_distinct_ids == event_distinct_ids
+    assert all(call.kwargs["last_seen_at"] == newest_event for call in insert_seed_person.call_args_list)
