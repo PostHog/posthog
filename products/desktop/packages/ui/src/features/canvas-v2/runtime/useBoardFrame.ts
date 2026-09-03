@@ -3,13 +3,17 @@ import {
   boardFrameToHostMessageSchema,
   CANVAS_V2_CHANNEL,
   type CanvasV2Fragment,
+  type CanvasV2FrameCaret,
   type CanvasV2Op,
+  type CanvasV2PresenceCaret,
   type CanvasV2Snapshot,
   type CanvasV2Theme,
   type CanvasV2Viewport,
   type HostToBoardFrameMessage,
+  isField,
   isSafePostHogUrl,
 } from "@posthog/shared";
+import { fieldMessageValue } from "@posthog/ui/features/canvas-v2/runtime/canvasV2FieldMessages";
 import { logger } from "@posthog/ui/shell/logger";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import type { QueryClient } from "@tanstack/react-query";
@@ -59,7 +63,9 @@ export interface UseBoardFrameOptions {
   theme: CanvasV2Theme;
   queryClient: QueryClient;
   getSnapshot: () => CanvasV2Snapshot;
-  applyLocal: (ops: CanvasV2Op[]) => void;
+  applyLocal: (ops: CanvasV2Op[], opIds?: string[]) => void;
+  /** Where this person edits a field, for the next presence ping. */
+  reportCaret: (caret: CanvasV2PresenceCaret | null) => void;
   events: BoardFrameEvents;
 }
 
@@ -71,6 +77,7 @@ export interface BoardFrameHandle {
   syncSnapshot: (prev: CanvasV2Snapshot | null, next: CanvasV2Snapshot) => void;
   setViewport: (viewport: CanvasV2Viewport) => void;
   setSelection: (ids: string[]) => void;
+  setCarets: (carets: CanvasV2FrameCaret[]) => void;
 }
 
 // Owns the host side of the board-frame protocol: one message listener for the
@@ -115,7 +122,7 @@ export function useBoardFrame(options: UseBoardFrameOptions): BoardFrameHandle {
         theme,
         viewport,
         fragments: snapshot.fragments,
-        state: snapshot.state,
+        state: frameState(snapshot.state),
       });
     },
     [postRaw],
@@ -150,8 +157,25 @@ export function useBoardFrame(options: UseBoardFrameOptions): BoardFrameHandle {
           fromFrame.current.delete(key);
           continue;
         }
-        post({ channel: CANVAS_V2_CHANNEL, type: "set-state", key, value });
+        post({
+          channel: CANVAS_V2_CHANNEL,
+          type: "set-state",
+          key,
+          value: fieldMessageValue(value),
+        });
       }
+    },
+    [post],
+  );
+
+  // Presence pings arrive ten times a second, so an unchanged list is dropped.
+  const sentCarets = useRef("");
+  const setCarets = useCallback(
+    (carets: CanvasV2FrameCaret[]): void => {
+      const json = stableJson(carets);
+      if (json === sentCarets.current) return;
+      sentCarets.current = json;
+      post({ channel: CANVAS_V2_CHANNEL, type: "set-carets", carets });
     },
     [post],
   );
@@ -208,12 +232,14 @@ export function useBoardFrame(options: UseBoardFrameOptions): BoardFrameHandle {
         return;
       }
       activeRequests += 1;
-      const { boardId, queryClient, getSnapshot, applyLocal } = latest.current;
+      const { boardId, queryClient, getSnapshot, applyLocal, reportCaret } =
+        latest.current;
       const ctx: CanvasV2DataBridgeContext = {
         boardId,
         queryClient,
         getSnapshot,
         applyLocal,
+        reportCaret,
       };
       try {
         const result = await Promise.race([
@@ -253,6 +279,8 @@ export function useBoardFrame(options: UseBoardFrameOptions): BoardFrameHandle {
           events.onFragmentError(message.id, message.message, message.stack);
           break;
         case "state-changed":
+          // A mergeable field changes only through the field bridge.
+          if (isField(latest.current.getSnapshot().state[message.key])) break;
           fromFrame.current.set(message.key, stableJson(message.value ?? null));
           events.onStateChanged(message.key, message.value);
           break;
@@ -319,7 +347,16 @@ export function useBoardFrame(options: UseBoardFrameOptions): BoardFrameHandle {
     syncSnapshot,
     setViewport,
     setSelection,
+    setCarets,
   };
+}
+
+function frameState(state: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(state)) {
+    out[key] = fieldMessageValue(value);
+  }
+  return out;
 }
 
 function fragmentsEqual(a: CanvasV2Fragment, b: CanvasV2Fragment): boolean {

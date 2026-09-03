@@ -1,9 +1,11 @@
 import {
+  CANVAS_V2_FIELD_MAX_OP_ENTRIES,
   CANVAS_V2_MAX_STATE_VALUE_BYTES,
   type CanvasV2Actor,
   type CanvasV2AppendOpsInput,
   type CanvasV2AppendOpsResult,
   type CanvasV2Board,
+  type CanvasV2EditFieldOp,
   type CanvasV2Fragment,
   type CanvasV2LogEntry,
   type CanvasV2Op,
@@ -400,11 +402,21 @@ export class BoardSyncClient {
   }
 
   /**
-   * Merges a drag into one history entry: consecutive geometry-only updates of
-   * the same fragment by the same actor become a single pending op.
+   * Merges a drag or a burst of typing into one history entry: consecutive
+   * geometry-only updates of the same fragment, or consecutive edits of the
+   * same field, by the same actor become a single pending op.
    */
   private appendPending(entry: PendingEntry): void {
     const last = this.pending[this.pending.length - 1];
+    const openLast =
+      last !== undefined && !this.inFlightOpIds.has(last.opId)
+        ? last
+        : undefined;
+    const mergedEdits = openLast ? mergeFieldEdits(openLast, entry) : undefined;
+    if (mergedEdits) {
+      this.pending = [...this.pending.slice(0, -1), mergedEdits];
+      return;
+    }
     const mergeable =
       last !== undefined &&
       !this.inFlightOpIds.has(last.opId) &&
@@ -688,6 +700,8 @@ export function describeOp(
       return op.value === null || op.value === undefined
         ? `cleared state ${op.key}`
         : `set state ${op.key}`;
+    case "edit_field":
+      return `edited ${op.key}`;
     case "restore":
       return `restored the board to seq ${op.toSeq}`;
   }
@@ -796,6 +810,38 @@ function toMinuteIso(createdAt: string): string {
   const at = Date.parse(createdAt);
   if (Number.isNaN(at)) return createdAt;
   return `${new Date(at).toISOString().slice(0, 16)}:00.000Z`;
+}
+
+/** A person types faster than the flush, so one burst leaves one op. */
+function mergeFieldEdits(
+  last: PendingEntry,
+  entry: PendingEntry,
+): PendingEntry | undefined {
+  if (last.op.type !== "edit_field" || entry.op.type !== "edit_field") {
+    return undefined;
+  }
+  if (last.op.key !== entry.op.key || last.op.kind !== entry.op.kind) {
+    return undefined;
+  }
+  if (actorIdentity(last.actor) !== actorIdentity(entry.actor))
+    return undefined;
+
+  const insert = [...(last.op.insert ?? []), ...(entry.op.insert ?? [])];
+  const remove = [...(last.op.remove ?? []), ...(entry.op.remove ?? [])];
+  if (
+    insert.length > CANVAS_V2_FIELD_MAX_OP_ENTRIES ||
+    remove.length > CANVAS_V2_FIELD_MAX_OP_ENTRIES
+  ) {
+    return undefined;
+  }
+  const op: CanvasV2EditFieldOp = {
+    type: "edit_field",
+    key: last.op.key,
+    kind: last.op.kind,
+  };
+  if (insert.length > 0) op.insert = insert;
+  if (remove.length > 0) op.remove = remove;
+  return { ...last, op };
 }
 
 function isGeometryUpdate(op: CanvasV2Op): boolean {

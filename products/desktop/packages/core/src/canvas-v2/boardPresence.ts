@@ -1,6 +1,7 @@
 import {
   CANVAS_V2_PRESENCE_STALE_MS,
   type CanvasV2Presence,
+  type CanvasV2PresenceCaret,
   type CanvasV2PresencePoint,
   type CanvasV2Viewport,
 } from "@posthog/shared";
@@ -15,6 +16,8 @@ export interface PresencePeer {
   cursor: CanvasV2PresencePoint | null;
   viewport: CanvasV2Viewport | null;
   selectedIds: readonly string[];
+  /** Where this person edits a mergeable field, as entry ids. */
+  carets: readonly CanvasV2PresenceCaret[];
   lastSeenMs: number;
 }
 
@@ -27,7 +30,7 @@ export const CANVAS_V2_PEER_COLORS: readonly string[] = [
   "#d92d78",
   "#c08a00",
   "#0e9aa7",
-  "#e0562d",
+  "#5c6bc0",
 ];
 
 /** The same seed always picks the same color, so a person keeps theirs. */
@@ -98,6 +101,7 @@ export class BoardPresenceTracker {
       cursor: presence.cursor,
       viewport: presence.viewport,
       selectedIds: presence.selectedIds,
+      carets: presence.carets,
       lastSeenMs: this.now(),
     });
     this.emit();

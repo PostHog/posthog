@@ -4,6 +4,17 @@ export const CANVAS_V2_FRAGMENT_DEFAULT_WIDTH = 360;
 export const CANVAS_V2_FRAGMENT_DEFAULT_HEIGHT = 240;
 export const CANVAS_V2_MAX_STATE_VALUE_BYTES = 64 * 1024;
 
+/** A field keeps the id of every removed entry, so both sides of it are capped. */
+export const CANVAS_V2_FIELD_MAX_ENTRIES = 20_000;
+export const CANVAS_V2_FIELD_MAX_REMOVED = 20_000;
+/** The most entries one edit_field op carries. A larger edit becomes several ops. */
+export const CANVAS_V2_FIELD_MAX_OP_ENTRIES = 2_000;
+export const CANVAS_V2_FIELD_ID_MAX_CHARS = 64;
+export const CANVAS_V2_FIELD_KEY_MAX_CHARS = 64;
+
+export const canvasV2FieldKindSchema = z.enum(["text", "list"]);
+export type CanvasV2FieldKind = z.infer<typeof canvasV2FieldKindSchema>;
+
 export const canvasV2FragmentSchema = z.object({
   id: z
     .string()
@@ -51,6 +62,25 @@ export const canvasV2OpSchema = z.discriminatedUnion("type", [
     value: z.unknown(),
   }),
   z.object({
+    type: z.literal("edit_field"),
+    key: z.string().max(128),
+    kind: canvasV2FieldKindSchema,
+    insert: z
+      .array(
+        z.object({
+          id: z.string().max(CANVAS_V2_FIELD_ID_MAX_CHARS),
+          k: z.string().min(1).max(CANVAS_V2_FIELD_KEY_MAX_CHARS),
+          v: z.unknown(),
+        }),
+      )
+      .max(CANVAS_V2_FIELD_MAX_OP_ENTRIES)
+      .optional(),
+    remove: z
+      .array(z.string().max(CANVAS_V2_FIELD_ID_MAX_CHARS))
+      .max(CANVAS_V2_FIELD_MAX_OP_ENTRIES)
+      .optional(),
+  }),
+  z.object({
     type: z.literal("restore"),
     snapshot: canvasV2SnapshotSchema,
     toSeq: z.number().int(),
@@ -65,6 +95,7 @@ export const CANVAS_V2_OP_TYPES: readonly CanvasV2OpType[] = [
   "remove_fragment",
   "bring_to_front",
   "set_state",
+  "edit_field",
   "restore",
 ];
 

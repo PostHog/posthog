@@ -30,6 +30,7 @@ PRESENCE_EVENT_TYPE = "presence"
 
 # A selection ping carries ids, not fragments, so this cap only keeps one entry small.
 PRESENCE_MAX_SELECTED_IDS = 50
+PRESENCE_MAX_CARETS = 4
 
 _DATA_KEY = b"data"
 
@@ -44,6 +45,7 @@ def publish_presence(
     cursor: dict[str, float] | None,
     viewport: dict[str, float] | None,
     selected_ids: list[str],
+    carets: list[dict[str, str | None]] | None = None,
 ) -> None:
     """Fire-and-forget presence broadcast. Lossy by design: receivers always render
     the latest ping per client and TTL-prune the rest, so a dropped event self-heals
@@ -58,6 +60,7 @@ def publish_presence(
         "cursor": cursor,
         "viewport": viewport,
         "selected_ids": selected_ids,
+        "carets": carets or [],
     }
 
     try:

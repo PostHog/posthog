@@ -3,6 +3,7 @@ import { useHostTRPCClient } from "@posthog/host-router/react";
 import {
   CANVAS_V2_PRESENCE_INTERVAL_MS,
   CANVAS_V2_PRESENCE_MAX_SELECTED_IDS,
+  type CanvasV2PresenceCaret,
   type CanvasV2Viewport,
 } from "@posthog/shared";
 import { useCallback, useEffect, useMemo, useRef } from "react";
@@ -13,6 +14,7 @@ export interface PresenceSenderHandle {
   reportCursor: (world: BoardPoint | null) => void;
   reportSelection: (ids: readonly string[]) => void;
   reportViewport: (viewport: CanvasV2Viewport) => void;
+  reportCaret: (caret: CanvasV2PresenceCaret | null) => void;
 }
 
 /**
@@ -31,6 +33,7 @@ export function usePresenceSender(boardId: string): PresenceSenderHandle {
   const cursor = useRef<BoardPoint | null>(null);
   const viewport = useRef<CanvasV2Viewport | null>(null);
   const selectedIds = useRef<readonly string[]>([]);
+  const carets = useRef<CanvasV2PresenceCaret[]>([]);
   const lastSentAt = useRef(0);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const stopped = useRef(false);
@@ -49,6 +52,7 @@ export function usePresenceSender(boardId: string): PresenceSenderHandle {
             0,
             CANVAS_V2_PRESENCE_MAX_SELECTED_IDS,
           ),
+          carets: carets.current,
         },
       })
       // A dropped ping costs the others one frame of the cursor, nothing more.
@@ -118,6 +122,25 @@ export function usePresenceSender(boardId: string): PresenceSenderHandle {
     [schedule],
   );
 
+  const reportCaret = useCallback(
+    (caret: CanvasV2PresenceCaret | null): void => {
+      const next = caret === null ? [] : [caret];
+      const last = carets.current;
+      const same =
+        last.length === next.length &&
+        last.every(
+          (item, index) =>
+            item.key === next[index].key &&
+            item.anchor === next[index].anchor &&
+            item.focus === next[index].focus,
+        );
+      if (same) return;
+      carets.current = next;
+      schedule(false);
+    },
+    [schedule],
+  );
+
   // A person who alt-tabs away is no longer pointing at the board.
   useEffect(() => {
     const onBlur = (): void => reportCursor(null);
@@ -127,7 +150,13 @@ export function usePresenceSender(boardId: string): PresenceSenderHandle {
 
   // Stable, so a caller can report from an effect without pinging every render.
   return useMemo(
-    () => ({ clientId, reportCursor, reportSelection, reportViewport }),
-    [clientId, reportCursor, reportSelection, reportViewport],
+    () => ({
+      clientId,
+      reportCursor,
+      reportSelection,
+      reportViewport,
+      reportCaret,
+    }),
+    [clientId, reportCursor, reportSelection, reportViewport, reportCaret],
   );
 }

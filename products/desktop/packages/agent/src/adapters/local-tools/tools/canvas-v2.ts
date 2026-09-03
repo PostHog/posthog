@@ -65,7 +65,9 @@ const FRAGMENT_CONTRACT =
   "shared state. `ph.query({ hogql })` or `ph.query({ query })` runs a PostHog " +
   "query. `ph.loadInsight({ shortId })` loads a saved insight. " +
   '`useSharedState("dateRange", initial)` reads and writes a value every ' +
-  "fragment on the board shares, so fragments react to each other. ";
+  "fragment on the board shares, so fragments react to each other. " +
+  "Use `SharedTextArea` for text a person types, `useSharedList` for a list " +
+  "of items, and `useSharedState` for a setting. ";
 
 const SIZE_RULES =
   "Units are CSS pixels at zoom 1. The origin is the top left corner. " +

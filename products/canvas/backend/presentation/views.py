@@ -2055,6 +2055,7 @@ class CanvasBoardViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             cursor=data.get("cursor"),
             viewport=data.get("viewport"),
             selected_ids=data["selected_ids"],
+            carets=data["carets"],
         )
         return Response(status=status.HTTP_204_NO_CONTENT)
 

@@ -95,6 +95,9 @@ Shared state:
   - \`selectedId\` is the id of the thing the person clicked.
 - A control fragment writes \`dateRange\`; chart and number fragments read it
   with \`useSharedState\` so they follow the control.
+- Use \`SharedTextArea\` for text a person types, \`useSharedList\` for a list
+  of items, and \`useSharedState\` for a setting. The first two merge the
+  changes of two people; the third keeps the last write.
 - A value must be JSON and under 64 KB.
 
 Sizes and placement:

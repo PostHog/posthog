@@ -1,4 +1,10 @@
 import {
+  CANVAS_V2_FIELD_MARK,
+  type CanvasV2Field,
+  emptyField,
+  isField,
+} from "./fields";
+import {
   CANVAS_V2_FRAGMENT_DEFAULT_HEIGHT,
   CANVAS_V2_FRAGMENT_DEFAULT_WIDTH,
   type CanvasV2Fragment,
@@ -53,6 +59,31 @@ export function applyOp(
         state[op.key] = op.value;
       }
       return { ...snapshot, state };
+    }
+    case "edit_field": {
+      const current = snapshot.state[op.key];
+      const holdsPlainValue =
+        current !== undefined && current !== null && !isField(current);
+      if (holdsPlainValue) return snapshot;
+      const field = isField(current) ? current : emptyField(op.kind);
+      if (field[CANVAS_V2_FIELD_MARK] !== op.kind) return snapshot;
+
+      const entries = { ...field.entries };
+      const removed = new Set(field.removed);
+      for (const id of op.remove ?? []) {
+        removed.add(id);
+        delete entries[id];
+      }
+      for (const item of op.insert ?? []) {
+        if (removed.has(item.id)) continue;
+        entries[item.id] = { k: item.k, v: item.v };
+      }
+      const next: CanvasV2Field = {
+        [CANVAS_V2_FIELD_MARK]: op.kind,
+        entries,
+        removed: [...removed],
+      };
+      return { ...snapshot, state: { ...snapshot.state, [op.key]: next } };
     }
     case "restore":
       return {

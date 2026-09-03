@@ -134,7 +134,8 @@ export function BoardView({ boardId }: { boardId: string }): ReactElement {
   const [dragActive, setDragActive] = useState(false);
 
   const applyLocal = useCallback(
-    (ops: CanvasV2Op[]) => client?.applyLocal(ops),
+    (ops: CanvasV2Op[], opIds?: string[]) =>
+      client?.applyLocal(ops, undefined, opIds),
     [client],
   );
 
@@ -307,6 +308,7 @@ export function BoardView({ boardId }: { boardId: string }): ReactElement {
               onDropFragment={(name, world) => addFromLibrary(name, world)}
               peers={peers}
               onCursor={presence.reportCursor}
+              onCaret={presence.reportCaret}
             />
             {state.snapshot.fragments.length === 0 ? (
               <div className="pointer-events-none absolute inset-0 flex items-center justify-center">

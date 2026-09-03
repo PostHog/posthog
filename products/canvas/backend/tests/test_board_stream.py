@@ -41,6 +41,7 @@ class TestCanvasBoardStream(BaseTest):
             cursor={"x": 120.5, "y": -40.0},
             viewport={"x": 0.0, "y": 0.0, "zoom": 1.0},
             selected_ids=["kpi"],
+            carets=[{"key": "note", "anchor": "a-1", "focus": "a-1"}],
         )
 
         client = redis.get_client()
@@ -52,6 +53,7 @@ class TestCanvasBoardStream(BaseTest):
             "client_id": "client1",
             "user_id": 7,
             "user_name": "Grace Hopper",
+            "carets": [{"key": "note", "anchor": "a-1", "focus": "a-1"}],
             "cursor": {"x": 120.5, "y": -40.0},
             "viewport": {"x": 0.0, "y": 0.0, "zoom": 1.0},
             "selected_ids": ["kpi"],

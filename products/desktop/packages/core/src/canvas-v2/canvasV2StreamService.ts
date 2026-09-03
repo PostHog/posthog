@@ -61,6 +61,7 @@ function toPresence(data: unknown): CanvasV2StreamEvent | null {
     cursor: row.cursor ?? null,
     viewport: row.viewport ?? null,
     selectedIds: row.selected_ids ?? [],
+    carets: row.carets ?? [],
     userId: row.user_id ?? undefined,
     userName: row.user_name ?? undefined,
   });
@@ -162,6 +163,7 @@ function presenceBody(input: CanvasV2PresenceInput): string {
     cursor: input.cursor,
     viewport: input.viewport,
     selected_ids: input.selectedIds,
+    carets: input.carets,
   });
 }
 

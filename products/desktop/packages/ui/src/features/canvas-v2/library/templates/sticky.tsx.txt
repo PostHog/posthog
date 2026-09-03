@@ -1,23 +1,15 @@
-// Sticky note. The text is in shared state under STORAGE_KEY, so all
-// collaborators read and write the same note. For a second sticky on the same
-// board, change STORAGE_KEY to a different value, such as "sticky:risks".
-import { useSharedState } from "@posthog/canvas-sdk";
-import { Textarea } from "@posthog/quill";
+// Sticky note. The text is a shared field under STORAGE_KEY, so two people can
+// type in it at the same time and no character is lost. For a second sticky on
+// the same board, change STORAGE_KEY to a different value, such as
+// "sticky:risks".
+import { SharedTextArea } from "@posthog/canvas-sdk";
 
 const STORAGE_KEY = "sticky:note";
 
 export default function StickyNote({ storageKey = STORAGE_KEY }) {
-  const [stored, setStored] = useSharedState(storageKey, "");
-  const text = typeof stored === "string" ? stored : "";
-
   return (
     <div className="h-full bg-warning p-3">
-      <Textarea
-        value={text}
-        onChange={(event) => setStored(event.target.value)}
-        placeholder="Write a note"
-        className="h-full w-full resize-none"
-      />
+      <SharedTextArea keyName={storageKey} placeholder="Write a note" />
     </div>
   );
 }

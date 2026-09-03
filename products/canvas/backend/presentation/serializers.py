@@ -9,7 +9,7 @@ from rest_framework import serializers
 from posthog.api.shared import UserBasicSerializer
 
 from products.canvas.backend.board_log import BOARD_OP_TYPES, MAX_BOARD_OP_BYTES, board_actor_name
-from products.canvas.backend.board_presence import PRESENCE_MAX_SELECTED_IDS
+from products.canvas.backend.board_presence import PRESENCE_MAX_CARETS, PRESENCE_MAX_SELECTED_IDS
 from products.canvas.backend.contract import (
     GRID_COLUMN_CHOICES,
     MAX_COMPONENT_HEIGHT,
@@ -1326,6 +1326,18 @@ class CanvasBoardViewportSerializer(serializers.Serializer):
     )
 
 
+class CanvasBoardCaretSerializer(serializers.Serializer):
+    """One text caret of the caller, as the ids of the characters it sits between."""
+
+    key = serializers.CharField(max_length=128, help_text="The shared state key the caller writes in.")
+    anchor = serializers.CharField(
+        max_length=64, required=False, allow_null=True, help_text="Entry id where the selection starts, or null."
+    )
+    focus = serializers.CharField(
+        max_length=64, required=False, allow_null=True, help_text="Entry id where the caret sits, or null."
+    )
+
+
 class CanvasBoardPresenceSerializer(serializers.Serializer):
     """One presence ping: where the caller points, looks, and what they have selected."""
 
@@ -1346,4 +1358,11 @@ class CanvasBoardPresenceSerializer(serializers.Serializer):
         default=list,
         max_length=PRESENCE_MAX_SELECTED_IDS,
         help_text=f"Ids of the fragments the caller has selected, at most {PRESENCE_MAX_SELECTED_IDS}.",
+    )
+    carets = CanvasBoardCaretSerializer(
+        many=True,
+        required=False,
+        default=list,
+        max_length=PRESENCE_MAX_CARETS,
+        help_text=f"Where the caller writes, at most {PRESENCE_MAX_CARETS} fields at a time.",
     )

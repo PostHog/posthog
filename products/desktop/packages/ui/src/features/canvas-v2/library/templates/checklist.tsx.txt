@@ -1,7 +1,8 @@
-// Shared checklist. The items are in shared state under STORAGE_KEY, so all
-// collaborators see the same list. For a second checklist on the same board,
-// change STORAGE_KEY to a different value, such as "checklist:launch".
-import { useSharedState } from "@posthog/canvas-sdk";
+// Shared checklist. The items are a shared list under STORAGE_KEY, so two
+// people can add and remove items at the same time and both changes survive.
+// For a second checklist on the same board, change STORAGE_KEY to a different
+// value, such as "checklist:launch".
+import { useSharedList } from "@posthog/canvas-sdk";
 import {
   Button,
   Checkbox,
@@ -16,31 +17,17 @@ const STORAGE_KEY = "checklist:items";
 const TITLE = "Checklist";
 
 export default function Checklist({ storageKey = STORAGE_KEY, title = TITLE }) {
-  const [stored, setStored] = useSharedState(storageKey, []);
-  const items = Array.isArray(stored) ? stored : [];
+  const { items, insert, remove, update } = useSharedList(storageKey);
   const [draft, setDraft] = useState("");
-  const done = items.filter((item) => item?.done).length;
+  const done = items.filter((item) => item.value && item.value.done).length;
 
   const addItem = () => {
     const label = draft.trim();
     if (!label) {
       return;
     }
-    const id = `item-${Date.now()}`;
-    setStored([...items, { id, label, done: false }]);
+    insert({ label, done: false });
     setDraft("");
-  };
-
-  const toggleItem = (id, checked) => {
-    setStored(
-      items.map((item) =>
-        item?.id === id ? { ...item, done: Boolean(checked) } : item,
-      ),
-    );
-  };
-
-  const removeItem = (id) => {
-    setStored(items.filter((item) => item?.id !== id));
   };
 
   return (
@@ -73,20 +60,21 @@ export default function Checklist({ storageKey = STORAGE_KEY, title = TITLE }) {
       ) : null}
       <div className="flex flex-col gap-2">
         {items.map((item) => (
-          <div key={item?.id} className="flex items-center gap-2">
+          <div key={item.id} className="flex items-center gap-2">
             <Checkbox
-              id={item?.id}
-              checked={Boolean(item?.done)}
-              onCheckedChange={(checked) => toggleItem(item?.id, checked)}
+              id={item.id}
+              checked={Boolean(item.value && item.value.done)}
+              onCheckedChange={(checked) =>
+                update(item.id, {
+                  label: String((item.value && item.value.label) ?? ""),
+                  done: Boolean(checked),
+                })
+              }
             />
-            <Label htmlFor={item?.id} className="flex-1">
-              {String(item?.label ?? "")}
+            <Label htmlFor={item.id} className="flex-1">
+              {String((item.value && item.value.label) ?? "")}
             </Label>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => removeItem(item?.id)}
-            >
+            <Button variant="outline" size="sm" onClick={() => remove(item.id)}>
               Remove
             </Button>
           </div>

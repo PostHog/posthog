@@ -7,12 +7,17 @@ import {
 import {
   CANVAS_SDK_SPECIFIER,
   CANVAS_V2_CHANNEL,
+  CANVAS_V2_FIELD_MAX_ENTRIES,
   CANVAS_V2_MAX_STATE_VALUE_BYTES,
 } from "@posthog/shared";
 import {
   decodeJsxUnicodeEscapes,
   resolveExternalAnchorUrl,
 } from "@posthog/ui/features/canvas/freeform/sandboxRuntime";
+import {
+  SHARED_FIELD_READ_ONLY_STATE,
+  SHARED_TEXT_FULL,
+} from "@posthog/ui/features/canvas-v2/canvasV2Copy";
 
 // Builds the HTML document for the Canvases v2 board frame: one null-origin
 // iframe (sandbox="allow-scripts") that hosts every fragment of a board. The
@@ -57,9 +62,355 @@ const TAILWIND_CDN = "https://cdn.jsdelivr.net/npm/@tailwindcss/";
 
 // The "@posthog/canvas-sdk" module served to fragments from a Blob URL. It adds
 // useSharedState on top of the ph bridge the bootstrap installs on globalThis.
-export const BOARD_FRAME_SDK_MODULE_SOURCE = `import { useCallback, useEffect, useState } from "react";
+export const BOARD_FRAME_SDK_MODULE_SOURCE = `import {
+  createElement,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 export const ph = globalThis.ph;
 export default globalThis.ph;
+
+const TEXT_MAX_CHARS = ${CANVAS_V2_FIELD_MAX_ENTRIES};
+const TEXT_FULL_MESSAGE = ${JSON.stringify(SHARED_TEXT_FULL)};
+const CARET_MIN_INTERVAL_MS = 120;
+const MIRROR_STYLES = [
+  "fontFamily",
+  "fontSize",
+  "fontWeight",
+  "fontStyle",
+  "lineHeight",
+  "letterSpacing",
+  "wordSpacing",
+  "textIndent",
+  "tabSize",
+  "paddingTop",
+  "paddingRight",
+  "paddingBottom",
+  "paddingLeft",
+  "borderTopWidth",
+  "borderRightWidth",
+  "borderBottomWidth",
+  "borderLeftWidth",
+];
+
+const messageOf = (error) =>
+  String(error && error.message ? error.message : error);
+
+// A caret sits before the character at its offset, so the id of that character
+// keeps the caret in place when somebody types above it.
+const idAt = (ids, offset) => {
+  if (typeof offset !== "number" || offset < 0) return null;
+  return offset < ids.length ? ids[offset] : null;
+};
+const offsetOf = (ids, id, fallback) => {
+  if (id === null || id === undefined) return ids.length;
+  const at = ids.indexOf(id);
+  return at === -1 ? fallback : at;
+};
+
+export function useSharedText(key) {
+  const host = useRef({ text: "", ids: [] });
+  const queued = useRef(null);
+  const busy = useRef(false);
+  const pumpRef = useRef(null);
+  const [view, setView] = useState({ text: "", ids: [], revision: 0 });
+  const [echo, setEcho] = useState("");
+  const [limitMessage, setLimitMessage] = useState(null);
+  const [carets, setCarets] = useState([]);
+
+  const adopt = useCallback((next) => {
+    host.current = next;
+    setEcho(next.text);
+    setView((last) => ({
+      text: next.text,
+      ids: next.ids,
+      revision: last.revision + 1,
+    }));
+  }, []);
+
+  useEffect(() => {
+    const read = () => {
+      const next = globalThis.ph.fields.peekText(key);
+      host.current = next;
+      if (busy.current || queued.current !== null) return;
+      adopt(next);
+    };
+    read();
+    return globalThis.ph.fields.subscribe(key, read);
+  }, [key, adopt]);
+
+  useEffect(() => {
+    const read = () => setCarets(globalThis.ph.fields.caretsFor(key));
+    read();
+    return globalThis.ph.fields.subscribeCarets(read);
+  }, [key]);
+
+  const pump = useCallback(() => {
+    const job = queued.current;
+    queued.current = null;
+    if (job === null) {
+      busy.current = false;
+      return;
+    }
+    busy.current = true;
+    const base = host.current;
+    globalThis.ph.fields
+      .editText(key, {
+        base: base.text,
+        baseIds: base.ids,
+        next: job.next,
+        caret: job.caret,
+      })
+      .then((answer) => {
+        host.current = answer;
+        if (queued.current !== null) {
+          pumpRef.current();
+          return;
+        }
+        busy.current = false;
+        adopt(answer);
+      })
+      .catch((error) => {
+        queued.current = null;
+        busy.current = false;
+        setLimitMessage(messageOf(error));
+        adopt(host.current);
+      });
+  }, [key, adopt]);
+  pumpRef.current = pump;
+
+  const setText = useCallback((next, caret) => {
+    if (next.length > TEXT_MAX_CHARS) {
+      setLimitMessage(TEXT_FULL_MESSAGE);
+      return;
+    }
+    setLimitMessage(null);
+    setEcho(next);
+    queued.current = { next, caret: caret === undefined ? null : caret };
+    if (!busy.current) pumpRef.current();
+  }, []);
+
+  const remoteCarets = useMemo(() => {
+    const out = [];
+    for (const caret of carets) {
+      const focus = offsetOf(view.ids, caret.focus, -1);
+      if (focus === -1) continue;
+      out.push({
+        clientId: caret.clientId,
+        name: caret.name,
+        color: caret.color,
+        anchor: offsetOf(view.ids, caret.anchor, focus),
+        focus,
+      });
+    }
+    return out;
+  }, [carets, view.ids]);
+
+  return {
+    text: echo,
+    ids: view.ids,
+    revision: view.revision,
+    setText,
+    remoteCarets,
+    limitMessage,
+  };
+}
+
+export function useSharedList(key) {
+  const [items, setItems] = useState([]);
+  const [limitMessage, setLimitMessage] = useState(null);
+
+  useEffect(() => {
+    const read = () => setItems(globalThis.ph.fields.peekList(key));
+    read();
+    return globalThis.ph.fields.subscribe(key, read);
+  }, [key]);
+
+  const edit = useCallback(
+    (payload) => {
+      globalThis.ph.fields
+        .editList(key, payload)
+        .then((answer) => {
+          setLimitMessage(null);
+          setItems(answer.items);
+        })
+        .catch((error) => setLimitMessage(messageOf(error)));
+    },
+    [key],
+  );
+
+  const insert = useCallback(
+    (value, afterId) => {
+      let anchor = afterId;
+      if (anchor === undefined) {
+        const rows = globalThis.ph.fields.peekList(key);
+        anchor = rows.length > 0 ? rows[rows.length - 1].id : null;
+      }
+      edit({ insert: [{ afterId: anchor, value }] });
+    },
+    [key, edit],
+  );
+  const remove = useCallback((id) => edit({ remove: [id] }), [edit]);
+  const update = useCallback(
+    (id, value) => edit({ update: [{ id, value }] }),
+    [edit],
+  );
+
+  return { items, insert, remove, update, limitMessage };
+}
+
+export function SharedTextArea({ keyName, placeholder, className, rows }) {
+  const field = useSharedText(keyName);
+  const areaRef = useRef(null);
+  const mirrorRef = useRef(null);
+  const caretIds = useRef({ anchor: null, focus: null });
+  const caretSentAt = useRef(0);
+  const [bars, setBars] = useState([]);
+  const text = field.text;
+  const ids = field.ids;
+  const revision = field.revision;
+  const remoteCarets = field.remoteCarets;
+  // The ids belong to the text the host holds. A caret is read only when the
+  // box, the value in hand and the ids all agree, because a keystroke still in
+  // flight would put the caret on the wrong character.
+  const capture = useCallback(() => {
+    const el = areaRef.current;
+    if (!el || el.value !== text || ids.length !== text.length) return null;
+    const caret = { anchor: el.selectionStart, focus: el.selectionEnd };
+    caretIds.current = {
+      anchor: idAt(ids, caret.anchor),
+      focus: idAt(ids, caret.focus),
+    };
+    return caret;
+  }, [ids, text]);
+
+  useLayoutEffect(() => {
+    const el = areaRef.current;
+    if (!el || document.activeElement !== el) return;
+    const anchor = offsetOf(ids, caretIds.current.anchor, el.selectionStart);
+    const focus = offsetOf(ids, caretIds.current.focus, el.selectionEnd);
+    if (el.selectionStart === anchor && el.selectionEnd === focus) return;
+    el.setSelectionRange(anchor, focus);
+  }, [revision, ids]);
+
+  useLayoutEffect(() => {
+    const el = areaRef.current;
+    const mirror = mirrorRef.current;
+    if (!el || !mirror) return;
+    const style = window.getComputedStyle(el);
+    for (const name of MIRROR_STYLES) mirror.style[name] = style[name];
+    const node = mirror.firstChild;
+    if (!node || remoteCarets.length === 0) {
+      setBars([]);
+      return;
+    }
+    const box = mirror.getBoundingClientRect();
+    const line = parseFloat(style.lineHeight) || parseFloat(style.fontSize) || 16;
+    const next = [];
+    for (const caret of remoteCarets) {
+      const range = document.createRange();
+      const at = Math.max(0, Math.min(caret.focus, node.length));
+      range.setStart(node, at);
+      range.setEnd(node, at);
+      const rect = range.getBoundingClientRect();
+      next.push({
+        clientId: caret.clientId,
+        name: caret.name,
+        color: caret.color,
+        left: rect.left - box.left - el.scrollLeft,
+        top: rect.top - box.top - el.scrollTop,
+        height: rect.height || line,
+      });
+    }
+    setBars(next);
+  }, [remoteCarets, text]);
+
+  const reportCaret = useCallback(() => {
+    const caret = capture();
+    if (caret === null) return;
+    const now = Date.now();
+    if (now - caretSentAt.current < CARET_MIN_INTERVAL_MS) return;
+    caretSentAt.current = now;
+    field.setText(text, caret);
+  }, [capture, field, text]);
+
+  return createElement(
+    "div",
+    { className: "relative h-full w-full" + (className ? " " + className : "") },
+    createElement("textarea", {
+      ref: areaRef,
+      value: text,
+      rows,
+      placeholder,
+      spellCheck: false,
+      onChange: (event) =>
+        field.setText(event.target.value, {
+          anchor: event.target.selectionStart,
+          focus: event.target.selectionEnd,
+        }),
+      onSelect: reportCaret,
+      onBlur: (event) => field.setText(event.target.value, null),
+      className:
+        "h-full w-full resize-none rounded-(--radius-sm) border border-border bg-transparent p-2 text-sm leading-relaxed outline-none",
+    }),
+    createElement(
+      "div",
+      {
+        ref: mirrorRef,
+        "aria-hidden": "true",
+        className:
+          "pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words p-2 text-sm leading-relaxed opacity-0",
+      },
+      text + "\\u200b",
+    ),
+    createElement(
+      "div",
+      { className: "pointer-events-none absolute inset-0 overflow-hidden" },
+      bars.map((bar) =>
+        createElement(
+          "div",
+          {
+            key: bar.clientId + ":" + bar.top + ":" + bar.left,
+            className: "absolute w-[2px]",
+            style: {
+              left: bar.left,
+              top: bar.top,
+              height: bar.height,
+              background: bar.color,
+            },
+          },
+          createElement(
+            "div",
+            {
+              className:
+                "ph-caret-name absolute left-0 whitespace-nowrap rounded-(--radius-sm) px-1 text-[10px] leading-4 text-white",
+              style: {
+                background: bar.color,
+                top: bar.top < 16 ? bar.height + 2 : -16,
+              },
+            },
+            bar.name,
+          ),
+        ),
+      ),
+    ),
+    field.limitMessage
+      ? createElement(
+          "div",
+          {
+            className:
+              "absolute inset-x-0 bottom-0 bg-background/90 px-2 py-1 text-[11px] text-destructive",
+          },
+          field.limitMessage,
+        )
+      : null,
+  );
+}
+
 export function useSharedState(key, initial) {
   const read = () => {
     const value = globalThis.ph.state.peek(key);
@@ -126,13 +477,107 @@ export function buildBoardFrameDocument(): string {
         } catch {}
       }
     };
-    const writeState = (key, value) => {
+    const writePlain = (key, value) => {
       const next = value === undefined ? null : value;
       if (jsonOf(peek(key)) === jsonOf(next)) return false;
       if (next === null) stateStore.delete(key);
       else stateStore.set(key, next);
       notify(key, next);
       return true;
+    };
+
+    // --- mergeable fields: the host sends them in their materialized form ---
+    const fieldStore = new Map();
+    const fieldSubs = new Map();
+    const notifyField = (key) => {
+      const subs = fieldSubs.get(key);
+      if (!subs) return;
+      for (const cb of Array.from(subs)) {
+        try {
+          cb();
+        } catch {}
+      }
+    };
+    const unwrapField = (value) => {
+      if (!value || typeof value !== "object") return null;
+      if (typeof value.__text === "string" && Array.isArray(value.ids)) {
+        return {
+          view: { text: value.__text, ids: value.ids },
+          plain: value.__text,
+        };
+      }
+      if (Array.isArray(value.__list)) {
+        return {
+          view: { items: value.__list },
+          plain: value.__list.map((row) => (row ? row.value : null)),
+        };
+      }
+      return null;
+    };
+    const writeState = (key, value) => {
+      const field = unwrapField(value);
+      if (!field) {
+        if (fieldStore.delete(key)) notifyField(key);
+        return writePlain(key, value);
+      }
+      fieldStore.set(key, field.view);
+      notifyField(key);
+      return writePlain(key, field.plain);
+    };
+
+    const NO_CARETS = [];
+    const caretsByKey = new Map();
+    const caretSubs = new Set();
+    const applyCarets = (list) => {
+      caretsByKey.clear();
+      for (const caret of list) {
+        if (!caret || typeof caret.key !== "string") continue;
+        const bucket = caretsByKey.get(caret.key) || [];
+        bucket.push(caret);
+        caretsByKey.set(caret.key, bucket);
+      }
+      for (const cb of Array.from(caretSubs)) {
+        try {
+          cb();
+        } catch {}
+      }
+    };
+
+    const fields = {
+      peekText: (key) => {
+        const view = fieldStore.get(key);
+        if (view && Array.isArray(view.ids)) return view;
+        const plain = peek(key);
+        return { text: typeof plain === "string" ? plain : "", ids: [] };
+      },
+      peekList: (key) => {
+        const view = fieldStore.get(key);
+        if (view && Array.isArray(view.items)) return view.items;
+        const plain = peek(key);
+        if (!Array.isArray(plain)) return [];
+        return plain.map((value, index) => ({ id: "plain-" + index, value }));
+      },
+      subscribe: (key, cb) => {
+        let subs = fieldSubs.get(key);
+        if (!subs) {
+          subs = new Set();
+          fieldSubs.set(key, subs);
+        }
+        subs.add(cb);
+        const stopPlain = state.subscribe(key, cb);
+        return () => {
+          subs.delete(cb);
+          if (subs.size === 0) fieldSubs.delete(key);
+          stopPlain();
+        };
+      },
+      editText: (key, edit) => call("stateEditText", { key, ...edit }),
+      editList: (key, edit) => call("stateEditList", { key, ...edit }),
+      caretsFor: (key) => caretsByKey.get(key) || NO_CARETS,
+      subscribeCarets: (cb) => {
+        caretSubs.add(cb);
+        return () => caretSubs.delete(cb);
+      },
     };
     const replaceState = (state) => {
       const incoming = state && typeof state === "object" ? state : {};
@@ -145,6 +590,9 @@ export function buildBoardFrameDocument(): string {
       set: (key, value) => {
         if (typeof key !== "string" || !key) {
           return Promise.reject(new Error("ph.state.set(key, value) requires a key"));
+        }
+        if (fieldStore.has(key)) {
+          return Promise.reject(new Error(${JSON.stringify(SHARED_FIELD_READ_ONLY_STATE)}));
         }
         const next = value === undefined ? null : value;
         const json = jsonOf(next);
@@ -192,6 +640,7 @@ export function buildBoardFrameDocument(): string {
         ),
       capture: unavailable("capture"),
       state,
+      fields,
       actions: { invoke: unavailable("actions.invoke") },
       agent: { request: unavailable("agent.request") },
       openExternal: (url) => post({ type: "open-external", url }),
@@ -548,6 +997,9 @@ export function buildBoardFrameDocument(): string {
         case "set-selection":
           setSelection(d.ids);
           break;
+        case "set-carets":
+          applyCarets(Array.isArray(d.carets) ? d.carets : []);
+          break;
         case "data-response": {
           const p = pending.get(d.id);
           if (!p) return;
@@ -588,6 +1040,8 @@ ${FREEFORM_QUILL_CSS_URLS.map(
   .fragment { position: absolute; overflow: auto; background: var(--card, var(--background, #fff)); color: var(--card-foreground, inherit); border: 1px solid var(--border, rgba(128, 128, 128, 0.35)); border-radius: 8px; }
   .fragment.selected { border-color: var(--ring, var(--primary, #1d4ed8)); }
   .fragment-error { padding: 12px; font-size: 12px; color: var(--destructive, #b91c1c); }
+  .ph-caret-name { animation: ph-caret-fade 300ms 2500ms forwards; }
+  @keyframes ph-caret-fade { to { opacity: 0; } }
   .fragment-error-title { margin-bottom: 4px; font-weight: 600; }
   .fragment-error pre { margin: 0; font-size: 11px; white-space: pre-wrap; word-break: break-word; opacity: 0.85; }
 </style>

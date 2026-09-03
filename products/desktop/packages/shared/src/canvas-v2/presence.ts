@@ -1,12 +1,24 @@
 import { z } from "zod";
 import { canvasV2ViewportSchema } from "./protocol";
-import { canvasV2LogEntrySchema } from "./schemas";
+import {
+  CANVAS_V2_FIELD_ID_MAX_CHARS,
+  canvasV2LogEntrySchema,
+} from "./schemas";
 
 /** A person leaves the board when no ping arrives inside this window. */
 export const CANVAS_V2_PRESENCE_STALE_MS = 10_000;
 /** The shortest gap between two pings while the pointer moves. */
 export const CANVAS_V2_PRESENCE_INTERVAL_MS = 100;
 export const CANVAS_V2_PRESENCE_MAX_SELECTED_IDS = 50;
+export const CANVAS_V2_PRESENCE_MAX_CARETS = 4;
+
+/** Where one person edits a mergeable field. An entry id, never an offset. */
+export const canvasV2PresenceCaretSchema = z.object({
+  key: z.string().max(128),
+  anchor: z.string().max(CANVAS_V2_FIELD_ID_MAX_CHARS).nullable(),
+  focus: z.string().max(CANVAS_V2_FIELD_ID_MAX_CHARS).nullable(),
+});
+export type CanvasV2PresenceCaret = z.infer<typeof canvasV2PresenceCaretSchema>;
 
 export const canvasV2PresencePointSchema = z.object({
   x: z.number(),
@@ -23,6 +35,10 @@ export const canvasV2PresenceInputSchema = z.object({
   selectedIds: z
     .array(z.string().max(64))
     .max(CANVAS_V2_PRESENCE_MAX_SELECTED_IDS),
+  carets: z
+    .array(canvasV2PresenceCaretSchema)
+    .max(CANVAS_V2_PRESENCE_MAX_CARETS)
+    .default([]),
 });
 export type CanvasV2PresenceInput = z.infer<typeof canvasV2PresenceInputSchema>;
 

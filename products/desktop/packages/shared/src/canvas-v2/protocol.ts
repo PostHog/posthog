@@ -21,12 +21,27 @@ export const CANVAS_V2_DATA_METHODS = [
   "stateGet",
   "stateSet",
   "stateList",
+  "stateEditText",
+  "stateEditList",
   "actionInvoke",
   "agentRequest",
 ] as const;
 export type CanvasV2DataMethod = (typeof CANVAS_V2_DATA_METHODS)[number];
 
 const channel = z.literal(CANVAS_V2_CHANNEL);
+
+/** One other person's caret inside one mergeable field, as the frame draws it. */
+export const canvasV2FrameCaretSchema = z.object({
+  clientId: z.string().max(128),
+  name: z.string().max(120),
+  color: z.string().max(32),
+  key: z.string().max(128),
+  anchor: z.string().max(64).nullable(),
+  focus: z.string().max(64).nullable(),
+});
+export type CanvasV2FrameCaret = z.infer<typeof canvasV2FrameCaretSchema>;
+
+export const CANVAS_V2_MAX_FRAME_CARETS = 32;
 
 export const hostToBoardFrameMessageSchema = z.discriminatedUnion("type", [
   z.object({
@@ -63,6 +78,11 @@ export const hostToBoardFrameMessageSchema = z.discriminatedUnion("type", [
     channel,
     type: z.literal("set-selection"),
     ids: z.array(z.string()),
+  }),
+  z.object({
+    channel,
+    type: z.literal("set-carets"),
+    carets: z.array(canvasV2FrameCaretSchema).max(CANVAS_V2_MAX_FRAME_CARETS),
   }),
   z.object({
     channel,

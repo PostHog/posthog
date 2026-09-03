@@ -1,5 +1,10 @@
 /** Every string a person reads on Canvases v2. Sentence case, plain words. */
 
+import {
+  CANVAS_V2_FIELD_MAX_ENTRIES,
+  CANVAS_V2_FIELD_MAX_REMOVED,
+} from "@posthog/shared";
+
 export const CANVASES_V2_TITLE = "Canvases v2";
 export const CANVASES_V2_DESCRIPTION =
   "Boards where you, your team, and the agent lay out live fragments side by side.";
@@ -133,6 +138,11 @@ export const LIBRARY_PANEL_TITLE = "Library";
 export const LIBRARY_PANEL_CLOSE = "Close library";
 export const LIBRARY_PANEL_HINT =
   "Drag a fragment onto the board, or click to add it.";
+
+export const SHARED_TEXT_FULL = `This text is full. It holds ${CANVAS_V2_FIELD_MAX_ENTRIES.toLocaleString("en-US")} characters. Delete some before you write more.`;
+export const SHARED_TEXT_CHANGES_FULL = `This text has ${CANVAS_V2_FIELD_MAX_REMOVED.toLocaleString("en-US")} deleted characters in it, which is the limit. Copy the text into a new fragment to go on.`;
+export const SHARED_FIELD_READ_ONLY_STATE =
+  "This key holds shared text. Use useSharedText or useSharedList to change it.";
 
 export const CHAT_PANEL_TITLE = "Chat";
 export const CHAT_PANEL_CLOSE = "Close chat";

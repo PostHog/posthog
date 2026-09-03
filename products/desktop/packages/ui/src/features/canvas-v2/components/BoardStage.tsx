@@ -6,7 +6,9 @@ import {
 import type { PresencePeer } from "@posthog/core/canvas-v2/boardPresence";
 import {
   type CanvasV2Fragment,
+  type CanvasV2FrameCaret,
   type CanvasV2Op,
+  type CanvasV2PresenceCaret,
   type CanvasV2Snapshot,
   type CanvasV2Theme,
   type CanvasV2Viewport,
@@ -47,7 +49,7 @@ export interface BoardStageProps {
   snapshot: CanvasV2Snapshot;
   viewport: CanvasV2Viewport;
   setViewport: (viewport: CanvasV2Viewport) => void;
-  applyLocal: (ops: CanvasV2Op[]) => void;
+  applyLocal: (ops: CanvasV2Op[], opIds?: string[]) => void;
   theme: CanvasV2Theme;
   queryClient: QueryClient;
   fragmentErrors: Record<string, string>;
@@ -62,6 +64,8 @@ export interface BoardStageProps {
   peers: readonly PresencePeer[];
   /** Where this person points, in world units, or null when off the board. */
   onCursor: (world: BoardPoint | null) => void;
+  /** Where this person edits a shared field, or null when they left it. */
+  onCaret: (caret: CanvasV2PresenceCaret | null) => void;
 }
 
 /** The board frame with its chrome above it. */
@@ -82,6 +86,7 @@ export function BoardStage({
   onDropFragment,
   peers,
   onCursor,
+  onCaret,
 }: BoardStageProps): ReactElement {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const [paneRect, setPaneRect] = useState<BoardPaneRect>({
@@ -154,6 +159,7 @@ export function BoardStage({
     queryClient,
     getSnapshot,
     applyLocal,
+    reportCaret: onCaret,
     events: {
       onReady: () => {
         syncedSnapshot.current = snapshotRef.current;
@@ -189,6 +195,26 @@ export function BoardStage({
   useEffect(() => {
     setFrameSelection(selectedIds);
   }, [setFrameSelection, selectedIds]);
+
+  const setFrameCarets = frame.setCarets;
+  const frameCarets = useMemo<CanvasV2FrameCaret[]>(
+    () =>
+      peers.flatMap((peer) =>
+        peer.carets.map((caret) => ({
+          clientId: peer.clientId,
+          name: peer.name,
+          color: peer.color,
+          key: caret.key,
+          anchor: caret.anchor,
+          focus: caret.focus,
+        })),
+      ),
+    [peers],
+  );
+
+  useEffect(() => {
+    setFrameCarets(frameCarets);
+  }, [setFrameCarets, frameCarets]);
 
   useEffect(() => {
     const pane = paneRef.current;

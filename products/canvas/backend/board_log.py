@@ -9,7 +9,15 @@ from posthog.models.user import User
 from products.canvas.backend import board_stream
 from products.canvas.backend.models import CanvasBoard, CanvasBoardOp
 
-BOARD_OP_TYPES = ["add_fragment", "update_fragment", "remove_fragment", "bring_to_front", "set_state", "restore"]
+BOARD_OP_TYPES = [
+    "add_fragment",
+    "update_fragment",
+    "remove_fragment",
+    "bring_to_front",
+    "set_state",
+    "restore",
+    "edit_field",
+]
 MAX_BOARD_OP_BYTES = 256 * 1024
 
 
