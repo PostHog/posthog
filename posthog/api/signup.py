@@ -495,13 +495,17 @@ class SignupResendInviteViewset(generics.GenericAPIView):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         email = serializer.validated_data["email"]
+        # Checked before the lookup, because an instance that cannot mail must not leave a
+        # reissued invite behind for an email it never sends.
+        if not is_email_available():
+            return response.Response({"sent": False}, status=status.HTTP_200_OK)
         invite = _get_pending_invite_for_email(email)
         if invite is None:
             lapsed = _get_recently_expired_invite_for_email(email)
             # Re-sending the lapsed invite would mail a link that is already dead, so hand the
             # invitee a fresh row instead.
             invite = _reissue_invite(lapsed) if lapsed is not None else None
-        if invite is None or not is_email_available():
+        if invite is None:
             return response.Response({"sent": False}, status=status.HTTP_200_OK)
 
         from posthog.tasks.email import send_invite

@@ -3373,14 +3373,22 @@ class TestSignupResendInvite(APIBaseTest):
         self.assertEqual(response.json(), {"sent": False})
         mock_send.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("active_invite", 0),
+            ("lapsed_invite", INVITE_DAYS_VALIDITY + 1),
+        ]
+    )
     @patch("posthog.api.signup.is_email_available", return_value=False)
     @patch("posthog.tasks.email.send_invite.apply_async")
-    def test_resend_invite_skips_dispatch_when_email_disabled(self, mock_send, _mock_email_available):
-        self._create_invite("alice@acme.com")
+    def test_resend_invite_skips_dispatch_when_email_disabled(self, _name, days_old, mock_send, _mock_email_available):
+        self._create_invite("alice@acme.com", days_old=days_old)
         response = self.client.post("/api/signup/resend-invite", {"email": "alice@acme.com"})
-        # No email can go out, so the form must not claim one did.
+        # No email can go out, so the form must not claim one did, and no invite may be reissued
+        # for a mail the instance cannot deliver.
         self.assertEqual(response.json(), {"sent": False})
         mock_send.assert_not_called()
+        self.assertEqual(OrganizationInvite.objects.filter(target_email="alice@acme.com").count(), 1)
 
     @patch("posthog.api.signup.is_email_available", return_value=True)
     @patch("posthog.tasks.email.send_invite.apply_async")
