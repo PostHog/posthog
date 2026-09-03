@@ -10,7 +10,6 @@ from products.batch_exports.backend.models.batch_export import (
     BatchExportDestination,
     BatchExportRun,
 )
-from products.batch_exports.backend.service import sync_batch_export
 from products.batch_exports.backend.tests.api.operations import create_batch_export_ok
 
 
@@ -95,36 +94,6 @@ def create_integration_backed_snowflake_export(client: TestClient, team: Team, u
     client.force_login(user)
     batch_export = create_batch_export_ok(client, team.pk, export_data)
     return integration, batch_export
-
-
-def create_legacy_inline_snowflake_export(team: Team, user: User) -> BatchExport:
-    """Seed a Snowflake batch export with inline credentials, bypassing API validation.
-
-    The API requires an integration on create; exports like this exist from before integrations,
-    and editing them must keep working. Mirrors a legacy password-auth export. The Temporal
-    schedule is created too so that patching the export (which syncs it) works.
-    """
-    destination = BatchExportDestination.objects.create(
-        type=BatchExportDestination.Destination.SNOWFLAKE,
-        config={
-            "account": "my-account",
-            "user": "user",
-            "password": "password123",
-            "database": "my-db",
-            "warehouse": "COMPUTE_WH",
-            "schema": "public",
-            "table_name": "my_events",
-            "authentication_type": "password",
-        },
-    )
-    batch_export = BatchExport.objects.create(
-        team=team,
-        name="my-snowflake-destination",
-        destination=destination,
-        interval="hour",
-    )
-    sync_batch_export(batch_export, created=True)
-    return batch_export
 
 
 def create_backfill(team, batch_export, start_at, end_at, status, finished_at) -> BatchExportBackfill:
