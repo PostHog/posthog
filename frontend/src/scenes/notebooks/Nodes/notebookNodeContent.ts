@@ -852,9 +852,8 @@ export const buildNotebookDependencyGraph = (content?: JSONContent | null): Note
 
         if (node.type === NotebookNodeType.MarkdownNotebook) {
             // Markdown notebooks (the only V2 surface) store cells as component tags, so both
-            // V2 cell types must be expanded or the graph misses every markdown-held cell.
-            expandMarkdownNotebookSqlV2Nodes(node).forEach(walk)
-            expandMarkdownNotebookNodesOfType(node, NotebookNodeType.PythonV2).forEach(walk)
+            // V2 cell types must be expanded in one pass to preserve dependency order.
+            expandMarkdownNotebookNodesOfTypes(node, [NotebookNodeType.SQLV2, NotebookNodeType.PythonV2]).forEach(walk)
         }
 
         if (Array.isArray(node.content)) {

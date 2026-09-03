@@ -103,6 +103,7 @@ import { extractCustomInstructions } from "@posthog/ui/features/sessions/compone
 import {
   extractOnboardingBrief,
   ONBOARDING_BRIEF_LABEL,
+  ONBOARDING_BRIEF_TOOLTIP,
 } from "@posthog/ui/features/sessions/components/session-update/onboardingBrief";
 import {
   hasFileMentions,
@@ -626,8 +627,9 @@ function UserBubble({
               )}
               {onboardingBrief && (
                 <MentionChip
-                  icon={<FileText size={12} />}
+                  icon={<Robot size={12} />}
                   label={ONBOARDING_BRIEF_LABEL}
+                  tooltip={ONBOARDING_BRIEF_TOOLTIP}
                 />
               )}
               {showChannelContextTag && channelContext && (

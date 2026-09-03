@@ -45,6 +45,7 @@ const SECTION_LABELS: Record<SchemaConfigurationSection, string> = {
     'sync-method': 'Sync method',
     columns: 'Columns and filters',
     descriptions: 'Descriptions',
+    destinations: 'Destinations',
     schedule: 'Schedule',
     'danger-zone': 'Danger zone',
 }
@@ -71,8 +72,14 @@ function SchemaSceneContent({ sourceId, schemaId }: SchemaSceneProps): JSX.Eleme
     // The warehouse table only exists once the schema has synced, and checks hang off that table.
     const showDataQuality = !!featureFlags[FEATURE_FLAGS.DATA_QUALITY_CHECKS] && !!schema?.table?.id
     const showColumnsSection = supportsColumnSelection
+    // Same gate as the source's Destinations tab. Without it a table offers a destination set that
+    // the sync ignores, because a run only snapshots destinations when the flag is on.
+    const showDestinations = !!featureFlags[FEATURE_FLAGS.WAREHOUSE_MULTI_DESTINATION]
     const visibleSections = SCHEMA_CONFIGURATION_SECTIONS.filter(
-        (key) => (key !== 'columns' || showColumnsSection) && (key !== 'descriptions' || showDescriptions)
+        (key) =>
+            (key !== 'columns' || showColumnsSection) &&
+            (key !== 'descriptions' || showDescriptions) &&
+            (key !== 'destinations' || showDestinations)
     )
 
     useEffect(() => {

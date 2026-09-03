@@ -13,6 +13,8 @@ export function useTrackReportsInboxViewed({
   priorityFilter,
   searchQuery,
   scope,
+  reportStateFilter,
+  defaultReportStateFilter,
 }: {
   reports: SignalReport[];
   totalCount: number;
@@ -21,6 +23,8 @@ export function useTrackReportsInboxViewed({
   priorityFilter: string[];
   searchQuery: string;
   scope: InboxReviewerScope;
+  reportStateFilter: readonly string[];
+  defaultReportStateFilter: readonly string[];
 }): void {
   const firedRef = useRef(false);
 
@@ -38,6 +42,8 @@ export function useTrackReportsInboxViewed({
           priorityFilter,
           searchQuery,
           scope,
+          reportStateFilter,
+          defaultReportStateFilter,
         },
       }),
     );
@@ -49,5 +55,7 @@ export function useTrackReportsInboxViewed({
     priorityFilter,
     searchQuery,
     scope,
+    reportStateFilter,
+    defaultReportStateFilter,
   ]);
 }

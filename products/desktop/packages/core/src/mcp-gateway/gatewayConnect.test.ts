@@ -40,22 +40,36 @@ describe("gatewayConnectAuthType", () => {
   it.each([
     [
       "oauth template",
-      { template_id: "t1", template_auth_type: "oauth" },
+      { template_id: "t1", template_auth_type: "oauth", auth_type: "oauth" },
       "oauth",
     ],
     [
       "api-key template",
-      { template_id: "t1", template_auth_type: "api_key" },
+      {
+        template_id: "t1",
+        template_auth_type: "api_key",
+        auth_type: "api_key",
+      },
       "api_key",
     ],
     [
       "template with no reported type",
-      { template_id: "t1", template_auth_type: null },
+      { template_id: "t1", template_auth_type: null, auth_type: null },
       "oauth",
     ],
     [
-      "custom server — member chooses",
-      { template_id: null, template_auth_type: null },
+      "custom server added with an API key",
+      { template_id: null, template_auth_type: null, auth_type: "api_key" },
+      "api_key",
+    ],
+    [
+      "custom server added with OAuth",
+      { template_id: null, template_auth_type: null, auth_type: "oauth" },
+      "oauth",
+    ],
+    [
+      "custom server with no recorded type — member chooses",
+      { template_id: null, template_auth_type: null, auth_type: null },
       null,
     ],
   ] as const)("%s", (_label, server, expected) => {
@@ -67,17 +81,31 @@ describe("gatewayConnectNeedsCredentials", () => {
   it.each([
     [
       "oauth template connects directly",
-      { template_id: "t1", template_auth_type: "oauth" },
+      { template_id: "t1", template_auth_type: "oauth", auth_type: "oauth" },
       false,
     ],
     [
       "api-key template asks for the key",
-      { template_id: "t1", template_auth_type: "api_key" },
+      {
+        template_id: "t1",
+        template_auth_type: "api_key",
+        auth_type: "api_key",
+      },
       true,
     ],
     [
-      "custom server asks the member to choose",
-      { template_id: null, template_auth_type: null },
+      "custom api-key server asks for the member's own key",
+      { template_id: null, template_auth_type: null, auth_type: "api_key" },
+      true,
+    ],
+    [
+      "custom oauth server offers the optional client first",
+      { template_id: null, template_auth_type: null, auth_type: "oauth" },
+      true,
+    ],
+    [
+      "custom server with no recorded type asks the member to choose",
+      { template_id: null, template_auth_type: null, auth_type: null },
       true,
     ],
   ] as const)("%s", (_label, server, expected) => {

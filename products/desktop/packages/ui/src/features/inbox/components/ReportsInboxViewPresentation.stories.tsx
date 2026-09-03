@@ -1,7 +1,8 @@
-import { Button, Input } from "@posthog/quill";
 import type { SignalReport } from "@posthog/shared/types";
+import { InboxReportContextMenu } from "@posthog/ui/features/inbox/components/InboxReportContextMenu";
+import { InboxReportFilters } from "@posthog/ui/features/inbox/components/InboxReportFilters";
 import { InboxReportRowView } from "@posthog/ui/features/inbox/components/InboxReportRowView";
-import { InboxReportSection } from "@posthog/ui/features/inbox/components/InboxReportSection";
+import { InboxScopeSelect } from "@posthog/ui/features/inbox/components/InboxScopeSelect";
 import { inboxStoryReport } from "@posthog/ui/features/inbox/components/inboxStoryFixtures";
 import { ReportsInboxViewPresentation } from "@posthog/ui/features/inbox/components/ReportsInboxViewPresentation";
 import type { Meta, StoryObj } from "@storybook/react-vite";
@@ -44,25 +45,36 @@ const resolved = [
     id: "resolved-2",
     status: "suppressed",
     title: "chore(settings): clarify an unused configuration path",
-    dismissal_reason: "not_enough_evidence",
+    dismissal_reason: "wontfix_irrelevant",
   }),
+];
+
+const reports = [
+  reviewAndMerge[0],
+  needsPr[0],
+  resolved[0],
+  reviewAndMerge[1],
+  needsPr[1],
+  resolved[1],
+  ...needsPr.slice(2),
 ];
 
 function reportRow(report: SignalReport): React.JSX.Element {
   return (
-    <InboxReportRowView
-      key={report.id}
-      report={report}
-      reviewers={
-        <span
-          className="h-5 w-5 rounded-full border-(--color-panel-solid) border-2 bg-(--accent-5)"
-          role="img"
-          aria-label="One suggested reviewer"
-        />
-      }
-      onOpen={() => {}}
-      onOpenPr={() => {}}
-    />
+    <InboxReportContextMenu key={report.id} report={report}>
+      <InboxReportRowView
+        report={report}
+        reviewers={
+          <span
+            className="h-5 w-5 rounded-full border-(--color-panel-solid) border-2 bg-(--accent-5)"
+            role="img"
+            aria-label="One suggested reviewer"
+          />
+        }
+        onOpen={() => {}}
+        onOpenPr={() => {}}
+      />
+    </InboxReportContextMenu>
   );
 }
 
@@ -78,34 +90,23 @@ const meta: Meta<typeof ReportsInboxViewPresentation> = {
     ),
   ],
   args: {
-    reviewAndMerge,
-    reviewAndMergeCount: reviewAndMerge.length,
-    needsPr,
-    needsPrCount: needsPr.length,
+    reports,
+    triageReportCount: reviewAndMerge.length + needsPr.length,
     isLoading: false,
     isFetchingNextPage: false,
+    hasNextPage: false,
+    isError: false,
     isEmpty: false,
     hasActiveFilters: false,
     triageEnabled: true,
-    scopeControl: (
-      <Button type="button" variant="outline" size="sm">
-        For you
-      </Button>
-    ),
-    searchControl: <Input placeholder="Search reports…" />,
-    resolvedSection: (
-      <InboxReportSection
-        title="Resolved"
-        reports={resolved}
-        count={resolved.length}
-        defaultOpen={false}
-        renderReport={reportRow}
-      />
-    ),
+    filterControl: <InboxReportFilters />,
+    scopeControl: <InboxScopeSelect />,
     renderReport: reportRow,
     onConfigureAgents: () => {},
     onEnterTriage: () => {},
     onClearFilters: () => {},
+    onLoadMore: () => {},
+    onRetry: () => {},
   },
 };
 
@@ -116,35 +117,34 @@ export const MixedQueue: Story = {};
 
 export const EmptyInbox: Story = {
   args: {
-    reviewAndMerge: [],
-    reviewAndMergeCount: 0,
-    needsPr: [],
-    needsPrCount: 0,
+    reports: [],
+    triageReportCount: 0,
     isEmpty: true,
-    resolvedSection: undefined,
   },
 };
 
 export const FilteredEmpty: Story = {
   args: {
-    reviewAndMerge: [],
-    reviewAndMergeCount: 0,
-    needsPr: [],
-    needsPrCount: 0,
+    reports: [],
+    triageReportCount: 0,
     isEmpty: true,
     hasActiveFilters: true,
-    resolvedSection: undefined,
   },
 };
 
 export const Loading: Story = {
   args: {
-    reviewAndMerge: [],
-    reviewAndMergeCount: 0,
-    needsPr: [],
-    needsPrCount: 0,
+    reports: [],
+    triageReportCount: 0,
     isLoading: true,
     isEmpty: false,
-    resolvedSection: undefined,
+  },
+};
+
+export const LoadError: Story = {
+  args: {
+    reports: [],
+    triageReportCount: 0,
+    isError: true,
   },
 };

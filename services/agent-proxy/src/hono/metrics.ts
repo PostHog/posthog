@@ -10,7 +10,7 @@
 
 import { Counter, Gauge, Histogram, Registry, collectDefaultMetrics } from 'prom-client'
 
-import type { DisconnectClassification, StreamConnectionOutcome } from '../lib/types.js'
+import type { DisconnectClassification, StreamConnectionOutcome, StreamWriteSkippedPath } from '../lib/types.js'
 
 export const register = new Registry()
 
@@ -80,6 +80,13 @@ export const streamIngestEventsTotal = new Counter({
     name: 'posthog_tasks_stream_ingest_events_total',
     help: 'Sandbox-to-Node ingested events by acceptance result',
     labelNames: ['result'],
+    registers: [register],
+})
+
+export const taskRunStreamWriteSkippedTotal = new Counter({
+    name: 'posthog_tasks_task_run_stream_write_skipped_total',
+    help: 'Task-run events not mirrored into Redis because presence gating found no attached reader',
+    labelNames: ['path', 'origin_product'],
     registers: [register],
 })
 
@@ -187,6 +194,10 @@ export function observeStreamIngestEvents(opts: { accepted: number; duplicate: n
     if (opts.duplicate > 0) {
         streamIngestEventsTotal.labels({ result: 'duplicate' }).inc(opts.duplicate)
     }
+}
+
+export function observeStreamWriteSkipped(path: StreamWriteSkippedPath, originProduct: string): void {
+    taskRunStreamWriteSkippedTotal.labels({ path, origin_product: originProduct }).inc()
 }
 
 export function observeIngestClientDisconnect(classification: DisconnectClassification): void {

@@ -49,6 +49,7 @@ import {
     businessKnowledgeGapSuggestionsList,
 } from 'products/business_knowledge/frontend/generated/api'
 import {
+    conversationsTicketsMessagesFullEmailRetrieve,
     conversationsTicketsNotesDestroy,
     conversationsTicketsNotesPartialUpdate,
     conversationsTicketsPartialUpdate,
@@ -248,6 +249,9 @@ export interface supportTicketSceneLogicValues {
     eventsQuery: DataTableNode | null
     exceptionsQuery: DataTableNode | null
     feedbackByMessageId: Record<string, AiReplyFeedbackRating>
+    fullEmailContent: string | null
+    fullEmailContentLoading: boolean
+    fullEmailMessageId: string | null
     hasMoreMessages: boolean
     hasPendingWork: boolean
     hasUnsavedChanges: boolean
@@ -293,6 +297,9 @@ export interface supportTicketSceneLogicActions {
     clearEditingMessage: () => {
         value: true
     }
+    closeFullEmail: () => {
+        value: true
+    }
     deleteMessage: (messageId: string) => {
         messageId: string
     }
@@ -301,6 +308,21 @@ export interface supportTicketSceneLogicActions {
     }
     incrementUnreadCustomerCount: () => {
         value: true
+    }
+    loadFullEmail: (messageId: string) => string
+    loadFullEmailFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadFullEmailSuccess: (
+        fullEmailContent: string,
+        payload?: string
+    ) => {
+        fullEmailContent: string
+        payload?: string
     }
     loadKnowledgeGaps: () => {
         value: true
@@ -524,11 +546,7 @@ export interface supportTicketSceneLogicMeta {
             unsavedTicketChanges: string[]
         ) => boolean
         hasPendingWork: (hasUnsavedChanges: boolean, editingMessageId: string | null) => boolean
-        chatMessages: (
-            messages: CommentType[],
-            ticket: Ticket | null,
-            featureFlags: FeatureFlagsSet // featureFlagLogic
-        ) => ChatMessage[]
+        chatMessages: (messages: CommentType[], ticket: Ticket | null, featureFlags: FeatureFlagsSet) => ChatMessage[]
         eventsQuery: (ticket: Ticket | null) => DataTableNode | null
         exceptionsQuery: (ticket: Ticket | null) => DataTableNode | null
         latestAiMessage: (chatMessages: ChatMessage[]) => ChatMessage | null
@@ -634,6 +652,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             messageId,
             rating,
         }),
+        closeFullEmail: true,
     }),
     loaders(({ values, props }) => ({
         person: [
@@ -750,6 +769,24 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 },
             },
         ],
+        fullEmailContent: [
+            null as string | null,
+            {
+                loadFullEmail: async (messageId: string, breakpoint): Promise<string> => {
+                    const ticket = values.ticket
+                    if (!ticket) {
+                        throw new Error('Ticket is not loaded')
+                    }
+                    const response = await conversationsTicketsMessagesFullEmailRetrieve(
+                        String(getCurrentTeamId()),
+                        ticket.id,
+                        messageId
+                    )
+                    breakpoint()
+                    return response.content
+                },
+            },
+        ],
     })),
     reducers({
         ticket: [
@@ -774,6 +811,14 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 loadTicket: () => true,
                 setTicket: () => false,
                 setTicketLoading: (_, { loading }) => loading,
+            },
+        ],
+        fullEmailMessageId: [
+            null as string | null,
+            {
+                loadFullEmail: (_, messageId) => messageId,
+                loadFullEmailFailure: () => null,
+                closeFullEmail: () => null,
             },
         ],
         status: [
@@ -1104,6 +1149,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                             version: message.version,
                             emailDeliveryStatus: message.item_context?.email_delivery_status,
                             fromZendesk: message.item_context?.from_zendesk === true,
+                            hasFullEmailContent: message.item_context?.has_full_email_content === true,
                         }
                     })
             },
@@ -1202,6 +1248,10 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         loadPersonSuccess: async () => {
             // Load previous tickets after person is loaded
             actions.loadPreviousTickets()
+        },
+        loadFullEmailFailure: () => {
+            lemonToast.error("Couldn't load the full email. Try again.")
+            actions.closeFullEmail()
         },
         updateTicket: async (_, breakpoint) => {
             if (props.id === 'new') {

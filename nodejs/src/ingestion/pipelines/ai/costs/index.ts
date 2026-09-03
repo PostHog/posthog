@@ -175,6 +175,9 @@ const isString = (property: unknown): property is string => {
     return typeof property === 'string'
 }
 
+// Ingestion can deliver the flag JSON-serialized, so the string "true" also counts as set.
+const isCostPassthrough = (value: unknown): boolean => value === true || value === 'true'
+
 /**
  * Process cost calculation for AI generation/embedding events.
  * Calculates input, output, request, and web search costs based on model pricing.
@@ -212,6 +215,20 @@ export const processCost = (event: EventWithProperties): EventWithProperties => 
 
         event.properties['$ai_cost_model_source'] = CostModelSource.Passthrough
         return event
+    }
+
+    // $ai_cost_passthrough keeps a caller-reported total and skips estimation.
+    // Require a usable total, so an empty cost is never labeled passthrough.
+    // Zero is a usable total here because a gateway that charges nothing, such as
+    // under BYOK, reports zero. The branch above instead reads a zero input or
+    // output cost as absent.
+    if (isCostPassthrough(event.properties['$ai_cost_passthrough'])) {
+        const total = event.properties['$ai_total_cost_usd']
+        if (typeof total === 'number') {
+            event.properties['$ai_cost_model_source'] = CostModelSource.Passthrough
+            trackCostOutcome(total)
+            return event
+        }
     }
 
     // A non-numeric price throws inside js-big-decimal, so treat one as absent and

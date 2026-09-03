@@ -34,7 +34,7 @@
 1 posthog/hogql/transforms/lazy_tables.py
 1 posthog/hogql/transforms/test/test_property_types.py
 1 posthog/hogql/transforms/test/test_property_types_dmat.py
-1 posthog/hogql_queries/insights/utils/aggregations.py
+1 posthog/hogql_queries/utils/aggregations.py
 1 posthog/kafka_client/client.py
 1 posthog/management/commands/audit_encrypted_field_keys.py
 1 posthog/management/commands/backfill_distinct_id_overrides.py
@@ -171,7 +171,6 @@
 1 products/review_hog/backend/reviewer/persistence.py
 1 products/review_hog/backend/reviewer/tests/test_select_perspectives.py
 1 products/review_hog/backend/reviewer/tools/publish_review.py
-1 products/review_hog/backend/temporal/types.py
 1 products/review_hog/backend/tests/test_prompt_injection_guards.py
 1 products/signals/backend/scout_harness/inactivity.py
 1 products/signals/backend/scout_harness/tools/report.py
@@ -1356,7 +1355,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/workflow_activities/check_billing_limits.py
 1 products/warehouse_sources/backend/temporal/data_imports/workflow_activities/compute_table_statistics.py
 1 products/warehouse_sources/backend/temporal/data_imports/workflow_activities/create_job_model.py
-1 products/warehouse_sources/backend/temporal/data_imports/workflow_activities/import_data_sync.py
 1 products/warehouse_sources/backend/temporal/data_imports/workflow_activities/repartition_table.py
 1 products/warehouse_sources/backend/temporal/data_imports/workflow_activities/sync_new_schemas.py
 1 products/web_analytics/backend/hogql_queries/bot_definitions.py
@@ -1365,7 +1363,6 @@
 1 products/web_analytics/backend/test/test_digest_notification_workflows.py
 1 products/web_analytics/backend/test/test_weekly_digest_workflows.py
 10 posthog/temporal/ai_observability/trace_summarization/models.py
-10 posthog/temporal/data_modeling/run_workflow.py
 10 posthog/temporal/sync_person_distinct_ids/activities.py
 10 products/signals/backend/temporal/grouping.py
 10 products/signals/backend/temporal/summary.py
@@ -1505,7 +1502,7 @@
 2 products/web_analytics/backend/hogql_queries/web_stats_lazy_precompute.py
 2 products/web_analytics/backend/path_cleaning_suggestions/service.py
 22 products/batch_exports/backend/service.py
-26 products/review_hog/backend/temporal/activities.py
+23 products/review_hog/backend/temporal/activities.py
 3 ee/api/vercel/types.py
 3 ee/clickhouse/views/test/test_clickhouse_trends.py
 3 posthog/api/app_metrics2.py

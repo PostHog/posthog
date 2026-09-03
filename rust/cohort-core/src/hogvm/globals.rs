@@ -139,6 +139,8 @@ fn normalize_timestamp(raw: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use crate::hogvm::analysis::GlobalRoot;
+
     use super::*;
 
     fn event() -> CohortStreamEvent {
@@ -189,6 +191,33 @@ mod tests {
             "variables",
         ] {
             assert!(obj.contains_key(key), "behavioral globals missing `{key}`");
+        }
+    }
+
+    /// Every root a globals dict carries has to be a [`GlobalRoot`], because the analyzer treats a
+    /// name outside that enum as reading nothing. A key added here without a matching variant
+    /// there would be pruned from a scan while the program still reads it.
+    ///
+    /// This walks the dicts rather than a list of names, unlike its neighbour above, which asserts
+    /// `contains_key` over 23 names and so would not notice a 24th. That difference is what the
+    /// test is for, and it means there is no list here to go stale.
+    #[test]
+    fn every_globals_dict_key_is_a_named_root() {
+        let event = event();
+        // `build_person_scan_globals` is absent because
+        // `scan_globals_are_byte_equal_to_event_globals_for_equal_inputs` already pins its output
+        // to `build_person_property_globals`, so its key set is covered here.
+        for globals in [
+            build_behavioral_globals(&event).unwrap(),
+            build_person_property_globals(&event).unwrap(),
+        ] {
+            for key in globals.as_object().unwrap().keys() {
+                assert!(
+                    GlobalRoot::parse(key).is_some(),
+                    "globals key `{key}` is not a GlobalRoot, so the analyzer would read a \
+                     condition naming it as reading nothing"
+                );
+            }
         }
     }
 

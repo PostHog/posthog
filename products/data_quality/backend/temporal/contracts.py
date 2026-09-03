@@ -81,6 +81,7 @@ class MarkSuiteFailedInputs:
 @frozen
 class CleanupOutcome:
     compiled_queries_cleared: int = 0
+    checks_deleted: int = 0
     check_runs_deleted: int = 0
     suite_runs_deleted: int = 0
     stale_suites_failed: int = 0

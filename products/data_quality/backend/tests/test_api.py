@@ -520,6 +520,29 @@ class TestDataQualityCheckAPI(APIBaseTest):
         check_runs = self.client.get(f"{base}/{mine.id}/check_runs/")
         assert [row["subject_name"] for row in check_runs.json()] == ["orders"]
 
+    def test_check_runs_name_the_check_each_row_ran(self) -> None:
+        named = self._create_check(name="orders_customer_id_not_null")
+        suite = DataQualitySuiteRun.objects.for_team(self.team.id).create(
+            team=self.team, trigger="manual", subject_type=SubjectType.VIEW, subject_uuid=self.view.id
+        )
+        for quality_check in (named, None):
+            DataQualityCheckRun.objects.for_team(self.team.id).create(
+                team=self.team,
+                suite_run=suite,
+                quality_check=quality_check,
+                subject_type=SubjectType.VIEW,
+                subject_uuid=self.view.id,
+                subject_name="orders",
+                check_type=CheckType.NOT_NULL,
+                check_fingerprint=uuid4().hex,
+                status=CheckRunStatus.PASSED,
+            )
+
+        response = self.client.get(f"{self._suite_runs_url()}/{suite.id}/check_runs/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert {row["check_name"] for row in response.json()} == {"orders_customer_id_not_null", None}
+
     def test_listing_a_subjects_checks_leaves_out_the_ones_reading_a_denied_subject(self) -> None:
         # The parent gate cleared "customers", but a check under it names the denied "orders" in its
         # config, which the routes that address one check already refuse to serve.
@@ -600,6 +623,7 @@ class TestDataQualityCheckAPI(APIBaseTest):
             last_status=CheckRunStatus.FAILED,
             last_run_at=ran_at,
             last_succeeded_at=ran_at,
+            failing_since=ran_at,
         )
         self._deny_the_view()
 
@@ -611,12 +635,58 @@ class TestDataQualityCheckAPI(APIBaseTest):
         assert edited.json()["last_status"] is None
         assert edited.json()["last_run_at"] is None
         assert edited.json()["last_succeeded_at"] is None
+        assert edited.json()["failing_since"] is None
         assert history.status_code == status.HTTP_200_OK
         assert history.json() == []
         check.refresh_from_db()
         assert check.last_status == CheckRunStatus.FAILED
         assert check.last_run_at == ran_at
         assert check.last_succeeded_at == ran_at
+        assert check.failing_since == ran_at
+
+    def test_re_creating_a_check_does_not_unlock_the_history_it_used_to_read(self) -> None:
+        # A create lands on the existing row when the definition fingerprints the same, so posting a
+        # harmless definition is a second way to ask for a check whose last run read the denied
+        # "orders" -- one that list hides, retrieve 403s, runs/ empties and patch redacts.
+        allowed = self._make_view("customers")
+        safe = {"check_type": CheckType.NOT_NULL, "column_name": "id", "config": {}}
+        created = self.client.post(f"{self._checks_url(allowed.id)}/", safe)
+        assert created.status_code == status.HTTP_201_CREATED, created.json()
+        check = DataQualityCheck.objects.for_team(self.team.id).get(id=created.json()["id"])
+        api.record_check_run(
+            self.team.id,
+            suite_run=DataQualitySuiteRun.objects.for_team(self.team.id).create(team=self.team, trigger="manual"),
+            quality_check=check,
+            subject_type=SubjectType.VIEW,
+            subject_uuid=allowed.id,
+            subject_name="customers",
+            check_type=CheckType.CUSTOM_SQL,
+            check_config={"query": "SELECT 1 FROM orders"},
+            referenced_subjects=self._pinned(self.view),
+            check_fingerprint=check.fingerprint,
+            status=CheckRunStatus.FAILED,
+            failed_row_count=3,
+            compiled_query="SELECT * FROM orders",
+        )
+        ran_at = now()
+        DataQualityCheck.objects.for_team(self.team.id).filter(id=check.id).update(
+            last_status=CheckRunStatus.FAILED,
+            last_run_at=ran_at,
+            last_succeeded_at=ran_at,
+            failing_since=ran_at,
+        )
+        self._deny_the_view()
+
+        recreated = self.client.post(f"{self._checks_url(allowed.id)}/", safe)
+
+        assert recreated.status_code == status.HTTP_200_OK, recreated.json()
+        assert recreated.json()["last_status"] is None
+        assert recreated.json()["last_run_at"] is None
+        assert recreated.json()["last_succeeded_at"] is None
+        assert recreated.json()["failing_since"] is None
+        check.refresh_from_db()
+        assert check.last_status == CheckRunStatus.FAILED
+        assert check.failing_since == ran_at
 
     def test_accepted_values_are_stored_as_the_column_holds_them(self) -> None:
         # The editor can only send strings. Whether the coercion is wired into the create path at all
@@ -941,6 +1011,49 @@ class TestDataQualityCheckAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert [row["check_type"] for row in response.json()] == [CheckType.CUSTOM_SQL]
+
+    def test_a_readable_run_does_not_name_a_check_the_member_may_no_longer_see(self) -> None:
+        # The run pinned an allowed view, so its history stays readable -- but the name on its check
+        # is present tense, and the check now reads the denied "orders". Serving the name hands over
+        # what a teammate called a check this member is no longer shown.
+        allowed = self._make_view("customers")
+        check = DataQualityCheck.objects.for_team(self.team.id).create(
+            team=self.team,
+            name="nightly_customers_audit",
+            subject_type=SubjectType.VIEW,
+            saved_query_id=allowed.id,
+            subject_name="customers",
+            check_type=CheckType.CUSTOM_SQL,
+            config={"query": "SELECT 1 FROM customers"},
+            fingerprint=uuid4().hex,
+        )
+        suite = DataQualitySuiteRun.objects.for_team(self.team.id).create(
+            team=self.team, trigger="manual", subject_type=SubjectType.VIEW, subject_uuid=allowed.id
+        )
+        api.record_check_run(
+            self.team.id,
+            suite_run=suite,
+            quality_check=check,
+            subject_type=SubjectType.VIEW,
+            subject_uuid=allowed.id,
+            subject_name="customers",
+            check_type=CheckType.CUSTOM_SQL,
+            check_config={"query": "SELECT 1 FROM customers"},
+            referenced_subjects=self._pinned(allowed),
+            check_fingerprint=check.fingerprint,
+            status=CheckRunStatus.FAILED,
+            failed_row_count=3,
+        )
+        DataQualityCheck.objects.for_team(self.team.id).filter(id=check.id).update(
+            config={"query": "SELECT 1 FROM orders"}
+        )
+        self._deny_the_view()
+
+        response = self.client.get(f"{self._suite_runs_url(allowed.id)}/{suite.id}/check_runs/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [row["check_type"] for row in response.json()] == [CheckType.CUSTOM_SQL]
+        assert [row["check_name"] for row in response.json()] == [None]
 
     def test_a_deleted_declared_subject_withholds_its_history_from_a_restricted_member(self) -> None:
         # Deleting a subject takes its denial with it, so nothing left can show the caller was

@@ -5,7 +5,10 @@ import {
   getFastModeOptions,
   getReasoningEffortOptions,
 } from "@posthog/agent/adapters/reasoning-effort";
-import { flattenConfigValues } from "@posthog/core/task-detail/configOptions";
+import {
+  flattenConfigValues,
+  harnessForModelValue,
+} from "@posthog/core/task-detail/configOptions";
 import {
   applyConfigChange,
   CONTEXT_WINDOW_OPTION_CATEGORY,
@@ -15,15 +18,12 @@ import {
 import { useHostTRPCClient } from "@posthog/host-router/react";
 import {
   type Adapter,
-  DEEPSEEK_MODEL_FLAG,
+  adapterForModelId,
   FAST_MODE_FLAG,
-  GLM_MODEL_FLAG,
-  GLM53_FLASH_MODEL_FLAG,
-  GLM53_MODEL_FLAG,
   getCloudUrlFromRegion,
-  KIMI_MODEL_FLAG,
 } from "@posthog/shared";
 import { stripDisabledModelOption } from "@posthog/ui/features/sessions/modelOptionFilters";
+import { useModelRolloutFlags } from "@posthog/ui/features/sessions/useModelRolloutFlags";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { logger } from "../../../shell/logger";
 import { useAuthStateValue } from "../../auth/store";
@@ -52,19 +52,27 @@ function getOptionByCategory(
   );
 }
 
+interface PreviewConfigOpts {
+  /**
+   * Also list the other harness's models in the model option (as a second
+   * group), so the picker can switch harness from a model pick.
+   */
+  allHarnessModels?: boolean;
+}
+
 /**
  * Fetches config options (models, modes, effort levels) for the task input
  * page via a lightweight tRPC query. No agent session is created.
  *
  * Returns config options as local state with a setter for local updates.
  */
-export function usePreviewConfig(adapter: Adapter): PreviewConfigResult {
+export function usePreviewConfig(
+  adapter: Adapter,
+  opts?: PreviewConfigOpts,
+): PreviewConfigResult {
+  const allHarnessModels = opts?.allHarnessModels ?? false;
   const hostClient = useHostTRPCClient();
-  const glmEnabled = useFeatureFlag(GLM_MODEL_FLAG);
-  const glm53Enabled = useFeatureFlag(GLM53_MODEL_FLAG);
-  const glm53FlashEnabled = useFeatureFlag(GLM53_FLASH_MODEL_FLAG);
-  const deepseekEnabled = useFeatureFlag(DEEPSEEK_MODEL_FLAG);
-  const kimiEnabled = useFeatureFlag(KIMI_MODEL_FLAG);
+  const modelFlags = useModelRolloutFlags();
   const fastModeFlagEnabled = useFeatureFlag(FAST_MODE_FLAG);
   const cloudRegion = useAuthStateValue((state) => state.cloudRegion);
   const apiHost = useMemo(
@@ -89,10 +97,16 @@ export function usePreviewConfig(adapter: Adapter): PreviewConfigResult {
     if (!hasHydrated) return;
 
     // A harness switch resets the saved selections so the new harness starts
-    // on its default preset notch (and the slider face shows).
+    // on its default preset notch (and the slider face shows). A saved model
+    // that already belongs to the new harness survives: that is the
+    // cross-harness model pick, where the model choice drives the switch.
     if (prevAdapterRef.current !== null && prevAdapterRef.current !== adapter) {
+      const { lastUsedModel } = useSettingsStore.getState();
       useSettingsStore.setState({
-        lastUsedModel: null,
+        lastUsedModel:
+          lastUsedModel && adapterForModelId(lastUsedModel) === adapter
+            ? lastUsedModel
+            : null,
         lastUsedReasoningEffort: null,
         lastUsedContextWindow: null,
         lastUsedFastMode: null,
@@ -110,20 +124,15 @@ export function usePreviewConfig(adapter: Adapter): PreviewConfigResult {
     setConfigOptions([]);
 
     hostClient.agent.getPreviewConfigOptions
-      .query({ apiHost, adapter }, { signal: abort.signal })
+      .query(
+        { apiHost, adapter, allHarnessModels: allHarnessModels || undefined },
+        { signal: abort.signal },
+      )
       .then((serverOptions) => {
         if (abort.signal.aborted) return;
 
         const options = serverOptions
-          .map((option) =>
-            stripDisabledModelOption(option, {
-              deepseek: deepseekEnabled,
-              glm: glmEnabled,
-              glm53: glm53Enabled,
-              glm53Flash: glm53FlashEnabled,
-              kimi: kimiEnabled,
-            }),
-          )
+          .map((option) => stripDisabledModelOption(option, modelFlags))
           .filter((option) => fastModeFlagEnabled || option.id !== "fast");
 
         const {
@@ -156,7 +165,13 @@ export function usePreviewConfig(adapter: Adapter): PreviewConfigResult {
         const modelOpt = getOptionByCategory(initial, "model");
         // The user's explicit last pick always restores, premium families
         // included — a fresh launch must not silently downgrade the model.
-        const restorableModel = lastUsedModel ?? undefined;
+        // A grouped list also holds the other harness's models, so the pick has
+        // to belong to this harness or it would run on the wrong one.
+        const restorableModel =
+          lastUsedModel &&
+          harnessForModelValue(modelOpt, lastUsedModel) === adapter
+            ? lastUsedModel
+            : undefined;
         if (
           restorableModel &&
           modelOpt?.type === "select" &&
@@ -244,14 +259,11 @@ export function usePreviewConfig(adapter: Adapter): PreviewConfigResult {
     };
   }, [
     adapter,
+    allHarnessModels,
     apiHost,
     hostClient,
     hasHydrated,
-    glmEnabled,
-    glm53Enabled,
-    glm53FlashEnabled,
-    deepseekEnabled,
-    kimiEnabled,
+    modelFlags,
     fastModeFlagEnabled,
   ]);
 
