@@ -344,6 +344,22 @@ export const BOT_DEFINITIONS: { pattern: string; definition: BotDefinition }[] =
         pattern: 'Selenium',
         definition: { name: 'Selenium', category: 'headless_browser', trafficType: 'Automation', operator: 'Selenium' },
     },
+    {
+        pattern: 'SlimerJS',
+        definition: { name: 'SlimerJS', category: 'headless_browser', trafficType: 'Automation', operator: 'SlimerJS' },
+    },
+    {
+        pattern: 'wkhtmltopdf',
+        definition: {
+            name: 'wkhtmltopdf',
+            category: 'headless_browser',
+            trafficType: 'Automation',
+            operator: 'wkhtmltopdf',
+        },
+    },
+    // Regex-only impossible-UA rules (Spoofed Edge UA, Truncated WebKit UA, and similar) live
+    // only in the server-side `bot_definitions.py`. This livestream mirror matches with
+    // `String.includes`, so it can carry plain-token bots but not regex patterns.
     // Self-declared crawlers observed in production `$http_log` traffic
     // AI crawlers
     {
