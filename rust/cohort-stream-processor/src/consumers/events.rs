@@ -1903,6 +1903,7 @@ mod tests {
             register_transfer_enabled: true,
             reconcile,
             person_seed: crate::workers::PersonSeedDeps::default(),
+            seed_budget: crate::workers::seed_run::RunBudget::default(),
         });
         let dispatcher = EventDispatcher::new(
             PartitionRouter::new(64),
@@ -2613,6 +2614,7 @@ mod tests {
             register_transfer_enabled: false,
             reconcile,
             person_seed: crate::workers::PersonSeedDeps::default(),
+            seed_budget: crate::workers::seed_run::RunBudget::default(),
         });
         let dispatcher = Arc::new(EventDispatcher::new(
             PartitionRouter::new(64),

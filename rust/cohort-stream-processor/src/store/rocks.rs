@@ -181,6 +181,16 @@ pub enum StoreError {
     )]
     SchemaMismatch { found: Option<u32>, expected: u32 },
 
+    /// A batched read answered fewer slots than it was asked keys. RocksDB answers one slot per
+    /// key, so this is a backend contract break rather than a data problem — and pairing a slot
+    /// with the wrong key would attribute one person's stored state to another.
+    #[error("{op}: batched read answered {answered} of {asked} keys")]
+    ShortRead {
+        op: &'static str,
+        asked: usize,
+        answered: usize,
+    },
+
     #[error("store offload cancelled by runtime shutdown")]
     OffloadCancelled,
 }
@@ -436,21 +446,24 @@ impl CohortStore {
         self.get(Cf::Behavioral, &key.encode())
     }
 
-    /// Batch-read several `cf_behavioral` values in one call, preserving input order.
-    pub fn multi_get_behavioral(
+    /// One batched read of `cf`, preserving input order. Every typed `multi_get_*` routes through
+    /// it, so none can skip the empty-batch guard or label its errors differently.
+    fn multi_get_ordered<K, B: AsRef<[u8]>>(
         &self,
-        keys: &[BehavioralKey],
+        cf: Cf,
+        keys: &[K],
+        encode: impl Fn(&K) -> B,
     ) -> Result<Vec<Option<Vec<u8>>>, StoreError> {
         // An empty batch is not a read: skip it so it records no phantom read-latency sample.
         if keys.is_empty() {
             return Ok(Vec::new());
         }
-        let handle = self.cf(Cf::Behavioral)?;
-        let encoded: Vec<_> = keys.iter().map(BehavioralKey::encode).collect();
+        let handle = self.cf(cf)?;
+        let encoded: Vec<B> = keys.iter().map(encode).collect();
         let started = Instant::now();
         let results = self
             .db
-            .multi_get_cf(encoded.iter().map(|key| (handle, key.as_slice())));
+            .multi_get_cf(encoded.iter().map(|key| (handle, key.as_ref())));
         record_multi_get(started, keys.len());
         results
             .into_iter()
@@ -464,6 +477,30 @@ impl CohortStore {
                 })
             })
             .collect()
+    }
+
+    /// Batch-read several `cf_behavioral` values in one call, preserving input order.
+    pub fn multi_get_behavioral(
+        &self,
+        keys: &[BehavioralKey],
+    ) -> Result<Vec<Option<Vec<u8>>>, StoreError> {
+        self.multi_get_ordered(Cf::Behavioral, keys, BehavioralKey::encode)
+    }
+
+    /// Batch-read several `cf_person_records` values in one call, preserving input order.
+    pub fn multi_get_person_records(
+        &self,
+        keys: &[PersonRecordKey],
+    ) -> Result<Vec<Option<Vec<u8>>>, StoreError> {
+        self.multi_get_ordered(Cf::PersonRecords, keys, PersonRecordKey::encode)
+    }
+
+    /// Batch-read several `cf_merge_tombstones` values in one call, preserving input order.
+    pub fn multi_get_tombstones(
+        &self,
+        keys: &[TombstoneKey],
+    ) -> Result<Vec<Option<Vec<u8>>>, StoreError> {
+        self.multi_get_ordered(Cf::MergeTombstones, keys, TombstoneKey::encode)
     }
 
     /// Point-read one person's `cf_person_records` value as raw bytes. Decoding into a
@@ -597,29 +634,7 @@ impl CohortStore {
 
     /// Batch-read several `cf_stage2` values in one call, preserving input order.
     pub fn multi_get_stage2(&self, keys: &[Stage2Key]) -> Result<Vec<Option<Vec<u8>>>, StoreError> {
-        // An empty batch is not a read: skip it so it records no phantom read-latency sample.
-        if keys.is_empty() {
-            return Ok(Vec::new());
-        }
-        let handle = self.cf(Cf::Stage2)?;
-        let encoded: Vec<_> = keys.iter().map(Stage2Key::encode).collect();
-        let started = Instant::now();
-        let results = self
-            .db
-            .multi_get_cf(encoded.iter().map(|key| (handle, key.as_slice())));
-        record_multi_get(started, keys.len());
-        results
-            .into_iter()
-            .map(|result| {
-                result.map_err(|source| {
-                    counter!(STORE_ERRORS_TOTAL, "op" => OP_MULTI_GET).increment(1);
-                    StoreError::Backend {
-                        op: OP_MULTI_GET,
-                        source,
-                    }
-                })
-            })
-            .collect()
+        self.multi_get_ordered(Cf::Stage2, keys, Stage2Key::encode)
     }
 
     /// Scan up to `limit` keys in one partition/team/cohort slice of `cf_stage2`, in person order,
@@ -1450,6 +1465,14 @@ mod tests {
         PersonRecordKey::new(partition, 7, Uuid::from_u128(person))
     }
 
+    fn tombstone_key(person: u128) -> TombstoneKey {
+        TombstoneKey {
+            partition_id: 3,
+            team_id: 7,
+            person: Uuid::from_u128(person),
+        }
+    }
+
     #[test]
     fn wipe_on_start_clears_existing_state_and_is_a_noop_when_off() {
         let dir = TempDir::new().unwrap();
@@ -1634,6 +1657,65 @@ mod tests {
             store.multi_get_behavioral(&[]).unwrap().is_empty(),
             "an empty key set reads no values",
         );
+    }
+
+    /// A hole that shifted the answers would pair one person's record with another person's key,
+    /// folding a seed onto the wrong state.
+    #[test]
+    fn multi_get_person_records_preserves_order_and_reports_absent_keys() {
+        let dir = TempDir::new().unwrap();
+        let store = CohortStore::open(&StoreConfig {
+            path: dir.path().join("db"),
+            ..StoreConfig::default()
+        })
+        .unwrap();
+
+        let a = record_key(3, 1);
+        let b = record_key(3, 2);
+        let absent = record_key(3, 9);
+        store
+            .write_batch(|batch| {
+                batch.put::<PersonRecords>(&a, b"alpha");
+                batch.put::<PersonRecords>(&b, b"bravo");
+            })
+            .unwrap();
+
+        let results = store.multi_get_person_records(&[a, absent, b]).unwrap();
+        assert_eq!(results.len(), 3);
+        assert_eq!(results[0].as_deref(), Some(b"alpha".as_slice()));
+        assert_eq!(results[1], None);
+        assert_eq!(results[2].as_deref(), Some(b"bravo".as_slice()));
+
+        assert!(store.multi_get_person_records(&[]).unwrap().is_empty());
+    }
+
+    /// A shifted answer here would route a seed through another person's merge chain.
+    #[test]
+    fn multi_get_tombstones_preserves_order_and_reports_absent_keys() {
+        let dir = TempDir::new().unwrap();
+        let store = CohortStore::open(&StoreConfig {
+            path: dir.path().join("db"),
+            ..StoreConfig::default()
+        })
+        .unwrap();
+
+        let a = tombstone_key(1);
+        let b = tombstone_key(2);
+        let absent = tombstone_key(9);
+        store
+            .write_batch(|batch| {
+                batch.put_tombstone(&a, b"alpha");
+                batch.put_tombstone(&b, b"bravo");
+            })
+            .unwrap();
+
+        let results = store.multi_get_tombstones(&[a, absent, b]).unwrap();
+        assert_eq!(results.len(), 3);
+        assert_eq!(results[0].as_deref(), Some(b"alpha".as_slice()));
+        assert_eq!(results[1], None);
+        assert_eq!(results[2].as_deref(), Some(b"bravo".as_slice()));
+
+        assert!(store.multi_get_tombstones(&[]).unwrap().is_empty());
     }
 
     #[test]

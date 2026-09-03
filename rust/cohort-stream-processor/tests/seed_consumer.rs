@@ -683,6 +683,7 @@ async fn spawn_instance(
             marker_sink,
         },
         person_seed: cohort_stream_processor::workers::PersonSeedDeps::default(),
+        seed_budget: cohort_stream_processor::workers::seed_run::RunBudget::default(),
     });
 
     let dispatcher = Arc::new(EventDispatcher::new(

@@ -1,52 +1,41 @@
 //! Applies person-property seeds to `cf_person_records`, giving dormant persons leaf state that
 //! otherwise only arrives on a live event carrying `person_properties`.
 //!
-//! [`Apply::run`] is the algorithm; the other [`Apply`] methods are its I/O steps and the free
-//! functions below are pure. Every step that must not commit returns [`SeedHold`], so the
-//! `Ok ⇒ mark, Err ⇒ hold` decision lives in [`handle_person_seed`] alone.
+//! [`PersonHead`] is this path's half of a seed run: route, read, fold. The free functions below
+//! are pure. [`seed_apply`](crate::workers::seed_apply) owns everything after the fold, so the
+//! `Ok ⇒ mark, Err ⇒ hold` decision lives at one site for both seed kinds.
 //!
 //! Ordering against live traffic is [`person_seed_verdict`]'s job, not the apply fence's: a person
 //! seed carries no arrival bound over the event stream, so it admits fence-open. The partition-wide
 //! live-lag, disk, and channel-full holds still apply.
 
-use std::sync::Arc;
+use std::collections::{BTreeMap, BTreeSet};
 
-use chrono::Utc;
-use cohort_core::seed::PersonSeed;
+use cohort_core::seed::{PersonSeed, RunId};
 use metrics::counter;
 use tracing::{debug, warn};
 use uuid::Uuid;
 
-use crate::filters::manager::CatalogHandle;
 use crate::filters::reverse_index::TeamFilters;
+use crate::filters::TeamId;
 use crate::merge::tombstone_redirect::{self, MAX_CROSS_PARTITION_REDIRECT_HOPS};
-use crate::observability::metrics::{
-    PERSON_SEEDS_APPLIED_TOTAL, PERSON_SEEDS_DROPPED_TOTAL, PERSON_SEEDS_SKIPPED_TOTAL,
-    PERSON_SEEDS_UNCHANGED_TOTAL, PERSON_SEED_HASHES_DROPPED_TOTAL,
-    PERSON_SEED_PRIOR_CORRUPT_TOTAL, PERSON_SEED_REKEYED_TOTAL, PERSON_SEED_REKEY_HOP_CAPPED_TOTAL,
-    PERSON_SEED_REKEY_PRODUCE_FAILURE_TOTAL, STAGE1_TRANSITIONS,
-};
-use crate::producer::{CohortMembershipChange, MembershipSink};
+use crate::observability::metrics::PERSON_SEED_HASHES_DROPPED_TOTAL;
 use crate::stage1::key::LeafStateKey;
 use crate::stage1::person_record::{
     apply_person_seed, person_seed_verdict, MatchedSet, PersonRecord, PersonSeedOutcome,
     PersonSeedVerdict, PriorRecord,
 };
 use crate::stage1::state::StateVariant;
-use crate::stage1::transition::LeafTransition;
-use crate::stage2::Stage2State;
-use crate::store::{
-    PersonPrefix, PersonRecordKey, PersonRecords, ReadLane, Stage2Key, StagedBatch, StoreError,
-    StoreHandle,
+use crate::stage1::transition::{LeafTransition, TransitionKind};
+use crate::store::{PersonPrefix, PersonRecordKey, PersonRecords, ReadLane, StagedBatch};
+use crate::workers::seed_apply::{
+    ApplyDeps, ApplyStage, Decoded, Folded, Outcome, Overlay, ReKeys, RunStamp, SeedHead, SeedHold,
+    StageClock, Tally, TouchedPersons,
 };
-use crate::workers::merge_path::MergeWorkerDeps;
-use crate::workers::seed_path::{hold, mark_processed, route_seed, tag_seed, SeedRoute};
-use crate::workers::stage2_path::{
-    commit_stage2_writes, diff_single_leaf_registers, recompute_stage2, FoldedLeaf, Stage2Recompute,
-};
-use crate::workers::worker::{
-    first_cascades, produce_cascades, produce_membership, transition_metric_label,
-};
+use crate::workers::seed_path::{route_seed, SeedRoute};
+use crate::workers::seed_run::{Admitted, OffsetSpan, SeedKind, SeedRun};
+use crate::workers::stage2_path::FoldedLeaf;
+use crate::workers::worker::transition_metric_label;
 
 /// Person-property seed admission for the partition workers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -69,344 +58,340 @@ impl Default for PersonSeedDeps {
     }
 }
 
-/// Handle one person seed on its owning partition worker; touches the seed tracker only.
-///
-/// `Ok` means every durable effect landed, or the seed was skipped on purpose, and the offset may
-/// commit. [`SeedHold`] means Kafka must redeliver.
-#[allow(clippy::too_many_arguments)]
-pub(crate) async fn handle_person_seed(
-    partition_id: u16,
-    handle: &StoreHandle,
-    catalog: &CatalogHandle,
-    sink: &Arc<dyn MembershipSink>,
-    merge: &MergeWorkerDeps,
-    last_updated: &str,
-    seed: &PersonSeed,
-    offset: i64,
-) {
-    let apply = Apply {
-        partition_id,
-        handle,
-        catalog,
-        sink,
-        merge,
-        last_updated,
-        seed,
-        offset,
-    };
-    match apply.run().await {
-        Ok(()) => mark_processed(&merge.seed_tracker, partition_id, offset),
-        Err(held) => {
-            warn!(
-                partition_id,
-                team_id = seed.team_id().0,
-                run_id = %seed.run_id().0,
-                error = %held,
-                "person seed apply failed; holding the seed offset for redelivery",
+/// The person head: route each seed, read every record the run can touch in one batch, and fold
+/// them into an overlay. Everything after this is [`seed_apply`](crate::workers::seed_apply)'s.
+pub(crate) struct PersonHead;
+
+impl SeedHead for PersonHead {
+    type Seed = PersonSeed;
+    const KIND: SeedKind = SeedKind::Person;
+
+    async fn fold(
+        deps: ApplyDeps<'_>,
+        run: SeedRun<PersonSeed>,
+        _stamp: &RunStamp,
+        clock: &mut StageClock,
+    ) -> Result<Folded, SeedHold> {
+        let span = run.span();
+        let mut tally = Tally::default();
+
+        if !deps.merge.person_seed.enabled {
+            // A gate-off run is one message per scanned person, so this stays off `warn!` and
+            // leans on `cohort_person_seeds_skipped_total{reason="apply_disabled"}` for the signal.
+            for _ in 0..run.len() {
+                tally.add(Outcome::PersonSkipped("apply_disabled"));
+            }
+            debug!(
+                partition_id = deps.partition_id,
+                seeds = run.len(),
+                "person seed run skipped while person apply is disabled; re-produce the run after enabling",
             );
-            hold(&merge.seed_tracker, partition_id, offset);
+            clock.mark(ApplyStage::Fold);
+            return Ok(Folded::nothing(span, ReKeys::Persons(Vec::new()), tally));
         }
+
+        let Routed { local, re_keys } = route_person_seeds(deps, run, &mut tally).await?;
+        clock.mark(ApplyStage::Resolve);
+
+        let overlay = read_person_records(deps, &local, &mut tally).await?;
+        clock.mark(ApplyStage::Read);
+
+        let folded = fold_person_seeds(deps, span, local, re_keys, overlay, tally);
+        clock.mark(ApplyStage::Fold);
+        Ok(folded)
     }
 }
 
-/// A failure that must not commit. `stage` is what tells an operator which half of the apply broke.
-#[derive(Debug, thiserror::Error)]
-enum SeedHold {
-    #[error("{stage}: {source}")]
-    Store {
-        stage: &'static str,
-        source: StoreError,
-    },
-    #[error("{stage}: {errors} message(s) failed to produce")]
-    Produce { stage: &'static str, errors: usize },
+/// One person seed that applies on this partition, with everything its fold needs resolved.
+struct LocalPersonSeed<'a> {
+    seed: PersonSeed,
+    person: Uuid,
+    filters: &'a TeamFilters,
+    effective: EffectiveHashes,
+    record_key: PersonRecordKey,
 }
 
-impl SeedHold {
-    /// `map_err` adapter that labels a store failure with the step that hit it.
-    fn store(stage: &'static str) -> impl FnOnce(StoreError) -> Self {
-        move |source| Self::Store { stage, source }
+struct Routed<'a> {
+    local: Vec<LocalPersonSeed<'a>>,
+    re_keys: Vec<PersonSeed>,
+}
+
+/// Resolve every distinct person's tombstone chain in one batched read, then split the run into
+/// what applies here and what hands off.
+///
+/// The catalog checks run first: the catalog is team-wide, so a seed nothing backs is dropped
+/// identically on the survivor's partition, and resolving first would spend a store read and
+/// possibly a cross-partition re-produce on a message already doomed.
+///
+/// A read failure is fail-stop: a seed applied to a merged-away person is durable state that
+/// nothing downstream can retract, so a missing verdict holds the run rather than reading as
+/// not-merged.
+async fn route_person_seeds<'a>(
+    deps: ApplyDeps<'a>,
+    run: SeedRun<PersonSeed>,
+    tally: &mut Tally,
+) -> Result<Routed<'a>, SeedHold> {
+    let mut placed: Vec<(PersonSeed, &TeamFilters, EffectiveHashes)> =
+        Vec::with_capacity(run.len());
+    for Admitted { work: seed, .. } in run.into_items() {
+        let Some(filters) = deps.team(seed.team_id()) else {
+            tally.add(Outcome::PersonDropped("team_absent"));
+            continue;
+        };
+        let Some(effective) = effective_hashes(filters, &seed) else {
+            tally.add(Outcome::PersonDropped("no_effective_hashes"));
+            continue;
+        };
+        placed.push((seed, filters, effective));
     }
-}
 
-struct Apply<'a> {
-    partition_id: u16,
-    handle: &'a StoreHandle,
-    catalog: &'a CatalogHandle,
-    sink: &'a Arc<dyn MembershipSink>,
-    merge: &'a MergeWorkerDeps,
-    last_updated: &'a str,
-    seed: &'a PersonSeed,
-    offset: i64,
-}
+    let mut persons: Vec<(TeamId, Uuid)> = placed
+        .iter()
+        .map(|(seed, _, _)| (seed.team_id(), seed.person_id()))
+        .collect();
+    persons.sort_unstable();
+    persons.dedup();
+    let resolved = tombstone_redirect::resolve_batch_offloaded(
+        deps.handle,
+        deps.partition_id,
+        &persons,
+        deps.merge.partition_count,
+        ReadLane::Maintenance,
+    )
+    .await
+    .map_err(SeedHold::store(ApplyStage::Resolve))?;
+    SeedHold::check_read(ApplyStage::Resolve, persons.len(), resolved.len())?;
 
-impl Apply<'_> {
-    /// Each `return Ok(())` is a terminal skip whose offset commits; each `?` holds it.
-    async fn run(&self) -> Result<(), SeedHold> {
-        if !self.merge.person_seed.enabled {
-            self.skip_gate_off();
-            return Ok(());
-        }
-
-        let snapshot = self.catalog.load();
-        let Some(filters) = snapshot.team(self.seed.team_id()) else {
-            counter!(PERSON_SEEDS_DROPPED_TOTAL, "reason" => "team_absent").increment(1);
-            return Ok(());
+    let mut local = Vec::with_capacity(placed.len());
+    let mut re_keys = Vec::new();
+    for (seed, filters, effective) in placed {
+        let resolution = resolved[&(seed.team_id(), seed.person_id())];
+        let person = match route_seed(&seed, resolution, MAX_CROSS_PARTITION_REDIRECT_HOPS) {
+            SeedRoute::ApplyLocal { person } => person,
+            SeedRoute::ReProduce { seed: rekeyed } => {
+                tally.add(Outcome::ReKeyed(SeedKind::Person));
+                re_keys.push(rekeyed);
+                continue;
+            }
+            // Apply at the best-known target once the hop budget is spent, matching the tile and
+            // event paths: an orphaned row beats a silent seed loss, and holding the run instead
+            // would stall every later seed on the partition behind a tombstone cycle that will
+            // never resolve. The row lands under this worker's partition prefix, which the
+            // survivor's own worker never reads. No sweep owns it — only the `cf_person_records`
+            // TTL reclaims it, and `apply_person_seed` floors `last_seen_ms` at the scan instant
+            // so it does age out wherever `COHORT_PERSON_RECORD_TTL_DAYS` is set.
+            SeedRoute::CapExhausted { person } => {
+                tally.add(Outcome::HopCapped(SeedKind::Person));
+                warn!(
+                    partition_id = deps.partition_id,
+                    team_id = seed.team_id().0,
+                    %person,
+                    hops = seed.redirect_hops(),
+                    "person seed redirect hop cap hit (corrupt tombstone cycle?); applying inline at the best-known target",
+                );
+                person
+            }
         };
-
-        // Ahead of the tombstone resolution: the catalog is team-wide, so a seed nothing backs is
-        // dropped identically on the survivor's partition, and resolving first would spend a store
-        // read and possibly a cross-partition re-produce on a message already doomed.
-        let Some(effective) = effective_hashes(filters, self.seed) else {
-            counter!(PERSON_SEEDS_DROPPED_TOTAL, "reason" => "no_effective_hashes").increment(1);
-            return Ok(());
-        };
-
-        let Target::Local(person) = self.resolve_target().await? else {
-            return Ok(());
-        };
-
         let record_key =
-            PersonPrefix::new(self.partition_id, self.seed.team_id().0 as u64, person).record_key();
-        let prior = self.read_record(&record_key).await?;
+            PersonPrefix::new(deps.partition_id, seed.team_id().0 as u64, person).record_key();
+        local.push(LocalPersonSeed {
+            seed,
+            person,
+            filters,
+            effective,
+            record_key,
+        });
+    }
+    Ok(Routed { local, re_keys })
+}
+
+/// One `multi_get` over every record the run can touch, on the maintenance lane so backfill never
+/// contends with live event reads.
+///
+/// A row that exists but does not decode is counted here, the way the event path counts it: the
+/// fold rebuilds from an absent baseline, so without the counter a real codec failure is
+/// indistinguishable from a dormant person that never had a record.
+async fn read_person_records(
+    deps: ApplyDeps<'_>,
+    local: &[LocalPersonSeed<'_>],
+    tally: &mut Tally,
+) -> Result<Overlay<PersonRecordKey, PersonRecord>, SeedHold> {
+    let mut keys: Vec<PersonRecordKey> = local.iter().map(|seed| seed.record_key).collect();
+    keys.sort_unstable();
+    keys.dedup();
+
+    let values = deps
+        .handle
+        .multi_get_person_records(keys.clone(), ReadLane::Maintenance)
+        .await
+        .map_err(SeedHold::store(ApplyStage::Read))?;
+    let overlay =
+        Overlay::from_read(
+            ApplyStage::Read,
+            keys,
+            values,
+            |bytes| match PersonRecord::decode(bytes) {
+                Ok(record) => Decoded::Value(record),
+                Err(_) => Decoded::Corrupt,
+            },
+        )?;
+    for _ in 0..overlay.prior_corrupt_rows() {
+        tally.add(Outcome::PriorCorrupt);
+    }
+    Ok(overlay)
+}
+
+/// What the run left on one person, carried from the fold to the emit.
+struct PersonTouch<'a> {
+    team_id: TeamId,
+    filters: &'a TeamFilters,
+    person: Uuid,
+    /// Every effective evaluated hash of every seed that touched this person, `SkipLiveFresh` ones
+    /// included: a register left `true` by a produce that never acked is only found by diffing the
+    /// hashes the record does not match.
+    hashes: BTreeSet<[u8; 16]>,
+    run_id: RunId,
+}
+
+/// Fold every local seed into the overlay in offset order, then read the run's durable intent off
+/// the touched slots.
+fn fold_person_seeds(
+    deps: ApplyDeps<'_>,
+    span: OffsetSpan,
+    local: Vec<LocalPersonSeed<'_>>,
+    re_keys: Vec<PersonSeed>,
+    mut overlay: Overlay<PersonRecordKey, PersonRecord>,
+    mut tally: Tally,
+) -> Folded {
+    let margin_ms = deps.merge.person_seed.live_margin_ms;
+    let mut touches: BTreeMap<PersonRecordKey, PersonTouch<'_>> = BTreeMap::new();
+    let mut recompose = TouchedPersons::default();
+
+    for local in &local {
+        let team_id = local.seed.team_id();
+        let run_id = local.seed.run_id();
+        let slot = overlay
+            .slot_mut(&local.record_key)
+            .expect("the read pass keyed a slot for every person this run can touch");
+        // Read-your-writes covers the verdict, not just the record: a second seed for the same
+        // person in a run sees the first seed's stamp and zeroed fingerprints and gets
+        // `SkipLiveFresh`, exactly as it would in a later run.
+        let prior = match slot.current() {
+            Some(record) => PriorRecord::Present(record.clone()),
+            None if slot.prior_corrupt() => PriorRecord::Corrupt,
+            None => PriorRecord::Absent,
+        };
         let verdict = person_seed_verdict(
             &prior,
-            self.seed.scanned_at_ms(),
-            self.merge.person_seed.live_margin_ms,
-            filters.catalog_fingerprint,
+            local.seed.scanned_at_ms(),
+            margin_ms,
+            local.filters.catalog_fingerprint,
         );
         // A live-fresh skip is not merged at all: the stored state already subsumes the seed.
         let update = match verdict {
             PersonSeedVerdict::SkipLiveFresh => RecordUpdate::Unchanged,
             _ => record_update(
                 &prior,
-                self.seed,
-                person,
-                &effective,
-                self.merge.person_seed.live_margin_ms,
+                &local.seed,
+                local.person,
+                &local.effective,
+                margin_ms,
             ),
         };
-
-        let now_ms = Utc::now().timestamp_millis();
-        // Read the registers before the pre-writes land, so a row this apply is about to place
-        // cannot be mistaken for one an earlier apply already told downstream about.
-        let folded = folded_leaves(&effective, person, &update, &prior);
-        let diff = diff_single_leaf_registers(
-            self.partition_id,
-            self.handle,
-            filters,
-            &folded,
-            now_ms,
-            self.last_updated,
-            ReadLane::Maintenance,
-        )
-        .await
-        .map_err(SeedHold::store("register read"))?;
-
-        self.commit_stage1(&record_key, &update, &diff.stage1_writes)
-            .await?;
-        count_stage1_transitions(filters, update.transitions());
-        // A lagging register is its own reason to emit: the redelivery of a failed produce merges
-        // to `Unchanged` and mints nothing, so `recomposes` alone would stay silent.
-        if recomposes(&update, verdict, &prior) || !diff.recompute.is_empty() {
-            self.emit(filters, &effective.leaves(person), diff.recompute, now_ms)
-                .await?;
+        tally.add(update.outcome(verdict));
+        let recomposes_this = recomposes(&update, verdict, &prior);
+        match update {
+            RecordUpdate::Changed { record, .. } => slot.advance(record),
+            RecordUpdate::Unchanged => slot.touch(),
         }
-        // Counted last: an emit failure holds the offset, and the redelivery re-derives the verdict
-        // against the record this attempt already wrote, so counting any earlier counts one seed
-        // twice under two different arms.
-        update.record_metric(verdict);
-        Ok(())
-    }
 
-    /// A gate-off run is one message per scanned person, so this stays off `warn!` and leans on
-    /// `cohort_person_seeds_skipped_total{reason="apply_disabled"}` for the signal.
-    fn skip_gate_off(&self) {
-        counter!(PERSON_SEEDS_SKIPPED_TOTAL, "reason" => "apply_disabled").increment(1);
-        debug!(
-            partition_id = self.partition_id,
-            team_id = self.seed.team_id().0,
-            run_id = %self.seed.run_id().0,
-            "person seed skipped while person apply is disabled; re-produce the run after enabling",
-        );
-    }
-
-    /// A read failure is fail-stop: a seed applied to a merged-away person is durable state that
-    /// nothing downstream can retract.
-    async fn resolve_target(&self) -> Result<Target, SeedHold> {
-        let resolution = tombstone_redirect::resolve_offloaded(
-            self.handle,
-            self.partition_id,
-            self.seed.team_id(),
-            self.seed.person_id(),
-            self.merge.partition_count,
-            ReadLane::Maintenance,
-        )
-        .await
-        .map_err(SeedHold::store("tombstone preflight"))?;
-
-        match route_seed(self.seed, resolution, MAX_CROSS_PARTITION_REDIRECT_HOPS) {
-            SeedRoute::ApplyLocal { person } => Ok(Target::Local(person)),
-            SeedRoute::ReProduce { seed: rekeyed } => self.hand_off(rekeyed).await,
-            SeedRoute::CapExhausted { person } => Ok(self.degrade_to(person)),
-        }
-    }
-
-    /// Re-produce onto the survivor's partition. This is the seed's only remaining copy, so the
-    /// caller may not commit until exactly one `Ok` acks; an empty ack vector is a failure, not a
-    /// vacuous success.
-    async fn hand_off(&self, rekeyed: PersonSeed) -> Result<Target, SeedHold> {
-        let acks = self
-            .merge
-            .seed_tile_sink
-            .produce_person(vec![rekeyed])
-            .await;
-        if !matches!(acks.as_slice(), [Ok(())]) {
-            counter!(PERSON_SEED_REKEY_PRODUCE_FAILURE_TOTAL).increment(1);
-            return Err(SeedHold::Produce {
-                stage: "re-key produce",
-                errors: 1,
+        let touch = touches
+            .entry(local.record_key)
+            .or_insert_with(|| PersonTouch {
+                team_id,
+                filters: local.filters,
+                person: local.person,
+                hashes: BTreeSet::new(),
+                run_id,
             });
+        touch.run_id = run_id;
+        touch
+            .hashes
+            .extend(local.effective.evaluated.iter().copied());
+        if recomposes_this {
+            for (leaf, person) in local.effective.leaves(local.person) {
+                recompose.touch(team_id, person, run_id, leaf);
+            }
         }
-        counter!(PERSON_SEED_REKEYED_TOTAL).increment(1);
-        Ok(Target::HandedOff)
     }
 
-    /// Apply at the best-known target once the hop budget is spent, matching the tile and event
-    /// paths: an orphaned row beats a silent seed loss, and holding the offset instead would stall
-    /// every later seed on the partition behind a tombstone cycle that will never resolve.
-    ///
-    /// The row lands under this worker's partition prefix, which the survivor's own worker never
-    /// reads. Unlike the tile path's orphan, no sweep owns it — only the `cf_person_records` TTL
-    /// reclaims it, and `apply_person_seed` floors `last_seen_ms` at the scan instant so it does age
-    /// out wherever `COHORT_PERSON_RECORD_TTL_DAYS` is set.
-    fn degrade_to(&self, person: Uuid) -> Target {
-        counter!(PERSON_SEED_REKEY_HOP_CAPPED_TOTAL).increment(1);
-        warn!(
-            partition_id = self.partition_id,
-            team_id = self.seed.team_id().0,
-            %person,
-            hops = self.seed.redirect_hops(),
-            "person seed redirect hop cap hit (corrupt tombstone cycle?); applying inline at the best-known target",
-        );
-        Target::Local(person)
+    let mut records = StagedBatch::default();
+    let mut leaves: BTreeMap<TeamId, Vec<FoldedLeaf>> = BTreeMap::new();
+    for (key, touch) in &touches {
+        let slot = overlay
+            .slot(key)
+            .expect("every touch came from a slot the read pass keyed");
+        if let Some(record) = slot.advanced() {
+            records.put::<PersonRecords>(key, &record.encode());
+        }
+        // A person with no stored record and no write has no leaves: nothing was durably
+        // evaluated, so there is no register to diff. That is the dominant scan shape, a
+        // non-matching dormant person, which stays at one batched read slot and no write.
+        let evaluated = slot.advanced().is_some() || slot.before().is_some();
+        if !evaluated && !slot.prior_corrupt() {
+            continue;
+        }
+        for hash in &touch.hashes {
+            // An unreadable row survives only under seeds that matched nothing, so the seeds are
+            // the one readable evaluation and they say no matches, which is also how the
+            // composition reads the row.
+            let in_cohort = evaluated
+                && slot
+                    .current()
+                    .is_some_and(|record| record.matched.contains(hash));
+            let before = slot
+                .before()
+                .is_some_and(|record| record.matched.contains(hash));
+            let minted_transition = before != in_cohort;
+            leaves.entry(touch.team_id).or_default().push(FoldedLeaf {
+                leaf_state_key: LeafStateKey::for_person_property(hash),
+                person_id: touch.person,
+                in_cohort,
+                minted_transition,
+                run_id: touch.run_id,
+            });
+            if minted_transition {
+                let kind = if in_cohort {
+                    TransitionKind::Entered
+                } else {
+                    TransitionKind::Left
+                };
+                let transition = LeafTransition {
+                    team_id: touch.team_id,
+                    leaf_state_key: LeafStateKey::for_person_property(hash),
+                    person_id: touch.person,
+                    condition_hash: *hash,
+                    kind,
+                };
+                // Stage-1 flips, not emissions: the register diff owns what downstream is told.
+                if let Some(label) = transition_metric_label(touch.filters, &transition) {
+                    tally.add(Outcome::Stage1Transition(label));
+                }
+            }
+        }
     }
 
-    /// Maintenance lane: backfill must not contend with live event reads.
-    ///
-    /// A row that exists but does not decode is counted here, the way the event path counts it: the
-    /// apply rebuilds from an absent baseline, so without the counter a real codec failure is
-    /// indistinguishable from a dormant person that never had a record.
-    async fn read_record(&self, key: &PersonRecordKey) -> Result<PriorRecord, SeedHold> {
-        let stored = self
-            .handle
-            .get_person_record(key, ReadLane::Maintenance)
-            .await
-            .map_err(SeedHold::store("person record read"))?;
-        let prior = PriorRecord::decode(stored.as_deref());
-        if matches!(prior, PriorRecord::Corrupt) {
-            counter!(PERSON_SEED_PRIOR_CORRUPT_TOTAL).increment(1);
-        }
-        Ok(prior)
-    }
-
-    /// One batch, so a register the diff pre-writes is never stranded without the record that
-    /// justifies it. Those are the only registers written here: a real bit waits for its produce
-    /// to ack, while the pre-write records what downstream held before it and needs no ack.
-    async fn commit_stage1(
-        &self,
-        key: &PersonRecordKey,
-        update: &RecordUpdate,
-        stage1_writes: &[(Stage2Key, Stage2State)],
-    ) -> Result<(), SeedHold> {
-        let mut staged = StagedBatch::default();
-        if let RecordUpdate::Changed { record, .. } = update {
-            staged.put::<PersonRecords>(key, &record.encode());
-        }
-        for (key, state) in stage1_writes {
-            staged.put_stage2(key, &state.encode());
-        }
-        if staged.is_empty() {
-            return Ok(());
-        }
-        self.handle
-            .commit(staged)
-            .await
-            .map_err(SeedHold::store("person record commit"))
-    }
-
-    /// Recomposes every evaluated leaf, not just the ones this seed flipped, so a crash between the
-    /// two commits heals on replay ([`recomposes`] is what admits the healing pass).
-    ///
-    /// `registers` carries the single-leaf half the caller already diffed. Both halves commit only
-    /// after the produces ack, so every emitted change stays re-derivable: a composed flip from the
-    /// stored bit it did not advance, a single-leaf one from the register it did not advance.
-    async fn emit(
-        &self,
-        filters: &TeamFilters,
-        leaves: &[(LeafStateKey, Uuid)],
-        registers: Stage2Recompute,
-        now_ms: i64,
-    ) -> Result<(), SeedHold> {
-        let mut recompute = registers;
-        recompute.extend(
-            recompute_stage2(
-                self.partition_id,
-                self.handle,
-                filters,
-                leaves,
-                now_ms,
-                self.last_updated,
-                ReadLane::Maintenance,
-            )
-            .await
-            .map_err(SeedHold::store("stage 2 recompute"))?,
-        );
-
-        let mut changes = std::mem::take(&mut recompute.changes);
-        tag_seed(&mut changes, self.seed.run_id());
-        self.produce(changes).await?;
-
-        commit_stage2_writes(self.handle, &recompute.writes)
-            .await
-            .map_err(SeedHold::store("stage 2 commit"))?;
-        recompute.record_metrics();
+    Folded {
+        span,
+        records,
+        leaves,
+        recompose,
         // Nothing to schedule: person-property membership has no window, so the sweep never owns
         // these leaves.
-        Ok(())
+        schedules: Vec::new(),
+        re_keys: ReKeys::Persons(re_keys),
+        tally,
     }
-
-    async fn produce(&self, changes: Vec<CohortMembershipChange>) -> Result<(), SeedHold> {
-        // Built first: the cascade payload embeds the change, and `produce_membership` consumes it.
-        let cascades = first_cascades(self.merge, &changes, self.offset);
-
-        let errors = if changes.is_empty() {
-            0
-        } else {
-            produce_membership(self.sink, changes).await
-        };
-        if errors > 0 {
-            return Err(SeedHold::Produce {
-                stage: "membership produce",
-                errors,
-            });
-        }
-
-        let errors = produce_cascades(self.merge, cascades).await;
-        if errors > 0 {
-            return Err(SeedHold::Produce {
-                stage: "cascade produce",
-                errors,
-            });
-        }
-        Ok(())
-    }
-}
-
-/// Where a seed's work belongs once its tombstone chain is resolved.
-enum Target {
-    Local(Uuid),
-    /// Re-produced to the survivor's partition; this worker is done with it.
-    HandedOff,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -421,24 +406,14 @@ enum RecordUpdate {
 }
 
 impl RecordUpdate {
-    fn transitions(&self) -> &[LeafTransition] {
-        match self {
-            Self::Changed { transitions, .. } => transitions,
-            Self::Unchanged => &[],
-        }
-    }
-
     /// `verdict` labels the writing arm only: an unchanged merge says nothing about which verdict
-    /// admitted it.
-    fn record_metric(&self, verdict: PersonSeedVerdict) {
+    /// admitted it. Counted only once the run settles, so a hold cannot count one seed twice under
+    /// two different arms.
+    fn outcome(&self, verdict: PersonSeedVerdict) -> Outcome {
         match (self, verdict) {
-            (_, PersonSeedVerdict::SkipLiveFresh) => {
-                counter!(PERSON_SEEDS_SKIPPED_TOTAL, "reason" => "stale_vs_live").increment(1);
-            }
-            (Self::Changed { .. }, _) => {
-                counter!(PERSON_SEEDS_APPLIED_TOTAL, "verdict" => verdict.as_str()).increment(1);
-            }
-            (Self::Unchanged, _) => counter!(PERSON_SEEDS_UNCHANGED_TOTAL).increment(1),
+            (_, PersonSeedVerdict::SkipLiveFresh) => Outcome::PersonSkipped("stale_vs_live"),
+            (Self::Changed { .. }, _) => Outcome::PersonApplied(verdict.as_str()),
+            (Self::Unchanged, _) => Outcome::PersonUnchanged,
         }
     }
 }
@@ -509,52 +484,6 @@ fn record_update(
     }
 }
 
-/// The person leaves this apply leaves behind, with the membership the stored record implies.
-///
-/// A person with no stored record has none: nothing was durably evaluated, so there is no register
-/// to diff. That is the dominant scan shape, a non-matching dormant person, which stays at one
-/// point read and no write. A person with a record folds every evaluated hash, matched or not,
-/// because a register left at `true` by a produce that never acked is only found by diffing the
-/// hashes the record does not match.
-fn folded_leaves(
-    effective: &EffectiveHashes,
-    person: Uuid,
-    update: &RecordUpdate,
-    prior: &PriorRecord,
-) -> Vec<FoldedLeaf> {
-    let matched = match (update, prior) {
-        (RecordUpdate::Changed { record, .. }, _) => Some(&record.matched),
-        (RecordUpdate::Unchanged, PriorRecord::Present(record)) => Some(&record.matched),
-        // An unreadable row survives only under a seed that matched nothing, so the seed is the one
-        // readable evaluation and it says no matches, which is also how the composition reads the
-        // row.
-        (RecordUpdate::Unchanged, PriorRecord::Corrupt) => None,
-        (RecordUpdate::Unchanged, PriorRecord::Absent) => return Vec::new(),
-    };
-    let transitions = update.transitions();
-    effective
-        .evaluated
-        .iter()
-        .map(|hash| FoldedLeaf {
-            leaf_state_key: LeafStateKey::for_person_property(hash),
-            person_id: person,
-            in_cohort: matched.is_some_and(|matched| matched.contains(hash)),
-            minted_transition: transitions
-                .iter()
-                .any(|transition| transition.condition_hash == *hash),
-        })
-        .collect()
-}
-
-/// Stage-1 flips, not emissions: the register diff owns what downstream is told.
-fn count_stage1_transitions(filters: &TeamFilters, transitions: &[LeafTransition]) {
-    for transition in transitions {
-        if let Some(kind) = transition_metric_label(filters, transition) {
-            counter!(STAGE1_TRANSITIONS, "kind" => kind).increment(1);
-        }
-    }
-}
-
 /// The seed's hashes projected onto the team's live person-property catalog.
 struct EffectiveHashes {
     /// Sorted and distinct, so [`effective_hashes`] can binary-search it.
@@ -614,17 +543,21 @@ fn effective_hashes(filters: &TeamFilters, seed: &PersonSeed) -> Option<Effectiv
 // Tests seed and assert against `CohortStore` directly, the sanctioned direct-store surface.
 #[allow(clippy::disallowed_methods)]
 mod tests {
+    use std::sync::Arc;
+
     use chrono_tz::UTC;
-    use cohort_core::seed::{ClaimEpoch, ConditionHash, RunId, ScannedAtMs};
+    use cohort_core::seed::{ClaimEpoch, ConditionHash, ScannedAtMs};
     use serde_json::{json, Value};
     use tempfile::TempDir;
 
     use crate::consumers::events::CohortStreamEvent;
+    use crate::filters::manager::CatalogHandle;
     use crate::filters::{CohortId, FilterCatalog, TeamFiltersBuilder, TeamId};
     use crate::merge::transfer::Tombstone;
     use crate::partitions::offset_tracker::OffsetTracker;
     use crate::partitions::partitioner::{partition_of, COHORT_PARTITION_COUNT};
     use crate::partitions::watermarks::LiveWatermarks;
+    use crate::producer::MembershipSink;
     use crate::producer::{
         CaptureCascadeSink, CaptureSeedTileSink, CaptureSink, CaptureStreamEventSink,
         CaptureTransferSink, ChangeOrigin, MembershipStatus,
@@ -632,10 +565,15 @@ mod tests {
     use crate::stage1::person_record::{PropsFingerprint, Stamp};
     use crate::stage1::state::AppliedOffsets;
     use crate::stage2::state::Stage2State;
+    use crate::store::{BehavioralKey, StoreHandle};
     use crate::store::{
         CohortStore, OffloadConfig, OffloadMode, Stage2Key, StoreConfig, TombstoneKey,
     };
+    use crate::sweep::EvictionQueue;
     use crate::workers::event_path::{process_event_gated, EventNameGating};
+    use crate::workers::merge_path::MergeWorkerDeps;
+    use crate::workers::seed_apply::{apply, BatchMarks};
+    use crate::workers::seed_run::{SeedOffset, SeedRun};
     use crate::workers::stage2_path::compose_stage2;
     use crate::workers::{CascadeConfig, ReconcileDeps, TransferRetryPolicy};
 
@@ -773,6 +711,7 @@ mod tests {
                     enabled: true,
                     live_margin_ms: MARGIN_MS,
                 },
+                seed_budget: crate::workers::seed_run::RunBudget::default(),
             };
             Self {
                 _dir: dir,
@@ -787,23 +726,41 @@ mod tests {
             }
         }
 
+        /// Apply one seed as a run of one, which is what a batch of one seed becomes.
         async fn run(&mut self, partition_id: u16, seed: &PersonSeed, offset: i64) {
+            self.run_batch(partition_id, vec![(seed.clone(), offset)])
+                .await;
+        }
+
+        /// Apply several seeds as one run, the way a channel batch of them applies.
+        async fn run_batch(&mut self, partition_id: u16, seeds: Vec<(PersonSeed, i64)>) {
+            let max = seeds.iter().map(|(_, offset)| *offset).max().unwrap();
             self.deps
                 .seed_tracker
-                .mark_dispatched(partition_id as i32, offset + 1);
+                .mark_dispatched(partition_id as i32, max + 1);
             let sink: Arc<dyn MembershipSink> = Arc::new(self.sink.clone());
-            let last_updated = self.clock.next();
-            handle_person_seed(
+            let snapshot = self.catalog.load();
+            let deps = ApplyDeps {
                 partition_id,
-                &self.handle,
-                &self.catalog,
-                &sink,
-                &self.deps,
-                &last_updated,
-                seed,
-                offset,
+                handle: &self.handle,
+                catalog: &snapshot,
+                sink: &sink,
+                merge: &self.deps,
+            };
+            let run = SeedRun::new(
+                seeds
+                    .into_iter()
+                    .map(|(work, offset)| Admitted {
+                        work,
+                        offset: SeedOffset(offset),
+                    })
+                    .collect(),
             )
-            .await;
+            .expect("a run of at least one seed");
+            let mut queue = EvictionQueue::<BehavioralKey>::new();
+            let mut marks = BatchMarks::default();
+            apply::<PersonHead>(deps, &mut queue, &mut self.clock, &mut marks, run).await;
+            marks.publish(&self.deps.seed_tracker, partition_id);
         }
 
         /// Without `person_properties`, this leaves behavioral state written and no person record.
@@ -1230,6 +1187,161 @@ mod tests {
              either, and store growth stays proportional to matchers",
         );
         assert_eq!(shell.committable(partition_id), Some(1));
+    }
+
+    // ---- runs of more than one seed ----
+
+    /// Read-your-writes has to cover the verdict, not just the record: the second seed for one
+    /// person must see the first seed's stamp and zeroed fingerprints and skip, exactly as it
+    /// would in a later run. Folding it against the run-start bytes would let the older scan
+    /// retract what the newer one matched.
+    #[tokio::test]
+    async fn a_second_seed_for_one_person_in_a_run_sees_the_first_seeds_write() {
+        let (person, partition_id) = dormant_person();
+        let mut shell = Shell::new(mixed_cohorts());
+        let scanned_at = now_ms();
+
+        shell
+            .run_batch(
+                partition_id,
+                vec![
+                    (
+                        seed_for(person, &[PERSON_HASH], &[PERSON_HASH], scanned_at),
+                        0,
+                    ),
+                    // A second scan of the same person, within the live margin of the first, so its
+                    // retraction must lose to the stamp the first seed installed.
+                    (seed_for(person, &[PERSON_HASH], &[], scanned_at), 1),
+                ],
+            )
+            .await;
+
+        let stored = shell
+            .record(partition_id, person)
+            .expect("the first seed created the record");
+        assert!(
+            stored.matched.contains(&hash(PERSON_HASH).as_bytes()),
+            "the second seed was live-fresh against the first seed's stamp, so it changed nothing",
+        );
+        assert!(shell.stage2(partition_id, person, 1).unwrap().in_cohort);
+        assert_eq!(shell.committable(partition_id), Some(2));
+    }
+
+    /// Splitting a person's leaves across two recompute calls would evaluate the composed cohort
+    /// twice against the same uncommitted bit and emit its flip twice.
+    #[tokio::test]
+    async fn a_person_touched_by_two_seeds_in_a_run_recomposes_once() {
+        let (person, partition_id) = dormant_person();
+        let mut shell = Shell::new(mixed_cohorts());
+        // The behavioral half of cohort 2, so the person composes in once the person half lands.
+        shell.live_pageview(partition_id, person, None);
+        let scanned_at = now_ms();
+
+        shell
+            .run_batch(
+                partition_id,
+                vec![
+                    (
+                        seed_for(person, &[PERSON_HASH], &[PERSON_HASH], scanned_at),
+                        0,
+                    ),
+                    (
+                        seed_for(person, &[PERSON_HASH], &[PERSON_HASH], scanned_at),
+                        1,
+                    ),
+                ],
+            )
+            .await;
+
+        let composed: Vec<_> = shell
+            .sink
+            .changes()
+            .into_iter()
+            .filter(|change| change.cohort_id == 2)
+            .collect();
+        assert_eq!(
+            composed.len(),
+            1,
+            "the composed cohort flipped once for the run, not once per seed",
+        );
+        assert_eq!(composed[0].status, MembershipStatus::Entered);
+    }
+
+    /// A seed that asserts what the record already holds recomposes nothing on its own, so a
+    /// register the last run failed to emit would strand the person outside every composed cohort.
+    /// The lagging row has to be its own reason to recompose.
+    #[tokio::test]
+    async fn a_person_whose_only_signal_is_a_lagging_register_still_recomposes() {
+        let (person, partition_id) = dormant_person();
+        let mut shell = Shell::new(mixed_cohorts());
+        // The behavioral half of cohort 2, so the person composes in once stage 2 runs.
+        shell.live_pageview(partition_id, person, None);
+        let live = PersonRecord {
+            last_seen_ms: now_ms(),
+            stamp: Stamp::new(now_ms() - 2 * MARGIN_MS, 0),
+            props_fingerprint: PropsFingerprint::of(r#"{"email":"a@b.com"}"#),
+            catalog_fingerprint: shell.filters.catalog_fingerprint,
+            matched: MatchedSet::from_iter([hash(PERSON_HASH).as_bytes()]),
+            applied_offsets: AppliedOffsets::default(),
+            redirect_dedup: Default::default(),
+        };
+        shell.put_record(partition_id, person, &live);
+        // What a run that acked nothing leaves behind: the single-leaf register says the person is
+        // out while the record says they are in.
+        shell.put_register(partition_id, person, 1, false);
+
+        // Asserts exactly what the record already holds, so the merge is Unchanged and mints no
+        // transition — nothing in the fold would admit a recompose.
+        let seed = seed_for(person, &[PERSON_HASH], &[PERSON_HASH], now_ms());
+        shell.run(partition_id, &seed, 0).await;
+
+        assert_eq!(
+            shell.record(partition_id, person).unwrap().matched,
+            live.matched,
+            "the seed changed nothing about the record",
+        );
+        let changes = shell.sink.changes();
+        assert_eq!(
+            changes
+                .iter()
+                .map(|change| change.cohort_id)
+                .collect::<BTreeSet<_>>(),
+            BTreeSet::from([1, 2]),
+            "the lagging register admits both the repair and the composition behind it",
+        );
+        assert!(shell.stage2(partition_id, person, 1).unwrap().in_cohort);
+        assert!(shell.stage2(partition_id, person, 2).unwrap().in_cohort);
+        assert_eq!(shell.committable(partition_id), Some(1));
+    }
+
+    /// A gate-off run is dark: it marks every offset it carries and touches nothing. Marking only
+    /// the last seed would be right; marking none would wedge the partition.
+    #[tokio::test]
+    async fn a_gate_off_run_marks_its_whole_span_without_touching_the_store() {
+        let (person, partition_id) = dormant_person();
+        let mut shell = Shell::new(mixed_cohorts());
+        shell.deps.person_seed.enabled = false;
+        let scanned_at = now_ms();
+
+        shell
+            .run_batch(
+                partition_id,
+                vec![
+                    (
+                        seed_for(person, &[PERSON_HASH], &[PERSON_HASH], scanned_at),
+                        4,
+                    ),
+                    (
+                        seed_for(person, &[PERSON_HASH], &[PERSON_HASH], scanned_at),
+                        5,
+                    ),
+                ],
+            )
+            .await;
+
+        assert!(shell.record(partition_id, person).is_none());
+        assert!(shell.sink.changes().is_empty());
+        assert_eq!(shell.committable(partition_id), Some(6));
     }
 
     #[tokio::test]
