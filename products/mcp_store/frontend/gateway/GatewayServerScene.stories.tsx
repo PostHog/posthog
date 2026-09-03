@@ -19,6 +19,7 @@ const you: UserBasicApi = {
     first_name: MOCK_DEFAULT_BASIC_USER.first_name,
     last_name: '',
     email: MOCK_DEFAULT_BASIC_USER.email,
+    hedgehog_config: null,
 }
 
 const teammate: UserBasicApi = {
@@ -28,6 +29,7 @@ const teammate: UserBasicApi = {
     first_name: 'Grace',
     last_name: 'Hopper',
     email: 'grace@example.com',
+    hedgehog_config: null,
 }
 
 const agentShare = (
