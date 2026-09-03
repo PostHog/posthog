@@ -2,10 +2,11 @@ import '@testing-library/jest-dom'
 
 import { cleanup, render, renderHook, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { createElement } from 'react'
 
 import { LemonMenuItems, LemonMenuSection } from 'lib/lemon-ui/LemonMenu'
 
-import { DataVisualizationNode, InsightVizNode, Node, NodeKind } from '~/queries/schema/schema-general'
+import { DataVisualizationNode, FunnelsQuery, InsightVizNode, Node, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ChartDisplayType } from '~/types'
 
@@ -46,6 +47,28 @@ describe('dashboardVisualizationOptions', () => {
         source: { kind: NodeKind.TrendsQuery, series: [] },
     } as unknown as InsightVizNode
 
+    const stickinessQuery = {
+        kind: NodeKind.InsightVizNode,
+        source: { kind: NodeKind.StickinessQuery, series: [] },
+    } as unknown as InsightVizNode
+
+    const retentionQuery = {
+        kind: NodeKind.InsightVizNode,
+        source: { kind: NodeKind.RetentionQuery, retentionFilter: {} },
+    } as unknown as InsightVizNode
+
+    const funnelsQuery = {
+        kind: NodeKind.InsightVizNode,
+        source: { kind: NodeKind.FunnelsQuery, series: [] } as FunnelsQuery,
+    } as InsightVizNode
+
+    const persistence = {
+        saving: null,
+        version: 0,
+        persistChartType: jest.fn(),
+        persistDisplayOptions: jest.fn(),
+    } as const
+
     afterEach(() => {
         cleanup()
     })
@@ -77,6 +100,47 @@ describe('dashboardVisualizationOptions', () => {
             { label: 'no picker without a query', query: null, canPersist: true, expected: null },
         ])('$label', ({ query, canPersist, expected }) => {
             expect(sqlQueryForVisualizationPicker(query, canPersist)).toBe(expected)
+        })
+    })
+
+    describe('product analytics chart controls', () => {
+        it.each([
+            { label: 'Trends', query: trendsQuery, canPersist: true, expected: true },
+            { label: 'Stickiness', query: stickinessQuery, canPersist: true, expected: true },
+            { label: 'Retention', query: retentionQuery, canPersist: true, expected: true },
+            { label: 'Funnels', query: funnelsQuery, canPersist: true, expected: false },
+            { label: 'read-only Trends', query: trendsQuery, canPersist: false, expected: false },
+        ])('shows the editor picker for $label: $expected', ({ query, canPersist, expected }) => {
+            const { result } = renderHook(() =>
+                useDashboardVisualizationOptions({
+                    query,
+                    insightData: {},
+                    persistence: canPersist ? persistence : undefined,
+                })
+            )
+
+            const hasChartTypeSection = result.current.some(
+                (item) => !!item && 'title' in item && item.title === 'Chart type'
+            )
+            expect(hasChartTypeSection).toBe(expected)
+        })
+
+        it('shows when product analytics display changes are being saved', () => {
+            const { result } = renderHook(() =>
+                useDashboardVisualizationOptions({
+                    query: trendsQuery,
+                    insightData: {},
+                    persistence,
+                    savingDisplayOptions: true,
+                })
+            )
+            const section = result.current.find(
+                (item): item is LemonMenuSection => !!item && 'title' in item && item.title !== undefined
+            )
+
+            render(createElement('div', null, section?.title))
+
+            expect(screen.getByRole('status')).toHaveTextContent('Saving')
         })
     })
 

@@ -2,20 +2,40 @@ import { useCallback, useMemo, useRef } from 'react'
 
 import { Spinner } from '@posthog/lemon-ui'
 
+import { ChartFilter } from 'lib/components/ChartFilter/ChartFilter'
 import { LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
+import { RetentionChartPicker } from 'scenes/insights/filters/RetentionChartPicker'
 
 import { isDisplayTabSupported } from '~/queries/nodes/DataVisualization/Components/SideBar'
 import { DataVisualizationNode, HogQLVariable, Node } from '~/queries/schema/schema-general'
-import { isDataVisualizationNodeWithHogQLQuery } from '~/queries/utils'
+import {
+    isDataVisualizationNodeWithHogQLQuery,
+    isInsightVizNode,
+    isRetentionQuery,
+    isStickinessQuery,
+    isTrendsQuery,
+} from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
 import { DashboardSqlChartType, DashboardSqlDisplayOptions } from './DashboardSqlDisplayOptions'
 
-export interface DashboardSqlVisualizationPersistence {
+export interface DashboardVisualizationPersistence {
     saving: 'chart-type' | 'display-options' | null
     version: number
     persistChartType: (display: ChartDisplayType) => void
     persistDisplayOptions: (query: DataVisualizationNode) => void
+}
+
+type ProductAnalyticsChartPicker = 'chart-filter' | 'retention'
+
+function productAnalyticsChartPicker(query: Node | null, canPersist: boolean): ProductAnalyticsChartPicker | null {
+    if (!canPersist || !isInsightVizNode(query)) {
+        return null
+    }
+    if (isTrendsQuery(query.source) || isStickinessQuery(query.source)) {
+        return 'chart-filter'
+    }
+    return isRetentionQuery(query.source) ? 'retention' : null
 }
 
 export function sqlQueryForVisualizationPicker(query: Node | null, canPersist: boolean): DataVisualizationNode | null {
@@ -28,14 +48,17 @@ export function useDashboardVisualizationOptions({
     variablesOverride,
     loading,
     persistence,
+    savingDisplayOptions,
 }: {
     query: Node | null
     insightData: Record<string, any>
     variablesOverride?: Record<string, HogQLVariable> | null
     loading?: boolean
-    persistence?: DashboardSqlVisualizationPersistence
+    persistence?: DashboardVisualizationPersistence
+    savingDisplayOptions?: boolean
 }): LemonMenuItems {
     const sqlQuery = sqlQueryForVisualizationPicker(query, !!persistence)
+    const insightChartPicker = productAnalyticsChartPicker(query, !!persistence)
     const overriddenVariable = Object.keys(sqlQuery?.source.variables ?? {}).find((key) => variablesOverride?.[key])
 
     const pickerProps = {
@@ -70,6 +93,22 @@ export function useDashboardVisualizationOptions({
         )
     }, [])
 
+    const insightChartPickerPropsRef = useRef({ insightChartPicker, savingDisplayOptions })
+    insightChartPickerPropsRef.current = { insightChartPicker, savingDisplayOptions }
+    const renderInsightChartPicker = useCallback((): JSX.Element => {
+        const props = insightChartPickerPropsRef.current
+        const inertProps = props.savingDisplayOptions ? { inert: '' } : {}
+        return (
+            <div
+                {...inertProps}
+                className={props.savingDisplayOptions ? 'pointer-events-none opacity-50' : undefined}
+                aria-disabled={props.savingDisplayOptions}
+            >
+                {props.insightChartPicker === 'retention' ? <RetentionChartPicker /> : <ChartFilter />}
+            </div>
+        )
+    }, [])
+
     const displayOptionsProps = {
         query: sqlQuery,
         cachedResults: insightData,
@@ -101,16 +140,26 @@ export function useDashboardVisualizationOptions({
     }, [])
 
     return useMemo<LemonMenuItems>(() => {
-        if (!sqlQuery || !persistence) {
+        if ((!sqlQuery && !insightChartPicker) || !persistence) {
             return []
         }
 
         return [
             {
-                title: 'Chart type',
-                items: [{ label: renderPicker }],
+                title:
+                    insightChartPicker && savingDisplayOptions ? (
+                        <h5 className="mx-2 my-1 flex items-center justify-between gap-2">
+                            Chart type
+                            <span className="flex items-center gap-1 font-normal text-muted" role="status">
+                                <Spinner /> Saving
+                            </span>
+                        </h5>
+                    ) : (
+                        'Chart type'
+                    ),
+                items: [{ label: sqlQuery ? renderPicker : renderInsightChartPicker }],
             },
-            isDisplayTabSupported(sqlQuery.display ?? ChartDisplayType.ActionsTable)
+            sqlQuery && isDisplayTabSupported(sqlQuery.display ?? ChartDisplayType.ActionsTable)
                 ? {
                       key: 'display',
                       title: (
@@ -127,5 +176,13 @@ export function useDashboardVisualizationOptions({
                   }
                 : false,
         ]
-    }, [sqlQuery, persistence, renderPicker, renderDisplayOptions])
+    }, [
+        sqlQuery,
+        insightChartPicker,
+        persistence,
+        savingDisplayOptions,
+        renderPicker,
+        renderInsightChartPicker,
+        renderDisplayOptions,
+    ])
 }

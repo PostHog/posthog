@@ -552,13 +552,16 @@ describe('insightDataLogic', () => {
         })
 
         it('debounces and fires renameInsightSuccess on success', async () => {
-            await expectLogic(logic, () => {
+            const expectation = expectLogic(logic, () => {
                 logic.actions.persistDisplayOptions(updatedQuery)
             })
-                .toFinishAllListeners()
-                .toDispatchActions(['renameInsightSuccess'])
+
+            expect(logic.values.savingDisplayOptions).toBe(true)
+
+            await expectation.toFinishAllListeners().toDispatchActions(['renameInsightSuccess'])
 
             expect(patchSpy).toHaveBeenCalledTimes(1)
+            expect(logic.values.savingDisplayOptions).toBe(false)
         })
 
         it('collapses multiple rapid dispatches into a single PATCH', async () => {
@@ -600,6 +603,18 @@ describe('insightDataLogic', () => {
                 findMountedSpy.mockRestore()
                 sceneLogic.unmount()
             }
+        })
+
+        it('restores the saved query when the current save fails', async () => {
+            patchSpy.mockResolvedValueOnce([500, { detail: 'Save failed' }])
+            logic.actions.setQuery(updatedQuery)
+
+            await expectLogic(logic, () => {
+                logic.actions.persistDisplayOptions(updatedQuery)
+            }).toFinishAllListeners()
+
+            expect(logic.values.query).toEqual(baseQuery)
+            expect(logic.values.savingDisplayOptions).toBe(false)
         })
     })
 
