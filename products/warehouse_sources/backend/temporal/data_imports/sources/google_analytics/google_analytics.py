@@ -208,6 +208,29 @@ def _run_report(
     for attempt in range(RUNREPORT_MAX_RETRIES + 1):
         try:
             response = session.post(url, json=body)
+        except (
+            requests.exceptions.ChunkedEncodingError,
+            requests.exceptions.ConnectionError,
+            requests.exceptions.ReadTimeout,
+        ) as e:
+            # The connection can drop before the response headers (ConnectionError / ReadTimeout) or
+            # part-way through the streamed body (ChunkedEncodingError). Neither leaves a status code
+            # for the 5xx handling below, and the shared adapter's DEFAULT_RETRY only retries GET,
+            # HEAD and OPTIONS, so this POST arrives here with no retry behind it. runReport is a
+            # read, so re-sending it is safe; back off inline like a 5xx, then let Temporal retry the
+            # activity and the resumable source restart from the last saved chunk.
+            if attempt == RUNREPORT_MAX_RETRIES:
+                raise
+            wait = RUNREPORT_BACKOFF_BASE_SECONDS * (2**attempt)
+            logger.warning(
+                "GA4 runReport connection dropped, backing off",
+                property_id=pid,
+                attempt=attempt,
+                wait_seconds=wait,
+                error=str(e),
+            )
+            time.sleep(wait)
+            continue
         except RefreshError as e:
             # A transient 5xx from Google's OAuth token endpoint (notably a 502, which
             # google-auth doesn't count as retryable) is raised here while AuthorizedSession

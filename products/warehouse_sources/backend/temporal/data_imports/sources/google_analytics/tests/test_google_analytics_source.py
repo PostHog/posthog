@@ -290,19 +290,20 @@ def test_retryable_errors_cover_exhausted_quota_retries():
     assert any(pattern in error_msg for pattern in patterns)
 
 
-def test_retryable_errors_cover_connection_reset():
-    # `session.post()` in `_run_report` can raise this transport-level `requests.ConnectionError`
-    # directly, outside its own retry loop (which only handles `RefreshError` and HTTP-level
-    # failures) — must stay classified as retryable so it doesn't page as a bug.
-    error_msg = "('Connection aborted.', ConnectionResetError(104, 'Connection reset by peer'))"
-    patterns = GoogleAnalyticsSource().get_retryable_errors()
-    assert error_message_matches(error_msg, patterns)
-
-
-def test_retryable_errors_cover_read_timeout():
-    # A read timeout talking to the Data API surfaces as a `requests.ConnectionError` from
-    # `session.post()` in `_run_report`, same as the connection-reset case above — must stay
-    # classified as retryable so it doesn't page as a bug.
-    error_msg = "HTTPSConnectionPool(host='analyticsdata.googleapis.com', port=443): Read timed out."
+@pytest.mark.parametrize(
+    "error_msg",
+    [
+        "('Connection aborted.', ConnectionResetError(104, 'Connection reset by peer'))",
+        "HTTPSConnectionPool(host='analyticsdata.googleapis.com', port=443): Read timed out.",
+        "('Connection broken: IncompleteRead(5398 bytes read, 4842 more expected)', IncompleteRead(...))",
+        "(\"Connection broken: InvalidChunkLength(got length b'', 0 bytes read)\", InvalidChunkLength(...))",
+        "(\"Connection broken: ConnectionResetError(104, 'Connection reset by peer')\", ConnectionResetError(104))",
+    ],
+)
+def test_retryable_errors_cover_connection_drops(error_msg):
+    # `_run_report` backs off on these inline, so they reach the activity only once that budget is
+    # spent. The next Temporal retry restarts from the last saved chunk, so they must stay
+    # classified as retryable and not page as a bug. The last three are the truncated-body shapes
+    # `requests` raises as `ChunkedEncodingError`.
     patterns = GoogleAnalyticsSource().get_retryable_errors()
     assert error_message_matches(error_msg, patterns)

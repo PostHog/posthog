@@ -485,6 +485,56 @@ def test_run_report_permanent_token_refresh_error_bubbles_without_retry(monkeypa
     assert session.post.call_count == 1
 
 
+_CONNECTION_DROPS = [
+    requests.exceptions.ChunkedEncodingError("Connection broken: IncompleteRead(5398 bytes read, 4842 more expected)"),
+    requests.exceptions.ConnectionError(
+        "('Connection aborted.', ConnectionResetError(104, 'Connection reset by peer'))"
+    ),
+    requests.exceptions.ReadTimeout("Read timed out."),
+]
+
+
+@pytest.mark.parametrize("error", _CONNECTION_DROPS)
+def test_run_report_retries_connection_drops_then_succeeds(monkeypatch, error):
+    monkeypatch.setattr(ga.time, "sleep", lambda _: None)
+    payload = {"rows": [], "rowCount": 0}
+    session = mock.MagicMock()
+    session.post.side_effect = [error, _fake_response(200, payload)]
+
+    result = _run_report(
+        session=session,
+        property_id="123",
+        start_date="2026-04-01",
+        end_date="2026-04-30",
+        dimensions=["date"],
+        metrics=["totalUsers"],
+        offset=0,
+    )
+
+    assert result == payload
+    assert session.post.call_count == 2
+
+
+@pytest.mark.parametrize("error", _CONNECTION_DROPS)
+def test_run_report_raises_connection_drop_after_exhausting_retries(monkeypatch, error):
+    monkeypatch.setattr(ga.time, "sleep", lambda _: None)
+    session = mock.MagicMock()
+    session.post.side_effect = error
+
+    with pytest.raises(type(error)):
+        _run_report(
+            session=session,
+            property_id="123",
+            start_date="2026-04-01",
+            end_date="2026-04-30",
+            dimensions=["date"],
+            metrics=["totalUsers"],
+            offset=0,
+        )
+
+    assert session.post.call_count == RUNREPORT_MAX_RETRIES + 1
+
+
 def test_run_report_retries_server_errors_then_succeeds(monkeypatch):
     monkeypatch.setattr(ga.time, "sleep", lambda _: None)
     payload = {"rows": [], "rowCount": 0}

@@ -81,11 +81,21 @@ class GoogleAnalyticsSource(ResumableSource[GoogleAnalyticsSourceConfig, GoogleA
         # retry the activity without paging it as a bug.
         #
         # "Connection aborted"/"Connection reset by peer"/"Read timed out" are transport-level blips
-        # from `requests` raised directly by `session.post()` in `_run_report`, outside its own retry
-        # loop (which only handles `RefreshError` and HTTP-level failures). The resumable source picks
-        # up from the last saved chunk on the next Temporal retry, same as ClickHouse's source
+        # from `requests` raised by `session.post()` in `_run_report`, which now backs off on them
+        # inline, so they reach here only once that budget is spent. The resumable source picks up
+        # from the last saved chunk on the next Temporal retry, same as ClickHouse's source
         # classifies this text.
-        return {"(retryable)", "Connection aborted", "Connection reset by peer", "Read timed out"}
+        #
+        # "Connection broken" is the urllib3 `ProtocolError` prefix for a body cut off mid-stream.
+        # It carries the underlying reason (an incomplete read, an invalid chunk length, or a reset),
+        # so only the reset variant matches the text above — match the prefix to cover them all.
+        return {
+            "(retryable)",
+            "Connection aborted",
+            "Connection broken",
+            "Connection reset by peer",
+            "Read timed out",
+        }
 
     def get_schemas(
         self,
