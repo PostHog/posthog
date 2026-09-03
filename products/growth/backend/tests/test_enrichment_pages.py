@@ -12,12 +12,8 @@ from posthog.egress.firecrawl import FirecrawlEgressBudgetExhausted, FirecrawlNo
 from posthog.egress.firecrawl.client import FirecrawlScrape
 from posthog.egress.limiter.policies import Priority
 
-from products.growth.backend.enrichment.pages import (
-    MAX_MARKDOWN_CHARS,
-    ensure_pages_fetched,
-    fetch_page,
-    page_types_from_input_fields,
-)
+from products.growth.backend.enrichment.labels import MAX_INPUT_VALUE_CHARS
+from products.growth.backend.enrichment.pages import ensure_pages_fetched, fetch_page, page_types_from_input_fields
 from products.growth.backend.models import OrganizationEnrichment
 
 _PAGES_MODULE = "products.growth.backend.enrichment.pages"
@@ -68,17 +64,32 @@ class TestFetchPageHome(BaseTest):
         assert scrape.call_args.kwargs["priority"] is Priority.BATCH
 
     def test_the_markdown_is_truncated_to_the_cap(self):
-        scraped = FirecrawlScrape(url="https://acme.example", markdown="x" * (MAX_MARKDOWN_CHARS + 500))
+        scraped = FirecrawlScrape(url="https://acme.example", markdown="x" * (MAX_INPUT_VALUE_CHARS + 500))
         with patch(f"{_PAGES_MODULE}.scrape", return_value=scraped):
             record = fetch_page(self.organization.id, "acme.example", "home")
 
-        assert len(record["markdown"]) == MAX_MARKDOWN_CHARS
+        assert len(record["markdown"]) == MAX_INPUT_VALUE_CHARS
+
+    def test_a_fresh_scrape_is_tagged_with_its_source(self):
+        scraped = FirecrawlScrape(url="https://acme.example", markdown="content")
+        with patch(f"{_PAGES_MODULE}.scrape", return_value=scraped):
+            record = fetch_page(self.organization.id, "acme.example", "home")
+
+        assert record["source"] == "scrape"
+
+    def test_a_cache_hit_is_tagged_with_its_source(self):
+        scraped = FirecrawlScrape(url="https://acme.example", markdown="content")
+        with patch(f"{_PAGES_MODULE}.scrape", return_value=scraped):
+            fetch_page(self.organization.id, "acme.example", "home")
+            record = fetch_page(self.organization.id, "acme.example", "home")
+
+        assert record["source"] == "cache"
 
     @parameterized.expand(
         [
             ("not_configured", FirecrawlNotConfigured, "not_configured"),
-            ("scrape_failed", FirecrawlScrapeFailed, "unreachable"),
-            ("connect_timeout", ConnectTimeout, "unreachable"),
+            ("scrape_failed", FirecrawlScrapeFailed, "busy"),
+            ("connect_timeout", ConnectTimeout, "busy"),
             ("budget_exhausted", FirecrawlEgressBudgetExhausted, "busy"),
         ]
     )
@@ -95,7 +106,9 @@ class TestFetchPageHome(BaseTest):
             second = fetch_page(self.organization.id, "acme.example", "home")
 
         scrape.assert_called_once()
-        assert first == second
+        assert first["markdown"] == second["markdown"] == "content"
+        assert first["source"] == "scrape"
+        assert second["source"] == "cache"
 
     def test_a_fetch_older_than_the_cache_window_is_refetched(self):
         OrganizationEnrichment.objects.create(
@@ -141,12 +154,21 @@ class TestFetchPageHome(BaseTest):
         scrape.assert_called_once()
         assert record["markdown"] == "fresh"
 
-    def test_an_unreachable_page_is_cached_so_it_is_not_refetched_every_day(self):
-        with patch(f"{_PAGES_MODULE}.scrape", side_effect=FirecrawlScrapeFailed("boom")) as scrape:
+    def test_a_non_2xx_status_is_cached_so_it_is_not_refetched_every_day(self):
+        scraped = FirecrawlScrape(url="https://acme.example", status_code=404, markdown=None)
+        with patch(f"{_PAGES_MODULE}.scrape", return_value=scraped) as scrape:
             fetch_page(self.organization.id, "acme.example", "home")
             record = fetch_page(self.organization.id, "acme.example", "home")
 
         scrape.assert_called_once()
+        assert record["error"] == "unreachable"
+        assert record["markdown"] is None
+
+    def test_a_successful_status_with_no_markdown_is_cached_as_unreachable(self):
+        scraped = FirecrawlScrape(url="https://acme.example", status_code=200, markdown=None)
+        with patch(f"{_PAGES_MODULE}.scrape", return_value=scraped):
+            record = fetch_page(self.organization.id, "acme.example", "home")
+
         assert record["error"] == "unreachable"
 
     def test_a_budget_exhausted_outcome_is_not_cached_so_it_retries_next_run(self):
@@ -155,6 +177,24 @@ class TestFetchPageHome(BaseTest):
             fetch_page(self.organization.id, "acme.example", "home")
 
         assert scrape.call_count == 2
+
+    def test_a_scrape_failure_is_not_cached_so_it_retries_next_run(self):
+        # A gateway error or bad-body response (5xx, malformed JSON) looks identical to a genuine
+        # outage at this layer - it must retry next run, not freeze into a permanent "unreachable".
+        with patch(f"{_PAGES_MODULE}.scrape", side_effect=FirecrawlScrapeFailed("boom")) as scrape:
+            first = fetch_page(self.organization.id, "acme.example", "home")
+            fetch_page(self.organization.id, "acme.example", "home")
+
+        assert scrape.call_count == 2
+        assert first["error"] == "busy"
+
+    def test_a_request_exception_is_not_cached_so_it_retries_next_run(self):
+        with patch(f"{_PAGES_MODULE}.scrape", side_effect=ConnectTimeout("boom")) as scrape:
+            first = fetch_page(self.organization.id, "acme.example", "home")
+            fetch_page(self.organization.id, "acme.example", "home")
+
+        assert scrape.call_count == 2
+        assert first["error"] == "busy"
 
 
 class TestFetchPagePricing(BaseTest):
@@ -173,14 +213,16 @@ class TestFetchPagePricing(BaseTest):
         assert record["markdown"] == "Plans start at $10/mo"
 
     def test_a_missing_pricing_page_is_cached_as_unreachable(self):
-        with patch(f"{_PAGES_MODULE}.scrape", side_effect=FirecrawlScrapeFailed("404")) as scrape:
+        scraped = FirecrawlScrape(url="https://acme.example/pricing", status_code=404, markdown=None)
+        with patch(f"{_PAGES_MODULE}.scrape", return_value=scraped) as scrape:
             first = fetch_page(self.organization.id, "acme.example", "pricing")
             second = fetch_page(self.organization.id, "acme.example", "pricing")
 
         scrape.assert_called_once()
         assert first["error"] == "unreachable"
         assert first["markdown"] is None
-        assert second == first
+        assert second["error"] == "unreachable"
+        assert second["markdown"] is None
 
 
 class TestFetchPageUnsupportedType(BaseTest):

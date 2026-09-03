@@ -12,13 +12,26 @@ from django.db import connection
 
 from parameterized import parameterized
 
-from posthog.models.organization import Organization
+from posthog.egress.firecrawl import FirecrawlEgressBudgetExhausted
+from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.user import User
 
 from products.growth.backend.management.commands import enrichment_label_batch as batch_command_module
 from products.growth.backend.models import EnrichmentLabelResult, EnrichmentPromptConfig, OrganizationEnrichmentFetch
 
 _BATCH_COMMAND_MODULE = "products.growth.backend.management.commands.enrichment_label_batch"
 _DRY_RUN_COMMAND_MODULE = "products.growth.backend.management.commands.enrichment_label_dry_run"
+_PAGES_MODULE = "products.growth.backend.enrichment.pages"
+
+
+def _org_with_domain(name: str, domain: str) -> Organization:
+    """An org whose earliest member's email resolves to `domain` via
+    labels.signup_domain_for_organization, so page-fetching code has a real domain to work with."""
+    org = Organization.objects.create(name=name)
+    user = User.objects.create_user(email=f"member@{domain}", password=None, first_name="t")
+    OrganizationMembership.objects.create(organization=org, user=user)
+    return org
+
 
 _OUTPUT_FIELDS = [
     {"key": "is_ai", "type": "boolean", "description": ""},
@@ -325,7 +338,7 @@ class TestExitCodeAndSummary(_BatchCommandTestCase):
                 call_command("enrichment_label_batch", label="test_label", workers=1, stdout=out)
 
         assert "attempted 1" in out.getvalue()
-        assert "failures 1" in out.getvalue()
+        assert "failed 1" in out.getvalue()
 
     def test_summary_accumulates_prompt_and_completion_tokens_across_the_run(self):
         self._config()
@@ -463,6 +476,46 @@ class TestDryRunFixes(BaseTest):
                 call_command("enrichment_label_dry_run", label="test_label", sample=1)
 
 
+class TestDryRunPagesFetching(BaseTest):
+    def _config(self) -> EnrichmentPromptConfig:
+        return EnrichmentPromptConfig.objects.create(
+            name="test_label",
+            version="v1",
+            prompt_text="... Email: {email}",
+            model="gpt-5-mini",
+            input_fields=["name", "pages.home.markdown"],
+            output_fields=[*_OUTPUT_FIELDS, {"key": "evidence_url", "type": "string", "description": ""}],
+            is_active=True,
+        )
+
+    def test_pages_are_fetched_and_the_page_value_reaches_the_row(self):
+        self._config()
+        OrganizationEnrichmentFetch.objects.create(
+            organization=self.organization, provider="harmonic", payload={"name": "Acme"}
+        )
+        client = _mock_llm_client()
+        client.chat.completions.create.return_value = _response(
+            json.dumps({"is_ai": True, "confidence": 0.9, "reasoning": "x", "evidence_url": "https://posthog.com"})
+        )
+        page_store = {
+            "home": {
+                "markdown": "We build developer tools.",
+                "url": "https://posthog.com",
+                "domain": "posthog.com",
+            }
+        }
+        out = StringIO()
+
+        with (
+            patch(f"{_DRY_RUN_COMMAND_MODULE}.get_llm_client", return_value=client),
+            patch(f"{_DRY_RUN_COMMAND_MODULE}.ensure_pages_fetched", return_value=page_store) as ensure_pages,
+        ):
+            call_command("enrichment_label_dry_run", label="test_label", sample=1, stdout=out)
+
+        ensure_pages.assert_called_once_with(self.organization.id, "posthog.com", {"home"})
+        assert "https://posthog.com" in out.getvalue()
+
+
 class TestBatchCommandPagesFetching(_BatchCommandTestCase):
     def _pages_config(self, **overrides: Any) -> EnrichmentPromptConfig:
         params: dict[str, Any] = {
@@ -473,8 +526,10 @@ class TestBatchCommandPagesFetching(_BatchCommandTestCase):
         return self._config(**params)
 
     def _pages_response(self) -> MagicMock:
+        # posthog.com matches self.organization's default signup domain, so evidence_url
+        # validation doesn't null it - see labels._reject_mismatched_evidence_url.
         content = json.dumps(
-            {"is_ai": True, "confidence": 0.9, "reasoning": "x", "evidence_url": "https://acme.example"}
+            {"is_ai": True, "confidence": 0.9, "reasoning": "x", "evidence_url": "https://posthog.com"}
         )
         return _response(content)
 
@@ -521,7 +576,7 @@ class TestBatchCommandPagesFetching(_BatchCommandTestCase):
 
         ensure_pages.assert_not_called()
 
-    def test_pages_fetched_and_failed_counts_reach_the_summary(self):
+    def test_pages_scraped_cached_and_unreachable_counts_reach_the_summary(self):
         self._pages_config()
         self._fetch()
         client = _mock_llm_client()
@@ -535,27 +590,67 @@ class TestBatchCommandPagesFetching(_BatchCommandTestCase):
         ):
             call_command("enrichment_label_batch", label="test_label", workers=1, stdout=out)
 
-        assert "pages_fetched 0" in out.getvalue()
-        assert "pages_failed 1" in out.getvalue()
+        assert "pages_scraped 0" in out.getvalue()
+        assert "pages_cached 0" in out.getvalue()
+        assert "pages_unreachable 1" in out.getvalue()
+        assert "pages_deferred 0" in out.getvalue()
+        # A permanent page error proceeds to classification without that page, unlike a
+        # transient one - see TestPageDeferral below.
+        assert EnrichmentLabelResult.objects.filter(label_name="test_label").exists()
 
-    def test_a_page_fetch_problem_does_not_count_toward_the_circuit_breaker(self):
-        # ensure_pages_fetched never raises in production (pages.py degrades internally); this
-        # confirms the batch command's own wiring doesn't turn a degraded page fetch into an
-        # exception that would trip failure_streak.
+
+class TestPageDeferral(_BatchCommandTestCase):
+    """A transient page-fetch problem (busy/not_configured) must defer the whole org - no
+    classification, no result row, and no contribution to the circuit breaker - rather than
+    compute a permanent verdict against missing page content. See enrichment/pages.py's
+    TRANSIENT_PAGE_ERRORS and enrichment_label_batch.py's _process."""
+
+    def _pages_config(self, **overrides: Any) -> EnrichmentPromptConfig:
+        params: dict[str, Any] = {
+            "input_fields": ["name", "pages.home.markdown"],
+            "output_fields": [*_OUTPUT_FIELDS, {"key": "evidence_url", "type": "string", "description": ""}],
+        }
+        params.update(overrides)
+        return self._config(**params)
+
+    def test_a_busy_page_defers_the_org_without_writing_a_result(self):
         self._pages_config()
-        for i in range(3):
-            self._fetch(organization=Organization.objects.create(name=f"org-{i}"))
+        org = _org_with_domain("acme", "acme.example")
+        self._fetch(organization=org)
         client = _mock_llm_client()
-        client.chat.completions.create.return_value = self._pages_response()
-        page_store = {"home": {"markdown": None, "domain": "x", "fetched_at": "x", "error": "unreachable"}}
+        out = StringIO()
 
         with (
             patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
-            patch(f"{_BATCH_COMMAND_MODULE}.ensure_pages_fetched", return_value=page_store),
+            patch(f"{_PAGES_MODULE}.scrape", side_effect=FirecrawlEgressBudgetExhausted("boom")),
         ):
-            call_command("enrichment_label_batch", label="test_label", workers=1, max_failures=1)
+            call_command("enrichment_label_batch", label="test_label", workers=1, stdout=out)
 
-        assert EnrichmentLabelResult.objects.count() == 3
+        client.chat.completions.create.assert_not_called()
+        assert EnrichmentLabelResult.objects.count() == 0
+        assert "pages_deferred 1" in out.getvalue()
+        assert "failed 0" in out.getvalue()
+
+    def test_deferred_orgs_never_trip_the_circuit_breaker(self):
+        self._pages_config()
+        orgs = [_org_with_domain(f"org-{i}", f"org-{i}.example") for i in range(3)]
+        for org in orgs:
+            self._fetch(organization=org)
+        client = _mock_llm_client()
+        out = StringIO()
+
+        with (
+            patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
+            patch(f"{_PAGES_MODULE}.scrape", side_effect=FirecrawlEgressBudgetExhausted("boom")),
+        ):
+            # max_failures=1 would abort after a single genuine failure; a deferral must not
+            # count as one, so all 3 orgs must be reached without a CommandError.
+            call_command("enrichment_label_batch", label="test_label", workers=1, max_failures=1, stdout=out)
+
+        client.chat.completions.create.assert_not_called()
+        assert EnrichmentLabelResult.objects.count() == 0
+        assert "pages_deferred 3" in out.getvalue()
+        assert "failed 0" in out.getvalue()
 
 
 class TestBatchRunReportEvent(_BatchCommandTestCase):
@@ -583,8 +678,10 @@ class TestBatchRunReportEvent(_BatchCommandTestCase):
             "attempted": 1,
             "succeeded": 1,
             "failed": 0,
-            "pages_fetched": 0,
-            "pages_failed": 0,
+            "pages_scraped": 0,
+            "pages_cached": 0,
+            "pages_unreachable": 0,
+            "pages_deferred": 0,
         }
 
     def test_skips_outside_a_cloud_region(self):
@@ -725,7 +822,7 @@ class TestAiProcessingConsent(_BatchCommandTestCase):
         assert EnrichmentLabelResult.objects.filter(organization=approved_org).exists()
         assert "attempted 1" in out.getvalue()
         assert "skipped_no_ai_consent 1" in out.getvalue()
-        assert "failures 0" in out.getvalue()
+        assert "failed 0" in out.getvalue()
 
     def test_the_dry_run_prints_a_skip_row_rather_than_an_error(self):
         self._config()

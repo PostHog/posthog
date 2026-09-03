@@ -37,7 +37,11 @@ from products.growth.backend.enrichment.labels import (
     validate_input_fields,
     validate_output_fields,
 )
-from products.growth.backend.enrichment.pages import ensure_pages_fetched, page_types_from_input_fields
+from products.growth.backend.enrichment.pages import (
+    TRANSIENT_PAGE_ERRORS,
+    ensure_pages_fetched,
+    page_types_from_input_fields,
+)
 from products.growth.backend.models import EnrichmentLabelResult, EnrichmentPromptConfig, OrganizationEnrichmentFetch
 
 logger = structlog.get_logger(__name__)
@@ -62,9 +66,11 @@ def _report_batch_run(*, label: str, version: str, counts: dict[str, int]) -> No
                 "version": version,
                 "attempted": counts["attempted"],
                 "succeeded": counts["succeeded"],
-                "failed": counts["failures"],
-                "pages_fetched": counts["pages_fetched"],
-                "pages_failed": counts["pages_failed"],
+                "failed": counts["failed"],
+                "pages_scraped": counts["pages_scraped"],
+                "pages_cached": counts["pages_cached"],
+                "pages_unreachable": counts["pages_unreachable"],
+                "pages_deferred": counts["pages_deferred"],
             },
         )
 
@@ -162,8 +168,6 @@ class Command(BaseCommand):
         # internal retries underneath would multiply that budget nine-fold per fetch and actively
         # worsen a 429 the tenacity layer is already backing off from.
         client = get_llm_client(product="growth").with_options(max_retries=0)
-        # Computed once: config.input_fields doesn't change mid-run, and an empty set here means
-        # every org below skips page-fetching entirely.
         page_types = page_types_from_input_fields(config.input_fields)
 
         counts: dict[str, int] = {
@@ -172,11 +176,17 @@ class Command(BaseCommand):
             "skipped_existing": 0,
             "skipped_no_ai_consent": 0,
             "unknown": 0,
-            "failures": 0,
+            "failed": 0,
             "prompt_tokens": 0,
             "completion_tokens": 0,
-            "pages_fetched": 0,
-            "pages_failed": 0,
+            "pages_scraped": 0,
+            "pages_cached": 0,
+            "pages_unreachable": 0,
+            # A transient page problem (busy/not_configured) defers the whole org rather than
+            # spend on a permanent verdict against missing content - see _process. Counted per
+            # org deferred, and excluded from success_rate's denominator below for the same
+            # reason "consent_revoked_after_attempt" is: the org was never actually attempted.
+            "pages_deferred": 0,
             # Enumerated (counted into "attempted") but never processed because the circuit
             # breaker had already tripped — excluded from success_rate's denominator below so an
             # aborted run's ratio reflects what was actually tried, not what was merely queued.
@@ -247,10 +257,31 @@ class Command(BaseCommand):
                 # budget on orgs whose verdict is already "unknown" regardless.
                 if page_types and has_usable_payload(fetch.payload):
                     pages = ensure_pages_fetched(fetch.organization_id, signup_domain, page_types)
-                    page_failures = sum(1 for page in pages.values() if page.get("error"))
+                    scraped = cached = unreachable = 0
+                    deferred = False
+                    for page in pages.values():
+                        error = page.get("error")
+                        if error in TRANSIENT_PAGE_ERRORS:
+                            deferred = True
+                        elif error:
+                            unreachable += 1
+                        elif page.get("source") == "cache":
+                            cached += 1
+                        else:
+                            scraped += 1
                     with counts_lock:
-                        counts["pages_fetched"] += len(pages) - page_failures
-                        counts["pages_failed"] += page_failures
+                        counts["pages_scraped"] += scraped
+                        counts["pages_cached"] += cached
+                        counts["pages_unreachable"] += unreachable
+                    if deferred:
+                        # A transient page problem must not compute a permanent verdict against
+                        # missing content, and must not trip the circuit breaker meant for
+                        # genuine classification failures - see enrichment/pages.py's
+                        # TRANSIENT_PAGE_ERRORS. No result row is written, so the next run's
+                        # enumeration re-offers this org.
+                        with counts_lock:
+                            counts["pages_deferred"] += 1
+                        return
                 output = classify_payload(config, fetch.payload, signup_domain, client, pages=pages)
                 # Popped rather than left inline: output is stored as-is, and duplicating the
                 # inputs snapshot inside it would double-store and bloat every row.
@@ -280,7 +311,7 @@ class Command(BaseCommand):
                     },
                 )
                 with counts_lock:
-                    counts["failures"] += 1
+                    counts["failed"] += 1
                     failure_streak += 1
                     if failure_streak >= max_failures:
                         circuit_open.set()
@@ -376,21 +407,24 @@ class Command(BaseCommand):
         # succeeded/tried rather than a raw count: an alert can fire on the ratio, and on a run
         # that attempted nothing at all, which is what a silently broken input source looks like.
         # "tried" excludes aborted items so a circuit-broken run doesn't dilute the ratio with
-        # work that was queued but never actually attempted. Consent skips are excluded for the
-        # same reason (an archive of orgs that all declined is a correct empty run, not a failed
-        # one), but only "consent_revoked_after_attempt" needs subtracting here - a declined org
-        # caught at enumeration time never incremented "attempted" to begin with (see
+        # work that was queued but never actually attempted. Consent skips and page deferrals are
+        # excluded for the same reason (an archive of orgs that all declined, or that all hit a
+        # transient Firecrawl outage, is a correct empty run, not a failed one), but only
+        # "consent_revoked_after_attempt" and "pages_deferred" need subtracting here - a declined
+        # org caught at enumeration time never incremented "attempted" to begin with (see
         # _attempt_targets), so subtracting the full skipped_no_ai_consent count here would
         # double-subtract and could push "tried" negative.
-        tried = counts["attempted"] - counts["aborted"] - counts["consent_revoked_after_attempt"]
+        not_tried = counts["aborted"] + counts["consent_revoked_after_attempt"] + counts["pages_deferred"]
+        tried = counts["attempted"] - not_tried
         success_rate = counts["succeeded"] / tried if tried else None
         elapsed_seconds = time.monotonic() - started_at
         summary = (
             f"attempted {counts['attempted']}, succeeded {counts['succeeded']}, "
             f"skipped_existing {counts['skipped_existing']}, "
             f"skipped_no_ai_consent {counts['skipped_no_ai_consent']}, unknown {counts['unknown']}, "
-            f"failures {counts['failures']}, aborted {counts['aborted']}, "
-            f"pages_fetched {counts['pages_fetched']}, pages_failed {counts['pages_failed']}, "
+            f"failed {counts['failed']}, aborted {counts['aborted']}, "
+            f"pages_scraped {counts['pages_scraped']}, pages_cached {counts['pages_cached']}, "
+            f"pages_unreachable {counts['pages_unreachable']}, pages_deferred {counts['pages_deferred']}, "
             f"prompt_tokens {counts['prompt_tokens']}, completion_tokens {counts['completion_tokens']}, "
             f"elapsed_seconds {elapsed_seconds:.1f}"
         )

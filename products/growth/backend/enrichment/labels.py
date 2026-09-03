@@ -10,6 +10,7 @@ import json
 import math
 from collections.abc import Callable
 from typing import Any, Literal, TypeIs, cast
+from urllib.parse import urlsplit
 
 from django.db.models import QuerySet
 
@@ -117,14 +118,26 @@ def to_domain(value: Any, depth: int = 0) -> Any:
     return value
 
 
+def pages_path(path: str) -> tuple[str, str] | None:
+    """Parse a `pages.<type>.<key>` input_fields path into (page_type, key), or None if `path`
+    isn't in the pages.* namespace, has the wrong number of segments, or has an empty type or key
+    segment. The single parser behind every pages.* path check in this module and in pages.py."""
+    if not path.startswith(PAGES_INPUT_PREFIX):
+        return None
+    parts = path.split(".")
+    if len(parts) != 3 or not parts[1] or not parts[2]:
+        return None
+    return parts[1], parts[2]
+
+
 def _page_field_value(pages: dict[str, Any] | None, path: str) -> Any:
     """Resolve one `pages.<type>.<key>` path against the page store enrichment/pages.py already
     fetched. A malformed path (validate_input_fields rejects these before a config can run) and
     an absent page or key both resolve to None, same as a missing Harmonic path below."""
-    parts = path.split(".")
-    if pages is None or len(parts) != 3:
+    parsed = pages_path(path)
+    if pages is None or parsed is None:
         return None
-    _, page_type, key = parts
+    page_type, key = parsed
     page = pages.get(page_type)
     return page.get(key) if isinstance(page, dict) else None
 
@@ -134,7 +147,9 @@ def extract_input_fields(
 ) -> dict[str, Any]:
     """Resolve dotted paths (e.g. "funding.fundingStage") into the archived payload, or — for a
     `pages.<type>.<key>` path — into `pages`, the page store enrichment/pages.py already fetched
-    for this org (see classify_payload).
+    for this org (see classify_payload). A configured `pages.<type>.markdown` path also pulls in
+    `pages.<type>.url` even when the config never asked for it, so the model always sees the URL
+    it would need to cite as evidence.
 
     Keyed by the full dotted path so the LLM prompt shows provenance. Missing paths,
     None values, and paths that traverse through a non-dict are omitted rather than
@@ -142,12 +157,20 @@ def extract_input_fields(
     """
     result: dict[str, Any] = {}
     for path in input_fields:
-        if path.startswith(PAGES_INPUT_PREFIX):
+        parsed = pages_path(path)
+        if parsed is not None:
             page_value = _page_field_value(pages, path)
             if page_value is not None:
                 # Public page copy skips to_domain's email reduction on purpose — see
                 # enrichment/pages.py's module docstring.
                 result[path] = page_value
+            page_type, key = parsed
+            if key == "markdown":
+                url_path = f"{PAGES_INPUT_PREFIX}{page_type}.url"
+                if url_path not in result:
+                    url_value = _page_field_value(pages, url_path)
+                    if url_value is not None:
+                        result[url_path] = url_value
             continue
         value: Any = payload
         for part in path.split("."):
@@ -314,7 +337,7 @@ def validate_input_fields(config: EnrichmentPromptConfig) -> None:
             f"more than the {MAX_INPUT_COLUMNS} that reach the prompt"
         )
     for path in config.input_fields:
-        if path.startswith(PAGES_INPUT_PREFIX) and len(path.split(".")) != 3:
+        if path.startswith(PAGES_INPUT_PREFIX) and pages_path(path) is None:
             raise PromptConfigError(f"enrichment input field {path!r} must have the form 'pages.<type>.<key>'")
 
 
@@ -479,16 +502,32 @@ def is_unknown_output(output: dict[str, Any]) -> bool:
 
 def has_usable_payload(payload: dict[str, Any] | None) -> TypeIs[dict[str, Any]]:
     """Whether classify_payload will look at payload's fields at all, rather than
-    short-circuiting straight to unknown_output for a missing or not-found archived fetch.
-    Not-found fetches archive core.py's _MISS_PAYLOAD ({"companyFound": False}); that's evidence
-    of absence, not a thin signal to guess from.
-
-    Exposed so a caller can skip page-fetching work (Firecrawl calls) for an org classify_payload
-    will discard anyway — see enrichment_label_batch.py / enrichment_label_dry_run.py.
-    """
+    short-circuiting straight to unknown_output for a missing or not-found archived fetch."""
     if not payload:
         return False
     return payload.get("companyFound") is not False
+
+
+def _evidence_url_matches_domain(url: str, signup_domain: str | None) -> bool:
+    host = urlsplit(url).hostname
+    if host is None or signup_domain is None:
+        return False
+    host = host.lower()
+    domain = signup_domain.lower()
+    return host == domain or host.endswith(f".{domain}")
+
+
+def _reject_mismatched_evidence_url(output: dict[str, Any], signup_domain: str | None, meta: dict[str, Any]) -> None:
+    """Null a page-derived evidence_url whose host isn't the signup domain or one of its
+    subdomains, rather than fail the whole verdict over one bad citation — a model citing some
+    other site is a mistake in one field, not a reason to discard an otherwise-good answer."""
+    evidence_url = output.get("evidence_url")
+    if not evidence_url or not isinstance(evidence_url, str):
+        return
+    if _evidence_url_matches_domain(evidence_url, signup_domain):
+        return
+    meta["evidence_url_rejected"] = evidence_url
+    output["evidence_url"] = None
 
 
 def classify_payload(
@@ -513,6 +552,7 @@ def classify_payload(
 
     messages = build_messages(config, inputs, signup_domain)
     output, meta = _call_and_parse(config, messages, client)
+    _reject_mismatched_evidence_url(output, signup_domain, meta)
     output["inputs"] = {"signup_domain": signup_domain, "fields": inputs}
     bounded = bounding_report(extracted, inputs)
     if bounded:

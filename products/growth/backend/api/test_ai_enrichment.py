@@ -756,16 +756,18 @@ class TestAIEnrichmentRunClassification(NonAtomicAPIBaseTest):
                 "is_ai": True,
                 "confidence": 0.9,
                 "reasoning": "ships an llm product",
-                "evidence_url": "https://acme.example/pricing",
+                "evidence_url": "https://posthog.com/pricing",
             }
         )
         client.chat.completions.create.return_value = llm_response
+        # domain matches the test user's email domain (user1@posthog.com) - evidence_url
+        # validation nulls a citation whose host isn't the signup domain or a subdomain of it.
         page_store = {
             "home": {
-                "url": "https://acme.example",
+                "url": "https://posthog.com",
                 "markdown": "We build developer tools.",
                 "fetched_at": "2026-09-02T00:00:00+00:00",
-                "domain": "acme.example",
+                "domain": "posthog.com",
             }
         }
 
@@ -795,7 +797,7 @@ class TestAIEnrichmentRunClassification(NonAtomicAPIBaseTest):
         fetch_pages.assert_called_once()
         self.assertEqual(fetch_pages.call_args.args[2], {"home"})
         self.assertEqual(verdict_row["inputs"]["pages.home.markdown"], "We build developer tools.")
-        self.assertEqual(verdict_row["outputs"]["evidence_url"], "https://acme.example/pricing")
+        self.assertEqual(verdict_row["outputs"]["evidence_url"], "https://posthog.com/pricing")
 
 
 class TestRunError(SimpleTestCase):

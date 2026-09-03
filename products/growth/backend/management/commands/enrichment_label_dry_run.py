@@ -24,7 +24,11 @@ from products.growth.backend.enrichment.labels import (
     validate_output_fields,
     verdict_field_key,
 )
-from products.growth.backend.enrichment.pages import ensure_pages_fetched, page_types_from_input_fields
+from products.growth.backend.enrichment.pages import (
+    TRANSIENT_PAGE_ERRORS,
+    ensure_pages_fetched,
+    page_types_from_input_fields,
+)
 from products.growth.backend.models import EnrichmentLabelResult, EnrichmentPromptConfig
 
 _COMPANY_WIDTH = 30
@@ -141,8 +145,14 @@ class Command(BaseCommand):
                 company = fetch.payload.get("name") or fetch.organization.name
                 signup_domain = signup_domain_for_organization(fetch.organization)
                 pages = None
+                deferred_types: list[str] = []
                 if page_types and has_usable_payload(fetch.payload):
                     pages = ensure_pages_fetched(fetch.organization_id, signup_domain, page_types)
+                    deferred_types = sorted(
+                        page_type for page_type, page in pages.items() if page.get("error") in TRANSIENT_PAGE_ERRORS
+                    )
+                # Classified anyway, unlike the batch command: this is an interactive sample, not
+                # a run that must never freeze a permanent verdict against missing page content.
                 output = classify_payload(config, fetch.payload, signup_domain, client, pages=pages)
             except Exception as e:
                 errors += 1
@@ -179,6 +189,8 @@ class Command(BaseCommand):
                     for field in compare_config.output_fields
                 ]
             self.stdout.write(row_fmt.format(*row))
+            if deferred_types:
+                self.stdout.write(f"  deferred pages (busy/not_configured): {', '.join(deferred_types)}")
 
         summary = f"classified {classified}, unknown {unknown}, errors {errors}, skipped_no_ai_consent {skipped}"
         self.stdout.write(self.style.SUCCESS(summary) if errors == 0 else self.style.WARNING(summary))

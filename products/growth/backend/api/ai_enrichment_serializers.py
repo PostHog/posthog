@@ -40,8 +40,10 @@ _PROMPT_TEXT_HELP = (
 _MODEL_HELP = "Gateway model to classify with, routed through the LLM gateway. See GET /models/ for what it serves."
 
 _INPUT_FIELDS_HELP = (
-    "Dotted paths into the archived Harmonic payload fed to the prompt, e.g. funding.fundingStage. Every selected "
-    "value reaches the LLM and is then stored on the result indefinitely, so keep this list intentional."
+    "Dotted paths into the archived Harmonic payload fed to the prompt, e.g. funding.fundingStage. A "
+    "'pages.<type>.<key>' path (e.g. pages.home.markdown) reads the company's own fetched web pages instead; "
+    "supported types are 'home' and 'pricing'. Every selected value reaches the LLM and is then stored on the "
+    "result indefinitely, so keep this list intentional."
 )
 
 

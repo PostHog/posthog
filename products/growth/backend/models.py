@@ -169,6 +169,8 @@ class EnrichmentPromptConfig(UUIDModel):
     prompt_text = models.TextField()
     model = models.CharField(max_length=128)
     # Dotted paths into the archived Harmonic payload fed to the prompt, e.g. ["name", "funding.fundingStage"].
+    # A "pages.<type>.<key>" path (e.g. "pages.home.markdown") resolves from the fetched page
+    # store instead — see enrichment/pages.py and labels.PAGES_INPUT_PREFIX.
     input_fields = models.JSONField(default=list)
     # The classifier's entire output contract: list of {"key", "type"
     # ("boolean"|"number"|"string"), "description"}. These are the keys the prompt asks for and

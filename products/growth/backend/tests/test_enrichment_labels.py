@@ -167,7 +167,11 @@ class TestExtractInputFieldsPagesNamespace(SimpleTestCase):
 
         result = extract_input_fields(payload, ["name", "pages.home.markdown"], pages=pages)
 
-        assert result == {"name": "Acme", "pages.home.markdown": "We build developer tools."}
+        assert result == {
+            "name": "Acme",
+            "pages.home.markdown": "We build developer tools.",
+            "pages.home.url": "https://acme.example",
+        }
 
     def test_a_pages_path_with_no_matching_page_or_key_is_omitted(self):
         result = extract_input_fields({}, ["pages.pricing.markdown"], pages={"home": {"markdown": "x"}})
@@ -187,6 +191,35 @@ class TestExtractInputFieldsPagesNamespace(SimpleTestCase):
         result = extract_input_fields({}, ["pages.home.markdown"], pages=pages)
 
         assert result["pages.home.markdown"] == "Contact us at hello@acme.example for a demo."
+
+    def test_a_markdown_field_also_pulls_in_the_pages_url_automatically(self):
+        # The model can only cite a page it was shown the address of, so the URL must reach the
+        # prompt even when a config's input_fields only names the markdown key.
+        pages = {"home": {"markdown": "We build developer tools.", "url": "https://acme.example"}}
+
+        result = extract_input_fields({}, ["pages.home.markdown"], pages=pages)
+
+        assert result == {
+            "pages.home.markdown": "We build developer tools.",
+            "pages.home.url": "https://acme.example",
+        }
+
+    def test_the_auto_added_url_is_not_duplicated_when_already_configured(self):
+        pages = {"home": {"markdown": "We build developer tools.", "url": "https://acme.example"}}
+
+        result = extract_input_fields({}, ["pages.home.url", "pages.home.markdown"], pages=pages)
+
+        assert result == {
+            "pages.home.url": "https://acme.example",
+            "pages.home.markdown": "We build developer tools.",
+        }
+
+    def test_no_url_is_added_when_the_page_has_none(self):
+        pages = {"home": {"markdown": "We build developer tools."}}
+
+        result = extract_input_fields({}, ["pages.home.markdown"], pages=pages)
+
+        assert result == {"pages.home.markdown": "We build developer tools."}
 
 
 class TestValidateInputFieldsPagesShape(SimpleTestCase):
@@ -299,6 +332,64 @@ class TestClassifyPayloadPages(SimpleTestCase):
 
         assert result["is_ai"] == UNKNOWN
         client.chat.completions.create.assert_not_called()
+
+
+class TestClassifyPayloadEvidenceUrlValidation(SimpleTestCase):
+    def _config(self) -> EnrichmentPromptConfig:
+        return EnrichmentPromptConfig(
+            name="test_label",
+            version="v1",
+            prompt_text="judge it. Email: {email}",
+            model="gpt-5-mini",
+            input_fields=["pages.home.markdown"],
+            output_fields=[
+                {"key": "is_ai", "type": "boolean", "description": ""},
+                {"key": "evidence_url", "type": "string", "description": ""},
+            ],
+        )
+
+    def _client_with_evidence(self, evidence_url: str) -> MagicMock:
+        client = MagicMock()
+        response = MagicMock()
+        response.choices[0].message.content = json.dumps({"is_ai": True, "evidence_url": evidence_url})
+        client.chat.completions.create.return_value = response
+        return client
+
+    def test_an_evidence_url_on_the_signup_domain_is_kept(self):
+        pages = {"home": {"markdown": "x", "url": "https://acme.example"}}
+        client = self._client_with_evidence("https://acme.example/pricing")
+
+        result = classify_payload(self._config(), {"name": "Acme"}, "acme.example", client, pages=pages)
+
+        assert result["evidence_url"] == "https://acme.example/pricing"
+        assert "evidence_url_rejected" not in result.get("meta", {})
+
+    def test_an_evidence_url_on_a_subdomain_of_the_signup_domain_is_kept(self):
+        pages = {"home": {"markdown": "x", "url": "https://acme.example"}}
+        client = self._client_with_evidence("https://www.acme.example/pricing")
+
+        result = classify_payload(self._config(), {"name": "Acme"}, "acme.example", client, pages=pages)
+
+        assert result["evidence_url"] == "https://www.acme.example/pricing"
+
+    def test_an_evidence_url_on_a_different_host_is_rejected_without_failing_the_verdict(self):
+        pages = {"home": {"markdown": "x", "url": "https://acme.example"}}
+        client = self._client_with_evidence("https://not-acme.example/pricing")
+
+        result = classify_payload(self._config(), {"name": "Acme"}, "acme.example", client, pages=pages)
+
+        assert result["evidence_url"] is None
+        assert result["is_ai"] is True
+        assert result["meta"]["evidence_url_rejected"] == "https://not-acme.example/pricing"
+
+    def test_an_empty_evidence_url_is_left_alone(self):
+        pages = {"home": {"markdown": "x", "url": "https://acme.example"}}
+        client = self._client_with_evidence("")
+
+        result = classify_payload(self._config(), {"name": "Acme"}, "acme.example", client, pages=pages)
+
+        assert result["evidence_url"] == ""
+        assert "evidence_url_rejected" not in result.get("meta", {})
 
 
 class TestConfigurableOutputFields(SimpleTestCase):
