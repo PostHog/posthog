@@ -103,6 +103,8 @@ class MCPRegistryServerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         description="Full server record: tools, measured stats, per-version scores, connection instructions.",
     )
     def retrieve(self, request: Request, pk: str | None = None, **kwargs) -> Response:
+        if pk is None:
+            raise NotFound()
         detail = registry_api.get_server_detail(pk=pk, **self._caller_context())
         if detail is None:
             raise NotFound()

@@ -140,6 +140,16 @@ def discover_servers(
         score = logic.score_for_run(run, server)
         visibility = logic.measured_visibility(server, team_id, caller_is_staff)
         can_see_measured = bool(visibility.rows)
+        matched_tools: list[dict[str, contracts.JSONScalar]] = [
+            {
+                "name": tool.name,
+                "description": tool.description[:160],
+                "source": tool.source,
+            }
+            for tool in logic.visible_tools(server, can_see_measured)
+            if any(token in tool.name.lower() for token in tokens)
+        ]
+        matched_tools = matched_tools[:_DISCOVER_TOOLS_PER_CANDIDATE]
         candidates.append(
             contracts.DiscoverCandidate(
                 rank=index + 1,
@@ -152,11 +162,7 @@ def discover_servers(
                 liveness=server.liveness,
                 auth_method=server.auth_method,
                 measured=logic.measured_summary(visibility.rows),
-                matched_tools=[
-                    {"name": tool.name, "description": tool.description[:160], "source": tool.source}
-                    for tool in logic.visible_tools(server, can_see_measured)
-                    if any(token in tool.name.lower() for token in tokens)
-                ][:_DISCOVER_TOOLS_PER_CANDIDATE],
+                matched_tools=matched_tools,
                 connect=build_connect_instructions(server),
             )
         )

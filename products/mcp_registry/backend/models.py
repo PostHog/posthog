@@ -154,7 +154,7 @@ class MCPMeasuredStats(UUIDModel):
     own measurements go through `.for_team(...)` or the request's ambient team scope.
     """
 
-    objects = TeamScopedManager()  # type: ignore[assignment]
+    objects = TeamScopedManager()
     # Django framework internals (related-object access, prefetch_related, admin) use
     # `_default_manager` and expect an unfiltered manager; pointing that at `all_teams`
     # keeps `server.measured_stats.all()` working while `.objects` stays fail-closed.

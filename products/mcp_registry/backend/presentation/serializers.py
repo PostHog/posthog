@@ -101,7 +101,7 @@ class MCPRegistryToolSerializer(serializers.Serializer):
     input_schema = JSONDictField(
         help_text="JSON Schema for the tool's input. Only populated for probed (tools_list) tools."
     )
-    source = serializers.CharField(
+    source = serializers.CharField(  # type: ignore[assignment]  # field named `source` shadows DRF Field.source
         help_text="Where we learned about this tool: a probed tools/list (authoritative schema) "
         "or MCP Analytics usage (proof of real calls, no schema)."
     )
@@ -112,7 +112,8 @@ class MCPMeasuredStatsSerializer(serializers.Serializer):
     window_days = serializers.IntegerField(help_text="Aggregation window in days.")
     calls = serializers.IntegerField(help_text="Tool calls observed in the window.")
     sessions = serializers.IntegerField(help_text="Distinct MCP sessions observed in the window.")
-    errors = serializers.IntegerField(help_text="Errored tool calls in the window.")
+    # Field named `errors` shadows Serializer.errors; fine for a read-only output field.
+    errors = serializers.IntegerField(help_text="Errored tool calls in the window.")  # type: ignore[assignment]
     error_rate_pct = serializers.FloatField(help_text="Errors as a percentage of calls.")
     intent_coverage_pct = serializers.FloatField(
         help_text="Percentage of calls carrying an agent-written intent ($mcp_intent)."

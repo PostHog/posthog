@@ -7,7 +7,7 @@ imports (celery, posthoganalytics) stay off that module, which presentation impo
 request.
 """
 
-from products.mcp_registry.backend.tasks import (
+from products.mcp_registry.backend.tasks.tasks import (
     MCP_REGISTRY_SYNC_CRONTAB,
     is_pipeline_enabled,
     run_mcp_registry_sync,

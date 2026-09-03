@@ -6,7 +6,7 @@
                 "backend/facade/**",
                 "backend/presentation/**",
                 "backend/routes.py",
-                "backend/tasks.py",
+                "backend/tasks/**",
                 "backend/models.py",
                 "backend/migrations/**"
             ],
