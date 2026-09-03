@@ -1,3 +1,6 @@
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
+
 import * as packageIcons from '@posthog/icons'
 
 import { ELEMENTS, OBJECTS, TEAMS_AND_COMPANIES, TECHNOLOGY } from './categories'
@@ -14,5 +17,14 @@ describe('icons', () => {
             .flat(2)
 
         expect(validPackageIcons.filter((i) => !categorisedIcons.includes(i))).toEqual([])
+    })
+
+    // A container-relative width makes an icon fill its parent until .LemonIcon applies.
+    // patches/@posthog__icons@0.38.0.patch keeps the units em-based; re-create it on a bump.
+    it('ensures package icons carry em-based intrinsic dimensions', () => {
+        const markup = renderToStaticMarkup(createElement(packageIcons.IconX))
+
+        expect(markup).toContain('width="1em"')
+        expect(markup).toContain('height="1em"')
     })
 })

@@ -105,6 +105,7 @@ patchedDependencies:
     heatmap.js@2.0.5: patches/heatmap.js@2.0.5.patch
     dayjs@1.11.11: patches/dayjs@1.11.11.patch
     kea@4.0.0-pre.6: patches/kea@4.0.0-pre.6.patch
+    '@posthog/icons@0.38.0': patches/@posthog__icons@0.38.0.patch
 
 # Dependencies that require preinstall scripts. Add entries with caution.
 onlyBuiltDependencies:

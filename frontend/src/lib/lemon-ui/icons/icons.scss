@@ -1,6 +1,10 @@
 .LemonIcon {
     display: inline-block;
+
+    // Both dimensions are stated, because a glyph with an unset dimension takes the size of
+    // its container.
     width: 1em;
+    height: 1em;
     vertical-align: -0.15em; // -0.15em ensures vertical centering in inline contexts
 }
 
