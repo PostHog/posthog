@@ -4,9 +4,9 @@ The Trino backend compiles a resolved HogQL query into SQL and bound values. It 
 
 ## Release boundary
 
-Call `prepare_and_print_ast(node, context, "trino")` explicitly to use the backend. Normal query routing and the raw-only Trino adapter remain unchanged. The compiler and lowering modules load only when a caller selects the Trino dialect.
+Call `prepare_and_print_ast(node, context, "trino")` explicitly to use the backend. Normal query routing and the raw-only Trino capability remain unchanged. The compiler and lowering modules load only when a caller selects the Trino dialect.
 
-The returned SQL uses named placeholders, with values stored in `context.values`. `convert_pyformat_placeholders` converts these into positional placeholders and values for a Trino client; calling this helper does not execute SQL.
+The returned SQL uses named placeholders, with values stored in `context.values`. The direct Trino adapter converts them into positional placeholders and submits the ordered values to the Trino client.
 
 The final Trino transpiler accepts a prepared AST plus frozen snapshots of bindings, table locators, modifiers, limits, timezone, and week start. It clones the AST and creates a fresh print context without a team, user, or schema database before final lowering, validation, and printing.
 
@@ -14,7 +14,7 @@ The final Trino transpiler accepts a prepared AST plus frozen snapshots of bindi
 
 Pure transpilation accepts caller-supplied constant values. It rejects unresolved placeholders, action and cohort references, tables absent from the manifest, non-leaf warehouse column types, and invalid or incomplete manifest entries. Callers needing Django-backed semantics must select the explicit expansion mode described below.
 
-Query Editor capability changes, case-insensitive connection lookup, and parameter submission belong to separate integration changes. They are not prerequisites for compilation.
+Query Editor capability changes and case-insensitive connection lookup belong to separate integration changes. Parameter submission alone does not enable HogQL for Trino connections in Query Editor.
 
 ## Managed Trino connections
 

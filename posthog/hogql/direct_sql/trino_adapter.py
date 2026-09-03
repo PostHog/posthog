@@ -13,6 +13,7 @@ from posthog.hogql.direct_sql.adapter import DirectQueryRequest, DirectQueryResu
 from posthog.hogql.direct_sql.capability import is_direct_capable
 from posthog.hogql.direct_sql.raw_sql import ensure_single_direct_statement
 from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.trino_parameters import convert_pyformat_placeholders
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -113,6 +114,7 @@ class TrinoAdapter:
         span.set_attribute("team_id", request.team.pk)
         span.set_attribute("query_type", request.query_type)
         span.set_attribute("source_id", str(request.source.id))
+        sql, parameters = convert_pyformat_placeholders(request.sql, request.values)
 
         try:
             with request.timings.measure("trino_execute"), observe_direct_query("trino"):
@@ -121,7 +123,7 @@ class TrinoAdapter:
                     with _CancelWatchdog(cursor, timeout_seconds) as watchdog:
                         try:
                             cursor.execute(  # nosemgrep: python.django.security.injection.sql.sql-injection-using-db-cursor-execute.sql-injection-db-cursor-execute -- direct SQL is intentionally user-authored and SELECT-gated
-                                request.sql
+                                sql, parameters or None
                             )
                             results = cursor.fetchmany(DIRECT_TRINO_MAX_ROWS + 1)
                         except Exception as error:
