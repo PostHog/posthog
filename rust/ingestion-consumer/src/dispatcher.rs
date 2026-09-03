@@ -3,15 +3,18 @@ use std::sync::{Arc, Mutex};
 
 use common_kafka_consumer::{Offset, Partition};
 use k8s_awareness::PeerTracker;
-use metrics::{counter, gauge, histogram};
+use metrics::{counter, histogram};
 
 use crate::aperture;
 use crate::debug_recorder::{
     record_if, DebugEventKind, DebugRecorder, DispatcherLoad, LoadEntry, RoutingDebug, SubBatchInfo,
 };
-use crate::order_sentinel::{KeyOrderSentinel, SendKind};
+use crate::order_sentinel::KeyOrderSentinel;
 use crate::routing::{Router, RoutingStrategy, WorkerLoad};
-use crate::stash::{DeferredGroup, Stash};
+use crate::scheduler::{
+    Dispatch, KeyRun, PinStashScheduler, Scheduler, SchedulerEffects, Settlement,
+    SettlementOutcome, WorkerHealth, WorkerSnapshot,
+};
 use crate::types::{Accumulator, Group, SerializedKafkaMessage};
 use crate::worker_registry::{WorkerId, WorkerRegistry};
 
@@ -33,48 +36,11 @@ pub struct SubBatch {
     pub worker: WorkerId,
     pub messages: Vec<SerializedKafkaMessage>,
     /// Unique routing keys contained in this sub-batch. Pass back to
-    /// `Dispatcher::on_sub_batch_resolved` on ACK or DLQ.
+    /// `Dispatcher::settle` on ACK or DLQ.
     pub routing_keys: Vec<String>,
     /// Per-key max offsets. Pass back to `Dispatcher::on_sub_batch_acked` on
     /// a successful ACK (only) so the order sentinel tracks ACK progress.
     pub key_offsets: Vec<KeyOffset>,
-}
-
-/// Sticky pin for one routing key. Tracks which worker owns the key and how
-/// many in-flight batches reference it. The pin is evicted when ref_count
-/// reaches 0 and the key has no deferred groups outstanding (see [`Stash`]).
-struct Pin {
-    worker: WorkerId,
-    ref_count: u32,
-}
-
-/// Mutable assignment state, held behind a single Mutex.
-struct PinTable {
-    /// Kafka message key → sticky assignment.
-    pins: HashMap<String, Pin>,
-    /// Outstanding (in-flight) message count per worker. Both routing strategies
-    /// use it as the per-worker load signal so new key-groups land on
-    /// lightly-loaded workers — load is balanced by message volume rather than
-    /// by sub-batch count. A worker with no outstanding messages has no entry.
-    in_flight: WorkerLoad,
-    /// Messages deferred because their key's worker is draining/dead, keyed by
-    /// batch, plus per-key outstanding counts. Flushed by `flush_deferred`.
-    stash: Stash,
-}
-
-impl PinTable {
-    fn new() -> Self {
-        Self {
-            pins: HashMap::new(),
-            in_flight: WorkerLoad::new(),
-            stash: Stash::new(),
-        }
-    }
-}
-
-struct MessageGroup {
-    routing_key: String,
-    messages: Vec<SerializedKafkaMessage>,
 }
 
 struct WorkerSubBatchBuilder {
@@ -103,7 +69,13 @@ impl WorkerAssignments {
         Self::default()
     }
 
-    fn add_group(&mut self, worker: WorkerId, group: MessageGroup) {
+    fn add_dispatch(&mut self, dispatch: Dispatch) {
+        let Dispatch {
+            worker,
+            routing_key,
+            messages,
+            ..
+        } = dispatch;
         let builder = self
             .by_worker
             .entry(worker)
@@ -116,20 +88,19 @@ impl WorkerAssignments {
         // Only keyed messages participate in the key-order sentinel: an
         // unkeyed message lives on an arbitrary partition and is grouped under
         // a synthetic key, so it has no ACK watermark to advance.
-        if let Some(max_offset) = group
-            .messages
+        if let Some(max_offset) = messages
             .iter()
             .filter(|m| m.key.is_some())
             .map(|m| m.offset)
             .max()
         {
             builder.key_offsets.push(KeyOffset {
-                routing_key: group.routing_key.clone(),
+                routing_key: routing_key.clone(),
                 max_offset,
             });
         }
-        builder.messages.extend(group.messages);
-        builder.routing_keys.push(group.routing_key);
+        builder.messages.extend(messages);
+        builder.routing_keys.push(routing_key);
     }
 
     fn sub_batch_infos(&self) -> Vec<SubBatchInfo> {
@@ -165,28 +136,35 @@ impl WorkerAssignments {
     }
 }
 
-/// Routes batches to Node.js workers with sticky per-key assignment.
+/// The scheduler and the load table, behind the dispatcher's single Mutex.
+struct DispatcherInner {
+    /// The decision core. Every ordering and placement decision happens in
+    /// its seam calls; the dispatcher applies the returned effects.
+    scheduler: PinStashScheduler,
+    /// Outstanding (in-flight) message count per worker. Both routing
+    /// strategies use it as the per-worker load signal so new key-groups land
+    /// on lightly-loaded workers — load is balanced by message volume rather
+    /// than by sub-batch count. A worker with no outstanding messages has no
+    /// entry.
+    in_flight: WorkerLoad,
+}
+
+/// Routes batches to workers: the plumbing around the [`Scheduler`] seam.
 ///
-/// **Assignment** (`assign`): groups messages by Kafka message key, honors
-/// existing pins for live workers, routes new keys onto a healthy worker via the
-/// configured [`RoutingStrategy`], and returns one `SubBatch` per worker.
-/// Unkeyed messages carry no ordering promise and may land on any worker.
-///
-/// **Stickiness**: a routing key stays on the same worker across batches
-/// (ref-counted pin). Pins are dropped when a worker is declared dead (or leaves
-/// the pool) or when the last referencing batch resolves.
-///
-/// **Recovery**: `on_sub_batch_resolved` decrements ref-counts and subtracts
-/// the sub-batch's messages from the worker's outstanding load. Zero-count
-/// pins are evicted so the key is re-pinned on its next arrival.
+/// The dispatcher owns the lock, the in-flight load table, the metrics and
+/// debug events, the sentinel calls, and the sub-batch assembly. Every
+/// ordering and placement decision — honor a pin, defer behind the stash,
+/// route fresh, re-pin on flush, evict on settle — lives in the scheduler
+/// behind the seam. The dispatcher captures a [`WorkerSnapshot`] snapshot before
+/// each seam call and applies the returned [`SchedulerEffects`].
 pub struct Dispatcher {
-    pin_table: Mutex<PinTable>,
+    inner: Mutex<DispatcherInner>,
     registry: Arc<WorkerRegistry>,
-    /// Worker selector for unpinned keys. Behind its own mutex because P2C
-    /// selection mutates the RNG.
-    router: Mutex<Router>,
-    /// Per-key send/ACK order checker. Called under the pin-table lock (lock
-    /// order: pin_table → sentinel; the sentinel never takes the pin table),
+    /// The configured routing strategy; the scheduler owns the router itself.
+    /// Kept here for view construction (aperture narrowing) and debug.
+    strategy: RoutingStrategy,
+    /// Per-key send/ACK order checker. Called under the inner lock (lock
+    /// order: inner → sentinel; the sentinel never takes the inner lock),
     /// so its check order matches the intended per-key send order.
     key_sentinel: Arc<KeyOrderSentinel>,
     /// Peer tracker + aperture width for [`RoutingStrategy::Aperture`]: this
@@ -205,14 +183,7 @@ impl Dispatcher {
 
     /// Construct a dispatcher with an explicit routing strategy.
     pub fn with_strategy(registry: Arc<WorkerRegistry>, strategy: RoutingStrategy) -> Self {
-        Self {
-            pin_table: Mutex::new(PinTable::new()),
-            registry,
-            router: Mutex::new(Router::new(strategy)),
-            key_sentinel: Arc::new(KeyOrderSentinel::new()),
-            aperture: None,
-            debug_recorder: None,
-        }
+        Self::from_router(registry, strategy, Router::new(strategy))
     }
 
     /// Test-only constructor with a seeded RNG so P2C selection is deterministic.
@@ -222,10 +193,21 @@ impl Dispatcher {
         strategy: RoutingStrategy,
         seed: u64,
     ) -> Self {
+        Self::from_router(registry, strategy, Router::with_seed(strategy, seed))
+    }
+
+    fn from_router(
+        registry: Arc<WorkerRegistry>,
+        strategy: RoutingStrategy,
+        router: Router,
+    ) -> Self {
         Self {
-            pin_table: Mutex::new(PinTable::new()),
+            inner: Mutex::new(DispatcherInner {
+                scheduler: PinStashScheduler::new(router),
+                in_flight: WorkerLoad::new(),
+            }),
             registry,
-            router: Mutex::new(Router::with_seed(strategy, seed)),
+            strategy,
             key_sentinel: Arc::new(KeyOrderSentinel::new()),
             aperture: None,
             debug_recorder: None,
@@ -253,8 +235,8 @@ impl Dispatcher {
 
     /// Point-in-time load/pin/stash snapshot for the debug UI.
     pub fn debug_load(&self) -> DispatcherLoad {
-        let table = self.pin_table.lock().unwrap();
-        let per_worker: Vec<LoadEntry> = table
+        let inner = self.inner.lock().unwrap();
+        let per_worker: Vec<LoadEntry> = inner
             .in_flight
             .iter()
             .map(|(worker, in_flight)| LoadEntry {
@@ -265,18 +247,18 @@ impl Dispatcher {
         DispatcherLoad {
             total_in_flight: per_worker.iter().map(|e| e.in_flight).sum(),
             per_worker,
-            pin_count: table.pins.len(),
-            stashed_messages: table.stash.message_count(),
-            stashed_batches: table.stash.batch_count(),
+            pin_count: inner.scheduler.pin_count(),
+            stashed_messages: inner.scheduler.stashed_messages(),
+            stashed_batches: inner.scheduler.stashed_batches(),
         }
     }
 
     /// Routing strategy and current aperture slice for the debug UI. Runs the
-    /// same ring/slice computation as `assign`, over a worker view the caller
-    /// captured in one registry pass — so within one debug response the ring,
+    /// same ring/slice computation as assignment, over a worker view the caller
+    /// captured in one registry effects — so within one debug response the ring,
     /// slice, and worker rows can't disagree under churn.
     pub fn debug_routing(&self, workers: Vec<WorkerId>, healthy: &[WorkerId]) -> RoutingDebug {
-        let strategy = self.router.lock().unwrap().strategy();
+        let strategy = self.strategy;
         let ring = aperture::sorted_ring(workers);
         let slice = if strategy == RoutingStrategy::Aperture {
             self.aperture.as_ref().and_then(|(tracker, width)| {
@@ -294,152 +276,29 @@ impl Dispatcher {
         }
     }
 
-    /// Assign a batch of messages to workers. Demuxes the messages into
-    /// groups first, as the collect path does for a poll, then assigns them
-    /// like [`Dispatcher::assign_and_send`].
-    pub fn assign(&self, batch_id: &str, messages: Vec<SerializedKafkaMessage>) -> Vec<SubBatch> {
-        let mut table = self.pin_table.lock().unwrap();
-        self.assign_locked(&mut table, batch_id, demux(messages))
-    }
-
-    /// Assign a poll's groups to workers, then hand each sub-batch to `send`
-    /// before releasing the pin table. A key admitted here because nothing of
-    /// its is deferred must enter its worker stream before `defer_failed` can
-    /// stash an older group for it: with the lock released in between, the
-    /// stash could land first, the worker stream's fence could lift, and the
-    /// newer group would ride the next stream ahead of the older one. `send`
-    /// must not block.
-    ///
-    /// Per group:
-    /// - honor an existing pin to a worker still taking work;
-    /// - **defer** (stash under `batch_id`) a key pinned to a draining/dead
-    ///   worker, or one that already has deferred groups pending, so newer
-    ///   messages can't race ahead of the key's earlier ones;
-    /// - otherwise route fresh via the configured strategy — or defer the
-    ///   group when no worker is routable at all, so a transient full-pool
-    ///   outage holds messages instead of failing the batch.
-    ///
-    /// Sends one `SubBatch` per worker. Deferred groups stay in the stash and
-    /// are flushed later via [`Dispatcher::flush_deferred`].
-    pub fn assign_and_send<T>(
-        &self,
-        batch_id: &str,
-        groups: Vec<Group>,
-        send: impl FnMut(SubBatch) -> T,
-    ) -> Vec<T> {
-        let mut table = self.pin_table.lock().unwrap();
-        self.assign_locked(&mut table, batch_id, groups)
-            .into_iter()
-            .map(send)
-            .collect()
-    }
-
-    fn assign_locked(
-        &self,
-        table: &mut PinTable,
-        batch_id: &str,
-        groups: Vec<Group>,
-    ) -> Vec<SubBatch> {
-        let GroupedMessages {
-            groups: key_groups,
-            unkeyed_count,
-        } = routing_groups(groups);
-
-        if unkeyed_count > 0 {
-            counter!("ingestion_consumer_dispatcher_unkeyed_messages_total")
-                .increment(unkeyed_count);
-        }
-
-        let routing_keys = key_groups.len();
-        histogram!("ingestion_consumer_routing_keys_per_batch").record(routing_keys as f64);
-
-        let mut assignments = WorkerAssignments::new();
-
-        // Candidate workers and their working load for this round. `working_load`
-        // starts from each candidate's outstanding load and is bumped as groups
-        // are assigned, so intra-batch placement accounts for earlier picks.
+    /// Capture the worker world for one seam call: routable workers, the
+    /// fresh-key candidates (aperture-narrowed when configured), per-worker
+    /// health, and the current load table. The scheduler decides over this
+    /// snapshot instead of querying the registry itself.
+    fn worker_snapshot(&self, in_flight: &WorkerLoad) -> WorkerSnapshot {
         let healthy = self.registry.healthy_workers();
-        let mut working_load: WorkerLoad = healthy
-            .iter()
-            .map(|w| (w.clone(), table.in_flight.get(w).copied().unwrap_or(0)))
+        let workers = self
+            .registry
+            .workers()
+            .into_iter()
+            .map(|worker| {
+                let health = WorkerHealth {
+                    dead: self.registry.is_dead(&worker),
+                    draining: self.registry.is_draining(&worker),
+                };
+                (worker, health)
+            })
             .collect();
-
-        let mut unpinned_groups: Vec<MessageGroup> = Vec::new();
-        let mut drain_deferred_count = 0u64;
-        let mut cascade_deferred_count = 0u64;
-        let mut unroutable_deferred_count = 0u64;
-
-        for group in key_groups {
-            let pinned_worker = table.pins.get(&group.routing_key).map(|p| p.worker.clone());
-            match pinned_worker {
-                Some(worker)
-                    if !table.stash.is_deferring(&group.routing_key)
-                        && !self.registry.is_dead(&worker)
-                        && !self.registry.is_draining(&worker) =>
-                {
-                    // Live pin on a worker still taking work, nothing deferred
-                    // ahead of it — honor it.
-                    table.pins.get_mut(&group.routing_key).unwrap().ref_count += 1;
-                    bump_load(&mut working_load, &worker, group.messages.len());
-                    self.key_sentinel.note_sent(
-                        &group.routing_key,
-                        &group.messages,
-                        SendKind::Fresh,
-                    );
-                    assignments.add_group(worker, group);
-                }
-                Some(_) => {
-                    // Pinned to a draining/dead worker, or the key already has
-                    // deferred groups pending — defer so newer messages can't
-                    // race ahead of the key's earlier in-flight/deferred ones.
-                    // A key that is already deferring counts as cascade
-                    // (queued behind its own deferred work) regardless of the
-                    // pinned worker's state, so the seed (drain) and the
-                    // amplification (cascade) are measured separately.
-                    if table.stash.is_deferring(&group.routing_key) {
-                        cascade_deferred_count += 1;
-                    } else {
-                        drain_deferred_count += 1;
-                    }
-                    table.stash.defer(
-                        batch_id,
-                        DeferredGroup {
-                            routing_key: group.routing_key,
-                            messages: group.messages,
-                        },
-                    );
-                }
-                None if table.stash.is_deferring(&group.routing_key) => {
-                    // No pin, but the key already has stashed groups (it was
-                    // unroutable earlier) — newer messages must queue behind
-                    // them, not race ahead.
-                    table.stash.defer(
-                        batch_id,
-                        DeferredGroup {
-                            routing_key: group.routing_key,
-                            messages: group.messages,
-                        },
-                    );
-                    cascade_deferred_count += 1;
-                }
-                None => unpinned_groups.push(group),
-            }
-        }
-
-        // Route the unpinned groups via the configured strategy. Bin-packing
-        // wants the biggest groups placed first so heavy hitters drive the load
-        // distribution; P2C is per-group and order-independent.
-        let mut router = self.router.lock().unwrap();
-
-        if router.prefers_largest_first() {
-            unpinned_groups.sort_unstable_by(|a, b| b.messages.len().cmp(&a.messages.len()));
-        }
-
         // Aperture: narrow the candidates to this dispatcher's ring slice, so
         // the fleet's slices tile the pool and each batch consolidates onto
         // few workers. Falls back to the full healthy pool while the peer set
         // is unknown (startup, peer awareness disabled).
-        let narrowed = if router.strategy() == RoutingStrategy::Aperture {
+        let narrowed = if self.strategy == RoutingStrategy::Aperture {
             self.aperture.as_ref().and_then(|(tracker, width)| {
                 let peers = tracker.snapshot();
                 let ring = aperture::sorted_ring(self.registry.workers());
@@ -454,45 +313,73 @@ impl Dispatcher {
         } else {
             None
         };
-        let candidates: &[WorkerId] = narrowed.as_deref().unwrap_or(&healthy);
+        let candidates = narrowed.unwrap_or_else(|| healthy.clone());
+        WorkerSnapshot::new(healthy, candidates, in_flight.clone(), workers)
+    }
 
-        for group in unpinned_groups {
-            let Some(worker) = router.select(candidates, &working_load) else {
-                // No routable worker right now (e.g. the whole pool is draining
-                // during a deploy overlap). Stash the group so the flush loop
-                // can route it once a worker returns — dropping it would fail
-                // the whole batch and restart the process for a transient
-                // condition.
-                counter!("ingestion_consumer_dispatcher_unroutable_messages_total")
-                    .increment(group.messages.len() as u64);
-                table.stash.defer(
-                    batch_id,
-                    DeferredGroup {
-                        routing_key: group.routing_key,
-                        messages: group.messages,
-                    },
-                );
-                unroutable_deferred_count += 1;
-                continue;
-            };
+    /// Assign a batch of messages to workers. Demuxes the messages into
+    /// groups first, as the collect path does for a poll, then assigns them
+    /// like [`Dispatcher::assign_and_send`].
+    pub fn assign(&self, batch_id: &str, messages: Vec<SerializedKafkaMessage>) -> Vec<SubBatch> {
+        let mut inner = self.inner.lock().unwrap();
+        self.assign_groups(&mut inner, batch_id, demux(messages))
+    }
 
-            bump_load(&mut working_load, &worker, group.messages.len());
-            table.pins.insert(
-                group.routing_key.clone(),
-                Pin {
-                    worker: worker.clone(),
-                    ref_count: 1,
-                },
-            );
-            self.key_sentinel
-                .note_sent(&group.routing_key, &group.messages, SendKind::Fresh);
-            assignments.add_group(worker, group);
+    /// Assign a poll's groups to workers, then hand each sub-batch to `send`
+    /// before releasing the lock. A key admitted here because nothing of
+    /// its is deferred must enter its worker stream before a failed-send
+    /// settlement can stash an older group for it: with the lock released in
+    /// between, the stash could land first, the worker stream's fence could
+    /// lift, and the newer group would ride the next stream ahead of the
+    /// older one. `send` must not block.
+    ///
+    /// The scheduler decides per group (honor the pin, defer, route fresh, or
+    /// hold an unroutable group); see [`PinStashScheduler::on_groups`].
+    /// Sends one `SubBatch` per worker. Deferred groups stay in the stash and
+    /// are flushed later via [`Dispatcher::flush_deferred`].
+    pub fn assign_and_send<T>(
+        &self,
+        batch_id: &str,
+        groups: Vec<Group>,
+        send: impl FnMut(SubBatch) -> T,
+    ) -> Vec<T> {
+        let mut inner = self.inner.lock().unwrap();
+        self.assign_groups(&mut inner, batch_id, groups)
+            .into_iter()
+            .map(send)
+            .collect()
+    }
+
+    fn assign_groups(
+        &self,
+        inner: &mut DispatcherInner,
+        batch_id: &str,
+        groups: Vec<Group>,
+    ) -> Vec<SubBatch> {
+        let GroupedMessages {
+            groups: runs,
+            unkeyed_count,
+        } = routing_groups(groups);
+
+        if unkeyed_count > 0 {
+            counter!("ingestion_consumer_dispatcher_unkeyed_messages_total")
+                .increment(unkeyed_count);
         }
-        drop(router);
+
+        let routing_keys = runs.len();
+        histogram!("ingestion_consumer_routing_keys_per_batch").record(routing_keys as f64);
+
+        let snapshot = self.worker_snapshot(&inner.in_flight);
+        let SchedulerEffects {
+            dispatches,
+            deferred,
+            ..
+        } = inner.scheduler.on_groups(&snapshot, batch_id, runs);
+        let assignments = self.note_and_assemble(dispatches);
 
         // Add each worker's message volume to its outstanding load.
         for (worker, message_count) in assignments.routed_counts() {
-            *table.in_flight.entry(worker.clone()).or_insert(0) += message_count;
+            *inner.in_flight.entry(worker.clone()).or_insert(0) += message_count;
             counter!(
                 "ingestion_consumer_dispatcher_sub_batches_assigned_total",
                 "worker" => worker.clone(),
@@ -505,103 +392,84 @@ impl Dispatcher {
             .increment(message_count as u64);
         }
 
-        if drain_deferred_count > 0 {
-            counter!(
-                "ingestion_consumer_dispatcher_deferred_groups_total",
-                "reason" => "drain",
-            )
-            .increment(drain_deferred_count);
-        }
-        if cascade_deferred_count > 0 {
-            counter!(
-                "ingestion_consumer_dispatcher_deferred_groups_total",
-                "reason" => "queued_behind_deferral",
-            )
-            .increment(cascade_deferred_count);
-        }
-        if unroutable_deferred_count > 0 {
-            counter!(
-                "ingestion_consumer_dispatcher_deferred_groups_total",
-                "reason" => "unroutable",
-            )
-            .increment(unroutable_deferred_count);
-        }
-        gauge!("ingestion_consumer_dispatcher_pins_total").set(table.pins.len() as f64);
-        record_stash_gauges(&table.stash);
-
-        if drain_deferred_count > 0 {
-            record_if(&self.debug_recorder, || DebugEventKind::Deferred {
-                batch_id: batch_id.to_string(),
-                reason: "drain",
-                groups: drain_deferred_count,
-            });
-        }
-        if cascade_deferred_count > 0 {
-            record_if(&self.debug_recorder, || DebugEventKind::Deferred {
-                batch_id: batch_id.to_string(),
-                reason: "queued_behind_deferral",
-                groups: cascade_deferred_count,
-            });
-        }
-        if unroutable_deferred_count > 0 {
-            record_if(&self.debug_recorder, || DebugEventKind::Deferred {
-                batch_id: batch_id.to_string(),
-                reason: "unroutable",
-                groups: unroutable_deferred_count,
-            });
+        for (reason, count) in [
+            ("drain", deferred.drain),
+            ("queued_behind_deferral", deferred.queued_behind_deferral),
+            ("unroutable", deferred.unroutable),
+        ] {
+            if count > 0 {
+                record_if(&self.debug_recorder, || DebugEventKind::Deferred {
+                    batch_id: batch_id.to_string(),
+                    reason,
+                    groups: count,
+                });
+            }
         }
         record_if(&self.debug_recorder, || DebugEventKind::BatchAssigned {
             batch_id: batch_id.to_string(),
             routing_keys,
             sub_batches: assignments.sub_batch_infos(),
-            deferred_groups: drain_deferred_count + cascade_deferred_count,
-            unroutable_groups: unroutable_deferred_count,
+            deferred_groups: deferred.drain + deferred.queued_behind_deferral,
+            unroutable_groups: deferred.unroutable,
         });
 
         assignments.into_sub_batches()
     }
 
+    /// Note each dispatch with the key-order sentinel — dispatch order is the
+    /// intended per-key send order, still under the inner lock — and assemble
+    /// the per-worker sub-batches.
+    fn note_and_assemble(&self, dispatches: Vec<Dispatch>) -> WorkerAssignments {
+        let mut assignments = WorkerAssignments::new();
+        for dispatch in dispatches {
+            self.key_sentinel
+                .note_sent(&dispatch.routing_key, &dispatch.messages, dispatch.kind);
+            assignments.add_dispatch(dispatch);
+        }
+        assignments
+    }
+
     /// Record a batch's arrival order for the stash. Must be called from the
-    /// consumer loop in true batch order, before `assign` — failed sends
+    /// consumer loop in true batch order, before assignment — failed sends
     /// re-defer in gather order, so no later call site can establish the
     /// order reliably.
     pub fn register_batch(&self, batch_id: &str) {
-        self.pin_table
+        self.inner
             .lock()
             .unwrap()
-            .stash
+            .scheduler
             .register_batch(batch_id);
     }
 
     /// Forget a fully completed (committed) batch's arrival order and any
     /// leftover ledger state.
     pub fn release_batch(&self, batch_id: &str) {
-        self.pin_table.lock().unwrap().stash.release_batch(batch_id);
+        self.inner.lock().unwrap().scheduler.release_batch(batch_id);
     }
 
     /// Whether `batch_id` still has deferred groups awaiting flush.
     pub fn has_deferred(&self, batch_id: &str) -> bool {
-        self.pin_table.lock().unwrap().stash.has_batch(batch_id)
+        self.inner.lock().unwrap().scheduler.has_batch(batch_id)
     }
 
     /// Whether the batch still has deferred groups awaiting a flush.
     pub fn has_unfinished_flush(&self, batch_id: &str) -> bool {
-        self.pin_table.lock().unwrap().stash.has_batch(batch_id)
+        self.inner.lock().unwrap().scheduler.has_batch(batch_id)
     }
 
     /// Whether the batch has any deferred groups. Used to distinguish
     /// "everything was deferred/flushed" from "nothing was routable" right
     /// after assignment.
     pub fn batch_has_flush_activity(&self, batch_id: &str) -> bool {
-        self.pin_table.lock().unwrap().stash.has_batch(batch_id)
+        self.inner.lock().unwrap().scheduler.has_batch(batch_id)
     }
 
     /// Whether the worker has any in-flight (sent, unresolved) messages. The
     /// reaper uses this to promptly complete a drain for a worker that was idle
     /// when it left the pool — its in-flight never resolves, so the registry's
-    /// `complete_drain` (which fires from `on_sub_batch_resolved`) never would.
+    /// `complete_drain` (which fires from settlement) never would.
     pub fn has_in_flight(&self, worker: &WorkerId) -> bool {
-        self.pin_table
+        self.inner
             .lock()
             .unwrap()
             .in_flight
@@ -612,39 +480,34 @@ impl Dispatcher {
     /// Total messages currently held in the stash across all batches. Exposed
     /// for observability and for tests to synchronize on deferral.
     pub fn stashed_messages(&self) -> usize {
-        self.pin_table.lock().unwrap().stash.message_count()
+        self.inner.lock().unwrap().scheduler.stashed_messages()
     }
 
     /// Number of live sticky pins. Exposed so tests can assert the pin table
     /// drains back to zero once all in-flight work has resolved — a leak here
     /// permanently skews routing.
     pub fn pin_count(&self) -> usize {
-        self.pin_table.lock().unwrap().pins.len()
+        self.inner.lock().unwrap().scheduler.pin_count()
     }
 
     /// Total outstanding (sent, unresolved) messages across all workers.
     /// Exposed so tests can assert the load accounting drains back to zero.
     pub fn total_in_flight(&self) -> usize {
-        self.pin_table.lock().unwrap().in_flight.values().sum()
+        self.inner.lock().unwrap().in_flight.values().sum()
     }
 
-    /// Defer messages whose send failed (the worker died mid-send) so they can be
-    /// replayed in order. Must be called **before** `on_sub_batch_resolved` for
-    /// the failed sub-batch, so the ref-count drop doesn't evict the pin while
-    /// the key still has work to replay.
+    /// Defer messages whose send failed (the worker died mid-send) so they can
+    /// be replayed in order. Production resolves a failed send atomically via
+    /// [`Dispatcher::settle`]; this two-step path (defer, then a delivered-
+    /// shaped settle) remains for tests that drive the halves separately, and
+    /// must run **before** its settle so the ref-count drop doesn't evict the
+    /// pin while the key still has work to replay.
     pub fn defer_failed(&self, batch_id: &str, messages: Vec<SerializedKafkaMessage>) {
-        let mut table = self.pin_table.lock().unwrap();
-        let GroupedMessages { groups, .. } = group_messages_by_routing_key(messages);
-        let deferred_count = groups.len() as u64;
-        for group in groups {
-            table.stash.defer(
-                batch_id,
-                DeferredGroup {
-                    routing_key: group.routing_key,
-                    messages: group.messages,
-                },
-            );
-        }
+        let mut inner = self.inner.lock().unwrap();
+        let deferred_count = inner
+            .scheduler
+            .stash_failed(batch_id, runs_by_routing_key(messages));
+        drop(inner);
         if deferred_count > 0 {
             counter!(
                 "ingestion_consumer_dispatcher_deferred_groups_total",
@@ -657,112 +520,47 @@ impl Dispatcher {
                 groups: deferred_count,
             });
         }
-        record_stash_gauges(&table.stash);
     }
 
-    /// Flush a batch's deferred groups: route each to a healthy worker now that
-    /// the key's earlier in-flight has resolved, re-pinning it. Returns the
-    /// sub-batches to send. Groups that can't route yet (no healthy worker) stay
-    /// stashed — call again after a backoff. Cross-key order is preserved because
-    /// the consumer flushes batches oldest-first.
+    /// Flush a batch's deferred groups: fire the scheduler's retry deadline
+    /// and send what routed. Groups that can't route yet (no healthy worker)
+    /// stay stashed — call again after a backoff. Cross-key order is preserved
+    /// because the caller flushes batches oldest-first.
     pub fn flush_deferred(&self, batch_id: &str) -> Vec<SubBatch> {
-        let mut table = self.pin_table.lock().unwrap();
-        self.flush_deferred_locked(&mut table, batch_id)
+        let mut inner = self.inner.lock().unwrap();
+        self.flush_groups(&mut inner, batch_id)
     }
 
-    /// Flush, then hand each sub-batch to `send` before releasing the pin
-    /// table, for the same reason as `assign_and_send`. `send` must not block.
+    /// Flush, then hand each sub-batch to `send` before releasing the lock,
+    /// for the same reason as `assign_and_send`. `send` must not block.
     pub fn flush_deferred_and_send<T>(
         &self,
         batch_id: &str,
         send: impl FnMut(SubBatch) -> T,
     ) -> Vec<T> {
-        let mut table = self.pin_table.lock().unwrap();
-        self.flush_deferred_locked(&mut table, batch_id)
+        let mut inner = self.inner.lock().unwrap();
+        self.flush_groups(&mut inner, batch_id)
             .into_iter()
             .map(send)
             .collect()
     }
 
-    fn flush_deferred_locked(&self, table: &mut PinTable, batch_id: &str) -> Vec<SubBatch> {
-        let groups = table.stash.take_batch(batch_id);
-        if groups.is_empty() {
+    fn flush_groups(&self, inner: &mut DispatcherInner, batch_id: &str) -> Vec<SubBatch> {
+        let snapshot = self.worker_snapshot(&inner.in_flight);
+        let SchedulerEffects { dispatches, .. } = inner.scheduler.on_deadline(&snapshot, batch_id);
+        if dispatches.is_empty() {
             return Vec::new();
         }
-
-        let healthy = self.registry.healthy_workers();
-        let mut working_load: WorkerLoad = healthy
-            .iter()
-            .map(|w| (w.clone(), table.in_flight.get(w).copied().unwrap_or(0)))
-            .collect();
-        let mut assignments = WorkerAssignments::new();
-
-        let mut router = self.router.lock().unwrap();
-        for group in groups {
-            // Prefer the key's existing pin when it still points to a healthy
-            // worker, so a key deferred across several batches re-homes to a
-            // single survivor — preserving per-key (person-batching)
-            // locality instead of scattering its messages across workers.
-            // Fall back to load-based selection for a fresh key, when the
-            // pinned worker is itself unhealthy (e.g. the drainer we're
-            // leaving), or when it is far more loaded than the rest of the
-            // pool (a saturated worker bounces the flush with 503s until the
-            // batch times out — see `sticky_pin_for`).
-            let sticky = sticky_pin_for(&table.pins, &group.routing_key, &healthy, &working_load);
-            let worker = match sticky {
-                Some(worker) => worker,
-                None => {
-                    let Some(worker) = router.select(&healthy, &working_load) else {
-                        // No healthy worker yet — keep it stashed for a later flush.
-                        table.stash.put_back(batch_id, group);
-                        continue;
-                    };
-                    worker
-                }
-            };
-            bump_load(&mut working_load, &worker, group.messages.len());
-            // Re-pin the key to the new worker. The deferral is NOT cleared here:
-            // the flushed messages are now in flight but not yet ACKed, so the key
-            // must keep deferring until that send resolves (see the `clears_deferral`
-            // path in `on_sub_batch_resolved`). Otherwise a newer batch could honor
-            // this fresh pin and race the not-yet-landed flushed messages.
-            match table.pins.get_mut(&group.routing_key) {
-                Some(pin) => {
-                    pin.worker = worker.clone();
-                    pin.ref_count += 1;
-                }
-                None => {
-                    table.pins.insert(
-                        group.routing_key.clone(),
-                        Pin {
-                            worker: worker.clone(),
-                            ref_count: 1,
-                        },
-                    );
-                }
-            }
-            self.key_sentinel
-                .note_sent(&group.routing_key, &group.messages, SendKind::Resend);
-            assignments.add_group(
-                worker,
-                MessageGroup {
-                    routing_key: group.routing_key,
-                    messages: group.messages,
-                },
-            );
-        }
-        drop(router);
+        let assignments = self.note_and_assemble(dispatches);
 
         for (worker, message_count) in assignments.routed_counts() {
-            *table.in_flight.entry(worker.clone()).or_insert(0) += message_count;
+            *inner.in_flight.entry(worker.clone()).or_insert(0) += message_count;
             counter!(
                 "ingestion_consumer_dispatcher_deferred_flushed_total",
                 "worker" => worker.to_string(),
             )
             .increment(message_count as u64);
         }
-        gauge!("ingestion_consumer_dispatcher_pins_total").set(table.pins.len() as f64);
-        record_stash_gauges(&table.stash);
 
         if !assignments.by_worker.is_empty() {
             record_if(&self.debug_recorder, || DebugEventKind::DeferredFlushed {
@@ -774,18 +572,89 @@ impl Dispatcher {
         assignments.into_sub_batches()
     }
 
-    /// Call after a sub-batch resolves (ACK or DLQ). Subtracts the sub-batch's
-    /// message count from the worker's outstanding load and decrements the
-    /// ref-count for each key. Evicts zero-count pins so the key is re-assigned
-    /// on its next arrival. `message_count` must match the sub-batch's length.
-    ///
-    /// `clears_deferral` must be true only when resolving a **flushed** sub-batch
-    /// (one produced by `flush_deferred`): it decrements the key's outstanding
-    /// deferral count, so the key keeps deferring newer messages from the moment
-    /// it was first deferred until its flushed messages have actually landed —
-    /// closing the window where a newer batch could race them.
+    /// Resolve one send in a single seam call: subtract its load, requeue a
+    /// failure's messages, clear deferrals, and evict idle pins. `failed`
+    /// carries a failed send's batch id and messages; the scheduler requeues
+    /// them before it releases the keys, so a newer send cannot overtake the
+    /// failed messages. `from_flush` must be true only when resolving a
+    /// flushed sub-batch: it decrements the key's outstanding deferral count,
+    /// so the key keeps deferring newer messages from the moment it was first
+    /// deferred until its flushed messages have actually landed.
+    pub fn settle(
+        &self,
+        worker: &WorkerId,
+        message_count: usize,
+        routing_keys: &[String],
+        from_flush: bool,
+        failed: Option<(String, Vec<SerializedKafkaMessage>)>,
+    ) {
+        let mut inner = self.inner.lock().unwrap();
+
+        let now_zero = match inner.in_flight.get_mut(worker) {
+            Some(load) => {
+                *load = load.saturating_sub(message_count);
+                *load == 0
+            }
+            None => false,
+        };
+        if now_zero {
+            inner.in_flight.remove(worker);
+            // A draining worker with no in-flight left has finished its work —
+            // mark it reapable so it's removed promptly rather than at the timeout.
+            if self.registry.is_draining(worker) {
+                self.registry.complete_drain(worker);
+            }
+        }
+
+        let failed_batch_id = failed.as_ref().map(|(batch_id, _)| batch_id.clone());
+        let outcome = match failed {
+            None => SettlementOutcome::Delivered,
+            Some((batch_id, messages)) => SettlementOutcome::Failed {
+                batch_id,
+                runs: runs_by_routing_key(messages),
+            },
+        };
+        let snapshot = self.worker_snapshot(&inner.in_flight);
+        let effects = inner.scheduler.on_settled(
+            &snapshot,
+            Settlement {
+                worker: worker.clone(),
+                message_count,
+                routing_keys: routing_keys.to_vec(),
+                from_flush,
+                outcome,
+            },
+        );
+
+        if !effects.evicted_keys.is_empty() {
+            for key in &effects.evicted_keys {
+                self.key_sentinel.evict(key);
+            }
+            counter!(
+                "ingestion_consumer_dispatcher_pin_evictions_total",
+                "reason" => "resolved",
+            )
+            .increment(effects.evicted_keys.len() as u64);
+        }
+        drop(inner);
+
+        if effects.deferred.send_failed > 0 {
+            record_if(&self.debug_recorder, || DebugEventKind::Deferred {
+                batch_id: failed_batch_id.unwrap_or_default(),
+                reason: "send_failed",
+                groups: effects.deferred.send_failed,
+            });
+        }
+        record_if(&self.debug_recorder, || DebugEventKind::SubBatchResolved {
+            worker: worker.to_string(),
+            messages: message_count,
+            routing_keys: routing_keys.len(),
+            cleared_deferral: from_flush,
+        });
+    }
+
     /// Call when a worker ACKed a sub-batch (success path only, **before**
-    /// `on_sub_batch_resolved` so the sentinel state isn't evicted first).
+    /// its settle so the sentinel state isn't evicted first).
     /// Advances each key's ACK high-water mark in the order sentinel.
     pub fn on_sub_batch_acked(&self, key_offsets: &[KeyOffset]) {
         for key_offset in key_offsets {
@@ -794,6 +663,9 @@ impl Dispatcher {
         }
     }
 
+    /// A delivered-shaped settle, kept for tests that drive the resolve
+    /// protocol directly; production calls [`Dispatcher::settle`].
+    /// `clears_deferral` maps to the settlement's `from_flush`.
     pub fn on_sub_batch_resolved(
         &self,
         worker: &WorkerId,
@@ -802,70 +674,7 @@ impl Dispatcher {
         clears_deferral: bool,
         _send_failed: bool,
     ) {
-        let mut table = self.pin_table.lock().unwrap();
-
-        let now_zero = match table.in_flight.get_mut(worker) {
-            Some(load) => {
-                *load = load.saturating_sub(message_count);
-                *load == 0
-            }
-            None => false,
-        };
-        if now_zero {
-            table.in_flight.remove(worker);
-            // A draining worker with no in-flight left has finished its work —
-            // mark it reapable so it's removed promptly rather than at the timeout.
-            if self.registry.is_draining(worker) {
-                self.registry.complete_drain(worker);
-            }
-        }
-
-        let mut evictions = 0usize;
-        for key in routing_keys {
-            // For a flushed sub-batch, the key's flushed chunk has now landed —
-            // clear one outstanding deferral before checking whether it can evict.
-            if clears_deferral {
-                table.stash.completed(key);
-            }
-            // Don't evict a pin while the key still has deferred groups awaiting
-            // flush — new messages must keep deferring behind them to preserve
-            // per-key order.
-            let still_deferring = table.stash.is_deferring(key);
-            if let Some(pin) = table.pins.get_mut(key) {
-                // Skip stale resolves: a key's pin may have been re-pointed to a
-                // different worker (e.g. by a deferred flush). A resolve from the
-                // original sub-batch must not touch the new pin's ref_count.
-                if pin.worker != *worker {
-                    continue;
-                }
-                pin.ref_count = pin.ref_count.saturating_sub(1);
-                if pin.ref_count == 0 && !still_deferring {
-                    table.pins.remove(key);
-                    // All sends for the key resolved and nothing is deferred —
-                    // its order-sentinel history has nothing left to check.
-                    self.key_sentinel.evict(key);
-                    evictions += 1;
-                }
-            }
-        }
-
-        if evictions > 0 {
-            counter!(
-                "ingestion_consumer_dispatcher_pin_evictions_total",
-                "reason" => "resolved",
-            )
-            .increment(evictions as u64);
-        }
-
-        gauge!("ingestion_consumer_dispatcher_pins_total").set(table.pins.len() as f64);
-        drop(table);
-
-        record_if(&self.debug_recorder, || DebugEventKind::SubBatchResolved {
-            worker: worker.to_string(),
-            messages: message_count,
-            routing_keys: routing_keys.len(),
-            cleared_deferral: clears_deferral,
-        });
+        self.settle(worker, message_count, routing_keys, clears_deferral, None);
     }
 
     /// Record the outcome of a send attempt for passive health tracking.
@@ -875,64 +684,8 @@ impl Dispatcher {
     }
 }
 
-/// Cap on how much more loaded a pinned worker may be than the least-loaded
-/// healthy worker before a flush abandons stickiness. Beyond
-/// `min_load * FACTOR + SLACK` in-flight messages the pin is ignored and the
-/// group routes by load: a worker at its concurrency cap keeps 503ing the
-/// flush until the batch's deferred-flush timeout kills the process, so
-/// locality yields to load once the gap is this large. The slack keeps small
-/// absolute gaps sticky — an idle candidate (min 0) must not disqualify a pin
-/// holding a few hundred messages.
-const STICKY_PIN_LOAD_FACTOR: usize = 2;
-const STICKY_PIN_LOAD_SLACK: usize = 500;
-
-/// The key's pinned worker, if the pin may be honored for a flush: it must be
-/// healthy and not drastically more loaded than the least-loaded candidate
-/// (see `STICKY_PIN_LOAD_FACTOR`). Only consulted at flush time, when the key
-/// has no send in flight — so declining the pin and routing elsewhere cannot
-/// reorder the key.
-fn sticky_pin_for(
-    pins: &HashMap<String, Pin>,
-    routing_key: &str,
-    healthy: &[WorkerId],
-    working_load: &WorkerLoad,
-) -> Option<WorkerId> {
-    let worker = pins.get(routing_key).map(|pin| pin.worker.clone())?;
-    if !healthy.contains(&worker) {
-        return None;
-    }
-    let pinned_load = working_load.get(&worker).copied().unwrap_or(0);
-    let min_load = healthy
-        .iter()
-        .map(|w| working_load.get(w).copied().unwrap_or(0))
-        .min()
-        .unwrap_or(0);
-    if pinned_load > min_load.saturating_mul(STICKY_PIN_LOAD_FACTOR) + STICKY_PIN_LOAD_SLACK {
-        counter!("ingestion_consumer_dispatcher_sticky_pin_overrides_total").increment(1);
-        return None;
-    }
-    Some(worker)
-}
-
-/// Add `count` to a worker's working load for this round, if it is a candidate.
-/// Workers that aren't routing candidates (e.g. a pin honored on an unhealthy
-/// worker) have no entry and don't affect selection, so they're skipped.
-fn bump_load(working_load: &mut WorkerLoad, worker: &WorkerId, count: usize) {
-    if let Some(load) = working_load.get_mut(worker) {
-        *load = load.saturating_add(count);
-    }
-}
-
-/// Publish point-in-time stash depth so a drain's backlog is observable and can
-/// be alerted on if it fails to drain to zero. Call after every mutation.
-fn record_stash_gauges(stash: &Stash) {
-    gauge!("ingestion_consumer_dispatcher_stashed_batches").set(stash.batch_count() as f64);
-    gauge!("ingestion_consumer_dispatcher_stashed_groups").set(stash.len() as f64);
-    gauge!("ingestion_consumer_dispatcher_stashed_messages").set(stash.message_count() as f64);
-}
-
 struct GroupedMessages {
-    groups: Vec<MessageGroup>,
+    groups: Vec<KeyRun>,
     unkeyed_count: u64,
 }
 
@@ -945,22 +698,28 @@ fn demux(messages: Vec<SerializedKafkaMessage>) -> Vec<Group> {
     accumulator.into_groups()
 }
 
+/// Name a failed send's messages for the stash, one run per routing key.
+pub(crate) fn runs_by_routing_key(messages: Vec<SerializedKafkaMessage>) -> Vec<KeyRun> {
+    routing_groups(demux(messages)).groups
+}
+
+#[cfg(test)]
 fn group_messages_by_routing_key(messages: Vec<SerializedKafkaMessage>) -> GroupedMessages {
     routing_groups(demux(messages))
 }
 
-/// Name each group for the pin table. A keyed group's routing key is its
+/// Name each group for the scheduler. A keyed group's routing key is its
 /// Kafka key. An unkeyed message has no order to preserve, so it can go to
 /// any worker: a synthetic per-message key spreads such messages across
 /// workers instead of pinning them all to one shared fallback key.
 ///
-/// The pin table is keyed by routing key alone, so a key that arrives on two
-/// partitions in one poll (a partition-count change leaves its backlog on the
-/// old partition) merges into one group: two groups for one key could route
-/// to two workers at once.
+/// The scheduler's pin table is keyed by routing key alone, so a key that
+/// arrives on two partitions in one poll (a partition-count change leaves its
+/// backlog on the old partition) merges into one group: two groups for one
+/// key could route to two workers at once.
 fn routing_groups(groups: Vec<Group>) -> GroupedMessages {
     let mut unkeyed_count = 0u64;
-    let mut merged: Vec<MessageGroup> = Vec::with_capacity(groups.len());
+    let mut merged: Vec<KeyRun> = Vec::with_capacity(groups.len());
     let mut index_by_key: HashMap<String, usize> = HashMap::new();
     for group in groups {
         let routing_key = match group.key {
@@ -976,7 +735,7 @@ fn routing_groups(groups: Vec<Group>) -> GroupedMessages {
             Some(&index) => merged[index].messages.extend(messages),
             None => {
                 index_by_key.insert(routing_key.clone(), merged.len());
-                merged.push(MessageGroup {
+                merged.push(KeyRun {
                     routing_key,
                     messages: messages.collect(),
                 });
@@ -993,6 +752,9 @@ fn routing_groups(groups: Vec<Group>) -> GroupedMessages {
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+
+    use crate::order_sentinel::SendKind;
+    use crate::scheduler::Pin;
     use std::sync::Arc;
     use std::time::Duration;
 
@@ -1064,7 +826,7 @@ mod tests {
 
     fn in_flight_of(dispatcher: &Dispatcher, worker: &WorkerId) -> usize {
         dispatcher
-            .pin_table
+            .inner
             .lock()
             .unwrap()
             .in_flight
@@ -1132,20 +894,18 @@ mod tests {
     fn test_worker_assignments_merges_groups_for_same_worker() {
         let mut assignments = WorkerAssignments::new();
 
-        assignments.add_group(
-            wid(1),
-            MessageGroup {
-                routing_key: "tok:user-1".to_string(),
-                messages: make_msgs(&["tok:user-1"]),
-            },
-        );
-        assignments.add_group(
-            wid(1),
-            MessageGroup {
-                routing_key: "tok:user-2".to_string(),
-                messages: make_msgs(&["tok:user-2"]),
-            },
-        );
+        assignments.add_dispatch(Dispatch {
+            worker: wid(1),
+            routing_key: "tok:user-1".to_string(),
+            messages: make_msgs(&["tok:user-1"]),
+            kind: SendKind::Fresh,
+        });
+        assignments.add_dispatch(Dispatch {
+            worker: wid(1),
+            routing_key: "tok:user-2".to_string(),
+            messages: make_msgs(&["tok:user-2"]),
+            kind: SendKind::Fresh,
+        });
 
         assert_eq!(
             assignments.routed_counts().collect::<Vec<_>>(),
@@ -1168,13 +928,12 @@ mod tests {
         // offset advancing an ACK watermark would make a later keyed send
         // look like a resend_after_ack.
         let mut assignments = WorkerAssignments::new();
-        assignments.add_group(
-            wid(1),
-            MessageGroup {
-                routing_key: "tok:user-1".to_string(),
-                messages: vec![make_msg_at("tok:user-1", 100)],
-            },
-        );
+        assignments.add_dispatch(Dispatch {
+            worker: wid(1),
+            routing_key: "tok:user-1".to_string(),
+            messages: vec![make_msg_at("tok:user-1", 100)],
+            kind: SendKind::Fresh,
+        });
         let sub_batches = assignments.into_sub_batches();
         assert_eq!(sub_batches[0].key_offsets.len(), 1);
         assert_eq!(sub_batches[0].key_offsets[0].routing_key, "tok:user-1");
@@ -1182,13 +941,12 @@ mod tests {
 
         // An unkeyed group produces no ACK watermark at all.
         let mut assignments = WorkerAssignments::new();
-        assignments.add_group(
-            wid(1),
-            MessageGroup {
-                routing_key: ":7:42".to_string(),
-                messages: vec![make_unkeyed_msg()],
-            },
-        );
+        assignments.add_dispatch(Dispatch {
+            worker: wid(1),
+            routing_key: ":7:42".to_string(),
+            messages: vec![make_unkeyed_msg()],
+            kind: SendKind::Fresh,
+        });
         assert!(assignments.into_sub_batches()[0].key_offsets.is_empty());
     }
 
@@ -1276,9 +1034,10 @@ mod tests {
         let worker = b1[0].worker.clone();
 
         assert!(dispatcher
-            .pin_table
+            .inner
             .lock()
             .unwrap()
+            .scheduler
             .pins
             .contains_key("t:user-1"));
 
@@ -1291,9 +1050,10 @@ mod tests {
         );
 
         assert!(!dispatcher
-            .pin_table
+            .inner
             .lock()
             .unwrap()
+            .scheduler
             .pins
             .contains_key("t:user-1"));
     }
@@ -1309,7 +1069,7 @@ mod tests {
         // Second batch, same key, pin not yet resolved: ref_count should be 2.
         dispatcher.assign("b", make_msgs(&["t:user-1"]));
         assert_eq!(
-            dispatcher.pin_table.lock().unwrap().pins["t:user-1"].ref_count,
+            dispatcher.inner.lock().unwrap().scheduler.pins["t:user-1"].ref_count,
             2
         );
 
@@ -1322,9 +1082,9 @@ mod tests {
             false,
         );
         {
-            let table = dispatcher.pin_table.lock().unwrap();
-            assert!(table.pins.contains_key("t:user-1"));
-            assert_eq!(table.pins["t:user-1"].ref_count, 1);
+            let inner = dispatcher.inner.lock().unwrap();
+            assert!(inner.scheduler.pins.contains_key("t:user-1"));
+            assert_eq!(inner.scheduler.pins["t:user-1"].ref_count, 1);
         }
     }
 
@@ -1382,12 +1142,7 @@ mod tests {
         let dispatcher = Dispatcher::new(registry);
 
         // Artificially load worker 0 with 3 outstanding messages.
-        dispatcher
-            .pin_table
-            .lock()
-            .unwrap()
-            .in_flight
-            .insert(wid(0), 3);
+        dispatcher.inner.lock().unwrap().in_flight.insert(wid(0), 3);
 
         // A fresh key should go to worker 1 (load = 0).
         let b = dispatcher.assign("b", make_msgs(&["t:fresh"]));
@@ -1533,12 +1288,7 @@ mod tests {
         // With two workers P2C always compares both, so a pre-loaded worker 0
         // sends the fresh key to worker 1.
         let dispatcher = p2c_dispatcher(2, 9);
-        dispatcher
-            .pin_table
-            .lock()
-            .unwrap()
-            .in_flight
-            .insert(wid(0), 5);
+        dispatcher.inner.lock().unwrap().in_flight.insert(wid(0), 5);
 
         let b = dispatcher.assign("b", make_msgs(&["t:fresh"]));
         assert_eq!(b.len(), 1);
@@ -1645,7 +1395,7 @@ mod tests {
         let mut dispatcher =
             Dispatcher::with_strategy(healthy_registry(6), RoutingStrategy::Aperture);
         dispatcher.set_aperture(peer_tracker("10.0.0.2", &["10.0.0.1", "10.0.0.2"]), 2);
-        dispatcher.pin_table.lock().unwrap().pins.insert(
+        dispatcher.inner.lock().unwrap().scheduler.pins.insert(
             "t:pinned".to_string(),
             Pin {
                 worker: wid(0),
@@ -1792,7 +1542,7 @@ mod tests {
         registry.start_draining(&pinned);
 
         // The live pin points at a draining worker — new messages for the key are
-        // deferred (held), not sent and not rerouted, so they can't pass the
+        // deferred (held), not sent and not rerouted, so they can't effects the
         // earlier in-flight message still being processed on that worker.
         let b2 = dispatcher.assign("batch-2", make_msgs(&["t:user-1"]));
         assert!(
@@ -2031,6 +1781,37 @@ mod tests {
         // flushed sub-batch), but nothing is deferred anymore.
         dispatcher.flush_deferred("batch-2");
         assert!(!dispatcher.has_deferred("batch-2"));
+    }
+
+    #[test]
+    fn test_settle_failure_requeues_before_releasing_the_key() {
+        // The one-call settlement must stash the failed messages before it
+        // drops the ref-count: reordered, the pin would evict with work still
+        // pending and the key's next arrival could route ahead of the replay.
+        let registry = healthy_registry(2);
+        let dispatcher = Dispatcher::new(Arc::clone(&registry));
+
+        let b1 = dispatcher.assign("batch-1", make_msgs(&["t:user-1"]));
+        let worker = b1[0].worker.clone();
+
+        dispatcher.settle(
+            &worker,
+            b1[0].messages.len(),
+            &b1[0].routing_keys,
+            false,
+            Some(("batch-1".to_string(), b1[0].messages.clone())),
+        );
+
+        assert!(
+            dispatcher.has_deferred("batch-1"),
+            "failed messages stashed"
+        );
+        assert_eq!(
+            dispatcher.pin_count(),
+            1,
+            "pin retained while the failed messages await replay"
+        );
+        assert_eq!(dispatcher.total_in_flight(), 0, "load released");
     }
 
     #[test]

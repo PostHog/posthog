@@ -11,6 +11,7 @@ pub mod ledger_shadow;
 pub mod order_sentinel;
 pub mod readiness;
 pub mod routing;
+pub mod scheduler;
 pub mod stash;
 pub mod transport;
 pub mod types;
