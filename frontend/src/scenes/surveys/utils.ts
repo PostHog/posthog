@@ -401,12 +401,19 @@ export function getSurveyResponse(question: SurveyQuestion, index: number): stri
  *
  * @param filters - The answer filters to convert to HogQL expressions
  * @param survey - The survey object (needed to access question IDs)
+ * @param resolveResponseExpr - How to address a question's answer. Defaults to the event-level
+ * `getSurveyResponse(...)` accessor. Callers querying merged submissions pass a resolver
+ * returning the merged column alias instead, since `getSurveyResponse` is not in scope there.
  * @returns A HogQL expression string that can be used in queries. If there are no filters, it returns an empty string.
  *
  * TODO: Consider leveraging the backend query builder instead of duplicating this logic in the frontend.
  * ClickHouse has powerful functions like match(), multiIf(), etc. that could be used more effectively.
  */
-export function createAnswerFilterHogQLExpression(filters: EventPropertyFilter[], survey: Survey): string {
+export function createAnswerFilterHogQLExpression(
+    filters: EventPropertyFilter[],
+    survey: Survey,
+    resolveResponseExpr: (question: SurveyQuestion, questionIndex: number) => string = getSurveyResponse
+): string {
     if (!filters || !filters.length) {
         return ''
     }
@@ -456,41 +463,41 @@ export function createAnswerFilterHogQLExpression(filters: EventPropertyFilter[]
             case 'is_not':
                 if (Array.isArray(filter.value)) {
                     const valueList = filter.value.map((v) => `'${escapeSqlString(String(v))}'`).join(', ')
-                    condition = `(${getSurveyResponse(question, questionIndex)} ${
+                    condition = `(${resolveResponseExpr(question, questionIndex)} ${
                         filter.operator === 'is_not' ? 'NOT IN' : 'IN'
                     } (${valueList}))`
                 } else {
-                    condition = `(${getSurveyResponse(question, questionIndex)} ${
+                    condition = `(${resolveResponseExpr(question, questionIndex)} ${
                         filter.operator === 'is_not' ? '!=' : '='
                     } '${escapedValue}')`
                 }
                 break
             case 'icontains':
                 if (question.type !== SurveyQuestionType.MultipleChoice) {
-                    condition = `(${getSurveyResponse(question, questionIndex)} ILIKE '%${escapedValue}%')`
+                    condition = `(${resolveResponseExpr(question, questionIndex)} ILIKE '%${escapedValue}%')`
                 } else {
-                    condition = `(arrayExists(x -> x ilike '%${escapedValue}%', ${getSurveyResponse(question, questionIndex)}))`
+                    condition = `(arrayExists(x -> x ilike '%${escapedValue}%', ${resolveResponseExpr(question, questionIndex)}))`
                 }
                 break
             case 'not_icontains':
                 if (question.type !== SurveyQuestionType.MultipleChoice) {
-                    condition = `(NOT ${getSurveyResponse(question, questionIndex)} ILIKE '%${escapedValue}%')`
+                    condition = `(NOT ${resolveResponseExpr(question, questionIndex)} ILIKE '%${escapedValue}%')`
                 } else {
-                    condition = `(NOT arrayExists(x -> x ilike '%${escapedValue}%', ${getSurveyResponse(question, questionIndex)}))`
+                    condition = `(NOT arrayExists(x -> x ilike '%${escapedValue}%', ${resolveResponseExpr(question, questionIndex)}))`
                 }
                 break
             case 'regex':
                 if (question.type !== SurveyQuestionType.MultipleChoice) {
-                    condition = `(match(${getSurveyResponse(question, questionIndex)}, '${escapedValue}'))`
+                    condition = `(match(${resolveResponseExpr(question, questionIndex)}, '${escapedValue}'))`
                 } else {
-                    condition = `(arrayExists(x -> match(x, '${escapedValue}'), ${getSurveyResponse(question, questionIndex)}))`
+                    condition = `(arrayExists(x -> match(x, '${escapedValue}'), ${resolveResponseExpr(question, questionIndex)}))`
                 }
                 break
             case 'not_regex':
                 if (question.type !== SurveyQuestionType.MultipleChoice) {
-                    condition = `(NOT match(${getSurveyResponse(question, questionIndex)}, '${escapedValue}'))`
+                    condition = `(NOT match(${resolveResponseExpr(question, questionIndex)}, '${escapedValue}'))`
                 } else {
-                    condition = `(NOT arrayExists(x -> match(x, '${escapedValue}'), ${getSurveyResponse(question, questionIndex)}))`
+                    condition = `(NOT arrayExists(x -> match(x, '${escapedValue}'), ${resolveResponseExpr(question, questionIndex)}))`
                 }
                 break
             // Add more operators as needed
@@ -687,8 +694,144 @@ export function buildPartialResponsesFilter(survey: Survey, dateRange?: SurveyDa
 
 export interface SurveyQueryFilters {
     timestampFilter: string
-    answerFilterHogQLExpression: string
+    answerFilters: EventPropertyFilter[]
     archivedResponsesFilter: string
+}
+
+/**
+ * HogQL expression collapsing a submission's `survey sent` events into one group. An event with
+ * no `$survey_submission_id` is keyed by its own uuid, so it stays a distinct response the way it
+ * did before submission IDs existed.
+ *
+ * Must stay identical to `SUBMISSION_GROUPING_KEY` in
+ * `products/surveys/backend/responses/fetch_rows.py`, otherwise the Results tab and the responses
+ * API disagree about what counts as one submission.
+ */
+const SUBMISSION_GROUPING_KEY = `if(
+    coalesce(properties.\`${SurveyEventProperties.SURVEY_SUBMISSION_ID}\`, '') = '',
+    toString(uuid),
+    properties.\`${SurveyEventProperties.SURVEY_SUBMISSION_ID}\`
+)`
+
+/** Alias holding a question's merged answer in the submission-merge subquery. */
+function mergedAnswerAlias(questionIndex: number): string {
+    return `q${questionIndex}_answer`
+}
+
+/** Alias holding a question's raw per-event answer in the submission-merge subquery. */
+function rawAnswerAlias(questionIndex: number): string {
+    return `q${questionIndex}_raw`
+}
+
+/**
+ * True when the event actually carries an answer to this question, so the merge can pick the event
+ * that answered it rather than whichever event in the submission happens to be latest.
+ *
+ * Multiple-choice answers are arrays, which are never null, so they need a length check instead.
+ */
+function buildAnswerPresenceExpr(rawAlias: string, question: SurveyQuestion): string {
+    return question.type === SurveyQuestionType.MultipleChoice ? `length(${rawAlias}) > 0` : `isNotNull(${rawAlias})`
+}
+
+/** True when the merged answer holds no content, covering both the null and empty-string cases. */
+export function buildAnswerIsEmptyExpr(mergedAlias: string, question: SurveyQuestion): string {
+    return question.type === SurveyQuestionType.MultipleChoice
+        ? `length(${mergedAlias}) = 0`
+        : `length(trim(coalesce(${mergedAlias}, ''))) = 0`
+}
+
+interface QuestionWithIndex {
+    question: SurveyQuestion
+    index: number
+}
+
+/**
+ * Builds a subquery emitting one row per submission, with every question's answer merged across
+ * that submission's events.
+ *
+ * A submission can span several `survey sent` events that don't each repeat the answers given
+ * earlier. The AI feedback flow produces exactly that shape: the rating arrives on one event and
+ * the free-text follow-up on another, joined by `$survey_submission_id`. Electing a single event
+ * per submission therefore drops every answer that only ever lived on a non-elected event, which
+ * is why this merges per question with `argMaxIf` instead, keeping the latest answer to each.
+ *
+ * This mirrors the responses API in `products/surveys/backend/responses/fetch_rows.py`, including
+ * its use of `isNotNull` rather than a stricter emptiness test, so both surfaces resolve a
+ * re-answered question the same way.
+ */
+function buildMergedSubmissionsSubquery(
+    survey: Survey,
+    filters: SurveyQueryFilters,
+    questions: QuestionWithIndex[],
+    { includeRespondentMetadata = false }: { includeRespondentMetadata?: boolean } = {}
+): string {
+    // With partial responses off, only completed submissions may surface. That check has to run
+    // against the whole submission rather than a single event, because the answers still need
+    // merging from the partial events that led up to the completed one.
+    const requiresCompletedEvent = !survey.enable_partial_responses
+    const completedEventExpr = buildSurveyOptionalBooleanPropertyFilter(SurveyEventProperties.SURVEY_COMPLETED, 'false')
+
+    const innerColumns = [
+        'uuid',
+        'timestamp',
+        ...(includeRespondentMetadata ? ['distinct_id', 'properties.`$session_id` AS session_id'] : []),
+        ...(requiresCompletedEvent ? [`${completedEventExpr} AS is_completed_event`] : []),
+        ...questions.map(({ question, index }) => `${getSurveyResponse(question, index)} AS ${rawAnswerAlias(index)}`),
+        `${SUBMISSION_GROUPING_KEY} AS submission_key`,
+    ]
+
+    const outerColumns = [
+        'argMax(uuid, timestamp) AS uuid',
+        // Aliased away from `timestamp` because every other aggregate here orders by that column,
+        // and an alias of the same name would resolve to this aggregate instead, nesting them.
+        'max(timestamp) AS submitted_at',
+        ...(includeRespondentMetadata
+            ? ['argMax(distinct_id, timestamp) AS distinct_id', 'argMax(session_id, timestamp) AS session_id']
+            : []),
+        ...questions.map(({ question, index }) => {
+            const raw = rawAnswerAlias(index)
+            return `argMaxIf(${raw}, timestamp, ${buildAnswerPresenceExpr(raw, question)}) AS ${mergedAnswerAlias(index)}`
+        }),
+    ]
+
+    // Answer and archive filters read the merged answer, so they belong in HAVING. The archive
+    // filter names `uuid`, which resolves to the representative uuid aliased above — the same one
+    // the responses table archives.
+    const havingConditions: string[] = []
+    if (requiresCompletedEvent) {
+        havingConditions.push('countIf(is_completed_event) > 0')
+    }
+    const mergedAnswerFilter = createAnswerFilterHogQLExpression(filters.answerFilters, survey, (_, index) =>
+        mergedAnswerAlias(index)
+    )
+    if (mergedAnswerFilter !== '') {
+        havingConditions.push(stripLeadingAnd(mergedAnswerFilter))
+    }
+    if (filters.archivedResponsesFilter !== '') {
+        havingConditions.push(stripLeadingAnd(filters.archivedResponsesFilter))
+    }
+
+    return `SELECT ${outerColumns.join(',\n            ')}
+        FROM (
+            SELECT ${innerColumns.join(',\n                ')}
+            FROM events
+            WHERE event = '${SurveyEventName.SENT}'
+                AND properties.\`${SurveyEventProperties.SURVEY_ID}\` = '${survey.id}'
+                ${filters.timestampFilter}
+                AND {filters}
+        )
+        GROUP BY submission_key${havingConditions.length > 0 ? `\n        HAVING ${havingConditions.join(' AND ')}` : ''}`
+}
+
+function stripLeadingAnd(expression: string): string {
+    return expression.replace(/^\s*AND\s+/, '')
+}
+
+/** Questions that can hold an answer. Link questions never produce a response. */
+function getAnswerableQuestions(survey: Survey): QuestionWithIndex[] {
+    return survey.questions
+        .map((question, index) => ({ question, index }))
+        .filter(({ question }) => !!question.id && question.type !== SurveyQuestionType.Link)
 }
 
 export interface OpenEndedColumnMap {
@@ -699,97 +842,83 @@ export interface OpenEndedColumnMap {
     }
 }
 
-export function buildAggregateQuery(
-    survey: Survey,
-    filters: SurveyQueryFilters,
-    dateRange?: SurveyDateRange | null
-): string | null {
-    const dedupFilter = buildPartialResponsesFilter(survey, dateRange)
-    const branches: string[] = []
-
-    const baseWhere = `event = '${SurveyEventName.SENT}'
-        AND properties.\`${SurveyEventProperties.SURVEY_ID}\` = '${survey.id}'
-        ${filters.timestampFilter}
-        ${filters.answerFilterHogQLExpression}
-        ${filters.archivedResponsesFilter}
-        ${dedupFilter}
-        AND {filters}`
-
-    for (const [index, question] of survey.questions.entries()) {
-        if (!question.id || question.type === SurveyQuestionType.Link) {
-            continue
-        }
-
-        const responseExpr = getSurveyResponse(question, index)
-
-        if (question.type === SurveyQuestionType.Rating || question.type === SurveyQuestionType.SingleChoice) {
-            branches.push(`SELECT '${question.id}' AS question_id,
-                ${responseExpr} AS label,
-                count() AS cnt
-            FROM events
-            WHERE ${baseWhere} AND isNotNull(${responseExpr})
-            GROUP BY label`)
-
-            if (question.type === SurveyQuestionType.SingleChoice && question.optional) {
-                branches.push(`SELECT '${question.id}' AS question_id,
-                    '__no_response__' AS label,
-                    count() AS cnt
-                FROM events
-                WHERE ${baseWhere} AND ${responseExpr} = ''`)
-            }
-        } else if (question.type === SurveyQuestionType.MultipleChoice) {
-            branches.push(`SELECT '${question.id}' AS question_id,
-                trim(BOTH '"\\'' FROM arrayJoin(${responseExpr})) AS label,
-                count() AS cnt
-            FROM events
-            WHERE ${baseWhere}
-            GROUP BY label HAVING isNotNull(label) AND label != ''`)
-
-            branches.push(`SELECT '${question.id}' AS question_id,
-                '__total__' AS label,
-                count() AS cnt
-            FROM events
-            WHERE ${baseWhere} AND length(${responseExpr}) > 0`)
-
-            if (question.optional) {
-                branches.push(`SELECT '${question.id}' AS question_id,
-                    '__no_response__' AS label,
-                    count() AS cnt
-                FROM events
-                WHERE ${baseWhere} AND length(${responseExpr}) = 0`)
-            }
-        } else if (question.type === SurveyQuestionType.Open) {
-            branches.push(`SELECT '${question.id}' AS question_id,
-                '__total__' AS label,
-                count() AS cnt
-            FROM events
-            WHERE ${baseWhere} AND isNotNull(${responseExpr})`)
-        }
-    }
-
-    if (branches.length === 0) {
+export function buildAggregateQuery(survey: Survey, filters: SurveyQueryFilters): string | null {
+    const questions = getAnswerableQuestions(survey)
+    if (questions.length === 0) {
         return null
     }
 
-    return `SELECT question_id, label, cnt FROM (${branches.join('\nUNION ALL\n')}) LIMIT 50000`
+    // Each entry emits the (question_id, label) pairs one submission contributes to one question.
+    // They are concatenated and unrolled with a single arrayJoin so the merge below is read once,
+    // rather than once per question: a ClickHouse CTE is inlined, so a UNION ALL branch per
+    // question would re-run the whole merge per branch.
+    const labelPairs: string[] = []
+    const noPairs = '[]'
+
+    for (const { question, index } of questions) {
+        const answer = mergedAnswerAlias(index)
+        const questionId = `'${question.id}'`
+        // The merged answer is nullable, and a nullable label would not match the literal pairs
+        // below when the arrays are concatenated.
+        const answerLabel = `coalesce(toString(${answer}), '')`
+
+        if (question.type === SurveyQuestionType.Rating || question.type === SurveyQuestionType.SingleChoice) {
+            labelPairs.push(`if(isNotNull(${answer}), [(${questionId}, ${answerLabel})], ${noPairs})`)
+
+            if (question.type === SurveyQuestionType.SingleChoice && question.optional) {
+                labelPairs.push(
+                    `if(${buildAnswerIsEmptyExpr(answer, question)}, [(${questionId}, '__no_response__')], ${noPairs})`
+                )
+            }
+        } else if (question.type === SurveyQuestionType.MultipleChoice) {
+            labelPairs.push(
+                `arrayMap(choice -> (${questionId}, choice),
+                    arrayFilter(choice -> choice != '',
+                        arrayMap(choice -> trim(BOTH '"\\'' FROM choice), ${answer})))`
+            )
+            labelPairs.push(`if(length(${answer}) > 0, [(${questionId}, '__total__')], ${noPairs})`)
+
+            if (question.optional) {
+                labelPairs.push(`if(length(${answer}) = 0, [(${questionId}, '__no_response__')], ${noPairs})`)
+            }
+        } else if (question.type === SurveyQuestionType.Open) {
+            labelPairs.push(`if(isNotNull(${answer}), [(${questionId}, '__total__')], ${noPairs})`)
+        }
+    }
+
+    if (labelPairs.length === 0) {
+        return null
+    }
+
+    const mergedSubmissions = buildMergedSubmissionsSubquery(survey, filters, questions)
+
+    return `SELECT
+            tupleElement(question_label, 1) AS question_id,
+            tupleElement(question_label, 2) AS label,
+            count() AS cnt
+        FROM (
+            SELECT arrayJoin(arrayConcat(
+                ${labelPairs.join(',\n                ')}
+            )) AS question_label
+            FROM (
+                ${mergedSubmissions}
+            )
+        )
+        GROUP BY question_id, label
+        LIMIT 50000`
 }
 
 export function buildOpenEndedQuery(
     survey: Survey,
     filters: SurveyQueryFilters,
-    dateRange?: SurveyDateRange | null,
     limit: number = 50000
 ): { query: string; columnMap: OpenEndedColumnMap } | null {
-    const dedupFilter = buildPartialResponsesFilter(survey, dateRange)
+    const questions = getAnswerableQuestions(survey)
     const openColumns: string[] = []
     const columnMap: OpenEndedColumnMap = {}
     let columnIndex = 0
 
-    for (const [index, question] of survey.questions.entries()) {
-        if (!question.id || question.type === SurveyQuestionType.Link) {
-            continue
-        }
-
+    for (const { question, index } of questions) {
         const isOpen = question.type === SurveyQuestionType.Open
         const hasOpenChoice =
             (question.type === SurveyQuestionType.SingleChoice ||
@@ -797,8 +926,8 @@ export function buildOpenEndedQuery(
             (question as MultipleSurveyQuestion).hasOpenChoice
 
         if (isOpen || hasOpenChoice) {
-            openColumns.push(`${getSurveyResponse(question, index)} AS q${index}_response`)
-            columnMap[question.id] = { columnIndex, questionIndex: index, type: question.type }
+            openColumns.push(`${mergedAnswerAlias(index)} AS q${index}_response`)
+            columnMap[question.id!] = { columnIndex, questionIndex: index, type: question.type }
             columnIndex++
         }
     }
@@ -807,20 +936,23 @@ export function buildOpenEndedQuery(
         return null
     }
 
+    // The merge needs every answerable question, not just the open ones, because answer filters in
+    // HAVING can reference a question that has no open column of its own.
+    const mergedSubmissions = buildMergedSubmissionsSubquery(survey, filters, questions, {
+        includeRespondentMetadata: true,
+    })
+
+    // Column order stays open columns, then distinct_id, timestamp, session_id — processOpenEndedResults
+    // reads the metadata positionally from the end.
     const query = `SELECT
             ${openColumns.join(',\n')},
-            events.distinct_id,
-            events.timestamp,
-            events.properties.$session_id
-        FROM events
-        WHERE event = '${SurveyEventName.SENT}'
-            AND properties.${SurveyEventProperties.SURVEY_ID} = '${survey.id}'
-            ${filters.timestampFilter}
-            ${filters.answerFilterHogQLExpression}
-            ${filters.archivedResponsesFilter}
-            ${dedupFilter}
-            AND {filters}
-        ORDER BY events.timestamp DESC
+            distinct_id,
+            submitted_at,
+            session_id
+        FROM (
+            ${mergedSubmissions}
+        )
+        ORDER BY submitted_at DESC
         LIMIT ${limit}`
 
     return { query, columnMap }
