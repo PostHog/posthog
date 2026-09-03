@@ -594,7 +594,12 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'cohort',
         docsHref: 'https://posthog.com/docs/customer-analytics',
     },
-    CustomerAnalyticsAccount: { projectBased: true, name: 'Account details', iconType: 'cohort' },
+    CustomerAnalyticsAccount: {
+        projectBased: true,
+        name: 'Account details',
+        iconType: 'cohort',
+        layout: 'app-full-scene-height',
+    },
     CustomerAnalyticsConfiguration: { projectBased: true, name: 'Customer analytics configuration' },
     CustomerJourneyBuilder: { projectBased: true, name: 'New journey' },
     CustomerJourneyTemplates: { projectBased: true, name: 'New journey' },
