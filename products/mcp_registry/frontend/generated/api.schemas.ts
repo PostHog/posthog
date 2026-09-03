@@ -49,8 +49,8 @@ export type MCPRegistryServerDetailApiPackagesItem = { [key: string]: unknown }
 export type MCPRegistryServerDetailApiConnect = { [key: string]: unknown }
 
 /**
- * * `tools_list` - tools_list
- * * `analytics` - analytics
+ * * `tools_list` - Probed tools/list
+ * * `analytics` - MCP Analytics usage
  */
 export type MCPRegistryToolSourceEnumApi =
     (typeof MCPRegistryToolSourceEnumApi)[keyof typeof MCPRegistryToolSourceEnumApi]
@@ -74,8 +74,8 @@ export interface MCPRegistryToolApi {
     input_schema: MCPRegistryToolApiInputSchema
     /** Where we learned about this tool: a probed tools/list (authoritative schema) or MCP Analytics usage (proof of real calls, no schema).
      *
-     * * `tools_list` - tools_list
-     * * `analytics` - analytics */
+     * * `tools_list` - Probed tools/list
+     * * `analytics` - MCP Analytics usage */
     source: MCPRegistryToolSourceEnumApi
     /** Last time this tool was observed by either source. */
     last_seen_at: string
@@ -92,8 +92,12 @@ export interface MCPMeasuredStatsApi {
     calls: number
     /** Distinct MCP sessions observed in the window. */
     sessions: number
-    /** Errored tool calls in the window. */
-    errors: number
+    /**
+     * Errored tool calls in the window.
+     * @minimum -2147483648
+     * @maximum 2147483647
+     */
+    errors?: number
     /** Errors as a percentage of calls. */
     error_rate_pct: number
     /** Percentage of calls carrying an agent-written intent ($mcp_intent). */

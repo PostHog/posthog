@@ -60,7 +60,7 @@ export type PaginatedMCPRegistryServerListListApiOutput = zod.output<typeof Pagi
 
 export const MCPRegistryToolSourceEnumApi = zod
     .enum(['tools_list', 'analytics'])
-    .describe('\* `tools_list` - tools_list\n\* `analytics` - analytics')
+    .describe('\* `tools_list` - Probed tools\/list\n\* `analytics` - MCP Analytics usage')
 
 export type MCPRegistryToolSourceEnumApi = zod.input<typeof MCPRegistryToolSourceEnumApi>
 export type MCPRegistryToolSourceEnumApiOutput = zod.output<typeof MCPRegistryToolSourceEnumApi>
@@ -73,9 +73,9 @@ export const MCPRegistryToolApi = zod.object({
         .describe("JSON Schema for the tool's input. Only populated for probed (tools_list) tools."),
     source: zod
         .enum(['tools_list', 'analytics'])
-        .describe('\* `tools_list` - tools_list\n\* `analytics` - analytics')
+        .describe('\* `tools_list` - Probed tools\/list\n\* `analytics` - MCP Analytics usage')
         .describe(
-            'Where we learned about this tool: a probed tools\/list (authoritative schema) or MCP Analytics usage (proof of real calls, no schema).\n\n\* `tools_list` - tools_list\n\* `analytics` - analytics'
+            'Where we learned about this tool: a probed tools\/list (authoritative schema) or MCP Analytics usage (proof of real calls, no schema).\n\n\* `tools_list` - Probed tools\/list\n\* `analytics` - MCP Analytics usage'
         ),
     last_seen_at: zod.iso.datetime({ offset: true }).describe('Last time this tool was observed by either source.'),
 })
@@ -83,11 +83,19 @@ export const MCPRegistryToolApi = zod.object({
 export type MCPRegistryToolApi = zod.input<typeof MCPRegistryToolApi>
 export type MCPRegistryToolApiOutput = zod.output<typeof MCPRegistryToolApi>
 
+export const mCPMeasuredStatsApiErrorsMin = -2147483648
+export const mCPMeasuredStatsApiErrorsMax = 2147483647
+
 export const MCPMeasuredStatsApi = zod.object({
     window_days: zod.number().describe('Aggregation window in days.'),
     calls: zod.number().describe('Tool calls observed in the window.'),
     sessions: zod.number().describe('Distinct MCP sessions observed in the window.'),
-    errors: zod.number().describe('Errored tool calls in the window.'),
+    errors: zod
+        .number()
+        .min(mCPMeasuredStatsApiErrorsMin)
+        .max(mCPMeasuredStatsApiErrorsMax)
+        .optional()
+        .describe('Errored tool calls in the window.'),
     error_rate_pct: zod.number().describe('Errors as a percentage of calls.'),
     intent_coverage_pct: zod.number().describe('Percentage of calls carrying an agent-written intent ($mcp_intent).'),
     distinct_tools: zod.number().describe('Distinct effective tools called in the window.'),
@@ -126,6 +134,9 @@ export const MCPRankingScoreInfoApi = zod
 export type MCPRankingScoreInfoApi = zod.input<typeof MCPRankingScoreInfoApi>
 export type MCPRankingScoreInfoApiOutput = zod.output<typeof MCPRankingScoreInfoApi>
 
+export const mCPRegistryServerDetailApiMeasuredStatsItemErrorsMin = -2147483648
+export const mCPRegistryServerDetailApiMeasuredStatsItemErrorsMax = 2147483647
+
 export const MCPRegistryServerDetailApi = zod.object({
     id: zod.uuid().describe('Registry server id.'),
     registry_name: zod
@@ -158,9 +169,9 @@ export const MCPRegistryServerDetailApi = zod.object({
                     .describe("JSON Schema for the tool's input. Only populated for probed (tools_list) tools."),
                 source: zod
                     .enum(['tools_list', 'analytics'])
-                    .describe('\* `tools_list` - tools_list\n\* `analytics` - analytics')
+                    .describe('\* `tools_list` - Probed tools\/list\n\* `analytics` - MCP Analytics usage')
                     .describe(
-                        'Where we learned about this tool: a probed tools\/list (authoritative schema) or MCP Analytics usage (proof of real calls, no schema).\n\n\* `tools_list` - tools_list\n\* `analytics` - analytics'
+                        'Where we learned about this tool: a probed tools\/list (authoritative schema) or MCP Analytics usage (proof of real calls, no schema).\n\n\* `tools_list` - Probed tools\/list\n\* `analytics` - MCP Analytics usage'
                     ),
                 last_seen_at: zod.iso
                     .datetime({ offset: true })
@@ -174,7 +185,12 @@ export const MCPRegistryServerDetailApi = zod.object({
                 window_days: zod.number().describe('Aggregation window in days.'),
                 calls: zod.number().describe('Tool calls observed in the window.'),
                 sessions: zod.number().describe('Distinct MCP sessions observed in the window.'),
-                errors: zod.number().describe('Errored tool calls in the window.'),
+                errors: zod
+                    .number()
+                    .min(mCPRegistryServerDetailApiMeasuredStatsItemErrorsMin)
+                    .max(mCPRegistryServerDetailApiMeasuredStatsItemErrorsMax)
+                    .optional()
+                    .describe('Errored tool calls in the window.'),
                 error_rate_pct: zod.number().describe('Errors as a percentage of calls.'),
                 intent_coverage_pct: zod
                     .number()

@@ -50382,8 +50382,12 @@ export namespace Schemas {
       calls: number;
       /** Distinct MCP sessions observed in the window. */
       sessions: number;
-      /** Errored tool calls in the window. */
-      errors: number;
+      /**
+         * Errored tool calls in the window.
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
+      errors?: number;
       /** Errors as a percentage of calls. */
       error_rate_pct: number;
       /** Percentage of calls carrying an agent-written intent ($mcp_intent). */
@@ -50538,8 +50542,8 @@ export namespace Schemas {
     export type MCPRegistryServerDetailConnect = { [key: string]: unknown };
 
     /**
-     * * `tools_list` - tools_list
-     * * `analytics` - analytics
+     * * `tools_list` - Probed tools/list
+     * * `analytics` - MCP Analytics usage
      */
     export type MCPRegistryToolSourceEnum = typeof MCPRegistryToolSourceEnum[keyof typeof MCPRegistryToolSourceEnum];
 
@@ -50563,8 +50567,8 @@ export namespace Schemas {
       input_schema: MCPRegistryToolInputSchema;
       /** Where we learned about this tool: a probed tools/list (authoritative schema) or MCP Analytics usage (proof of real calls, no schema).
        *
-       * * `tools_list` - tools_list
-       * * `analytics` - analytics */
+       * * `tools_list` - Probed tools/list
+       * * `analytics` - MCP Analytics usage */
       source: MCPRegistryToolSourceEnum;
       /** Last time this tool was observed by either source. */
       last_seen_at: string;
