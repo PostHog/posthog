@@ -1979,7 +1979,9 @@ class TestMeterEventSummaryFanout:
         )
         assert [meter for meter, _ in requested] == ["mtr_a"]
         # The summary object names its meter but not its customer, so the sweep stamps both keys.
-        assert [(row["meter"], row["customer"], row["subscription"]) for row in rows] == [
+        # The subscription is stamped as discovery provenance, because Stripe scopes the total to
+        # the customer and the meter.
+        assert [(row["meter"], row["customer"], row["discovery_subscription"]) for row in rows] == [
             ("mtr_a", "cus_2", "sub_metered")
         ]
 

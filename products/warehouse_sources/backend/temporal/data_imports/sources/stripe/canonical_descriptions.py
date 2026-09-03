@@ -562,7 +562,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "aggregated_value": "Usage total for the day, aggregated the way the meter defines.",
             "start_time": "Start of the day this total covers, as a Unix timestamp.",
             "end_time": "End of the day this total covers, as a Unix timestamp.",
-            "subscription": "ID of the subscription whose metered price the usage was fetched for.",
+            "discovery_subscription": "ID of the subscription the sweep followed to reach this usage. Stripe totals usage per customer and meter, so the total is not attributed to this subscription.",
         },
     },
     BILLING_CREDIT_GRANT_RESOURCE_NAME: {

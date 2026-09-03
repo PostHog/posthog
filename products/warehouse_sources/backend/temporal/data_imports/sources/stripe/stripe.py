@@ -888,9 +888,16 @@ def _build_resources(
         # sweep fans out over subscriptions: a subscription names its customer, and its items name
         # the meters that customer is billed on. Only subscriptions with a metered price reach
         # Stripe, which keeps this off a sweep of every customer against every meter.
+        #
+        # The parent stamp is called `discovery_subscription` because Stripe scopes the total to a
+        # customer and a meter, not to a subscription. The stamp records which subscription the
+        # sweep followed, so a customer with two metered subscriptions on one meter gets the same
+        # total under whichever of the two the sweep reached first. A reader that groups on it would
+        # split one customer total across subscriptions that did not each produce it. The name is
+        # also the resume key: the checkpoint reads this column back off the written table.
         BILLING_METER_EVENT_SUMMARY_RESOURCE_NAME: StripeNestedResource(
             method=_meter_event_summary_lister(client, meter_summary_window),
-            nested_parent_param="subscription",
+            nested_parent_param="discovery_subscription",
             parent_id="id",
             parent=StripeResource(method=client.subscriptions.list, params={"status": "all"}),
             parent_name=SUBSCRIPTION_RESOURCE_NAME,
