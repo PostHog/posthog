@@ -128,11 +128,11 @@ export type LogPatternResult = {
 
 export const MESSAGE_KEYS = ['message', 'msg', 'event'] as const
 
-function extractJsonMessage(value: object): string | null {
+function extractJsonMessage(value: object, messageKeys: readonly string[]): string | null {
     if (Array.isArray(value)) {
         return null
     }
-    for (const key of MESSAGE_KEYS) {
+    for (const key of messageKeys) {
         const candidate = (value as Record<string, unknown>)[key]
         if (typeof candidate === 'string') {
             return candidate
@@ -151,9 +151,17 @@ function jsonKeySetPattern(value: object): string {
     return `<JSON:${kept.join(',')}${overflow > 0 ? `,+${overflow}` : ''}>`
 }
 
-export function computeLogPattern(body: string | null | undefined): LogPatternResult {
+export type PatternInputSelection =
+    | { kind: 'empty'; bodyKind: PatternBodyKind; inputCapped: boolean }
+    | { kind: 'mask'; input: string; bodyKind: PatternBodyKind; inputCapped: boolean }
+    | { kind: 'pattern'; pattern: string; bodyKind: PatternBodyKind; inputCapped: boolean; jsonKeyCount?: number }
+
+export function selectPatternInput(
+    body: string | null | undefined,
+    messageKeys: readonly string[]
+): PatternInputSelection {
     if (body === null || body === undefined || body === '') {
-        return { pattern: '', bodyKind: 'empty', inputCapped: false, maskedLength: 0, ruleFires: [] }
+        return { kind: 'empty', bodyKind: 'empty', inputCapped: false }
     }
 
     const inputCapped = body.length > PATTERN_CAPS.maxInputChars
@@ -162,45 +170,61 @@ export function computeLogPattern(body: string | null | undefined): LogPatternRe
     const bodyKind: PatternBodyKind =
         parsed.kind === 'json_primitive' ? 'primitive' : parsed.kind === 'invalid_json' ? 'plaintext' : parsed.kind
 
-    let maskInput: string
     switch (parsed.kind) {
         case 'empty':
-            maskInput = ''
-            break
+            return { kind: 'mask', input: '', bodyKind, inputCapped }
         case 'json_object_or_array': {
-            const message = extractJsonMessage(parsed.value)
+            const message = extractJsonMessage(parsed.value, messageKeys)
             if (message === null) {
                 const isArray = Array.isArray(parsed.value)
-                const pattern = isArray ? JSON_ARRAY : jsonKeySetPattern(parsed.value)
                 return {
-                    pattern: capOutput(pattern),
+                    kind: 'pattern',
+                    pattern: isArray ? JSON_ARRAY : jsonKeySetPattern(parsed.value),
                     bodyKind,
                     inputCapped,
-                    maskedLength: pattern.length,
                     ...(isArray ? {} : { jsonKeyCount: Object.keys(parsed.value).length }),
-                    ruleFires: [],
                 }
             }
-            maskInput = message
-            break
+            return { kind: 'mask', input: message, bodyKind, inputCapped }
         }
         case 'json_string':
-            maskInput = parsed.value
-            break
+            return { kind: 'mask', input: parsed.value, bodyKind, inputCapped }
         case 'json_primitive':
-            maskInput = cappedBody
-            break
+            return { kind: 'mask', input: cappedBody, bodyKind, inputCapped }
         case 'invalid_json':
-            maskInput = parsed.raw
-            break
+            return { kind: 'mask', input: parsed.raw, bodyKind, inputCapped }
+    }
+}
+
+export type MaskedPattern = {
+    pattern: string
+    maskedLength: number
+    ruleFires: number[]
+}
+
+export function computeLogPattern(input: string): MaskedPattern {
+    const { masked, ruleFires } = maskString(input)
+    return { pattern: capOutput(masked), maskedLength: masked.length, ruleFires }
+}
+
+export function buildLogPattern(body: string | null | undefined, messageKeys: readonly string[]): LogPatternResult {
+    const selection = selectPatternInput(body, messageKeys)
+    const { bodyKind, inputCapped } = selection
+
+    if (selection.kind === 'empty') {
+        return { pattern: '', bodyKind, inputCapped, maskedLength: 0, ruleFires: [] }
     }
 
-    const { masked, ruleFires } = maskString(maskInput)
-    return {
-        pattern: capOutput(masked),
-        bodyKind,
-        inputCapped,
-        maskedLength: masked.length,
-        ruleFires,
+    if (selection.kind === 'pattern') {
+        return {
+            pattern: capOutput(selection.pattern),
+            bodyKind,
+            inputCapped,
+            maskedLength: selection.pattern.length,
+            ...(selection.jsonKeyCount === undefined ? {} : { jsonKeyCount: selection.jsonKeyCount }),
+            ruleFires: [],
+        }
     }
+
+    return { ...computeLogPattern(selection.input), bodyKind, inputCapped }
 }

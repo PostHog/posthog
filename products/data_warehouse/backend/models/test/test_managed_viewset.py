@@ -119,7 +119,8 @@ class TestDataWarehouseManagedViewSetModel(BaseTest):
         )
 
         # Call sync_views to create the views
-        managed_viewset.sync_views()
+        with patch(SCHEDULE_MATERIALIZATION):
+            managed_viewset.sync_views()
 
         # Check that views were created
         views = DataWarehouseSavedQuery.objects.filter(

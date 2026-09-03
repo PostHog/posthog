@@ -1,7 +1,8 @@
 import http from 'node:http'
 import { gunzipSync } from 'node:zlib'
-
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+
+import { toolFromPreBuilt } from '../shared/test-utils'
 
 /**
  * End-to-end proof that a real skill read reaches PostHog carrying the skill's name.
@@ -81,16 +82,9 @@ describe.skipIf(!API_TOKEN)('skill read reaches PostHog with $mcp_skill_name', (
         await catalog.warmup()
         const executor = new ToolExecutor(catalog, new InstructionsBuilder(''))
 
-        const tools = catalog.getPreBuiltEntries().map((entry) => {
-            const preBuilt = catalog.getToolByName(entry.name)!
-            return {
-                ...preBuilt.base,
-                title: entry.title,
-                description: entry.description ?? '',
-                annotations: entry.annotations,
-                scopes: [],
-            }
-        })
+        const tools = catalog
+            .getPreBuiltEntries()
+            .map((entry) => toolFromPreBuilt(catalog.getToolByName(entry.name)!, entry))
 
         const state: any = {
             reqCtx: {
