@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 from unittest.mock import MagicMock, patch
 
+from products.tasks.backend.constants import RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS
 from products.tasks.backend.temporal.process_task.ai_gateway_token import (
     mint_scoped_token,
     resolve_sandbox_ai_product,
@@ -210,6 +211,8 @@ class TestAiGatewayEnvVars:
             "AI_GATEWAY_URL": "https://ai-gateway.dev.posthog.dev",
             "AI_GATEWAY_PRODUCTS": "signals_scout,signals_research",
             "AI_GATEWAY_TOKEN": "phe_abc",
+            "AI_GATEWAY_PRODUCT": "signals_scout",
+            "AI_GATEWAY_AI_STAGE": "scout:logs",
         }
         mint.assert_called_once_with(ai_product="signals_scout", team_id=123, user=None)
 
@@ -217,7 +220,14 @@ class TestAiGatewayEnvVars:
         with patch("products.tasks.backend.temporal.process_task.utils.mint_scoped_token") as mint:
             env = ai_gateway_env_vars(team_id=123, origin_product="loop")
         assert "AI_GATEWAY_TOKEN" not in env
+        assert "AI_GATEWAY_PRODUCT" not in env
+        assert "AI_GATEWAY_AI_STAGE" not in env
         mint.assert_not_called()
+
+    # The agent trusts these as the worker's word, so the API must refuse a run-supplied value.
+    def test_reserved_keys_cover_the_pinned_product_env(self):
+        assert "AI_GATEWAY_PRODUCT" in RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS
+        assert "AI_GATEWAY_AI_STAGE" in RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS
 
     def test_skill_qualified_allowlist_still_mints(self, mint_settings):
         """The D4-D6 batched scout flips route by skill-qualified entries alone; a mint
@@ -238,6 +248,8 @@ class TestAiGatewayEnvVars:
         ):
             env = ai_gateway_env_vars(team_id=123, origin_product="signals_scout", ai_stage="scout")
         assert "AI_GATEWAY_TOKEN" not in env
+        # No token, no pinned product: the agent must not route on a product it cannot authenticate.
+        assert "AI_GATEWAY_PRODUCT" not in env
         assert env["AI_GATEWAY_URL"] == "https://ai-gateway.dev.posthog.dev"
 
     def test_no_run_context_still_sets_routing_pair(self, mint_settings):
