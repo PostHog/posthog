@@ -1,8 +1,9 @@
 import { parseLogBodyForIngestion } from './log-body-parse'
 
 describe('log-body-parse', () => {
-    it('returns empty for null body', () => {
-        expect(parseLogBodyForIngestion(null)).toEqual({ kind: 'empty' })
+    // Trace records have no body field, so the value arrives as `undefined` rather than `null`.
+    it.each([[null], [undefined]])('returns empty for %p body', (body) => {
+        expect(parseLogBodyForIngestion(body)).toEqual({ kind: 'empty' })
     })
 
     it('classifies JSON object', () => {

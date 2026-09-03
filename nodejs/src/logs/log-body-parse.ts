@@ -41,13 +41,14 @@ function canStartJsonDocument(body: string): boolean {
     return false
 }
 
-export function parseLogBodyForIngestion(body: string | null): LogBodyParseResult {
-    if (body === null) {
+export function parseLogBodyForIngestion(body: string | null | undefined): LogBodyParseResult {
+    // Trace records carry no body field at all, so `undefined` reaches here as well as `null`.
+    if (body === null || body === undefined) {
         return { kind: 'empty' }
     }
     // Plaintext log lines are a large share of the traffic and every one of them makes `parseJSON`
     // build and throw an error. The scan reaches the same result without paying for the throw.
-    if (!canStartJsonDocument(body)) {
+    if (typeof body === 'string' && !canStartJsonDocument(body)) {
         return { kind: 'invalid_json', raw: body }
     }
     try {
