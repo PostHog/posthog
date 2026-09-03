@@ -327,10 +327,19 @@ describe('API helper', () => {
     })
 
     describe('successful response body parsing', () => {
-        const fakeResponse = ({ status = 200, text }: { status?: number; text: () => Promise<string> }): any => ({
+        const fakeResponse = ({
+            status = 200,
+            text,
+            contentType,
+        }: {
+            status?: number
+            text: () => Promise<string>
+            contentType?: string
+        }): any => ({
             ok: true,
             status,
             text,
+            headers: new Headers(contentType ? { 'content-type': contentType } : {}),
         })
         const bodyOf =
             (body: string): (() => Promise<string>) =>
@@ -338,19 +347,40 @@ describe('API helper', () => {
                 Promise.resolve(body)
 
         it.each([
-            ['an HTML error page from a proxy/CDN', '<html><body>Bad gateway</body></html>'],
+            ['an HTML error page from a proxy/CDN', '<html><body>Bad gateway</body></html>', 'text/html'],
             // No content-length header involved: detection must work for chunked/compressed responses
-            ['truncated JSON from a response cut mid-stream', '{"results": [1, 2'],
-        ])('rejects with a status-less, request-scoped ApiError when the body is %s', async (_desc, body) => {
-            fakeFetch.mockResolvedValue(fakeResponse({ text: bodyOf(body) }))
+            ['truncated JSON from a response cut mid-stream', '{"results": [1, 2', 'application/json'],
+        ])(
+            'rejects with a status-less, request-scoped ApiError when the body is %s',
+            async (_desc, body, contentType) => {
+                fakeFetch.mockResolvedValue(fakeResponse({ text: bodyOf(body), contentType: `${contentType}; utf-8` }))
+                const error = await api.get('api/environments/2/insights').catch((e) => e)
+                expect(error).toBeInstanceOf(ApiError)
+                // Method + path so occurrences are triageable in error tracking
+                expect(error.message).toContain('[GET /api/environments/2/insights]')
+                expect(error.message).toContain('status 200')
+                // What the body was is what separates a proxy interstitial from a truncated payload
+                expect(error.message).toContain(`content-type ${contentType}`)
+                expect(error.message).toContain(`${body.length} chars`)
+                // No `status`: a 2xx on an ApiError would make retry/recovery checks
+                // (`status === undefined || status >= 500`) treat this transient failure as a client error
+                expect(error.status).toBeUndefined()
+            }
+        )
+
+        it('records the head of an unparseable body on an event, and keeps it out of the message', async () => {
+            const body = `<html><body>${'x'.repeat(500)}</body></html>`
+            fakeFetch.mockResolvedValue(fakeResponse({ text: bodyOf(body), contentType: 'text/html' }))
             const error = await api.get('api/environments/2/insights').catch((e) => e)
-            expect(error).toBeInstanceOf(ApiError)
-            // Method + path so occurrences are triageable in error tracking
-            expect(error.message).toContain('[GET /api/environments/2/insights]')
-            expect(error.message).toContain('status 200')
-            // No `status`: a 2xx on an ApiError would make retry/recovery checks
-            // (`status === undefined || status >= 500`) treat this transient failure as a client error
-            expect(error.status).toBeUndefined()
+            expect(posthog.capture).toHaveBeenCalledWith('client_malformed_response', {
+                pathname: '/api/environments/2/insights',
+                method: 'GET',
+                status: 200,
+                content_type: 'text/html',
+                body_length: body.length,
+                body_prefix: `${body.slice(0, 200)}…`,
+            })
+            expect(error.message).not.toContain('xxx')
         })
 
         it('carries the actual request method in the malformed-body error', async () => {

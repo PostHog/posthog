@@ -10,7 +10,7 @@ import { inStorybookTestRunner, uuid } from 'lib/utils/dom'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
-import { mswDecorator } from '~/mocks/browser'
+import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import { MockSignature } from '~/mocks/utils'
 import { LogMessage, LogSeverityLevel } from '~/queries/schema/schema-general'
 import { PropertyFilterType } from '~/types'
@@ -526,6 +526,28 @@ export function LogsScene(): JSX.Element {
     return <App />
 }
 LogsScene.parameters = {
+    featureFlags: [],
+}
+
+// The reported failure: the presence probe gets a 200 carrying a body no JSON parser accepts (a
+// proxy interstitial). The rail must say a part of it is missing and offer a retry, rather than
+// rendering short as if the tenant emitted no resource attributes.
+export function LogsSceneFacetProbeFailure(): JSX.Element {
+    useStorybookMocks({
+        get: {
+            '/api/projects/:team_id/logs/attributes': () =>
+                new Response('<html><body>Bad gateway</body></html>', {
+                    status: 200,
+                    headers: { 'content-type': 'text/html' },
+                }),
+        },
+    })
+    useEffect(() => {
+        router.actions.push(urls.logs())
+    }, [])
+    return <App />
+}
+LogsSceneFacetProbeFailure.parameters = {
     featureFlags: [],
 }
 

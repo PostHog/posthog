@@ -8,6 +8,7 @@ import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicStringPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 
 import { logsViewerConfigLogic } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
 
@@ -29,7 +30,8 @@ export interface FacetRailProps {
 export function FacetRail({ id }: FacetRailProps): JSX.Element {
     const railRef = useRef<HTMLDivElement>(null)
     const { setFacetRailCollapsed } = useActions(logsViewerConfigLogic)
-    const { visibleFacets } = useValues(facetPresenceLogic({ id }))
+    const { visibleFacets, presenceLoadFailed, presentResourceKeysLoading } = useValues(facetPresenceLogic({ id }))
+    const { loadPresentResourceKeys } = useActions(facetPresenceLogic({ id }))
     const { facetNameSearch } = useValues(facetRailLogic({ id }))
     const { setFacetNameSearch } = useActions(facetRailLogic({ id }))
     const { addCustomFacet } = useActions(customFacetsLogic)
@@ -98,6 +100,19 @@ export function FacetRail({ id }: FacetRailProps): JSX.Element {
                 )}
             </div>
             <div className="flex-1 min-h-0 overflow-y-auto p-2">
+                {presenceLoadFailed && (
+                    <LemonBanner
+                        type="warning"
+                        className="mb-2 text-xs"
+                        action={{
+                            children: 'Try again',
+                            onClick: loadPresentResourceKeys,
+                            loading: presentResourceKeysLoading,
+                        }}
+                    >
+                        Some facets didn't load.
+                    </LemonBanner>
+                )}
                 {matchingKeys.size === 0 && facetNameSearch.trim() && (
                     <div className="px-1 text-xs text-muted">No matching facets</div>
                 )}

@@ -387,10 +387,15 @@ function apiErrorFallback(response: Response, method: string, url: string): stri
  * HTTP status was 2xx, and recovery paths keyed on `status === undefined || status >= 500`
  * should classify a garbled body like the fetch-level network failure it effectively is. The
  * real status stays in the message for triage.
+ *
+ * What the body was is the part that makes an occurrence diagnosable — an HTML interstitial from a
+ * proxy and JSON cut mid-stream are different faults with the same symptom. So the content type and
+ * the body length travel in the message, and the head of the body travels with the
+ * `client_malformed_response` event, which is where a query can reach it.
  */
 async function getJSONFromSuccessResponse(response: Response, method: string, url: string): Promise<any> {
-    const requestContext = (): string =>
-        `[${method} ${new URL(url, location.origin).pathname}] (status ${response.status})`
+    const requestContext = (...details: string[]): string =>
+        `[${method} ${requestPathname(url)}] (${['status ' + response.status, ...details].join(', ')})`
     // A no-content response must not depend on reading its body: some engines (in our telemetry,
     // overwhelmingly WebKit) reject `.text()` on an empty body rather than resolving to "".
     if (response.status === 204 || response.status === 205 || response.body === null) {
@@ -413,8 +418,43 @@ async function getJSONFromSuccessResponse(response: Response, method: string, ur
     try {
         return JSON.parse(text)
     } catch {
-        throw new ApiError(`Malformed JSON response ${requestContext()}`)
+        const diagnostics = {
+            // The media type alone: the charset and any boundary parameter add nothing to triage.
+            content_type: response.headers?.get('content-type')?.split(';')[0].trim() || null,
+            body_length: text.length,
+            body_prefix: malformedBodyPrefix(text),
+        }
+        captureMalformedResponse({
+            pathname: requestPathname(url),
+            method,
+            status: response.status,
+            ...diagnostics,
+        })
+        throw new ApiError(
+            `Malformed JSON response ${requestContext(
+                `content-type ${diagnostics.content_type ?? 'absent'}`,
+                `${diagnostics.body_length} chars`
+            )}`,
+            undefined,
+            response.headers,
+            diagnostics
+        )
     }
+}
+
+/**
+ * How much of an unparseable body travels with the failure. Long enough to tell an HTML error page
+ * from JSON cut mid-stream, short enough that a body carrying user data is only ever seen in
+ * fragment. Treat the prefix as sensitive: it stays out of the error message, which reaches error
+ * tracking issue titles.
+ */
+const MALFORMED_BODY_PREFIX_CHARS = 200
+
+function malformedBodyPrefix(text: string): string {
+    const collapsed = text.replace(/\s+/g, ' ').trim()
+    return collapsed.length > MALFORMED_BODY_PREFIX_CHARS
+        ? `${collapsed.slice(0, MALFORMED_BODY_PREFIX_CHARS)}…`
+        : collapsed
 }
 
 export class ApiConfig {
@@ -7546,6 +7586,24 @@ function captureClientRequestFailure(properties: {
     // check if the function is available before calling it.
     if (posthog.capture) {
         posthog.capture('client_request_failure', properties)
+    }
+}
+
+/**
+ * A response the server called a success, with a body no JSON parser accepts. It is separate from
+ * `client_request_failure` so failure-rate queries keep their meaning, and it is the only place the
+ * body prefix is recorded (see `malformedBodyPrefix`).
+ */
+function captureMalformedResponse(properties: {
+    pathname: string
+    method: string
+    status: number
+    content_type: string | null
+    body_length: number
+    body_prefix: string
+}): void {
+    if (posthog.capture) {
+        posthog.capture('client_malformed_response', properties)
     }
 }
 

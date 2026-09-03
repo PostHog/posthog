@@ -1,4 +1,4 @@
-import { MakeLogicType, connect, events, kea, key, listeners, path, props, selectors } from 'kea'
+import { MakeLogicType, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { teamLogic } from 'scenes/teamLogic'
@@ -21,6 +21,7 @@ export interface FacetPresenceLogicProps {
 export interface facetPresenceLogicValues {
     customFacets: FacetConfig[] // customFacetsLogic
     currentTeamId: number | null // teamLogic
+    presenceLoadFailed: boolean
     presentResourceKeys: string[]
     presentResourceKeysLoading: boolean
     resolvedFacets: FacetConfig[]
@@ -100,6 +101,18 @@ export const facetPresenceLogic = kea<facetPresenceLogicType>([
             },
         ],
     })),
+
+    reducers({
+        // The probe gates which facets exist at all, so a failed one renders a short rail that looks
+        // complete. The rail shows this as an error the user can retry instead.
+        presenceLoadFailed: [
+            false,
+            {
+                loadPresentResourceKeys: () => false,
+                loadPresentResourceKeysFailure: () => true,
+            },
+        ],
+    }),
 
     selectors({
         // Column facets always render; resource-attribute facets only when the tenant emits the key (or one
