@@ -135,6 +135,7 @@ depends_on = [
     "products.tracing",
     "products.user_interviews",
     "products.mcp_analytics",
+    "products.mcp_registry",
     "products.web_analytics",
     "products.workflows",
     "products.actions",
@@ -539,6 +540,14 @@ path = "products.mcp_analytics"
 depends_on = [
     "posthog",
     "products.dashboards", "products.access_control",
+]
+layer = "modules"
+
+[[modules]]
+path = "products.mcp_registry"
+depends_on = [
+    "posthog",
+    "products.mcp_analytics",
 ]
 layer = "modules"
 

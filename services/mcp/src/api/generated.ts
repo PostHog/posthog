@@ -50371,6 +50371,37 @@ export namespace Schemas {
       readonly themes: readonly MCPIntentTheme[];
     }
 
+    export type MCPMeasuredStatsToolStatsItem = { [key: string]: unknown };
+
+    export type MCPMeasuredStatsLinkCandidatesItem = { [key: string]: unknown };
+
+    export interface MCPMeasuredStats {
+      /** Aggregation window in days. */
+      window_days: number;
+      /** Tool calls observed in the window. */
+      calls: number;
+      /** Distinct MCP sessions observed in the window. */
+      sessions: number;
+      /** Errored tool calls in the window. */
+      errors: number;
+      /** Errors as a percentage of calls. */
+      error_rate_pct: number;
+      /** Percentage of calls carrying an agent-written intent ($mcp_intent). */
+      intent_coverage_pct: number;
+      /** Distinct effective tools called in the window. */
+      distinct_tools: number;
+      /** Distinct MCP client names observed in the window. */
+      harness_count: number;
+      /** Per-tool usage, ordered by call volume: [{name, calls, errors, error_rate_pct}]. */
+      tool_stats: MCPMeasuredStatsToolStatsItem[];
+      /** How this measured source was attached to its registry entry (override | url | exact_name | standalone). */
+      link_method: string;
+      /** Registry names that also matched when linking was ambiguous (kept for review). */
+      link_candidates: MCPMeasuredStatsLinkCandidatesItem[];
+      /** When this aggregate was computed. */
+      computed_at: string;
+    }
+
     export interface MCPMissingCapabilityCreate {
       /**
          * The tool the user tried before leaving feedback, if known.
@@ -50450,6 +50481,160 @@ export namespace Schemas {
       enabled?: boolean;
       readonly created_at: string;
       readonly updated_at: string;
+    }
+
+    /**
+     * Score inputs (liveness, trust, measured signals) for explainability.
+     */
+    export type MCPRankingScoreInfoComponents = { [key: string]: unknown };
+
+    /**
+     * One ranking version's latest score for a server.
+     */
+    export interface MCPRankingScoreInfo {
+      /** Ranking version key (see the versions endpoint). */
+      version: string;
+      /** Static score in [0, 1]; higher ranks first. */
+      score: number;
+      /** Score inputs (liveness, trust, measured signals) for explainability. */
+      components: MCPRankingScoreInfoComponents;
+      /**
+         * When the run producing this score completed.
+         * @nullable
+         */
+      computed_at: string | null;
+    }
+
+    /**
+     * Latest completed run: {id, server_count, computed_at}; null when the version never ran.
+     * @nullable
+     */
+    export type MCPRankingVersionLatestRun = { [key: string]: unknown } | null;
+
+    /**
+     * A registered ranking version and its latest completed run.
+     */
+    export interface MCPRankingVersion {
+      /** Ranking version key, passed as ?version= to the list endpoint. */
+      version: string;
+      /** What this version scores on. */
+      description: string;
+      /** Whether this is the version used when ?version= is omitted. */
+      is_default: boolean;
+      /**
+         * Latest completed run: {id, server_count, computed_at}; null when the version never ran.
+         * @nullable
+         */
+      latest_run: MCPRankingVersionLatestRun;
+    }
+
+    export type MCPRegistryServerDetailRemotesItem = { [key: string]: unknown };
+
+    export type MCPRegistryServerDetailPackagesItem = { [key: string]: unknown };
+
+    /**
+     * Connection instructions: methods ordered most-automated first, steps typed by actor (agent executes; human steps are narrated to the user).
+     */
+    export type MCPRegistryServerDetailConnect = { [key: string]: unknown };
+
+    /**
+     * * `tools_list` - tools_list
+     * * `analytics` - analytics
+     */
+    export type MCPRegistryToolSourceEnum = typeof MCPRegistryToolSourceEnum[keyof typeof MCPRegistryToolSourceEnum];
+
+
+    export const MCPRegistryToolSourceEnum = {
+      ToolsList: 'tools_list',
+      Analytics: 'analytics',
+    } as const;
+
+    /**
+     * JSON Schema for the tool's input. Only populated for probed (tools_list) tools.
+     */
+    export type MCPRegistryToolInputSchema = { [key: string]: unknown };
+
+    export interface MCPRegistryTool {
+      /** Tool name as advertised by the server (exec-resolved for measured servers). */
+      name: string;
+      /** Tool description, from tools/list or from observed calls. */
+      description: string;
+      /** JSON Schema for the tool's input. Only populated for probed (tools_list) tools. */
+      input_schema: MCPRegistryToolInputSchema;
+      /** Where we learned about this tool: a probed tools/list (authoritative schema) or MCP Analytics usage (proof of real calls, no schema).
+       *
+       * * `tools_list` - tools_list
+       * * `analytics` - analytics */
+      source: MCPRegistryToolSourceEnum;
+      /** Last time this tool was observed by either source. */
+      last_seen_at: string;
+    }
+
+    export interface MCPRegistryServerDetail {
+      /** Registry server id. */
+      id: string;
+      /** Reverse-DNS name in the official MCP registry; empty for measured-only servers. */
+      registry_name: string;
+      /** Human-readable server name. */
+      display_name: string;
+      /** Server description. */
+      description: string;
+      /** Primary hosted remote URL; empty for package-only servers. */
+      canonical_url: string;
+      /** Probed liveness state (alive_open, alive_auth, dead, ...). */
+      liveness: string;
+      /** Detected auth method (none, oauth, api_key, unknown). */
+      auth_method: string;
+      /** Whether the server appears in the official MCP registry. */
+      listed_in_registry: boolean;
+      /** Whether real usage signal exists via MCP Analytics. */
+      is_measured: boolean;
+      /** Static score under the requested ranking version; null when the version has no completed run. */
+      readonly rank_score: number;
+      /** All hosted remotes: [{type, url}]. */
+      remotes: MCPRegistryServerDetailRemotesItem[];
+      /** Published packages: [{registry_type, identifier}]. */
+      packages: MCPRegistryServerDetailPackagesItem[];
+      /** Source repository URL, when published. */
+      repository_url: string;
+      /** Vendor website URL, when published. */
+      website_url: string;
+      /**
+         * When the shallow probe last ran.
+         * @nullable
+         */
+      last_probed_at: string | null;
+      /** Known tools, fused from probes and analytics. */
+      tools: MCPRegistryTool[];
+      /** Behavioral aggregates, one per measured MCP Analytics project. */
+      measured_stats: MCPMeasuredStats[];
+      /** Latest score under every ranking version with a completed run. */
+      readonly scores: readonly MCPRankingScoreInfo[];
+      /** Connection instructions: methods ordered most-automated first, steps typed by actor (agent executes; human steps are narrated to the user). */
+      readonly connect: MCPRegistryServerDetailConnect;
+    }
+
+    export interface MCPRegistryServerList {
+      /** Registry server id. */
+      id: string;
+      /** Reverse-DNS name in the official MCP registry; empty for measured-only servers. */
+      registry_name: string;
+      /** Human-readable server name. */
+      display_name: string;
+      /** Server description. */
+      description: string;
+      /** Primary hosted remote URL; empty for package-only servers. */
+      canonical_url: string;
+      /** Probed liveness state (alive_open, alive_auth, dead, ...). */
+      liveness: string;
+      /** Detected auth method (none, oauth, api_key, unknown). */
+      auth_method: string;
+      /** Whether the server appears in the official MCP registry. */
+      listed_in_registry: boolean;
+      /** Whether real usage signal exists via MCP Analytics. */
+      is_measured: boolean;
+      /** Static score under the requested ranking version; null when the version has no completed run. */
+      readonly rank_score: number;
     }
 
     /**
@@ -55058,6 +55243,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: MCPOrgRule[];
+    }
+
+    export interface PaginatedMCPRegistryServerListList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: MCPRegistryServerList[];
     }
 
     export interface PaginatedMCPServerInstallationList {
@@ -97790,6 +97984,46 @@ export namespace Schemas {
      */
     offset?: number;
     };
+
+    export type McpRegistryServersListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * Only servers with real MCP Analytics signal.
+     */
+    measured_only?: boolean;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Free-text query matched against server names, descriptions, and tool names.
+     */
+    search?: string;
+    /**
+     * Ranking version ordering the results; defaults to the current default version.
+     */
+    version?: string;
+    };
+
+    export type McpRegistryServersCompareRetrieveParams = {
+    /**
+     * Rows per arm (default 20, max 100).
+     */
+    limit?: number;
+    /**
+     * Optional text filter applied to every arm.
+     */
+    search?: string;
+    /**
+     * Comma-separated ranking versions to compare (2+).
+     */
+    versions: string;
+    };
+
+    export type McpRegistryServersCompareRetrieve200 = { [key: string]: unknown };
 
     export type McpServerInstallationsListParams = {
     /**

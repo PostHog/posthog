@@ -187,6 +187,11 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         # It carries an Organization FK, so the org_scoped rule would otherwise cover it: remove this
         # exemption the moment an endpoint exposes it, or the rule stops protecting it silently.
         "EnrichmentLabelResult",
+        # Cross-team aggregate for the global MCP registry index: team_id records which
+        # MCP Analytics project the signal came from (provenance), and every consumer reads
+        # the index globally. Rows are only reachable through their MCPRegistryServer FK,
+        # never looked up by user-supplied stats id or by requesting team.
+        "MCPMeasuredStats",
         # Model kept to avoid a deletion migration but has no API endpoint
         "ErrorTrackingAutoCaptureControls",
         "DuckLakeBackfill",
@@ -297,6 +302,10 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "CommunitySkillFile",  # bundled files of a CommunitySkill (scoped via the catalog row)
         "HogFunctionTemplate",
         "MCPServer",
+        "MCPRegistryServer",  # instance-global MCP registry index, crawled from the official registry
+        "MCPRegistryTool",  # tools of an MCPRegistryServer (scoped via the catalog row)
+        "MCPRankingRun",  # one scoring pass over the global registry index
+        "MCPRankingScore",  # per-server score of an MCPRankingRun (scoped via the run/catalog rows)
         # --- Special (has source_team + destination_team, not a plain team) ---
         "ResourceTransfer",
         # --- Organization-scoped (correctly above team level) ---
