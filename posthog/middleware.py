@@ -1225,6 +1225,9 @@ class CSPMiddleware:
                 "frame-src https:",
                 "manifest-src 'self'",
                 "base-uri 'self'",
+                # form-action has no default-src fallback, so leaving it unset lets an injected
+                # form post anywhere. Every form we serve targets a same-origin path.
+                "form-action 'self'",
             ]
 
             report_uri = csp_report_endpoint(sample_rate="0.1")
