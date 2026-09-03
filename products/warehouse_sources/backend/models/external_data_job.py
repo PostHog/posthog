@@ -62,6 +62,13 @@ class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
                 fields=["updated_at"],
                 name="idx_extdatajob_updated_at",
             ),
+            # Serves the source jobs history endpoint: equality on pipeline, ordered by
+            # created_at DESC with LIMIT. The FK index alone gives no order, so the read walks
+            # every job of the source and sorts them before the limit applies.
+            models.Index(
+                fields=["pipeline", "-created_at"],
+                name="idx_extdatajob_pipe_created",
+            ),
             # Serves the rows-synced aggregates (usage report, source health): equality on
             # pipeline/status with a finished_at range. Without it the FK index walks every
             # job for the pipeline and filters most of them out.
