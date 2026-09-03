@@ -3696,6 +3696,54 @@ class TestHogFlowAPI(APIBaseTest):
         )
         assert scheduled.status_code == 201, scheduled.json()
 
+    def test_programmatic_schedule_on_batch_trigger_requires_audience_confirm_token(self):
+        # Scheduling a batch trigger is a recurring dispatch - the same gate as batch_jobs applies,
+        # or the token check could be sidestepped by scheduling the send instead.
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
+        )
+        hog_flow["actions"][0]["config"] = {"type": "batch", "filters": {"properties": [_AUDIENCE_CONDITION]}}
+        hog_flow["status"] = "active"
+        created = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert created.status_code == 201, created.json()
+        flow_id = created.json()["id"]
+
+        schedule_body = {"rrule": "FREQ=DAILY;INTERVAL=1", "starts_at": "2026-08-01T00:00:00Z"}
+        no_token = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/schedules",
+            schedule_body,
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+        assert no_token.status_code == 400, no_token.json()
+        assert "workflows-blast-radius" in no_token.json()["detail"]
+
+        preview = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/user_blast_radius",
+            {"filters": created.json()["trigger"]["filters"]},
+        )
+        assert preview.status_code == 200, preview.json()
+        token = preview.json()["confirm_token"]
+
+        scheduled = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/schedules",
+            {**schedule_body, "confirm_token": token},
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+        assert scheduled.status_code == 201, scheduled.json()
+
+        # A draft's trigger can still be edited after previewing, so a schedule staged on a draft
+        # could fire on a broadened audience once enabled - programmatic scheduling requires active.
+        del hog_flow["status"]
+        draft_create = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert draft_create.status_code == 201, draft_create.json()
+        draft_schedule = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{draft_create.json()['id']}/schedules",
+            {**schedule_body, "confirm_token": token},
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+        assert draft_schedule.status_code == 400, draft_schedule.json()
+        assert "active" in draft_schedule.json()["detail"].lower()
+
     @parameterized.expand(
         [
             (
@@ -3817,39 +3865,6 @@ class TestHogFlowAPI(APIBaseTest):
         # The resolver dispatches from this snapshot rather than re-reading the live trigger, so a
         # trigger edit racing the dispatch can't widen the confirmed audience.
         assert mock_create_invocation.call_args.kwargs["filters"] == trigger_filters
-
-        # Scheduling is a recurring dispatch - the same gate applies, or the batch_jobs token
-        # check could be sidestepped by scheduling the send instead.
-        schedule_body = {"rrule": "FREQ=DAILY;INTERVAL=1", "starts_at": "2026-08-01T00:00:00Z"}
-        no_token_schedule = self.client.post(
-            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/schedules",
-            schedule_body,
-            HTTP_X_POSTHOG_CLIENT="mcp",
-        )
-        assert no_token_schedule.status_code == 400, no_token_schedule.json()
-        assert "workflows-blast-radius" in no_token_schedule.json()["detail"]
-
-        scheduled = self.client.post(
-            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/schedules",
-            {**schedule_body, "confirm_token": token},
-            HTTP_X_POSTHOG_CLIENT="mcp",
-        )
-        assert scheduled.status_code == 201, scheduled.json()
-
-        # A draft's trigger can still be edited after previewing, so a schedule staged on a draft
-        # could fire on a broadened audience once enabled - programmatic scheduling requires active.
-        draft_flow, _ = self._create_hog_flow_with_action(
-            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
-        )
-        draft_create = self.client.post(f"/api/projects/{self.team.id}/hog_flows", draft_flow)
-        assert draft_create.status_code == 201, draft_create.json()
-        draft_schedule = self.client.post(
-            f"/api/projects/{self.team.id}/hog_flows/{draft_create.json()['id']}/schedules",
-            {**schedule_body, "confirm_token": token},
-            HTTP_X_POSTHOG_CLIENT="mcp",
-        )
-        assert draft_schedule.status_code == 400, draft_schedule.json()
-        assert "active" in draft_schedule.json()["detail"].lower()
 
         # A raw API key is a headless professional surface - no agent in the loop to read a count,
         # so the two-step would be ceremony. Dispatches in one call, no token. A fresh client keeps
