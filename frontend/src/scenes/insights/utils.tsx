@@ -13,6 +13,7 @@ import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { objectsEqual } from 'lib/utils/objects'
 import { removeUndefinedAndNull } from 'lib/utils/objects'
 import { ensureStringIsNotBlank } from 'lib/utils/strings'
+import { teamLogic } from 'scenes/teamLogic'
 import { IndexedTrendResult } from 'scenes/trends/types'
 import { urls } from 'scenes/urls'
 
@@ -27,6 +28,7 @@ import {
     FileSystemIconType,
     GroupNode,
     HogQLQuery,
+    HogQLQueryModifiers,
     HogQLVariable,
     InsightVizNode,
     Node,
@@ -743,11 +745,11 @@ export function crushDraftQueryForURL(query: Node<Record<string, any>>): string 
 }
 
 /**
- * Query plumbing rather than editor sections: the schema version stamp, the query log tags, the
- * HogQL modifiers, and the typing-only response. A suggested query arrives without them, so
- * comparing them reports a change nobody made.
+ * Query plumbing rather than editor sections: the schema version stamp, the query log tags, and
+ * the typing-only response. A suggested query arrives without them, so comparing them reports a
+ * change nobody made. `modifiers` are handled separately below.
  */
-const IGNORED_SOURCE_FIELDS = ['version', 'tags', 'modifiers', 'response']
+const IGNORED_SOURCE_FIELDS = ['version', 'tags', 'response']
 
 const SOURCE_FIELD_LABELS: Record<string, string> = {
     breakdownFilter: 'Breakdowns',
@@ -760,6 +762,7 @@ const SOURCE_FIELD_LABELS: Record<string, string> = {
     samplingFactor: 'Sampling',
     series: 'Series',
     trendsFilter: 'Display options',
+    modifiers: 'Query modifiers',
 }
 
 function arraysEqual(arr1: any[], arr2: any[]): boolean {
@@ -788,12 +791,24 @@ function deepEqual(val1: any, val2: any): boolean {
 }
 
 /**
+ * Resolve a query's modifiers the way the backend does: explicit query modifiers win, then the
+ * team overrides, then the PostHog defaults. Absent and default-equal modifiers both resolve to
+ * the team's effective set, so comparing resolved modifiers skips changes nobody made.
+ */
+function resolveModifiersForComparison(
+    modifiers: HogQLQueryModifiers | undefined,
+    teamModifiers: HogQLQueryModifiers | undefined
+): HogQLQueryModifiers {
+    return { ...teamModifiers, ...removeUndefinedAndNull(modifiers ?? {}) }
+}
+
+/**
  * Clean the source of an insight query for comparison. Handles both InsightVizNode (with source)
  * and InsightQueryNode (without source). `cleanInsightQuery` only strips empty values one level
  * deep, so it must run on the source — given the wrapping node it leaves `source.trendsFilter: {}`
  * behind, which then reads as a changed section.
  */
-function cleanSourceForComparison(node: any): Record<string, any> {
+function cleanSourceForComparison(node: any, teamModifiers: HogQLQueryModifiers | undefined): Record<string, any> {
     const withoutNullish = removeUndefinedAndNull(node)
     const source = withoutNullish?.source ?? withoutNullish
     if (!source || typeof source !== 'object') {
@@ -803,14 +818,23 @@ function cleanSourceForComparison(node: any): Record<string, any> {
     for (const field of IGNORED_SOURCE_FIELDS) {
         delete cleaned[field]
     }
+    const resolvedModifiers = resolveModifiersForComparison(cleaned.modifiers, teamModifiers)
+    if (Object.keys(resolvedModifiers).length > 0) {
+        cleaned.modifiers = resolvedModifiers
+    } else {
+        delete cleaned.modifiers
+    }
     return cleaned
 }
 
 export function compareInsightTopLevelSections(obj1: any, obj2: any): string[] {
     const changedLabels = new Set<string>()
 
-    const source1 = cleanSourceForComparison(obj1)
-    const source2 = cleanSourceForComparison(obj2)
+    const currentTeam = teamLogic.findMounted()?.values.currentTeam
+    const teamModifiers = { ...currentTeam?.default_modifiers, ...currentTeam?.modifiers }
+
+    const source1 = cleanSourceForComparison(obj1, teamModifiers)
+    const source2 = cleanSourceForComparison(obj2, teamModifiers)
 
     if (!objectsEqual(source1, source2)) {
         const keys = new Set([...Object.keys(source1 || {}), ...Object.keys(source2 || {})])

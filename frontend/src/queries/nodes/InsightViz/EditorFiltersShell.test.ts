@@ -60,5 +60,37 @@ describe('EditorFiltersShell', () => {
 
             expect('tags' in node.source).toBe(false)
         })
+
+        it('carries the current query modifiers over when the suggestion sets none', () => {
+            const currentSource: TrendsQuery = {
+                kind: NodeKind.TrendsQuery,
+                series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
+                modifiers: { personsOnEventsMode: 'person_id_override_properties_joined' },
+            }
+
+            const node = withCurrentQueryMetadata(suggested, currentSource)
+
+            expect(node.source.modifiers).toEqual({ personsOnEventsMode: 'person_id_override_properties_joined' })
+        })
+
+        it('keeps the suggestion modifiers when it sets its own', () => {
+            const suggestedWithModifiers: InsightVizNode = {
+                kind: NodeKind.InsightVizNode,
+                source: {
+                    kind: NodeKind.TrendsQuery,
+                    series: [{ kind: NodeKind.EventsNode, event: '$pageleave' }],
+                    modifiers: { personsOnEventsMode: 'disabled' },
+                },
+            }
+            const currentSource: TrendsQuery = {
+                kind: NodeKind.TrendsQuery,
+                series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
+                modifiers: { personsOnEventsMode: 'person_id_override_properties_joined' },
+            }
+
+            const node = withCurrentQueryMetadata(suggestedWithModifiers, currentSource)
+
+            expect(node.source.modifiers).toEqual({ personsOnEventsMode: 'disabled' })
+        })
     })
 })

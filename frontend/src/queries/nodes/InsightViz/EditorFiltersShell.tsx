@@ -80,13 +80,24 @@ export function buildInsightNodeFromQueryTool(
  * Restore the query metadata a tool result can't carry: the query log tags of the query being
  * edited, and the latest schema versions. Without the tags the applied query loses its product
  * attribution, and without the versions the backend migrates a query that is already current.
+ *
+ * Also carries over the current query's modifiers (e.g. persons-on-events mode) when the
+ * suggestion doesn't set its own. A tool result arrives without modifiers, so applying it bare
+ * would silently reset a setting the user chose.
  */
 export function withCurrentQueryMetadata<T extends Node>(node: T, currentSource?: InsightQueryNode | null): T {
     const stamped = setLatestVersionsOnQuery(node) as T & { source?: Record<string, unknown> }
-    if (!currentSource?.tags || !stamped.source) {
+    if (!currentSource || !stamped.source) {
         return stamped
     }
-    return { ...stamped, source: { ...stamped.source, tags: currentSource.tags } }
+    const carried: Record<string, unknown> = {}
+    if (currentSource.tags) {
+        carried.tags = currentSource.tags
+    }
+    if (currentSource.modifiers && !stamped.source.modifiers) {
+        carried.modifiers = currentSource.modifiers
+    }
+    return Object.keys(carried).length > 0 ? { ...stamped, source: { ...stamped.source, ...carried } } : stamped
 }
 
 export function EditorFiltersShell({ query, showing, embedded, children }: EditorFiltersShellProps): JSX.Element {
