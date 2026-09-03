@@ -1,6 +1,8 @@
 .WorkflowTemplateChooser {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+
+    // Wide cards, so the description reads in two lines and the metadata fits on one
+    grid-template-columns: repeat(auto-fill, minmax(24rem, 1fr));
     gap: 0.5rem;
     align-items: stretch;
 }

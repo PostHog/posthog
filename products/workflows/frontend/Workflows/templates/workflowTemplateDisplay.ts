@@ -19,13 +19,18 @@ const SCOPE_LABELS: Record<string, string> = {
 
 type TriggerAction = Extract<HogFlowAction, { type: 'trigger' }>
 
-export function getTemplateTriggerLabel(template: Pick<HogFlowTemplate, 'trigger' | 'actions'>): string | null {
+export interface TemplateTrigger {
+    type: string
+    label: string
+}
+
+export function getTemplateTrigger(template: Pick<HogFlowTemplate, 'trigger' | 'actions'>): TemplateTrigger | null {
     const triggerAction = template.actions?.find((action): action is TriggerAction => action.type === 'trigger')
     const type = triggerAction?.config.type ?? template.trigger?.type
     if (!type) {
         return null
     }
-    return TRIGGER_LABELS[type] ?? 'Starts on a trigger'
+    return { type, label: TRIGGER_LABELS[type] ?? 'Starts on a trigger' }
 }
 
 // Global templates are the majority, so only the narrower scopes are worth a label.

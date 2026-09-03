@@ -14,7 +14,7 @@ import type { HogFlowTemplate } from '../hogflows/types'
 import { newWorkflowLogic } from '../newWorkflowLogic'
 import { WorkflowTemplateBlankPreview } from './WorkflowTemplateBlankPreview'
 import { WorkflowTemplateCard } from './WorkflowTemplateCard'
-import { getTemplateScopeLabel, getTemplateTriggerLabel } from './workflowTemplateDisplay'
+import { WorkflowTemplateMeta } from './WorkflowTemplateMeta'
 import { workflowTemplatesLogic } from './workflowTemplatesLogic'
 import { WorkflowTemplateSteps } from './WorkflowTemplateSteps'
 
@@ -60,7 +60,7 @@ export function WorkflowTemplateChooser(props: WorkflowTemplateChooserProps): JS
                         name={template.name || 'Unnamed template'}
                         description={template.description}
                         preview={<WorkflowTemplateSteps actions={template.actions} />}
-                        footer={<TemplateFooter template={template} />}
+                        footer={<WorkflowTemplateMeta template={template} />}
                         onClick={() => createWorkflowFromTemplate(template)}
                         onEdit={
                             canEditTemplate(template)
@@ -117,23 +117,6 @@ export function WorkflowTemplateChooser(props: WorkflowTemplateChooserProps): JS
                     </p>
                 )
             )}
-        </div>
-    )
-}
-
-function TemplateFooter({ template }: { template: HogFlowTemplate }): JSX.Element | null {
-    const triggerLabel = getTemplateTriggerLabel(template)
-    const scopeLabel = getTemplateScopeLabel(template.scope)
-
-    if (!triggerLabel && !scopeLabel) {
-        return null
-    }
-
-    return (
-        <div className="flex items-center gap-1 text-xs text-tertiary">
-            {triggerLabel && <span className="truncate">{triggerLabel}</span>}
-            {triggerLabel && scopeLabel && <span>·</span>}
-            {scopeLabel && <span className="shrink-0">{scopeLabel}</span>}
         </div>
     )
 }
