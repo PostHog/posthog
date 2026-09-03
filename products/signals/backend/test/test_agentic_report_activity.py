@@ -140,8 +140,12 @@ async def _run_activity_with_output(
     monkeypatch, ateam, report, output, *, charts_enabled=True, repo_selection_as_of=None
 ):
     monkeypatch.setattr(
+        "products.signals.backend.temporal.agentic.report.resolve_team_github_integration",
+        lambda team_id: object(),
+    )
+    monkeypatch.setattr(
         "products.signals.backend.temporal.agentic.report.resolve_user_id_for_team",
-        lambda team_id: 1,
+        lambda team_id, github=None: 1,
     )
     monkeypatch.setattr(
         "products.signals.backend.temporal.agentic.report._team_report_charts_enabled",
@@ -363,8 +367,12 @@ async def test_run_agentic_report_activity_persists_artefacts(monkeypatch, ateam
     )
 
     monkeypatch.setattr(
+        "products.signals.backend.temporal.agentic.report.resolve_team_github_integration",
+        lambda team_id: object(),
+    )
+    monkeypatch.setattr(
         "products.signals.backend.temporal.agentic.report.resolve_user_id_for_team",
-        lambda team_id: 1,
+        lambda team_id, github=None: 1,
     )
 
     async def fake_run_multi_turn_research(*args, **kwargs):
@@ -446,6 +454,49 @@ async def test_run_agentic_report_activity_persists_artefacts(monkeypatch, ateam
 
         finding_contents = [json.loads(artefact.content) for artefact in artefacts[3:]]
         assert [finding["signal_id"] for finding in finding_contents] == ["sig-1", "sig-2"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_run_agentic_report_activity_requires_human_input_when_integration_gone(monkeypatch, ateam):
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam,
+        status=SignalReport.Status.IN_PROGRESS,
+        signal_count=2,
+        total_weight=1.3,
+    )
+    monkeypatch.setattr(
+        "products.signals.backend.temporal.agentic.report.resolve_team_github_integration",
+        lambda team_id: None,
+    )
+
+    research_called = False
+
+    async def fake_run_multi_turn_research(*args, **kwargs):
+        nonlocal research_called
+        research_called = True
+        raise AssertionError("research should not run without an integration")
+
+    monkeypatch.setattr(
+        "products.signals.backend.temporal.agentic.report.run_multi_turn_research",
+        fake_run_multi_turn_research,
+    )
+
+    with patch("products.signals.backend.temporal.agentic.report.Heartbeater"):
+        result = await run_agentic_report_activity(
+            RunAgenticReportInput(
+                team_id=ateam.id,
+                report_id=str(report.id),
+                signals=_build_signals(),
+                repo_selection=RepoSelectionResult(repository="posthog/posthog", reason="test"),
+            )
+        )
+
+    assert result.choice == ActionabilityChoice.REQUIRES_HUMAN_INPUT
+    assert result.repository == "posthog/posthog"
+    assert not research_called
+    artefact_count = await database_sync_to_async(lambda: SignalReportArtefact.objects.filter(report=report).count())()
+    assert artefact_count == 0
 
 
 @pytest.mark.asyncio
@@ -543,8 +594,12 @@ async def test_run_agentic_report_activity_hands_fleet_steering_to_the_research_
         return _build_research_output()
 
     monkeypatch.setattr(
+        "products.signals.backend.temporal.agentic.report.resolve_team_github_integration",
+        lambda team_id: object(),
+    )
+    monkeypatch.setattr(
         "products.signals.backend.temporal.agentic.report.resolve_user_id_for_team",
-        lambda team_id: 1,
+        lambda team_id, github=None: 1,
     )
     monkeypatch.setattr(
         "products.signals.backend.temporal.agentic.report.run_multi_turn_research",
@@ -601,8 +656,12 @@ async def test_run_agentic_report_activity_keeps_quiet_when_reviewers_are_retain
     )
 
     monkeypatch.setattr(
+        "products.signals.backend.temporal.agentic.report.resolve_team_github_integration",
+        lambda team_id: object(),
+    )
+    monkeypatch.setattr(
         "products.signals.backend.temporal.agentic.report.resolve_user_id_for_team",
-        lambda team_id: 1,
+        lambda team_id, github=None: 1,
     )
 
     async def fake_run_multi_turn_research(*args, **kwargs):
@@ -729,8 +788,12 @@ async def test_run_agentic_report_activity_does_not_persist_partial_artefacts(mo
     )
 
     monkeypatch.setattr(
+        "products.signals.backend.temporal.agentic.report.resolve_team_github_integration",
+        lambda team_id: object(),
+    )
+    monkeypatch.setattr(
         "products.signals.backend.temporal.agentic.report.resolve_user_id_for_team",
-        lambda team_id: 1,
+        lambda team_id, github=None: 1,
     )
 
     async def fake_run_multi_turn_research(*args, **kwargs):
