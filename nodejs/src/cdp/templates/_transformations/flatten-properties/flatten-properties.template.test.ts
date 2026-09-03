@@ -91,4 +91,19 @@ describe('flatten-properties.template', () => {
 
         expect(properties).toEqual({ any: [{ nested: 'property' }] })
     })
+
+    it('flattens a very wide payload in linear time', async () => {
+        const wide: Record<string, any> = {}
+        for (let i = 0; i < 5000; i++) {
+            wide[`k${i}`] = { nested: i }
+        }
+        const start = performance.now()
+        const properties = await invoke({ outer: wide })
+        const elapsedMs = performance.now() - start
+
+        expect(properties.outer__k0__nested).toBe(0)
+        expect(properties.outer__k4999__nested).toBe(4999)
+        // The host-side flatten is linear, so this stays well under the transformation time budget.
+        expect(elapsedMs).toBeLessThan(2000)
+    })
 })
