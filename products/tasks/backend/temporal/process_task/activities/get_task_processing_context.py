@@ -163,6 +163,10 @@ class TaskProcessingContext:
         return (self.state or {}).get("interaction_origin")
 
     @property
+    def slack_reply_context(self) -> bool:
+        return (self.state or {}).get("slack_reply_context") is True
+
+    @property
     def auto_publish(self) -> bool:
         """User-opted auto-publish: the agent pushes and opens a draft PR on completion."""
         return (self.state or {}).get("auto_publish") is True
