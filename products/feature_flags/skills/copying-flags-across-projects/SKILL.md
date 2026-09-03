@@ -57,7 +57,7 @@ If the user says "promote it as-is" or "turn it on in prod", switch `disable_cop
 
 ### 4a. Check dependency requirements
 
-If the source flag depends on other flags, call `posthog:feature-flags-copy-dependencies-check` with `feature_flag_key`, `from_project`, and `target_project_ids` before copying. It copies nothing. Read `copied_dependency_keys` (dependencies a copy would create in a target), `reused_dependency_keys` (dependencies a target already satisfies), and `warnings`. Present those to the user and set `copy_dependencies` on the copy call from their answer.
+Always call `posthog:feature-flags-copy-dependencies-check` with `feature_flag_key`, `from_project`, and `target_project_ids` before copying, rather than trying to detect dependencies first. It copies nothing, and returns an empty result with no warnings when the flag has none, so running it on every copy is cheap and never skips a real dependency. Read `copied_dependency_keys` (dependencies a copy would create in a target), `reused_dependency_keys` (dependencies a target already satisfies), and `warnings`. Present those to the user and set `copy_dependencies` on the copy call from their answer.
 
 A false `can_copy_dependencies` does not always mean the copy is blocked. It is also false when there is nothing to copy. Report a problem only when `warnings` is non-empty.
 
@@ -70,6 +70,7 @@ Call `posthog:feature-flags-copy-flags-create` with:
 - `target_project_ids`: the resolved list of target project ids
 - `disable_copied_flag`: from step 4 (default `true`)
 - `copy_schedule`: from step 4 (default `false`)
+- `copy_dependencies`: from step 4a (default `false`). Omitting it silently skips dependency copying, even when the user approved it.
 
 ### 6. Report per-target outcome
 
