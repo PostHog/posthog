@@ -134,12 +134,14 @@ async def aappend_task_run_artefact(
     different connection and not see the caller's uncommitted rows); content validation and
     task attribution match `append_task_run_artefact`.
     """
+    attribution = ArtefactAttribution.from_task(task_id)
     return await SignalReportArtefact.objects.acreate(
         team_id=team_id,
         report_id=str(report_id),
         type=SignalReportArtefact.ArtefactType.TASK_RUN,
         content=_task_run_content(product, type, task_id, run_id).model_dump_json(),
-        task_id=str(task_id),
+        actor_kind=attribution.kind,
+        task_id=attribution.task_id,
     )
 
 

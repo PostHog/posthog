@@ -8,7 +8,7 @@ from parameterized import parameterized
 from products.signals.backend.billing import first_billable_pr_run_at
 from products.signals.backend.custom_agent.persistence import create_custom_agent_ready_report
 from products.signals.backend.custom_agent.schemas import CustomAgentFinalReport
-from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportTask
+from products.signals.backend.models import SignalActorKind, SignalReport, SignalReportArtefact, SignalReportTask
 from products.signals.backend.report_generation.research import (
     ActionabilityAssessment,
     ActionabilityChoice,
@@ -93,6 +93,7 @@ class TestTaskRunArtefacts(BaseTest):
         )
 
         assert str(artefact.task_id) == str(task.id)
+        assert artefact.actor_kind == SignalActorKind.TASK
         assert artefact.created_by_id is None
 
     async def test_aappend_carries_run_id(self):
@@ -125,6 +126,8 @@ class TestTaskRunArtefacts(BaseTest):
         assert content["run_id"] == "run-789"
         assert content["product"] == "signals"
         assert content["type"] == "implementation"
+        assert str(artefact.task_id) == str(task.id)
+        assert artefact.actor_kind == SignalActorKind.TASK
 
     def test_signals_task_ids_filters_by_product_and_type(self):
         report = self._report()
