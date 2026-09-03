@@ -1833,7 +1833,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
                 capture_exception(e, {"ticket_id": str(ticket.id)})
 
         return Response(
-            {"id": str(ticket.id), "ticket_number": ticket.ticket_number},
+            ComposeTicketResponseSerializer(ticket).data,
             status=drf_status.HTTP_201_CREATED if created else drf_status.HTTP_200_OK,
         )
 
