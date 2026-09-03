@@ -85,6 +85,11 @@ class MaterializedPropertySource:
     has_ngram_lower_index: bool = False
     has_bloom_filter_index: bool = False
     has_bloom_filter_lower_index: bool = False
+    # The key to read from a property-group map when it differs from the property name. Logs and spans store every
+    # attribute under a type-suffixed key (`session_id__str`), and the bare-key `attributes` column is an ALIAS that
+    # rebuilds the whole map from `attributes_map_str` on every read. Reading the suffixed key from the physical map
+    # avoids that rebuild while returning the same value.
+    map_key: str | None = None
 
 
 def _unwrap_to_table_type(field_type: ast.FieldType) -> ast.TableType | None:
@@ -227,6 +232,14 @@ def resolve_property_group_source(
         return None
     for group_column in property_groups.get_property_group_columns(table_name, field.name, property_name):
         return MaterializedPropertySource(kind="property_group", column=group_column, is_nullable=True)
+    if isinstance(field, MapStringDatabaseField):
+        # A bare key on a suffix-keyed Map column matches no group. The `__str` map holds every attribute value, and
+        # the bare-key ALIAS column is exactly that map with the suffix stripped, so the two reads are equivalent.
+        suffixed_key = f"{property_name}__str"
+        for group_column in property_groups.get_property_group_columns(table_name, field.name, suffixed_key):
+            return MaterializedPropertySource(
+                kind="property_group", column=group_column, is_nullable=True, map_key=suffixed_key
+            )
     return None
 
 
@@ -322,11 +335,12 @@ def _materialized_head_expr(
         get_field = _synthetic_column_field(field_type, source.column, is_nullable=True)
         if has_field is None or get_field is None:
             return None
+        map_key = source.map_key or first_key
         return ast.Call(
             name="if",
             args=[
-                ast.Call(name="has", args=[has_field, ast.Constant(value=first_key)]),
-                ast.ArrayAccess(array=get_field, property=ast.Constant(value=first_key)),
+                ast.Call(name="has", args=[has_field, ast.Constant(value=map_key)]),
+                ast.ArrayAccess(array=get_field, property=ast.Constant(value=map_key)),
                 ast.Constant(value=None),
             ],
         )
@@ -761,9 +775,13 @@ class _OptimizableProperty:
         assert field is not None
         return _call("isNotNull", [field])
 
+    def map_key(self) -> str:
+        """The key stored in the property-group map: the property name, or its suffixed form on suffix-keyed maps."""
+        return self.source.map_key or self.key
+
     def group_has(self) -> ast.Call:
         """`has(map_column, key)` — true when the property group contains the key (uses the keys bloom-filter index)."""
-        return _call("has", [self.bare_column(), _const(self.key)])
+        return _call("has", [self.bare_column(), _const(self.map_key())])
 
     def group_value(self) -> ast.ArrayAccess:
         """`map_column[key]`, typed non-nullable String — the property's value from the group map.
@@ -771,7 +789,9 @@ class _OptimizableProperty:
         A missing key reads as the '' default, never SQL NULL; the non-nullable type keeps `equals(map[key], v)` out of
         an `ifNull` wrapper so the values bloom-filter index still applies.
         """
-        return ast.ArrayAccess(array=self.bare_column(), property=_const(self.key), type=ast.StringType(nullable=False))
+        return ast.ArrayAccess(
+            array=self.bare_column(), property=_const(self.map_key()), type=ast.StringType(nullable=False)
+        )
 
 
 class ClickHousePropertyResolver(CloningVisitor):
