@@ -147,6 +147,38 @@ describe('the authorized urls list logic', () => {
 
             expect(markTaskAsCompleted).not.toHaveBeenCalled()
         })
+
+        // Regression coverage: applying a suggestion adds it to authorizedUrls, and the rollback on a 403
+        // restores authorizedUrls only. The suggestion must stay visible so the user can retry, which it
+        // does because urlsKeyed derives suggestion visibility from authorizedUrls rather than mutating
+        // the suggestion list.
+        it('keeps the applied suggestion visible when the team rejects it', async () => {
+            useMocks({
+                post: {
+                    '/api/environments/:team_id/query/:kind': [
+                        200,
+                        { results: [['https://suggested.example.net', 5]] },
+                    ],
+                },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.loadSuggestions()
+            }).toFinishAllListeners()
+
+            expect(logic.values.urlsKeyed).toContainEqual(
+                expect.objectContaining({ url: 'https://suggested.example.net', type: 'suggestion' })
+            )
+
+            await expectLogic(logic, () => {
+                logic.actions.addUrl('https://suggested.example.net')
+            }).toFinishAllListeners()
+
+            expect(logic.values.authorizedUrls).not.toContain('https://suggested.example.net')
+            expect(logic.values.urlsKeyed).toContainEqual(
+                expect.objectContaining({ url: 'https://suggested.example.net', type: 'suggestion' })
+            )
+        })
     })
 
     describe('the proposed URL form', () => {

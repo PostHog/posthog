@@ -591,12 +591,6 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
                 },
             },
         ],
-        suggestions: [
-            [],
-            {
-                addUrl: (state, { url }) => [...state].filter((sd) => url !== sd.url),
-            },
-        ],
         editUrlIndex: [
             null as number | null,
             {
@@ -713,12 +707,17 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
                         originalIndex: index,
                     }))
                     .concat(
-                        suggestions.map(({ url, count }, index) => ({
-                            url,
-                            type: 'suggestion',
-                            originalIndex: index,
-                            count,
-                        }))
+                        suggestions
+                            // A just-applied suggestion is in authorizedUrls optimistically, so hide it
+                            // here to show the URL once. If the save is rejected and authorizedUrls rolls
+                            // back, the suggestion returns on its own instead of disappearing from both lists.
+                            .filter(({ url }) => !authorizedUrls.includes(url))
+                            .map(({ url, count }, index) => ({
+                                url,
+                                type: 'suggestion',
+                                originalIndex: index,
+                                count,
+                            }))
                     ) as KeyedAppUrl[]
 
                 return keyedUrls
