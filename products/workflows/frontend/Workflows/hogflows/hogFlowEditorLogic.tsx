@@ -170,11 +170,11 @@ export interface hogFlowEditorLogicValues {
     animatingEdgePair: string | null
     dropzoneNodes: DropzoneNode[]
     edges: HogFlowActionEdge[]
+    editorLayout: HogFlowEditorLayout
     highlightedDropzoneNodeId: string | null
     isCopyingNode: boolean
     isMovingNode: boolean
     isZoomedOutFar: boolean
-    editorLayout: HogFlowEditorLayout
     mode: HogFlowEditorMode
     movingNodeId: string | null
     nodeToBeAdded: CreateActionType | HogFlowActionNode | null
@@ -2012,14 +2012,14 @@ export interface hogFlowEditorLogicActions {
     setEdges: (edges: HogFlowActionEdge[]) => {
         edges: HogFlowActionEdge[]
     }
+    setEditorLayout: (editorLayout: HogFlowEditorLayout) => {
+        editorLayout: HogFlowEditorLayout
+    }
     setHighlightedDropzoneNodeId: (highlightedDropzoneNodeId: string | null) => {
         highlightedDropzoneNodeId: string | null
     }
     setIsZoomedOutFar: (isZoomedOutFar: boolean) => {
         isZoomedOutFar: boolean
-    }
-    setEditorLayout: (editorLayout: HogFlowEditorLayout) => {
-        editorLayout: HogFlowEditorLayout
     }
     setMode: (mode: HogFlowEditorMode) => {
         mode: 'build' | 'logs' | 'metrics' | 'test' | 'variables'
