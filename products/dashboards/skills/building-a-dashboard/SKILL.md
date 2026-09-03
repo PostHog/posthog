@@ -53,8 +53,13 @@ Prefer reusing existing insights over recreating them.
 - New dashboard: `dashboard-create` with a short (3–7 word) name and a concise description, then add the insight tiles.
 - Existing dashboard: `dashboard-update`. Adding, replacing, or removing insights means sending the full intended set of
   tiles — insights you omit are removed, so include the ones you want to keep.
-- Layout: by default preserve existing tile placement. Only reflow (`dashboard-reorder-tiles`) when the user explicitly
-  asks to rearrange, reorder, or move tiles.
+- Layout: `posthog:dashboard-reorder-tiles` supports `preserve` (the default), `two_column`, `three_column`, and
+  `full_width`. Only reflow when the user explicitly asks to rearrange, reorder, or move tiles. `three_column` keeps
+  text and image tiles full-width at their existing heights, then packs each contiguous run of other tiles three per
+  row with `sm` positions `(x, w) = (0, 4), (4, 4), (8, 4)` and height 5.
+- After every layout change, call `posthog:dashboard-get`. Verify tile IDs match the requested order and inspect each
+  tile's `layouts.sm` coordinates. Do not claim that tiles share a row until their `y` values match and their `x` and
+  `w` values do not overlap.
 - Verify with `dashboard-insights-run` to confirm the tiles return data, then summarize what you built and invite the
   user to refine it.
 

@@ -4290,6 +4290,56 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(tile1.layouts["xs"]["w"], 1)
         self.assertEqual(tile2.layouts["xs"]["w"], 1)
 
+    def test_reorder_tiles_three_column_keeps_text_header_full_width(self) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard")
+        header = Text.objects.create(body="# Website health", team=self.team)
+        header_tile = DashboardTile.objects.create(
+            dashboard=dashboard,
+            text=header,
+            layouts={"sm": {"x": 0, "y": 0, "w": 6, "h": 1}},
+        )
+        insight1 = Insight.objects.create(team=self.team, name="Insight 1")
+        insight2 = Insight.objects.create(team=self.team, name="Insight 2")
+        insight3 = Insight.objects.create(team=self.team, name="Insight 3")
+        tile1 = DashboardTile.objects.create(
+            dashboard=dashboard,
+            insight=insight1,
+            layouts={"sm": {"x": 0, "y": 1, "w": 6, "h": 8}},
+        )
+        tile2 = DashboardTile.objects.create(
+            dashboard=dashboard,
+            insight=insight2,
+            layouts={"sm": {"x": 6, "y": 1, "w": 6, "h": 7}},
+        )
+        tile3 = DashboardTile.objects.create(
+            dashboard=dashboard,
+            insight=insight3,
+            layouts={"sm": {"x": 0, "y": 9, "w": 12, "h": 6}},
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/dashboards/{dashboard.pk}/reorder_tiles/",
+            {
+                "tile_order": [header_tile.pk, tile1.pk, tile2.pk, tile3.pk],
+                "layout": "three_column",
+            },
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        header_tile.refresh_from_db()
+        tile1.refresh_from_db()
+        tile2.refresh_from_db()
+        tile3.refresh_from_db()
+        self.assertEqual(header_tile.layouts["sm"], {"x": 0, "y": 0, "w": 12, "h": 1})
+        self.assertEqual(tile1.layouts["sm"], {"x": 0, "y": 1, "w": 4, "h": 5})
+        self.assertEqual(tile2.layouts["sm"], {"x": 4, "y": 1, "w": 4, "h": 5})
+        self.assertEqual(tile3.layouts["sm"], {"x": 8, "y": 1, "w": 4, "h": 5})
+        self.assertEqual(header_tile.layouts["xs"], {"x": 0, "y": 0, "w": 1, "h": 1})
+        self.assertEqual(tile1.layouts["xs"], {"x": 0, "y": 1, "w": 1, "h": 5})
+        self.assertEqual(tile2.layouts["xs"], {"x": 0, "y": 6, "w": 1, "h": 5})
+        self.assertEqual(tile3.layouts["xs"], {"x": 0, "y": 11, "w": 1, "h": 5})
+
     def test_reorder_tiles_invalid_layout_returns_400(self):
         dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard")
         insight = Insight.objects.create(team=self.team, name="Insight 1")

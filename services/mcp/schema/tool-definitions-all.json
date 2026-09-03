@@ -2362,7 +2362,7 @@
         }
     },
     "dashboard-reorder-tiles": {
-        "description": "Reorder tiles on a dashboard by providing an array of tile IDs in the desired display order. First, use dashboard-get to see current tile IDs. By default existing tile widths and heights are preserved; see the layout parameter to force a 2-column or full-width grid instead.",
+        "description": "Reorder tiles on a dashboard by providing an array of tile IDs in the desired display order. First, use dashboard-get to see current tile IDs. By default existing tile widths and heights are preserved; see the layout parameter to force a two-column, three-column, or full-width grid instead. The three-column layout keeps text and image tiles full-width as separators, preserves their heights, and packs each contiguous run of other tiles three per row.",
         "category": "Dashboards",
         "feature": "dashboards",
         "summary": "Reorder dashboard tiles",

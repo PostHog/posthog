@@ -47745,6 +47745,7 @@ export namespace Schemas {
     /**
      * * `preserve` - preserve
      * * `two_column` - two_column
+     * * `three_column` - three_column
      * * `full_width` - full_width
      */
     export type LayoutEnum = typeof LayoutEnum[keyof typeof LayoutEnum];
@@ -47753,6 +47754,7 @@ export namespace Schemas {
     export const LayoutEnum = {
       Preserve: 'preserve',
       TwoColumn: 'two_column',
+      ThreeColumn: 'three_column',
       FullWidth: 'full_width',
     } as const;
 
@@ -74143,10 +74145,11 @@ export namespace Schemas {
          * @minItems 1
          */
       tile_order: number[];
-      /** How to size tiles when reordering. 'preserve' (default) keeps each tile's existing width and height and only repacks positions in the new order. 'two_column' forces a 6-wide × 5-tall grid (two tiles per row). 'full_width' forces each tile to span the full 12-column row at height 5.
+      /** How to size tiles when reordering. 'preserve' (default) keeps each tile's existing width and height and only repacks positions in the new order. 'two_column' forces a 6-wide × 5-tall grid (two tiles per row). 'three_column' packs non-text tiles three per row at width 4 and height 5 while keeping text and image tiles full-width at their existing height. 'full_width' forces each tile to span the full 12-column row at height 5.
        *
        * * `preserve` - preserve
        * * `two_column` - two_column
+       * * `three_column` - three_column
        * * `full_width` - full_width */
       layout?: LayoutEnum;
     }

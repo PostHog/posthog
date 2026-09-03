@@ -444,6 +444,7 @@ def serialize_tile_with_context(tile, order: int, context: dict) -> tuple[int, d
 class ReorderLayout(StrEnum):
     PRESERVE = "preserve"
     TWO_COLUMN = "two_column"
+    THREE_COLUMN = "three_column"
     FULL_WIDTH = "full_width"
 
 
@@ -476,8 +477,7 @@ def _apply_reorder_layout(
     tile_map: dict[int, DashboardTile],
     layout_mode: ReorderLayout,
 ) -> None:
-    """Repack tiles. ``preserve`` keeps each tile's existing w/h and reuses the lowest-segment
-    greedy algorithm from ``frontend/src/scenes/dashboard/tileLayouts.ts``; the other modes overwrite w/h."""
+    """Repack tiles. ``preserve`` keeps each tile's existing size; forced modes set a uniform insight grid."""
     if layout_mode == ReorderLayout.TWO_COLUMN:
         for index, tile_id in enumerate(tile_order):
             row, col = divmod(index, 2)
@@ -490,6 +490,42 @@ def _apply_reorder_layout(
                 },
                 "xs": {"x": 0, "y": index * DEFAULT_REORDER_TILE_HEIGHT, "w": 1, "h": DEFAULT_REORDER_TILE_HEIGHT},
             }
+        return
+
+    if layout_mode == ReorderLayout.THREE_COLUMN:
+        sm_y = 0
+        xs_y = 0
+        column = 0
+        tile_width = DASHBOARD_GRID_COLUMN_COUNT // 3
+        for tile_id in tile_order:
+            tile = tile_map[tile_id]
+            if tile.text_id is not None:
+                if column:
+                    sm_y += DEFAULT_REORDER_TILE_HEIGHT
+                    column = 0
+                height = _existing_sm_size(tile, DEFAULT_REORDER_TILE_SIZE).height
+                tile.layouts = {
+                    "sm": {"x": 0, "y": sm_y, "w": DASHBOARD_GRID_COLUMN_COUNT, "h": height},
+                    "xs": {"x": 0, "y": xs_y, "w": 1, "h": height},
+                }
+                sm_y += height
+                xs_y += height
+                continue
+
+            tile.layouts = {
+                "sm": {
+                    "x": column * tile_width,
+                    "y": sm_y,
+                    "w": tile_width,
+                    "h": DEFAULT_REORDER_TILE_HEIGHT,
+                },
+                "xs": {"x": 0, "y": xs_y, "w": 1, "h": DEFAULT_REORDER_TILE_HEIGHT},
+            }
+            column += 1
+            xs_y += DEFAULT_REORDER_TILE_HEIGHT
+            if column == 3:
+                sm_y += DEFAULT_REORDER_TILE_HEIGHT
+                column = 0
         return
 
     if layout_mode == ReorderLayout.FULL_WIDTH:
@@ -541,7 +577,9 @@ class ReorderTilesRequestSerializer(serializers.Serializer):
         help_text=(
             "How to size tiles when reordering. 'preserve' (default) keeps each tile's existing width and height "
             "and only repacks positions in the new order. 'two_column' forces a 6-wide × 5-tall grid (two tiles per "
-            "row). 'full_width' forces each tile to span the full 12-column row at height 5."
+            "row). 'three_column' packs non-text tiles three per row at width 4 and height 5 while keeping text and "
+            "image tiles full-width at their existing height. 'full_width' forces each tile to span the full "
+            "12-column row at height 5."
         ),
     )
 
