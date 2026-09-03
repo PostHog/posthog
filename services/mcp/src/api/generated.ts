@@ -795,6 +795,14 @@ export namespace Schemas {
       Host: '$host',
       Pathname: '$pathname',
       CurrentUrl: '$current_url',
+      Browser: '$browser',
+      Os: '$os',
+      BrowserLanguage: '$browser_language',
+      ScreenWidth: '$screen_width',
+      ScreenHeight: '$screen_height',
+      GeoipCountryCode: '$geoip_country_code',
+      Referrer: '$referrer',
+      ReferringDomain: '$referring_domain',
     } as const;
 
     export type CustomBotMatcher = typeof CustomBotMatcher[keyof typeof CustomBotMatcher];
@@ -10054,9 +10062,9 @@ export namespace Schemas {
          * @nullable
          */
       readonly last_value: number | null;
-      /** When enabled, an investigation agent runs on the state transition to firing and writes findings to a Notebook linked from the alert check. Only effective for detector-based (anomaly) alerts. */
+      /** When enabled, an investigation agent runs on each check where the alert fires, up to three times per firing episode, and writes findings to a Notebook linked from the alert check. An episode is the run of consecutive firing checks since the last check that did not fire. A later investigation of the same episode that reaches a different verdict sends one follow-up notification, unless investigation_inconclusive_action suppresses it. Only effective for detector-based (anomaly) alerts. */
       investigation_agent_enabled?: boolean;
-      /** When enabled (and investigation_agent_enabled is on), notification dispatch is held until the investigation agent produces a verdict. Notifications are suppressed when the verdict is false_positive (and optionally when inconclusive). A safety-net task force-fires after a few minutes if the investigation stalls. */
+      /** When enabled (and investigation_agent_enabled is on), the first fire of an episode is held until the investigation agent produces a verdict, and that notification is suppressed when the verdict is false_positive (and optionally when inconclusive). Later fires of the same episode notify without waiting. A safety-net task force-fires after a few minutes if the investigation stalls. */
       investigation_gates_notifications?: boolean;
       /** How to handle an 'inconclusive' verdict: whether gated notifications fire and whether the investigation surfaces in the Signals inbox. 'notify' is the safe default — an agent that can't be sure is itself useful signal. False positives never reach the inbox regardless of this setting.
        *
@@ -18711,6 +18719,315 @@ export namespace Schemas {
       token: string;
     }
 
+    export interface ContentAutopilotError {
+      /** Stable machine-readable error code. */
+      error_code: string;
+      /** Error explanation suitable for the review workspace. */
+      message: string;
+    }
+
+    /**
+     * * `poor_ctr` - Poor click-through rate
+     * * `content_gap` - Content gap
+     * * `organic_decline` - Organic decline
+     * * `ai_visibility_gap` - AI visibility gap
+     * * `site_hygiene` - Site hygiene
+     */
+    export type OpportunityKindEnum = typeof OpportunityKindEnum[keyof typeof OpportunityKindEnum];
+
+
+    export const OpportunityKindEnum = {
+      PoorCtr: 'poor_ctr',
+      ContentGap: 'content_gap',
+      OrganicDecline: 'organic_decline',
+      AiVisibilityGap: 'ai_visibility_gap',
+      SiteHygiene: 'site_hygiene',
+    } as const;
+
+    export interface ContentAutopilotEvidence {
+      /** Reason the opportunity was selected.
+       *
+       * * `poor_ctr` - Poor click-through rate
+       * * `content_gap` - Content gap
+       * * `organic_decline` - Organic decline
+       * * `ai_visibility_gap` - AI visibility gap
+       * * `site_hygiene` - Site hygiene */
+      opportunity_kind: OpportunityKindEnum;
+      /** Plain-language explanation of the supporting evidence. */
+      explanation: string;
+      /** Page supported by this evidence. */
+      page_url?: string;
+      /** Search query supported by this evidence. */
+      query?: string;
+    }
+
+    export interface ContentAutopilotFrontmatterEntry {
+      /** Frontmatter field name. */
+      key: string;
+      /** Serialized frontmatter value. */
+      value: string;
+    }
+
+    export interface ContentAutopilotPackage {
+      /** Repository-relative Markdown or MDX file path. */
+      file_path: string;
+      /** Content title. */
+      title: string;
+      /** Search description or summary. */
+      description: string;
+      /** URL slug. */
+      slug: string;
+      /** Ordered frontmatter entries. */
+      frontmatter: ContentAutopilotFrontmatterEntry[];
+      /** Validated same-origin internal links included in the content. */
+      internal_links: string[];
+      /** Portable source notes included with the export. */
+      source_notes: string[];
+    }
+
+    export interface ContentAutopilotExportResponse {
+      /** Suggested export filename. */
+      filename: string;
+      /** Validated Markdown content. */
+      markdown: string;
+      /** Structured JSON package for a CMS adapter. */
+      content_package: ContentAutopilotPackage;
+    }
+
+    /**
+     * * `new_content` - New content
+     * * `page_improvement` - Page improvement
+     */
+    export type ContentAutopilotProposalProposalTypeEnum = typeof ContentAutopilotProposalProposalTypeEnum[keyof typeof ContentAutopilotProposalProposalTypeEnum];
+
+
+    export const ContentAutopilotProposalProposalTypeEnum = {
+      NewContent: 'new_content',
+      PageImprovement: 'page_improvement',
+    } as const;
+
+    /**
+     * * `generating` - Generating
+     * * `ready_for_review` - Ready for review
+     * * `rejected` - Rejected
+     * * `exported` - Exported
+     * * `failed` - Failed
+     */
+    export type ContentAutopilotProposalLifecycleStatusEnum = typeof ContentAutopilotProposalLifecycleStatusEnum[keyof typeof ContentAutopilotProposalLifecycleStatusEnum];
+
+
+    export const ContentAutopilotProposalLifecycleStatusEnum = {
+      Generating: 'generating',
+      ReadyForReview: 'ready_for_review',
+      Rejected: 'rejected',
+      Exported: 'exported',
+      Failed: 'failed',
+    } as const;
+
+    export interface ContentAutopilotValidationCheck {
+      /** Stable identifier for the validation gate. */
+      check_key: string;
+      /** Human-readable validation name. */
+      label: string;
+      /** Whether the proposal passed this validation. */
+      passed: boolean;
+      /** Validation result and any action needed. */
+      message: string;
+      /** Whether failure prevents export. */
+      blocking: boolean;
+    }
+
+    export interface ContentAutopilotValidationReport {
+      /** Whether every blocking validation passed. */
+      passed: boolean;
+      /** Factual, brand, intent, originality, linking, crawlability, and schema checks. */
+      checks: ContentAutopilotValidationCheck[];
+    }
+
+    export interface ContentAutopilotProposal {
+      readonly id: string;
+      /** Run that generated this proposal. */
+      readonly run_id: string;
+      /** New article or bounded page improvement.
+       *
+       * * `new_content` - New content
+       * * `page_improvement` - Page improvement */
+      readonly proposal_type: ContentAutopilotProposalProposalTypeEnum;
+      /** Review and export lifecycle status.
+       *
+       * * `generating` - Generating
+       * * `ready_for_review` - Ready for review
+       * * `rejected` - Rejected
+       * * `exported` - Exported
+       * * `failed` - Failed */
+      readonly lifecycle_status: ContentAutopilotProposalLifecycleStatusEnum;
+      /** Review title for this proposal. */
+      readonly title: string;
+      /** Primary query or topic targeted by this proposal. */
+      readonly target_query: string;
+      /** Existing or intended public URL. */
+      readonly target_url: string;
+      /** Performance evidence for this proposal. */
+      evidence: ContentAutopilotEvidence[];
+      /** Blocking and advisory validation results. */
+      validation_report: ContentAutopilotValidationReport;
+      /** Structured package that accompanies the exported Markdown. */
+      content_package: ContentAutopilotPackage;
+      /** Existing content for page-improvement diffs. */
+      readonly original_markdown: string;
+      /** Full proposed Markdown after edits. */
+      readonly proposed_markdown: string;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
+    export interface ContentAutopilotProposalEditRequest {
+      /**
+         * Edited Markdown to save for review.
+         * @maxLength 500000
+         */
+      proposed_markdown: string;
+      /** Updated structured package to save with the proposal. */
+      content_package: ContentAutopilotPackage;
+    }
+
+    export interface ContentAutopilotProposalList {
+      readonly id: string;
+      readonly run_id: string;
+      readonly proposal_type: ContentAutopilotProposalProposalTypeEnum;
+      readonly lifecycle_status: ContentAutopilotProposalLifecycleStatusEnum;
+      readonly title: string;
+      readonly target_query: string;
+      /** Performance evidence for this proposal. */
+      evidence: ContentAutopilotEvidence[];
+      /** Blocking and advisory validation results. */
+      validation_report: ContentAutopilotValidationReport;
+      /** Repository-relative export path. */
+      readonly file_path: string;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
+    /**
+     * * `pending` - Pending
+     * * `generating` - Generating
+     * * `ready_for_review` - Ready for review
+     * * `completed` - Completed
+     * * `canceled` - Canceled
+     * * `failed` - Failed
+     */
+    export type ContentAutopilotRunRunStatusEnum = typeof ContentAutopilotRunRunStatusEnum[keyof typeof ContentAutopilotRunRunStatusEnum];
+
+
+    export const ContentAutopilotRunRunStatusEnum = {
+      Pending: 'pending',
+      Generating: 'generating',
+      ReadyForReview: 'ready_for_review',
+      Completed: 'completed',
+      Canceled: 'canceled',
+      Failed: 'failed',
+    } as const;
+
+    /**
+     * * `standard` - Standard
+     * * `lower` - Lower
+     */
+    export type ContentAutopilotSnapshotConfidenceEnum = typeof ContentAutopilotSnapshotConfidenceEnum[keyof typeof ContentAutopilotSnapshotConfidenceEnum];
+
+
+    export const ContentAutopilotSnapshotConfidenceEnum = {
+      Standard: 'standard',
+      Lower: 'lower',
+    } as const;
+
+    export interface ContentAutopilotSnapshot {
+      /** Site domain used for the run. */
+      domain?: string;
+      /** Confidence level based on the available data sources.
+       *
+       * * `standard` - Standard
+       * * `lower` - Lower */
+      confidence?: ContentAutopilotSnapshotConfidenceEnum;
+      /** Public sources authorized for this run. */
+      source_urls?: string[];
+      /** Site paths authorized for this run. */
+      content_boundaries?: string[];
+      /** Editorial rules captured for this run. */
+      brand_rules?: string[];
+    }
+
+    export interface ContentAutopilotRun {
+      readonly id: string;
+      /** Site profile used by this run. */
+      readonly profile_id: string;
+      /** Current durable workflow status.
+       *
+       * * `pending` - Pending
+       * * `generating` - Generating
+       * * `ready_for_review` - Ready for review
+       * * `completed` - Completed
+       * * `canceled` - Canceled
+       * * `failed` - Failed */
+      readonly run_status: ContentAutopilotRunRunStatusEnum;
+      /** Immutable inputs captured at run start. */
+      input_snapshot: ContentAutopilotSnapshot;
+      /** Inspectable workflow errors from this run. */
+      errors: ContentAutopilotError[];
+      readonly created_at: string;
+      readonly updated_at: string;
+      /** @nullable */
+      readonly completed_at: string | null;
+    }
+
+    export interface ContentAutopilotRunStartRequest {
+      /** Site profile to research. */
+      profile_id: string;
+    }
+
+    export interface ContentAutopilotSiteDiscoveryRequest {
+      /** Public site URL to inspect for onboarding defaults. */
+      domain: string;
+    }
+
+    export interface ContentAutopilotSiteDiscoveryResponse {
+      /** Site name inferred from the homepage or hostname. */
+      name: string;
+      /** Normalized site origin. */
+      domain: string;
+      /** Detected sitemap URLs or an editable conventional suggestion. */
+      source_urls: string[];
+      /** Editable same-origin path boundaries. */
+      content_boundaries: string[];
+      /** Whether at least one sitemap was verified. */
+      sitemap_detected: boolean;
+      /** Non-blocking discovery warnings. */
+      warnings: string[];
+    }
+
+    export interface ContentAutopilotSiteProfile {
+      readonly id: string;
+      /**
+         * Name used to identify this site in the workspace.
+         * @maxLength 255
+         */
+      name?: string;
+      /**
+         * Authorized site origin for this profile.
+         * @maxLength 2048
+         */
+      domain: string;
+      /** Public sitemap and factual source URLs used to build the site profile. */
+      source_urls: string[];
+      /** Same-origin URL path prefixes allowed for research. */
+      content_boundaries: string[];
+      /** Brand, terminology, and editorial rules applied to every proposal. */
+      brand_rules: string[];
+      /** Whether to use connected Google Search Console data. */
+      search_console_enabled?: boolean;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
     /**
      * * `utf-8` - utf-8
      * * `base64` - base64
@@ -21984,20 +22301,6 @@ export namespace Schemas {
          * @nullable
          */
       connection_id?: string | null;
-    }
-
-    export interface DataWarehouseModelPath {
-      readonly id: string;
-      readonly path: readonly string[];
-      team: number;
-      /** @nullable */
-      table?: string | null;
-      /** @nullable */
-      saved_query?: string | null;
-      readonly created_at: string;
-      readonly created_by: UserBasic;
-      /** @nullable */
-      readonly updated_at: string | null;
     }
 
     export type DataWarehouseSavedQueryQueryKind = typeof DataWarehouseSavedQueryQueryKind[keyof typeof DataWarehouseSavedQueryQueryKind];
@@ -54184,6 +54487,33 @@ export namespace Schemas {
       results: CommunitySkillList[];
     }
 
+    export interface PaginatedContentAutopilotProposalListList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ContentAutopilotProposalList[];
+    }
+
+    export interface PaginatedContentAutopilotRunList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ContentAutopilotRun[];
+    }
+
+    export interface PaginatedContentAutopilotSiteProfileList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ContentAutopilotSiteProfile[];
+    }
+
     export interface PaginatedConversationMinimalList {
       count: number;
       /** @nullable */
@@ -54361,15 +54691,6 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: DataWarehouseExpression[];
-    }
-
-    export interface PaginatedDataWarehouseModelPathList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: DataWarehouseModelPath[];
     }
 
     export interface PaginatedDataWarehouseSavedQueryColumnAnnotationList {
@@ -60240,9 +60561,9 @@ export namespace Schemas {
          * @nullable
          */
       readonly last_value?: number | null;
-      /** When enabled, an investigation agent runs on the state transition to firing and writes findings to a Notebook linked from the alert check. Only effective for detector-based (anomaly) alerts. */
+      /** When enabled, an investigation agent runs on each check where the alert fires, up to three times per firing episode, and writes findings to a Notebook linked from the alert check. An episode is the run of consecutive firing checks since the last check that did not fire. A later investigation of the same episode that reaches a different verdict sends one follow-up notification, unless investigation_inconclusive_action suppresses it. Only effective for detector-based (anomaly) alerts. */
       investigation_agent_enabled?: boolean;
-      /** When enabled (and investigation_agent_enabled is on), notification dispatch is held until the investigation agent produces a verdict. Notifications are suppressed when the verdict is false_positive (and optionally when inconclusive). A safety-net task force-fires after a few minutes if the investigation stalls. */
+      /** When enabled (and investigation_agent_enabled is on), the first fire of an episode is held until the investigation agent produces a verdict, and that notification is suppressed when the verdict is false_positive (and optionally when inconclusive). Later fires of the same episode notify without waiting. A safety-net task force-fires after a few minutes if the investigation stalls. */
       investigation_gates_notifications?: boolean;
       /** How to handle an 'inconclusive' verdict: whether gated notifications fire and whether the investigation surfaces in the Signals inbox. 'notify' is the safe default — an agent that can't be sure is itself useful signal. False positives never reach the inbox regardless of this setting.
        *
@@ -60776,6 +61097,30 @@ export namespace Schemas {
       readonly completed_at?: string | null;
       /** @nullable */
       source_comment?: string | null;
+    }
+
+    export interface PatchedContentAutopilotSiteProfile {
+      readonly id?: string;
+      /**
+         * Name used to identify this site in the workspace.
+         * @maxLength 255
+         */
+      name?: string;
+      /**
+         * Authorized site origin for this profile.
+         * @maxLength 2048
+         */
+      domain?: string;
+      /** Public sitemap and factual source URLs used to build the site profile. */
+      source_urls?: string[];
+      /** Same-origin URL path prefixes allowed for research. */
+      content_boundaries?: string[];
+      /** Brand, terminology, and editorial rules applied to every proposal. */
+      brand_rules?: string[];
+      /** Whether to use connected Google Search Console data. */
+      search_console_enabled?: boolean;
+      readonly created_at?: string;
+      readonly updated_at?: string;
     }
 
     export type PatchedConversationMessagesItem = { [key: string]: unknown };
@@ -76212,6 +76557,35 @@ export namespace Schemas {
       block_consent_modals?: boolean;
     }
 
+    export interface SavedQueryAncestors {
+      /** Ids of the saved queries and warehouse tables this query reads from, directly or through other queries, and the names of the PostHog tables among them. */
+      ancestors: string[];
+    }
+
+    export interface SavedQueryDependencies {
+      /** How many tables and queries this query reads from directly. */
+      upstream_count: number;
+      /** How many queries read from this query directly. */
+      downstream_count: number;
+    }
+
+    export interface SavedQueryDescendants {
+      /** Ids of the saved queries that read from this query, directly or through other queries. */
+      descendants: string[];
+    }
+
+    /**
+     * Body of the `ancestors` and `descendants` actions.
+     */
+    export interface SavedQueryLineageRequest {
+      /**
+         * How many hops to walk, so 1 gives the immediate neighbours. Omit to walk the whole cone.
+         * @minimum 1
+         * @nullable
+         */
+      level?: number | null;
+    }
+
     /**
      * Body of the `materialize` action: which cadence to enable materialization at.
      */
@@ -76762,6 +77136,29 @@ export namespace Schemas {
          * @maxItems 200
          */
       run_ids: string[];
+    }
+
+    /**
+     * What one scout run spent on model calls.
+     */
+    export interface ScoutRunTokenCost {
+      /** UUID of the `SignalScoutRun` this cost belongs to. */
+      run_id: string;
+      /**
+         * Model spend attributed to the run in US dollars, summed from its `$ai_generation` events. Null when no generation is attributed to the run — it failed before its first model call, or its events haven't landed yet. A run still in progress reports what it has spent so far.
+         * @nullable
+         */
+      token_cost_usd: number | null;
+    }
+
+    /**
+     * Model spend for a batch of scout runs.
+     */
+    export interface ScoutRunTokenCosts {
+      /** One entry per requested run that exists on this project. Runs from another project, and ids that match no run, are absent. */
+      costs: ScoutRunTokenCost[];
+      /** False when this deployment has no internal AI observability project to read the generations from, so `costs` is empty and every cost is unknown rather than zero. */
+      available: boolean;
     }
 
     export interface ScoutSuggestionProposedConfig {
@@ -100834,17 +101231,6 @@ export namespace Schemas {
     search?: string;
     };
 
-    export type WarehouseModelPathsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
     export type WarehouseSavedQueriesListParams = {
     /**
      * A page number within the paginated result set.
@@ -100995,6 +101381,51 @@ export namespace Schemas {
      * Lookback window in days (1–90). Defaults to 7.
      */
     days?: number;
+    };
+
+    export type WebAnalyticsContentAutopilotProfilesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type WebAnalyticsContentAutopilotProposalsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Only return proposals for this site profile.
+     */
+    profile_id?: string;
+    /**
+     * Only return proposals from this content run.
+     */
+    run_id?: string;
+    };
+
+    export type WebAnalyticsContentAutopilotRunsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Only return runs for this site profile.
+     */
+    profile_id?: string;
     };
 
     export type WebAnalyticsFilterPresetsListParams = {
