@@ -927,8 +927,7 @@ def _persist_final_message(run_id: str, text: str) -> None:
             output = run.output if isinstance(run.output, dict) else {}
             run.output = {**output, "final_message": text}
             run.save(update_fields=["output", "updated_at"])
-        # The `finish` tool can complete the run before this message lands; the row lock above
-        # orders the two, so a run seen as terminal here was not woken with the message yet.
+        # The `finish` tool can complete the run before this message lands (the row lock orders the two).
         resume_workflow_step_after_final_message(run)
     except Exception:
         logger.warning("relay_final_message_persist_failed", run_id=run_id, exc_info=True)

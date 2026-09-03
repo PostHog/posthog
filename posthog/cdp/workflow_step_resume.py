@@ -1,14 +1,3 @@
-"""Wake a workflow step that parked while an external run (an AI task, a scout run) finished.
-
-The step sent its dispatch key as the run's idempotency key. On the run's terminal transition the
-owning product calls `resume_workflow_step` with that key, and the CDP subscription matcher wakes
-exactly that job (nodejs/src/cdp/consumers/cdp-hogflow-subscription-matcher.consumer.ts). The
-parked step has its own deadline, so a lost wake fails the step late rather than stranding it.
-
-Lives in core rather than in the workflows product so any product can call it without a
-cross-product dependency.
-"""
-
 from collections.abc import Mapping
 from typing import Any, Literal
 
@@ -20,7 +9,7 @@ logger = structlog.get_logger(__name__)
 
 WORKFLOW_STEP_RESUME_EVENT = "$workflow_step_resume"
 
-# The step result lands in workflow variables, which are capped at 5KB in total.
+# Workflow variables are capped at 5KB in total.
 RESULT_STRING_CAP = 1500
 
 WorkflowStepResumeStatus = Literal["completed", "failed", "cancelled"]
@@ -41,8 +30,7 @@ def resume_workflow_step(
     status: WorkflowStepResumeStatus,
     result: Mapping[str, Any] | None = None,
 ) -> None:
-    """Emit the wake for the step that dispatched `origin_key`. Never raises: callers are on a
-    terminal-status path, and a failed emit must not mask the status write."""
+    """Wake the step that dispatched `origin_key`. Never raises: a lost wake must not mask the status write."""
     try:
         produce_internal_event(
             team_id=team_id,

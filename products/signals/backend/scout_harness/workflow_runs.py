@@ -62,8 +62,7 @@ def start_workflow_scout_run(
     `team_id` has to be the project's main environment: scout rows live under it, and there is no
     human credential here to re-authorize a child environment against it.
 
-    `workflow_origin_key` is the calling step's dispatch key. When set, the run wakes that step
-    when it finishes.
+    `workflow_origin_key` is the calling step's dispatch key; when set, the run wakes that step at the end.
 
     Rejection kinds are chosen so the step reads them correctly. `NOT_FOUND` means the node names a
     scout that cannot run (a typo, a deleted skill) and surfaces as a step failure the author

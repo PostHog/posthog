@@ -49,8 +49,7 @@ class RunSignalsScoutInput:
     # failure-streak breaker; the default keeps in-flight workflow histories decoding to today's
     # behavior. See `scout_harness/limits.py` for the vocabulary.
     triggered_by: str = TRIGGERED_BY_SCHEDULE
-    # Dispatch key of the workflow step that started this run, which parks until the run wakes it.
-    # Optional so in-flight histories from before the field keep decoding.
+    # Set by a workflow step that parks until this run wakes it.
     workflow_origin_key: str | None = None
 
 
@@ -63,7 +62,6 @@ class RunSignalsScoutOutput:
     skill_name: str
     skill_version: int
     skip_reason: str | None = None
-    # The scout's close-out summary, carried so a workflow step that waited on the run can read it.
     last_message: str | None = None
 
 
@@ -83,8 +81,7 @@ def _to_output(result: RunResult) -> RunSignalsScoutOutput:
 def _resume_workflow_step(input: RunSignalsScoutInput, output: RunSignalsScoutOutput) -> None:
     if not input.workflow_origin_key:
         return
-    # A run the activity skipped (quota, daily limit, single-flight) never produced anything the
-    # step can use, so it reads as a failure with the skip reason attached.
+    # A skipped run reads as a failure with the skip reason attached.
     status: WorkflowStepResumeStatus = "failed"
     if output.status in ("completed", "failed", "cancelled"):
         status = cast(WorkflowStepResumeStatus, output.status)
@@ -99,11 +96,7 @@ def _resume_workflow_step(input: RunSignalsScoutInput, output: RunSignalsScoutOu
 @temporalio.activity.defn
 @close_db_connections
 async def run_signals_scout_activity(input: RunSignalsScoutInput) -> RunSignalsScoutOutput:
-    """One scout run for a (team, skill) pair. See `_run_signals_scout` for the contract.
-
-    A workflow-triggered run also wakes its step on every exit, so the step never has to wait out
-    its deadline for a run that was skipped.
-    """
+    """One scout run for a (team, skill) pair; a workflow-triggered run wakes its step on every exit."""
     output = await _run_signals_scout(input)
     await database_sync_to_async(_resume_workflow_step, thread_sensitive=False)(input, output)
     return output

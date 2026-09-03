@@ -13,10 +13,7 @@ _STATUS_BY_RUN_STATUS: dict[str, WorkflowStepResumeStatus] = {
     TaskRun.Status.CANCELLED: "cancelled",
 }
 
-# The agent's `finish` tool completes the run a few seconds before the event relay persists the
-# agent's final message. A completed run without one waits this long for the message to land
-# (the relay wakes the step as soon as it does); the deferred wake only fires for a run that
-# never gets one.
+# The `finish` tool completes a run seconds before the relay saves its final message.
 FINAL_MESSAGE_GRACE_SECONDS = 30
 
 DEFERRED_RESUME_TASK = "products.tasks.backend.tasks.tasks.resume_workflow_step_for_run_deferred"
@@ -46,12 +43,7 @@ def _emit(task_run: TaskRun, origin_key: str, status: WorkflowStepResumeStatus) 
 
 
 def resume_workflow_step_for_run(task_run: TaskRun, *, wait_for_final_message: bool = True) -> None:
-    """Wake the workflow step waiting on this run, if a workflow started it. Call once, on the
-    actual transition into a terminal status; a repeat is harmless but wasted.
-
-    A completed run whose final message has not landed yet defers the wake instead of sending an
-    empty one. The step consumes only the first wake for its key, so whichever of the deferred
-    wake and the relay's post-message wake arrives second is dropped."""
+    """Wake the step waiting on this run; a completed run without its final message defers the wake."""
     status = _STATUS_BY_RUN_STATUS.get(task_run.status)
     if status is None:
         return
@@ -65,8 +57,7 @@ def resume_workflow_step_for_run(task_run: TaskRun, *, wait_for_final_message: b
 
 
 def resume_workflow_step_after_final_message(task_run: TaskRun) -> None:
-    """Wake the step once the relay has persisted the agent's final message on a run that is
-    already terminal. A run still in progress is woken by its terminal transition instead."""
+    """Wake the step once the final message lands on an already terminal run."""
     status = _STATUS_BY_RUN_STATUS.get(task_run.status)
     if status is None:
         return
@@ -77,7 +68,6 @@ def resume_workflow_step_after_final_message(task_run: TaskRun) -> None:
 
 
 def resume_workflow_step_for_run_id(run_id: str | UUID) -> None:
-    """Deferred wake: re-reads the run so a final message that landed in the meantime is carried."""
     runs = TaskRun.objects.select_related("task")
     task_run = runs.filter(id=run_id).first()  # nosemgrep: celery-task-team-scope-audit
     if task_run is None:
