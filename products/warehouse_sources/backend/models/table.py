@@ -140,6 +140,26 @@ CHDB_QUERY_TIMEOUT_SECONDS = 30.0
 # raw ClickHouse queries below bypass that path and must opt out the same way.
 DISABLE_HIVE_PARTITIONING_SETTINGS: dict[str, int] = {"use_hive_partitioning": 0}
 
+# ClickHouse infers a JSON schema from a bounded sample: in the default schema inference mode as
+# little as the first file, and only the first
+# `input_format_max_rows_to_read_for_schema_inference` rows of it. Every nested object becomes a
+# named Tuple of exactly the keys that sample held, and `hogql_definition` pins that Tuple as the
+# `structure` argument of each read, so a key the sample missed is unreadable at query time and
+# not only absent from the catalog. The `union` mode reads and merges the schema of all files, and
+# the wider row budget finds keys that first occur deeper in a file. Introspection thus does more
+# reads, which is the cost of a schema the user can query. ClickHouse still stops each file at
+# `input_format_max_bytes_to_read_for_schema_inference`, so the added rows only apply to files
+# whose records are compact.
+JSON_SCHEMA_INFERENCE_SETTINGS: dict[str, str | int] = {
+    "schema_inference_mode": "union",
+    "input_format_max_rows_to_read_for_schema_inference": 250_000,
+}
+
+
+def _format_setting_value(value: str | int) -> str:
+    return escape_param_clickhouse(value) if isinstance(value, str) else str(int(value))
+
+
 _CHDB_SUBPROCESS_SCRIPT = """
 import sys
 
@@ -507,6 +527,83 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         self.columns = columns
         self.column_order = list(columns.keys())
 
+    def _describe_settings(self) -> list[dict[str, str | int]]:
+        """Settings for the introspection DESCRIBE, the most complete schema first.
+
+        The `union` mode reads all files, so ClickHouse rejects the table when two files disagree
+        on the type of a column. Evolving JSON does this, and such a table is describable today
+        from the types in one file. Thus the caller uses the second entry when the first fails,
+        which keeps the table usable instead of making it unreadable.
+        """
+        base: dict[str, str | int] = {**DISABLE_HIVE_PARTITIONING_SETTINGS}
+        if self._is_csv_format() and self.csv_allow_double_quotes is not None:
+            base["format_csv_allow_double_quotes"] = 1 if self.csv_allow_double_quotes else 0
+
+        if self.format != DataWarehouseTable.TableFormat.JSON:
+            return [base]
+        return [{**base, **JSON_SCHEMA_INFERENCE_SETTINGS}, base]
+
+    def _describe_columns(
+        self,
+        s3_table_func: str,
+        placeholder_context: HogQLContext,
+        describe_settings: dict[str, str | int],
+        cluster_attempts: int,
+        capture_errors: bool,
+    ) -> list[tuple[str, ...]]:
+        logger = structlog.get_logger(__name__)
+        try:
+            # chdb hangs in CI during tests
+            if TEST:
+                raise Exception()
+
+            quoted_placeholders = {k: escape_param_clickhouse(v) for k, v in placeholder_context.values.items()}
+            # chdb doesn't support parameterized queries
+            #
+            # The settings become SET statements because chdb does not honour the CSV double-quote
+            # setting in any other form. The upstream fix
+            # (https://github.com/chdb-io/chdb/pull/374) is merged but is not in the pinned 3.3.0,
+            # so these SET statements stay until chdb is upgraded past that release.
+            set_statements = "".join(
+                f"SET {name} = {_format_setting_value(value)}; " for name, value in describe_settings.items()
+            )
+            chdb_query = f"{set_statements}DESCRIBE TABLE {s3_table_func}" % quoted_placeholders
+            chdb_result = run_chdb_query(chdb_query)
+            reader = csv.reader(StringIO(chdb_result))
+            return [tuple(row) for row in reader]
+        except Exception as chdb_error:
+            if self._is_suppressed_chdb_error(chdb_error) or not capture_errors:
+                logger.debug(chdb_error)
+            else:
+                capture_exception(chdb_error)
+
+            tag_queries(
+                team_id=self.team.pk,
+                table_id=self.id,
+                warehouse_query=True,
+                name="get_columns",
+                product=Product.WAREHOUSE,
+                feature=Feature.QUERY,
+            )
+
+            # The cluster is a little broken right now, and so this can intermittently fail.
+            # See https://posthog.slack.com/archives/C076R4753Q8/p1756901693184169 for context
+            for i in range(cluster_attempts):
+                try:
+                    return sync_execute(
+                        f"""DESCRIBE TABLE {s3_table_func}""",
+                        args=placeholder_context.values,
+                        settings=describe_settings,
+                    )
+                except Exception:
+                    if i >= cluster_attempts - 1:
+                        raise
+
+                    # Pause execution slightly to not overload clickhouse
+                    time.sleep(2**i)
+
+        raise Exception("No columns types provided by clickhouse in get_columns")
+
     def get_columns(
         self,
         safe_expose_ch_error: bool = True,
@@ -525,66 +622,35 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             table_size_mib=0,  # Use the non-cluster s3 table function for chdb
         )
         logger = structlog.get_logger(__name__)
-        try:
-            # chdb hangs in CI during tests
-            if TEST:
-                raise Exception()
 
-            quoted_placeholders = {k: escape_param_clickhouse(v) for k, v in placeholder_context.values.items()}
-            # chdb doesn't support parameterized queries
-            chdb_query = f"SET use_hive_partitioning = 0; DESCRIBE TABLE {s3_table_func}" % quoted_placeholders
-
-            # Workaround for chdb not honouring the CSV double-quote setting. The upstream fix
-            # (https://github.com/chdb-io/chdb/pull/374) is merged but is not in the pinned 3.3.0,
-            # so this SET stays until chdb is upgraded past that release.
-            if self._is_csv_format() and self.csv_allow_double_quotes is not None:
-                chdb_query = (
-                    f"SET format_csv_allow_double_quotes = {1 if self.csv_allow_double_quotes else 0}; {chdb_query}"
+        describe_attempts = self._describe_settings()
+        for attempt, describe_settings in enumerate(describe_attempts):
+            has_fallback = attempt < len(describe_attempts) - 1
+            try:
+                result = self._describe_columns(
+                    s3_table_func,
+                    placeholder_context,
+                    describe_settings,
+                    # A failure of the widest settings is expected for some tables, so they get one
+                    # try and the settings that must work keep the retries.
+                    cluster_attempts=1 if has_fallback else 5,
+                    capture_errors=not has_fallback,
                 )
-            chdb_result = run_chdb_query(chdb_query)
-            reader = csv.reader(StringIO(chdb_result))
-            result = [tuple(row) for row in reader]
-        except Exception as chdb_error:
-            if self._is_suppressed_chdb_error(chdb_error):
-                logger.debug(chdb_error)
-            else:
-                capture_exception(chdb_error)
+                break
+            except Exception as err:
+                if not has_fallback:
+                    capture_exception(err)
+                    if safe_expose_ch_error:
+                        self._safe_expose_ch_error(err)
+                    else:
+                        raise
 
-            tag_queries(
-                team_id=self.team.pk,
-                table_id=self.id,
-                warehouse_query=True,
-                name="get_columns",
-                product=Product.WAREHOUSE,
-                feature=Feature.QUERY,
-            )
-
-            # The cluster is a little broken right now, and so this can intermittently fail.
-            # See https://posthog.slack.com/archives/C076R4753Q8/p1756901693184169 for context
-            attempts = 5
-            for i in range(attempts):
-                try:
-                    get_columns_settings: dict[str, int] = dict(DISABLE_HIVE_PARTITIONING_SETTINGS)
-                    if self._is_csv_format() and self.csv_allow_double_quotes is not None:
-                        get_columns_settings["format_csv_allow_double_quotes"] = (
-                            1 if self.csv_allow_double_quotes else 0
-                        )
-                    result = sync_execute(
-                        f"""DESCRIBE TABLE {s3_table_func}""",
-                        args=placeholder_context.values,
-                        settings=get_columns_settings,
-                    )
-                    break
-                except Exception as err:
-                    if i >= attempts - 1:
-                        capture_exception(err)
-                        if safe_expose_ch_error:
-                            self._safe_expose_ch_error(err)
-                        else:
-                            raise
-
-                    # Pause execution slightly to not overload clickhouse
-                    time.sleep(2**i)
+                logger.warning(
+                    "data_warehouse_schema_inference_fallback",
+                    table_id=str(self.id),
+                    team_id=self.team_id,
+                    error=str(err),
+                )
 
         if result is None:
             raise Exception("No columns types provided by clickhouse in get_columns")

@@ -123,6 +123,80 @@ class TestWarehouseQueryDisablesHivePartitioning(BaseTest):
         assert mock_sync_execute.call_args.kwargs["settings"]["use_hive_partitioning"] == 0
 
 
+class TestSchemaInferenceSettings(BaseTest):
+    # ClickHouse infers a JSON schema from a bounded sample of the files, then hogql_definition
+    # pins the inferred named Tuple as the `structure` of every read. A nested key that the sample
+    # missed is therefore unreadable at query time, not only absent from the catalog.
+    DESCRIBE_ROWS = [("id", "Int64", "", "", "", "", "")]
+
+    def _table(self, table_format: str) -> DataWarehouseTable:
+        return DataWarehouseTable(
+            name="t",
+            format=table_format,
+            team=self.team,
+            url_pattern="s3://bucket/team_1/t/*",
+        )
+
+    @parameterized.expand(
+        [
+            ("json", "JSONEachRow", True),
+            # ClickHouse refuses `union` for headerless CSV ("doesn't support reading subset of
+            # columns"), so widening every format would make CSV tables undescribable.
+            ("csv", "CSV", False),
+            ("delta", "Delta", False),
+        ]
+    )
+    def test_union_inference_applies_to_json_only(self, _name: str, table_format: str, expects_union: bool) -> None:
+        with patch(
+            "products.warehouse_sources.backend.models.table.sync_execute",
+            return_value=self.DESCRIBE_ROWS,
+        ) as mock_sync_execute:
+            self._table(table_format).get_columns()
+
+        settings = mock_sync_execute.call_args.kwargs["settings"]
+        assert settings["use_hive_partitioning"] == 0
+        if expects_union:
+            assert settings["schema_inference_mode"] == "union"
+            assert settings["input_format_max_rows_to_read_for_schema_inference"] == 250_000
+        else:
+            assert "schema_inference_mode" not in settings
+            assert "input_format_max_rows_to_read_for_schema_inference" not in settings
+
+    def test_union_failure_falls_back_to_the_narrower_inference(self) -> None:
+        # ClickHouse rejects `union` when two files disagree on the type of a column. Evolving
+        # JSON does this, and such a table describes today from the types in one file, so it must
+        # stay describable.
+        with patch(
+            "products.warehouse_sources.backend.models.table.sync_execute",
+            side_effect=[
+                ServerException("DB::Exception: Type mismatch between files", code=53),
+                self.DESCRIBE_ROWS,
+            ],
+        ) as mock_sync_execute:
+            columns = self._table("JSONEachRow").get_columns()
+
+        assert list(columns.keys()) == ["id"]
+        assert mock_sync_execute.call_args_list[0].kwargs["settings"]["schema_inference_mode"] == "union"
+        assert "schema_inference_mode" not in mock_sync_execute.call_args_list[1].kwargs["settings"]
+
+    def test_chdb_receives_the_inference_settings_as_set_statements(self) -> None:
+        # chdb takes settings only as SET statements, and it runs before the ClickHouse fallback,
+        # so a string value that reaches it unquoted is a syntax error on the path used first.
+        with (
+            patch("products.warehouse_sources.backend.models.table.TEST", False),
+            patch(
+                "products.warehouse_sources.backend.models.table.run_chdb_query",
+                return_value='"id","Int64","","","","",""\n',
+            ) as mock_run_chdb_query,
+        ):
+            columns = self._table("JSONEachRow").get_columns()
+
+        assert list(columns.keys()) == ["id"]
+        chdb_query = mock_run_chdb_query.call_args.args[0]
+        assert "SET schema_inference_mode = 'union';" in chdb_query
+        assert "SET input_format_max_rows_to_read_for_schema_inference = 250000;" in chdb_query
+
+
 class TestSafeExposeChError:
     # ClickHouseAtCapacity is a DRF APIException with no `.message`, so the capacity check
     # must run before the message-matching loop — reordering them would reintroduce an
