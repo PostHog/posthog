@@ -1000,14 +1000,26 @@ async def run_multi_turn_research(
         if own_pr_url and previous_report_research is not None:
             if output_fn:
                 output_fn("Deciding whether the open PR still fits...")
-            implementation_decision = await session.send_followup(
-                build_supersede_prompt(own_pr_url, previous_report_research.summary),
-                ImplementationDecision,
-                label="supersede",
-            )
-            new_artefacts.append(implementation_decision)
-            if output_fn:
-                output_fn(f"Supersede open PR: {implementation_decision.supersede}")
+            # This turn is asked last, so every finding, judgment, title and summary is already in
+            # hand when it runs. A timeout, an empty end-turn, or a reply that does not validate
+            # must not cost the run all of that: the decision is optional everywhere downstream, and
+            # its absence reads as "keep the open pull request" (`_resolve_supersede`), which is also
+            # what the common answer says. The report persists, and the next pass asks again.
+            # `CancelledError` is not an `Exception`, so a canceled activity still fails the run.
+            try:
+                implementation_decision = await session.send_followup(
+                    build_supersede_prompt(own_pr_url, previous_report_research.summary),
+                    ImplementationDecision,
+                    label="supersede",
+                )
+            except Exception:
+                logger.exception("multi_turn_research: supersede turn failed, keeping the report's open PR")
+                if output_fn:
+                    output_fn("Could not decide on the open PR, keeping it")
+            else:
+                new_artefacts.append(implementation_decision)
+                if output_fn:
+                    output_fn(f"Supersede open PR: {implementation_decision.supersede}")
 
         await session.end()
     except (Exception, asyncio.CancelledError) as e:

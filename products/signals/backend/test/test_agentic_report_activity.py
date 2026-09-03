@@ -24,9 +24,11 @@ from products.signals.backend.report_generation.research import (
     ActionabilityAssessment,
     ActionabilityChoice,
     ActionabilityUpdate,
+    ImplementationDecision,
     Priority,
     PriorityAssessment,
     PriorityUpdate,
+    ReportPresentationOutput,
     ReportResearchOutput,
     SignalFinding,
     _resolve_actionability_response,
@@ -776,6 +778,71 @@ async def test_run_multi_turn_research_ends_session_when_followup_fails():
 
     session.end.assert_awaited_once()
     assert session.end.await_args.kwargs["status"] == "failed"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "supersede_outcome",
+    [
+        RuntimeError("custom_prompt - poll_for_turn: timed out after 1800s"),
+        ImplementationDecision(supersede=True, reason="the root cause moved"),
+    ],
+)
+async def test_run_multi_turn_research_survives_a_failed_supersede_turn(supersede_outcome):
+    """The supersede turn is asked last, after every finding, judgment, title and summary is in
+    hand, and the decision is optional downstream. A raise there used to end the session as failed
+    and discard a research run whose activity budget is four hours."""
+    signals = _build_signals()
+    previous = ReportResearchOutput(
+        title="Old title",
+        summary="Old summary",
+        new_artefacts=[
+            SignalFinding(signal_id="sig-1", relevant_code_paths=[], data_queried="", verified=True),
+            ActionabilityAssessment(
+                explanation="Clear fix in the affected module.",
+                actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE,
+                already_addressed=False,
+            ),
+            PriorityAssessment(explanation="Affects many sessions.", priority=Priority.P2),
+        ],
+    )
+    presentation = ReportPresentationOutput(title="New title", summary="New summary")
+    by_label = {
+        "signal_2_of_2": SignalFinding(signal_id="sig-2", relevant_code_paths=[], data_queried="", verified=True),
+        "actionability": ActionabilityUpdate(previous_assessment_correct=True),
+        "priority": PriorityUpdate(previous_assessment_correct=True),
+        "presentation": presentation,
+        "supersede": supersede_outcome,
+    }
+
+    async def fake_send_followup(message, model, *, label=""):
+        outcome = by_label[label]
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+    session = Mock()
+    session.send_followup = AsyncMock(side_effect=fake_send_followup)
+    session.end = AsyncMock()
+    session.task = Mock(id="task-1")
+    first_finding = SignalFinding(signal_id="sig-1", relevant_code_paths=[], data_queried="", verified=True)
+
+    with patch(
+        "products.tasks.backend.facade.agents.MultiTurnSession.start",
+        AsyncMock(return_value=(session, first_finding)),
+    ):
+        result = await run_multi_turn_research(
+            signals,
+            Mock(),
+            previous_report_research=previous,
+            own_pr_url="https://github.com/PostHog/posthog/pull/1",
+        )
+
+    assert (result.title, result.summary) == ("New title", "New summary")
+    session.end.assert_awaited_once()
+    assert "status" not in session.end.await_args.kwargs
+    decided = result.effective_implementation_decision()
+    assert decided == (None if isinstance(supersede_outcome, Exception) else supersede_outcome)
 
 
 def test_parse_artefact_content_parses_valid_content():
