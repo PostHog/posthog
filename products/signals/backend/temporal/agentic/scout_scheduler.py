@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 import hashlib
-from dataclasses import dataclass
 from datetime import timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from django.conf import settings
 from django.db import InterfaceError, OperationalError
@@ -14,6 +13,7 @@ from asgiref.sync import async_to_sync
 from temporalio.client import Client
 from temporalio.common import RetryPolicy, WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 
+from posthog.cdp.workflow_step_resume import WorkflowStepResumeStatus, resume_workflow_step
 from posthog.dataclasses import frozen
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
@@ -49,9 +49,11 @@ class RunSignalsScoutInput:
     # failure-streak breaker; the default keeps in-flight workflow histories decoding to today's
     # behavior. See `scout_harness/limits.py` for the vocabulary.
     triggered_by: str = TRIGGERED_BY_SCHEDULE
+    # Set by a workflow step that parks until this run wakes it.
+    workflow_origin_key: str | None = None
 
 
-@dataclass
+@frozen
 class RunSignalsScoutOutput:
     run_id: str | None
     task_run_id: str | None
@@ -60,6 +62,7 @@ class RunSignalsScoutOutput:
     skill_name: str
     skill_version: int
     skip_reason: str | None = None
+    last_message: str | None = None
 
 
 def _to_output(result: RunResult) -> RunSignalsScoutOutput:
@@ -71,12 +74,35 @@ def _to_output(result: RunResult) -> RunSignalsScoutOutput:
         skill_name=result.skill_name,
         skill_version=result.skill_version,
         skip_reason=result.skip_reason,
+        last_message=result.last_message,
+    )
+
+
+def _resume_workflow_step(input: RunSignalsScoutInput, output: RunSignalsScoutOutput) -> None:
+    if not input.workflow_origin_key:
+        return
+    # A skipped run reads as a failure with the skip reason attached.
+    status: WorkflowStepResumeStatus = "failed"
+    if output.status in ("completed", "failed", "cancelled"):
+        status = cast(WorkflowStepResumeStatus, output.status)
+    resume_workflow_step(
+        team_id=input.team_id,
+        origin_key=input.workflow_origin_key,
+        status=status,
+        result={"run_id": output.run_id, "summary": output.last_message, "error_message": output.skip_reason},
     )
 
 
 @temporalio.activity.defn
 @close_db_connections
 async def run_signals_scout_activity(input: RunSignalsScoutInput) -> RunSignalsScoutOutput:
+    """One scout run for a (team, skill) pair; a workflow-triggered run wakes its step on every exit."""
+    output = await _run_signals_scout(input)
+    await database_sync_to_async(_resume_workflow_step, thread_sensitive=False)(input, output)
+    return output
+
+
+async def _run_signals_scout(input: RunSignalsScoutInput) -> RunSignalsScoutOutput:
     """One scheduled scout run for a (team, skill) pair.
 
     The activity itself never raises — failures are persisted on the run row and the
@@ -232,7 +258,13 @@ def workflow_triggered_run_workflow_id(team_id: int, skill_name: str) -> str:
 
 @async_to_sync
 async def _start_off_schedule_run(
-    client: Client, *, workflow_id: str, team_id: int, skill_name: str, source: str
+    client: Client,
+    *,
+    workflow_id: str,
+    team_id: int,
+    skill_name: str,
+    source: str,
+    workflow_origin_key: str | None = None,
 ) -> str:
     """Start one `RunSignalsScoutWorkflow` off-schedule under `workflow_id`; return the id.
 
@@ -248,7 +280,9 @@ async def _start_off_schedule_run(
     """
     await client.start_workflow(
         RunSignalsScoutWorkflow.run,
-        RunSignalsScoutInput(team_id=team_id, skill_name=skill_name, triggered_by=source),
+        RunSignalsScoutInput(
+            team_id=team_id, skill_name=skill_name, triggered_by=source, workflow_origin_key=workflow_origin_key
+        ),
         id=workflow_id,
         task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
         id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
@@ -268,7 +302,9 @@ def start_manual_signals_scout_run(client: Client, *, team_id: int, skill_name: 
     )
 
 
-def start_workflow_signals_scout_run(client: Client, *, team_id: int, skill_name: str) -> str:
+def start_workflow_signals_scout_run(
+    client: Client, *, team_id: int, skill_name: str, workflow_origin_key: str | None = None
+) -> str:
     """Dispatch one workflow-triggered scout run on the signals task queue; return its workflow id.
 
     Its own id namespace, so a workflow fire and a human's "Run now" single-flight separately — a
@@ -282,4 +318,5 @@ def start_workflow_signals_scout_run(client: Client, *, team_id: int, skill_name
         team_id=team_id,
         skill_name=skill_name,
         source=TRIGGERED_BY_WORKFLOW,
+        workflow_origin_key=workflow_origin_key,
     )

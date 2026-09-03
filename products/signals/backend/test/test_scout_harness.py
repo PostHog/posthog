@@ -2472,3 +2472,39 @@ class TestRunRowProvenanceStamps(BaseTest):
             business_knowledge_maintained=True,
         )
         assert (run.metadata or {})["business_knowledge_maintained"] is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize("workflow_origin_key,wakes", [("job:step:1", True), (None, False)])
+async def test_activity_wakes_the_workflow_step_that_started_the_run(ateam, workflow_origin_key, wakes):
+    async def fake_arun(**_kwargs):
+        return RunResult(
+            run_id="abc",
+            task_run_id="def",
+            status="completed",
+            last_message="Two regressions found",
+            runtime_s=1.5,
+            skill_name="signals-scout-errors",
+            skill_version=2,
+        )
+
+    with (
+        patch("products.signals.backend.scout_harness.runner.arun_signals_scout", side_effect=fake_arun),
+        patch("products.signals.backend.temporal.agentic.scout_scheduler.resume_workflow_step") as resume,
+    ):
+        await ActivityEnvironment().run(
+            run_signals_scout_activity,
+            RunSignalsScoutInput(
+                team_id=ateam.id, skill_name="signals-scout-errors", workflow_origin_key=workflow_origin_key
+            ),
+        )
+
+    assert resume.call_count == (1 if wakes else 0)
+    if wakes:
+        resume.assert_called_once_with(
+            team_id=ateam.id,
+            origin_key="job:step:1",
+            status="completed",
+            result={"run_id": "abc", "summary": "Two regressions found", "error_message": None},
+        )

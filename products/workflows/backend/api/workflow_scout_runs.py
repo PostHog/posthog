@@ -148,7 +148,9 @@ class WorkflowScoutRunViewSet(viewsets.GenericViewSet):
             return _rejected("Workflow no longer exists.", status.HTTP_422_UNPROCESSABLE_ENTITY)
 
         try:
-            started = start_workflow_scout_run(team_id=team_id, skill_name=skill_name)
+            started = start_workflow_scout_run(
+                team_id=team_id, skill_name=skill_name, workflow_origin_key=idempotency_key
+            )
         except WorkflowScoutRunRejected as error:
             logger.info(
                 "workflow_scout_run_rejected",
