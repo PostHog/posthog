@@ -5,7 +5,7 @@ import {
   PopoverTrigger,
   Text,
 } from "@posthog/quill";
-import { TASK_COST_FLAG, TASK_COST_VISIBLE_FLAG } from "@posthog/shared";
+import { TASK_COST_VISIBLE_FLAG } from "@posthog/shared";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import {
   formatCostUsd,
@@ -24,17 +24,23 @@ const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
 interface ContextUsageIndicatorProps {
   usage: ContextUsage | null;
   taskId?: string;
+  originProduct?: string;
   focused?: boolean;
 }
 
 export function ContextUsageIndicator({
   usage,
   taskId,
+  originProduct,
   focused = true,
 }: ContextUsageIndicatorProps) {
-  const costEnabled = useFeatureFlag(TASK_COST_FLAG) || import.meta.env.DEV;
+  const costEnabled = originProduct === "user_created";
   const costVisible = useFeatureFlag(TASK_COST_VISIBLE_FLAG);
-  const { data: taskUsage } = useTaskUsage(taskId, costEnabled && focused);
+  const { data: fetchedTaskUsage } = useTaskUsage(
+    taskId,
+    costEnabled && focused,
+  );
+  const taskUsage = costEnabled ? fetchedTaskUsage : undefined;
 
   if (!usage) return null;
 
@@ -44,7 +50,7 @@ export function ContextUsageIndicator({
   const hasSize = size > 0;
   const strokeDashoffset = CIRCUMFERENCE - (percentage / 100) * CIRCUMFERENCE;
   const color = getOverallUsageColor(percentage);
-  const showCost = costEnabled && taskUsage !== undefined;
+  const showCost = taskUsage !== undefined;
   const showCostText = showCost && costVisible;
   // The ring carries no text, so the token figures reach a reader only through
   // the accessible name. Cost joins them only while it has no text of its own,
