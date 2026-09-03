@@ -19,7 +19,11 @@ from posthog.hogql.database.postgres_table import PostgresTable
 aeo_citation_checks: PostgresTable = PostgresTable(
     name="aeo_citation_checks",
     postgres_table_name="posthog_aeo_citation_check",
-    access_scope="web_analytics",
+    # No access_scope: AEO has no RBAC resource behind it — no viewset, no per-row
+    # grants — so there is nothing for object-level gating to resolve against, the
+    # way cohorts, exports and teams are also unscoped. Team isolation still applies
+    # through the team_id predicate every system table carries.
+    access_scope=None,
     description=(
         "AEO citation checks: one row per prompt x answer engine per run, recording whether the "
         "team's target domain was cited. Written only by the citation runner."
