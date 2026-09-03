@@ -83,7 +83,7 @@ def test_prepared_trino_transpiler_does_not_rebuild_the_schema_database() -> Non
     transpiler_input = TrinoTranspilerInput(
         node=prepared,
         values=tuple(preparation_context.values.items()),
-        table_locators=tuple(preparation_context.trino_table_locators.items()),
+        table_locators=preparation_context.trino_table_locators,
         persons_on_events_mode=preparation_context.modifiers.personsOnEventsMode,
         convert_to_project_timezone=preparation_context.modifiers.convertToProjectTimezone,
         limit_top_select=preparation_context.limit_top_select,
@@ -455,6 +455,19 @@ def test_lowers_single_array_join_to_cross_join_unnest() -> None:
         in sql
         and 'SELECT "__trino_unnest_0"."item"' in sql
     )
+
+
+def test_internal_unnest_function_is_not_shadowed_by_a_cte() -> None:
+    context = _context_with_trino_table()
+
+    sql, _ = prepare_and_print_ast(
+        parse_select("WITH __trino_unnest AS (SELECT 1 AS value) SELECT arrayJoin([1, 2]) AS item"),
+        context,
+        "trino",
+    )
+
+    assert "FROM UNNEST(transform(ARRAY[1, 2]" in sql
+    assert 'AS "__trino_array_function_0" ("value_0")' in sql
 
 
 def test_rejects_multi_array_join_with_different_cardinality_semantics() -> None:

@@ -3,6 +3,8 @@ from typing import Any
 import pytest
 from unittest import mock
 
+from posthog.schema import DateRange, HogQLFilters, HogQLQueryModifiers, HogQLVariable
+
 from posthog.hogql.errors import QueryError
 from posthog.hogql.transforms.trino.errors import TrinoLoweringError
 from posthog.hogql.transforms.trino.manifest import (
@@ -14,7 +16,7 @@ from posthog.hogql.transforms.trino.manifest import (
     transpile_hogql_to_trino,
 )
 
-from posthog.schema_enums import DatabaseSerializedFieldType
+from posthog.schema_enums import DatabaseSerializedFieldType, PersonsOnEventsMode
 
 pytestmark = pytest.mark.django_db
 
@@ -99,19 +101,68 @@ def test_prepared_catalog_reuses_metadata_and_isolates_query_state(django_assert
     assert second.values == {"hogql_val_0": "second"}
 
 
+def test_manifest_relation_can_share_the_internal_unnest_function_name() -> None:
+    relation = TrinoManifestTable(
+        logical_name="__trino_unnest",
+        locator=("org_catalog", "imports", "unnest_rows"),
+        columns=(TrinoManifestColumn(name="value", type=DatabaseSerializedFieldType.STRING),),
+    )
+
+    result = transpile_hogql_to_trino(
+        "SELECT value, arrayJoin([1, 2]) AS item FROM __trino_unnest",
+        manifest=_manifest(relation),
+    )
+
+    assert 'FROM "org_catalog"."imports"."unnest_rows" AS "__trino_unnest"' in result.sql
+    assert "CROSS JOIN UNNEST(transform(ARRAY[1, 2]" in result.sql
+
+
 @pytest.mark.parametrize(
-    ("query", "feature_code"),
+    ("query", "kwargs", "feature_code"),
     [
-        ("SELECT matchesAction(1) FROM events", "TRINO_PURE_ACTION_UNSUPPORTED"),
-        ("SELECT event FROM events WHERE person_id IN COHORT 1", "TRINO_PURE_COHORT_UNSUPPORTED"),
-        ("SELECT event FROM events WHERE {filters}", "TRINO_PURE_PLACEHOLDER_UNSUPPORTED"),
+        ("SELECT matchesAction(1) FROM events", {}, "TRINO_PURE_ACTION_UNSUPPORTED"),
+        ("SELECT event FROM events WHERE person_id IN COHORT 1", {}, "TRINO_PURE_COHORT_UNSUPPORTED"),
+        ("SELECT event FROM events WHERE {filters}", {}, "TRINO_PURE_PLACEHOLDER_UNSUPPORTED"),
+        (
+            "SELECT event FROM events",
+            {"filters": HogQLFilters(dateRange=DateRange(date_from="-7d"))},
+            "TRINO_PURE_FILTERS_UNSUPPORTED",
+        ),
+        (
+            "SELECT event FROM events",
+            {"variables": {"value": HogQLVariable(code_name="value", variableId="1", value="signup")}},
+            "TRINO_PURE_VARIABLES_UNSUPPORTED",
+        ),
+        (
+            "SELECT event FROM events",
+            {"modifiers": HogQLQueryModifiers(debug=True)},
+            "TRINO_PURE_MODIFIER_UNSUPPORTED",
+        ),
+        (
+            "SELECT event FROM events",
+            {"modifiers": HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.DISABLED)},
+            "TRINO_PERSONS_ON_EVENTS_MODE_UNSUPPORTED",
+        ),
     ],
 )
-def test_rejects_django_backed_semantics(query: str, feature_code: str) -> None:
+def test_rejects_django_backed_semantics(query: str, kwargs: dict[str, Any], feature_code: str) -> None:
     with pytest.raises(TrinoLoweringError) as error:
-        transpile_hogql_to_trino(query, manifest=_manifest(_events()))
+        transpile_hogql_to_trino(query, manifest=_manifest(_events()), **kwargs)
 
     assert error.value.feature_code == feature_code
+
+
+def test_accepts_content_free_filters_and_null_modifiers() -> None:
+    # Dashboards send an empty filters object, and a serialize/validate round trip carries every
+    # unset modifier as an explicit null. Neither asks for Django semantics.
+    result = transpile_hogql_to_trino(
+        "SELECT event FROM events",
+        manifest=_manifest(_events()),
+        filters=HogQLFilters(),
+        modifiers=HogQLQueryModifiers.model_validate({"debug": None, "materializationMode": None}),
+    )
+
+    assert 'FROM "org_catalog"."posthog"."events_production"' in result.sql
 
 
 def test_rejects_tables_absent_from_manifest() -> None:

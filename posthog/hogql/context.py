@@ -1,3 +1,4 @@
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
 from functools import cached_property
@@ -69,7 +70,7 @@ class HogQLContext:
     # Metadata discovered for a direct Postgres connection, if one is selected
     direct_postgres_connection_metadata: dict[str, Any] | None = None
     # Query-scoped mappings preserve resolved logical tables through Trino lowering.
-    trino_table_locators: dict[str, tuple[str, str, str]] = field(default_factory=dict)
+    trino_table_locators: Mapping[str, tuple[str, str, str]] = field(default_factory=dict)
     # Detached printer stages snapshot these values so they do not retain the schema database.
     timezone: Optional[str] = None
     week_start_day: Optional[WeekStartDay] = None

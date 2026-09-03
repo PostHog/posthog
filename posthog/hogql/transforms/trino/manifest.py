@@ -5,7 +5,7 @@ from dataclasses import field
 from types import MappingProxyType
 from typing import Any
 
-from posthog.schema import HogQLQueryModifiers
+from posthog.schema import HogQLFilters, HogQLQueryModifiers, HogQLVariable
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
@@ -30,10 +30,10 @@ from posthog.hogql.database.models import (
     VirtualTable,
 )
 from posthog.hogql.database.trino_locator import TrinoTableLocator
-from posthog.hogql.database.trino_unnest_table import ensure_trino_unnest_table
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.placeholders import find_placeholders
-from posthog.hogql.printer.utils import prepare_and_print_ast
+from posthog.hogql.printer.utils import prepare_and_print_ast, print_prepared_ast
+from posthog.hogql.resolver_utils import extract_select_queries
 from posthog.hogql.transforms.trino.errors import TrinoLoweringError
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
@@ -68,6 +68,7 @@ class TrinoManifestTranspilerResult:
     sql: str
     values: dict[str, Any]
     hogql: str | None = None
+    print_columns: tuple[str, ...] = ()
 
 
 @frozen
@@ -80,31 +81,38 @@ class PreparedTrinoCatalog:
 
     def transpile(
         self,
-        query: str,
+        query: str | ast.SelectQuery | ast.SelectSetQuery,
         *,
         values: Mapping[str, object] | None = None,
+        filters: HogQLFilters | None = None,
+        variables: Mapping[str, HogQLVariable] | None = None,
+        modifiers: HogQLQueryModifiers | None = None,
         convert_to_project_timezone: bool | None = None,
         limit_top_select: bool = True,
         limit_context: LimitContext | None = None,
+        default_limit: int | None = None,
         pretty: bool = False,
         include_hogql: bool = False,
     ) -> TrinoManifestTranspilerResult:
-        return _transpile_hogql_to_trino_with_catalog(
+        return transpile_hogql_to_trino_with_database(
             query,
             database=self._database,
-            table_locators=self._table_locators,
-            timezone=self.manifest.timezone,
-            week_start_day=self.manifest.week_start_day,
+            locators=self._table_locators,
             values=values,
+            filters=filters,
+            variables=variables,
+            modifiers=modifiers,
             convert_to_project_timezone=convert_to_project_timezone,
             limit_top_select=limit_top_select,
             limit_context=limit_context,
+            default_limit=default_limit,
             pretty=pretty,
             include_hogql=include_hogql,
         )
 
 
 _CORE_TABLES = frozenset({"events", "persons"})
+_SUPPORTED_PURE_MODIFIERS = frozenset({"personsOnEventsMode", "convertToProjectTimezone"})
 _FIELD_TYPES: dict[DatabaseSerializedFieldType, type[DatabaseField]] = {
     DatabaseSerializedFieldType.INTEGER: IntegerDatabaseField,
     DatabaseSerializedFieldType.FLOAT: FloatDatabaseField,
@@ -219,6 +227,7 @@ def build_trino_manifest_database(manifest: TrinoCatalogManifest) -> tuple[Datab
                     "core table manifest",
                     detail=f"Core table `{table.logical_name}` uses its fixed schema and cannot declare columns.",
                 )
+            database.tables.get_child(chain).case_insensitive = True
             continue
 
         columns = {column.name: _manifest_field(column) for column in table.columns}
@@ -238,12 +247,59 @@ def build_trino_manifest_database(manifest: TrinoCatalogManifest) -> tuple[Datab
             trino_table_name=table.locator[2],
         )
         database.tables.add_child(
-            TableNode.create_nested_for_chain(chain, direct_table),
+            TableNode.create_nested_for_chain(chain, direct_table, case_insensitive=True),
             table_conflict_mode="override",
         )
 
-    ensure_trino_unnest_table(database)
     return database, locators
+
+
+def find_unsupported_pure_trino_features(node: ast.AST) -> None:
+    """Raise the pure compiler's error for constructs Trino execution can never compile."""
+    _UnsupportedSemanticFeatureFinder().visit(node)
+
+
+def _validate_pure_inputs(
+    *,
+    filters: HogQLFilters | None,
+    variables: Mapping[str, HogQLVariable] | None,
+    modifiers: HogQLQueryModifiers | None,
+) -> None:
+    # Dashboards and URL-opened editor tabs send an empty filters object even when no filter is
+    # set, so gate on content rather than presence.
+    if filters is not None and filters.model_dump(exclude_none=True):
+        raise TrinoLoweringError(
+            "TRINO_PURE_FILTERS_UNSUPPORTED",
+            "query filters",
+            detail="Query filters require Django semantic expansion.",
+        )
+    if variables:
+        raise TrinoLoweringError(
+            "TRINO_PURE_VARIABLES_UNSUPPORTED",
+            "query variables",
+            detail="Query variables require Django semantic expansion.",
+        )
+    if modifiers is None:
+        return
+
+    # model_fields_set counts fields a serialize/validate round trip carried as explicit nulls,
+    # so gate on values rather than key presence.
+    set_modifiers = {key for key in modifiers.model_fields_set if getattr(modifiers, key) is not None}
+    unsupported_modifiers = set_modifiers - _SUPPORTED_PURE_MODIFIERS
+    if unsupported_modifiers:
+        unsupported = ", ".join(sorted(unsupported_modifiers))
+        raise TrinoLoweringError(
+            "TRINO_PURE_MODIFIER_UNSUPPORTED",
+            "query modifier",
+            detail=f"Pure Trino transpilation does not support these modifiers: {unsupported}.",
+        )
+    persons_mode = modifiers.personsOnEventsMode
+    if persons_mode is not None and persons_mode != PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS:
+        raise TrinoLoweringError(
+            "TRINO_PERSONS_ON_EVENTS_MODE_UNSUPPORTED",
+            f"personsOnEventsMode={persons_mode.value}",
+            detail="Trino compilation supports only personsOnEventsMode=person_id_override_properties_on_events.",
+        )
 
 
 def prepare_trino_catalog(manifest: TrinoCatalogManifest) -> PreparedTrinoCatalog:
@@ -256,45 +312,65 @@ def prepare_trino_catalog(manifest: TrinoCatalogManifest) -> PreparedTrinoCatalo
 
 
 def transpile_hogql_to_trino(
-    query: str,
+    query: str | ast.SelectQuery | ast.SelectSetQuery,
     *,
     manifest: TrinoCatalogManifest,
     values: Mapping[str, object] | None = None,
+    filters: HogQLFilters | None = None,
+    variables: Mapping[str, HogQLVariable] | None = None,
+    modifiers: HogQLQueryModifiers | None = None,
     convert_to_project_timezone: bool | None = None,
     limit_top_select: bool = True,
     limit_context: LimitContext | None = None,
+    default_limit: int | None = None,
     pretty: bool = False,
     include_hogql: bool = False,
 ) -> TrinoManifestTranspilerResult:
     return prepare_trino_catalog(manifest).transpile(
         query,
         values=values,
+        filters=filters,
+        variables=variables,
+        modifiers=modifiers,
         convert_to_project_timezone=convert_to_project_timezone,
         limit_top_select=limit_top_select,
         limit_context=limit_context,
+        default_limit=default_limit,
         pretty=pretty,
         include_hogql=include_hogql,
     )
 
 
-def _transpile_hogql_to_trino_with_catalog(
-    query: str,
+def transpile_hogql_to_trino_with_database(
+    query: str | ast.SelectQuery | ast.SelectSetQuery,
     *,
     database: Database,
-    table_locators: Mapping[str, TrinoTableLocator],
-    timezone: str,
-    week_start_day: WeekStartDay,
+    locators: Mapping[str, TrinoTableLocator] | None = None,
     values: Mapping[str, object] | None = None,
+    filters: HogQLFilters | None = None,
+    variables: Mapping[str, HogQLVariable] | None = None,
+    modifiers: HogQLQueryModifiers | None = None,
     convert_to_project_timezone: bool | None = None,
     limit_top_select: bool = True,
     limit_context: LimitContext | None = None,
+    default_limit: int | None = None,
     pretty: bool = False,
     include_hogql: bool = False,
 ) -> TrinoManifestTranspilerResult:
+    """Transpile against an already-built database, such as a connection-scoped one.
+
+    A DirectTrinoTable carries its own physical locator, so ``locators`` is only needed for
+    tables that do not, such as the managed core tables.
+    """
+    _validate_pure_inputs(filters=filters, variables=variables, modifiers=modifiers)
     placeholders: dict[str, ast.Expr] | None = (
         {key: ast.Constant(value=value) for key, value in values.items()} if values else None
     )
-    node = parse_select(query, placeholders=placeholders)
+    node = parse_select(query, placeholders=placeholders) if isinstance(query, str) else clone_expr(query, True)
+    if default_limit is not None:
+        for select_query in extract_select_queries(node):
+            if select_query.limit is None:
+                select_query.limit = ast.Constant(value=default_limit)
     unsupported_placeholders = find_placeholders(node)
     if (
         unsupported_placeholders.has_filters
@@ -309,6 +385,8 @@ def _transpile_hogql_to_trino_with_catalog(
         )
     _UnsupportedSemanticFeatureFinder().visit(node)
 
+    table_locators = locators if locators is not None else {}
+
     def create_context() -> HogQLContext:
         return HogQLContext(
             database=database,
@@ -320,17 +398,39 @@ def _transpile_hogql_to_trino_with_catalog(
             limit_context=limit_context,
             modifiers=HogQLQueryModifiers(
                 personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
-                convertToProjectTimezone=convert_to_project_timezone,
+                convertToProjectTimezone=(
+                    modifiers.convertToProjectTimezone
+                    if modifiers is not None and modifiers.convertToProjectTimezone is not None
+                    else convert_to_project_timezone
+                ),
             ),
             restricted_properties=set(),
-            trino_table_locators=dict(table_locators),
-            timezone=timezone,
-            week_start_day=week_start_day,
+            trino_table_locators=table_locators,
+            timezone=database.get_timezone(),
+            week_start_day=database.get_week_start_day(),
         )
 
     context = create_context()
     hogql: str | None = None
+    print_columns: list[str] = []
     if include_hogql:
-        hogql, _ = prepare_and_print_ast(clone_expr(node), create_context(), dialect="hogql")
+        hogql_context = create_context()
+        hogql, prepared_hogql = prepare_and_print_ast(clone_expr(node), hogql_context, dialect="hogql")
+        if isinstance(prepared_hogql, ast.SelectQuery | ast.SelectSetQuery):
+            columns_query = (
+                next(extract_select_queries(prepared_hogql))
+                if isinstance(prepared_hogql, ast.SelectSetQuery)
+                else prepared_hogql
+            )
+            for select_node in columns_query.select:
+                if isinstance(select_node, ast.Alias):
+                    print_columns.append(select_node.alias)
+                else:
+                    stack = [prepared_hogql] if isinstance(prepared_hogql, ast.SelectQuery) else None
+                    print_columns.append(
+                        print_prepared_ast(node=select_node, context=hogql_context, dialect="hogql", stack=stack)
+                    )
     sql, _ = prepare_and_print_ast(node, context, dialect="trino", pretty=pretty)
-    return TrinoManifestTranspilerResult(sql=sql, values=dict(context.values), hogql=hogql)
+    return TrinoManifestTranspilerResult(
+        sql=sql, values=dict(context.values), hogql=hogql, print_columns=tuple(print_columns)
+    )

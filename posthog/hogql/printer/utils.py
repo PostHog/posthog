@@ -126,7 +126,7 @@ def prepare_and_print_ast(
                     TrinoTranspilerInput(
                         node=prepared_ast,
                         values=tuple(context.values.items()),
-                        table_locators=tuple(context.trino_table_locators.items()),
+                        table_locators=context.trino_table_locators,
                         persons_on_events_mode=context.modifiers.personsOnEventsMode,
                         convert_to_project_timezone=context.modifiers.convertToProjectTimezone,
                         limit_top_select=context.limit_top_select,

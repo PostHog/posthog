@@ -50,61 +50,14 @@ class PreparedTrinoCompiler:
     def compile(self, query: HogQLQuery, *, include_hogql: bool = False) -> TrinoCompiledQuery:
         from posthog.hogql.transforms.trino.errors import TrinoLoweringError  # noqa: PLC0415
 
-        from posthog.schema_enums import PersonsOnEventsMode  # noqa: PLC0415
-
         TRINO_COMPILATION_TOTAL.labels(mode=TrinoExpansionMode.PURE.value).inc()
-        if query.filters is not None:
-            _reject_pure_compilation(
-                TrinoLoweringError(
-                    "TRINO_PURE_FILTERS_UNSUPPORTED",
-                    "query filters",
-                    detail="Query filters require Django semantic expansion.",
-                ),
-                feature_code="TRINO_PURE_FILTERS_UNSUPPORTED",
-            )
-        if query.variables:
-            _reject_pure_compilation(
-                TrinoLoweringError(
-                    "TRINO_PURE_VARIABLES_UNSUPPORTED",
-                    "query variables",
-                    detail="Query variables require Django semantic expansion.",
-                ),
-                feature_code="TRINO_PURE_VARIABLES_UNSUPPORTED",
-            )
-
-        modifiers = query.modifiers
-        explicitly_set_modifiers = set(modifiers.model_fields_set) if modifiers is not None else set()
-        supported_modifiers = {"personsOnEventsMode", "convertToProjectTimezone"}
-        unsupported_modifiers = explicitly_set_modifiers - supported_modifiers
-        if unsupported_modifiers:
-            unsupported = ", ".join(sorted(unsupported_modifiers))
-            _reject_pure_compilation(
-                TrinoLoweringError(
-                    "TRINO_PURE_MODIFIER_UNSUPPORTED",
-                    "query modifier",
-                    detail=f"Pure Trino transpilation does not support these modifiers: {unsupported}.",
-                ),
-                feature_code="TRINO_PURE_MODIFIER_UNSUPPORTED",
-            )
-        persons_mode = modifiers.personsOnEventsMode if modifiers is not None else None
-        if persons_mode not in (None, PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS):
-            mode_name = persons_mode.value if persons_mode is not None else "unset"
-            _reject_pure_compilation(
-                TrinoLoweringError(
-                    "TRINO_PERSONS_ON_EVENTS_MODE_UNSUPPORTED",
-                    f"personsOnEventsMode={mode_name}",
-                    detail=(
-                        "Trino compilation supports only personsOnEventsMode=person_id_override_properties_on_events."
-                    ),
-                ),
-                feature_code="TRINO_PERSONS_ON_EVENTS_MODE_UNSUPPORTED",
-            )
-
         try:
             transpiled = self._catalog.transpile(
                 query.query,
                 values=query.values,
-                convert_to_project_timezone=(modifiers.convertToProjectTimezone if modifiers is not None else None),
+                filters=query.filters,
+                variables=query.variables,
+                modifiers=query.modifiers,
                 include_hogql=include_hogql,
             )
         except TrinoLoweringError as error:
@@ -184,15 +137,6 @@ def prepare_hogql_to_trino_compiler(
                 detail="Managed warehouse compilation owns the events and persons physical mappings.",
             ),
             feature_code="TRINO_PURE_CORE_TABLE_OVERRIDE",
-        )
-    if any(table.locator[0] != catalog_name for table in additional_tables):
-        _reject_pure_compilation(
-            TrinoLoweringError(
-                "TRINO_PURE_CATALOG_MISMATCH",
-                "catalog manifest",
-                detail="Managed warehouse relations must belong to the prepared Trino catalog.",
-            ),
-            feature_code="TRINO_PURE_CATALOG_MISMATCH",
         )
     pure_manifest = TrinoCatalogManifest(
         tables=(

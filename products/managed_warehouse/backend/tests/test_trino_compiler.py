@@ -7,7 +7,6 @@ from rest_framework.response import Response
 
 from posthog.schema import HogQLQuery, HogQLQueryModifiers
 
-from posthog.hogql.transforms.trino.errors import TrinoLoweringError
 from posthog.hogql.transforms.trino.manifest import (
     TrinoCatalogManifest,
     TrinoManifestColumn,
@@ -282,7 +281,7 @@ class TestPreparedTrinoCompiler:
             with pytest.raises(TrinoTargetUnavailable, match="mapping does not match"):
                 prepare_hogql_to_trino_compiler(team.pk, team=team)
 
-    def test_rejects_relations_from_another_catalog(self) -> None:
+    def test_preserves_explicitly_allowlisted_relations_from_another_catalog(self) -> None:
         team = _team()
         membership = _membership(team_id=team.pk, organization_id=str(team.organization_id))
         manifest = TrinoCatalogManifest(
@@ -305,10 +304,14 @@ class TestPreparedTrinoCompiler:
                 return_value=membership,
             ),
         ):
-            with pytest.raises(TrinoLoweringError) as error:
-                prepare_hogql_to_trino_compiler(team.pk, team=team, catalog_manifest=manifest)
+            compiled = compile_hogql_to_trino_sql(
+                team.pk,
+                HogQLQuery(query="SELECT id FROM orders"),
+                team=team,
+                catalog_manifest=manifest,
+            )
 
-        assert error.value.feature_code == "TRINO_PURE_CATALOG_MISMATCH"
+        assert 'FROM "another_catalog"."imports"."orders"' in compiled.sql
 
 
 @pytest.mark.django_db
