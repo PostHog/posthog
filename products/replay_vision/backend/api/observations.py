@@ -73,6 +73,11 @@ from products.replay_vision.backend.search import (
     query_vector_for,
     search_observations,
 )
+from products.replay_vision.backend.search_suggestions import (
+    MAX_SUGGESTED_QUERIES,
+    SuggestionError,
+    suggest_search_queries,
+)
 from products.replay_vision.backend.temporal.scanners.monitor import MonitorVerdict
 from products.replay_vision.backend.temporal.types import ScannerResult, ScannerSnapshot
 from products.tasks.backend.facade import api as tasks_facade
@@ -1174,6 +1179,21 @@ class ObservationSearchResponseSerializer(serializers.Serializer):
     )
 
 
+class SearchSuggestionsQuerySerializer(serializers.Serializer):
+    scanner_id = serializers.UUIDField(
+        required=False,
+        help_text="Suggest for a single scanner's observations. Defaults to every scanner you can read.",
+    )
+
+
+class SearchSuggestionsResponseSerializer(serializers.Serializer):
+    queries = serializers.ListField(
+        child=serializers.CharField(),
+        help_text=f"Up to {MAX_SUGGESTED_QUERIES} example searches naming themes in recent observations. Empty "
+        "when the scope has too few observations or AI data processing is off.",
+    )
+
+
 def _csv_values(raw: str | None) -> list[str] | None:
     return split_csv(raw) or None if raw else None
 
@@ -1292,6 +1312,31 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
             filters,
         )
         return self._search_response(list(response.results), truncated=response.truncated)
+
+    @extend_schema(
+        parameters=[SearchSuggestionsQuerySerializer],
+        responses={200: SearchSuggestionsResponseSerializer},
+    )
+    @action(
+        detail=False,
+        methods=["GET"],
+        url_path="search_suggestions",
+        throttle_classes=[ReplayVisionSearchBurstRateThrottle, ReplayVisionSearchSustainedRateThrottle],
+    )
+    def search_suggestions(self, request: Request, **kwargs: Any) -> Response:
+        """Example searches drawn from recent observations, for the Search tab's empty state."""
+        params = SearchSuggestionsQuerySerializer(data=request.query_params)
+        params.is_valid(raise_exception=True)
+        scanner_ids = self._searchable_scanner_ids(params.validated_data.get("scanner_id"))
+        queries: list[str] = []
+        # An empty list is a valid answer here: the tab falls back to fixed examples, and an empty state
+        # must not raise errors about consent or a slow model.
+        if scanner_ids and is_ai_data_processing_approved(self.team.id):
+            try:
+                queries = suggest_search_queries(self.team, cast(User, request.user), scanner_ids)
+            except SuggestionError:
+                logger.warning("replay_vision.search_suggestions.failed", team_id=self.team_id, exc_info=True)
+        return Response(SearchSuggestionsResponseSerializer({"queries": queries}).data)
 
     def _search_response(self, results: list[ObservationSearchResult], truncated: bool = False) -> Response:
         serializer = ObservationSearchResponseSerializer(

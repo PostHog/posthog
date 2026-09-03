@@ -682,6 +682,11 @@ export interface ObservationSearchResponseApi {
     truncated: boolean
 }
 
+export interface SearchSuggestionsResponseApi {
+    /** Up to 4 example searches naming themes in recent observations. Empty when the scope has too few observations or AI data processing is off. */
+    queries: string[]
+}
+
 export interface VisionQuotaApi {
     /**
      * Credits the organization may spend per billing period (1 credit = $0.01). 0 is a hard block: no observation can start. Null when billing has synced the product with no spend limit: uncapped.
@@ -2378,6 +2383,13 @@ export type VisionObservationsSearchRetrieveParams = {
      * @minLength 1
      */
     verdict?: string
+}
+
+export type VisionObservationsSearchSuggestionsRetrieveParams = {
+    /**
+     * Suggest for a single scanner's observations. Defaults to every scanner you can read.
+     */
+    scanner_id?: string
 }
 
 export type VisionScannersListParams = {

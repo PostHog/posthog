@@ -76772,6 +76772,11 @@ export namespace Schemas {
       sdks: SdkAssessment[];
     }
 
+    export interface SearchSuggestionsResponse {
+      /** Up to 4 example searches naming themes in recent observations. Empty when the scope has too few observations or AI data processing is off. */
+      queries: string[];
+    }
+
     export interface SendCommentToSlack {
       /** ID of the Slack integration (kind='slack') whose bot posts the thread. */
       integration_id: number;
@@ -100104,6 +100109,13 @@ export namespace Schemas {
      * @minLength 1
      */
     verdict?: string;
+    };
+
+    export type VisionObservationsSearchSuggestionsRetrieveParams = {
+    /**
+     * Suggest for a single scanner's observations. Defaults to every scanner you can read.
+     */
+    scanner_id?: string;
     };
 
     export type VisionScannersListParams = {

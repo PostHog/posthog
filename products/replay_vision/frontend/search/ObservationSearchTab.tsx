@@ -101,9 +101,23 @@ function SearchResultCard({
 
 export function ObservationSearchTab({ scanner }: { scanner: ReplayScanner | null }): JSX.Element {
     const logic = observationSearchLogic({ scannerId: scanner?.id ?? null })
-    const { query, results, searching, searchedQuery, strongMatchDistanceCutoff, truncated } = useValues(logic)
+    const {
+        query,
+        results,
+        searching,
+        searchedQuery,
+        strongMatchDistanceCutoff,
+        truncated,
+        recentQueries,
+        suggestedQueries,
+    } = useValues(logic)
     const { setQuery, search } = useActions(logic)
     const crossScanner = scanner === null
+    const tryQueries = suggestedQueries.length > 0 ? suggestedQueries : exampleQueries(scanner)
+    const runQuery = (value: string): void => {
+        setQuery(value)
+        search()
+    }
 
     return (
         <div className="w-full max-w-3xl mx-auto flex flex-col gap-4 pt-2">
@@ -142,17 +156,30 @@ export function ObservationSearchTab({ scanner }: { scanner: ReplayScanner | nul
                                 ? 'Search everything your scanners have observed, ranked by how well it matches.'
                                 : 'Search everything this scanner has observed, ranked by how well it matches.'}
                         </div>
+                        {recentQueries.length > 0 && (
+                            <div className="flex items-center justify-center gap-2 flex-wrap">
+                                <span>Recent</span>
+                                {recentQueries.map((recent) => (
+                                    <LemonButton
+                                        key={recent}
+                                        type="tertiary"
+                                        size="small"
+                                        onClick={() => runQuery(recent)}
+                                        data-attr="vision-search-recent"
+                                    >
+                                        {recent}
+                                    </LemonButton>
+                                ))}
+                            </div>
+                        )}
                         <div className="flex items-center justify-center gap-2 flex-wrap">
                             <span>Try</span>
-                            {exampleQueries(scanner).map((example) => (
+                            {tryQueries.map((example) => (
                                 <LemonButton
                                     key={example}
                                     type="secondary"
                                     size="small"
-                                    onClick={() => {
-                                        setQuery(example)
-                                        search()
-                                    }}
+                                    onClick={() => runQuery(example)}
                                     data-attr="vision-search-example"
                                 >
                                     {example}

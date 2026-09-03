@@ -51,6 +51,7 @@ import type {
     ScannerSelfDrivingStatsApi,
     ScannerStatsResponseApi,
     ScoutReportApi,
+    SearchSuggestionsResponseApi,
     SuggestTagsRequestApi,
     SuggestTagsResponseApi,
     VisionAlertConfigurationApi,
@@ -62,6 +63,7 @@ import type {
     VisionObservationsListParams,
     VisionObservationsRetrieveParams,
     VisionObservationsSearchRetrieveParams,
+    VisionObservationsSearchSuggestionsRetrieveParams,
     VisionQuotaApi,
     VisionScannersBackfillsListParams,
     VisionScannersImpactRetrieveParams,
@@ -460,6 +462,42 @@ export const visionObservationsSearchRetrieve = async (
         ...options,
         method: 'GET',
     })
+}
+
+export const getVisionObservationsSearchSuggestionsRetrieveUrl = (
+    projectId: string,
+    params?: VisionObservationsSearchSuggestionsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/vision/observations/search_suggestions/?${stringifiedParams}`
+        : `/api/projects/${projectId}/vision/observations/search_suggestions/`
+}
+
+/**
+ * Example searches drawn from recent observations, for the Search tab's empty state.
+ */
+export const visionObservationsSearchSuggestionsRetrieve = async (
+    projectId: string,
+    params?: VisionObservationsSearchSuggestionsRetrieveParams,
+    options?: RequestInit
+): Promise<SearchSuggestionsResponseApi> => {
+    return apiMutator<SearchSuggestionsResponseApi>(
+        getVisionObservationsSearchSuggestionsRetrieveUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getEnvironmentVisionQuotaRetrieveUrl = (projectId: string) => {

@@ -19,12 +19,16 @@ function searchResults(distances: number[]): ObservationSearchResultApi[] {
 
 describe('observationSearchLogic', () => {
     let searchSpy: jest.Mock
+    let suggestionsSpy: jest.Mock
 
     beforeEach(() => {
+        localStorage.clear()
         searchSpy = jest.fn(() => [200, { results: [{ observation: { id: 'obs-1' }, distance: 0.1 }] }])
+        suggestionsSpy = jest.fn(() => [200, { queries: ['coupon rejected at checkout'] }])
         useMocks({
             get: {
                 '/api/projects/:team/vision/observations/search/': searchSpy,
+                '/api/projects/:team/vision/observations/search_suggestions/': suggestionsSpy,
             },
         })
         initKeaTests()
@@ -124,6 +128,26 @@ describe('observationSearchLogic', () => {
             expect.objectContaining({ button: expect.objectContaining({ label: 'Open settings' }) })
         )
         toastSpy.mockRestore()
+        logic.unmount()
+    })
+
+    it('loads suggestions for the scope on mount', async () => {
+        const logic = observationSearchLogic({ scannerId: 'scanner-1' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(suggestionsSpy).toHaveBeenCalledTimes(1)
+        expect(new URL(suggestionsSpy.mock.calls[0][0].request.url).searchParams.get('scanner_id')).toBe('scanner-1')
+        expect(logic.values.suggestedQueries).toEqual(['coupon rejected at checkout'])
+        logic.unmount()
+    })
+
+    it('remembers successful queries newest first, without duplicates, capped', async () => {
+        const logic = observationSearchLogic({ scannerId: null })
+        logic.mount()
+        for (const query of ['one', 'two', 'three', 'four', 'five', 'six', 'two']) {
+            logic.actions.searchSuccess([], query, false)
+        }
+        expect(logic.values.recentQueries).toEqual(['two', 'six', 'five', 'four', 'three'])
         logic.unmount()
     })
 })
