@@ -21,7 +21,7 @@ from products.batch_exports.backend.api.destination_tests.databricks import (
     DatabricksEstablishConnectionTestStep,
 )
 from products.batch_exports.backend.api.destination_tests.snowflake import SnowflakeEstablishConnectionTestStep
-from products.batch_exports.backend.models.batch_export import BatchExportDestination
+from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination
 from products.batch_exports.backend.tests.api.operations import create_batch_export_ok
 
 pytestmark = [
@@ -295,24 +295,16 @@ def test_can_run_snowflake_test_step_for_partial_config(
         config["private_key_passphrase"] = snowflake_config["private_key_passphrase"]
     elif snowflake_config["authentication_type"] == "password":
         config["password"] = snowflake_config["password"]
+    config["authentication_type"] = snowflake_config["authentication_type"]
 
-    destination_data = {
-        "type": "Snowflake",
-        "config": config,
-    }
-
-    batch_export_data = {
-        "name": "my-production-snowflake-destination",
-        "destination": destination_data,
-        "interval": "hour",
-    }
-
-    client.force_login(user)
-
-    batch_export = create_batch_export_ok(
-        client,
-        team.pk,
-        batch_export_data,
+    # Inline-credential Snowflake exports can no longer be created over the API, but ones created
+    # before integrations still exist: seed one directly to exercise their test-step flow.
+    destination = BatchExportDestination.objects.create(type="Snowflake", config=config)
+    batch_export = BatchExport.objects.create(
+        team=team,
+        name="my-production-snowflake-destination",
+        destination=destination,
+        interval="hour",
     )
 
     batch_export_data = {
@@ -324,6 +316,8 @@ def test_can_run_snowflake_test_step_for_partial_config(
         "interval": "hour",
     }
 
+    client.force_login(user)
+
     with unittest.mock.patch(
         "products.batch_exports.backend.api.destination_tests.base.DestinationTest.run_step"
     ) as run_step_mocked:
@@ -332,7 +326,7 @@ def test_can_run_snowflake_test_step_for_partial_config(
         run_step_mocked.return_value = fake_test_step
 
         response = client.post(
-            f"/api/projects/{team.pk}/batch_exports/{batch_export['id']}/run_test_step",
+            f"/api/projects/{team.pk}/batch_exports/{batch_export.id}/run_test_step",
             {**{"step": 0}, **batch_export_data},
             content_type="application/json",
         )

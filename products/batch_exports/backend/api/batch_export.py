@@ -721,10 +721,9 @@ class SnowflakeDestinationRequestSerializer(serializers.Serializer):
 
     type = serializers.ChoiceField(choices=["Snowflake"])
     integration_id = serializers.IntegerField(
-        required=False,
         help_text=(
-            "ID of a snowflake-kind Integration providing the account, user and credentials. Preferred over "
-            "inline credentials. Use the integrations-list MCP tool to find one."
+            "ID of a snowflake-kind Integration providing the account, user and credentials. Required when "
+            "creating a batch export. Use the integrations-list MCP tool to find one."
         ),
     )
     config = SnowflakeDestinationConfigSerializer()
@@ -765,10 +764,9 @@ class BatchExportDestinationRequestField(serializers.JSONField):
 
     Only integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres, AwsS3,
     S3Compatible, Snowflake, Redshift) are exposed in the schema. integration_id is required for
-    every one of those except Snowflake, where inline credentials remain supported for the time
-    being. Existing Postgres, Snowflake and Redshift exports created before integrations keep their
-    inline credentials. Runtime validation remains
-    `BatchExportDestinationSerializer.validate_destination`.
+    every one of them. Existing Postgres, Snowflake and Redshift exports created before
+    integrations keep their inline credentials and stay valid when edited. Runtime validation
+    remains `BatchExportDestinationSerializer.validate_destination`.
     """
 
     pass
@@ -885,8 +883,7 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text=(
             "ID of a team-scoped Integration providing credentials, for destinations that authenticate "
-            "through one. Required for all of those except Snowflake, which still supports inline "
-            "credentials."
+            "through one. Required for all of them."
         ),
     )
 
@@ -925,21 +922,12 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(f"Configuration has unknown field/s: {str_fields}")
 
         # Some credential/connection fields are optional on the dataclass (integration-backed exports
-        # resolve them at run time), so they must be required here only when no Integration is linked.
-        # Only Snowflake needs this. Every other destination requires an Integration, so
-        # `validate_destination` reports a missing one. Listing them here would report a missing
-        # credential field instead, because this check runs first.
-        # TODO: remove this code once integrations are enforced for Snowflake
-        conditionally_required: set[str] = set()
-        if attrs.get("integration") is None:
-            if export_type == BatchExportDestination.Destination.SNOWFLAKE:
-                conditionally_required = {"account", "user"}
-
+        # resolve them at run time), so only fields with no dataclass default are required here.
         for destination_field in destination_fields:
             is_required = (
                 destination_field.default == dataclasses.MISSING
                 and destination_field.default_factory == dataclasses.MISSING
-            ) or destination_field.name in conditionally_required
+            )
             if destination_field.name not in config:
                 if is_required and not is_patch:
                     # When patching we expect a partial configuration. So, we don't
@@ -1446,12 +1434,18 @@ class BatchExportSerializer(serializers.ModelSerializer):
             integration: Integration | None = destination_attrs.get("integration")
 
             # Sticky integration: an export that uses one cannot drop back to inline credentials.
-            # TODO: remove this guard once integrations are mandatory for Snowflake and inline credentials are gone.
+            # TODO: remove this guard once inline credentials are gone.
             if instance is not None and instance.destination.integration is not None and integration is None:
                 raise serializers.ValidationError(
                     "Cannot remove the integration from a Snowflake batch export that uses one. "
                     "Re-send its `integration` to keep it (or a different one to swap)."
                 )
+
+            # New Snowflake exports must use an Integration for credentials. Exports created before
+            # integrations existed keep their inline credentials, so only require it on create
+            # (`instance is None`); existing inline-credential exports stay valid when edited.
+            if integration is None and instance is None:
+                raise serializers.ValidationError("Integration is required for Snowflake batch exports")
 
             if integration is not None:
                 # (Team ownership is already enforced by the team-scoped `integration` field.)
@@ -1890,9 +1884,9 @@ def recursive_dict_merge(
 @extend_schema(tags=["batch_exports"])
 @extend_schema_view(
     # Request bodies use a polymorphic destination schema so that integration-backed types
-    # (Databricks, AzureBlob, BigQuery, Postgres, AwsS3, S3Compatible, Snowflake) advertise
-    # integration_id up front — required for Databricks, AzureBlob and BigQuery, optional for Postgres,
-    # the S3 family and Snowflake.
+    # (Databricks, AzureBlob, BigQuery, Postgres, AwsS3, S3Compatible, Snowflake, Redshift) advertise
+    # integration_id up front. It is required for every one of them; Postgres, Snowflake and Redshift
+    # exports created before integrations keep their inline credentials on update.
     # Responses continue to use BatchExportSerializer.
     create=extend_schema(request=BatchExportRequestSerializer),
     update=extend_schema(request=BatchExportRequestSerializer),

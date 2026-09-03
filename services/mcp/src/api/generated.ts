@@ -12118,7 +12118,7 @@ export namespace Schemas {
          */
       integration?: number | null;
       /**
-         * ID of a team-scoped Integration providing credentials, for destinations that authenticate through one. Required for all of those except Snowflake, which still supports inline credentials.
+         * ID of a team-scoped Integration providing credentials, for destinations that authenticate through one. Required for all of them.
          * @nullable
          */
       integration_id?: number | null;
@@ -13099,8 +13099,8 @@ export namespace Schemas {
      */
     export interface SnowflakeDestinationRequest {
       type: SnowflakeDestinationRequestType;
-      /** ID of a snowflake-kind Integration providing the account, user and credentials. Preferred over inline credentials. Use the integrations-list MCP tool to find one. */
-      integration_id?: number;
+      /** ID of a snowflake-kind Integration providing the account, user and credentials. Required when creating a batch export. Use the integrations-list MCP tool to find one. */
+      integration_id: number;
       config: SnowflakeDestinationConfig;
     }
 
