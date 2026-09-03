@@ -420,8 +420,8 @@ tools:
             Generate or improve an interactive Widget node already present in a markdown notebook. Choose the exact
             immutable grants in permissions: notebook_data defaults true; hogql_queries and tool_calls default false.
             Keep the Widget tag in sync: notebook_data=false uses noDataFrames, hogql_queries=true uses allowSQL, and
-            tool_calls=true uses allowTools. A unique generation_id makes retries idempotent. Generation is asynchronous;
-            poll notebooks-widget-status until it is ready or failed.
+            tool_calls=true uses allowTools. A unique generation_id makes retries idempotent. Generation is
+            asynchronous; poll notebooks-widget-status until it is ready or failed.
         feature_flag: notebook-generated-widgets
     notebooks-widget-revert:
         operation: notebooks_widget_revert
@@ -443,6 +443,9 @@ tools:
             Poll generation and build status for a Widget node. Returns the immutable version's dataframe, HogQL, and
             tool grants alongside its security review and artifact state.
         feature_flag: notebook-generated-widgets
+    notebooks-widget-tool-call:
+        operation: notebooks_widget_tool_call
+        enabled: false
     notebooks-widget-versions:
         operation: notebooks_widget_versions
         enabled: false
