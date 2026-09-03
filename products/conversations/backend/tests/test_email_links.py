@@ -88,6 +88,10 @@ class TestRecoverLinksFromHtml:
         result = recover_links_from_html("(https://example.com/x)", "")
         assert result == "(<https://example.com/x>)"
 
+    def test_peels_many_unbalanced_trailing_parentheses(self) -> None:
+        result = recover_links_from_html("https://example.com/x" + ")" * 1000, "")
+        assert result == "<https://example.com/x>" + ")" * 1000
+
     def test_does_not_double_wrap_recovered_link(self) -> None:
         text = "Please confirm.\nAttiva l'inoltro"
         html = '<a href="https://clicks.example/f/a/token~">Attiva l\'inoltro</a>'

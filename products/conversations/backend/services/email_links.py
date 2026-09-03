@@ -79,17 +79,22 @@ def _wrap_bare_urls(text: str) -> str:
         bare = match.group("bare")
         if not bare:
             return match.group(0)
-        trailing = ""
-        while bare:
-            last = bare[-1]
+        # Count parentheses once, then walk back from the end in a single pass so a
+        # sender cannot force quadratic work with a long run of trailing ")".
+        open_count = bare.count("(")
+        close_count = bare.count(")")
+        end = len(bare)
+        while end > 0:
+            last = bare[end - 1]
             if last in _URL_TRAILING_PUNCTUATION:
                 pass
-            elif last == ")" and bare.count(")") > bare.count("("):
-                pass
+            elif last == ")" and close_count > open_count:
+                close_count -= 1
             else:
                 break
-            trailing = last + trailing
-            bare = bare[:-1]
+            end -= 1
+        trailing = bare[end:]
+        bare = bare[:end]
         scheme = _HTTP_SCHEME_RE.match(bare)
         # Nothing left after the scheme (e.g. "https://.") — leave the text alone.
         if not scheme or len(bare) == scheme.end():
