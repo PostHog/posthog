@@ -201,6 +201,22 @@ const SCENARIOS: Record<string, () => Omit<QuotaScenario, 'key'>> = {
         usageScanners: FAKE_SCANNERS.map((s) => ({ ...s, credits_this_month: 0, observations_this_month: 0 })),
         dailySpend: rampSpend(0),
     }),
+    // Large-limit org: a tiny free tier against a big cap, the case that crowded the axis.
+    'big-limit': () => ({
+        quota: buildQuota({
+            credit_limit: 500_000,
+            credits_used: 408_560,
+            remaining: 91_440,
+            projected_monthly_credits: 548_640,
+            scanners_monthly_credits: 548_640,
+            backfills_committed_credits: 0,
+            free_monthly_credits: 2_500,
+            credits_settled: 408_560,
+            credits_reserved: 0,
+        }),
+        usageScanners: scaleScanners(140, 140),
+        dailySpend: rampSpend(408_560),
+    }),
     'no-limit': () => ({
         quota: buildQuota({ credit_limit: null, remaining: null }),
         usageScanners: FAKE_SCANNERS,

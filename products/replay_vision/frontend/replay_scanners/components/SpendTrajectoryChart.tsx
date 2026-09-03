@@ -14,8 +14,8 @@ const PAD_X = 8
 const TOP = 34
 const BASE = HEIGHT - 20
 const LABEL_CLEARANCE = 12
-// A reference line closer than this to the baseline reads as the axis, and its label hits the date row.
-const AXIS_CLEARANCE = 24
+// A reference line closer than this to the baseline reads as part of the axis.
+const AXIS_CLEARANCE = 10
 const ABOVE = -6
 const BELOW = 11
 
@@ -195,7 +195,7 @@ function SpendTrajectoryChartInner({
 
     return (
         <div className="flex flex-col gap-1">
-            <div className="relative w-full max-w-[760px]">
+            <div className="relative mx-auto w-full max-w-[860px]">
                 <svg
                     viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
                     className="block h-auto w-full"
