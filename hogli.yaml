@@ -552,11 +552,6 @@ build:
         cmd: pnpm --filter=@posthog/mcp run generate-cli-agent-scopes
         description: Generate the CLI `agent` login use-case scope list from the MCP
             tool definitions (must run after build:openapi-mcp-tools)
-    build:openapi-scene-tool-context:
-        cmd: pnpm --filter=@posthog/mcp run generate-scene-tool-context
-        description: Generate per-product agent-context payloads (MCP tool summaries +
-            skill bodies) for scene-level PostHog AI integration (must run after
-            build:openapi-mcp-tools)
     build:openapi-exec-docs:
         cmd: pnpm --filter=@posthog/mcp run generate-exec-docs
         description: Render the MCP exec tool's command reference into the markdown
@@ -571,7 +566,6 @@ build:
             - build:openapi-mcp-tools
             - build:openapi-mcp-scopes
             - build:openapi-cli-agent-scopes
-            - build:openapi-scene-tool-context
             - build:openapi-exec-docs
         description: 'Generate OpenAPI schema and TypeScript types from the backend.
             Needs the dev stack running (Postgres and ClickHouse): Django starts
