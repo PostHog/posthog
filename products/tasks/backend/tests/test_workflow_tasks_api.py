@@ -162,6 +162,7 @@ class TestWorkflowTasksAPI(APIBaseTest):
         # No binding means no reply to protect, and the idle timeout is not a safe
         # fallback: the PR follow-up loop raises it far past the 2-minute window.
         assert run.state["end_run_when_done"] is True
+        assert "Your final response will be posted to the Slack thread" not in run.state["initial_prompt_override"]
 
     def test_a_thread_bound_run_stays_open_so_its_reply_can_relay(self) -> None:
         integration = self._slack_integration()
@@ -171,6 +172,10 @@ class TestWorkflowTasksAPI(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         run = TaskRun.objects.get(id=response.json()["run_id"])
         assert "end_run_when_done" not in run.state
+        assert run.state["slack_artifact_delivery"] == "message"
+        assert run.state["slack_chart_delivery"] is True
+        assert run.state["slack_reply_context"] is True
+        assert "Your final response will be posted to the Slack thread" in run.state["initial_prompt_override"]
         assert SlackThreadTaskMapping.objects.filter(task_run=run).exists()
 
     def test_hands_the_agent_its_prompt_when_it_boots(self) -> None:
