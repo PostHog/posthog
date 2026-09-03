@@ -16,6 +16,7 @@ from posthog.models.user import User
 from products.signals.backend.artefact_schemas import (
     DISMISSAL_NOTE_MAX_LENGTH,
     CodeReference,
+    ImplementationDecision,
     NoteArtefact,
     Priority,
     PriorityAssessment,
@@ -1333,6 +1334,21 @@ class TestSignalReportArtefactLogWriteViewSet(APIBaseTest):
             report_id=str(report.id),
             content=TaskRunArtefact(task_id=str(task.id), product="signals", type="discussion"),
             attribution=ArtefactAttribution.from_task(str(task.id)),
+        )
+
+        response = self.client.delete(self._detail_url(str(report.id), str(artefact.id)))
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert SignalReportArtefact.objects.filter(id=artefact.id).exists()
+
+    def test_delete_implementation_decision_is_rejected(self):
+        # implementation_decision is system-generated and read-only through the API: deleting the
+        # latest one would resurface a superseded decision as canonical and reopen a report's PR.
+        report = self._create_report()
+        artefact = SignalReportArtefact.append_status(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            content=ImplementationDecision(supersede=True, reason="the root cause moved"),
+            attribution=ArtefactAttribution.system(),
         )
 
         response = self.client.delete(self._detail_url(str(report.id), str(artefact.id)))

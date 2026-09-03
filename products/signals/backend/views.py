@@ -4069,6 +4069,14 @@ class SignalReportArtefactViewSet(
                 {"error": "task_run artefacts are an append-only work log and cannot be deleted."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        if artefact.type in NON_WRITABLE_ARTEFACT_TYPES:
+            # System-generated types can't be created or edited through the API, so they can't be
+            # deleted through it either. Deleting the latest row of one reverts the report's canonical
+            # status — e.g. resurfacing a superseded implementation_decision, which then reopens a PR.
+            return Response(
+                {"error": f"Artefact type '{artefact.type}' is read-only and cannot be deleted through the API."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         was_reviewers = artefact.type == SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS
         report_id = str(artefact.report_id)
         artefact.delete()
