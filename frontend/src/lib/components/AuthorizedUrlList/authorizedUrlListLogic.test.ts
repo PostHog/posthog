@@ -25,6 +25,8 @@ describe('the authorized urls list logic', () => {
     let logic: ReturnType<typeof authorizedUrlListLogic.build>
 
     beforeEach(() => {
+        // `clearMocks` keeps mock implementations, so drop the spies a previous test installed.
+        jest.restoreAllMocks()
         useMocks({
             get: {
                 '/api/environments/:team_id/insights/trend/': ({ request }) => {
@@ -104,6 +106,28 @@ describe('the authorized urls list logic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             expect(markTaskAsCompleted).toHaveBeenCalledWith(SetupTaskId.AddAuthorizedDomain)
+        })
+    })
+
+    describe('a rejected save', () => {
+        // Regression coverage: the reducers add the URL before the team PATCH answers. A caller that
+        // is not allowed to change `app_urls` gets a 403, and the list must not keep the URL — the
+        // heatmaps banner reads it to decide whether the URL is authorized.
+        it('drops the added URL when the team rejects it', async () => {
+            useMocks({
+                patch: {
+                    '/api/environments/:team_id': [
+                        403,
+                        { type: 'authentication_error', code: 'permission_denied', detail: 'Not allowed' },
+                    ],
+                },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.addUrl('https://rejected.example.com')
+            }).toFinishAllListeners()
+
+            expect(logic.values.authorizedUrls).not.toContain('https://rejected.example.com')
         })
     })
 
