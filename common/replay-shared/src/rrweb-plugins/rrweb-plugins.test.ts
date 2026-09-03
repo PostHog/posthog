@@ -280,7 +280,7 @@ describe('WindowTitlePlugin', () => {
 describe('BoxOrientPlugin', () => {
     const buildContext = { id: 1, replayer: null as unknown as any }
 
-    const styleMutation = (id: number, style: unknown): eventWithTime =>
+    const attributeMutation = (id: number, attributes: Record<string, unknown>): eventWithTime =>
         ({
             type: EventType.IncrementalSnapshot,
             timestamp: 0,
@@ -289,9 +289,11 @@ describe('BoxOrientPlugin', () => {
                 adds: [],
                 removes: [],
                 texts: [],
-                attributes: [{ id, attributes: { style } }],
+                attributes: [{ id, attributes }],
             },
         }) as unknown as eventWithTime
+
+    const styleMutation = (id: number, style: unknown): eventWithTime => attributeMutation(id, { style })
 
     const replayerFor = (node: HTMLElement): any => ({ getMirror: () => ({ getNode: () => node }) })
 
@@ -353,6 +355,23 @@ describe('BoxOrientPlugin', () => {
         } as any)
 
         expect(el.getAttribute('style')).toEqual('display:-webkit-box;-webkit-box-orient:vertical')
+    })
+
+    // rrweb applies a `_cssText` mutation by rebuilding the element without the plugins, so a
+    // stylesheet inlined that way reaches the page with the moz name intact.
+    it('restores the webkit name in a stylesheet inlined as _cssText', () => {
+        const style = document.createElement('style')
+        style.appendChild(document.createTextNode('.clamped { -moz-box-orient: vertical; }'))
+
+        BoxOrientPlugin.handler?.(
+            attributeMutation(7, { _cssText: '.clamped { -moz-box-orient: vertical; }' }),
+            false,
+            {
+                replayer: replayerFor(style),
+            } as any
+        )
+
+        expect(style.textContent).toEqual('.clamped { -webkit-box-orient: vertical; }')
     })
 
     it.each([

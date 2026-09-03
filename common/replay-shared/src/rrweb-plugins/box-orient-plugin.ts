@@ -89,11 +89,24 @@ export const BoxOrientPlugin: ReplayPlugin = {
         }
 
         for (const mutation of e.data.attributes || []) {
-            if (!('style' in mutation.attributes)) {
+            const hasStyle = 'style' in mutation.attributes
+            const hasCssText = '_cssText' in mutation.attributes
+            if (!hasStyle && !hasCssText) {
                 continue
             }
+
             const node = replayer.getMirror().getNode(mutation.id)
-            if (node?.nodeType === Node.ELEMENT_NODE) {
+            if (node?.nodeType !== Node.ELEMENT_NODE) {
+                continue
+            }
+
+            // rrweb inlines a `_cssText` mutation by rebuilding the element, and it builds the
+            // replacement without the plugins, so the new stylesheet still holds the `-moz-` name.
+            if (hasCssText && node.nodeName === 'STYLE') {
+                restoreStyleElement(node as HTMLStyleElement)
+            }
+
+            if (hasStyle) {
                 restoreStyleMutation(node as HTMLElement, mutation.attributes.style)
             }
         }
