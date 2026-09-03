@@ -1997,6 +1997,7 @@ const schema30 = {
                 { const: 'click_count', type: 'string' },
                 { const: 'keypress_count', type: 'string' },
                 { const: 'mouse_activity_count', type: 'string' },
+                { const: 'surfacing_score', type: 'string' },
             ],
         },
         label: { type: 'string' },
@@ -2297,6 +2298,41 @@ function validate33(data, { instancePath = '', parentData, parentDataProperty, r
                                                 }
                                                 var _valid0 = _errs17 === errors
                                                 valid1 = valid1 || _valid0
+                                                if (!valid1) {
+                                                    const _errs19 = errors
+                                                    if (typeof data0 !== 'string') {
+                                                        const err14 = {
+                                                            instancePath: instancePath + '/key',
+                                                            schemaPath: '#/properties/key/anyOf/7/type',
+                                                            keyword: 'type',
+                                                            params: { type: 'string' },
+                                                            message: 'must be string',
+                                                        }
+                                                        if (vErrors === null) {
+                                                            vErrors = [err14]
+                                                        } else {
+                                                            vErrors.push(err14)
+                                                        }
+                                                        errors++
+                                                    }
+                                                    if ('surfacing_score' !== data0) {
+                                                        const err15 = {
+                                                            instancePath: instancePath + '/key',
+                                                            schemaPath: '#/properties/key/anyOf/7/const',
+                                                            keyword: 'const',
+                                                            params: { allowedValue: 'surfacing_score' },
+                                                            message: 'must be equal to constant',
+                                                        }
+                                                        if (vErrors === null) {
+                                                            vErrors = [err15]
+                                                        } else {
+                                                            vErrors.push(err15)
+                                                        }
+                                                        errors++
+                                                    }
+                                                    var _valid0 = _errs19 === errors
+                                                    valid1 = valid1 || _valid0
+                                                }
                                             }
                                         }
                                     }
@@ -2304,7 +2340,7 @@ function validate33(data, { instancePath = '', parentData, parentDataProperty, r
                             }
                         }
                         if (!valid1) {
-                            const err14 = {
+                            const err16 = {
                                 instancePath: instancePath + '/key',
                                 schemaPath: '#/properties/key/anyOf',
                                 keyword: 'anyOf',
@@ -2312,9 +2348,9 @@ function validate33(data, { instancePath = '', parentData, parentDataProperty, r
                                 message: 'must match a schema in anyOf',
                             }
                             if (vErrors === null) {
-                                vErrors = [err14]
+                                vErrors = [err16]
                             } else {
-                                vErrors.push(err14)
+                                vErrors.push(err16)
                             }
                             errors++
                             validate33.errors = vErrors
@@ -2335,7 +2371,7 @@ function validate33(data, { instancePath = '', parentData, parentDataProperty, r
                     }
                     if (valid0) {
                         if (data.label !== undefined) {
-                            const _errs19 = errors
+                            const _errs21 = errors
                             if (typeof data.label !== 'string') {
                                 validate33.errors = [
                                     {
@@ -2348,14 +2384,14 @@ function validate33(data, { instancePath = '', parentData, parentDataProperty, r
                                 ]
                                 return false
                             }
-                            var valid0 = _errs19 === errors
+                            var valid0 = _errs21 === errors
                         } else {
                             var valid0 = true
                         }
                         if (valid0) {
                             if (data.operator !== undefined) {
                                 let data2 = data.operator
-                                const _errs21 = errors
+                                const _errs23 = errors
                                 if (typeof data2 !== 'string') {
                                     validate33.errors = [
                                         {
@@ -2421,14 +2457,14 @@ function validate33(data, { instancePath = '', parentData, parentDataProperty, r
                                     ]
                                     return false
                                 }
-                                var valid0 = _errs21 === errors
+                                var valid0 = _errs23 === errors
                             } else {
                                 var valid0 = true
                             }
                             if (valid0) {
                                 if (data.type !== undefined) {
                                     let data3 = data.type
-                                    const _errs24 = errors
+                                    const _errs26 = errors
                                     if (typeof data3 !== 'string') {
                                         validate33.errors = [
                                             {
@@ -2453,13 +2489,13 @@ function validate33(data, { instancePath = '', parentData, parentDataProperty, r
                                         ]
                                         return false
                                     }
-                                    var valid0 = _errs24 === errors
+                                    var valid0 = _errs26 === errors
                                 } else {
                                     var valid0 = true
                                 }
                                 if (valid0) {
                                     if (data.value !== undefined) {
-                                        const _errs26 = errors
+                                        const _errs28 = errors
                                         if (
                                             !validate13(data.value, {
                                                 instancePath: instancePath + '/value',
@@ -2472,7 +2508,7 @@ function validate33(data, { instancePath = '', parentData, parentDataProperty, r
                                                 vErrors === null ? validate13.errors : vErrors.concat(validate13.errors)
                                             errors = vErrors.length
                                         }
-                                        var valid0 = _errs26 === errors
+                                        var valid0 = _errs28 === errors
                                     } else {
                                         var valid0 = true
                                     }

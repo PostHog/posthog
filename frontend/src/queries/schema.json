@@ -49560,6 +49560,10 @@
                         {
                             "const": "mouse_activity_count",
                             "type": "string"
+                        },
+                        {
+                            "const": "surfacing_score",
+                            "type": "string"
                         }
                     ]
                 },
