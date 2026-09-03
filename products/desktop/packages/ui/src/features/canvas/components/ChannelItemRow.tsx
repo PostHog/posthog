@@ -183,7 +183,6 @@ export function ChannelItemRowView({
   subtitle,
   isActive,
   isSelected = false,
-  isArchiving = false,
   showPinBadge = true,
   draggable = false,
   onClick,
@@ -196,13 +195,18 @@ export function ChannelItemRowView({
   subtitle?: ReactNode;
   isActive: boolean;
   isSelected?: boolean;
-  isArchiving?: boolean;
   showPinBadge?: boolean;
   draggable?: boolean;
   onClick?: (e: React.MouseEvent) => void;
   onDragStart?: (e: DragEvent) => void;
   onDragEnd?: (e: DragEvent) => void;
 }) {
+  // Read rather than passed, like the pending-delete state behind
+  // `ChannelItemDot`: it is transient, it belongs to the id the row already
+  // has, and the drag preview should show it too.
+  const isArchiving = useArchivingTasksStore((state) =>
+    state.archivingTaskIds.has(item.id),
+  );
   const pinBadge = item.pinned && showPinBadge;
   return (
     <SidebarItem
@@ -310,9 +314,6 @@ export function ChannelItemRow({
 }) {
   const status = useChannelTaskStatus(item);
   const subtitle = useChannelItemMetadata(item);
-  const isArchiving = useArchivingTasksStore((state) =>
-    state.archivingTaskIds.has(item.id),
-  );
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [handoffOpen, setHandoffOpen] = useState(false);
   const handoffMounted = useMountedOnceOpened(handoffOpen);
@@ -420,7 +421,6 @@ export function ChannelItemRow({
         subtitle={subtitle}
         isActive={isActive}
         isSelected={isSelected}
-        isArchiving={isArchiving}
         showPinBadge={showPinBadge}
         draggable
         onDragStart={handleDragStart}
