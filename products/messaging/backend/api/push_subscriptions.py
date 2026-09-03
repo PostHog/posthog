@@ -69,6 +69,15 @@ _DISCARD_LOG_WINDOW_SECONDS = 60
 # Staleness costs at most one window: a team that configures push keeps discarding for up to a minute,
 # and the device re-posts on its next launch anyway.
 _CONFIGURED_APP_IDS_CACHE_SECONDS = 60
+
+# A token that resolves to no team costs a Redis miss and then a Postgres query on every request,
+# and the lookup has no negative cache of its own. A misconfigured mobile client repeats the same
+# unknown token on every app open, so that query runs at the client's retry rate indefinitely.
+# Remember the rejection instead, keyed on a hash so the raw token never reaches Redis.
+#
+# The TTL is short on purpose. A token can become valid, for example when a project is recreated,
+# and this bounds how long such a token keeps being rejected after that.
+_INVALID_TOKEN_CACHE_SECONDS = 60
 _PUSH_INTEGRATION_KINDS = ("firebase", "apns")
 
 VALID_PLATFORMS = ("android", "ios")
@@ -89,6 +98,26 @@ _encrypted_fields = EncryptedFieldMixin()
 # closed: take the strictest mode across every match so a lax duplicate can't downgrade a sibling's
 # `required` policy. Unknown/garbage values sort to 0 (treated as disabled).
 _VERIFICATION_MODE_PRECEDENCE = {"disabled": 0, "optional": 1, "required": 2}
+
+
+def _invalid_token_key(api_key: str) -> str:
+    return f"push_subscriptions:invalid_token:{_api_key_fingerprint(api_key)}"
+
+
+def _is_known_invalid_token(api_key: str) -> bool:
+    """True when this token was resolved to no team recently. Fails open: a cache error must reject
+    nothing on its own, so the caller falls through to the real lookup."""
+    try:
+        return cache.get(_invalid_token_key(api_key)) is not None
+    except Exception:
+        return False
+
+
+def _remember_invalid_token(api_key: str) -> None:
+    try:
+        cache.set(_invalid_token_key(api_key), 1, _INVALID_TOKEN_CACHE_SECONDS)
+    except Exception:
+        pass
 
 
 def _is_first_discard_in_window(team_id: int) -> bool:
@@ -286,8 +315,19 @@ def push_subscriptions(request: Request):
             status_code=status.HTTP_401_UNAUTHORIZED,
         )
 
+    if _is_known_invalid_token(api_key):
+        return _rejection_response(
+            request,
+            "Invalid project token.",
+            error_type="authentication_error",
+            code="invalid_api_key",
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            api_key_fingerprint=_api_key_fingerprint(api_key),
+        )
+
     team = Team.objects.get_team_from_cache_or_token(api_key)
     if not team:
+        _remember_invalid_token(api_key)
         # Fingerprint the rejected token so a cohort of these can be traced to one bad app
         # configuration, which is the usual cause of a burst of invalid-token rejections.
         return _rejection_response(

@@ -262,6 +262,19 @@ class TestPushSubscriptionsAPI(BaseTest):
 
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
+    def test_repeated_invalid_token_is_rejected_without_a_second_team_lookup(self):
+        payload = {"distinct_id": "user-1", "device_token": "t", "platform": "android", "app_id": "proj"}
+
+        with patch.object(
+            Team.objects, "get_team_from_cache_or_token", wraps=Team.objects.get_team_from_cache_or_token
+        ) as lookup:
+            first = self._post(payload, api_key="phc_invalid_token")
+            second = self._post(payload, api_key="phc_invalid_token")
+
+        assert first.status_code == status.HTTP_401_UNAUTHORIZED
+        assert second.status_code == status.HTTP_401_UNAUTHORIZED
+        assert lookup.call_count == 1
+
     def test_missing_required_fields(self):
         response = self._post({"distinct_id": "user-1"})
 
