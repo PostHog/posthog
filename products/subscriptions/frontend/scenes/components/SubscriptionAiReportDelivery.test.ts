@@ -75,10 +75,26 @@ describe('SubscriptionAiReportDelivery helpers', () => {
         })
     })
 
-    it('renders a surfaced query failure in the standard error treatment', () => {
-        render(createElement(ExpandedDeliveryRow, { row: MOCK_SUBSCRIPTION_DELIVERIES[1] }))
+    it('renders a surfaced query failure with its trusted documentation URL linked', () => {
+        const docsUrl =
+            'https://posthog.com/docs/product-analytics/troubleshooting#how-do-i-speed-up-my-insights-and-queries'
+        const row: SubscriptionDeliveryApi = {
+            ...MOCK_SUBSCRIPTION_DELIVERIES[1],
+            ai_report_diagnostics:
+                MOCK_SUBSCRIPTION_DELIVERIES[1].ai_report_diagnostics?.map((diagnostic) =>
+                    diagnostic.ok
+                        ? diagnostic
+                        : {
+                              ...diagnostic,
+                              human_readable_error: `This query ran out of memory. See ${docsUrl}`,
+                          }
+                ) ?? null,
+        }
 
-        const failure = screen.getByText("Unknown function: 'first_ever'")
+        render(createElement(ExpandedDeliveryRow, { row }))
+
+        const failure = screen.getByText(/This query ran out of memory/)
         expect(failure.closest('.LemonBanner--error')).not.toBeNull()
+        expect(screen.getByRole('link', { name: docsUrl }).getAttribute('href')).toBe(docsUrl)
     })
 })

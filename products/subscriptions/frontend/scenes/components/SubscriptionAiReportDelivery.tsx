@@ -4,6 +4,7 @@ import { LemonBanner, LemonCollapse, LemonTag, Tooltip } from '@posthog/lemon-ui
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { renderDetailWithLinks } from 'lib/utils/renderDetailWithLinks'
 
 import type {
     AIReportQueryDiagnosticApi,
@@ -359,7 +360,7 @@ function GeneratedQueries({ diagnostics }: { diagnostics: readonly AIReportQuery
                             {d.ok === false ? (
                                 d.human_readable_error ? (
                                     <LemonBanner type="error" hideIcon className="!min-h-0">
-                                        {queryFailureReason(d)}
+                                        {renderDetailWithLinks(d.human_readable_error)}
                                     </LemonBanner>
                                 ) : (
                                     <div className="text-secondary">{queryFailureReason(d)}</div>
