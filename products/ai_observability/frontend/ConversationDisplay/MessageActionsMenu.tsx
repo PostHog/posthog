@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 import type { MutableRefObject } from 'react'
 
@@ -6,7 +6,6 @@ import { IconEllipsis } from '@posthog/icons'
 import { LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { PopoverReferenceContext } from 'lib/lemon-ui/Popover'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { commentsLogic } from 'scenes/comments/commentsLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
@@ -128,8 +127,10 @@ const ActiveMessageActionsMenu = ({
         setShowTranslatePopover(true)
     }
 
+    // The popover anchors below are empty elements. Wrap them with the trigger so they do not become
+    // gap-separated items of the toolbar row, which would shift this button relative to inactive ones.
     return (
-        <>
+        <div className="flex">
             <LemonMenu ref={triggerRef} items={menuItems} placement="bottom-end" startVisible={startVisible}>
                 <LemonButton
                     size="small"
@@ -153,7 +154,7 @@ const ActiveMessageActionsMenu = ({
 
             {/* Translate popover - only shown after consent */}
             <TranslatePopover content={content} title="Translate message" />
-        </>
+        </div>
     )
 }
 
@@ -166,6 +167,9 @@ export function MessageActionsMenu({
     const triggerRef = useRef<HTMLButtonElement | null>(null)
     const isActive = !sharedMenu || sharedMenu.activeMenuKey === menuKey
     const shouldRestoreFocus = !!sharedMenu && isActive
+    // Only the active menu renders the translation UI, but its logic must outlive the menu, or a
+    // translation is lost and fetched again each time the shared menu moves to another message.
+    useMountedLogic(messageActionsMenuLogic({ content }))
 
     useEffect(() => {
         if (shouldRestoreFocus) {
@@ -179,18 +183,16 @@ export function MessageActionsMenu({
 
     if (!isActive) {
         return (
-            <PopoverReferenceContext.Provider value={[false, 'bottom-end']}>
-                <LemonButton
-                    ref={triggerRef}
-                    size="small"
-                    noPadding
-                    icon={<IconEllipsis />}
-                    tooltip="More actions"
-                    aria-haspopup="true"
-                    data-attr="llma-message-actions-trigger"
-                    onClick={() => sharedMenu?.setActiveMenuKey(menuKey)}
-                />
-            </PopoverReferenceContext.Provider>
+            <LemonButton
+                ref={triggerRef}
+                size="small"
+                noPadding
+                icon={<IconEllipsis />}
+                tooltip="More actions"
+                aria-haspopup="true"
+                data-attr="llma-message-actions-trigger"
+                onClick={() => sharedMenu?.setActiveMenuKey(menuKey)}
+            />
         )
     }
 

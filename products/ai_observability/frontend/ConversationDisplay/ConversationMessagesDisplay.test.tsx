@@ -12,6 +12,7 @@ import {
     ImageMessageDisplay,
     LLMMessageDisplay,
 } from './ConversationMessagesDisplay'
+import { messageActionsMenuLogic } from './messageActionsMenuLogic'
 
 // react-json-view is loaded via React.lazy, so the first render suspends on a code-split chunk.
 // Under CI contention that resolve can exceed waitFor's 1s default, so give it headroom.
@@ -517,6 +518,32 @@ describe('ConversationMessagesDisplay', () => {
         // message would mount with the menu already open and steal focus.
         expect(container.querySelectorAll('[aria-haspopup="true"]')).toHaveLength(6)
         expect(container.querySelectorAll('[data-menu-mounted="true"]')).toHaveLength(0)
+    })
+
+    it('keeps a translation when the shared menu moves to another message and back', () => {
+        const { container } = render(
+            <Provider>
+                <ConversationMessagesDisplay
+                    inputNormalized={inputNormalized}
+                    outputNormalized={outputNormalized}
+                    errorData={null}
+                    raisedError={false}
+                />
+            </Provider>
+        )
+        const getTriggers = (): NodeListOf<HTMLButtonElement> =>
+            container.querySelectorAll<HTMLButtonElement>('[data-attr="llma-message-actions-trigger"]')
+        const translation = { translation: 'contenido de entrada del sistema', targetLanguage: 'es' as const }
+
+        fireEvent.click(getTriggers()[0])
+        messageActionsMenuLogic.findMounted({ content: 'system input content' })?.actions.translateSuccess(translation)
+
+        fireEvent.click(getTriggers()[1])
+        fireEvent.click(getTriggers()[0])
+
+        expect(messageActionsMenuLogic.findMounted({ content: 'system input content' })?.values.translation).toEqual(
+            translation
+        )
     })
 
     it.each<[string, unknown, unknown, unknown, unknown, string | null]>([
