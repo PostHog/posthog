@@ -2054,6 +2054,27 @@ email@example.org,
         self.assertNotIn("posthog_experiment", basic_sql)
 
     @patch("posthog.api.cohort.report_user_action")
+    def test_basic_list_still_converts_legacy_groups_without_extra_queries(self, patch_capture):
+        # The basic list defers `groups`, so cohorts saved before `filters` existed rely on the
+        # `_legacy_groups` annotation to keep the converted `filters` in the payload. Without it
+        # the fallback either loses the conversion or lazy-loads one row per legacy cohort.
+        Cohort.objects.create(team=self.team, name="legacy one", groups=[{"properties": {"email": "a@b.com"}}])
+
+        full = self.client.get(f"/api/projects/{self.team.id}/cohorts").json()["results"][0]
+        basic = self.client.get(f"/api/projects/{self.team.id}/cohorts?basic=true").json()["results"][0]
+        self.assertEqual(basic["filters"], full["filters"])
+        self.assertTrue(basic["filters"]["properties"]["values"])
+
+        with capture_db_queries() as one_ctx:
+            self.client.get(f"/api/projects/{self.team.id}/cohorts?basic=true")
+
+        Cohort.objects.create(team=self.team, name="legacy two", groups=[{"properties": {"email": "c@d.com"}}])
+        with capture_db_queries() as two_ctx:
+            self.client.get(f"/api/projects/{self.team.id}/cohorts?basic=true")
+
+        self.assertEqual(len(two_ctx.captured_queries), len(one_ctx.captured_queries))
+
+    @patch("posthog.api.cohort.report_user_action")
     def test_basic_is_ignored_on_detail_fetch(self, patch_capture):
         # `basic` only trims the list. A detail fetch must keep `filters` so the
         # cohort editor (which reads them) isn't broken if `?basic=true` leaks through.

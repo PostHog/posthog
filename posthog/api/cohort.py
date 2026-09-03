@@ -7,7 +7,7 @@ from collections.abc import Iterator
 from copy import deepcopy
 from typing import Annotated, Any, ClassVar, Literal, Optional, Union, cast
 
-from django.db.models import OuterRef, QuerySet, Subquery
+from django.db.models import Case, F, JSONField, OuterRef, Q, QuerySet, Subquery, When
 from django.utils import timezone
 
 import requests
@@ -1420,6 +1420,10 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         # Skip when the slim list dropped `filters`; computing
         # `properties.to_dict()` is the expensive part we're avoiding there.
         if "filters" in self.fields:
+            if not instance.filters and "groups" in instance.get_deferred_fields():
+                # The basic list defers `groups` and carries it in `_legacy_groups` for the rows
+                # that need it. Put it back so `properties` reads no extra row off disk.
+                instance.groups = getattr(instance, "_legacy_groups", None) or []
             representation["filters"] = (
                 instance.filters if instance.filters else {"properties": instance.properties.to_dict()}
             )
@@ -1686,14 +1690,20 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             # add additional filters provided by the client
             queryset, search_ordered = self._filter_request(self.request, queryset)
 
-            # `?basic=true` callers never read `query`, so skip reading it off disk (the
-            # serializer drops it too; see CohortSerializer.__init__). `groups` is dropped
-            # from the payload but kept on disk: `to_representation`'s `filters` fallback reads
-            # `instance.properties`, which reads `groups`, so deferring it would add a per-row
-            # query for rows with a falsy `filters`. `filters` stays in the payload — the flag
-            # intent warning reads it off `cohortsById`.
+            # `?basic=true` callers never read `query` or `groups`, so skip reading both off
+            # disk (the serializer drops them too; see CohortSerializer.__init__). `groups`
+            # still feeds `to_representation`'s `filters` fallback for cohorts saved before
+            # `filters` existed, so `_legacy_groups` carries it for those rows alone; a plain
+            # defer would lazy-load the whole row back instead, one query per such row.
+            # `filters` stays in the payload — the flag intent warning reads it off
+            # `cohortsById`.
             if is_basic_list:
-                queryset = queryset.defer("query")
+                queryset = queryset.defer("query", "groups").annotate(
+                    _legacy_groups=Case(
+                        When(Q(filters__isnull=True) | Q(filters={}), then=F("groups")),
+                        output_field=JSONField(),
+                    )
+                )
 
         # `created_by` and `team` are forward FKs, so `select_related` JOINs them in one query
         # instead of the extra round-trips `prefetch_related` costs. The list serializer never
