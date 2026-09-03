@@ -31,13 +31,6 @@ export function navigateToPullRequestView(prUrl: string): void {
   });
 }
 
-export function navigateToTaskPending(key: string): void {
-  void getRouterOrNull()?.navigate({
-    to: "/tasks/pending/$key",
-    params: { key },
-  });
-}
-
 export function navigateToActivity(): void {
   void getRouterOrNull()?.navigate({ to: "/activity" });
 }

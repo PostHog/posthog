@@ -23,9 +23,3 @@ export function recoverPendingPrompt(key: string): boolean {
   });
   return true;
 }
-
-/** Discard an interrupted prompt and open a fresh, empty new-task composer. */
-export function discardPendingPrompt(key: string): void {
-  pendingTaskPromptStoreApi.clear(key);
-  openTaskInput();
-}

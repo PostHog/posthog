@@ -4,10 +4,7 @@ import {
   usePendingTaskPromptStore,
 } from "@posthog/ui/shell/pendingTaskPromptStore";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import {
-  discardPendingPrompt,
-  recoverPendingPrompt,
-} from "./pendingPromptActions";
+import { recoverPendingPrompt } from "./pendingPromptActions";
 
 function reset(): void {
   usePendingTaskPromptStore.setState({ byKey: {}, _hasHydrated: true });
@@ -43,15 +40,6 @@ describe("pendingPromptActions", () => {
 
   it("recovers nothing and stages nothing when the record is already gone", () => {
     expect(recoverPendingPrompt("missing")).toBe(false);
-    expect(
-      useTaskInputPrefillStore.getState().prefill.initialContent,
-    ).toBeUndefined();
-  });
-
-  it("discards the prompt and opens an empty composer", () => {
-    pendingTaskPromptStoreApi.set("k1", { promptText: "x", attachments: [] });
-    discardPendingPrompt("k1");
-    expect(pendingTaskPromptStoreApi.get("k1")).toBeUndefined();
     expect(
       useTaskInputPrefillStore.getState().prefill.initialContent,
     ).toBeUndefined();

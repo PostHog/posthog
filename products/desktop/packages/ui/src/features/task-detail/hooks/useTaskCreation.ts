@@ -1,4 +1,3 @@
-import { getIsOnline } from "@posthog/core/connectivity/connectivityStore";
 import { partitionLocalMcpServersForRun } from "@posthog/core/local-mcp/localMcpImport";
 import {
   getErrorTitle,
@@ -22,10 +21,7 @@ import {
   type WorkspaceMode,
 } from "@posthog/shared";
 import type { ExecutionMode, Task } from "@posthog/shared/domain-types";
-import {
-  getCurrentBrowserTabId,
-  navigateBrowserTab,
-} from "@posthog/ui/features/browser-tabs/imperativeTabNavigation";
+import { getCurrentBrowserTabId } from "@posthog/ui/features/browser-tabs/imperativeTabNavigation";
 import { useTaskChannels } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { useTaskRepositoryDraftStore } from "@posthog/ui/features/canvas/stores/taskRepositoryDraftStore";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
@@ -33,8 +29,8 @@ import {
   subscriptionModelAccess,
   useAdapterSubscription,
 } from "@posthog/ui/features/settings/adapterSubscription";
+import { recoverPendingPrompt } from "@posthog/ui/features/task-detail/pendingPromptActions";
 import { useTaskInputPrefillStore } from "@posthog/ui/features/task-detail/stores/taskInputPrefillStore";
-import { navigateToTaskPending } from "@posthog/ui/router/navigationBridge";
 import { openTask } from "@posthog/ui/router/useOpenTask";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useState } from "react";
@@ -380,19 +376,7 @@ export function useTaskCreation({
         const settlePromptRecord = () => {
           if (!pendingTaskKey) return;
           if (createdTaskId) {
-            const interruptedTaskId = createdTaskId;
-            pendingTaskPromptStoreApi.markInterrupted(
-              interruptedTaskId,
-              getIsOnline() ? "failed" : "offline",
-            );
-            navigateBrowserTab(
-              originTabId,
-              {
-                href: `/tasks/pending/${interruptedTaskId}`,
-                title: "New task",
-              },
-              () => navigateToTaskPending(interruptedTaskId),
-            );
+            recoverPendingPrompt(createdTaskId);
           } else {
             pendingTaskPromptStoreApi.clear(pendingTaskKey);
           }

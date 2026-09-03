@@ -6,9 +6,6 @@ import {
 
 const MAX_RECOVERABLE_PROMPTS = 20;
 
-/** Why a submitted prompt never reached a running task. */
-export type PendingPromptInterruptReason = "offline" | "failed";
-
 /** The fields a recovered prompt restores its composer content from. */
 export interface RecoverablePromptContent {
   /** Serialized editor content (chips + attachments), preferred on restore. */
