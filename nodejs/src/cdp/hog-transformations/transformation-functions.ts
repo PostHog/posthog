@@ -87,6 +87,11 @@ const detectDeviceType = (userAgent: string): string => {
     return 'Desktop'
 }
 
+// detect-browser's chrome patterns backtrack quadratically on repeated `Chrom` tokens, and a host
+// function is a single VM operation, so the hog timeout cannot interrupt one. Real user agents are
+// a few hundred bytes, so bound the input rather than let a crafted property value stall the worker.
+export const MAX_USER_AGENT_LENGTH = 4096
+
 export const parseUserAgent = (
     value: unknown
 ): {
@@ -97,7 +102,7 @@ export const parseUserAgent = (
     device: string
     deviceType: string
 } | null => {
-    if (typeof value !== 'string' || value === '') {
+    if (typeof value !== 'string' || value === '' || value.length > MAX_USER_AGENT_LENGTH) {
         return null
     }
 
