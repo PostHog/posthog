@@ -1,5 +1,7 @@
 import { LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
+import { Logomark } from 'lib/brand'
+
 import { ErrorTrackingAlertPreviewApi, ErrorTrackingAlertPreviewMessageApi } from '../../../../generated/api.schemas'
 
 const EVENT_LABELS: Record<string, string> = {
@@ -68,10 +70,12 @@ function Message({ message, edited }: { message: ErrorTrackingAlertPreviewMessag
             <div
                 className={
                     isRoot
-                        ? 'w-8 h-8 rounded bg-fill-highlight-100 shrink-0'
-                        : 'w-5 h-5 rounded bg-fill-highlight-100 shrink-0'
+                        ? 'flex items-center justify-center w-8 h-8 rounded bg-fill-highlight-100 shrink-0'
+                        : 'flex items-center justify-center w-5 h-5 rounded bg-fill-highlight-100 shrink-0'
                 }
-            />
+            >
+                <Logomark size={isRoot ? 'sm' : 'xs'} />
+            </div>
             <div className="flex flex-col gap-1 min-w-0 flex-1">
                 <div className="flex items-center gap-2 text-xs text-secondary">
                     <span className="font-semibold text-primary">PostHog</span>
@@ -108,8 +112,8 @@ export function AlertPreview({
 
     return (
         <div className="flex flex-col gap-2">
-            <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold uppercase text-secondary">
+            <div className="flex flex-col gap-0.5">
+                <span className="text-xs font-semibold uppercase text-secondary truncate">
                     Preview{channelLabel ? ` · what ${channelLabel} will see` : ''}
                 </span>
                 {preview?.issue_id ? (
