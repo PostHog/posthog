@@ -14,6 +14,7 @@ import { GENERATED_TOOLS as canvas } from './canvas'
 import { GENERATED_TOOLS as cdp_function_templates } from './cdp_function_templates'
 import { GENERATED_TOOLS as cdp_functions } from './cdp_functions'
 import { GENERATED_TOOLS as cohorts } from './cohorts'
+import { GENERATED_TOOLS as context_layer } from './context_layer'
 import { GENERATED_TOOLS as conversations } from './conversations'
 import { GENERATED_TOOLS as core } from './core'
 import { GENERATED_TOOLS as customer_analytics } from './customer_analytics'
@@ -34,6 +35,7 @@ import { GENERATED_TOOLS as field_notes } from './field_notes'
 import { GENERATED_TOOLS as health_issues } from './health_issues'
 import { GENERATED_TOOLS as integrations } from './integrations'
 import { GENERATED_TOOLS as logs } from './logs'
+import { GENERATED_TOOLS as managed_migrations } from './managed_migrations'
 import { GENERATED_TOOLS as marketing_analytics } from './marketing_analytics'
 import { GENERATED_TOOLS as mcp_analytics } from './mcp_analytics'
 import { GENERATED_TOOLS as mcp_registry } from './mcp_registry'
@@ -79,6 +81,7 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...cdp_function_templates,
     ...cdp_functions,
     ...cohorts,
+    ...context_layer,
     ...conversations,
     ...core,
     ...customer_analytics,
@@ -99,6 +102,7 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...health_issues,
     ...integrations,
     ...logs,
+    ...managed_migrations,
     ...marketing_analytics,
     ...mcp_analytics,
     ...mcp_registry,

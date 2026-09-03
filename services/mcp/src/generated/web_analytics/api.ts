@@ -272,7 +272,9 @@ export const savedCreateBodyNameMax = 400
 
 export const savedCreateBodyUrlMax = 2000
 
-export const savedCreateBodyDataUrlMax = 2000
+export const savedCreateBodyDataUrlOneMax = 2000
+
+export const savedCreateBodyDataUrlTwoMax = 0
 
 export const savedCreateBodyWidthsItemMin = 100
 export const savedCreateBodyWidthsItemMax = 3000
@@ -288,9 +290,8 @@ export const SavedCreateBody = () => zod.object({
         .max(savedCreateBodyUrlMax)
         .describe('Exact page URL to render and overlay heatmap data on. Wildcards are not allowed.'),
     data_url: zod
-        .url()
-        .max(savedCreateBodyDataUrlMax)
-        .nullish()
+        .union([zod.url().max(savedCreateBodyDataUrlOneMax).nullable(), zod.string().max(savedCreateBodyDataUrlTwoMax)])
+        .optional()
         .describe("URL whose heatmap data is overlaid on the screenshot. Defaults to 'url' when omitted."),
     widths: zod
         .array(zod.number().min(savedCreateBodyWidthsItemMin).max(savedCreateBodyWidthsItemMax))
@@ -342,7 +343,9 @@ export const savedPartialUpdateBodyNameMax = 400
 
 export const savedPartialUpdateBodyUrlMax = 2000
 
-export const savedPartialUpdateBodyDataUrlMax = 2000
+export const savedPartialUpdateBodyDataUrlOneMax = 2000
+
+export const savedPartialUpdateBodyDataUrlTwoMax = 0
 
 export const savedPartialUpdateBodyWidthsItemMin = 100
 export const savedPartialUpdateBodyWidthsItemMax = 3000
@@ -361,9 +364,11 @@ export const SavedPartialUpdateBody = () => zod.object({
         .optional()
         .describe('Exact page URL to render and overlay heatmap data on. Wildcards are not allowed.'),
     data_url: zod
-        .url()
-        .max(savedPartialUpdateBodyDataUrlMax)
-        .nullish()
+        .union([
+            zod.url().max(savedPartialUpdateBodyDataUrlOneMax).nullable(),
+            zod.string().max(savedPartialUpdateBodyDataUrlTwoMax),
+        ])
+        .optional()
         .describe("URL whose heatmap data is overlaid on the screenshot. Defaults to 'url' when omitted."),
     widths: zod
         .array(zod.number().min(savedPartialUpdateBodyWidthsItemMin).max(savedPartialUpdateBodyWidthsItemMax))
