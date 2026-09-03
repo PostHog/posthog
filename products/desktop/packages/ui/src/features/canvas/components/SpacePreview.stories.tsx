@@ -111,6 +111,19 @@ export const WantsYou: Story = {
   args: { unreadSessions: 3, blockedSessions: 2 },
 };
 
+export const Personal: Story = {
+  args: {
+    channel: {
+      id: "personal",
+      name: "personal",
+      channelType: "personal",
+      starred: true,
+      repositories: [],
+      createdBy: user(1, "Ada", "Lovelace"),
+    },
+  },
+};
+
 /** More repos than the card names, and no creator on the record. */
 export const ManyRepos: Story = {
   args: {

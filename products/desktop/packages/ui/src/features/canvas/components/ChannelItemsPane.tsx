@@ -276,6 +276,7 @@ export function ChannelItemsPane({
           isActive={item.key === activeKey}
           isSelected={inSelection}
           showPinBadge={showPinBadge}
+          showPresence={hasMultipleAuthors}
           bulk={
             inSelection && selectedTaskIds.length > 1
               ? {

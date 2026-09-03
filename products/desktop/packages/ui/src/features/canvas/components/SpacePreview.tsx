@@ -182,13 +182,15 @@ export function SpacePreviewContent({
         </ItemContent>
         {/* Top-aligned: the people belong to the space's name, not to the
             block of text under it. */}
-        <ItemActions className="self-start">
-          <PresenceAvatars
-            people={people}
-            liveUuids={liveUuids}
-            leadUuid={channel.createdBy?.uuid}
-          />
-        </ItemActions>
+        {channel.channelType !== "personal" && (
+          <ItemActions className="self-start">
+            <PresenceAvatars
+              people={people}
+              liveUuids={liveUuids}
+              leadUuid={channel.createdBy?.uuid}
+            />
+          </ItemActions>
+        )}
       </Item>
       <SpaceSignals
         unreadSessions={unreadSessions}

@@ -182,9 +182,16 @@ function rowAuthor(
  * so a row that is idle now stays idle until its item changes, and re-rendering
  * it every minute would buy nothing. Only a row with a face to fade subscribes.
  */
-function RowPresence({ item }: { item: ChannelItemModel }) {
+function RowPresence({
+  item,
+  currentUserUuid,
+}: {
+  item: ChannelItemModel;
+  currentUserUuid?: string;
+}) {
   const author = rowAuthor(item);
   if (!author) return null;
+  if (!currentUserUuid || author.user.uuid === currentUserUuid) return null;
   if (presenceTier(item.ts, Date.now()) === "idle") return null;
   return <ActiveRowPresence item={item} author={author} />;
 }
@@ -250,6 +257,8 @@ export function ChannelItemRowView({
   isActive,
   isSelected = false,
   showPinBadge = true,
+  showPresence = true,
+  currentUserUuid,
   draggable = false,
   onClick,
   onDragStart,
@@ -262,6 +271,8 @@ export function ChannelItemRowView({
   isActive: boolean;
   isSelected?: boolean;
   showPinBadge?: boolean;
+  showPresence?: boolean;
+  currentUserUuid?: string;
   draggable?: boolean;
   onClick?: (e: React.MouseEvent) => void;
   onDragStart?: (e: DragEvent) => void;
@@ -292,7 +303,9 @@ export function ChannelItemRowView({
         <span className={TRAILING_CLASS}>
           {/* Who's here, ahead of the badges: presence is the row's most
               time-sensitive fact, and it's absent on a quiet row. */}
-          <RowPresence item={item} />
+          {showPresence && (
+            <RowPresence item={item} currentUserUuid={currentUserUuid} />
+          )}
           {/* Badges take the timestamp's slot: identity (pin, source, cloud,
               PR) is what you scan a task list for, and the age is still on the
               preview card. */}
@@ -327,6 +340,7 @@ export function ChannelItemRow({
   isEditing = false,
   onClick,
   showPinBadge = true,
+  showPresence = true,
   onRename,
   onAddToCommandCenter,
   onEditSubmit,
@@ -348,6 +362,7 @@ export function ChannelItemRow({
   onClick?: (e: React.MouseEvent) => void;
   /** False under a "Pinned" header, which says it for every row beneath it. */
   showPinBadge?: boolean;
+  showPresence?: boolean;
   /** Puts the row into inline-rename mode. Absent for canvases. */
   onRename?: () => void;
   /** Absent when the command centre has no free cell, which disables the item. */
@@ -475,6 +490,8 @@ export function ChannelItemRow({
         isActive={isActive}
         isSelected={isSelected}
         showPinBadge={showPinBadge}
+        showPresence={showPresence}
+        currentUserUuid={currentUser.data?.uuid}
         draggable
         onDragStart={handleDragStart}
         onDragEnd={onDragEnd}

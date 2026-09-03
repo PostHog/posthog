@@ -133,4 +133,12 @@ describe("presenceByChannel", () => {
     });
     expect(map.size).toBe(0);
   });
+
+  it("excludes the current user", () => {
+    const map = presenceByChannel(
+      [chanTask("c1", user("a"), 30_000), chanTask("c1", user("b"), 60_000)],
+      { now: NOW, limit: 5, excludedUserUuid: "a" },
+    );
+    expect(map.get("c1")?.people.map((person) => person.uuid)).toEqual(["b"]);
+  });
 });

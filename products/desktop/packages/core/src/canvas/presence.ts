@@ -89,6 +89,7 @@ interface PresenceByChannelOptions extends PresenceWindows {
   now: number;
   /** How many faces a channel keeps — the freshest, once sorted. */
   limit: number;
+  excludedUserUuid?: string;
 }
 
 /**
@@ -102,7 +103,13 @@ interface PresenceByChannelOptions extends PresenceWindows {
  */
 export function presenceByChannel(
   tasks: readonly ChannelActivityTask[],
-  { now, limit, liveWindowMs, recentWindowMs }: PresenceByChannelOptions,
+  {
+    now,
+    limit,
+    excludedUserUuid,
+    liveWindowMs,
+    recentWindowMs,
+  }: PresenceByChannelOptions,
 ): Map<string, ChannelPresence> {
   const dated = tasks
     .map((task) => ({
@@ -114,7 +121,10 @@ export function presenceByChannel(
     }))
     .filter(
       (t): t is { channel: string; author: UserBasic; ts: number } =>
-        t.channel != null && t.author != null && !Number.isNaN(t.ts),
+        t.channel != null &&
+        t.author != null &&
+        t.author.uuid !== excludedUserUuid &&
+        !Number.isNaN(t.ts),
     )
     .sort((a, b) => b.ts - a.ts);
 

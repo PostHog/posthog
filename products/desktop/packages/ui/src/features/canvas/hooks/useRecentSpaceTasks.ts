@@ -11,7 +11,10 @@ import {
 import type { Task, UserBasic } from "@posthog/shared/domain-types";
 import { useArchivedTaskIds } from "@posthog/ui/features/archive/useArchivedTaskIds";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
-import { AUTH_SCOPED_QUERY_META } from "@posthog/ui/features/auth/useCurrentUser";
+import {
+  AUTH_SCOPED_QUERY_META,
+  useCurrentUser,
+} from "@posthog/ui/features/auth/useCurrentUser";
 import { useBlockedTaskIds } from "@posthog/ui/features/canvas/hooks/useBlockedSessionCount";
 import {
   type TaskTimestamps,
@@ -321,6 +324,8 @@ export function useSpaceOverview(
   peopleLimit: number,
 ): SpaceOverview {
   const client = useOptionalAuthenticatedClient();
+  const { data: currentUser } = useCurrentUser({ client });
+  const currentUserUuid = currentUser?.uuid;
   const archivedTaskIds = useArchivedTaskIds();
   const { data } = useQuery({
     ...spaceTaskPageQuery(client, spaceId),
@@ -335,15 +340,19 @@ export function useSpaceOverview(
     if (!data) return NO_OVERVIEW;
     const live = data.tasks.filter((task) => !archivedTaskIds.has(task.id));
     return {
-      people: spacePeople(live, createdBy, peopleLimit),
-      liveUuids: liveUuidsFromTasks(live, now),
+      people: currentUserUuid
+        ? spacePeople(live, createdBy, peopleLimit, currentUserUuid)
+        : [],
+      liveUuids: currentUserUuid
+        ? liveUuidsFromTasks(live, now)
+        : NO_LIVE_UUIDS,
       // A page that came back short is the whole space, so the count is exact
       // once the archived ones are dropped. A full page falls back to the
       // server's total, which excludes archived tasks — bar any this device has
       // archived and not yet mirrored.
       total: data.tasks.length < TREE_FETCH_LIMIT ? live.length : data.count,
     };
-  }, [data, archivedTaskIds, createdBy, peopleLimit, now]);
+  }, [data, archivedTaskIds, createdBy, peopleLimit, currentUserUuid, now]);
 }
 
 /**
@@ -359,11 +368,18 @@ export function spacePeople(
   tasks: Pick<Task, "created_by">[],
   createdBy: UserBasic | null,
   limit: number,
+  excludedUserUuid?: string,
 ): UserBasic[] {
   const people: UserBasic[] = [];
   const seen = new Set<string>();
   const add = (user: UserBasic | null | undefined) => {
-    if (!user || seen.has(user.uuid) || people.length >= limit) return;
+    if (
+      !user ||
+      user.uuid === excludedUserUuid ||
+      seen.has(user.uuid) ||
+      people.length >= limit
+    )
+      return;
     seen.add(user.uuid);
     people.push(user);
   };
@@ -413,6 +429,8 @@ function samePresence(a: ChannelPresence, b: ChannelPresence): boolean {
  */
 export function useSpacePresence(): ReadonlyMap<string, ChannelPresence> {
   const client = useOptionalAuthenticatedClient();
+  const { data: currentUser } = useCurrentUser({ client });
+  const currentUserUuid = currentUser?.uuid;
   const archivedTaskIds = useArchivedTaskIds();
   const { data } = useQuery({
     queryKey: ["space-presence"],
@@ -440,9 +458,13 @@ export function useSpacePresence(): ReadonlyMap<string, ChannelPresence> {
   // it returns, which costs one small object per space ever seen.
   const cache = useRef(new Map<string, ChannelPresence>());
   return useMemo(() => {
-    if (!data) return NO_PRESENCE;
+    if (!data || !currentUserUuid) return NO_PRESENCE;
     const live = data.tasks.filter((task) => !archivedTaskIds.has(task.id));
-    const fresh = presenceByChannel(live, { now, limit: SPACE_PRESENCE_LIMIT });
+    const fresh = presenceByChannel(live, {
+      now,
+      limit: SPACE_PRESENCE_LIMIT,
+      excludedUserUuid: currentUserUuid,
+    });
     const stable = new Map<string, ChannelPresence>();
     for (const [channelId, next] of fresh) {
       const prev = cache.current.get(channelId);
@@ -451,5 +473,5 @@ export function useSpacePresence(): ReadonlyMap<string, ChannelPresence> {
       stable.set(channelId, kept);
     }
     return stable;
-  }, [data, archivedTaskIds, now]);
+  }, [data, archivedTaskIds, currentUserUuid, now]);
 }
