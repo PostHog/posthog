@@ -11,7 +11,18 @@ import * as zod from 'zod'
 /**
  * Endpoint to fetch spend data (proxy to billing service).
  */
+export const billingSpendRetrieveQueryAfterMax = 512
+
+export const billingSpendRetrieveQueryPageSizeMax = 1000
+
+export const billingSpendRetrieveQueryTopProjectsMax = 200
+
 export const BillingSpendRetrieveQueryParams = () => zod.object({
+    after: zod
+        .string()
+        .max(billingSpendRetrieveQueryAfterMax)
+        .nullish()
+        .describe('The `next` cursor from the previous page. Opaque. Ignored without page_size.'),
     breakdowns: zod
         .string()
         .nullish()
@@ -20,12 +31,28 @@ export const BillingSpendRetrieveQueryParams = () => zod.object({
         ),
     end_date: zod.string().nullish(),
     interval: zod.string().nullish(),
+    page_size: zod
+        .number()
+        .min(1)
+        .max(billingSpendRetrieveQueryPageSizeMax)
+        .nullish()
+        .describe(
+            'Return at most this many series, ranked by total, with a `next` cursor for the page after. A caller that pages never approaches the size this endpoint refuses oversized breakdowns at. Requires a project breakdown.'
+        ),
     start_date: zod.string().nullish(),
     team_ids: zod
         .string()
         .nullish()
         .describe(
             'JSON-encoded array of numeric team\/project IDs to filter on, for example [1,2]. Omit for all projects available to the caller. Full billing-access callers can read all organization projects; member read-only callers are limited to visible projects and any project scope on their token.'
+        ),
+    top_projects: zod
+        .number()
+        .min(1)
+        .max(billingSpendRetrieveQueryTopProjectsMax)
+        .nullish()
+        .describe(
+            "With a project breakdown, return only this many highest-usage projects and fold the rest into a single 'all other projects' series, so the totals still reconcile. Omit it to get every project."
         ),
     usage_types: zod
         .string()
@@ -35,7 +62,18 @@ export const BillingSpendRetrieveQueryParams = () => zod.object({
         ),
 })
 
+export const billingUsageRetrieveQueryAfterMax = 512
+
+export const billingUsageRetrieveQueryPageSizeMax = 1000
+
+export const billingUsageRetrieveQueryTopProjectsMax = 200
+
 export const BillingUsageRetrieveQueryParams = () => zod.object({
+    after: zod
+        .string()
+        .max(billingUsageRetrieveQueryAfterMax)
+        .nullish()
+        .describe('The `next` cursor from the previous page. Opaque. Ignored without page_size.'),
     breakdowns: zod
         .string()
         .nullish()
@@ -44,12 +82,28 @@ export const BillingUsageRetrieveQueryParams = () => zod.object({
         ),
     end_date: zod.string().nullish(),
     interval: zod.string().nullish(),
+    page_size: zod
+        .number()
+        .min(1)
+        .max(billingUsageRetrieveQueryPageSizeMax)
+        .nullish()
+        .describe(
+            'Return at most this many series, ranked by total, with a `next` cursor for the page after. A caller that pages never approaches the size this endpoint refuses oversized breakdowns at. Requires a project breakdown.'
+        ),
     start_date: zod.string().nullish(),
     team_ids: zod
         .string()
         .nullish()
         .describe(
             'JSON-encoded array of numeric team\/project IDs to filter on, for example [1,2]. Omit for all projects available to the caller. Full billing-access callers can read all organization projects; member read-only callers are limited to visible projects and any project scope on their token.'
+        ),
+    top_projects: zod
+        .number()
+        .min(1)
+        .max(billingUsageRetrieveQueryTopProjectsMax)
+        .nullish()
+        .describe(
+            "With a project breakdown, return only this many highest-usage projects and fold the rest into a single 'all other projects' series, so the totals still reconcile. Omit it to get every project."
         ),
     usage_types: zod
         .string()

@@ -19,8 +19,10 @@ import type {
     BillingApi,
     BillingOverviewResponseApi,
     BillingPeriodResponseApi,
+    BillingSpendExportRetrieveParams,
     BillingSpendRetrieveParams,
     BillingTimeSeriesResponseApi,
+    BillingUsageExportRetrieveParams,
     BillingUsageRetrieveParams,
     PaginatedBillingAlertConfigurationListApi,
     PaginatedBillingAlertEventListApi,
@@ -238,6 +240,35 @@ export const billingSpendRetrieve = async (
     })
 }
 
+export const getBillingSpendExportRetrieveUrl = (params?: BillingSpendExportRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/billing/spend/export/?${stringifiedParams}`
+        : `/api/billing/spend/export/`
+}
+
+/**
+ * Download the spend breakdown as CSV, honouring the requested project cap.
+ */
+export const billingSpendExportRetrieve = async (
+    params?: BillingSpendExportRetrieveParams,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getBillingSpendExportRetrieveUrl(params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getBillingStartupsApplyCreateUrl = () => {
     return `/api/billing/startups/apply/`
 }
@@ -312,6 +343,52 @@ export const billingUsageRetrieve = async (
     options?: RequestInit
 ): Promise<BillingTimeSeriesResponseApi> => {
     return apiMutator<BillingTimeSeriesResponseApi>(getBillingUsageRetrieveUrl(params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getBillingUsageExportRetrieveUrl = (params?: BillingUsageExportRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/billing/usage/export/?${stringifiedParams}`
+        : `/api/billing/usage/export/`
+}
+
+/**
+ * Download the usage breakdown as CSV, honouring the requested project cap.
+ */
+export const billingUsageExportRetrieve = async (
+    params?: BillingUsageExportRetrieveParams,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getBillingUsageExportRetrieveUrl(params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getBillingUsageTeamOptionsRetrieveUrl = () => {
+    return `/api/billing/usage/team_options/`
+}
+
+/**
+ * The project ids the project filter offers, loaded apart from the charts.
+ *
+ * Scoped the way the charts are: a member without billing access sees only the projects
+ * they can see.
+ */
+export const billingUsageTeamOptionsRetrieve = async (options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getBillingUsageTeamOptionsRetrieveUrl(), {
         ...options,
         method: 'GET',
     })
