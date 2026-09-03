@@ -16,6 +16,7 @@ from posthog.models import User
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.scopes import API_SCOPE_OBJECTS, INTERNAL_API_SCOPE_OBJECTS, APIScopeObjectOrNotSupported
+from posthog.synthetic_user import SyntheticUser
 
 from products.access_control.backend.facade.object_names import display_model
 from products.access_control.backend.facade.subject_access_control import SubjectAccessControl
@@ -577,6 +578,11 @@ class UserAccessControlSerializerMixin(serializers.Serializer):
 
         # The user could be anonymous - if so there is no access control to be used
         if request and request.user.is_anonymous:
+            return None
+
+        # Service credentials (TST, PSAK) authenticate as synthetic users UserAccessControl
+        # can't evaluate — per-user access levels are meaningless for them, so report none.
+        if request and isinstance(request.user, SyntheticUser):
             return None
 
         # NOTE: The user_access_control is typically on the view but in specific cases,

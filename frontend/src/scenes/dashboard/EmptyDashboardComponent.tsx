@@ -8,10 +8,8 @@ import { DashboardLoadingState } from '@posthog/products-dashboards/frontend/com
 import { pngHoggie } from 'lib/brand/hoggies'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { urls } from 'scenes/urls'
@@ -30,7 +28,6 @@ import { DashboardAiPromptComposer } from './DashboardAiPromptComposer'
 import { DASHBOARD_CANNOT_EDIT_MESSAGE } from './DashboardHeader'
 import { getAddTileMenuItems } from './DashboardHeaderActions'
 import { dashboardLogic } from './dashboardLogic'
-import { EmptyDashboardAiStarterPrompts } from './emptyDashboardAiStarterPrompts'
 
 const HedgehogChart = pngHoggie(chartPng)
 
@@ -48,7 +45,6 @@ function DashboardEmptyActions({
     onAddWidget,
     push,
     onOpenAiWithPrompt,
-    promptExperience,
 }: {
     canEdit: boolean
     dashboard: DashboardType<QueryBasedInsightModel> | null | undefined
@@ -61,7 +57,6 @@ function DashboardEmptyActions({
     onAddWidget: () => void
     push: (path: string) => void
     onOpenAiWithPrompt: (prompt: string) => void
-    promptExperience: string | boolean | undefined
 }): JSX.Element {
     const { reportDashboardEmptyAddChartClicked, reportDashboardEmptyWebAnalyticsClicked } = useActions(eventUsageLogic)
     const chipDisabledReason = !canEdit ? DASHBOARD_CANNOT_EDIT_MESSAGE : aiDisabledReason || undefined
@@ -72,20 +67,13 @@ function DashboardEmptyActions({
 
     return (
         <div className="flex flex-col gap-4 w-full max-w-full">
-            {promptExperience === 'composer' ? (
+            {!aiDisabledReason && (
                 <DashboardAiPromptComposer
                     dashboardId={dashboard?.id}
                     disabledReason={chipDisabledReason}
                     onOpenAiWithPrompt={onOpenAiWithPrompt}
                 />
-            ) : !aiDisabledReason ? (
-                <EmptyDashboardAiStarterPrompts
-                    dashboardId={dashboard?.id}
-                    chipDisabledReason={chipDisabledReason}
-                    onOpenAiWithPrompt={onOpenAiWithPrompt}
-                    variant={promptExperience === 'copy' ? 'copy' : 'control'}
-                />
-            ) : null}
+            )}
             <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 @min-[48rem]/main-content:justify-start">
                 {dashboard && (
                     <AccessControlAction
@@ -145,11 +133,6 @@ function EmptyDashboardContent({ canEdit }: { canEdit: boolean }): JSX.Element {
     const { push } = useActions(router)
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(maxGlobalLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const promptExperience = dataProcessingAccepted
-        ? featureFlags[FEATURE_FLAGS.DASHBOARD_AI_PROMPT_COMPOSER]
-        : undefined
-
     const aiDisabledReason =
         !dataProcessingAccepted &&
         (dataProcessingApprovalDisabledReason ?? 'Approve AI data processing to use PostHog AI')
@@ -189,7 +172,6 @@ function EmptyDashboardContent({ canEdit }: { canEdit: boolean }): JSX.Element {
                     onAddWidget={() => setAddWidgetModalOpen(true)}
                     push={push}
                     onOpenAiWithPrompt={onOpenAiWithPrompt}
-                    promptExperience={promptExperience}
                 />
             }
         />

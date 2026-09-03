@@ -17,7 +17,6 @@ const usage: ContextUsage = {
   used: 788_000,
   size: 1_000_000,
   percentage: 79,
-  cost: null,
   breakdown: null,
 };
 
