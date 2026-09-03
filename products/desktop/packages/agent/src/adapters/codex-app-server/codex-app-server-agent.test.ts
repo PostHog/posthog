@@ -2353,6 +2353,44 @@ describe("CodexAppServerAgent", () => {
     });
   });
 
+  it("renders ChatGPT's own usage-limit message instead of the generic fallback", async () => {
+    const stub = makeStubRpc({ "thread/start": { thread: { id: "t" } } });
+    const { client, sessionUpdates } = makeFakeClient();
+    const agent = new CodexAppServerAgent(client, {
+      processOptions: { binaryPath: "/x/codex" },
+      rpcFactory: stub.factory,
+    });
+
+    await agent.newSession({ cwd: "/r" } as unknown as NewSessionRequest);
+    const done = agent.prompt({
+      sessionId: "t",
+      prompt: [{ type: "text", text: "go" }],
+    } as unknown as PromptRequest);
+    stub.emit("error", {
+      willRetry: false,
+      error: {
+        message:
+          "You've hit your usage limit. To continue using Codex and get access to GPT-5.3-Codex, start a free trial of Plus today (https://chatgpt.com/explore/plus), or try again at Oct 2nd, 2026 9:53 AM.",
+        codexErrorInfo: "usageLimitExceeded",
+      },
+    });
+    stub.emit("turn/completed", {
+      turn: { id: "turn_1", status: "failed" },
+    });
+
+    expect((await done).stopReason).toBe("refusal");
+    expect(sessionUpdates).toContainEqual({
+      sessionId: "t",
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: {
+          type: "text",
+          text: "You've hit your usage limit. To continue using Codex and get access to GPT-5.3-Codex, start a free trial of Plus today (https://chatgpt.com/explore/plus), or try again at Oct 2nd, 2026 9:53 AM.",
+        },
+      },
+    });
+  });
+
   it("renders a policy error after the turn already completed", async () => {
     const stub = makeStubRpc({
       "thread/start": { thread: { id: "t" } },
