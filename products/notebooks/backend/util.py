@@ -69,13 +69,24 @@ _MARKDOWN_COMPONENT_TAG_REGEX = re.compile(r"^<([A-Z][A-Za-z0-9]*)([\s\S]*?)(?:/
 _MARKDOWN_COMPONENT_PROP_NAME_REGEX = re.compile(r"^([A-Za-z_][A-Za-z0-9_-]*)")
 _MARKDOWN_COMPONENT_RAW_PROP_VALUE_REGEX = re.compile(r"^([^\s/>]+)")
 _MARKDOWN_COMPONENT_NUMBER_REGEX = re.compile(r"^-?\d+(\.\d+)?$")
+_MAX_MARKDOWN_COMPONENT_LINES = 1_000
+_MAX_MARKDOWN_COMPONENT_CHARACTERS = 256 * 1024
 
 
 @frozen
-class _MarkdownComponentPropValue:
-    value: Any
-    next_index: int
-    is_valid: bool
+class _MarkdownComponentScan:
+    raw: str
+    next_line_index: int
+    found_terminator: bool
+
+
+@frozen(frozen=False)
+class _MarkdownComponentScanState:
+    quote: str | None = None
+    expression_depth: int = 0
+    escape_next: bool = False
+    awaiting_prop_value: bool = False
+    opening_tag_closed: bool = False
 
 
 def filter_notebook_content_for_sharing(content: Any) -> Any:
@@ -385,44 +396,124 @@ def _read_markdown_component_block(lines: list[str], line_index: int) -> tuple[s
     if not tag_name:
         return None
 
-    raw_lines: list[str] = []
-    next_line_index = line_index
-    found_terminator = False
-    while next_line_index < len(lines) and (next_line_index == line_index or lines[next_line_index].strip()):
-        raw_lines.append(lines[next_line_index])
-        raw = "\n".join(raw_lines).strip()
-        if raw.endswith("/>") or f"</{tag_name}>" in raw:
-            found_terminator = True
-            break
-        next_line_index += 1
-
-    if not found_terminator:
-        # The first blank line remains the fallback boundary for malformed tags. Cross it only
-        # when the complete tag parses, so an unfinished component cannot consume later blocks.
-        for multiline_end_index in range(next_line_index + 1, len(lines)):
-            end_line = lines[multiline_end_index].strip()
-            if not end_line.endswith("/>") and f"</{tag_name}>" not in end_line:
-                continue
-            multiline_raw = "\n".join(lines[line_index : multiline_end_index + 1]).strip()
-            _, is_valid = _parse_markdown_component_props_with_status(multiline_raw)
-            if is_valid:
-                return tag_name, multiline_raw, multiline_end_index + 1
-
-    if not found_terminator:
+    scan = _scan_markdown_component_block(lines, line_index, tag_name)
+    if not scan.found_terminator:
         return None
 
-    return tag_name, "\n".join(raw_lines).strip(), next_line_index + 1
+    return tag_name, scan.raw, scan.next_line_index
+
+
+def _scan_markdown_component_block(lines: list[str], line_index: int, tag_name: str) -> _MarkdownComponentScan:
+    raw_lines: list[str] = []
+    state = _MarkdownComponentScanState()
+    character_count = 0
+    next_line_index = line_index
+    line_limit = min(len(lines), line_index + _MAX_MARKDOWN_COMPONENT_LINES)
+
+    while next_line_index < line_limit:
+        line = lines[next_line_index]
+        if next_line_index > line_index and not line.strip() and state.quote is None and state.expression_depth == 0:
+            break
+
+        separator_length = 1 if raw_lines else 0
+        if raw_lines and character_count + separator_length + len(line) > _MAX_MARKDOWN_COMPONENT_CHARACTERS:
+            break
+        character_count += separator_length + len(line)
+        raw_lines.append(line)
+
+        character_index = 0
+        while character_index < len(line):
+            character = line[character_index]
+
+            if state.opening_tag_closed:
+                closing_tag = f"</{tag_name}>"
+                if (
+                    line.startswith(closing_tag, character_index)
+                    and not line[character_index + len(closing_tag) :].strip()
+                ):
+                    return _MarkdownComponentScan(
+                        raw="\n".join(raw_lines).strip(),
+                        next_line_index=next_line_index + 1,
+                        found_terminator=True,
+                    )
+                character_index += 1
+                continue
+
+            if (
+                state.quote is None
+                and state.expression_depth == 0
+                and line.startswith("/>", character_index)
+                and not line[character_index + 2 :].strip()
+            ):
+                return _MarkdownComponentScan(
+                    raw="\n".join(raw_lines).strip(),
+                    next_line_index=next_line_index + 1,
+                    found_terminator=True,
+                )
+            _advance_markdown_component_scan(state, character)
+            character_index += 1
+
+        # Joined source contains a newline here. It consumes a pending escape without closing
+        # the quoted value, matching the prop parser's treatment of backslash-newline.
+        if state.quote is not None and state.escape_next:
+            state.escape_next = False
+        next_line_index += 1
+
+    return _MarkdownComponentScan(
+        raw="\n".join(raw_lines).strip(),
+        next_line_index=next_line_index,
+        found_terminator=False,
+    )
+
+
+def _advance_markdown_component_scan(state: _MarkdownComponentScanState, character: str) -> None:
+    if state.quote is not None:
+        _advance_markdown_component_quote(state, character)
+        return
+
+    if state.expression_depth > 0:
+        _advance_markdown_component_expression(state, character)
+        return
+
+    if state.awaiting_prop_value:
+        if character.isspace():
+            return
+        state.awaiting_prop_value = False
+        if character in {"'", '"'}:
+            state.quote = character
+            return
+        if character == "{":
+            state.expression_depth = 1
+            return
+
+    if character == "=":
+        state.awaiting_prop_value = True
+    elif character == ">":
+        state.opening_tag_closed = True
+
+
+def _advance_markdown_component_quote(state: _MarkdownComponentScanState, character: str) -> None:
+    if state.escape_next:
+        state.escape_next = False
+    elif character == "\\":
+        state.escape_next = True
+    elif character == state.quote:
+        state.quote = None
+
+
+def _advance_markdown_component_expression(state: _MarkdownComponentScanState, character: str) -> None:
+    if character in {"'", '"'}:
+        state.quote = character
+    elif character == "{":
+        state.expression_depth += 1
+    elif character == "}":
+        state.expression_depth -= 1
 
 
 def _parse_markdown_component_props(raw: str) -> dict[str, Any]:
-    props, _ = _parse_markdown_component_props_with_status(raw)
-    return props
-
-
-def _parse_markdown_component_props_with_status(raw: str) -> tuple[dict[str, Any], bool]:
     match = _MARKDOWN_COMPONENT_TAG_REGEX.match(raw)
     if not match:
-        return {}, False
+        return {}
 
     props: dict[str, Any] = {}
     source = match.group(2) or ""
@@ -434,7 +525,7 @@ def _parse_markdown_component_props_with_status(raw: str) -> tuple[dict[str, Any
 
         name_match = _MARKDOWN_COMPONENT_PROP_NAME_REGEX.match(source[index:])
         if not name_match:
-            return props, False
+            break
 
         name = name_match.group(1)
         index += len(name)
@@ -447,16 +538,11 @@ def _parse_markdown_component_props_with_status(raw: str) -> tuple[dict[str, Any
         index += 1
         index = _skip_markdown_component_whitespace(source, index)
 
-        parsed_value = _read_markdown_component_prop_value(source, index)
-        index = parsed_value.next_index
-        if not parsed_value.is_valid:
-            return props, False
-        if _is_markdown_notebook_prop_value(parsed_value.value):
-            props[name] = parsed_value.value
-        else:
-            return props, False
+        value, index = _read_markdown_component_prop_value(source, index)
+        if _is_markdown_notebook_prop_value(value):
+            props[name] = value
 
-    return props, True
+    return props
 
 
 def _skip_markdown_component_whitespace(source: str, index: int) -> int:
@@ -465,7 +551,7 @@ def _skip_markdown_component_whitespace(source: str, index: int) -> int:
     return index
 
 
-def _read_markdown_component_prop_value(source: str, index: int) -> _MarkdownComponentPropValue:
+def _read_markdown_component_prop_value(source: str, index: int) -> tuple[Any, int]:
     first_char = source[index] if index < len(source) else ""
 
     if first_char in {"'", '"'}:
@@ -483,30 +569,24 @@ def _read_markdown_component_prop_value(source: str, index: int) -> _MarkdownCom
                     try:
                         parsed_value = json.loads(source[index : next_index + 1])
                         if isinstance(parsed_value, str):
-                            return _MarkdownComponentPropValue(
-                                value=html.unescape(parsed_value), next_index=next_index + 1, is_valid=True
-                            )
+                            return html.unescape(parsed_value), next_index + 1
                     except (TypeError, ValueError):
                         pass
-                return _MarkdownComponentPropValue(value=html.unescape(value), next_index=next_index + 1, is_valid=True)
+                return html.unescape(value), next_index + 1
             value += character
             next_index += 1
-        return _MarkdownComponentPropValue(value=None, next_index=next_index, is_valid=False)
+        return None, next_index
 
     if first_char == "{":
         balanced = _read_balanced_markdown_expression(source, index)
         if balanced is None:
-            return _MarkdownComponentPropValue(value=None, next_index=len(source), is_valid=False)
+            return None, len(source)
         value, next_index = balanced
-        return _MarkdownComponentPropValue(
-            value=_parse_markdown_expression_value(value), next_index=next_index, is_valid=True
-        )
+        return _parse_markdown_expression_value(value), next_index
 
     raw_match = _MARKDOWN_COMPONENT_RAW_PROP_VALUE_REGEX.match(source[index:])
     raw = raw_match.group(1) if raw_match else ""
-    return _MarkdownComponentPropValue(
-        value=_parse_markdown_expression_value(raw), next_index=index + len(raw), is_valid=bool(raw)
-    )
+    return _parse_markdown_expression_value(raw), index + len(raw)
 
 
 def _read_balanced_markdown_expression(source: str, index: int) -> tuple[str, int] | None:

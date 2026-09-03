@@ -49,6 +49,16 @@ class TestCellExtractionAndEdges(SimpleTestCase):
         ]
         assert cells[2].code == "import pandas as pd\n\nout = pd.DataFrame()"
 
+    def test_malformed_component_does_not_cross_a_blank_line(self) -> None:
+        content = markdown_content("<PythonV2 nodeId=p\n\ncode=print(1) />")
+
+        assert extract_cells(content) == []
+
+    def test_component_scan_is_bounded(self) -> None:
+        markdown = "\n".join(['<PythonV2 nodeId="p" code="', *(["x"] * 1_001), '" />'])
+
+        assert extract_cells(markdown_content(markdown)) == []
+
     def test_rich_text_content_yields_no_cells(self) -> None:
         assert extract_cells({"type": "doc", "content": [{"type": "paragraph"}]}) == []
 

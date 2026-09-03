@@ -774,6 +774,25 @@ points = pd.DataFrame()" />`,
         expect(serializeMarkdownNotebook(document)).toEqual(markdown)
     })
 
+    it('does not cross a blank-line boundary for a malformed component', () => {
+        const markdown = `<PythonV2 nodeId=p
+
+code=print(1) />`
+        const document = parseMarkdownNotebook(markdown)
+
+        expect(document.nodes).not.toContainEqual(expect.objectContaining({ type: 'component' }))
+        expect(serializeMarkdownNotebook(document)).toEqual(`\\<PythonV2 nodeId=p
+
+code=print(1) />`)
+    })
+
+    it('does not scan past the multiline component limit', () => {
+        const markdown = [`<PythonV2 nodeId="p" code="`, ...Array.from({ length: 1_001 }, () => 'x'), `" />`].join('\n')
+        const document = parseMarkdownNotebook(markdown)
+
+        expect(document.nodes).not.toContainEqual(expect.objectContaining({ type: 'component' }))
+    })
+
     it('serializes bold links in a stable mark order', () => {
         const url = 'http://localhost:8010/project/1/notebooks/hjH8ysXW'
         const canonicalMarkdown = `asda [**blala**](${url}) sdasdas`
