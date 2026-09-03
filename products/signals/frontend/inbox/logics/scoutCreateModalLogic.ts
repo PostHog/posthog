@@ -148,6 +148,16 @@ function isWeeklySchedule(config: ScoutCreateConfigFormValues): boolean {
     return weeklyCronToDayTime(config.run_cron_schedule) !== null
 }
 
+/**
+ * The day the weekly mode writes. A draft persisted before that mode existed carries no day of its
+ * own — kea-localstorage restores the stored object over the whole default rather than merging new
+ * fields — so read the saved cron first and fall back to the default.
+ */
+function scoutWeeklyDay(form: ScoutCreateFormValues): string {
+    const day = weeklyCronToDayTime(form.config.run_cron_schedule)?.day ?? form.weeklyDay
+    return day && /^[0-6]$/.test(day) ? day : DEFAULT_SCOUT_WEEKLY_DAY
+}
+
 function scoutNameError(name: string, redesign: boolean): string | undefined {
     if (!redesign) {
         const normalizedName = name.trim()
@@ -420,13 +430,15 @@ export const scoutCreateModalLogic: LogicWrapper<scoutCreateModalLogicType> = ke
                 const dailyTime = isValidScoutDailyTime(values.scoutCreateForm.dailyTime)
                     ? values.scoutCreateForm.dailyTime
                     : DEFAULT_SCOUT_DAILY_TIME
+                const weeklyDay = scoutWeeklyDay(values.scoutCreateForm)
                 actions.setScoutCreateFormValues({
                     dailyTime,
+                    weeklyDay,
                     config: {
                         ...values.scoutCreateForm.config,
                         run_cron_schedule:
                             scheduleMode === SCOUT_WEEKLY_ON_SCHEDULE_MODE
-                                ? dayTimeToWeeklyCron(values.scoutCreateForm.weeklyDay, dailyTime)
+                                ? dayTimeToWeeklyCron(weeklyDay, dailyTime)
                                 : timeToDailyCron(dailyTime),
                     },
                 })
@@ -455,7 +467,7 @@ export const scoutCreateModalLogic: LogicWrapper<scoutCreateModalLogicType> = ke
                 config: {
                     ...values.scoutCreateForm.config,
                     run_cron_schedule: isWeeklySchedule(values.scoutCreateForm.config)
-                        ? dayTimeToWeeklyCron(values.scoutCreateForm.weeklyDay, dailyTime)
+                        ? dayTimeToWeeklyCron(scoutWeeklyDay(values.scoutCreateForm), dailyTime)
                         : timeToDailyCron(dailyTime),
                 },
             })

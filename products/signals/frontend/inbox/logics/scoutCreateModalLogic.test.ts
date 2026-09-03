@@ -460,6 +460,38 @@ describe('scoutCreateModalLogic', () => {
         reopened.unmount()
     })
 
+    it('picks a run day for a draft persisted before the weekly mode existed', async () => {
+        const logicKey = scoutCreateModalLogicKey(undefined)
+        const first = scoutCreateModalLogic({ logicKey, onClose })
+        first.mount()
+        first.actions.setScoutCreateFormValue('body', 'Watch checkout latency and report spikes.')
+        await expectLogic(first).toFinishAllListeners()
+        first.unmount()
+
+        // kea-localstorage restores the stored object over the whole reducer default instead of
+        // merging in fields added since, so a draft written before the weekly mode shipped comes
+        // back with no run day at all. Strip the key to reproduce that draft.
+        for (const key of Object.keys(localStorage)) {
+            const stored = localStorage.getItem(key)
+            if (stored?.includes('"weeklyDay"')) {
+                const draft = JSON.parse(stored)
+                delete draft.weeklyDay
+                localStorage.setItem(key, JSON.stringify(draft))
+            }
+        }
+
+        logic = scoutCreateModalLogic({ logicKey, onClose })
+        logic.mount()
+        logic.actions.setScoutCreateScheduleMode(SCOUT_WEEKLY_ON_SCHEDULE_MODE)
+
+        await expectLogic(logic).toMatchValues({
+            scoutCreateForm: expect.objectContaining({
+                weeklyDay: '1',
+                config: expect.objectContaining({ run_cron_schedule: '0 9 * * 1' }),
+            }),
+        })
+    })
+
     it('does not restore a persisted draft after switching to another project', async () => {
         const logicKey = scoutCreateModalLogicKey(undefined)
         const first = scoutCreateModalLogic({ logicKey, onClose })
