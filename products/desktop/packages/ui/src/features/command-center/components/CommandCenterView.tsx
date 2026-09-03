@@ -1,8 +1,12 @@
+import { useService } from "@posthog/di/react";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { track } from "@posthog/ui/shell/analytics";
-import { Box, Flex } from "@radix-ui/themes";
 import { useEffect, useMemo } from "react";
 import { useSetHeaderContent } from "../../../hooks/useSetHeaderContent";
+import {
+  ACTIVE_VIEW_PROVIDER,
+  type IActiveView,
+} from "../../notifications/identifiers";
 import { useTaskViewed } from "../../sidebar/useTaskViewed";
 import { useCommandCenterStore } from "../commandCenterStore";
 import { useAutofillCommandCenter } from "../hooks/useAutofillCommandCenter";
@@ -13,7 +17,8 @@ import { CommandCenterToolbar } from "./CommandCenterToolbar";
 export function CommandCenterView() {
   const layout = useCommandCenterStore((s) => s.layout);
   const { cells, summary } = useCommandCenterData();
-  const { markAsViewed } = useTaskViewed();
+  const { markAsViewed, timestamps } = useTaskViewed();
+  const activeView = useService<IActiveView>(ACTIVE_VIEW_PROVIDER);
 
   useAutofillCommandCenter();
 
@@ -40,13 +45,20 @@ export function CommandCenterView() {
     .map((c) => c.taskId)
     .filter(Boolean)
     .join(",");
+  const visibleTaskStateKey = cells
+    .map((c) =>
+      c.taskId
+        ? `${c.taskId}:${timestamps[c.taskId]?.lastActivityAt ?? ""}`
+        : "",
+    )
+    .join(",");
 
   useEffect(() => {
-    if (!visibleTaskIdsKey) return;
+    if (!visibleTaskStateKey || !activeView.hasFocus()) return;
     for (const taskId of visibleTaskIdsKey.split(",")) {
       markAsViewed(taskId);
     }
-  }, [visibleTaskIdsKey, markAsViewed]);
+  }, [activeView, visibleTaskIdsKey, visibleTaskStateKey, markAsViewed]);
 
   // Root-level page: no breadcrumb row. Its own toolbar names the view, and
   // there's no parent space to walk back to, so the bar was an empty frame.
@@ -55,14 +67,14 @@ export function CommandCenterView() {
   useSetHeaderContent(null);
 
   return (
-    <Flex direction="column" height="100%">
+    <div className="flex h-full flex-col">
       <CommandCenterToolbar
         summary={summary}
         occupiedCellIndices={occupiedCellIndices}
       />
-      <Box className="min-h-0 flex-1">
+      <div className="min-h-0 flex-1">
         <CommandCenterGrid layout={layout} cells={cells} />
-      </Box>
-    </Flex>
+      </div>
+    </div>
   );
 }
