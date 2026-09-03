@@ -181,7 +181,16 @@ async function executeQuery<N extends DataNode>(
      * (stale-while-revalidate: `is_cached` is true *and* an incomplete `query_status` is
      * attached), return the cached results immediately instead of blocking on the recompute.
      */
-    acceptStaleCache = false
+    acceptStaleCache = false,
+    /**
+     * Ask the backend once more when the async status record of a query this call started has
+     * expired. The backend forgets that record a fixed time after the query finishes
+     * (STATUS_TTL_SECONDS in execute_async.py) but keeps the result in the query cache for days.
+     * A tab that stays hidden past that window resumes polling, gets a 404 for its own query ID,
+     * and would show an error for a result that is one request away. Off on the retry itself, so
+     * a second 404 surfaces instead of looping.
+     */
+    retryOnExpiredStatus = true
 ): Promise<NonNullable<N['response']>> {
     if (!pollOnly) {
         const refreshParam: RefreshType = refresh || 'blocking'
@@ -220,8 +229,30 @@ async function executeQuery<N extends DataNode>(
         }
     }
 
-    const statusResponse = await pollForResults(queryId, methodOptions, setPollResponse)
-    return statusResponse.results
+    try {
+        const statusResponse = await pollForResults(queryId, methodOptions, setPollResponse)
+        return statusResponse.results
+    } catch (e: any) {
+        const statusRecordExpired = e?.status === 404
+        if (pollOnly || !retryOnExpiredStatus || !statusRecordExpired) {
+            throw e
+        }
+        // The forced recompute already ran, so the retry only needs the cached result.
+        const retryRefresh: RefreshType | undefined = refresh === 'force_async' ? 'async' : refresh
+        return executeQuery(
+            queryNode,
+            methodOptions,
+            retryRefresh,
+            undefined,
+            setPollResponse,
+            filtersOverride,
+            variablesOverride,
+            false,
+            limitContext,
+            acceptStaleCache,
+            false
+        )
+    }
 }
 
 // Return data for a given query
