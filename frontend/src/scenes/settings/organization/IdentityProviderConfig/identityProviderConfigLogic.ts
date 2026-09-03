@@ -598,7 +598,12 @@ export const identityProviderConfigLogic = kea<identityProviderConfigLogicType>(
             }
 
             actions.resetIdentityProviderConfigForm(values.identityProviderConfigForm)
-            router.actions.replace(urls.settings('organization-authentication'))
+            if (props.configId === NEW_CONFIG_ID && config.id) {
+                // First save: stay on the page so the generated SCIM base URL and one-time token stay visible.
+                router.actions.replace(urls.identityProviderConfig(props.configScope, config.id))
+            } else {
+                router.actions.replace(urls.settings('organization-authentication'))
+            }
             lemonToast.success(`${IDENTITY_PROVIDER_FEATURES[props.configScope].name} configuration saved.`)
         },
         submitIdentityProviderConfigFormFailure: () => {

@@ -1,7 +1,9 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { urls } from 'scenes/urls'
 
 import {
     ConfigScopeEnumApi,
@@ -135,5 +137,10 @@ describe('identityProviderConfigLogic', () => {
             saml_acs_url: 'https://idp.example.com/sso',
             saml_x509_cert: 'certificate',
         })
+        // First save stays on the configuration page so the generated SCIM base URL
+        // and one-time token remain visible instead of redirecting to the settings list.
+        expect(router.values.location.pathname).toContain(
+            urls.identityProviderConfig(ConfigScopeEnumApi.Saml, CREATED_CONFIG.id)
+        )
     })
 })
