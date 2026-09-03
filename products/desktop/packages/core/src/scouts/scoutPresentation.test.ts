@@ -749,6 +749,7 @@ describe("schedule modes", () => {
     ["0 9 * * MON"],
     ["0 9 31 2,3 MON"],
     ["0 9 * * 5#2"],
+    ["0 0 L * *"],
   ])("accepts %s", (expression) => {
     expect(scoutCronScheduleError(expression)).toBeNull();
   });

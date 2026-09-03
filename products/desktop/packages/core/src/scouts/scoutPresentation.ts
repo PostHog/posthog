@@ -750,6 +750,14 @@ function parseCronField(
       const parsed = bounds.map((token) =>
         cronFieldNumber(token, min === 0 ? 0 : 1, names),
       );
+      // A token with letters that is no month or day name is syntax this check does not model,
+      // like the "L" croniter takes for the last day of the month.
+      if (
+        parsed.some(
+          (value, index) => value === null && /[a-z]/i.test(bounds[index]),
+        )
+      )
+        return { kind: "unmodeled" };
       if (parsed.some((value) => value === null || value < min || value > max))
         return { kind: "invalid" };
       from = parsed[0] as number;
