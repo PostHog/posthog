@@ -139,7 +139,7 @@ function summarizeBulkArchive(
     return { level: 'error', message: 'No flags were archived' }
 }
 
-function errorMessageFrom(error: unknown): string {
+export function errorMessageFrom(error: unknown): string {
     if (typeof error === 'string') {
         return error
     }
@@ -150,7 +150,7 @@ function errorMessageFrom(error: unknown): string {
 }
 
 /** Turns one key's copy response into the copied/failed/warning entries the bulk-copy listener accumulates. */
-function aggregateCopyResponse(
+export function aggregateCopyResponse(
     key: string,
     targetProjectIds: number[],
     response: CopyFlagsResponseApi

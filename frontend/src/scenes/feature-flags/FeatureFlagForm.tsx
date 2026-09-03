@@ -37,6 +37,7 @@ import {
     LemonCollapse,
     LemonDivider,
     LemonInput,
+    LemonInputSelect,
     LemonLabel,
     LemonSelect,
     LemonSwitch,
@@ -166,6 +167,9 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
         expandAdvancedOnEdit,
         hasEncryptedPayloadBeenSaved,
         hasEarlyAccessFeatures,
+        featureFlagLoading,
+        alsoCreateInProjects,
+        alsoCreateInProjectOptions,
     } = useValues(featureFlagLogic)
     const {
         setMultivariateEnabled,
@@ -183,6 +187,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
         setOpenVariants,
         setPayloadExpanded,
         resetEncryptedPayload,
+        setAlsoCreateInProjects,
     } = useActions(featureFlagLogic)
     const { tags: availableTags } = useValues(tagsModel)
     const { isApprovalRequired } = useValues(approvalsGateLogic)
@@ -424,6 +429,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                 htmlType="submit"
                                 form="feature-flag"
                                 size="small"
+                                loading={featureFlagLoading}
                             >
                                 Save
                             </LemonButton>
@@ -516,6 +522,29 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                         )
                                     }}
                                 </LemonField>
+
+                                {isNewFeatureFlag && alsoCreateInProjectOptions.length > 0 && (
+                                    <>
+                                        <LemonDivider />
+                                        <div className="flex flex-col gap-2">
+                                            <LemonLabel
+                                                info="The flag is created in the current project, then copied to each selected project. If a project requires approval for flag changes, a change request is created there instead."
+                                                showOptional
+                                            >
+                                                Also create in these projects
+                                            </LemonLabel>
+                                            <LemonInputSelect<number>
+                                                mode="multiple"
+                                                value={alsoCreateInProjects}
+                                                onChange={setAlsoCreateInProjects}
+                                                options={alsoCreateInProjectOptions}
+                                                placeholder="Select projects"
+                                                disabled={featureFlagLoading}
+                                                data-attr="feature-flag-also-create-in-projects"
+                                            />
+                                        </div>
+                                    </>
+                                )}
                             </div>
 
                             {/* Advanced options - collapsed by default unless opened via overview pencil */}

@@ -1499,6 +1499,119 @@ describe('featureFlagLogic', () => {
         })
     })
 
+    describe('creating a flag in additional projects', () => {
+        const TARGET_A = MOCK_TEAM_ID + 1
+        const TARGET_B = MOCK_TEAM_ID + 2
+
+        let newLogic: ReturnType<typeof featureFlagLogic.build>
+        let copyRequests: Record<string, unknown>[]
+
+        function createAndCopyMocks(copyResponse: CopyFlagsResponseApi): Parameters<typeof useMocks>[0] {
+            return {
+                post: {
+                    '/api/projects/:team_id/feature_flags/': () => [201, MOCK_FEATURE_FLAG],
+                    '/api/organizations/:organization_id/feature_flags/copy_flags': async ({ request }) => {
+                        copyRequests.push((await request.json()) as Record<string, unknown>)
+                        return [200, copyResponse]
+                    },
+                },
+            }
+        }
+
+        function copiedFlagInProject(teamId: number): CopyFlagsResponseApi['success'][number] {
+            return {
+                id: teamId,
+                key: MOCK_FEATURE_FLAG.key,
+                name: MOCK_FEATURE_FLAG.name,
+                active: true,
+                team_id: teamId,
+                updated_existing: false,
+            }
+        }
+
+        beforeEach(() => {
+            copyRequests = []
+            newLogic = featureFlagLogic({ id: 'new' })
+            newLogic.mount()
+        })
+
+        afterEach(() => {
+            newLogic.unmount()
+        })
+
+        it('copies the created flag to each selected project and reports where it landed', async () => {
+            useMocks(
+                createAndCopyMocks({
+                    success: [copiedFlagInProject(TARGET_A), copiedFlagInProject(TARGET_B)],
+                    failed: [],
+                })
+            )
+
+            await expectLogic(newLogic, () => {
+                newLogic.actions.setAlsoCreateInProjects([TARGET_A, TARGET_B])
+                newLogic.actions.saveFeatureFlag({ ...NEW_FLAG, key: MOCK_FEATURE_FLAG.key })
+            })
+                .toDispatchActions(['saveFeatureFlagSuccess'])
+                .toFinishAllListeners()
+
+            expect(copyRequests).toHaveLength(1)
+            expect(copyRequests[0]).toEqual({
+                feature_flag_key: MOCK_FEATURE_FLAG.key,
+                from_project: MOCK_TEAM_ID,
+                target_project_ids: [TARGET_A, TARGET_B],
+            })
+            expect(lemonToast.success).toHaveBeenCalledWith(
+                expect.stringContaining(`Flag also created in Project ${TARGET_A} and Project ${TARGET_B}`)
+            )
+            // The picker resets so the next new-flag form starts empty
+            expect(newLogic.values.alsoCreateInProjects).toEqual([])
+        })
+
+        it('makes no copy call when no additional projects are selected', async () => {
+            useMocks(createAndCopyMocks({ success: [], failed: [] }))
+
+            await expectLogic(newLogic, () => {
+                newLogic.actions.saveFeatureFlag({ ...NEW_FLAG, key: MOCK_FEATURE_FLAG.key })
+            })
+                .toDispatchActions(['saveFeatureFlagSuccess'])
+                .toFinishAllListeners()
+
+            expect(copyRequests).toHaveLength(0)
+        })
+
+        it.each([
+            [
+                'a failed project',
+                { project_id: MOCK_TEAM_ID + 2, error_message: 'No access to this project', approval_pending: false },
+                `copy to Project ${MOCK_TEAM_ID + 2} failed: No access to this project`,
+            ],
+            [
+                'an approval-pending project',
+                { project_id: MOCK_TEAM_ID + 2, error_message: 'Approval required', approval_pending: true },
+                `copy to Project ${MOCK_TEAM_ID + 2} needs approval (a change request was created)`,
+            ],
+        ])('surfaces %s distinctly instead of swallowing it', async (_desc, failedEntry, expectedFragment) => {
+            useMocks(
+                createAndCopyMocks({
+                    success: [copiedFlagInProject(TARGET_A)],
+                    failed: [failedEntry],
+                })
+            )
+
+            await expectLogic(newLogic, () => {
+                newLogic.actions.setAlsoCreateInProjects([TARGET_A, TARGET_B])
+                newLogic.actions.saveFeatureFlag({ ...NEW_FLAG, key: MOCK_FEATURE_FLAG.key })
+            })
+                .toDispatchActions(['saveFeatureFlagSuccess'])
+                .toFinishAllListeners()
+
+            expect(lemonToast.warning).toHaveBeenCalledWith(expect.stringContaining(expectedFragment))
+            expect(lemonToast.warning).toHaveBeenCalledWith(
+                expect.stringContaining(`Flag also created in Project ${TARGET_A}`)
+            )
+        })
+    })
+
     describe('copying flags', () => {
         it('sends dependency copy options and resets them after success', async () => {
             const targetProjectId = MOCK_DEFAULT_PROJECT.id + 1
