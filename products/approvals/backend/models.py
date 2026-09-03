@@ -224,10 +224,14 @@ class ApprovalPolicy(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
             try:
                 from products.access_control.backend.models.role import RoleMembership
 
-                role_user_ids = RoleMembership.objects.filter(
-                    role_id__in=approver_roles,
-                    role__organization=self.organization,
-                ).values_list("user_id", flat=True)
+                role_user_ids = (
+                    RoleMembership.objects.filter(
+                        role_id__in=approver_roles,
+                        role__organization=self.organization,
+                    )
+                    .valid_for_authorization()
+                    .values_list("user_id", flat=True)
+                )
                 user_ids.update(role_user_ids)
             except ImportError:
                 pass
