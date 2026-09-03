@@ -1,6 +1,6 @@
+import os
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from time import time_ns
 from types import SimpleNamespace
 from typing import Any
 
@@ -37,11 +37,6 @@ def _write_parent_table(tmp_path: Path) -> str:
     )
     deltalake.write_deltalake(uri, table)
     return uri
-
-
-def _wait_for_next_delta_commit_timestamp(previous_timestamp_ms: int) -> None:
-    while time_ns() // 1_000_000 <= previous_timestamp_ms:
-        pass
 
 
 def _patched_reader(uri: str, version: int | None = None, **kwargs):
@@ -180,18 +175,28 @@ def test_resolve_raises_when_parent_has_no_synced_table(tmp_path: Path) -> None:
         _patched_resolve(str(tmp_path / "does_not_exist"))
 
 
+def _set_delta_commit_log_mtimes(uri: str, times_by_version: dict[int, datetime]) -> None:
+    # delta-rs resolves a time-travel pin against the `_delta_log` commit files' modification times,
+    # not the `timestamp` inside each commit that `DeltaTable.history()` reports. Those mtimes come
+    # from a coarse filesystem clock that can collapse the gap between two back-to-back writes, so
+    # the test sets them explicitly and stays about the pin rather than about the clock.
+    for version, committed_at in times_by_version.items():
+        ts = committed_at.timestamp()
+        os.utime(Path(uri) / "_delta_log" / f"{version:020d}.json", (ts, ts))
+
+
 def test_resolve_pins_to_last_completed_snapshot_while_parent_is_syncing(tmp_path: Path) -> None:
     uri = _write_parent_table(tmp_path)
-    v0_table = deltalake.DeltaTable(uri)
-    v0 = v0_table.version()
-    v0_timestamp_ms = v0_table.history()[0]["timestamp"]
-    v0_timestamp = datetime.fromtimestamp(v0_timestamp_ms / 1000, tz=UTC)
+    v0 = deltalake.DeltaTable(uri).version()
 
     # An in-flight full refresh has already committed a partial overwrite on top of v0.
-    _wait_for_next_delta_commit_timestamp(v0_timestamp_ms)
     deltalake.write_deltalake(uri, pa.table({"id": ["partial"], "last_seen": ["x"], "title": ["y"]}), mode="overwrite")
 
-    pinned = _patched_resolve(uri, snapshot_timestamp=v0_timestamp)
+    snapshot_committed_at = datetime(2026, 3, 1, 12, 0, tzinfo=UTC)
+    _set_delta_commit_log_mtimes(uri, {v0: snapshot_committed_at, v0 + 1: snapshot_committed_at + timedelta(minutes=2)})
+
+    # The parent's last completed job finished after v0 landed and before the refresh started writing.
+    pinned = _patched_resolve(uri, snapshot_timestamp=snapshot_committed_at + timedelta(minutes=1))
 
     assert pinned.version == v0
 

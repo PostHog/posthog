@@ -3,6 +3,7 @@ import json
 import base64
 import datetime as dt
 
+from django.db import models
 from django.utils import timezone
 
 from drf_spectacular.types import OpenApiTypes
@@ -246,6 +247,11 @@ class _LogsValuesQuerySerializer(serializers.Serializer):
     )
 
 
+class OrderBy(models.TextChoices):
+    LATEST = "latest", "latest"
+    EARLIEST = "earliest", "earliest"
+
+
 class _LogsQueryBodySerializer(serializers.Serializer):
     dateRange = _DateRangeSerializer(
         required=False,
@@ -264,7 +270,7 @@ class _LogsQueryBodySerializer(serializers.Serializer):
         help_text="Filter by service names.",
     )
     orderBy = serializers.ChoiceField(
-        choices=["latest", "earliest"],
+        choices=OrderBy.choices,
         required=False,
         help_text="Order results by timestamp.",
     )

@@ -125,7 +125,6 @@ import {
     ExternalDataSourceRevenueAnalyticsConfig,
     ExternalDataSourceSchema,
     ExternalDataSourceSyncSchema,
-    FeatureFlagStatusResponse,
     FeatureFlagType,
     FileSystemDeleteResponse,
     GoogleAdsConversionActionType,
@@ -1167,13 +1166,6 @@ export class ApiRequest {
             )
     }
 
-    public featureFlagStatus(teamId: TeamType['id'], featureFlagId: FeatureFlagType['id']): ApiRequest {
-        return this.projectsDetail(teamId)
-            .addPathComponent('feature_flags')
-            .addPathComponent(String(featureFlagId))
-            .addPathComponent('status')
-    }
-
     public featureFlagCreateScheduledChange(teamId: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('scheduled_changes')
     }
@@ -1727,6 +1719,10 @@ export class ApiRequest {
             return apiRequest.addPathComponent(queryKind)
         }
         return apiRequest
+    }
+
+    public accountsTableQuery(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('accounts_table_query')
     }
 
     public queryStatus(queryId: string, showProgress: boolean, teamId?: TeamType['id']): ApiRequest {
@@ -2411,12 +2407,6 @@ const api = {
             data: Partial<ScheduledChangeType>
         ): Promise<ScheduledChangeType> {
             return await new ApiRequest().featureFlagScheduledChange(teamId, scheduledChangeId).update({ data })
-        },
-        async getStatus(
-            teamId: TeamType['id'],
-            featureFlagId: FeatureFlagType['id']
-        ): Promise<FeatureFlagStatusResponse> {
-            return await new ApiRequest().featureFlagStatus(teamId, featureFlagId).get()
         },
     },
 
@@ -6856,7 +6846,12 @@ const api = {
             throw new Error(`Query kind mismatch: path kind "${pathKind}" does not match body kind "${bodyKind}".`)
         }
 
-        return await new ApiRequest().query(undefined, bodyKind).create({
+        const apiRequest =
+            bodyKind === NodeKind.AccountsTableQuery
+                ? new ApiRequest().accountsTableQuery()
+                : new ApiRequest().query(undefined, bodyKind)
+
+        return await apiRequest.create({
             ...queryOptions?.requestOptions,
             data: {
                 query,

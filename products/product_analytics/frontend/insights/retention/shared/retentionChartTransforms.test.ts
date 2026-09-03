@@ -167,6 +167,20 @@ describe('retentionChartTransforms', () => {
         })
     })
 
+    it.each([
+        ['line', buildRetentionLineChartConfig],
+        ['bar', buildRetentionBarChartConfig],
+    ])('formats %s interval-view dates in the team timezone', (_name, buildConfig) => {
+        const config = buildConfig({
+            isPercentage: true,
+            series: [],
+            isIntervalView: true,
+            period: 'Day',
+            timezone: 'America/Chicago',
+        })
+        expect(config.xAxis).toEqual({ interval: 'day', timezone: 'America/Chicago' })
+    })
+
     describe('buildRetentionLineChartConfig', () => {
         const baseSeries: Series<RetentionSeriesMeta>[] = buildRetentionSeries(
             [makeEntry({ index: 0 }), makeEntry({ index: 1 })],

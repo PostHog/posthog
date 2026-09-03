@@ -158,7 +158,11 @@ export const ChannelHomeComposer = forwardRef<
   const { hasGithubIntegration, isLoadingIntegrations } =
     useUserRepositoryIntegration();
 
-  const { workspaceMode, setWorkspaceMode } = useResolvedWorkspaceMode({
+  const {
+    workspaceMode,
+    isResolved: isWorkspaceModeResolved,
+    setWorkspaceMode,
+  } = useResolvedWorkspaceMode({
     hasGithubIntegration,
     isLoadingIntegrations,
     allowWorktree: false,
@@ -280,7 +284,7 @@ export const ChannelHomeComposer = forwardRef<
     allowNoRepo: true,
     channelContext: effectiveChannelContext,
     channelContextPath: wiki.path,
-    submissionBlocked: wiki.blocked,
+    submissionBlocked: wiki.blocked || !isWorkspaceModeResolved,
     channelName,
     channelId,
     channelContextId: channelId,
@@ -566,6 +570,7 @@ export const ChannelHomeComposer = forwardRef<
                 workspaceMode,
               )}
               showBillingMenu
+              workspaceMode={workspaceMode}
               disabled={isBusy}
               isLoading={isLoading}
             />

@@ -33,6 +33,8 @@ __all__ = [
     "DucklingTables",
     "ManagedWarehouseBackfillState",
     "ManagedWarehousePostgresConnection",
+    "ManagedWarehouseTrinoConnection",
+    "ManagedWarehouseTrinoConnectionUnavailable",
     "ManagedWarehouseProvisionStatus",
     "ManagedWarehouseSourceAuth",
     "ManagedWarehouseSourceJobRecord",
@@ -45,6 +47,7 @@ __all__ = [
     "ServiceCredentialConnect",
     "ServiceCredentialUnavailable",
     "TrinoCompiledQuery",
+    "TrinoExpansionMode",
 ]
 
 
@@ -111,6 +114,21 @@ class ManagedWarehousePostgresConnection:
     username: str
     password: str = field(repr=False)
     sslmode: str
+
+
+@frozen
+class ManagedWarehouseTrinoConnection:
+    """A ready managed Trino target with the existing organization root secret."""
+
+    host: str
+    port: int
+    catalog: str
+    username: str
+    password: str = field(repr=False)
+
+
+class ManagedWarehouseTrinoConnectionUnavailable(RuntimeError):
+    pass
 
 
 @frozen
@@ -290,7 +308,12 @@ class TrinoCompiledQuery:
 
     sql: str
     values: dict[str, Any]
-    hogql: str
+    hogql: str | None = None
+
+
+class TrinoExpansionMode(StrEnum):
+    PURE = "pure"
+    DJANGO = "django"
 
 
 @dataclass

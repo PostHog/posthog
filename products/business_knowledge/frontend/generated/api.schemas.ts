@@ -119,10 +119,9 @@ export interface GapTopicActionResultApi {
  * * `url` - URL
  * * `file` - File
  */
-export type KnowledgeSourceSourceTypeEnumApi =
-    (typeof KnowledgeSourceSourceTypeEnumApi)[keyof typeof KnowledgeSourceSourceTypeEnumApi]
+export type SourceTypeEnumApi = (typeof SourceTypeEnumApi)[keyof typeof SourceTypeEnumApi]
 
-export const KnowledgeSourceSourceTypeEnumApi = {
+export const SourceTypeEnumApi = {
     Text: 'text',
     Url: 'url',
     File: 'file',
@@ -134,10 +133,9 @@ export const KnowledgeSourceSourceTypeEnumApi = {
  * * `ready` - Ready
  * * `error` - Error
  */
-export type KnowledgeSourceStatusEnumApi =
-    (typeof KnowledgeSourceStatusEnumApi)[keyof typeof KnowledgeSourceStatusEnumApi]
+export type SourceStatusEnumApi = (typeof SourceStatusEnumApi)[keyof typeof SourceStatusEnumApi]
 
-export const KnowledgeSourceStatusEnumApi = {
+export const SourceStatusEnumApi = {
     Pending: 'pending',
     Processing: 'processing',
     Ready: 'ready',
@@ -149,9 +147,9 @@ export const KnowledgeSourceStatusEnumApi = {
  * * `not_modified` - Not modified
  * * `error` - Error
  */
-export type LastRefreshStatusEnumApi = (typeof LastRefreshStatusEnumApi)[keyof typeof LastRefreshStatusEnumApi]
+export type RefreshStatusEnumApi = (typeof RefreshStatusEnumApi)[keyof typeof RefreshStatusEnumApi]
 
-export const LastRefreshStatusEnumApi = {
+export const RefreshStatusEnumApi = {
     Success: 'success',
     NotModified: 'not_modified',
     Error: 'error',
@@ -201,8 +199,8 @@ export interface KnowledgeSourceApi {
     readonly id: string
     readonly team_id: number
     readonly name: string
-    readonly source_type: KnowledgeSourceSourceTypeEnumApi
-    readonly status: KnowledgeSourceStatusEnumApi
+    readonly source_type: SourceTypeEnumApi
+    readonly status: SourceStatusEnumApi
     readonly error_message: string
     /** Number of documents belonging to this source. */
     readonly document_count: number
@@ -214,7 +212,7 @@ export interface KnowledgeSourceApi {
     readonly source_url: string
     /** @nullable */
     readonly last_refresh_at: string | null
-    readonly last_refresh_status: LastRefreshStatusEnumApi
+    readonly last_refresh_status: RefreshStatusEnumApi
     readonly last_refresh_error: string
     readonly refresh_interval: RefreshIntervalEnumApi
     /**

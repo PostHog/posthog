@@ -58,14 +58,14 @@ def test_docker_sandbox_does_not_combine_agent_server_start_and_health(sandbox: 
 
 def test_read_agent_server_boot_metrics_includes_process_milestones(sandbox: DockerSandbox):
     response = ExecutionResult(
-        stdout='{"sessionInitMs":90,"boot":{"totalMs":140,"httpReadyMs":12,"phasesMs":{"context_fetch":40,"secret":1}}}',
+        stdout='{"sessionInitMs":90,"boot":{"totalMs":140,"httpReadyMs":12,"launcherToProcessMs":8,"phasesMs":{"context_fetch":40,"secret":1}}}',
         stderr="",
         exit_code=0,
     )
     with patch.object(sandbox, "execute", return_value=response):
         assert sandbox.read_agent_server_boot_metrics() == (
             90,
-            {"context_fetch": 40, "server_total": 140, "http_ready": 12},
+            {"context_fetch": 40, "server_total": 140, "http_ready": 12, "launcher_to_process": 8},
         )
 
 
