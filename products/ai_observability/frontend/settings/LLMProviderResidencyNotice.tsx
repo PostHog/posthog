@@ -21,7 +21,8 @@ export function LLMProviderResidencyNotice({ provider }: { provider: LLMProvider
         <LemonBanner type="warning">
             Evaluations and playground requests with this key go to the global {LLM_PROVIDER_LABELS[provider]} endpoint.
             Your prompt and response content can be processed outside the EU, even though your PostHog data stays in the
-            EU. To keep inference in the EU, add an Azure OpenAI key that points to a resource in an EU region.
+            EU. To keep inference in the EU, add an Azure OpenAI key for an EU resource that uses a regional or EU data
+            zone deployment. Global deployments can process requests in any Azure region.
         </LemonBanner>
     )
 }
