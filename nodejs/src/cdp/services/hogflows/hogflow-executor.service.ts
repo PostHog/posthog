@@ -119,16 +119,19 @@ export class HogFlowExecutorService {
         cohortMembershipRepository: CohortMembershipRepository,
         integrationManager: SlackAppLookup,
         duplicateObserver?: HogFlowDuplicateObserverService,
-        usageReporter?: CdpUsageReporterService
+        usageReporter?: CdpUsageReporterService,
+        options: { awaitTaskCompletion?: boolean } = {}
     ) {
         this.hogFlowFunctionsService = hogFlowFunctionsService
         this.duplicateObserver = duplicateObserver ?? null
+        // Only the plain function handler runs the task and scout templates.
         const hogFunctionHandler = new HogFunctionHandler(
             hogFlowFunctionsService,
             recipientPreferencesService,
             emailValidationService,
             'fetch',
-            usageReporter
+            usageReporter,
+            options
         )
         const hogFunctionEmailHandler = new HogFunctionHandler(
             hogFlowFunctionsService,
@@ -1001,6 +1004,9 @@ export class HogFlowExecutorService {
                 wakeEventUuid && wakeEventTimestamp
                     ? ` (woken by [Event:${wakeEventUuid}|${wakeEvent.replaceAll('|', '')}|${wakeEventTimestamp}])`
                     : ` (woken by event: ${wakeEvent.replaceAll('|', '')})`
+        }
+        if (hasCurrentAction && invocation.state.currentAction?.resumeResult) {
+            triggeredByEvent += ' (woken by the run finishing)'
         }
 
         return {
