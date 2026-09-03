@@ -56,13 +56,13 @@ class Graph:
             if not exclude_table_targets or target_type != NodeType.TABLE:
                 self._downstream_adj[s].add(t)
 
-    def get_upstream(self, node_id: str | UUID, max_depth: int | None = None) -> set[str]:
-        """Get upstream (ancestor) node IDs, excluding TABLE nodes unless the graph kept them."""
-        return reachable(str(node_id), self._upstream_adj, max_depth)
+    def get_upstream(self, node_id: str | UUID) -> set[str]:
+        """Get all upstream (ancestor) node IDs, excluding TABLE nodes."""
+        return reachable(str(node_id), self._upstream_adj)
 
-    def get_downstream(self, node_id: str | UUID, max_depth: int | None = None) -> set[str]:
-        """Get downstream (descendant) node IDs, excluding TABLE nodes unless the graph kept them."""
-        return reachable(str(node_id), self._downstream_adj, max_depth)
+    def get_downstream(self, node_id: str | UUID) -> set[str]:
+        """Get all downstream (descendant) node IDs, excluding TABLE nodes."""
+        return reachable(str(node_id), self._downstream_adj)
 
     def get_upstream_count(self, node_id: str | UUID) -> int:
         return len(self.get_upstream(node_id))

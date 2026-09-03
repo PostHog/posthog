@@ -56,7 +56,6 @@ from products.data_modeling.backend.facade.models import (
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryColumnAnnotation,
     Edge,
-    Graph,
     Node,
 )
 from products.data_tools.backend.facade.models import DataWarehouseJoin, DataWarehouseSavedQueryFolder
@@ -1351,6 +1350,37 @@ class SavedQueryResumeSerializer(serializers.Serializer):
     resumed = serializers.BooleanField(help_text="False when the query's materialization was not suspended.")
 
 
+class SavedQueryLineageRequestSerializer(serializers.Serializer):
+    """Body of the `ancestors` and `descendants` actions."""
+
+    level = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=1,
+        help_text="How many hops to walk, so 1 gives the immediate neighbours. Omit to walk the whole cone.",
+    )
+
+
+class SavedQueryAncestorsSerializer(serializers.Serializer):
+    ancestors = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Ids of the saved queries and warehouse tables this query reads from, directly or "
+        "through other queries, and the names of the PostHog tables among them.",
+    )
+
+
+class SavedQueryDescendantsSerializer(serializers.Serializer):
+    descendants = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Ids of the saved queries that read from this query, directly or through other queries.",
+    )
+
+
+class SavedQueryDependenciesSerializer(serializers.Serializer):
+    upstream_count = serializers.IntegerField(help_text="How many tables and queries this query reads from directly.")
+    downstream_count = serializers.IntegerField(help_text="How many queries read from this query directly.")
+
+
 class IncrementalEligibilitySerializer(serializers.Serializer):
     """Whether a query can be materialized incrementally, and what stands in the way."""
 
@@ -1876,6 +1906,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
                 unpause_saved_query_schedule(saved_query)
         return response.Response(status=status.HTTP_202_ACCEPTED)
 
+    @extend_schema(request=SavedQueryLineageRequestSerializer, responses={200: SavedQueryAncestorsSerializer})
     @action(methods=["POST"], detail=True)
     def ancestors(self, request: request.Request, *args, **kwargs) -> response.Response:
         """Return the ancestors of this saved query.
@@ -1887,6 +1918,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         ancestors = _related_saved_queries(saved_query, upstream=True, max_depth=_parse_level(request))
         return response.Response({"ancestors": ancestors})
 
+    @extend_schema(request=SavedQueryLineageRequestSerializer, responses={200: SavedQueryDescendantsSerializer})
     @action(methods=["POST"], detail=True)
     def descendants(self, request: request.Request, *args, **kwargs) -> response.Response:
         """Return the descendants of this saved query.
@@ -1973,6 +2005,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
 
         return response.Response(status=status.HTTP_200_OK)
 
+    @extend_schema(request=None, responses={200: SavedQueryDependenciesSerializer})
     @action(methods=["GET"], detail=True)
     def dependencies(self, request: request.Request, *args, **kwargs) -> response.Response:
         """Return the count of immediate upstream and downstream dependencies for this saved query."""
@@ -2004,54 +2037,39 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
 def _parse_level(request: request.Request) -> int | None:
     """Read the `level` bound off a lineage request.
 
-    No level means walk the whole cone. Zero or less would build the whole graph and then
-    return nothing from it, so it is refused rather than served as an empty answer.
+    No level means walk the whole cone. Zero or less would walk nothing and return an empty
+    answer, so it is refused, as is anything that is not a whole number.
     """
-    raw = request.data.get("level", None)
-    if raw is None:
-        return None
-    try:
-        level = int(raw)
-    except (TypeError, ValueError):
-        raise serializers.ValidationError({"level": "Must be a whole number of 1 or more."})
-    if level < 1:
-        raise serializers.ValidationError({"level": "Must be a whole number of 1 or more."})
-    return level
+    serializer = SavedQueryLineageRequestSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+    return serializer.validated_data.get("level")
 
 
 def _related_saved_queries(saved_query: DataWarehouseSavedQuery, *, upstream: bool, max_depth: int | None) -> set[str]:
     """Walk the data modeling graph from a saved query and identify what it reaches.
 
-    A saved query can hold a node in more than one DAG, so the walk starts from each of its
-    nodes and unions the results. Each reached node is identified the way the lineage endpoints
-    have always identified it: a query by its saved-query id, an imported warehouse table by its
-    `DataWarehouseTable` id, a cross-DAG proxy by the id of the saved query it stands in for,
-    and a PostHog system table by its name. A table node carries the id in its properties
-    (`saved_query_dag_sync.resolve_dependency_to_node`) rather than the `saved_query` FK.
+    The walk starts from every node that stands for the query and unions what they reach: a
+    saved query can hold a node in more than one DAG, and a query in a managed DAG is also
+    represented by a proxy table node in each DAG that reads from it. Without the proxies a
+    consumer would report the managed query upstream while the managed query reported no
+    consumer downstream.
 
-    Immediate neighbours (`max_depth == 1`) are read straight off the edge foreign-key indexes,
-    so the `dependencies` counts and level-1 lineage never load the whole team's edges. A deeper
-    walk loads every edge once — they never cross DAGs, so one load covers every start point —
-    and traverses in memory.
+    Each reached node is identified the way the lineage endpoints have always identified it: a
+    query by its saved-query id, an imported warehouse table by its `DataWarehouseTable` id, a
+    cross-DAG proxy by the id of the saved query it stands in for, and a PostHog system table by
+    its name. A table node carries the id in its properties
+    (`saved_query_dag_sync.resolve_dependency_to_node`) rather than the `saved_query` FK.
     """
-    node_ids = {
+    start_node_ids = {
         str(node_id)
-        for node_id in Node.objects.filter(team=saved_query.team, saved_query=saved_query).values_list("id", flat=True)
+        for node_id in Node.objects.filter(team=saved_query.team)
+        .filter(Q(saved_query=saved_query) | Q(properties__saved_query_id=str(saved_query.id)))
+        .values_list("id", flat=True)
     }
-    if not node_ids:
+    if not start_node_ids:
         return set()
 
-    if max_depth == 1:
-        reached = _immediate_neighbor_node_ids(saved_query.team_id, node_ids, upstream=upstream)
-    else:
-        # Keep table nodes: the source tables a query reads from are part of its lineage.
-        graph = Graph(team_id=saved_query.team_id, exclude_table_sources=False, exclude_table_targets=False)
-        walk = graph.get_upstream if upstream else graph.get_downstream
-
-        reached = set()
-        for node_id in node_ids:
-            reached |= walk(node_id, max_depth)
-        reached -= node_ids
+    reached = _reachable_node_ids(saved_query.team_id, start_node_ids, upstream=upstream, max_depth=max_depth)
 
     identifiers: set[str] = set()
     for saved_query_id, name, properties in Node.objects.filter(team=saved_query.team, id__in=reached).values_list(
@@ -2069,16 +2087,23 @@ def _related_saved_queries(saved_query: DataWarehouseSavedQuery, *, upstream: bo
     return identifiers
 
 
-def _immediate_neighbor_node_ids(team_id: int, node_ids: set[str], *, upstream: bool) -> set[str]:
-    """Node ids one edge away from `node_ids`, read off the edge foreign-key indexes.
+def _reachable_node_ids(team_id: int, start_node_ids: set[str], *, upstream: bool, max_depth: int | None) -> set[str]:
+    """Node ids reachable from `start_node_ids` within `max_depth` hops, the start nodes excluded.
 
-    Upstream neighbours are the sources of edges that target these nodes; downstream neighbours
-    are the targets of edges from them. Table nodes are kept, matching the depth-1 result of the
-    full-graph walk this stands in for.
+    One query per hop, each reading the frontier's edges off the `Edge` foreign-key indexes, so
+    the work is bounded by the cone that is reached rather than by every edge the team owns.
+    Upstream follows edges into the frontier back to their sources; downstream follows edges
+    out of it to their targets.
     """
     edges = Edge.objects.filter(team_id=team_id)
-    if upstream:
-        neighbor_ids = edges.filter(target_id__in=node_ids).values_list("source_id", flat=True)
-    else:
-        neighbor_ids = edges.filter(source_id__in=node_ids).values_list("target_id", flat=True)
-    return {str(neighbor_id) for neighbor_id in neighbor_ids} - node_ids
+    near, far = ("target_id", "source_id") if upstream else ("source_id", "target_id")
+
+    reached: set[str] = set()
+    frontier = set(start_node_ids)
+    depth = 0
+    while frontier and (max_depth is None or depth < max_depth):
+        neighbor_ids = edges.filter(**{f"{near}__in": frontier}).values_list(far, flat=True)
+        frontier = {str(neighbor_id) for neighbor_id in neighbor_ids} - reached - start_node_ids
+        reached |= frontier
+        depth += 1
+    return reached

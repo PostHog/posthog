@@ -1675,6 +1675,35 @@ export interface PatchedDataWarehouseSavedQueryApi {
 }
 
 /**
+ * Body of the `ancestors` and `descendants` actions.
+ */
+export interface SavedQueryLineageRequestApi {
+    /**
+     * How many hops to walk, so 1 gives the immediate neighbours. Omit to walk the whole cone.
+     * @minimum 1
+     * @nullable
+     */
+    level?: number | null
+}
+
+export interface SavedQueryAncestorsApi {
+    /** Ids of the saved queries and warehouse tables this query reads from, directly or through other queries, and the names of the PostHog tables among them. */
+    ancestors: string[]
+}
+
+export interface SavedQueryDependenciesApi {
+    /** How many tables and queries this query reads from directly. */
+    upstream_count: number
+    /** How many queries read from this query directly. */
+    downstream_count: number
+}
+
+export interface SavedQueryDescendantsApi {
+    /** Ids of the saved queries that read from this query, directly or through other queries. */
+    descendants: string[]
+}
+
+/**
  * Body of the `materialize` action: which cadence to enable materialization at.
  */
 export interface SavedQueryMaterializeApi {

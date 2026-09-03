@@ -1318,9 +1318,13 @@ class TestSavedQuery(APIBaseTest):
             ("ancestors", 0),
             ("ancestors", -1),
             ("ancestors", "all"),
+            ("ancestors", 1.5),
+            ("ancestors", True),
             ("descendants", 0),
             ("descendants", -1),
             ("descendants", "all"),
+            ("descendants", 1.5),
+            ("descendants", True),
         ]
     )
     def test_lineage_refuses_a_level_it_cannot_walk(self, action, level):
@@ -1483,15 +1487,85 @@ class TestSavedQuery(APIBaseTest):
         Edge.objects.create(team=self.team, dag=dag, source=warehouse_node, target=consumer_node)
         Edge.objects.create(team=self.team, dag=dag, source=proxy_node, target=consumer_node)
 
+        # The query the proxy stands in for has its real node in the managed DAG, with its own
+        # consumer there. Its descendants must union both: the managed consumer through the real
+        # node and the Default-DAG consumer through the proxy, or the relationship is one-way.
+        managed_dag = DAG.objects.create(team=self.team, name="PostHog Revenue Analytics")
+        revenue_node = Node.objects.create(
+            team=self.team, saved_query=revenue_query, dag=managed_dag, type=NodeType.VIEW
+        )
+        managed_consumer = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="managed_consumer_view",
+            query={"kind": "HogQLQuery", "query": "select 1"},
+            created_by=self.user,
+        )
+        managed_consumer_node = Node.objects.create(
+            team=self.team, saved_query=managed_consumer, dag=managed_dag, type=NodeType.VIEW
+        )
+        Edge.objects.create(team=self.team, dag=managed_dag, source=revenue_node, target=managed_consumer_node)
+
         response = self.client.post(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/{consumer.id}/ancestors",
         )
-
         self.assertEqual(response.status_code, 200, response.content)
         self.assertEqual(
             sorted(response.json()["ancestors"]),
             sorted([str(warehouse_table.id), str(revenue_query.id)]),
         )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/{revenue_query.id}/descendants",
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(
+            sorted(response.json()["descendants"]),
+            sorted([str(consumer.id), str(managed_consumer.id)]),
+        )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/{revenue_query.id}/dependencies",
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json(), {"upstream_count": 0, "downstream_count": 2})
+
+    def test_lineage_unions_the_nodes_of_one_saved_query_across_dags(self):
+        # A saved query may hold a node in more than one DAG. Its lineage is the union of what
+        # every node reaches; reading one node would silently drop the other DAG's neighbours.
+        default_dag = DAG.get_or_create_default(self.team)
+        other_dag = DAG.objects.create(team=self.team, name="other")
+
+        def create_view(name: str) -> DataWarehouseSavedQuery:
+            return DataWarehouseSavedQuery.objects.create(
+                team=self.team, name=name, query={"kind": "HogQLQuery", "query": "select 1"}, created_by=self.user
+            )
+
+        shared = create_view("shared_view")
+        parent_a, child_a = create_view("parent_a"), create_view("child_a")
+        parent_b, child_b = create_view("parent_b"), create_view("child_b")
+
+        def create_node(dag: DAG, query: DataWarehouseSavedQuery) -> Node:
+            return Node.objects.create(team=self.team, saved_query=query, dag=dag, type=NodeType.VIEW)
+
+        shared_a, shared_b = create_node(default_dag, shared), create_node(other_dag, shared)
+        Edge.objects.create(team=self.team, dag=default_dag, source=create_node(default_dag, parent_a), target=shared_a)
+        Edge.objects.create(team=self.team, dag=default_dag, source=shared_a, target=create_node(default_dag, child_a))
+        Edge.objects.create(team=self.team, dag=other_dag, source=create_node(other_dag, parent_b), target=shared_b)
+        Edge.objects.create(team=self.team, dag=other_dag, source=shared_b, target=create_node(other_dag, child_b))
+
+        base = f"/api/environments/{self.team.id}/warehouse_saved_queries/{shared.id}"
+
+        response = self.client.post(f"{base}/ancestors")
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(sorted(response.json()["ancestors"]), sorted([str(parent_a.id), str(parent_b.id)]))
+
+        response = self.client.post(f"{base}/descendants")
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(sorted(response.json()["descendants"]), sorted([str(child_a.id), str(child_b.id)]))
+
+        response = self.client.get(f"{base}/dependencies")
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json(), {"upstream_count": 2, "downstream_count": 2})
 
     def test_update_without_query_change_doesnt_call_get_columns(self):
         # First create a saved query
@@ -1989,7 +2063,7 @@ class TestSavedQuery(APIBaseTest):
         )
         self.assertEqual(response_child.status_code, 201)
 
-        with patch("products.data_warehouse.backend.presentation.views.saved_query.Graph") as mock_graph:
+        with CaptureQueriesContext(connection) as context:
             response = self.client.get(
                 f"/api/environments/{self.team.id}/warehouse_saved_queries/{parent_id}/dependencies",
             )
@@ -1998,7 +2072,13 @@ class TestSavedQuery(APIBaseTest):
         data = response.json()
         self.assertEqual(data["upstream_count"], 1)  # events table
         self.assertEqual(data["downstream_count"], 1)  # child_view
-        mock_graph.assert_not_called()
+
+        edge_queries = [
+            query["sql"] for query in context.captured_queries if "posthog_datamodelingedge" in query["sql"]
+        ]
+        self.assertTrue(edge_queries)
+        for sql in edge_queries:
+            self.assertTrue('"source_id" IN' in sql or '"target_id" IN' in sql, sql)
 
     def test_run_history_no_runs(self):
         """Test run_history endpoint returns empty array for a view with no runs"""

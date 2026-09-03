@@ -64,7 +64,11 @@ import type {
     QueryTabStateApi,
     QueryTabStateListParams,
     ResetPasswordResponseApi,
+    SavedQueryAncestorsApi,
     SavedQueryColumnAnnotationsListParams,
+    SavedQueryDependenciesApi,
+    SavedQueryDescendantsApi,
+    SavedQueryLineageRequestApi,
     SavedQueryMaterializeApi,
     SavedQueryResumeApi,
     SavedQueryRunApi,
@@ -1613,14 +1617,14 @@ export const getWarehouseSavedQueriesAncestorsCreateUrl = (projectId: string, id
 export const warehouseSavedQueriesAncestorsCreate = async (
     projectId: string,
     id: string,
-    dataWarehouseSavedQueryApi: NonReadonly<DataWarehouseSavedQueryApi>,
+    savedQueryLineageRequestApi?: SavedQueryLineageRequestApi,
     options?: RequestInit
-): Promise<DataWarehouseSavedQueryApi> => {
-    return apiMutator<DataWarehouseSavedQueryApi>(getWarehouseSavedQueriesAncestorsCreateUrl(projectId, id), {
+): Promise<SavedQueryAncestorsApi> => {
+    return apiMutator<SavedQueryAncestorsApi>(getWarehouseSavedQueriesAncestorsCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(dataWarehouseSavedQueryApi),
+        body: JSON.stringify(savedQueryLineageRequestApi),
     })
 }
 
@@ -1656,8 +1660,8 @@ export const warehouseSavedQueriesDependenciesRetrieve = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<DataWarehouseSavedQueryApi> => {
-    return apiMutator<DataWarehouseSavedQueryApi>(getWarehouseSavedQueriesDependenciesRetrieveUrl(projectId, id), {
+): Promise<SavedQueryDependenciesApi> => {
+    return apiMutator<SavedQueryDependenciesApi>(getWarehouseSavedQueriesDependenciesRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
@@ -1676,14 +1680,14 @@ export const getWarehouseSavedQueriesDescendantsCreateUrl = (projectId: string, 
 export const warehouseSavedQueriesDescendantsCreate = async (
     projectId: string,
     id: string,
-    dataWarehouseSavedQueryApi: NonReadonly<DataWarehouseSavedQueryApi>,
+    savedQueryLineageRequestApi?: SavedQueryLineageRequestApi,
     options?: RequestInit
-): Promise<DataWarehouseSavedQueryApi> => {
-    return apiMutator<DataWarehouseSavedQueryApi>(getWarehouseSavedQueriesDescendantsCreateUrl(projectId, id), {
+): Promise<SavedQueryDescendantsApi> => {
+    return apiMutator<SavedQueryDescendantsApi>(getWarehouseSavedQueriesDescendantsCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(dataWarehouseSavedQueryApi),
+        body: JSON.stringify(savedQueryLineageRequestApi),
     })
 }
 
