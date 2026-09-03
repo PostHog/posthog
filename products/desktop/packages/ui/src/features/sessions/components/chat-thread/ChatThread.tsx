@@ -11,6 +11,7 @@ import {
 import { WorkerPoolContextProvider } from "@pierre/diffs/react";
 import { buildTurnRatingMetric } from "@posthog/core/analytics/aiFeedback";
 import { channelDisplayLabel } from "@posthog/core/canvas/channelName";
+import { isShowActionsCall } from "@posthog/core/sessions/showActions";
 import { useService } from "@posthog/di/react";
 import {
   Button,
@@ -173,6 +174,14 @@ function isToolCallItem(item: ConversationItem): item is SessionUpdateItem {
   );
 }
 
+function isShowActionsItem(item: SessionUpdateItem): boolean {
+  if (item.update.sessionUpdate !== "tool_call") return false;
+  const resolved = item.turnContext.toolCalls.get(item.update.toolCallId);
+  return (
+    isShowActionsCall(resolved?._meta) || isShowActionsCall(item.update._meta)
+  );
+}
+
 function isSessionUpdateItem(
   item: ConversationItem,
 ): item is SessionUpdateItem {
@@ -280,10 +289,7 @@ export function groupToolRuns(items: ConversationItem[]): ThreadItem[] {
 
   for (const item of items) {
     if (isToolCallItem(item)) {
-      // A plan presented for approval renders as the full PlanApprovalView
-      // card — folded into a "N tool calls" chip, the plan the user is being
-      // asked to approve is invisible. Same exemption as buildThreadGroups.
-      if (isPlanItem(item)) {
+      if (isPlanItem(item) || isShowActionsItem(item)) {
         flush();
         out.push(item);
         continue;
