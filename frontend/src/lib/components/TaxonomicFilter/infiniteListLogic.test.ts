@@ -941,6 +941,36 @@ describe('infiniteListLogic', () => {
                 .toFinishAllListeners()
                 .toMatchValues({ nonCapturedKind: expected })
         })
+
+        it('commits the typed key when the "not seen yet" row is selected with Enter', async () => {
+            const listLogic = logicWith({
+                taxonomicFilterLogicKey: 'non-captured-enter',
+                listGroupType: TaxonomicFilterGroupType.EventProperties,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.EventProperties],
+                allowNonCapturedProperties: true,
+            })
+
+            await expectLogic(listLogic, () => {
+                listLogic.actions.setSearchQuery('never_sent_property')
+            })
+                .toFinishAllListeners()
+                .toMatchValues({ nonCapturedKind: 'property' })
+
+            // The row is the only one on the list, so arrowing stays on it instead of
+            // landing on NaN.
+            await expectLogic(listLogic, () => {
+                listLogic.actions.moveDown()
+            }).toMatchValues({ index: 0 })
+
+            await expectLogic(listLogic, () => {
+                listLogic.actions.selectSelected()
+            }).toDispatchActions([
+                (action) =>
+                    action.type === listLogic.actionTypes.selectItem &&
+                    action.payload.value === 'never_sent_property' &&
+                    action.payload.item?.isNonCaptured === true,
+            ])
+        })
     })
 
     describe('data warehouse pin lifecycle', () => {

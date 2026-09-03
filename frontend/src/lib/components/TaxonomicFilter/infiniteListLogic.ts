@@ -316,6 +316,7 @@ export interface infiniteListLogicValues {
     listGroupType: TaxonomicFilterGroupType
     localItems: ListStorage
     minSearchQueryLength: any
+    navigableRowCount: number
     needsMoreSearchCharacters: boolean
     pinnedRowIndex: number | null
     propertyAllowList: string[] | undefined
@@ -725,6 +726,7 @@ export interface infiniteListLogicMeta {
         ) => number
         totalExtraCount: (isExpandable: boolean, hasRenderFunction: boolean) => number
         totalListCount: (totalResultCount: number, totalExtraCount: number) => number
+        navigableRowCount: (totalListCount: number, nonCapturedKind: NonCapturedKind | null) => number
         expandedCount: (
             items:
                 | {
@@ -1989,6 +1991,14 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             (s) => [s.totalResultCount, s.totalExtraCount],
             (totalResultCount: number, totalExtraCount: number) => totalResultCount + totalExtraCount,
         ],
+        // How many rows the arrow keys can land on. The synthetic "not seen yet" row is the only
+        // row when it shows, and it is absent from `totalListCount`, which would leave the
+        // modulus in `moveUp`/`moveDown` dividing by zero.
+        navigableRowCount: [
+            (s) => [s.totalListCount, s.nonCapturedKind],
+            (totalListCount: number, nonCapturedKind: NonCapturedKind | null): number =>
+                nonCapturedKind ? 1 : totalListCount,
+        ],
         expandedCount: [
             (s) => [s.items],
             (
@@ -2210,12 +2220,12 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             actions.setIndex(rowIndex)
         },
         moveUp: () => {
-            const { index, totalListCount } = values
-            actions.setIndex((index - 1 + totalListCount) % totalListCount)
+            const { index, navigableRowCount } = values
+            actions.setIndex((index - 1 + navigableRowCount) % navigableRowCount)
         },
         moveDown: () => {
-            const { index, totalListCount } = values
-            actions.setIndex((index + 1) % totalListCount)
+            const { index, navigableRowCount } = values
+            actions.setIndex((index + 1) % navigableRowCount)
         },
         selectSelected: () => {
             if (values.isExpandableButtonSelected) {
@@ -2223,6 +2233,19 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             } else {
                 const selectedItem = values.selectedItem
                 const itemGroup = getItemGroup(selectedItem, values.taxonomicGroups, values.group)
+
+                // The "not seen yet" row is synthetic, so it never lands in `results` and
+                // `selectedItem` stays undefined. Commit the typed key, as clicking the row does.
+                if (!selectedItem && values.nonCapturedKind && itemGroup) {
+                    actions.selectItem(
+                        itemGroup,
+                        values.trimmedSearchQuery,
+                        { name: values.trimmedSearchQuery, isNonCaptured: true },
+                        { position: 0 }
+                    )
+                    return
+                }
+
                 const isDisabledItem = selectedItem && itemGroup?.getIsDisabled?.(selectedItem)
 
                 if (!isDisabledItem && itemGroup) {
