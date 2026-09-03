@@ -210,20 +210,14 @@ class QueryContext:
     name_filter: str = ""
     numerical_filter: str = ""
     search_query: str = ""
-    event_property_filter: str = ""
-    event_name_filter: str = ""
+    seen_on_events_filter: str = ""
     is_feature_flag_filter: str = ""
     excluded_properties_filter: str = ""
 
     order_by_search_relevance: bool = False
+    order_by_seen_on_events: bool = False
 
-    event_property_join_type: str = ""
     event_property_field: str = "NULL"
-
-    # the event name filter is used with and without a posthog_eventproperty_table_join_alias qualifier
-    event_name_join_filter: str = ""
-
-    posthog_eventproperty_table_join_alias = "check_for_matching_event_property"
 
     params: dict = dataclasses.field(default_factory=dict)
 
@@ -311,27 +305,32 @@ class QueryContext:
             )
 
     def with_event_property_filter(self, event_names: Optional[str], filter_by_event_names: Optional[bool]) -> Self:
-        event_property_filter = ""
-        event_name_filter = ""
-        event_property_field = "NULL"
-        event_name_join_filter = ""
-
         # Passed as JSON instead of duplicate properties like event_names[] to work with frontend's combineUrl
-        if event_names:
-            event_names = json.loads(event_names)
+        parsed_event_names = list(map(str, json.loads(event_names) if event_names else []))
 
-        if event_names and len(event_names) > 0 and self.should_join_event_property:
-            event_property_field = f"{self.posthog_eventproperty_table_join_alias}.property IS NOT NULL"
-            event_name_join_filter = "AND event = ANY(%(event_names)s)"
+        seen_on_events_filter = ""
+        event_property_field = "NULL"
+        order_by_seen_on_events = False
+
+        if self.should_join_event_property:
+            seen_property_names = self._seen_property_names(bool(parsed_event_names))
+            if filter_by_event_names:
+                seen_on_events_filter = f"AND {self.property_definition_table}.name IN ({seen_property_names})"
+            if parsed_event_names:
+                # With the filter above applied, every returned row is seen on the events.
+                event_property_field = (
+                    "true"
+                    if filter_by_event_names
+                    else f"{self.property_definition_table}.name IN ({seen_property_names})"
+                )
+                order_by_seen_on_events = not filter_by_event_names
 
         return dataclasses.replace(
             self,
-            event_property_filter=event_property_filter,
+            seen_on_events_filter=seen_on_events_filter,
             event_property_field=event_property_field,
-            event_name_join_filter=event_name_join_filter,
-            event_name_filter=event_name_filter,
-            event_property_join_type="INNER JOIN" if filter_by_event_names else "LEFT JOIN",
-            params={**self.params, "event_names": list(map(str, event_names or []))},
+            order_by_seen_on_events=order_by_seen_on_events,
+            params={**self.params, "event_names": parsed_event_names},
         )
 
     def with_search(self, search_query: str, search_kwargs: dict, order_by_search_relevance: bool = False) -> Self:
@@ -437,17 +436,18 @@ class QueryContext:
         length_ordering = (
             f"length({self.property_definition_table}.name) ASC," if self.order_by_search_relevance else ""
         )
+        # A flag that is the same for every row adds nothing to the sort, and leading with it stops
+        # Postgres from pushing the LIMIT into the index scan on name.
+        seen_ordering = "is_seen_on_filtered_events DESC," if self.order_by_seen_on_events else ""
         query = f"""
             SELECT {self.property_definition_fields}, {self.event_property_field} AS is_seen_on_filtered_events
             FROM {self.table}
-            {self._join_on_event_property()}
             WHERE coalesce({self.property_definition_table}.project_id, {self.property_definition_table}.team_id) = %(project_id)s
               AND type = %(type)s
               AND coalesce(group_type_index, -1) = %(group_type_index)s
               {self.excluded_properties_filter}
-             {self.name_filter} {self.numerical_filter} {self.search_query} {self.event_property_filter} {self.is_feature_flag_filter}
-             {self.event_name_filter}
-            ORDER BY is_seen_on_filtered_events DESC, {length_ordering} {verified_ordering} {self.property_definition_table}.name ASC
+             {self.name_filter} {self.numerical_filter} {self.search_query} {self.seen_on_events_filter} {self.is_feature_flag_filter}
+            ORDER BY {seen_ordering} {length_ordering} {verified_ordering} {self.property_definition_table}.name ASC
             LIMIT %(limit)s OFFSET %(offset)s
             """
 
@@ -457,29 +457,23 @@ class QueryContext:
         query = f"""
             SELECT count(*) as full_count
             FROM {self.table}
-            {self._join_on_event_property()}
             WHERE coalesce({self.property_definition_table}.project_id, {self.property_definition_table}.team_id) = %(project_id)s
               AND type = %(type)s
               AND coalesce(group_type_index, -1) = %(group_type_index)s
-             {self.excluded_properties_filter} {self.name_filter} {self.numerical_filter} {self.search_query} {self.event_property_filter} {self.is_feature_flag_filter}
-             {self.event_name_filter}
+             {self.excluded_properties_filter} {self.name_filter} {self.numerical_filter} {self.search_query} {self.seen_on_events_filter} {self.is_feature_flag_filter}
             """
 
         return query
 
-    def _join_on_event_property(self):
-        return (
-            f"""
-            {self.event_property_join_type} (
-                SELECT DISTINCT property
+    def _seen_property_names(self, scoped_to_event_names: bool) -> str:
+        # A semi-join, so Postgres removes the duplicate property names itself and reads
+        # posthog_eventproperty once per statement.
+        event_filter = "AND event = ANY(%(event_names)s)" if scoped_to_event_names else ""
+        return f"""
+                SELECT property
                 FROM posthog_eventproperty
-                WHERE coalesce(project_id, team_id) = %(project_id)s {self.event_name_join_filter}
-            ) {self.posthog_eventproperty_table_join_alias}
-            ON {self.posthog_eventproperty_table_join_alias}.property = name
+                WHERE coalesce(project_id, team_id) = %(project_id)s {event_filter}
             """
-            if self.should_join_event_property
-            else ""
-        )
 
 
 def add_name_alias_to_search_query(search_term: str, prop_type: str = "event"):
