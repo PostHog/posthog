@@ -301,6 +301,23 @@ class CDCSourceManager:
         """
         return list(self._drained_files)
 
+    async def discard_drained_files(self) -> None:
+        """Delete what this run read when no lane had anything to write for it.
+
+        Safe only in that case: every lane's filter emptied every batch, which means each already
+        holds these rows. Normally deletion waits for the job, which is what proves the rows landed.
+        """
+        prefix = get_buffer_prefix(self._inputs.team_id, str(self._inputs.schema_id))
+        keys = [f"{prefix}/{name}" for name in self._drained_files]
+        if not keys:
+            return
+        async with aget_s3_client() as s3:
+            try:
+                await s3._rm(keys)
+            except FileNotFoundError:
+                pass
+        await self._logger.ainfo("cdc_buffer_discarded_unstaged", key_count=len(keys))
+
     async def _list_buffer_files(self) -> list[_BufferFile]:
         """Buffer files under this schema's prefix, in position order.
 

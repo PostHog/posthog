@@ -151,12 +151,9 @@ class Command(BaseCommand):
         collision before any file existed. On a source still on legacy, the column can only be the
         source's own.
         """
-        already_buffered = parse_ingest_mode(eligible[0].source.job_inputs) == "buffered" if eligible else False
-        conflicted = [
-            s.name
-            for s in eligible
-            if not already_buffered and s.table is not None and CDC_SEQ_COLUMN in (s.table.columns or {})
-        ]
+        if eligible and parse_ingest_mode(eligible[0].source.job_inputs) == "buffered":
+            return
+        conflicted = [s.name for s in eligible if s.table is not None and CDC_SEQ_COLUMN in (s.table.columns or {})]
         if conflicted:
             raise CommandError(
                 f"Schemas with a source column named {CDC_SEQ_COLUMN}: {', '.join(sorted(conflicted))}. "

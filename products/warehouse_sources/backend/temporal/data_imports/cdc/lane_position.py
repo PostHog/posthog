@@ -19,6 +19,7 @@ import pyarrow.compute as pc
 from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import CDC_SEQ_COLUMN
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import normalize_column_name
 
 if TYPE_CHECKING:
     import deltalake
@@ -54,16 +55,18 @@ def _has_position_column(delta_table: deltalake.DeltaTable) -> bool:
 
 
 def _stats_max(add_actions) -> tuple[int | None, bool]:
-    """The highest position the per-file stats prove, and whether any file lacked the stat.
+    """The highest position the per-file statistics prove, and whether NO file carried one.
 
-    A file written before the property was set carries no stat for the column, and its rows could
-    hold any position — so one such file makes the stats unusable on their own.
+    A file without the stat was written before the property was set. It either predates the
+    position column, so its rows are null there and cannot hold the maximum, or it is the very
+    first write carrying the column — which `ensure_position_stats` immediately follows, so every
+    later file has both the stat and a higher position. Either way a stat-bearing file wins, and
+    only a table where none of them has the stat has to be scanned.
     """
     if _MAX_STAT not in add_actions.column_names:
-        return None, add_actions.num_rows > 0
-    values = add_actions.column(_MAX_STAT).to_pylist()
-    known = [value for value in values if value is not None]
-    return (max(known) if known else None), len(known) != len(values)
+        return None, True
+    known = [value for value in add_actions.column(_MAX_STAT).to_pylist() if value is not None]
+    return (max(known) if known else None), not known
 
 
 async def read_lane_position(delta_table: deltalake.DeltaTable | None) -> LanePosition:
@@ -75,8 +78,8 @@ async def read_lane_position(delta_table: deltalake.DeltaTable | None) -> LanePo
     if add_actions.num_rows == 0:
         return EMPTY_POSITION
 
-    highest, stats_incomplete = _stats_max(add_actions)
-    if stats_incomplete:
+    highest, no_file_has_stats = _stats_max(add_actions)
+    if no_file_has_stats:
         return await _scan_position(delta_table)
     if highest is None:
         return EMPTY_POSITION
@@ -109,12 +112,15 @@ async def ensure_position_stats(delta_table: deltalake.DeltaTable, keep_stats_fo
     """Keep per-file min/max for the position column, so reading the resume point stays a lookup.
 
     Naming columns REPLACES Delta's default "first 32 columns", so every column that still needs
-    pruning has to be named too — the merge key above all, which every write matches on. Columns
-    the table does not have are left out rather than declared, which delta-rs rejects.
+    pruning has to be named too — the merge key above all, which every write matches on. A column
+    the table does not have is dropped rather than declared: delta-rs accepts it, but it would buy
+    no pruning while still displacing the defaults.
     """
     present = {field.name for field in delta_table.schema().fields}
-    columns = [CDC_SEQ_COLUMN, *[name for name in (keep_stats_for or []) if name in present and name != CDC_SEQ_COLUMN]]
-    wanted = ",".join(columns)
+    # Deduplicated, and normalized to match how the writer stores them: the caller passes raw source
+    # names, so `userId` would otherwise be dropped and the merge key would lose its pruning.
+    candidates = dict.fromkeys([CDC_SEQ_COLUMN, *(normalize_column_name(n) for n in keep_stats_for or [])])
+    wanted = ",".join(name for name in candidates if name == CDC_SEQ_COLUMN or name in present)
     if (delta_table.metadata().configuration or {}).get(STATS_COLUMNS_PROPERTY) == wanted:
         return
     try:

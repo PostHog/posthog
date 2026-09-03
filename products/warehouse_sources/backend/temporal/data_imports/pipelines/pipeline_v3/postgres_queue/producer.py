@@ -154,8 +154,10 @@ class PostgresProducer:
         if self._workflow_run_id is not None:
             metadata["workflow_run_id"] = self._workflow_run_id
         metadata["timestamp_ns"] = batch_result.timestamp_ns
-        # Only the final batch needs them: they scope the job-completion gate to this attempt.
-        if is_final_batch and self._sibling_run_uuids:
+        # Only a run with more than one lane needs them: they scope the job-completion gate to this
+        # attempt, and a lone lane has nothing to wait for — naming itself would cost the loader a
+        # queue connection per final batch to ask a question whose answer is always "no".
+        if is_final_batch and len(self._sibling_run_uuids) > 1:
             metadata["sibling_run_uuids"] = self._sibling_run_uuids
 
         # One-shot, at the start of a fresh (non-resume) run: stalled sibling runs of

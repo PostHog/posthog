@@ -1078,7 +1078,10 @@ def _process_message_reported(
 
         DELTA_ROWS_WRITTEN_TOTAL.labels(team_id=team_id_str, schema_id=schema_id_str).inc(pa_table.num_rows)
 
-        if cdc_write_mode is not None:
+        # Only where the position column is actually written. The legacy CDC path strips it to keep
+        # its writes byte-identical, and naming a column a table does not have would still replace
+        # Delta's default statistics columns with one that buys nothing.
+        if cdc_write_mode is not None and has_engine_seq(pa_table):
             # Both lanes read their resume point back from their own table, so both need Delta to
             # keep min/max for the position column. Without it the read is a full column scan on
             # every sync. See `cdc.lane_position`.

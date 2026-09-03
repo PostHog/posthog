@@ -31,7 +31,9 @@ def _make_pipeline() -> PipelineV3:
     with patch.object(PipelineV3, "__init__", return_value=None):
         pipeline = PipelineV3.__new__(PipelineV3)
 
-    pipeline._resource = MagicMock(name="test_table", primary_keys=["id"], lanes=None, finalize_metadata=None)
+    pipeline._resource = MagicMock(
+        name="test_table", primary_keys=["id"], lanes=None, finalize_metadata=None, on_nothing_staged=None
+    )
     pipeline._resource_name = "test_table"
     pipeline._job = MagicMock(team_id=1, workflow_run_id="run-abc", billable=False)
     pipeline._source = MagicMock(source_type="Postgres")
@@ -105,6 +107,7 @@ class TestAttemptScopedRunUuid:
             partition_mode=None,
             cdc_write_mode=None,
             lanes=None,
+            on_nothing_staged=None,
         )
 
         with (
@@ -235,6 +238,7 @@ class TestCDCSourceWiring:
             partition_mode=None,
             cdc_write_mode=cdc_write_mode,
             lanes=None,
+            on_nothing_staged=None,
         )
 
         base = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline"
@@ -350,6 +354,7 @@ def _run_uuids(lanes) -> list[str]:
         partition_mode=None,
         cdc_write_mode=None,
         lanes=lanes,
+        on_nothing_staged=None,
     )
     module = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline"
     pipeline_cls: type[PipelineV3] = LanedPipelineV3 if lanes else PipelineV3
@@ -556,3 +561,69 @@ class TestSingleTableRunIsUntouched:
 
         assert pipeline._sibling_run_uuids() == []
         assert pipeline._run_uuid_suffix() == ""
+
+
+class TestLanedRunRequiresAWorkflowRunId:
+    def test_a_laned_run_without_one_is_refused(self) -> None:
+        # Lanes are told apart by a suffix on the workflow run id. Without one each lane falls back
+        # to its writer's generated id, which no lane can name, so they would supersede each other's
+        # batches and the first final batch would complete the job and delete the buffer.
+        mock_job = MagicMock(team_id=1, workflow_run_id=None, billable=False, id="job-1")
+        mock_schema = MagicMock(id="schema-1", source_id="source-1", table=None)
+        mock_resource = MagicMock(
+            primary_keys=["id"],
+            lanes=[
+                OutputLane(name="users", run_uuid_suffix="-consolidated"),
+                OutputLane(name="users_cdc", run_uuid_suffix="-cdc"),
+            ],
+        )
+
+        with pytest.raises(ValueError, match="no workflow_run_id"):
+            LanedPipelineV3(
+                source_response=mock_resource,
+                logger=_make_logger(),
+                job_id="job-1",
+                reset_pipeline=False,
+                shutdown_monitor=MagicMock(),
+                resumable_source_manager=None,
+                models=ImportJobModels(job=mock_job, schema=mock_schema, source=MagicMock(), table=None),
+            )
+
+
+@pytest.mark.asyncio
+class TestNothingStaged:
+    async def test_a_run_that_stages_nothing_releases_what_it_read(self) -> None:
+        # Every lane already held the whole read, so no final batch will carry the drained files.
+        # AsyncMock, not MagicMock: the hook is awaited inside the pipeline's own event loop, and a
+        # sync callable there raises "AsyncToSync in the same thread as an async event loop".
+        released = AsyncMock()
+        pipeline = _make_pipeline()
+        pipeline._resource.on_nothing_staged = released
+        pipeline._observed_columns = {}
+
+        await pipeline._finalize(row_count=0)
+
+        released.assert_awaited_once()
+
+    async def test_a_run_that_staged_batches_does_not_release_them_early(self) -> None:
+        released = AsyncMock()
+        pipeline = _make_pipeline()
+        pipeline._resource.on_nothing_staged = released
+        pipeline._batch_results = [MagicMock(batch_index=0)]
+        pipeline._observed_columns = {}
+        pipeline._last_incremental_field_value = None
+        pipeline._earliest_incremental_field_value = None
+        cast(MagicMock, pipeline._s3_batch_writer).write_schema = MagicMock(return_value="s3://schema")
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline.finalize_desc_sort_incremental_value",
+                AsyncMock(),
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline.advance_xmin_state",
+                AsyncMock(),
+            ),
+        ):
+            await pipeline._finalize(row_count=1)
+
+        released.assert_not_awaited()

@@ -87,6 +87,20 @@ class TestReadLanePosition:
 
         assert (position.position, position.rows_at_position) == (40, 2)
 
+    async def test_a_stat_bearing_file_decides_without_scanning_the_column(self, tmp_path, mocker):
+        # Files predating the property carry no stat. Positions only ever increase, so a file that
+        # has one holds a higher position than any that does not, and the column is never scanned.
+        path = tmp_path / "t"
+        _write(path, [10, 10], stats=False)
+        deltalake.DeltaTable(str(path)).alter.set_table_properties({STATS_COLUMNS_PROPERTY: CDC_SEQ_COLUMN})
+        table = _append(path, [30, 30])
+        scan = mocker.patch("products.warehouse_sources.backend.temporal.data_imports.cdc.lane_position._scan_position")
+
+        position = await read_lane_position(table)
+
+        assert (position.position, position.rows_at_position) == (30, 2)
+        scan.assert_not_called()
+
 
 class TestEnsurePositionStats:
     async def test_it_names_the_position_column_so_later_reads_are_a_lookup(self, tmp_path, mocker):
@@ -114,3 +128,22 @@ class TestEnsurePositionStats:
 
 
 pytestmark = pytest.mark.asyncio
+
+
+class TestStatsColumnList:
+    async def test_the_merge_key_keeps_its_pruning(self, tmp_path):
+        # Naming columns replaces Delta's default 32, so the keys the writer matches on must be named.
+        table = _write(tmp_path / "t", [10], stats=False)
+
+        await ensure_position_stats(table, ["id", "id"])
+
+        wanted = deltalake.DeltaTable(str(tmp_path / "t")).metadata().configuration[STATS_COLUMNS_PROPERTY]
+        assert wanted.split(",") == [CDC_SEQ_COLUMN, "id"]
+
+    async def test_a_column_the_table_lacks_is_not_declared(self, tmp_path):
+        table = _write(tmp_path / "t", [10], stats=False)
+
+        await ensure_position_stats(table, ["nope"])
+
+        wanted = deltalake.DeltaTable(str(tmp_path / "t")).metadata().configuration[STATS_COLUMNS_PROPERTY]
+        assert wanted == CDC_SEQ_COLUMN

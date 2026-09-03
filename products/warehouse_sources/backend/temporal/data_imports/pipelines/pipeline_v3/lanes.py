@@ -80,6 +80,11 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
     ) -> None:
         if not source_response.lanes:
             raise ValueError(f"{source_response.name} declares no lanes; run it on PipelineV3")
+        if not models.job.workflow_run_id:
+            # Lanes are told apart by a suffix on the workflow run id. Without one every lane falls
+            # back to its writer's generated id, which no lane can name, so they would supersede
+            # each other's batches and complete the job early.
+            raise ValueError(f"Job {models.job.id} has no workflow_run_id; a laned run cannot name its lanes")
         # Read by the seams the base constructor calls, so it has to exist before super().__init__.
         self._output_lanes = list(source_response.lanes)
 
@@ -102,8 +107,13 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
 
     def _sibling_run_uuids(self) -> list[str]:
         """Every run id this attempt writes. Named on each producer so the first batch of one lane
-        does not supersede its siblings, and on the final batch so completion waits for them all."""
-        return [uuid for uuid in (self._run_uuid_for(lane.run_uuid_suffix) for lane in self._output_lanes) if uuid]
+        does not supersede its siblings, and on the final batch so completion waits for them all.
+
+        Never partial: without a workflow run id each lane would still take a distinct generated id
+        from its writer while this list came back empty, which supersedes a sibling's staged batches
+        and completes the job on the first final batch. `__init__` refuses that job outright.
+        """
+        return [self._run_uuid_for(lane.run_uuid_suffix) or "" for lane in self._output_lanes]
 
     async def _stage_batch(self, pa_table: pa.Table, batch_index: int, row_count: int) -> int:
         # Each lane writes the same batch under its own run id. A lane that already holds these
@@ -124,7 +134,7 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
             )
             # One read of a change stream is one sync however many tables it keeps.
             if writer.lane.billable:
-                billable_rows = lane_table.num_rows
+                billable_rows += lane_table.num_rows
         return billable_rows
 
     def _total_batches(self) -> int:

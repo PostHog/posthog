@@ -1476,6 +1476,8 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             lanes=lanes,
             # Read after extraction: the loader deletes these once the job completes.
             finalize_metadata=lambda: {"cdc_buffer_files": manager.drained_files},
+            # No batches means every lane already held this read, so nothing will carry the list.
+            on_nothing_staged=manager.discard_drained_files,
         )
 
     def source_for_pipeline(self, config: PostgresSourceConfig, inputs: SourceInputs) -> SourceResponse:

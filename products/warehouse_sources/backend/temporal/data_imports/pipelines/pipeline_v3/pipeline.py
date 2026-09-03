@@ -308,6 +308,16 @@ class PipelineV3(Generic[ResumableData]):
         )
         return schema_path
 
+    async def _nothing_staged(self) -> None:
+        """Let the source release whatever it consumed but had nothing to write for.
+
+        Buffered CDC deletes the files it drained here: with no batches there is no final batch for
+        the list to ride on, and leaving them makes an idle schema re-read them every tick. Every
+        other source leaves the hook unset, so this is a no-op for them.
+        """
+        if self._resource.on_nothing_staged is not None:
+            await self._resource.on_nothing_staged()
+
     def _mark_first_ever_sync(self) -> None:
         self._pg_producer.is_first_ever_sync = True
 
@@ -573,6 +583,7 @@ class PipelineV3(Generic[ResumableData]):
 
         if total_batches == 0:
             self._logger.debug("V3 Pipeline: No batches extracted, skipping finalization")
+            await self._nothing_staged()
             return
 
         self._logger.info(

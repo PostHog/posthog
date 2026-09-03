@@ -52,11 +52,20 @@ skips the counted rows AT the position, because history has no upsert and would 
 
 Reading it back rather than recording it beside the table is what removes the crash window: a value
 kept anywhere else can be lost between the write landing and the record of it, which either loses
-changes or writes them twice. Delta keeps per-file min/max for its first 32 columns only, and the
-position column sits past that on any real table, so the `_cdc` table carries
-`delta.dataSkippingStatsColumns = _ph_cdc_seq` and the read is a stats lookup. A table written
-before that property was set falls back to scanning the column once; compaction rewrites those
-files with stats and the fallback stops.
+changes or writes them twice.
+
+Delta keeps per-file min/max for its first 32 columns only, and the position column sits past that
+on any real table. So every table a buffered lane writes declares
+`delta.dataSkippingStatsColumns` naming the position column plus its primary and partition keys,
+and the read is a stats lookup. Naming columns replaces the default 32, which is why the merge key
+is named too — without it the history table's own merge loses its pruning. Legacy CDC tables are
+untouched: that path strips the position column before writing, so the property is never set on
+them.
+
+A file written before the property was set carries no stat for the column. It either predates the
+column, so its rows are null there and cannot hold the maximum, or it is the first write carrying
+it, which the property immediately follows. Either way a stat-bearing file wins, and only a table
+where no file has the stat is scanned.
 
 **A run stands down while any delivery for the schema is still in the queue** — a legacy one, or a
 previous attempt of this same job. Both would write alongside whatever this run reads, and on the

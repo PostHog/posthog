@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import datetime
 import dataclasses
-from collections.abc import AsyncIterable, Callable, Iterable
+from collections.abc import AsyncIterable, Awaitable, Callable, Iterable
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, Optional, Protocol, TypeVar
 
 from structlog.types import FilteringBoundLogger
@@ -111,6 +111,10 @@ class SourceResponse:
     finalize_metadata: Optional[Callable[[], dict[str, Any]]] = None
     """Read once after extraction, and carried on every lane's final batch. Lets a source hand the
     loader something only the completed run knows — which buffer files it drained, say."""
+    on_nothing_staged: Optional[Callable[[], Awaitable[None]]] = None
+    """Awaited when the run produced no batches, so a source can release whatever it consumed but
+    had nothing to write for — buffered CDC deletes the files it drained. Async because it is
+    called from inside the pipeline's own event loop."""
     lanes: Optional[list[OutputLane]] = None
     """Tables this response's items feed, when it feeds more than the one `name` alone describes.
     None means the single lane built from `name` and `cdc_write_mode`."""
