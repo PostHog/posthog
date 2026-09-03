@@ -1268,6 +1268,27 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         matched_insights = [insight["id"] for insight in any_on_dashboard_one.json()["results"]]
         assert sorted(matched_insights) == [insight_one_id]
 
+    def test_create_insight_rejects_an_unknown_insight_type(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/insights",
+            data={"name": "an unknown kind", "filters": {"insight": "history"}},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(Insight.objects.count(), 0)
+
+    def test_adding_an_insight_with_an_unknown_insight_type_to_a_dashboard_creates_the_tile(self) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, name="a dashboard")
+        insight = Insight.objects.create(team=self.team, name="an unknown kind", filters={"insight": "history"})
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{insight.id}",
+            data={"dashboards": [dashboard.id]},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(DashboardTile.objects.filter(insight=insight, dashboard=dashboard).count(), 1)
+
     @freeze_time("2012-01-14T03:21:34.000Z")
     def test_create_insight_items(self) -> None:
         response = self.client.post(

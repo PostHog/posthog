@@ -65,7 +65,7 @@ from posthog.caching.insight_result import InsightResult
 from posthog.clickhouse.cancel import cancel_query_on_cluster
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import AccessMethod, tags_context
-from posthog.constants import INSIGHT, AvailableFeature
+from posthog.constants import INSIGHT, INSIGHT_TO_DISPLAY, AvailableFeature
 from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import EventSource, get_event_source, get_request_analytics_properties, report_user_action
 from posthog.exceptions_capture import capture_exception
@@ -781,6 +781,24 @@ class InsightSerializer(InsightBasicSerializer):
             raise serializers.ValidationError(
                 f"Dashboard not found: {', '.join(str(dashboard_id) for dashboard_id in unknown)}"
             )
+        return value
+
+    def validate_filters(self, value: dict[str, Any] | None) -> dict[str, Any] | None:
+        """Reject an insight kind no query runner knows, before any part of the write lands.
+
+        The insight row and its dashboard tiles are written in separate statements, so a kind
+        that only fails later leaves the caller an insight with no tile on the dashboard.
+        """
+        filters = value or {}
+        if INSIGHT not in filters:
+            return value
+
+        insight_type = filters[INSIGHT]
+        if str(insight_type).upper() not in INSIGHT_TO_DISPLAY:
+            # `SESSIONS` is accepted but left out of the list: the kind is retired, and only
+            # old insights still hold it.
+            supported = ", ".join(sorted(key for key in INSIGHT_TO_DISPLAY if key != "SESSIONS"))
+            raise serializers.ValidationError(f"Unknown insight type: {insight_type}. Use one of: {supported}.")
         return value
 
     def validate_query(self, value: dict[str, Any] | None) -> dict[str, Any] | None:

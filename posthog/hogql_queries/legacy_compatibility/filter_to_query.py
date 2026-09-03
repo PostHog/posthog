@@ -613,9 +613,12 @@ def filters_to_funnel_paths_query(filter: dict[str, Any]) -> FunnelPathsFilter |
 def _insight_type(filter: dict) -> INSIGHT_TYPE:
     if filter.get("shown_as") == "Stickiness":
         return "STICKINESS"
-    elif filter.get("insight") == "SESSIONS":
+    insight = str(filter.get("insight", "TRENDS")).upper()
+    # `SESSIONS` is retired, and a kind no query type covers still has to convert to something.
+    # Trends is that fallback, because raising here breaks reads of an insight already saved.
+    if insight not in insight_to_query_type:
         return "TRENDS"
-    return filter.get("insight", "TRENDS")
+    return cast(INSIGHT_TYPE, insight)
 
 
 def filter_to_query(filter: dict, allow_variables: bool = False) -> InsightQueryNode:

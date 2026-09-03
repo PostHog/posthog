@@ -48,6 +48,7 @@ from posthog.constants import (
     TREND_FILTER_TYPE_ACTIONS,
     TREND_FILTER_TYPE_DATA_WAREHOUSE,
     TREND_FILTER_TYPE_EVENTS,
+    TRENDS_LINEAR,
     TRENDS_WORLD_MAP,
     BreakdownAttributionType,
 )
@@ -285,7 +286,9 @@ class InsightMixin(BaseParamMixin):
 class DisplayDerivedMixin(InsightMixin):
     @cached_property
     def display(self) -> Literal[DISPLAY_TYPES]:
-        return self._data.get(DISPLAY, INSIGHT_TO_DISPLAY[self.insight])
+        # An unknown insight kind must not raise here. The filters hash is computed while an
+        # insight is written, so a raised error leaves the insight saved and its tile missing.
+        return self._data.get(DISPLAY, INSIGHT_TO_DISPLAY.get(self.insight, TRENDS_LINEAR))
 
     @include_dict
     def display_to_dict(self):
