@@ -605,3 +605,32 @@ class TestRecordRunTokenUsageMetrics:
         recorded = self._record(activity_environment, benjamin_enabled=benjamin_enabled)
 
         assert {entry[2]["benjamin_enabled"] for entry in recorded} == {expected}
+
+
+@pytest.mark.requires_secrets
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize(
+    "origin_product,origin_key,wakes",
+    [
+        (Task.OriginProduct.WORKFLOW, "job:step:1", True),
+        (Task.OriginProduct.USER_CREATED, None, False),
+    ],
+)
+def test_terminal_transition_wakes_the_workflow_step_that_started_the_run(
+    activity_environment, test_task_run, origin_product, origin_key, wakes
+):
+    task = test_task_run.task
+    task.origin_product = origin_product
+    task.origin_key = origin_key
+    task.save(update_fields=["origin_product", "origin_key"])
+    input_data = UpdateTaskRunStatusInput(run_id=str(test_task_run.id), status=TaskRun.Status.COMPLETED)
+
+    with patch("products.tasks.backend.logic.services.workflow_step_resume.resume_workflow_step") as resume:
+        async_to_sync(activity_environment.run)(update_task_run_status, input_data)
+        # A repeat of the same terminal status is not a transition and must not wake the step again.
+        async_to_sync(activity_environment.run)(update_task_run_status, input_data)
+
+    assert resume.call_count == (1 if wakes else 0)
+    if wakes:
+        assert resume.call_args.kwargs["origin_key"] == "job:step:1"
+        assert resume.call_args.kwargs["status"] == "completed"

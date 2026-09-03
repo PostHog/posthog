@@ -54,11 +54,16 @@ def _rejected(kind: ScoutRunRejectionKind, reason: str, detail: str) -> Workflow
     return WorkflowScoutRunRejected(ScoutRunRejection(kind=kind, reason=reason, detail=detail))
 
 
-def start_workflow_scout_run(*, team_id: int, skill_name: str) -> WorkflowScoutRunStarted:
+def start_workflow_scout_run(
+    *, team_id: int, skill_name: str, workflow_origin_key: str | None = None
+) -> WorkflowScoutRunStarted:
     """Start one workflow-triggered run of `skill_name`, or raise `WorkflowScoutRunRejected`.
 
     `team_id` has to be the project's main environment: scout rows live under it, and there is no
     human credential here to re-authorize a child environment against it.
+
+    `workflow_origin_key` is the calling step's dispatch key. When set, the run wakes that step
+    when it finishes.
 
     Rejection kinds are chosen so the step reads them correctly. `NOT_FOUND` means the node names a
     scout that cannot run (a typo, a deleted skill) and surfaces as a step failure the author
@@ -128,7 +133,9 @@ def start_workflow_scout_run(*, team_id: int, skill_name: str) -> WorkflowScoutR
 
     workflow_id = workflow_triggered_run_workflow_id(team_id, skill_name)
     try:
-        start_workflow_signals_scout_run(sync_connect(), team_id=team_id, skill_name=skill_name)
+        start_workflow_signals_scout_run(
+            sync_connect(), team_id=team_id, skill_name=skill_name, workflow_origin_key=workflow_origin_key
+        )
     except WorkflowAlreadyStartedError:
         # A run was dispatched between the in-flight check and the start call. The endpoint's
         # idempotency cache is what replays a retry whose response was lost, so a collision

@@ -152,6 +152,7 @@ export type CdpCoreServicesConfig = Pick<
         | 'CDP_WATCHER_STATE_LOCK_TTL'
         | 'CDP_WATCHER_OBSERVE_RESULTS_BUFFER_TIME_MS'
         | 'CDP_WATCHER_OBSERVE_RESULTS_BUFFER_MAX_RESULTS'
+        | 'CDP_HOGFLOW_AWAIT_TASK_COMPLETION'
         | 'SES_ACCESS_KEY_ID'
         | 'SES_SECRET_ACCESS_KEY'
         | 'SES_REGION'
@@ -526,7 +527,8 @@ export function createCdpCoreServices(
         cohortMembershipRepository,
         deps.integrationManager,
         hogFlowDuplicateObserver,
-        cdpUsageReporter
+        cdpUsageReporter,
+        { awaitTaskCompletion: config.CDP_HOGFLOW_AWAIT_TASK_COMPLETION }
     )
 
     const hogFunctionMonitoringService = new HogFunctionMonitoringService(outputs)

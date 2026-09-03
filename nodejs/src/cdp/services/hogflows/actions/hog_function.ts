@@ -1,12 +1,15 @@
-import { DateTime } from 'luxon'
+import { DateTime, Duration } from 'luxon'
+import { Counter } from 'prom-client'
 
 import { HogFlowAction } from '~/cdp/schema/hogflow'
+import { buildWorkflowStepDispatchKey } from '~/cdp/utils/workflow-step-dispatch-key'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 
 import {
     CyclotronJobInvocationHogFlow,
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
+    HogFlowInvocationContext,
     MinimalLogEntry,
 } from '../../../types'
 import { HogExecutorExecuteAsyncOptions } from '../../hog-executor-async.service'
@@ -23,13 +26,58 @@ type FunctionActionType = 'function' | 'function_email' | 'function_sms'
 
 type Action = Extract<HogFlowAction, { type: FunctionActionType }>
 
+type AwaitingResume = NonNullable<NonNullable<HogFlowInvocationContext['currentAction']>['awaitingResume']>
+
+type AwaitedTemplate = {
+    // What the run log calls the dispatched run.
+    noun: string
+    // Field of the step result that carries the run's id; a result without it (a 409 skip, a task
+    // with no run) has nothing to wait for.
+    runIdField: string
+    // Must exceed the product's own hard runtime cap, or a slow but successful run gets cut off.
+    maxWait: Duration
+}
+
+// Steps that start an external run and wait for it. Django wakes the parked job by its dispatch key
+// when the run reaches a terminal status; the deadline is only the backstop.
+// Task cap: TASKS_MAX_RUN_DURATION_SECONDS (3h). Scout cap: STALE_RUN_CUTOFF_S (32m).
+const AWAITED_TEMPLATES: Record<string, AwaitedTemplate> = {
+    'template-posthog-create-task': {
+        noun: 'task',
+        runIdField: 'run_id',
+        maxWait: Duration.fromObject({ hours: 3, minutes: 10 }),
+    },
+    'template-posthog-run-scout': {
+        noun: 'scout run',
+        runIdField: 'workflow_id',
+        maxWait: Duration.fromObject({ minutes: 35 }),
+    },
+}
+
+// Total workflow variables are capped at 5KB, and the step result is what `output_variable` stores.
+const RESUME_RESULT_STRING_CAP = 1500
+
+const counterAwaitedStepStaleResume = new Counter({
+    name: 'cdp_hogflow_awaited_step_stale_resume',
+    help: 'A parked step received a wake keyed to an earlier visit of the same step and kept waiting.',
+})
+
+const truncateStringValues = (obj: Record<string, unknown>, cap: number): Record<string, unknown> =>
+    Object.fromEntries(
+        Object.entries(obj).map(([key, value]) => [
+            key,
+            typeof value === 'string' && value.length > cap ? value.slice(0, cap) : value,
+        ])
+    )
+
 export class HogFunctionHandler implements ActionHandler {
     constructor(
         private hogFlowFunctionsService: HogFlowFunctionsService,
         private recipientPreferencesService: RecipientPreferencesService,
         private emailValidationService: EmailValidationService,
         private hogFlowActionBillingType: 'fetch' | 'email' | 'push',
-        private usageReporter?: CdpUsageReporterService
+        private usageReporter?: CdpUsageReporterService,
+        private options: { awaitTaskCompletion?: boolean } = {}
     ) {}
 
     async execute({
@@ -38,6 +86,15 @@ export class HogFunctionHandler implements ActionHandler {
         result,
         hogExecutorOptions,
     }: ActionHandlerOptions<Action>): Promise<ActionHandlerResult> {
+        const awaited = this.options.awaitTaskCompletion ? AWAITED_TEMPLATES[action.config.template_id] : undefined
+        const awaiting = invocation.state.currentAction?.awaitingResume
+        // A parked step re-enters here on wake or deadline. Nothing below must run again: the
+        // dispatch already happened and was billed, and the variable-usage guard below keys on
+        // hogFunctionState, which a finished function never sets.
+        if (awaited && awaiting) {
+            return this.resumeAwaitedStep(invocation, action, result, awaited, awaiting)
+        }
+
         // Inputs are rendered once, on fresh entry into the action (continuations reuse the
         // rendered state in hogFunctionState) - so this also fires at most once per step per run
         if (!invocation.state.currentAction?.hogFunctionState) {
@@ -115,11 +172,81 @@ export class HogFunctionHandler implements ActionHandler {
             }
         }
 
+        if (awaited && !functionResult.error) {
+            const parked = this.parkForAwaitedRun(invocation, action, result, awaited, functionResult.execResult)
+            if (parked) {
+                return parked
+            }
+        }
+
         return {
             nextAction: findContinueAction(invocation),
             result: functionResult.execResult,
             error: functionResult.error,
         }
+    }
+
+    private parkForAwaitedRun(
+        invocation: CyclotronJobInvocationHogFlow,
+        action: Action,
+        result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>,
+        awaited: AwaitedTemplate,
+        execResult: unknown
+    ): ActionHandlerResult | null {
+        const dispatch = execResult as Record<string, unknown> | undefined
+        if (!dispatch?.[awaited.runIdField]) {
+            return null
+        }
+        const key = buildWorkflowStepDispatchKey(invocation.id, action.id, invocation.state.actionStepCount)
+        const deadline = DateTime.now().plus(awaited.maxWait)
+        result.invocation.state.currentAction!.awaitingResume = { key, deadlineAt: deadline.toISO()!, dispatch }
+        result.logs.push({
+            level: 'info',
+            timestamp: DateTime.now(),
+            message: `${actionIdForLogging(action)} Waiting for the ${awaited.noun} to finish (up to ${awaited.maxWait.toHuman()})`,
+        })
+        return { scheduledAt: deadline }
+    }
+
+    private resumeAwaitedStep(
+        invocation: CyclotronJobInvocationHogFlow,
+        action: Action,
+        result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>,
+        awaited: AwaitedTemplate,
+        awaiting: AwaitingResume
+    ): ActionHandlerResult {
+        const currentAction = result.invocation.state.currentAction!
+        const resume = currentAction.resumeResult
+        if (resume?.key === awaiting.key) {
+            delete currentAction.awaitingResume
+            delete currentAction.resumeResult
+            const payload = truncateStringValues(resume.result ?? {}, RESUME_RESULT_STRING_CAP)
+            if (resume.status !== 'completed') {
+                const detail = typeof payload.error_message === 'string' ? `: ${payload.error_message}` : ''
+                const outcome = resume.status === 'cancelled' ? 'was cancelled' : 'failed'
+                throw new Error(`The ${awaited.noun} ${outcome}${detail}`)
+            }
+            result.logs.push({
+                level: 'info',
+                timestamp: DateTime.now(),
+                message: `${actionIdForLogging(action)} The ${awaited.noun} finished`,
+            })
+            return {
+                nextAction: findContinueAction(invocation),
+                result: { ...awaiting.dispatch, status: resume.status, ...payload },
+            }
+        }
+        if (resume) {
+            delete currentAction.resumeResult
+            counterAwaitedStepStaleResume.inc()
+        }
+        const deadline = DateTime.fromISO(awaiting.deadlineAt)
+        if (DateTime.now() >= deadline) {
+            throw new Error(`Timed out waiting for the ${awaited.noun} to finish after ${awaited.maxWait.toHuman()}`)
+        }
+        // Woken before the deadline with nothing to consume (clock skew between Postgres and this
+        // worker is the known cause): park again until the deadline.
+        return { scheduledAt: deadline }
     }
 
     private async executeHogFunction(

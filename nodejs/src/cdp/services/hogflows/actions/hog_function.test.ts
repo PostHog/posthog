@@ -649,4 +649,161 @@ describe('HogFunctionHandler', () => {
             })
         })
     })
+
+    describe('awaited templates', () => {
+        const TASK_TEMPLATE_ID = 'template-posthog-create-task'
+        let awaitingHandler: HogFunctionHandler
+        let dispatchKey: string
+
+        const buildTaskFlow = (inputs: Record<string, { value: unknown }> = {}): void => {
+            const hogFlow = new FixtureHogFlowBuilder()
+                .withTeamId(team.id)
+                .withWorkflow({
+                    actions: {
+                        task: { type: 'function', config: { template_id: TASK_TEMPLATE_ID, inputs } },
+                        exit: { type: 'exit', config: {} },
+                    },
+                    edges: [{ from: 'task', to: 'exit', type: 'continue' }],
+                })
+                .build()
+            action = findActionByType(hogFlow, 'function')!
+            invocation = createExampleHogFlowInvocation(hogFlow)
+            invocation.state.actionStepCount = 3
+            invocation.state.currentAction = { id: action.id, startedAtTimestamp: DateTime.utc().toMillis() }
+            dispatchKey = `${invocation.id}:${action.id}:3`
+        }
+
+        const execute = async (handler: HogFunctionHandler = awaitingHandler) => {
+            const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+                queue: 'hog',
+                queuePriority: 0,
+            })
+            const handlerResult = await handler.execute({ invocation, action, result: invocationResult })
+            return { handlerResult, invocationResult }
+        }
+
+        beforeEach(async () => {
+            await insertHogFunctionTemplate(hub.postgres, {
+                id: TASK_TEMPLATE_ID,
+                name: 'Create task',
+                code: `if (inputs.skip) { return { 'skipped': true, 'reason': 'over the cap' } } return { 'id': 't1', 'run_id': 'r1' }`,
+                inputs_schema: [{ key: 'skip', type: 'boolean', required: false }],
+            })
+            awaitingHandler = new HogFunctionHandler(
+                mockHogFlowFunctionsService,
+                mockRecipientPreferencesService,
+                mockEmailValidationService,
+                'fetch',
+                undefined,
+                { awaitTaskCompletion: true }
+            )
+            buildTaskFlow()
+        })
+
+        it('parks after the dispatch until the task finishes', async () => {
+            const before = DateTime.now()
+            const { handlerResult, invocationResult } = await execute()
+
+            expect(handlerResult.nextAction).toBeUndefined()
+            expect(handlerResult.scheduledAt!.diff(before).as('minutes')).toBeGreaterThanOrEqual(190)
+            expect(invocationResult.invocation.state.currentAction?.awaitingResume).toEqual({
+                key: dispatchKey,
+                deadlineAt: handlerResult.scheduledAt!.toISO(),
+                dispatch: { id: 't1', run_id: 'r1' },
+            })
+            expect(invocationResult.metrics.map((m) => m.metric_name)).toContain('billable_invocation')
+            expect(invocationResult.logs.map((l) => l.message)).toContainEqual(
+                expect.stringContaining('Waiting for the task to finish')
+            )
+        })
+
+        it.each([
+            ['the dispatch was skipped', { skip: { value: true } }, true],
+            ['waiting is turned off', {}, false],
+        ])('advances without waiting when %s', async (_, inputs, awaitTaskCompletion) => {
+            buildTaskFlow(inputs)
+            const handler = new HogFunctionHandler(
+                mockHogFlowFunctionsService,
+                mockRecipientPreferencesService,
+                mockEmailValidationService,
+                'fetch',
+                undefined,
+                { awaitTaskCompletion }
+            )
+
+            const { handlerResult, invocationResult } = await execute(handler)
+
+            expect(handlerResult.nextAction?.id).toBe('exit')
+            expect(invocationResult.invocation.state.currentAction?.awaitingResume).toBeUndefined()
+        })
+
+        describe('on resume', () => {
+            let executeSpy: jest.SpyInstance
+            const deadlineAt = DateTime.now().plus({ hours: 1 }).toISO()!
+
+            beforeEach(() => {
+                executeSpy = jest.spyOn(mockHogFlowFunctionsService, 'executeWithAsyncFunctions')
+                invocation.state.currentAction!.awaitingResume = {
+                    key: dispatchKey,
+                    deadlineAt,
+                    dispatch: { id: 't1', run_id: 'r1' },
+                }
+            })
+
+            it('advances with the dispatch and the run result merged, without re-running the step', async () => {
+                invocation.state.currentAction!.resumeResult = {
+                    key: dispatchKey,
+                    status: 'completed',
+                    result: { final_message: 'x'.repeat(5000), pr_urls: ['https://example.com/pr/1'] },
+                }
+
+                const { handlerResult, invocationResult } = await execute()
+
+                expect(executeSpy).not.toHaveBeenCalled()
+                expect(handlerResult.nextAction?.id).toBe('exit')
+                expect(handlerResult.result).toEqual({
+                    id: 't1',
+                    run_id: 'r1',
+                    status: 'completed',
+                    final_message: 'x'.repeat(1500),
+                    pr_urls: ['https://example.com/pr/1'],
+                })
+                expect(invocationResult.invocation.state.currentAction?.awaitingResume).toBeUndefined()
+                expect(invocationResult.invocation.state.currentAction?.resumeResult).toBeUndefined()
+            })
+
+            it('fails the step when the task did not complete', async () => {
+                invocation.state.currentAction!.resumeResult = {
+                    key: dispatchKey,
+                    status: 'failed',
+                    result: { error_message: 'sandbox crashed' },
+                }
+
+                await expect(execute()).rejects.toThrow('The task failed: sandbox crashed')
+                expect(executeSpy).not.toHaveBeenCalled()
+            })
+
+            it('ignores a wake for an earlier visit and keeps waiting', async () => {
+                invocation.state.currentAction!.resumeResult = {
+                    key: `${invocation.id}:${action.id}:1`,
+                    status: 'completed',
+                }
+
+                const { handlerResult, invocationResult } = await execute()
+
+                expect(handlerResult.nextAction).toBeUndefined()
+                expect(handlerResult.scheduledAt!.toISO()).toBe(deadlineAt)
+                expect(invocationResult.invocation.state.currentAction?.resumeResult).toBeUndefined()
+                expect(invocationResult.invocation.state.currentAction?.awaitingResume?.key).toBe(dispatchKey)
+            })
+
+            it('fails the step when the deadline passes without a wake', async () => {
+                invocation.state.currentAction!.awaitingResume!.deadlineAt = DateTime.now()
+                    .minus({ minutes: 1 })
+                    .toISO()!
+
+                await expect(execute()).rejects.toThrow('Timed out waiting for the task to finish')
+            })
+        })
+    })
 })
