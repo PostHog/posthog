@@ -54,6 +54,18 @@ describe('url-parameters-to-properties.template', () => {
         expect(result.properties.$set_once.initial_utm_ref_param).toBe('abc')
     })
 
+    it('decodes + as a space and matches percent-encoded parameter names', async () => {
+        mockGlobals = tester.createGlobals({
+            event: {
+                properties: { $current_url: 'https://example.com/?utm%5Fsource=spring+sale' },
+            },
+        })
+
+        const result = await invoke({ parameters: 'utm_source' }, mockGlobals)
+
+        expect(result.properties.utm_source).toBe('spring sale')
+    })
+
     it('stores repeated parameters as a JSON array', async () => {
         mockGlobals = tester.createGlobals({
             event: { properties: { $current_url: 'https://example.com/?tag=a&tag=b' } },

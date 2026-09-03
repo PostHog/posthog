@@ -21,6 +21,13 @@ if (length(parts) < 2) {
     return event
 }
 
+// Query strings encode a space as '+', so decode both names and values the way a browser does,
+// and fall back to the raw text when a component is not valid percent-encoding.
+fun decodeComponent(s) {
+    let replaced := replaceAll(s, '+', ' ')
+    return tryDecodeURLComponent(replaced) ?? replaced
+}
+
 // Drop a trailing hash fragment so it is not read as part of the last value.
 let queryString := splitByString('#', parts[2], 2)[1]
 let pairs := splitByString('&', queryString)
@@ -32,9 +39,10 @@ for (let raw in splitByString(',', inputs.parameters)) {
         for (let pair in pairs) {
             if (not empty(pair)) {
                 let kv := splitByString('=', pair, 2)
-                let matches := inputs.ignoreCase ? (lower(kv[1]) == lower(name)) : (kv[1] == name)
+                let decodedName := decodeComponent(kv[1])
+                let matches := inputs.ignoreCase ? (lower(decodedName) == lower(name)) : (decodedName == name)
                 if (matches) {
-                    values := arrayPushBack(values, length(kv) > 1 ? decodeURLComponent(kv[2]) : '')
+                    values := arrayPushBack(values, length(kv) > 1 ? decodeComponent(kv[2]) : '')
                 }
             }
         }
