@@ -1,5 +1,5 @@
 import { buildIntegerMatcher } from '~/common/config/config'
-import { decideProcessPerson, isDistinctIdIllegal } from '~/common/persons/person-utils'
+import { decideProcessPerson, isDistinctIdUnmergeable } from '~/common/persons/person-utils'
 import type { ChunkProcessingStep } from '~/ingestion/framework/base-chunk-pipeline'
 import { PipelineResult, ok } from '~/ingestion/framework/results'
 import type { ProcessingStep } from '~/ingestion/framework/steps'
@@ -156,10 +156,11 @@ function planRun<T extends MergeFoldScanItem>(
         if (anonDistinctId === null || anonDistinctId === targetDistinctId || pairByAnonId.has(anonDistinctId)) {
             continue
         }
-        // An illegal anon id never merges; keeping its event on the immediate
-        // path emits the per-event warning and keeps is_identified untouched,
-        // exactly as today.
-        if (isDistinctIdIllegal(anonDistinctId)) {
+        // An id no merge can involve never folds; keeping its event on the
+        // immediate path emits the per-event warning and keeps is_identified
+        // untouched. The same width the merge itself refuses on, so a pair
+        // the fold accepted cannot fail the transaction at the column limit.
+        if (isDistinctIdUnmergeable(anonDistinctId)) {
             continue
         }
         pairByAnonId.set(anonDistinctId, { anonDistinctId, eventUuid: values[index].event.uuid })
