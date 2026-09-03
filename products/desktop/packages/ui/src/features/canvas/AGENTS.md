@@ -149,6 +149,9 @@ changing breadcrumbs, canvas naming, or the canvas generation harness. The root
   Two things keep that working: a row's payload has to stay referentially stable
   (memoize the `menu`), and a surface that lists rows has to sit under the
   provider, or its rows get no card at all.
+  Base UI keeps the card open across the gap. `ChannelPreviewPointerGrace` uses
+  Floating UI's `safePolygon` to stop sibling rows from taking the shared card
+  while the pointer is moving toward it.
 - **A space has a card too, on the same handle.** `SpaceHoverCard` is a trigger on the one popup the session rows use, so crossing from a space to a session under it swaps the card's contents instead of closing one popup and opening another. The payload is a discriminated union (`ChannelPreviewPayload`), and `kind` picks `SpacePreview` or `ChannelItemPreview`.
   It shows who has been working in the space, what it is wired to, and the counts the row draws as dots: the creator leads the avatar group wearing a crown, then whoever ran the newest sessions.
   The people are not a membership list — the backend has none. They come from `useSpaceOverview`, off the same `space-tree-tasks` page the tree's rows are built from, which the row's own hover prefetch has already warmed, so the card costs no request.

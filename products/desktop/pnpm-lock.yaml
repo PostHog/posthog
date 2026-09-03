@@ -1298,6 +1298,9 @@ importers:
       '@dnd-kit/react':
         specifier: ^0.1.21
         version: 0.1.21(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
+      '@floating-ui/react':
+        specifier: ^0.27.19
+        version: 0.27.19(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
       '@joplin/turndown-plugin-gfm':
         specifier: ^1.0.67
         version: 1.0.67

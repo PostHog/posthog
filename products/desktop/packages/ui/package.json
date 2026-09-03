@@ -46,6 +46,7 @@
     "@dnd-kit/abstract": "^0.1.21",
     "@dnd-kit/dom": "^0.1.21",
     "@dnd-kit/react": "^0.1.21",
+    "@floating-ui/react": "^0.27.19",
     "@joplin/turndown-plugin-gfm": "^1.0.67",
     "@lezer/common": "^1.5.1",
     "@lezer/highlight": "^1.2.3",

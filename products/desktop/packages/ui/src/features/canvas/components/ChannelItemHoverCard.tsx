@@ -5,6 +5,7 @@ import {
   ChannelItemPreview,
   type ChannelItemPreviewPayload,
 } from "@posthog/ui/features/canvas/components/ChannelItemPreview";
+import { ChannelPreviewPointerGrace } from "@posthog/ui/features/canvas/components/ChannelPreviewPointerGrace";
 import {
   SpacePreview,
   type SpacePreviewPayload,
@@ -14,6 +15,7 @@ import { useIsPinDragging } from "@posthog/ui/features/sidebar/pinDragStore";
 import {
   createContext,
   type ReactNode,
+  type RefObject,
   useCallback,
   useContext,
   useEffect,
@@ -44,9 +46,12 @@ const KEYBOARD_OPEN_DELAY_MS = 350;
  * pointer crosses from a space to a session inside it without either card
  * re-waiting its open delay, which is the whole reason the handle is shared.
  */
-export type ChannelPreviewPayload =
+export type ChannelPreviewPayload = (
   | ({ kind: "item" } & ChannelItemPreviewPayload)
-  | ({ kind: "space" } & SpacePreviewPayload);
+  | ({ kind: "space" } & SpacePreviewPayload)
+) & {
+  triggerRef: RefObject<HTMLElement | null>;
+};
 
 /**
  * The shared card, and who currently owns it.
@@ -94,6 +99,7 @@ export function ChannelItemPreviewCardProvider({
   );
   const [open, setOpen] = useState(false);
   const [submenuOpen, setSubmenuOpen] = useState(false);
+  const positionerRef = useRef<HTMLDivElement | null>(null);
   const close = useCallback(() => {
     setSubmenuOpen(false);
     handle.close();
@@ -141,7 +147,12 @@ export function ChannelItemPreviewCardProvider({
         {({ payload }) =>
           payload ? (
             <PreviewCard.Portal>
+              <ChannelPreviewPointerGrace
+                triggerRef={payload.triggerRef}
+                floatingRef={positionerRef}
+              />
               <PreviewCard.Positioner
+                ref={positionerRef}
                 side="right"
                 align="start"
                 sideOffset={10}
@@ -235,11 +246,12 @@ export function ChannelItemHoverCard({
   children: ReactNode;
 }) {
   const card = useContext(ChannelItemPreviewHandleContext);
+  const triggerRef = useRef<HTMLDivElement | null>(null);
   // The card reads the row it is over off the active trigger, so what the row
   // has to say travels as the trigger's payload. Kept stable, because a new
   // identity writes it to the card's store again.
   const payload = useMemo(
-    () => ({ kind: "item" as const, item, menu }),
+    () => ({ kind: "item" as const, item, menu, triggerRef }),
     [item, menu],
   );
   // Ours rather than Base UI's own, because opening from the keyboard means
@@ -249,7 +261,12 @@ export function ChannelItemHoverCard({
   const row = (
     // Pointing at any row hands the card to the pointer, so the row the
     // keyboard opened it on stops trying to close it.
-    <div className="flex min-w-0" onPointerEnter={card?.releaseKeyboard}>
+    <div
+      ref={triggerRef}
+      data-channel-preview-trigger
+      className="flex min-w-0"
+      onPointerEnter={card?.releaseKeyboard}
+    >
       {children}
     </div>
   );
@@ -291,16 +308,22 @@ export function SpaceHoverCard({
   children: ReactNode;
 }) {
   const card = useContext(ChannelItemPreviewHandleContext);
+  const triggerRef = useRef<HTMLDivElement | null>(null);
   // Stable for the reason a session row's is: a new identity writes the payload
   // to the card's store again. The caller memoizes what it passes.
   const payload = useMemo(
-    () => ({ kind: "space" as const, ...space }),
+    () => ({ kind: "space" as const, ...space, triggerRef }),
     [space],
   );
   const triggerId = useId();
   useKeyboardPreview(card, triggerId, highlighted);
   const row = (
-    <div className="flex min-w-0" onPointerEnter={card?.releaseKeyboard}>
+    <div
+      ref={triggerRef}
+      data-channel-preview-trigger
+      className="flex min-w-0"
+      onPointerEnter={card?.releaseKeyboard}
+    >
       {children}
     </div>
   );
