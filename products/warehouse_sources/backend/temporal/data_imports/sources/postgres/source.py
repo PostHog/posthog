@@ -764,6 +764,19 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "Enable hot_standby on the replica and restart it, or point this source at the primary "
                 "database, then re-enable the sync."
             ),
+            # SQLSTATE 57P03 with the message "database <name> is not currently accepting connections":
+            # the server is up (it answered with a FATAL) but the target database has datallowconn
+            # turned off, or a managed provider has paused/suspended it (e.g. an inactive Supabase
+            # project). Deterministic until the customer restores it, so a whole-activity retry re-hits
+            # the same refusal — distinct from the transient "the database system is not yet accepting
+            # connections" startup refusal kept retryable in postgres.py (which reads "not yet", not "not
+            # currently"). Match the stable phrase and exclude the volatile database name.
+            "is not currently accepting connections": (
+                "The database you selected to sync isn't accepting new connections right now — this "
+                "usually means it's paused or set to disallow connections (managed providers such as "
+                "Supabase pause inactive projects). Resume or reactivate the database, then re-enable "
+                "the sync."
+            ),
             # A single recovery conflict ("conflict with recovery") is transient and retried in-process,
             # so it stays retryable. This abort is only raised once those retries are exhausted — by then
             # the condition is sustained and a whole-activity retry just re-reads from offset 0 into the
