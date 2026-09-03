@@ -30,9 +30,13 @@ from products.engineering_analytics.backend.logic.queries._workflow_filters impo
 
 _LIMIT = 200
 
-# A job GitHub lists but never ran (skipped by a condition) carries started_at = created_at and a
-# zero duration, so it is not a sample of anything the queue or the runner did.
-_EXECUTED_JOB_CONDITION = "conclusion != 'skipped' AND started_at IS NOT NULL"
+# A job GitHub lists but never ran (skipped by a condition) carries started_at = created_at, so it is
+# not a sample of anything the queue did. ifNull is load-bearing per SPEC §6: `conclusion` is a
+# passed-through Nullable(String), and a bare `!=` against NULL yields NULL, which quantileIf drops.
+# That would take every still-running job out of the percentile, and a job waiting on a busy runner
+# pool is exactly the sample this measure exists to show. A job that never started needs no clause of
+# its own: the builder leaves its queue_seconds NULL, which the aggregate already ignores.
+_EXECUTED_JOB_CONDITION = "ifNull(conclusion, '') != 'skipped'"
 
 # De-shard + de-template in SQL so grouping happens server-side over millions of job rows.
 # Mirrors jobGroups.stripShardSuffix / collapseTemplates on the frontend and
