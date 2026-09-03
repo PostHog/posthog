@@ -247,11 +247,14 @@ def _capture_terminal_analytics(task_run: TaskRun, input: UpdateTaskRunStatusInp
             "seconds_since_last_agent_heartbeat": input.seconds_since_last_agent_heartbeat,
         }
         if input.status == TaskRun.Status.COMPLETED:
+            output = task_run.output if isinstance(task_run.output, dict) else {}
             task_run.capture_event(
                 "task_run_completed",
                 {
                     "duration_seconds": task_run._duration_seconds(),
                     "termination_reason": termination_reason,
+                    # Whether the agent ever called `task_summary_update` on this run.
+                    "has_summary": bool(output.get("summary")),
                     **relay_state,
                 },
             )

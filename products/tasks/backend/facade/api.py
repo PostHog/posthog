@@ -2816,15 +2816,46 @@ def update_task_run(
     return _task_run_detail_to_dto(run)
 
 
+# The cap is the point of the summary, not a safety margin: what the agent has to leave out to fit
+# is what stopped mattering, and the result is read in a sidebar hover rather than opened.
+TASK_RUN_SUMMARY_MAX_CHARS = 1500
+
+
+def _is_summary_only_output(output: dict) -> bool:
+    """Is this a ``task_summary_update`` write — the agent's running summary and nothing else?
+
+    A structured-output task completes its run on any output write and validates the write against
+    the task's json_schema. A summary is progress bookkeeping, so it must do neither.
+    """
+    return set(output) == {"summary"}
+
+
+def _validate_output_summary(output: dict) -> str | None:
+    summary = output.get("summary")
+    if summary is None:
+        return None
+    if not isinstance(summary, str):
+        return "Output validation error: summary must be a string."
+    if len(summary) > TASK_RUN_SUMMARY_MAX_CHARS:
+        return (
+            f"Output validation error: summary is {len(summary)} characters, over the "
+            f"{TASK_RUN_SUMMARY_MAX_CHARS} character limit. Cut it down and write it again."
+        )
+    return None
+
+
 def validate_set_output(run_id: str | UUID, task_id: str | UUID, team_id: int, *, output: dict) -> str | None:
-    """Validate output against the task's json_schema. Returns an error message or ``None``."""
+    """Validate output against the summary cap and the task's json_schema. Returns an error or ``None``."""
     import jsonschema  # noqa: PLC0415 — only needed when a json_schema is set
 
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
         return None
+    summary_error = _validate_output_summary(output)
+    if summary_error is not None:
+        return summary_error
     task = run.task
-    if task.json_schema:
+    if task.json_schema and not _is_summary_only_output(output):
         try:
             jsonschema.validate(instance=output, schema=task.json_schema)
         except jsonschema.ValidationError as e:
@@ -2847,7 +2878,7 @@ def set_task_run_output(
     run.output = _apply_caller_output(existing, output, merged)
     run.save(update_fields=["output", "updated_at"])
     _refresh_self_driving_quota_for_pr(run, existing.get("pr_url"))
-    if task.json_schema:
+    if task.json_schema and not _is_summary_only_output(output):
         signal_workflow_completion(run.id, TaskRun.Status.COMPLETED, None)
     run.publish_stream_state_event()
     _post_slack_update_for_pr(run)

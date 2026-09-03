@@ -740,9 +740,18 @@ class Task(DeletedMetaFields, models.Model):
 
             resume_from_run_id = (extra_state or {}).get("resume_from_run_id")
             if resume_from_run_id is not None:
-                resume_source = TaskRun.objects.filter(id=resume_from_run_id, task_id=task.id).only("state").first()
+                resume_source = (
+                    TaskRun.objects.filter(id=resume_from_run_id, task_id=task.id).only("state", "output").first()
+                )
                 if resume_source is None or not resume_source.matches_task_ownership(task):
                     raise TaskOwnershipChangedError("The resume source belongs to a previous task owner")
+                # Hand the successor whatever account of the task its source left behind, so the
+                # agent extends it instead of starting one over. The agent-server puts it in the
+                # session prompt.
+                source_output = resume_source.output if isinstance(resume_source.output, dict) else {}
+                prior_summary = source_output.get("summary")
+                if isinstance(prior_summary, str) and prior_summary.strip():
+                    state.setdefault("prior_run_summary", prior_summary)
 
             # Pin the stream-routing decision once so every reader/writer agrees for this run's life.
             state.setdefault("use_dedicated_stream", dedicated_stream)
