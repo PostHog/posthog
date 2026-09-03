@@ -31,6 +31,7 @@ import type {
   AvailableSuggestedReviewersResponse,
   ChannelFeedMessage,
   ChannelFeedMessageEvent,
+  ChannelRecentTaskAuthor,
   CodeReferenceArtefact,
   CommitArtefact,
   CommitDiffResponse,
@@ -3061,6 +3062,22 @@ export class PostHogAPIClient {
       throw new Error(`Failed to fetch task channels: ${response.statusText}`);
     }
     return (await response.json()) as TaskChannel[];
+  }
+
+  async getRecentTaskAuthors(): Promise<ChannelRecentTaskAuthor[]> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/task_channels/recent_task_authors/`;
+    const response = await this.api.fetcher.fetch({
+      method: "get",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Failed to fetch recent task authors: ${response.statusText}`,
+      );
+    }
+    return (await response.json()) as ChannelRecentTaskAuthor[];
   }
 
   // Resolve-or-create a public channel by name (idempotent server-side). `star`

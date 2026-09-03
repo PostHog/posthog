@@ -6,7 +6,11 @@ import {
   presenceTier,
   shouldShowUserPresence,
 } from "@posthog/core/canvas/presence";
-import type { Task, UserBasic } from "@posthog/shared/domain-types";
+import type {
+  ChannelRecentTaskAuthor,
+  Task,
+  UserBasic,
+} from "@posthog/shared/domain-types";
 import { describe, expect, it } from "vitest";
 
 const NOW = 1_700_000_000_000;
@@ -111,14 +115,14 @@ describe("liveUuidsFromTasks", () => {
 });
 
 describe("presenceByChannel", () => {
-  function chanTask(
-    channel: string | null,
-    createdBy: UserBasic | null,
+  function recentAuthor(
+    channelId: string,
+    person: UserBasic,
     agoMs: number,
-  ): Pick<Task, "created_by" | "last_activity_at" | "channel"> {
+  ): ChannelRecentTaskAuthor {
     return {
-      channel,
-      created_by: createdBy,
+      channel_id: channelId,
+      user: person,
       last_activity_at: new Date(NOW - agoMs).toISOString(),
     };
   }
@@ -126,10 +130,10 @@ describe("presenceByChannel", () => {
   it("groups recently-active people by channel, most-recent first", () => {
     const map = presenceByChannel(
       [
-        chanTask("c1", user("a"), 30_000), // most recent in c1
-        chanTask("c1", user("b"), 90_000),
-        chanTask("c2", user("c"), 60_000),
-        chanTask("c1", user("d"), PRESENCE_RECENT_WINDOW_MS + 1), // idle, dropped
+        recentAuthor("c1", user("a"), 30_000), // most recent in c1
+        recentAuthor("c1", user("b"), 90_000),
+        recentAuthor("c2", user("c"), 60_000),
+        recentAuthor("c1", user("d"), PRESENCE_RECENT_WINDOW_MS + 1), // idle, dropped
       ],
       { now: NOW, limit: 5, currentUserUuid: "viewer" },
     );
@@ -140,8 +144,8 @@ describe("presenceByChannel", () => {
   it("marks only the live people, and only ones it kept", () => {
     const map = presenceByChannel(
       [
-        chanTask("c1", user("a"), 30_000), // live
-        chanTask("c1", user("b"), PRESENCE_LIVE_WINDOW_MS + 60_000), // recent
+        recentAuthor("c1", user("a"), 30_000), // live
+        recentAuthor("c1", user("b"), PRESENCE_LIVE_WINDOW_MS + 60_000), // recent
       ],
       { now: NOW, limit: 5, currentUserUuid: "viewer" },
     );
@@ -151,28 +155,40 @@ describe("presenceByChannel", () => {
   it("dedupes a person across their tasks and caps at the limit", () => {
     const map = presenceByChannel(
       [
-        chanTask("c1", user("a"), 10_000),
-        chanTask("c1", user("a"), 20_000),
-        chanTask("c1", user("b"), 30_000),
-        chanTask("c1", user("c"), 40_000),
+        recentAuthor("c1", user("a"), 10_000),
+        recentAuthor("c1", user("a"), 20_000),
+        recentAuthor("c1", user("b"), 30_000),
+        recentAuthor("c1", user("c"), 40_000),
       ],
       { now: NOW, limit: 2, currentUserUuid: "viewer" },
     );
     expect(map.get("c1")?.people.map((p) => p.uuid)).toEqual(["a", "b"]);
   });
 
-  it("skips tasks with no channel", () => {
-    const map = presenceByChannel([chanTask(null, user("a"), 0)], {
-      now: NOW,
-      limit: 5,
-      currentUserUuid: "viewer",
-    });
+  it("skips a record with an unparseable timestamp", () => {
+    const map = presenceByChannel(
+      [
+        {
+          channel_id: "c1",
+          user: user("a"),
+          last_activity_at: "not-a-date",
+        },
+      ],
+      {
+        now: NOW,
+        limit: 5,
+        currentUserUuid: "viewer",
+      },
+    );
     expect(map.size).toBe(0);
   });
 
   it("excludes the current user", () => {
     const map = presenceByChannel(
-      [chanTask("c1", user("a"), 30_000), chanTask("c1", user("b"), 60_000)],
+      [
+        recentAuthor("c1", user("a"), 30_000),
+        recentAuthor("c1", user("b"), 60_000),
+      ],
       { now: NOW, limit: 5, currentUserUuid: "a" },
     );
     expect(map.get("c1")?.people.map((person) => person.uuid)).toEqual(["b"]);

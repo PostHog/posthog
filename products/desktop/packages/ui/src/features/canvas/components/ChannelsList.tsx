@@ -47,6 +47,7 @@ import {
   TooltipTrigger,
 } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
+import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import {
   type AutoArchiveAfterDays,
@@ -1744,6 +1745,8 @@ function ChannelGroup({
 // the sidebar outside this scroll region.
 export function ChannelsList() {
   const { channels: allChannels, isLoading } = useChannels();
+  const client = useOptionalAuthenticatedClient();
+  const { data: currentUser } = useCurrentUser({ client });
   // ChannelHotkeys owns the keys these slots describe; sharing the derivation
   // keeps the advertised key and the key that fires in agreement — including
   // the fact that it only binds them under the layout, so off it the list
@@ -1805,7 +1808,7 @@ export function ChannelsList() {
   const tasksBySpace = useRecentSpaceTasks(openSpaceIds);
   // Who's recently active in each space, for the faces on every row — one
   // project-wide query, not one per space.
-  const presenceBySpace = useSpacePresence();
+  const presenceBySpace = useSpacePresence(currentUser?.uuid);
   // Pin / archive / command centre for every session row, built once here
   // rather than once per row.
   const spaceTaskActions = useSpaceTaskActions();

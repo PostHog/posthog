@@ -9,6 +9,8 @@ import {
   ItemTitle,
 } from "@posthog/quill";
 import type { UserBasic } from "@posthog/shared/domain-types";
+import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
+import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import {
   type ChannelActionItem,
   ChannelActionList,
@@ -218,10 +220,13 @@ export function SpacePreview({
   payload: SpacePreviewPayload;
   onAction: () => void;
 }) {
+  const client = useOptionalAuthenticatedClient();
+  const { data: currentUser } = useCurrentUser({ client });
   const overview = useSpaceOverview(
     payload.channel.id,
     payload.channel.createdBy,
     MAX_PEOPLE,
+    currentUser?.uuid,
   );
   return (
     <SpacePreviewContent

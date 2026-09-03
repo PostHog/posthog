@@ -9,13 +9,14 @@ import {
   presenceByChannel,
   shouldShowUserPresence,
 } from "@posthog/core/canvas/presence";
-import type { Task, UserBasic } from "@posthog/shared/domain-types";
+import type {
+  ChannelRecentTaskAuthor,
+  Task,
+  UserBasic,
+} from "@posthog/shared/domain-types";
 import { useArchivedTaskIds } from "@posthog/ui/features/archive/useArchivedTaskIds";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
-import {
-  AUTH_SCOPED_QUERY_META,
-  useCurrentUser,
-} from "@posthog/ui/features/auth/useCurrentUser";
+import { AUTH_SCOPED_QUERY_META } from "@posthog/ui/features/auth/useCurrentUser";
 import { useBlockedTaskIds } from "@posthog/ui/features/canvas/hooks/useBlockedSessionCount";
 import {
   type TaskTimestamps,
@@ -323,10 +324,9 @@ export function useSpaceOverview(
   spaceId: string,
   createdBy: UserBasic | null,
   peopleLimit: number,
+  currentUserUuid?: string,
 ): SpaceOverview {
   const client = useOptionalAuthenticatedClient();
-  const { data: currentUser } = useCurrentUser({ client });
-  const currentUserUuid = currentUser?.uuid;
   const archivedTaskIds = useArchivedTaskIds();
   const { data } = useQuery({
     ...spaceTaskPageQuery(client, spaceId),
@@ -391,19 +391,6 @@ export function spacePeople(
 
 /** Faces a collapsed space row shows — kept small so the row stays a glance. */
 const SPACE_PRESENCE_LIMIT = 3;
-/**
- * One page of the team's most recently active tasks across every space, which
- * the whole list's presence is aggregated from. Full task records are heavy, so
- * this is a short page polled slowly — presence here is "recently active", not
- * a live cursor, so a minute of lag is invisible.
- *
- * The page is a global cut, so it is also a bound on what can show: a space
- * whose newest activity sits below this many newer tasks elsewhere shows no
- * faces even inside the recent window. The task list has no date filter to ask
- * for "the last two hours" instead, so the fix for a team that outruns this is a
- * slim per-channel participants field on the server, not a bigger page here.
- */
-const SPACE_PRESENCE_FETCH_LIMIT = 100;
 const SPACE_PRESENCE_POLL_INTERVAL_MS = 90_000;
 
 const NO_PRESENCE: ReadonlyMap<string, ChannelPresence> = new Map();
@@ -428,19 +415,15 @@ function samePresence(a: ChannelPresence, b: ChannelPresence): boolean {
  * don't change, so a memoized space row only re-renders when its own presence
  * does.
  */
-export function useSpacePresence(): ReadonlyMap<string, ChannelPresence> {
+export function useSpacePresence(
+  currentUserUuid?: string,
+): ReadonlyMap<string, ChannelPresence> {
   const client = useOptionalAuthenticatedClient();
-  const { data: currentUser } = useCurrentUser({ client });
-  const currentUserUuid = currentUser?.uuid;
-  const archivedTaskIds = useArchivedTaskIds();
   const { data } = useQuery({
     queryKey: ["space-presence"],
-    queryFn: async (): Promise<SpaceTaskPage> => {
+    queryFn: async (): Promise<ChannelRecentTaskAuthor[]> => {
       if (!client) throw new Error("Not authenticated");
-      return (await client.getTasksPage({
-        limit: SPACE_PRESENCE_FETCH_LIMIT,
-        ordering: "-last_activity_at",
-      })) as SpaceTaskPage;
+      return client.getRecentTaskAuthors();
     },
     enabled: !!client,
     refetchInterval: SPACE_PRESENCE_POLL_INTERVAL_MS,
@@ -459,9 +442,8 @@ export function useSpacePresence(): ReadonlyMap<string, ChannelPresence> {
   // it returns, which costs one small object per space ever seen.
   const cache = useRef(new Map<string, ChannelPresence>());
   return useMemo(() => {
-    if (!data || !currentUserUuid) return NO_PRESENCE;
-    const live = data.tasks.filter((task) => !archivedTaskIds.has(task.id));
-    const fresh = presenceByChannel(live, {
+    if (!currentUserUuid) return NO_PRESENCE;
+    const fresh = presenceByChannel(data ?? [], {
       now,
       limit: SPACE_PRESENCE_LIMIT,
       currentUserUuid,
@@ -474,5 +456,5 @@ export function useSpacePresence(): ReadonlyMap<string, ChannelPresence> {
       stable.set(channelId, kept);
     }
     return stable;
-  }, [data, archivedTaskIds, currentUserUuid, now]);
+  }, [data, currentUserUuid, now]);
 }

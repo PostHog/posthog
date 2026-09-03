@@ -30,6 +30,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // query, none of which a unit test has. Stubbed at the module boundary, as
 // ChannelSidebar.test.tsx does for the same reason.
 const mocks = vi.hoisted(() => ({
+  client: {},
   status: null as TaskStatusInput | null,
   currentUserId: 999 as number | undefined,
   currentUserUuid: "u-1" as string | undefined,
@@ -40,9 +41,14 @@ const mocks = vi.hoisted(() => ({
   },
   openBrowserTab: vi.fn(),
 }));
+vi.mock("@posthog/ui/features/auth/authClient", () => ({
+  useOptionalAuthenticatedClient: () => mocks.client,
+}));
 vi.mock("@posthog/ui/features/auth/useCurrentUser", () => ({
-  useCurrentUser: () => ({
-    data: { id: mocks.currentUserId, uuid: mocks.currentUserUuid },
+  useCurrentUser: (options?: { client?: unknown }) => ({
+    data: options?.client
+      ? { id: mocks.currentUserId, uuid: mocks.currentUserUuid }
+      : undefined,
   }),
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useChannelTaskStatus", () => ({

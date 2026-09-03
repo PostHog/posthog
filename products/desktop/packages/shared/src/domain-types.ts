@@ -135,6 +135,12 @@ export interface TaskChannel {
   system_role?: "personal" | "general" | null;
 }
 
+export interface ChannelRecentTaskAuthor {
+  channel_id: string;
+  user: UserBasic;
+  last_activity_at: string;
+}
+
 /** Lifecycle events a client may post into a channel's feed. */
 export type ChannelFeedMessageEvent = "context_md_building";
 

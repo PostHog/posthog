@@ -91,6 +91,83 @@ class ChannelsAPITestCase(TestCase):
         self.assertEqual(response.json(), [])
         self.assertFalse(Channel.objects.for_team(self.team.id).exists())
 
+    def test_recent_task_authors_are_per_channel_and_exclude_self_and_stale_activity(self):
+        now = django_timezone.now()
+        target_channel = Channel.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            created_by=self.user,
+            name="target",
+        )
+        other_channel = Channel.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            created_by=self.user,
+            name="other",
+        )
+        collaborators = [
+            self.other_user,
+            User.objects.create_user(email="cara@example.com", first_name="Cara", password="password"),
+            User.objects.create_user(email="dan@example.com", first_name="Dan", password="password"),
+            User.objects.create_user(email="eve@example.com", first_name="Eve", password="password"),
+        ]
+        stale_user = User.objects.create_user(email="stale@example.com", first_name="Stale", password="password")
+        for user in [*collaborators[1:], stale_user]:
+            self.organization.members.add(user)
+
+        Task.objects.bulk_create(
+            [
+                Task(
+                    team=self.team,
+                    created_by=author,
+                    channel=target_channel,
+                    title=author.first_name,
+                    description="d",
+                    origin_product=Task.OriginProduct.USER_CREATED,
+                    last_activity_at=now - timedelta(minutes=30 + index * 10),
+                )
+                for index, author in enumerate(collaborators)
+            ]
+            + [
+                Task(
+                    team=self.team,
+                    created_by=self.user,
+                    channel=target_channel,
+                    title="Self",
+                    description="d",
+                    origin_product=Task.OriginProduct.USER_CREATED,
+                    last_activity_at=now - timedelta(minutes=5),
+                ),
+                Task(
+                    team=self.team,
+                    created_by=stale_user,
+                    channel=target_channel,
+                    title="Stale",
+                    description="d",
+                    origin_product=Task.OriginProduct.USER_CREATED,
+                    last_activity_at=now - timedelta(hours=3),
+                ),
+            ]
+            + [
+                Task(
+                    team=self.team,
+                    created_by=self.user,
+                    channel=other_channel,
+                    title=f"Newer {index}",
+                    description="d",
+                    origin_product=Task.OriginProduct.USER_CREATED,
+                    last_activity_at=now - timedelta(seconds=index),
+                )
+                for index in range(101)
+            ]
+        )
+
+        response = self.client.get(f"{self._channels_url()}recent_task_authors/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(
+            [(row["channel_id"], row["user"]["id"]) for row in response.json()],
+            [(str(target_channel.id), user.id) for user in collaborators[:3]],
+        )
+
     def test_personal_channels_are_per_user(self):
         mine = self._provision()["channels"]
         other_client = APIClient()

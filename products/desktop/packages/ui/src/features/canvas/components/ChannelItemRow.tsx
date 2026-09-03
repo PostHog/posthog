@@ -20,6 +20,7 @@ import {
   TooltipTrigger,
 } from "@posthog/quill";
 import { formatRelativeTimeShort } from "@posthog/shared";
+import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import type { AvatarPerson } from "@posthog/ui/features/auth/UserAvatar";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import { writeCanvasDragData } from "@posthog/ui/features/canvas/canvasDrag";
@@ -382,7 +383,8 @@ export function ChannelItemRow({
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [handoffOpen, setHandoffOpen] = useState(false);
   const handoffMounted = useMountedOnceOpened(handoffOpen);
-  const currentUser = useCurrentUser();
+  const client = useOptionalAuthenticatedClient();
+  const currentUser = useCurrentUser({ client });
   const canHandoff =
     item.kind === "task" &&
     item.task != null &&
