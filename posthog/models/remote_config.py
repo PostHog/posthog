@@ -82,7 +82,7 @@ class RemoteConfig(UUIDTModel):
             try:
                 team = HyperCache.team_from_key(key)
                 return RemoteConfig.objects.select_related("team").get(team=team).build_config()
-            except (Team.DoesNotExist, RemoteConfig.DoesNotExist):
+            except Team.DoesNotExist, RemoteConfig.DoesNotExist:
                 return HyperCacheStoreMissing()
 
         has_dedicated_cache = FLAGS_DEDICATED_CACHE_ALIAS in settings.CACHES
@@ -208,7 +208,6 @@ class RemoteConfig(UUIDTModel):
 
     @tracer.start_as_current_span("RemoteConfig.build_config")
     def build_config(self, bypass_recordings_quota_cache: bool = False) -> dict[str, Any]:
-        from posthog.models.team import Team
         from posthog.plugins.site import get_decide_site_apps
 
         from products.error_tracking.backend.facade import build_error_tracking_config

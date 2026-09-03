@@ -87,7 +87,7 @@ jobs:
             - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               continue-on-error: true
               with:
-                  version: '0.11.28' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  version: '0.12.5' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
 
             # Split from the computation below so the cargo steps can be skipped
             # on the PRs that do not need them, which is nearly all of them.

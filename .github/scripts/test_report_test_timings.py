@@ -125,7 +125,7 @@ def test_find_repo_root_walks_to_repository_markers(tmp_path: Path) -> None:
     [
         "",
         # a decorator's site-packages path (see normalize_pytest_file)
-        "../../../../../opt/hostedtoolcache/Python/3.13.13/x64/lib/python3.13/unittest/mock.py",
+        "../../../../../opt/hostedtoolcache/Python/3.14.7/x64/lib/python3.14/unittest/mock.py",
     ],
 )
 def test_test_identity_infers_existing_pytest_file_when_junit_is_unusable(

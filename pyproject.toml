@@ -3,7 +3,7 @@
 [project]
 name = "posthog"
 version = "0.0.0"
-requires-python = "==3.13.13" # Pin full version to control Python upgrades explicitly
+requires-python = "==3.14.7" # Pin full version to control Python upgrades explicitly
 # Prefer ~= (compat) over >= (floor). Only pin exact versions (==) when necessary.
 #
 # ~= signals to others (security, devex, dependabot) that deps can be updated within
@@ -12,7 +12,7 @@ requires-python = "==3.13.13" # Pin full version to control Python upgrades expl
 dependencies = [
     "aioboto3==15.4.0",
     "aiohttp==3.13.5",
-    "aiokafka~=0.12.0",
+    "aiokafka~=0.13.0",
     "anthropic==0.80.0",
     "asyncstdlib==3.13.1",
     "beautifulsoup4==4.12.3",
@@ -21,21 +21,21 @@ dependencies = [
     "celery==5.6.3",
     "celery-redbeat==2.3.3",
     "certifi==2026.1.4",
-    "clickhouse-connect==0.8.17",
+    "clickhouse-connect==0.10.0",
     "clickhouse-driver==0.2.10",
     "clickhouse-pool==0.5.3",
     "circular-dict==1.9",
     "cryptography==46.0.7",
-    "dagster==1.10.18",
-    "dagster-cloud==1.10.18",
-    "dagster-aws==0.26.18",
-    "dagster-celery==0.26.18",
-    "dagster-docker==0.26.18",
-    "dagster-k8s==0.26.18",
-    "dagster-pipes==1.10.18",
-    "dagster-postgres==0.26.18",
-    "dagster-slack==0.26.18",
-    "dagster-webserver==1.10.18",
+    "dagster==1.12.11",
+    "dagster-cloud==1.12.11",
+    "dagster-aws==0.28.11",
+    "dagster-celery==0.28.11",
+    "dagster-docker==0.28.11",
+    "dagster-k8s==0.28.11",
+    "dagster-pipes==1.12.11",
+    "dagster-postgres==0.28.11",
+    "dagster-slack==0.28.11",
+    "dagster-webserver==1.12.11",
     "deltalake[pyarrow]==1.6.1",
     "dj-database-url~=3.0.0",
     "django~=5.2.0",
@@ -65,7 +65,7 @@ dependencies = [
     "google-genai==1.46.0",
     "granian[uvloop,reload,pname]==2.8.2",
     "grimp~=3.14",
-    "grpcio~=1.71.0",
+    "grpcio~=1.75.1",
     "gspread==6.2.1",
     "hogql-parser==1.3.84",
     "hogql-parser-rs==1.3.109",  # built from rust/hogql/parser via the build-hogql-parser-rs workflow + published to PyPI; rebuild locally with `uv pip install -e rust/hogql/parser` when iterating
@@ -91,28 +91,28 @@ dependencies = [
     "nanoid==2.0.0",
     "natsort==8.4.0",
     "nh3==0.3.5",
-    "numpy~=2.1.0",
+    "numpy~=2.3.2",
     "openai==1.109.1",
     "openpyxl==3.1.5",
     "orjson==3.11.9",
     "ormsgpack~=1.12",
-    "pandas~=2.2.2",
+    "pandas~=2.3.3",
     "paramiko~=3.5.0",
     "pillow==12.3.0",
-    "protobuf~=5.29.6",
+    "protobuf~=6.31.1",
     "posthoganalytics==7.45.2",
     "polars==1.37.1",
-    "psycopg2-binary==2.9.10",
-    "psycopg[binary]==3.2.4",
+    "psycopg2-binary==2.9.11",
+    "psycopg[binary]==3.2.10",
     "pyarrow==23.0.1",
     "pydantic~=2.12.0",
     "pypdf==6.10.2",
     "pyod==2.0.7",
     "pyjwt~=2.12.1",
-    "pymssql==2.3.5",
+    "pymssql==2.3.8",
     "pymysql==1.1.1",
-    "pymongo==4.13.2",
-    "pyroscope-io~=0.8.8",
+    "pymongo==4.15.2",
+    "pyroscope-io~=1.0.3",
     "croniter~=6.0.0",
     "python-dateutil~=2.9.0",
     "python-docx==1.2.0",
@@ -128,7 +128,7 @@ dependencies = [
     "semantic-version==2.8.5",
     "simple-salesforce~=1.12.9",
     "slack-sdk==3.42.0",
-    "snowflake-connector-python==4.3.0",
+    "snowflake-connector-python==4.4.0",
     "social-auth-app-django~=5.8.0",
     "social-auth-core~=4.8.7",
     "django-scim2==0.23.0",
@@ -139,7 +139,7 @@ dependencies = [
     "structlog==25.5.0",
     "temporalio==1.24.0",
     "tenacity==9.1.4",
-    "tiktoken==0.9.*",
+    "tiktoken==0.12.*",
     "tldextract~=5.1",
     "trafilatura==2.0.0",
     "trino==0.338.0",
@@ -158,23 +158,23 @@ dependencies = [
     "zstd==1.5.7.2",
     "zxcvbn==4.5.0",
     "pyyaml~=6.0.2",
-    "chdb==3.3.0",
+    "chdb==3.6.0",
     "elevenlabs~=2.1.0",
     "django-oauth-toolkit~=3.2.0",
     "azure-ai-projects~=1.0.0b11",
     "azure-ai-inference~=1.0.0b9",
     "azure-storage-blob~=12.27.0",
-    "opentelemetry-sdk==1.33.1",
-    "opentelemetry-instrumentation-aiokafka==0.54b1",
-    "opentelemetry-instrumentation-aiohttp-client==0.54b1",
-    "opentelemetry-instrumentation-asgi==0.54b1",
-    "opentelemetry-instrumentation-celery==0.54b1",
-    "opentelemetry-instrumentation-django==0.54b1",
-    "opentelemetry-instrumentation-kafka-python==0.54b1",
-    "opentelemetry-instrumentation-psycopg==0.54b1",
-    "opentelemetry-instrumentation-redis==0.54b1",
-    "opentelemetry-instrumentation-requests==0.54b1",
-    "opentelemetry-exporter-otlp-proto-grpc==1.33.1",
+    "opentelemetry-sdk==1.35.0",
+    "opentelemetry-instrumentation-aiokafka==0.56b0",
+    "opentelemetry-instrumentation-aiohttp-client==0.56b0",
+    "opentelemetry-instrumentation-asgi==0.56b0",
+    "opentelemetry-instrumentation-celery==0.56b0",
+    "opentelemetry-instrumentation-django==0.56b0",
+    "opentelemetry-instrumentation-kafka-python==0.56b0",
+    "opentelemetry-instrumentation-psycopg==0.56b0",
+    "opentelemetry-instrumentation-redis==0.56b0",
+    "opentelemetry-instrumentation-requests==0.56b0",
+    "opentelemetry-exporter-otlp-proto-grpc==1.35.0",
     "asgiref==3.11.0",
     "user-agents~=2.2.0",
     "django-admin-inline-paginator===0.4.0",
@@ -217,7 +217,7 @@ dev = [
     "browser-cookie3~=0.20",
     "braintrust==0.2.4",
     "braintrust-langchain==0.0.4",
-    "dagster-dg-cli~=1.10.18",
+    "dagster-dg-cli~=1.12.11",
     "datamodel-code-generator~=0.36.0",
     "debugpy~=1.8.0",
     "import-linter~=2.11",
@@ -233,8 +233,7 @@ dev = [
     "hypothesis~=6.151.9",
     "pytest-rerunfailures~=16.1",
     "freezegun==1.5.5",
-    "grpcio-tools~=1.71.0",
-    "protoletariat~=3.3.10",
+    "grpcio-tools~=1.75.1",
     "ipython~=9.3.0",
     "mypy~=2.1.0",
     "mypy-extensions~=1.1.0",
@@ -281,7 +280,7 @@ dev = [
     "types-requests==2.31.0.6",
     "types-retry==0.9.9.4",
     "types-tzlocal~=5.1.0.1",
-    "pywatchman~=3.0",
+    "pywatchman~=4.0",
     "watchdog==5.0.3",
     "testcontainers[mysql]~=4.14",
     # Developer CLI
@@ -290,7 +289,7 @@ dev = [
 ]
 sentiment = [
     "optimum[onnxruntime]~=1.25.0",
-    "torch~=2.8.0",
+    "torch~=2.9.0",
 ]
 hogql-parser-parity = [
     "shrinkray==26.4.14.0",
@@ -355,6 +354,7 @@ ignore = [
     "UP046",  # ~39: generic class → PEP 695 (unsafe)
     "UP047",  # ~37: generic func → PEP 695 (unsafe)
     "UP042",  # ~28: str+Enum → StrEnum (unsafe: changes str()/format() output)
+    "UP037",  # ~2152: quoted annotation (auto-fixable, new at py314)
 ]
 select = [
     "B",
@@ -461,10 +461,10 @@ indent = 4
 ignore = "H021,H023,H016,H030"
 
 [tool.dagster]
-python_version = "3.13"
+python_version = "3.14"
 
 [tool.mypy]
-python_version = "3.13"
+python_version = "3.14"
 plugins = [
     "mypy_django_plugin.main",
     "mypy_drf_plugin.main",
@@ -503,10 +503,10 @@ django_settings_module = "posthog.settings"
 [tool.pyright]
 venvPath = ".flox/cache"
 venv = "venv"
-pythonVersion = "3.13"
+pythonVersion = "3.14"
 
 [tool.ty.environment]
-python-version = "3.13"
+python-version = "3.14"
 
 [tool.ty.src]
 exclude = [

@@ -885,7 +885,7 @@ class ExperimentQueryRunner(QueryRunner):
 
         # Extract exposure configuration from actors query
         # Fall back to experiment exposure_criteria if not provided
-        from posthog.schema import ActionsNode, ExperimentEventExposureConfig
+        from posthog.schema import ExperimentEventExposureConfig
 
         exposure_config: ExperimentEventExposureConfig | ActionsNode
         activation_config: ExperimentEventExposureConfig | ActionsNode | None = None

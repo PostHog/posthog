@@ -24,7 +24,7 @@ DEFAULT_USER_COST_LIMIT = UserCostLimit(
     sustained_window_seconds=2592000,
 )
 
-DEFAULT_PRODUCT_COST_LIMITS: dict[str, "ProductCostLimit"] = {
+DEFAULT_PRODUCT_COST_LIMITS: dict[str, ProductCostLimit] = {
     "llm_gateway": ProductCostLimit(limit_usd=1000.0, window_seconds=86400),
     "ci": ProductCostLimit(limit_usd=1000.0, window_seconds=2592000),  # $1000 / 30 days
     "wizard": ProductCostLimit(limit_usd=10000.0, window_seconds=86400),
@@ -46,7 +46,7 @@ DEFAULT_PRODUCT_COST_LIMITS: dict[str, "ProductCostLimit"] = {
     "web_analytics": ProductCostLimit(limit_usd=100.0, window_seconds=86400),
 }
 
-DEFAULT_USER_COST_LIMITS: dict[str, "UserCostLimit"] = {
+DEFAULT_USER_COST_LIMITS: dict[str, UserCostLimit] = {
     "wizard": UserCostLimit(
         burst_limit_usd=100.0,
         burst_window_seconds=2592000,  # 30 days
@@ -93,7 +93,7 @@ DEFAULT_USER_COST_LIMITS: dict[str, "UserCostLimit"] = {
 # entry has no per-run ceiling, so adding one here is the only way a product gains one. The
 # window is a floor on how long a single run's spend is remembered, not a refill schedule —
 # runs are far shorter than this, so in practice each task gets one budget for its lifetime.
-DEFAULT_SANDBOX_TASK_COST_LIMITS: dict[str, "ProductCostLimit"] = {
+DEFAULT_SANDBOX_TASK_COST_LIMITS: dict[str, ProductCostLimit] = {
     "signals_interactive": ProductCostLimit(limit_usd=50.0, window_seconds=604800),
 }
 
