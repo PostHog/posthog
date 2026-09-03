@@ -69,9 +69,9 @@ describe("buildThreadGroups MCP detection", () => {
     expect(grouping.keepMounted).toEqual([0]);
   });
 
-  it("keeps a Pi MCP tool standalone when its result supplies the metadata", () => {
+  it("keeps an MCP tool standalone when only its result supplies metadata", () => {
     const action = toolCallItem("action", undefined, {
-      title: "mcp_posthog_code_tools_show_actions",
+      title: "show_actions",
       rawInput: {
         actions: [
           { kind: "open_space", label: "Open space", channel_id: "space-1" },
