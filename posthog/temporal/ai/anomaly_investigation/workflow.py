@@ -509,7 +509,7 @@ def _deliver_investigation_outcome(
 ) -> None:
     """Decide what the user gets now that we have the verdict.
 
-    For a check whose notification was held back (the episode's first investigation):
+    For a check whose notification was held back (the episode's first fire):
 
     - true_positive → notify (enriched body with verdict + summary + notebook link)
     - false_positive → suppress, mark the check so the UI can surface why

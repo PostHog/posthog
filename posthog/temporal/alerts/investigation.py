@@ -64,11 +64,13 @@ def investigation_cooldown(alert: AlertConfiguration) -> timedelta:
 
 
 def decide_investigation(alert: AlertConfiguration, alert_check: AlertCheck) -> InvestigationDecision:
-    """Whether this firing check gets an investigation, and whether it is the episode's first.
+    """Whether this firing check gets an investigation, and whether it opened the episode.
 
-    Only the first investigation of an episode may gate the notification. A later one
-    runs while the notification goes out on the normal path, because holding every
-    reminder of a long incident costs the user more than the verdict is worth.
+    Only the episode's first fire may gate the notification, because it is the fire the
+    user has not heard about yet. A later check runs while its notification goes out on the
+    normal path, because holding a reminder of an incident the user already knows about
+    costs more than the verdict is worth. A skipped investigation on an earlier check does
+    not move the gate forward: that check notified all the same.
 
     Cooldown is enforced by `claim_investigation_slot`, which does the read-then-write
     inside the caller's transaction.
@@ -83,7 +85,7 @@ def decide_investigation(alert: AlertConfiguration, alert_check: AlertCheck) -> 
     episode = episode_investigations(alert, alert_check)
     if episode.started >= MAX_INVESTIGATIONS_PER_EPISODE:
         return InvestigationDecision()
-    return InvestigationDecision(should_investigate=True, is_first_of_episode=episode.is_first)
+    return InvestigationDecision(should_investigate=True, is_first_of_episode=episode.is_first_fire)
 
 
 def claim_investigation_slot(alert: AlertConfiguration, alert_check: AlertCheck) -> bool:

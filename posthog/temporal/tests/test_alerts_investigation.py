@@ -125,6 +125,21 @@ class TestDecideInvestigation(InvestigationTestCase):
 
         assert decide_investigation(self.alert, check).should_investigate
 
+    def test_does_not_gate_a_reminder_after_a_skipped_first_fire(self) -> None:
+        # The cooldown refused the episode's opening fire, so its notification already went
+        # out. The next check must not hold a reminder of an incident the user knows about.
+        self._make_check(at=_EPISODE_START, state=AlertState.NOT_FIRING)
+        self._make_check(
+            at=_EPISODE_START + timedelta(hours=1),
+            investigation_status=InvestigationStatus.SKIPPED,
+        )
+        check = self._make_check(at=_EPISODE_START + timedelta(hours=2))
+
+        decision = decide_investigation(self.alert, check)
+
+        assert decision.should_investigate
+        assert not decision.is_first_of_episode
+
     @parameterized.expand([("not_firing", AlertState.NOT_FIRING), ("errored", AlertState.ERRORED)])
     def test_does_not_trigger_on_a_check_that_is_not_firing(self, _name: str, state: str) -> None:
         check = self._make_check(at=_EPISODE_START + timedelta(hours=1), state=state)
@@ -165,7 +180,7 @@ class TestEpisodeInvestigations(InvestigationTestCase):
         assert episode.previous_verdict == "false_positive"
         # Every investigation of one incident emits under the same signal source id.
         assert episode.first_check_id == str(first.id)
-        assert episode.is_first is False
+        assert episode.is_first_fire is False
 
     def test_a_verdict_from_the_previous_episode_is_not_carried_over(self) -> None:
         self._make_check(
@@ -180,7 +195,7 @@ class TestEpisodeInvestigations(InvestigationTestCase):
 
         assert episode.previous_verdict is None
         assert episode.first_check_id == str(check.id)
-        assert episode.is_first
+        assert episode.is_first_fire
 
 
 class TestInvestigationCooldown(InvestigationTestCase):
