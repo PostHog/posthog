@@ -16,7 +16,10 @@ if (empty(event.properties?.$current_url) or typeof(event.properties.$current_ur
 }
 
 let returnEvent := event
-let parts := splitByString('?', event.properties.$current_url, 2)
+// Strip the fragment first, so a '?' inside a '#...' fragment (as in hash routing) is not read as
+// the query string.
+let withoutFragment := splitByString('#', event.properties.$current_url, 2)[1]
+let parts := splitByString('?', withoutFragment, 2)
 if (length(parts) < 2) {
     return event
 }
@@ -28,8 +31,7 @@ fun decodeComponent(s) {
     return tryDecodeURLComponent(replaced) ?? replaced
 }
 
-// Drop a trailing hash fragment so it is not read as part of the last value.
-let queryString := splitByString('#', parts[2], 2)[1]
+let queryString := parts[2]
 let pairs := splitByString('&', queryString)
 
 for (let raw in splitByString(',', inputs.parameters)) {
