@@ -798,6 +798,32 @@ class TestPropertyDefinitionAPI(APIBaseTest):
             f"{[q['sql'] for q in event_property_queries]}"
         )
 
+    @parameterized.expand(
+        [
+            ("plain list", "", 0),
+            ("scoped flag only", "?event_names=%5B%22%24pageview%22%5D", 1),
+            ("filtered by event", "?event_names=%5B%22%24pageview%22%5D&filter_by_event_names=true", 2),
+        ]
+    )
+    def test_list_reads_event_properties_only_when_the_request_needs_them(
+        self, _name: str, query_string: str, expected_reads: int
+    ) -> None:
+        # The list runs a count statement and a page statement. A read of posthog_eventproperty in
+        # a statement that does not need it scans every property of the project for nothing.
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        with CaptureQueriesContext(connection) as ctx:
+            response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/{query_string}")
+
+        assert response.status_code == status.HTTP_200_OK
+
+        definition_queries = [q["sql"] for q in ctx.captured_queries if "posthog_propertydefinition" in q["sql"]]
+        assert len(definition_queries) == 2, definition_queries
+        assert len([sql for sql in definition_queries if "posthog_eventproperty" in sql]) == expected_reads
+        # A FULL OUTER JOIN stops the planner from seeking the project-scoped index.
+        assert not any("FULL OUTER JOIN" in sql for sql in definition_queries)
+
     def test_property_definition_project_id_coalesce(self):
         # Create legacy property with only team_id (old style)
         PropertyDefinition.objects.create(team=self.team, name="legacy_team_prop", property_type="String")
