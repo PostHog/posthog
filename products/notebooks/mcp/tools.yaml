@@ -123,6 +123,9 @@ tools:
     notebooks-hogql-execute-create:
         operation: notebooks_hogql_execute_create
         enabled: false
+    notebooks-kernel-compute-options-retrieve:
+        operation: notebooks_kernel_compute_options_retrieve
+        enabled: false
     notebooks-kernel-dataframe-retrieve:
         operation: notebooks_kernel_dataframe_retrieve
         enabled: false

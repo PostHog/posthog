@@ -29267,7 +29267,7 @@ export namespace Schemas {
     /**
      * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
      * * `gemini-3-flash-preview` - Gemini 3 Flash
-     * * `gemini-3.7-flash` - Gemini 3.7 Flash
+     * * `gemini-3.8-flash` - Gemini 3.8 Flash
      */
     export type ScannerModelEnum = typeof ScannerModelEnum[keyof typeof ScannerModelEnum];
 
@@ -29275,7 +29275,7 @@ export namespace Schemas {
     export const ScannerModelEnum = {
       Gemini35FlashLite: 'gemini-3.5-flash-lite',
       Gemini3FlashPreview: 'gemini-3-flash-preview',
-      Gemini37Flash: 'gemini-3.7-flash',
+      Gemini38Flash: 'gemini-3.8-flash',
     } as const;
 
     /**
@@ -29314,7 +29314,7 @@ export namespace Schemas {
        *
        * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
        * * `gemini-3-flash-preview` - Gemini 3 Flash
-       * * `gemini-3.7-flash` - Gemini 3.7 Flash */
+       * * `gemini-3.8-flash` - Gemini 3.8 Flash */
       model: ScannerModelEnum | null;
       /**
          * Goal-based flow only: the monthly credit cap, set to `monthly_credit_budget` so a mis-estimate stops the scanner at the credits the user agreed to. Null on the legacy flow.
@@ -32539,7 +32539,7 @@ export namespace Schemas {
        *
        * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
        * * `gemini-3-flash-preview` - Gemini 3 Flash
-       * * `gemini-3.7-flash` - Gemini 3.7 Flash */
+       * * `gemini-3.8-flash` - Gemini 3.8 Flash */
       model?: ScannerModelEnum;
       /** Proposed experiment targeting, merged into the query as its exposure filter the same way a saved scanner derives it. The estimate then runs as the requesting user. */
       experiment_targeting?: ScannerExperimentTargeting | null;
@@ -35279,7 +35279,7 @@ export namespace Schemas {
     /**
      * One variant's compared population.
      */
-    export interface ExperimentWatchArm {
+    export interface ExperimentWatchVariant {
       /** The variant key. */
       key: string;
       /** Exposed people the comparison covered for this variant. People rather than sessions because a variant can change how often the flag is evaluated again later, which moves a variant's session count without anyone behaving differently. Each person is read from the first session the comparison covers them in, so every variant gets the same amount of behavior per person. */
@@ -35301,6 +35301,22 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `too_early` - too_early
+     * * `no_separation` - no_separation
+     * * `no_recordings` - no_recordings
+     * * `no_session_linked_exposures` - no_session_linked_exposures
+     */
+    export type ExperimentWatchEmptyReasonEnum = typeof ExperimentWatchEmptyReasonEnum[keyof typeof ExperimentWatchEmptyReasonEnum];
+
+
+    export const ExperimentWatchEmptyReasonEnum = {
+      TooEarly: 'too_early',
+      NoSeparation: 'no_separation',
+      NoRecordings: 'no_recordings',
+      NoSessionLinkedExposures: 'no_session_linked_exposures',
+    } as const;
+
+    /**
      * The recordings worth watching for this experiment, grouped into cards.
      *
      * Descriptive, never a result: cards say where behavior visibly differed and hand over the
@@ -35308,10 +35324,10 @@ export namespace Schemas {
      * state the magnitudes. Nothing here says a variant is winning.
      */
     export interface ExperimentSessionEventDeltaResponse {
-      /** The shelf, strongest comparison first, then the variant's own rendering, then metric shortcuts. Events the variants can't be told apart on get no card at all rather than a weak one, so an empty shelf means no difference was big enough to be sure of, not that nothing was measured. Group by kind before presenting: a 'variant_only' card outranks every real difference by construction, and reading the shelf in order would report it as the headline. */
+      /** The shelf, strongest comparison first, then the variant's own rendering, then metric shortcuts. Events the variants can't be told apart on get no card at all rather than a weak one, so an empty shelf means no difference was big enough to be sure of, not that nothing was measured. Empty also takes the metric shortcuts with it: a shelf of shortcuts and no finding restates what the experiment's results already answer while reading as a finding, so it is withheld. Read empty_reason and say what it reports instead of presenting an empty shelf. Group by kind before presenting: a 'variant_only' card outranks every real difference by construction, and reading the shelf in order would report it as the headline. */
       cards: ExperimentWatchCard[];
       /** Every variant's compared population, in the flag's variant order. */
-      arms: ExperimentWatchArm[];
+      variants: ExperimentWatchVariant[];
       /** People who saw more than one variant and were left out of every card. Always 0 when the experiment attributes such users to the variant they saw first. */
       multiple_variant_persons: number;
       /** How the experiment handles someone who saw more than one variant, followed here so the cards split their people the same way the analysis does.
@@ -35334,13 +35350,20 @@ export namespace Schemas {
       /** True when the project has more distinct event names in the window than one comparison can rank, so some were never considered. */
       events_truncated: boolean;
       /** How many exposed people a variant needs before it can be compared at all. Below it a variant's cards would be noise whatever the evidence bar allows. */
-      min_arm_persons: number;
+      min_variant_persons: number;
       /** The most recordings one card can carry. A card whose recording_count equals this hit the ceiling, so report it as 'at least this many' rather than as a count. */
       max_card_recordings: number;
       /** How many cards were removed because their recordings were already another card's on the same shelf. Nothing was lost: the recordings are all reachable through the cards that stayed. */
       dropped_duplicate_cards: number;
-      /** True when fewer than two variants have min_arm_persons exposed people, so no comparison exists and cards is empty. Say 'too early to compare' and show the arms' counts; an empty shelf presented without this would read as 'the variants behaved identically'. */
+      /** True when fewer than two variants have min_variant_persons exposed people, so no comparison exists and cards is empty. Show the variants' counts alongside it: an empty shelf presented without them would read as 'the variants behaved identically'. Read empty_reason before telling anyone to check back: this is also true when the variants are empty because no exposure in the window carried a session, which empty_reason reports as 'no_session_linked_exposures' and which more time does not fix on its own. */
       too_early: boolean;
+      /** Why cards is empty, and null whenever cards is not empty. Report which of the four happened rather than reporting an empty shelf, because they ask different things of the reader. 'too_early': fewer than two variants have min_variant_persons exposed people, so nothing was compared yet and the answer can still change. 'no_separation': the variants were compared and no event told them apart, which is a result rather than a failure. 'no_recordings': events did tell the variants apart, but no recording behind them can be opened, so the project's session replay sampling and retention are what decide whether this surface can ever show anything. 'no_session_linked_exposures': people were exposed between date_from and date_to, and not one exposure carried a session id, so there was nothing to compare. Only that window was checked, so say so. It is how exposure is captured rather than a wait: exposures captured from a client-side SDK carry a session and exposures captured server-side do not, so more of the same capture yields more of the same. Point at capturing exposure from a client-side SDK before telling anyone to check back. Never fill an empty shelf with the experiment's metrics: shortcut cards to those metrics' events are withheld here for exactly that reason.
+       *
+       * * `too_early` - too_early
+       * * `no_separation` - no_separation
+       * * `no_recordings` - no_recordings
+       * * `no_session_linked_exposures` - no_session_linked_exposures */
+      empty_reason: ExperimentWatchEmptyReasonEnum | null;
     }
 
     /**
@@ -39009,6 +39032,22 @@ export namespace Schemas {
       ServiceName: 'service_name',
     } as const;
 
+    /**
+     * * `generating_source` - generating_source
+     * * `reviewing_source` - reviewing_source
+     * * `publishing_source` - publishing_source
+     * * `unknown` - unknown
+     */
+    export type FailurePhaseEnum = typeof FailurePhaseEnum[keyof typeof FailurePhaseEnum];
+
+
+    export const FailurePhaseEnum = {
+      GeneratingSource: 'generating_source',
+      ReviewingSource: 'reviewing_source',
+      PublishingSource: 'publishing_source',
+      Unknown: 'unknown',
+    } as const;
+
     export type FeatureFlagFilters = { [key: string]: unknown };
 
     export type FeatureFlagSurveys = { [key: string]: unknown };
@@ -39243,10 +39282,10 @@ export namespace Schemas {
     export interface FeatureFlagRolloutSummary {
       /** True if the flag is effectively rolled out to everyone, independent of recent evaluation. For boolean flags this means at least one release condition targets 100% with no property filters (or there are no release conditions); for multivariate flags it means a single variant is served to 100% via a fully rolled out release condition. This is the signal for 'fully rolled out' / GA — unlike `status`, which only reflects recent evaluation. */
       effectively_full_rollout: boolean;
-      /** True if any release condition has property filters, i.e. the flag is conditionally targeted rather than a blanket rollout. When true, `max_rollout_percentage` is a percentage within the targeted segment, not of the whole user base. */
+      /** True if any release condition has property filters, i.e. the flag is conditionally targeted rather than a blanket rollout. This says nothing about which condition produced `max_rollout_percentage`: the two fields are computed independently over the whole condition list. */
       has_targeting_conditions: boolean;
       /**
-         * Highest rollout percentage (0-100) across the flag's release conditions, treating a missing percentage as 100. Null when the flag has no release conditions. Interpret together with `has_targeting_conditions`.
+         * Highest rollout percentage (0-100) across the flag's release conditions, treating a missing percentage as 100. Null when the flag has no release conditions. The maximum can come from an untargeted condition even when `has_targeting_conditions` is true, so it cannot be attributed to a targeted condition or read as a share of a targeted segment.
          * @nullable
          */
       max_rollout_percentage: number | null;
@@ -39259,6 +39298,8 @@ export namespace Schemas {
       status: string;
       /** Human-readable explanation of the status */
       reason: string;
+      /** True when `reason` already describes the flag's rollout, which happens when the status was reached from the configuration rather than from evaluation data. A caller that narrates the rollout separately should stay quiet rather than repeat it. */
+      reason_states_rollout: boolean;
       /** Summary of the flag's rollout configuration, for determining whether it is fully rolled out. */
       rollout: FeatureFlagRolloutSummary;
     }
@@ -42755,6 +42796,7 @@ export namespace Schemas {
      * * `task_repository` - task_repository
      * * `task_mcp_installations` - task_mcp_installations
      * * `signals_scout` - signals_scout
+     * * `task_skills` - task_skills
      */
     export type InputsSchemaItemTypeEnum = typeof InputsSchemaItemTypeEnum[keyof typeof InputsSchemaItemTypeEnum];
 
@@ -42781,6 +42823,7 @@ export namespace Schemas {
       TaskRepository: 'task_repository',
       TaskMcpInstallations: 'task_mcp_installations',
       SignalsScout: 'signals_scout',
+      TaskSkills: 'task_skills',
     } as const;
 
     export type InputsSchemaItemChoicesItem = { [key: string]: unknown };
@@ -46173,7 +46216,7 @@ export namespace Schemas {
        *
        * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
        * * `gemini-3-flash-preview` - Gemini 3 Flash
-       * * `gemini-3.7-flash` - Gemini 3.7 Flash */
+       * * `gemini-3.8-flash` - Gemini 3.8 Flash */
       model?: ScannerModelEnum;
     }
 
@@ -51945,6 +51988,40 @@ export namespace Schemas {
       cursor_head?: number | null;
     }
 
+    export interface NotebookComputePreset {
+      /** Stable identifier for the preset, e.g. 'balanced'. */
+      key: string;
+      /** Preset name as a person reads it, e.g. 'Balanced'. */
+      name: string;
+      /** What this preset suits, in one sentence. */
+      description: string;
+      /** CPU cores the preset provisions. */
+      cpu_cores: number;
+      /** Memory in GB the preset provisions. */
+      memory_gb: number;
+      /** What this preset costs per hour in USD while it is alive. */
+      hourly_price: number;
+    }
+
+    export interface NotebookComputeOptionsResponse {
+      /** Currency of every price in this response. Always 'USD'. */
+      currency: string;
+      /** Price of one CPU core for one hour, in USD. */
+      cpu_rate_per_core_hour: number;
+      /** Price of one GB of memory for one hour, in USD. */
+      memory_rate_per_gb_hour: number;
+      /** Preset a sandbox starts with when the notebook sets no compute config. */
+      default_preset_key: string;
+      /** Sandbox shapes offered as one-click options. */
+      presets: NotebookComputePreset[];
+      /** CPU core counts the kernel config endpoint accepts. */
+      allowed_cpu_cores: number[];
+      /** Memory sizes in GB the kernel config endpoint accepts. */
+      allowed_memory_gb: number[];
+      /** Idle timeouts in seconds the kernel config endpoint accepts. */
+      allowed_idle_timeout_seconds: number[];
+    }
+
     export interface NotebookKernelConfig {
       /** CPU cores for the notebook's sandbox kernel; must be a supported option. */
       cpu_cores?: number;
@@ -51970,8 +52047,17 @@ export namespace Schemas {
          * @nullable
          */
       idle_timeout_seconds?: number | null;
-      /** True when a kernel is currently active: config applies at sandbox provision time, so the running kernel keeps its old resources until restarted (restarting loses materialized dataframes). */
+      /** True when this call restarted a live kernel to apply a new size. Restarting discards every materialized dataframe, so cells that referenced one must run again. */
+      restarted: boolean;
+      /** True when a kernel is live and this call did not restart it, so the running sandbox may not match the saved config. A resize restarts the kernel and reports False on success, or True if that restart fails. An idle-timeout change and a no-op on a live kernel also report True. */
       restart_required: boolean;
+      /** What this sandbox shape costs per hour in USD while it is alive, at this region's rates. It tracks the running sandbox while a kernel is live, otherwise the configured shape. After a failed resize this stays the running sandbox's rate, not the size that failed to apply. */
+      hourly_price: number;
+      /**
+         * Compute preset the configured shape matches, or null when it was tuned by hand.
+         * @nullable
+         */
+      preset_key?: string | null;
     }
 
     export interface NotebookKernelState {
@@ -52064,6 +52150,13 @@ export namespace Schemas {
          * @nullable
          */
       idle_timeout_seconds?: number | null;
+      /** What this sandbox shape costs per hour in USD while it is alive, at this region's rates. Charged on the sandbox's lifetime, not on how much of it a cell uses. Resizing through the kernel config endpoint restarts a live kernel, so this tracks the running sandbox. */
+      hourly_price: number;
+      /**
+         * Compute preset for the shape hourly_price describes: the running sandbox while a kernel is live, otherwise the configured shape. Null when that shape was tuned by hand and matches no preset.
+         * @nullable
+         */
+      preset_key?: string | null;
     }
 
     export interface NotebookMarkdownSave {
@@ -52226,6 +52319,13 @@ export namespace Schemas {
     export interface NotebookSQLV2RunResponse {
       /** Identifier of the dispatched run. Poll the run result endpoint with it until the status is terminal. */
       run_id: string;
+      /** True when this run has to provision a sandbox because none is live for the caller, checked here rather than inferred from a client's cached kernel status. Tell the user what that costs. */
+      starts_sandbox: boolean;
+      /**
+         * What the sandbox this run provisions costs per hour in USD. Null when the run needs no new sandbox, or when the backend is not charged.
+         * @nullable
+         */
+      sandbox_hourly_price?: number | null;
     }
 
     export interface NotebookSQLV2RunStatusResponse {
@@ -55381,6 +55481,11 @@ export namespace Schemas {
       readonly is_demo: boolean;
       readonly timezone: string;
       readonly access_control: boolean;
+      /**
+         * Labels applied to this project.
+         * @items.maxLength 255
+         */
+      readonly tags: readonly string[];
     }
 
     export interface PaginatedProjectBackwardCompatBasicList {
@@ -55720,7 +55825,7 @@ export namespace Schemas {
        *
        * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
        * * `gemini-3-flash-preview` - Gemini 3 Flash
-       * * `gemini-3.7-flash` - Gemini 3.7 Flash */
+       * * `gemini-3.8-flash` - Gemini 3.8 Flash */
       model: ScannerModelEnum;
       /** When false, the reconciler removes the scanner's Temporal schedule. On-demand triggers still work. */
       enabled?: boolean;
@@ -58317,6 +58422,8 @@ export namespace Schemas {
     } as const;
 
     export interface TaskRunSummary {
+      /** ID of the latest run. */
+      id: string;
       status: TaskRunStatusEnum | null;
       environment: TaskRunEnvironmentEnum | null;
     }
@@ -58329,6 +58436,11 @@ export namespace Schemas {
       title: string;
       /** @nullable */
       repository: string | null;
+      /**
+         * ID of the user who created the task, or null for system-created tasks.
+         * @nullable
+         */
+      created_by_id: number | null;
       created_at: string;
       updated_at: string;
       origin_product?: string;
@@ -58596,6 +58708,11 @@ export namespace Schemas {
       readonly author_type: string;
       /** Display name of the author. */
       readonly author_name: string;
+      /**
+         * Email of the authoring PostHog user, when the message was written by one (support replies and internal notes). Null for customer and AI messages.
+         * @nullable
+         */
+      readonly author_email: string | null;
       /** True for internal notes not visible to the customer. */
       readonly is_private: boolean;
       /** True when the complete inbound email body can be retrieved. */
@@ -64568,7 +64685,10 @@ export namespace Schemas {
     }
 
     /**
-     * Mixin for serializers to add user access control fields
+     * A project and its settings, including the settings that live on its passthrough Team.
+     *
+     * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+     * onto /api/projects/ never loses a field.
      */
     export interface PatchedProjectBackwardCompat {
       readonly id?: number;
@@ -64585,6 +64705,11 @@ export namespace Schemas {
          * @nullable
          */
       product_description?: string | null;
+      /**
+         * Labels applied to this project. Names are trimmed and lowercased, and sending this field replaces the project's existing tags.
+         * @items.maxLength 255
+         */
+      tags?: string[];
       readonly created_at?: string;
       readonly effective_membership_level?: OrganizationMembershipLevelEnum;
       readonly has_group_types?: boolean;
@@ -65593,7 +65718,7 @@ export namespace Schemas {
        *
        * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
        * * `gemini-3-flash-preview` - Gemini 3 Flash
-       * * `gemini-3.7-flash` - Gemini 3.7 Flash */
+       * * `gemini-3.8-flash` - Gemini 3.8 Flash */
       model?: ScannerModelEnum;
       /** When false, the reconciler removes the scanner's Temporal schedule. On-demand triggers still work. */
       enabled?: boolean;
@@ -68962,7 +69087,10 @@ export namespace Schemas {
     export type ProjectBackwardCompatManagedViewsets = {[key: string]: boolean};
 
     /**
-     * Mixin for serializers to add user access control fields
+     * A project and its settings, including the settings that live on its passthrough Team.
+     *
+     * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+     * onto /api/projects/ never loses a field.
      */
     export interface ProjectBackwardCompat {
       readonly id: number;
@@ -68979,6 +69107,11 @@ export namespace Schemas {
          * @nullable
          */
       product_description?: string | null;
+      /**
+         * Labels applied to this project. Names are trimmed and lowercased, and sending this field replaces the project's existing tags.
+         * @items.maxLength 255
+         */
+      tags?: string[];
       readonly created_at: string;
       readonly effective_membership_level: OrganizationMembershipLevelEnum;
       readonly has_group_types: boolean;
@@ -87316,6 +87449,18 @@ export namespace Schemas {
          */
       error_detail?: string | null;
       /**
+         * Stable failure code for support and diagnostics.
+         * @nullable
+         */
+      error_code?: string | null;
+      /** Generation step that failed, if a generation job failed.
+       *
+       * * `generating_source` - generating_source
+       * * `reviewing_source` - reviewing_source
+       * * `publishing_source` - publishing_source
+       * * `unknown` - unknown */
+      failure_phase?: FailurePhaseEnum | null;
+      /**
          * Short-lived URL for the selected widget version's preview.
          * @nullable
          */
@@ -90419,7 +90564,23 @@ export namespace Schemas {
      * A search term.
      */
     search?: string;
+    /**
+     * Comma-separated tag names to filter by, for example `production,eu-region`. Names are trimmed and lowercased before matching. At most 20 distinct tags per request.
+     */
+    tags?: string;
+    /**
+     * How to combine the `tags` filter. `all` (the default) returns projects carrying every listed tag; `any` returns projects carrying at least one.
+     */
+    tags_match?: OrganizationsProjectsListTagsMatch;
     };
+
+    export type OrganizationsProjectsListTagsMatch = typeof OrganizationsProjectsListTagsMatch[keyof typeof OrganizationsProjectsListTagsMatch];
+
+
+    export const OrganizationsProjectsListTagsMatch = {
+      All: 'all',
+      Any: 'any',
+    } as const;
 
     export type OrganizationsProjectsEvaluationContextSuggestionsDestroyParams = {
     /**

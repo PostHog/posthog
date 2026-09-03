@@ -42,6 +42,7 @@ from django.db.models import (
     Min,
     Model,
     OuterRef,
+    Prefetch,
     Q,
     QuerySet,
     Subquery,
@@ -382,6 +383,21 @@ def _hedgehog_config(user: "User") -> dict | None:
         "accessories": config.get("accessories"),
         "skin": config.get("skin"),
     }
+
+
+# The User columns `_user_basic_info` reads; a field read outside this set triggers a
+# per-user deferred-load query wherever the queryset restricts to these columns.
+_TASK_CREATED_BY_FIELDS = (
+    "id",
+    "uuid",
+    "distinct_id",
+    "first_name",
+    "last_name",
+    "email",
+    "is_email_verified",
+    "hedgehog_config",
+    "role_at_organization",
+)
 
 
 def _user_basic_info(user: "User | None") -> contracts.TaskUserBasicInfo | None:
@@ -5081,8 +5097,8 @@ def get_task_detail(
     """
     task = (
         _visible_task_qs(team_id, user_id, bypass_visibility=bypass_visibility)
-        .select_related("created_by", "team", "github_integration", "github_user_integration")
-        .prefetch_related("runs")
+        .select_related("created_by")
+        .prefetch_related("runs", Prefetch("team", queryset=Team.objects.only("id", "name")))
         .filter(id=task_id)
         .first()
     )
@@ -5106,7 +5122,8 @@ def get_conversation_task_dtos(
     tasks = (
         Task.objects.filter(team_id=team_id, id__in=task_ids, deleted=False)
         .filter(task_visibility_q(user_id))
-        .select_related("created_by", "team")
+        .select_related("created_by")
+        .prefetch_related(Prefetch("team", queryset=Team.objects.only("id", "name")))
         .annotate(_latest_run_id=Subquery(latest_run_id_sq))
     )
     return {task.id: _task_detail_to_dto(task, include_latest_run=False) for task in tasks}
@@ -5386,36 +5403,36 @@ def _list_tasks_queryset(
     else:
         qs = qs.filter(archived=False)
 
-    qs = qs.select_related("created_by", "team", "github_integration", "github_user_integration").annotate(
-        _latest_run_id=Subquery(latest_run.values("id")[:1])
+    # The list DTO needs only two relations: ``created_by`` for ``_user_basic_info`` and
+    # ``team.name`` for the ``slug`` prefix (the integration FK ids are columns on the task row).
+    # Narrow prefetches keep the full ~100-column Team row and the full User row out of every
+    # task row. Latest runs are resolved per page in ``_tasks_to_dtos``, which avoids a
+    # correlated ``posthog_task_run`` subquery on every task row.
+    qs = qs.prefetch_related(
+        Prefetch("created_by", queryset=User.objects.only(*_TASK_CREATED_BY_FIELDS)),
+        Prefetch("team", queryset=Team.objects.only("id", "name")),
     )
 
     return qs
 
 
-def _latest_runs_by_id(run_ids: Iterable[UUID], team_id: int) -> dict[UUID, TaskRun]:
-    unique_run_ids = list(dict.fromkeys(run_ids))
-    if not unique_run_ids:
+def _latest_runs_by_task_id(task_ids: Iterable[UUID], team_id: int) -> dict[UUID, TaskRun]:
+    task_id_list = list(task_ids)
+    if not task_id_list:
         return {}
 
-    return {run.id: run for run in TaskRun.objects.filter(id__in=unique_run_ids, team_id=team_id)}
+    runs = (
+        TaskRun.objects.filter(team_id=team_id, task_id__in=task_id_list)
+        .order_by("task_id", "-created_at", "-id")
+        .distinct("task_id")
+    )
+    return {run.task_id: run for run in runs}
 
 
 def _tasks_to_dtos(tasks: Iterable[Task], team_id: int) -> list[contracts.TaskDetailDTO]:
     task_list = list(tasks)
-    latest_run_ids_by_task_id = {
-        task.id: latest_run_id
-        for task in task_list
-        if (latest_run_id := getattr(task, "_latest_run_id", None)) is not None
-    }
-    latest_runs_by_id = _latest_runs_by_id(latest_run_ids_by_task_id.values(), team_id)
-
-    dtos = []
-    for task in task_list:
-        latest_run_id = latest_run_ids_by_task_id.get(task.id)
-        latest_run = latest_runs_by_id.get(latest_run_id) if latest_run_id is not None else None
-        dtos.append(_task_detail_to_dto(task, latest_run=latest_run))
-    return dtos
+    latest_runs_by_task_id = _latest_runs_by_task_id((task.id for task in task_list), team_id)
+    return [_task_detail_to_dto(task, latest_run=latest_runs_by_task_id.get(task.id)) for task in task_list]
 
 
 def list_tasks(team_id: int, user_id: int | None, *, filters: dict) -> list[contracts.TaskDetailDTO]:
@@ -5512,7 +5529,7 @@ def get_task_summaries(team_id: int, user_id: int | None, *, ids: list) -> list[
     latest_run = (
         TaskRun.objects.filter(task=OuterRef("pk"), team_id=team_id)
         .order_by("-created_at", "-id")
-        .annotate(_data=JSONObject(status="status", environment="environment"))
+        .annotate(_data=JSONObject(id="id", status="status", environment="environment"))
     )
     tasks = (
         Task.objects.filter(team_id=team_id, deleted=False, id__in=ids)
@@ -5524,7 +5541,9 @@ def get_task_summaries(team_id: int, user_id: int | None, *, ids: list) -> list[
     for task in tasks:
         raw = getattr(task, "_latest_run", None)
         latest = (
-            contracts.TaskLatestRunSummaryDTO(status=raw.get("status"), environment=raw.get("environment"))
+            contracts.TaskLatestRunSummaryDTO(
+                id=raw["id"], status=raw.get("status"), environment=raw.get("environment")
+            )
             if isinstance(raw, dict)
             else None
         )
@@ -5533,6 +5552,7 @@ def get_task_summaries(team_id: int, user_id: int | None, *, ids: list) -> list[
                 id=task.id,
                 title=task.title,
                 repository=task.repository,
+                created_by_id=task.created_by_id,
                 created_at=task.created_at,
                 updated_at=task.updated_at,
                 origin_product=task.origin_product,
