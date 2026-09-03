@@ -675,18 +675,6 @@ procs:
             tech: Python
         # no capability - manual start
 
-    sync-desktop-feature-flags:
-        sandbox: true
-        shell: |-
-            bin/wait-for-docker && \
-            ./manage.py sync_desktop_feature_flags
-        autostart: false
-        ready_pattern: 'Desktop feature flag sync complete'
-        groups:
-            layer: Tools
-            tech: Python
-        # no capability - manual start
-
     sync-hog-function-templates:
         sandbox: true
         shell: |-

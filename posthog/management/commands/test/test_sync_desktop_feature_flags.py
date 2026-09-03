@@ -1,15 +1,11 @@
-from io import StringIO
-
 from posthog.test.base import BaseTest
 
 from django.core.management import call_command
-from django.test import override_settings
 
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
 class TestSyncDesktopFeatureFlags(BaseTest):
-    @override_settings(DEBUG=True, CLOUD_DEPLOYMENT=False)
     def test_syncs_desktop_flags_and_is_idempotent(self) -> None:
         existing_filters = {
             "groups": [{"properties": [], "rollout_percentage": 25}],
@@ -24,8 +20,7 @@ class TestSyncDesktopFeatureFlags(BaseTest):
             filters=existing_filters,
         )
 
-        output = StringIO()
-        call_command("sync_desktop_feature_flags", stdout=output)
+        call_command("sync_feature_flags")
 
         loops = FeatureFlag.objects.get(team=self.team, key="loops")
         assert not loops.active
@@ -46,10 +41,9 @@ class TestSyncDesktopFeatureFlags(BaseTest):
         bluebird.save(update_fields=["deleted", "active"])
         count = FeatureFlag.objects_including_soft_deleted.filter(team=self.team).count()
 
-        call_command("sync_desktop_feature_flags", stdout=output)
+        call_command("sync_feature_flags")
 
         bluebird.refresh_from_db()
         assert not bluebird.deleted
         assert bluebird.active
         assert FeatureFlag.objects_including_soft_deleted.filter(team=self.team).count() == count
-        assert "Desktop feature flag sync complete." in output.getvalue()
