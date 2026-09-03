@@ -199,6 +199,10 @@ inbox-reports-list
 If `count: 0` comes back, jump to the empty/unconfigured workflow above before saying "your
 inbox is empty" — the right reply depends on whether sources are configured.
 
+A claimed report keeps its pipeline status, so this queue also returns work someone else already
+owns. Add `"unclaimed": true` when the user is asking what is free to pick up, and
+`"assignee": "me"` to list what the caller already owns and may want to resume.
+
 ### Step 2 — Summarize by source and actionability
 
 For each report, the response includes:
@@ -212,6 +216,10 @@ For each report, the response includes:
   report (see "What 'suggested reviewer' means" above — it's based on GitHub commit
   authorship of the relevant code, mapped to PostHog users via linked GitHub identity)
 - `implementation_pr_url` — if a PR has been opened against this report
+- `work_state` — `unclaimed`, `working`, `in_review`, or `done`
+- `assignee` — who claimed the report (a user, an internal task, or an external agent), or `null`
+  when nobody has. Say so when you list a report someone else owns, so it doesn't read as free
+  work
 - `_posthogUrl` — clickable deep-link to the report; **always include this in your response**
 
 Group the results so the user can scan quickly. **Lead with reports where
