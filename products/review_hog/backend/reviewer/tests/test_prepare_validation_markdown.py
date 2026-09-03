@@ -132,11 +132,11 @@ def test_other_findings_section_membership(
     assert ("Membership marker finding" in body) is expected_in_section
 
 
-def test_off_diff_finding_sections_lead_with_validation() -> None:
+def test_off_diff_finding_sections_lead_with_description() -> None:
     # The off-diff section must render its collapsed blocks in the same deliberate reading order as
-    # the inline comment (verdict first, then description, then fix). The two renderers are separate
+    # the inline comment (description first, then verdict, then fix). The two renderers are separate
     # templates, so the inline-comment order test can't catch _render_off_diff_section flipping back
-    # to description-first.
+    # to validation-first.
     issue = Issue(
         id="1-1-1",
         title="Off-diff finding",
@@ -157,6 +157,6 @@ def test_off_diff_finding_sections_lead_with_validation() -> None:
 
     positions = [
         body.index(f"<summary><strong>{label}</strong></summary>")
-        for label in ("Why we think it's a valid issue", "Issue description", "Suggested fix")
+        for label in ("Issue description", "Why we think it's a valid issue", "Suggested fix")
     ]
     assert positions == sorted(positions)
