@@ -278,6 +278,7 @@ QUERIES: list[QuerySpec] = [
             "web_events": "teams_with_web_events_count_in_period",
             "web_lite_events": "teams_with_web_lite_events_count_in_period",
             "node_events": "teams_with_node_events_count_in_period",
+            "node_mcp_events": "teams_with_node_mcp_events_count_in_period",
             "mcp_tool_call_events": "teams_with_mcp_tool_call_events_count_in_period",
             "mcp_missing_capability_events": "teams_with_mcp_missing_capability_events_count_in_period",
             "mcp_initialize_events": "teams_with_mcp_initialize_events_count_in_period",

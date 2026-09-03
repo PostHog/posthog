@@ -483,6 +483,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                 "web",
                 "js",
                 "posthog-node",
+                "posthog-node-mcp",
                 "posthog-edge",
                 "posthog-convex",
                 "posthog-android",
@@ -662,8 +663,8 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     },
                     "plugins_enabled": {"Installed and enabled": 1},
                     "instance_tag": "none",
-                    "event_count_in_period": 45,
-                    "enhanced_persons_event_count_in_period": 44,
+                    "event_count_in_period": 46,
+                    "enhanced_persons_event_count_in_period": 45,
                     "event_count_with_groups_in_period": 2,
                     "event_count_from_keywords_ai_in_period": 1,
                     "event_count_from_traceloop_in_period": 1,
@@ -672,6 +673,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "web_events_count_in_period": 37,
                     "web_lite_events_count_in_period": 1,
                     "node_events_count_in_period": 1,
+                    "node_mcp_events_count_in_period": 1,
                     "mcp_tool_call_events_count_in_period": 0,
                     "mcp_missing_capability_events_count_in_period": 0,
                     "mcp_initialize_events_count_in_period": 0,
@@ -751,8 +753,8 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "team_count": 2,
                     "teams": {
                         str(self.org_1_team_1.id): {
-                            "event_count_in_period": 34,
-                            "enhanced_persons_event_count_in_period": 33,
+                            "event_count_in_period": 35,
+                            "enhanced_persons_event_count_in_period": 34,
                             "event_count_with_groups_in_period": 2,
                             "event_count_from_keywords_ai_in_period": 1,
                             "event_count_from_traceloop_in_period": 1,
@@ -761,6 +763,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "web_events_count_in_period": 25,
                             "web_lite_events_count_in_period": 1,
                             "node_events_count_in_period": 1,
+                            "node_mcp_events_count_in_period": 1,
                             "mcp_tool_call_events_count_in_period": 0,
                             "mcp_missing_capability_events_count_in_period": 0,
                             "mcp_initialize_events_count_in_period": 0,
@@ -844,6 +847,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "web_events_count_in_period": 12,
                             "web_lite_events_count_in_period": 0,
                             "node_events_count_in_period": 0,
+                            "node_mcp_events_count_in_period": 0,
                             "mcp_tool_call_events_count_in_period": 0,
                             "mcp_missing_capability_events_count_in_period": 0,
                             "mcp_initialize_events_count_in_period": 0,
@@ -950,6 +954,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "web_events_count_in_period": 11,
                     "web_lite_events_count_in_period": 0,
                     "node_events_count_in_period": 0,
+                    "node_mcp_events_count_in_period": 0,
                     "mcp_tool_call_events_count_in_period": 0,
                     "mcp_missing_capability_events_count_in_period": 0,
                     "mcp_initialize_events_count_in_period": 0,
@@ -1039,6 +1044,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "web_events_count_in_period": 11,
                             "web_lite_events_count_in_period": 0,
                             "node_events_count_in_period": 0,
+                            "node_mcp_events_count_in_period": 0,
                             "mcp_tool_call_events_count_in_period": 0,
                             "mcp_missing_capability_events_count_in_period": 0,
                             "mcp_initialize_events_count_in_period": 0,
@@ -1577,6 +1583,7 @@ class TestQueryUsageReportSQL:
         mock_execute_split_query.side_effect = [
             {
                 "node_events": [(1, 10)],
+                "node_mcp_events": [(1, 9)],
                 "kmp_events": [(1, 8)],
                 "openclaw_events": [],
                 "posthog_pi_events": [],
@@ -1604,6 +1611,7 @@ class TestQueryUsageReportSQL:
         assert "OR lib_expr IN (" in main_query
         assert "event = '$mcp_tool_call'" not in main_query
         assert "'posthog-node'" in main_query
+        assert "'posthog-node-mcp'" in main_query
         assert "'posthog-kmp'" in main_query
         assert "'posthog-rs'" in main_query
         assert "ai_lib_expr" not in main_query
@@ -1640,6 +1648,7 @@ class TestQueryUsageReportSQL:
         assert result["posthog_ai_events"] == [(1, 2)]
         assert result["openclaw_events"] == [(1, 3)]
         assert result["node_events"] == [(1, 5)]
+        assert result["node_mcp_events"] == [(1, 9)]
         assert result["kmp_events"] == [(1, 8)]
 
         # New MCP Analytics metrics are merged straight into the returned dict.
@@ -5957,6 +5966,7 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         event_metrics = get_all_event_metrics_in_period(self.begin, reporting_end)
 
         self.assertEqual(billable_result_after, [(self.team.id, baseline_count + 3)])
+        self.assertEqual(dict(event_metrics["node_mcp_events"]).get(self.team.id), 2)
         self.assertEqual(dict(event_metrics["mcp_tool_call_events"]).get(self.team.id), 2)
         self.assertEqual(dict(event_metrics["python_events"]).get(self.team.id), 1)
 

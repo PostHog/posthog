@@ -303,6 +303,7 @@ class UsageReportCounters:
     web_events_count_in_period: int
     web_lite_events_count_in_period: int
     node_events_count_in_period: int
+    node_mcp_events_count_in_period: int
 
     # MCP usage overlaps billable event and per-SDK totals.
     mcp_tool_call_events_count_in_period: int
@@ -933,6 +934,7 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
         ("posthog-node", "@posthog/pi", "posthog_pi_events"),
         ("posthog-node", "posthog-ai", "posthog_ai_events"),
         ("posthog-node", None, "node_events"),
+        ("posthog-node-mcp", None, "node_mcp_events"),
         ("posthog-edge", None, "edge_events"),
         ("posthog-convex", None, "convex_events"),
         ("posthog-android", None, "android_events"),
@@ -995,6 +997,7 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
             "web_events": {},
             "web_lite_events": {},
             "node_events": {},
+            "node_mcp_events": {},
             "openclaw_events": {},
             "posthog_pi_events": {},
             "posthog_ai_events": {},
@@ -2863,6 +2866,7 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         "teams_with_web_events_count_in_period": all_metrics["web_events"],
         "teams_with_web_lite_events_count_in_period": all_metrics["web_lite_events"],
         "teams_with_node_events_count_in_period": all_metrics["node_events"],
+        "teams_with_node_mcp_events_count_in_period": all_metrics["node_mcp_events"],
         "teams_with_mcp_tool_call_events_count_in_period": all_metrics["mcp_tool_call_events"],
         "teams_with_mcp_missing_capability_events_count_in_period": all_metrics["mcp_missing_capability_events"],
         "teams_with_mcp_initialize_events_count_in_period": all_metrics["mcp_initialize_events"],
@@ -3263,6 +3267,7 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         web_events_count_in_period=all_data["teams_with_web_events_count_in_period"].get(team.id, 0),
         web_lite_events_count_in_period=all_data["teams_with_web_lite_events_count_in_period"].get(team.id, 0),
         node_events_count_in_period=all_data["teams_with_node_events_count_in_period"].get(team.id, 0),
+        node_mcp_events_count_in_period=all_data["teams_with_node_mcp_events_count_in_period"].get(team.id, 0),
         mcp_tool_call_events_count_in_period=all_data["teams_with_mcp_tool_call_events_count_in_period"].get(
             team.id, 0
         ),
