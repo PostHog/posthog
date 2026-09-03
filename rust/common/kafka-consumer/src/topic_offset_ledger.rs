@@ -106,7 +106,7 @@ impl TopicOffsetLedger {
             return Err(Rejection::Stale { stamp, generation });
         }
         match ledger.charge(offset_charges) {
-            Ok(_) => Ok(ledger.len()),
+            Ok(_) => Ok(ledger.depth()),
             Err(error) => {
                 *ledger = PartitionOffsetLedger::new(generation + 1);
                 self.generations_version.fetch_add(1, Ordering::Relaxed);
@@ -140,7 +140,7 @@ impl TopicOffsetLedger {
         match ledger.complete(offsets) {
             Ok(()) => Ok(Settlement {
                 frontier: ledger.frontier(),
-                depth: ledger.len(),
+                depth: ledger.depth(),
                 generation,
             }),
             Err(error) => {
@@ -166,7 +166,7 @@ impl TopicOffsetLedger {
             .lock()
             .unwrap()
             .get(topic_partition)
-            .map(PartitionOffsetLedger::len)
+            .map(PartitionOffsetLedger::depth)
             .unwrap_or_default()
     }
 

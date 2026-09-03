@@ -103,7 +103,7 @@ pub struct PartitionOffsetLedger {
     base_offset: Option<Offset>,
     /// Number of completed slots at the front of the window, kept current on
     /// every completion so `frontier` stays O(1).
-    prefix: usize,
+    completed_prefix_len: usize,
     /// A dense sliding window over one contiguous offset range: `charge`
     /// appends at the back, `take_frontier` pops the front, and `complete`
     /// indexes by offset minus `base_offset`. Every operation is amortized constant
@@ -116,7 +116,7 @@ impl PartitionOffsetLedger {
         Self {
             generation,
             base_offset: None,
-            prefix: 0,
+            completed_prefix_len: 0,
             slots: VecDeque::new(),
         }
     }
@@ -195,10 +195,10 @@ impl PartitionOffsetLedger {
         }
         while self
             .slots
-            .get(self.prefix)
+            .get(self.completed_prefix_len)
             .is_some_and(|slot| slot.complete)
         {
-            self.prefix += 1;
+            self.completed_prefix_len += 1;
         }
         Ok(())
     }
@@ -208,7 +208,7 @@ impl PartitionOffsetLedger {
     /// it verbatim. `None` before the first completion.
     pub fn frontier(&self) -> Option<Offset> {
         let base_offset = self.base_offset?;
-        (self.prefix > 0).then(|| base_offset + self.prefix)
+        (self.completed_prefix_len > 0).then(|| base_offset + self.completed_prefix_len)
     }
 
     /// Take the frontier and the charge of everything below it, forgetting
@@ -218,23 +218,21 @@ impl PartitionOffsetLedger {
         let frontier_offset = self.frontier()?;
         let charge = self
             .slots
-            .drain(..self.prefix)
+            .drain(..self.completed_prefix_len)
             .map(|slot| slot.charge)
             .sum();
         self.base_offset = Some(frontier_offset);
-        self.prefix = 0;
+        self.completed_prefix_len = 0;
         Some(TakenFrontier {
             offset: frontier_offset,
             charge,
         })
     }
 
-    pub fn len(&self) -> usize {
+    /// Offsets the window still holds: charged and not yet drained by
+    /// `take_frontier`.
+    pub fn depth(&self) -> usize {
         self.slots.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.slots.is_empty()
     }
 }
 
@@ -271,7 +269,7 @@ mod tests {
         let taken = ledger.take_frontier().unwrap();
         assert_eq!(taken.offset, Offset(1));
         assert_eq!(taken.charge.events, 1);
-        assert_eq!(ledger.len(), 2);
+        assert_eq!(ledger.depth(), 2);
         ledger.complete([Offset(1), Offset(2)]).unwrap();
         assert_eq!(ledger.frontier(), Some(Offset(3)));
         assert_eq!(ledger.take_frontier().unwrap().charge.events, 2);
@@ -343,7 +341,7 @@ mod tests {
         assert_eq!(ledger.frontier(), Some(Offset(2)));
         assert_eq!(ledger.frontier(), Some(Offset(2)));
         assert_eq!(ledger.take_frontier().unwrap().charge.events, 2);
-        assert_eq!(ledger.len(), 0);
+        assert_eq!(ledger.depth(), 0);
     }
 
     #[test]
