@@ -75,7 +75,7 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
     const hideFiltersPanel = isBranchingStep && !hasLegacyBranchingFilters
 
     return (
-        <div className="flex flex-col h-full overflow-hidden">
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
             <ScrollableShadows
                 direction="vertical"
                 className="flex-1 min-h-0"

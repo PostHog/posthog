@@ -23,7 +23,7 @@ export function HogFlowEditorPanelSelectedStep(): JSX.Element | null {
     const action = selectedNode.data
 
     return (
-        <div className="flex shrink-0 items-start gap-2 border-b p-2">
+        <div className="relative z-10 flex shrink-0 items-start gap-2 border-b bg-surface-primary p-2">
             <span
                 className="flex size-10 shrink-0 items-center justify-center rounded text-xl"
                 style={{
