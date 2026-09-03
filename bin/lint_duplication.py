@@ -20,6 +20,7 @@ import argparse
 import tempfile
 import subprocess
 import collections
+from dataclasses import dataclass
 from pathlib import Path
 
 JSCPD_VERSION = "5.1.1"
@@ -47,12 +48,20 @@ TEST_PATH = re.compile(
 LIMITS_PATH = Path(__file__).with_name("lint-duplication.limits.json")
 
 
-def load_limits() -> tuple[int, int]:
+@dataclass(frozen=True, kw_only=True, slots=True)
+class Limits:
+    production: int
+    test: int
+
+
+def load_limits() -> Limits:
     data = json.loads(LIMITS_PATH.read_text())
-    return int(data["production"]), int(data["test"])
+    return Limits(production=int(data["production"]), test=int(data["test"]))
 
 
-APP_MAX_NEW_CLONE_TOKENS, TEST_MAX_NEW_CLONE_TOKENS = load_limits()
+LIMITS = load_limits()
+APP_MAX_NEW_CLONE_TOKENS = LIMITS.production
+TEST_MAX_NEW_CLONE_TOKENS = LIMITS.test
 
 LANGUAGES = ("python", "typescript")
 
