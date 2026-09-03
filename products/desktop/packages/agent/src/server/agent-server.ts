@@ -539,6 +539,7 @@ export class AgentServer {
   private detectedPrUrl: string | null = null;
   private slackArtifactDelivery: SlackArtifactDelivery | null = null;
   private slackChartDelivery = false;
+  private slackReplyContext = false;
   private taskRepositories: string[] = [];
   // Reset per session. `evaluatedPrUrls` dedupes per URL; `prAttributionChain` serializes
   // attributions so the most recently created PR in a run wins.
@@ -1899,6 +1900,7 @@ export class AgentServer {
     // instance must not keep the previous run's delivery capability.
     this.slackArtifactDelivery = readSlackArtifactDelivery(preTaskRun);
     this.slackChartDelivery = readSlackChartDelivery(preTaskRun);
+    this.slackReplyContext = preTaskRun?.state.slack_reply_context === true;
 
     // Web backlink to the inbox report that spawned this task, so the
     // auto-generated PR can point back at it. Built from the same pieces as the
@@ -3881,7 +3883,7 @@ export class AgentServer {
       cloudAppend,
       userPrompt,
     );
-    return this.getCloudInteractionOrigin() === "slack"
+    return this.isSlackReplyContext()
       ? appendSte100Guidance(sessionPrompt)
       : sessionPrompt;
   }
@@ -3927,6 +3929,12 @@ export class AgentServer {
       process.env.POSTHOG_CODE_INTERACTION_ORIGIN ??
       process.env.CODE_INTERACTION_ORIGIN ??
       process.env.TWIG_INTERACTION_ORIGIN
+    );
+  }
+
+  private isSlackReplyContext(): boolean {
+    return (
+      this.slackReplyContext || this.getCloudInteractionOrigin() === "slack"
     );
   }
 
@@ -4219,7 +4227,7 @@ You may have no repository checked out, or no credentials to push and open a pul
   ): string {
     const taskId = this.config.taskId;
     const shouldAutoCreatePr = this.shouldAutoPublishCloudChanges();
-    const isSlack = this.getCloudInteractionOrigin() === "slack";
+    const isSlack = this.isSlackReplyContext();
     // Every instruction in this section runs through `gh`, so a sandbox holding no
     // GitHub token cannot act on any of it. An empty token is an explicit logout.
     const hasGithubToken = Boolean(resolveGithubToken());
