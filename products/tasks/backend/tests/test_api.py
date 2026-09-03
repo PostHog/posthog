@@ -8454,7 +8454,15 @@ class TestTaskRunPostHogReferencesAPI(BaseTaskAPITest):
         }
 
         first = self.client.post(url, {"references": [reference]}, format="json")
+        run.refresh_from_db()
+        task.refresh_from_db()
+        first_run_updated_at = run.updated_at
+        first_task_activity_at = task.last_activity_at
         retry = self.client.post(url, {"references": [reference]}, format="json")
+        run.refresh_from_db()
+        task.refresh_from_db()
+        self.assertEqual(run.updated_at, first_run_updated_at)
+        self.assertEqual(task.last_activity_at, first_task_activity_at)
         second_message = self.client.post(
             url,
             {"references": [{**reference, "source_message_id": "turn-2-message-1"}]},
