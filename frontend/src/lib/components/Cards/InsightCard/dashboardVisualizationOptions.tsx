@@ -101,10 +101,14 @@ export function useDashboardVisualizationOptions({
         return (
             <div
                 {...inertProps}
-                className={props.savingDisplayOptions ? 'pointer-events-none opacity-50' : undefined}
+                className={props.savingDisplayOptions ? 'w-full pointer-events-none opacity-50' : 'w-full'}
                 aria-disabled={props.savingDisplayOptions}
             >
-                {props.insightChartPicker === 'retention' ? <RetentionChartPicker /> : <ChartFilter />}
+                {props.insightChartPicker === 'retention' ? (
+                    <RetentionChartPicker fullWidth showGraphOnDashboard />
+                ) : (
+                    <ChartFilter fullWidth />
+                )}
             </div>
         )
     }, [])

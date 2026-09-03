@@ -2,13 +2,17 @@ import '@testing-library/jest-dom'
 
 import { cleanup, render, renderHook, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { BindLogic, Provider } from 'kea'
 import { createElement } from 'react'
 
 import { LemonMenuItems, LemonMenuSection } from 'lib/lemon-ui/LemonMenu'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { DataVisualizationNode, FunnelsQuery, InsightVizNode, Node, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { ChartDisplayType } from '~/types'
+import { ChartDisplayType, InsightShortId, RetentionDashboardDisplayType } from '~/types'
 
 import { sqlQueryForVisualizationPicker, useDashboardVisualizationOptions } from './dashboardVisualizationOptions'
 
@@ -68,6 +72,38 @@ describe('dashboardVisualizationOptions', () => {
         persistChartType: jest.fn(),
         persistDisplayOptions: jest.fn(),
     } as const
+
+    function renderProductAnalyticsChartPicker(query: InsightVizNode): {
+        container: HTMLElement
+        vizDataLogic: ReturnType<typeof insightVizDataLogic.build>
+    } {
+        initKeaTests()
+        const insightProps = {
+            dashboardItemId: 'dashboard-chart-picker' as InsightShortId,
+            query,
+            setQuery: jest.fn(),
+        }
+        insightLogic(insightProps).mount()
+        insightDataLogic(insightProps).mount()
+        const vizDataLogic = insightVizDataLogic(insightProps)
+        vizDataLogic.mount()
+        vizDataLogic.actions.updateQuerySource(query.source)
+
+        const { result } = renderHook(() => useDashboardVisualizationOptions({ query, insightData: {}, persistence }))
+        const { container } = render(
+            createElement(
+                Provider,
+                null,
+                createElement(BindLogic, {
+                    logic: insightLogic,
+                    props: insightProps,
+                    children: chartTypeElement(result.current),
+                })
+            )
+        )
+
+        return { container, vizDataLogic }
+    }
 
     afterEach(() => {
         cleanup()
@@ -141,6 +177,29 @@ describe('dashboardVisualizationOptions', () => {
             render(createElement('div', null, section?.title))
 
             expect(screen.getByRole('status')).toHaveTextContent('Saving')
+        })
+
+        it.each([
+            ['Stickiness', stickinessQuery],
+            ['Retention', retentionQuery],
+        ])('uses the full submenu width for %s', (_label, query) => {
+            const { container } = renderProductAnalyticsChartPicker(query)
+
+            expect(container.querySelector('[data-attr="chart-filter"]')).toHaveClass('LemonButton--full-width')
+        })
+
+        it('shows the retention graph after selecting its chart type on a dashboard', async () => {
+            const { container, vizDataLogic } = renderProductAnalyticsChartPicker(retentionQuery)
+
+            await userEvent.click(container.querySelector('[data-attr="chart-filter"]') as HTMLElement)
+            await userEvent.click(screen.getByText('Bar chart'))
+
+            await waitFor(() =>
+                expect(vizDataLogic.values.retentionFilter).toMatchObject({
+                    display: ChartDisplayType.ActionsBar,
+                    dashboardDisplay: RetentionDashboardDisplayType.GraphOnly,
+                })
+            )
         })
     })
 
