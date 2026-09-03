@@ -22,7 +22,7 @@ Principle: logic is portable; hosts are thin.
 | Package | Owns | Must not contain |
 | --- | --- | --- |
 | `@posthog/platform` | Host-capability interfaces and DI tokens. Host-neutral, zero runtime dependencies. | Implementations, Node, DOM, tRPC, Electron |
-| `@posthog/shared` | Zero-dependency primitives, types, Saga pattern, cloud-prompt encoding. | Internal package imports, I/O |
+| `@posthog/shared` | Host-neutral primitives, types, Saga pattern, cloud-prompt encoding. Depends on published packages only. | Internal package imports, I/O |
 | `@posthog/api-client` | PostHog/Django HTTPS client. Constructed by factory, not DI. | UI, Node-only host syscalls |
 | `@posthog/workspace-client` | Thin tRPC client for local or sandbox workspace-server. Runs in any JS environment. | Business logic, UI |
 | `@posthog/workspace-server` | Node backend services and colocated tRPC routers for git, fs, watchers, processes. | UI, core, Electron |
