@@ -597,12 +597,16 @@ function cronFieldNumber(token: string, offset: number, names: string[] | undefi
 
 /**
  * The values a single cron field matches. `unmodeled` covers the syntax this check does not
- * model (`L`, `#`, `?`): the backend decides those, because a client that guessed would
- * refuse an expression the scheduler accepts.
+ * model (`L`, `R`, `#`, `?`): the backend decides those, because a client that guessed would
+ * refuse an expression the scheduler accepts. Everything else croniter refuses, so a typo is
+ * answered here instead of on the next save.
  */
 function parseCronField(field: string, min: number, max: number, names?: string[]): CronFieldParse {
-    if (!field || /[^0-9a-zA-Z*/,-]/.test(field)) {
+    if (/[#?]/.test(field)) {
         return { kind: 'unmodeled' }
+    }
+    if (!field || /[^0-9a-zA-Z*/,-]/.test(field)) {
+        return { kind: 'invalid' }
     }
     const values = new Set<number>()
     for (const part of field.split(',')) {
@@ -619,9 +623,10 @@ function parseCronField(field: string, min: number, max: number, names?: string[
         let from = min
         let to = max
         if (spec !== '*') {
-            // croniter reads a bare "L" as the last day of the month, a calendar this check does
-            // not model. Every other use of the letter, like "15W" or "L-2", it refuses anyway.
-            if (spec.toLowerCase() === 'l') {
+            // croniter's own markers: "L" is the last day of the month, "R" a random slot in the
+            // field. Neither is a calendar this check models, and it refuses every other letter
+            // form anyway.
+            if (/^[lr]$/i.test(spec)) {
                 return { kind: 'unmodeled' }
             }
             const bounds = spec.split('-')

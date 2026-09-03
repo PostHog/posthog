@@ -726,8 +726,9 @@ function cronFieldNumber(
 
 /**
  * The values a single cron field matches. `unmodeled` covers the syntax this check does not
- * model (`L`, `W`, `#`, `?`): the backend decides those, because a client that guessed would
- * refuse an expression the scheduler accepts.
+ * model (`L`, `R`, `#`, `?`): the backend decides those, because a client that guessed would
+ * refuse an expression the scheduler accepts. Everything else croniter refuses, so a typo is
+ * answered here instead of on the next save.
  */
 function parseCronField(
   field: string,
@@ -735,7 +736,8 @@ function parseCronField(
   max: number,
   names?: string[],
 ): CronFieldParse {
-  if (!field || /[^0-9a-zA-Z*/,-]/.test(field)) return { kind: "unmodeled" };
+  if (/[#?]/.test(field)) return { kind: "unmodeled" };
+  if (!field || /[^0-9a-zA-Z*/,-]/.test(field)) return { kind: "invalid" };
   const values = new Set<number>();
   for (const part of field.split(",")) {
     const [spec, stepToken, ...extra] = part.split("/");
@@ -745,19 +747,14 @@ function parseCronField(
     let from = min;
     let to = max;
     if (spec !== "*") {
+      // croniter's own markers: "L" is the last day of the month, "R" a random slot in the field.
+      // Neither is a calendar this check models, and it refuses every other letter form anyway.
+      if (/^[lr]$/i.test(spec)) return { kind: "unmodeled" };
       const bounds = spec.split("-");
       if (bounds.length > 2) return { kind: "invalid" };
       const parsed = bounds.map((token) =>
         cronFieldNumber(token, min === 0 ? 0 : 1, names),
       );
-      // A token with letters that is no month or day name is syntax this check does not model,
-      // like the "L" croniter takes for the last day of the month.
-      if (
-        parsed.some(
-          (value, index) => value === null && /[a-z]/i.test(bounds[index]),
-        )
-      )
-        return { kind: "unmodeled" };
       if (parsed.some((value) => value === null || value < min || value > max))
         return { kind: "invalid" };
       from = parsed[0] as number;
