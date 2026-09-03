@@ -49,6 +49,7 @@ from products.review_hog.backend.temporal.activities import (
     PublishResult,
     RemoveTriggerLabelInput,
     ResolveActingUserInput,
+    ResolveActingUserResult,
     ReviewChunkInput,
     ReviewMeta,
     SandboxStageInput,
@@ -419,29 +420,12 @@ class ReviewPRWorkflow:
             start_to_close_timeout=_FETCH_TIMEOUT,
             retry_policy=_RETRY,
         )
-        report_id, head_sha, branch = meta.report_id, meta.head_sha, meta.branch
+        report_id = meta.report_id
         workflow.logger.info(
             "Captured point-in-time diff snapshot" if meta.snapshotted else "No new diff snapshot this turn"
         )
 
-        # Early-exits: nothing to do this turn — no receipt is appended for these (nothing was done).
-        # `already_published` means this exact head was already reviewed AND posted, so re-running the
-        # pipeline would recompute the same review and publish would self-skip — burning sandbox cost
-        # for no output. New inline comments do NOT force a turn yet (logged in fetch); reacting to
-        # comments lands with the "fix the issues" capability — see DECISIONS.md (Stage 5b / Action
-        # plane). A no-publish eval run is never gated here (it has no published head), so the
-        # frozen-PR eval loop still recomputes to measure reviewer changes. `empty_diff` is the
-        # "pushed nothing → do nothing" rule for branch targets.
-        if meta.already_published:
-            workflow.logger.info(
-                f"Review already published for {repository} {target} at {head_sha[:12]}; "
-                f"nothing changed this turn ({meta.new_comment_count} new comment(s), not yet acted on) — skipping"
-            )
-            return report_id
-        if meta.empty_diff:
-            workflow.logger.info(
-                f"Branch '{branch}' has no reviewable diff against its base (pushed nothing); skipping"
-            )
+        if self._skip_this_turn(meta, repository, target):
             return report_id
 
         # Resolve the acting user whose enabled perspectives apply: the PR author, or the explicit
@@ -467,18 +451,7 @@ class ReviewPRWorkflow:
                 "skipping review (no perspectives to apply)"
             )
             return report_id
-        # Trigger-aware opt-outs, read off the resolve-time settings snapshot (mid-run edits can't
-        # flip gates). Label gates only the cloud path (no explicit acting-user override) — an
-        # explicit CLI/eval invocation always runs. Inbox re-checks the receiver-side gate here for
-        # snapshot-at-resolve consistency. Manual stays ungated.
-        if inputs.trigger_source == TRIGGER_LABEL and inputs.acting_user_id is None and not acting.review_labeled_prs:
-            workflow.logger.info(
-                f"PR author '{meta.author_login}' (user {acting.acting_user_id}) has labeled-PR reviews "
-                "turned off; skipping review"
-            )
-            return report_id
-        if inputs.trigger_source == TRIGGER_INBOX and not acting.review_inbox_prs:
-            workflow.logger.info(f"Acting user {acting.acting_user_id} has inbox reviews turned off; skipping review")
+        if self._opted_out(inputs, meta, acting):
             return report_id
         acting_user_id = acting.acting_user_id
 
@@ -489,178 +462,257 @@ class ReviewPRWorkflow:
         # activities as they persist progress, and rewritten with the outcome below. Publish-path
         # only — eval / CLI / branch-target runs keep zero GitHub footprint. Best-effort throughout:
         # a status comment must never cost a review.
-        status_comment = publishes_to_pr
-        if status_comment:
-            try:
-                await workflow.execute_activity(
-                    post_status_comment_activity,
-                    StatusCommentInput(team_id=inputs.team_id, report_id=report_id),
-                    start_to_close_timeout=_QUICK_TIMEOUT,
-                    retry_policy=_RETRY,
-                )
-            except ActivityError:
-                workflow.logger.warning("Could not post the status comment; continuing without it")
+        if publishes_to_pr:
+            await self._post_status_comment(inputs, report_id)
 
-        publish_result: PublishResult | None = None
         try:
-            await workflow.execute_activity(
-                sync_review_skills_activity,
-                SyncReviewSkillsInput(team_id=inputs.team_id),
-                start_to_close_timeout=_FETCH_TIMEOUT,
-                retry_policy=_RETRY,
-            )
-            await workflow.execute_activity(
-                generate_schemas_activity,
-                GenerateSchemasInput(),
-                start_to_close_timeout=_QUICK_TIMEOUT,
-                retry_policy=_RETRY,
-            )
-
-            stage = SandboxStageInput(
-                team_id=inputs.team_id,
-                user_id=inputs.user_id,
-                report_id=report_id,
-                head_sha=head_sha,
-                repository=repository,
-                branch=branch,
-                run_index=meta.run_index,
-            )
-
-            workflow.logger.info("STAGE 2/7 · Split into chunks")
-            chunk_ids: list[int] = await workflow.execute_activity(
-                split_chunks_activity,
-                stage,
-                start_to_close_timeout=_SANDBOX_TIMEOUT,
-                heartbeat_timeout=_SANDBOX_HEARTBEAT,
-                retry_policy=_ONESHOT_RETRY,
-            )
-
-            parent_id = workflow.info().workflow_id
-
-            workflow.logger.info("STAGE 3/7 · Review chunks (perspective wave + blind-spot check)")
-            await workflow.execute_child_workflow(
-                ReviewPerspectivesWorkflow.run,
-                ReviewPerspectivesInputs(
-                    team_id=stage.team_id,
-                    user_id=stage.user_id,
-                    report_id=stage.report_id,
-                    head_sha=stage.head_sha,
-                    repository=stage.repository,
-                    branch=stage.branch,
-                    run_index=stage.run_index,
-                    chunk_ids=chunk_ids,
-                    acting_user_id=acting_user_id,
-                ),
-                id=f"{parent_id}/review",
-                retry_policy=_RETRY,
-            )
-
-            # Combine + scope-clean run inside the dedup activity (local flatten over the persisted
-            # perspective results) — only the survivors' ids come back, never the issue JSON.
-            workflow.logger.info("STAGE 4/7 · Combine, scope-clean & deduplicate issues")
-            dedup: DedupResult = await workflow.execute_activity(
-                dedup_activity,
-                stage,
-                start_to_close_timeout=_SANDBOX_TIMEOUT,
-                heartbeat_timeout=_SANDBOX_HEARTBEAT,
-                retry_policy=_ONESHOT_RETRY,
-            )
-            workflow.logger.info(f"Persisted {len(dedup.issue_ids)} finding(s) to the review report")
-
-            workflow.logger.info("STAGE 5/7 · Validate issues")
-            await workflow.execute_child_workflow(
-                ValidateIssuesWorkflow.run,
-                ValidateIssuesInputs(
-                    team_id=stage.team_id,
-                    user_id=stage.user_id,
-                    report_id=stage.report_id,
-                    head_sha=stage.head_sha,
-                    repository=stage.repository,
-                    branch=stage.branch,
-                    run_index=stage.run_index,
-                    issue_ids=dedup.issue_ids,
-                    acting_user_id=acting_user_id,
-                ),
-                id=f"{parent_id}/validate",
-                retry_policy=_RETRY,
-            )
-
-            workflow.logger.info("STAGE 6/7 · Build report")
-            await workflow.execute_activity(
-                build_body_activity,
-                BuildBodyInput(
-                    team_id=inputs.team_id,
-                    report_id=report_id,
-                    head_sha=head_sha,
-                    run_index=stage.run_index,
-                    issue_ids=dedup.issue_ids,
-                    urgency_threshold=acting.urgency_threshold,
-                    # Publishing runs stay ACTIVE through stage 7; publish/failure return them to rest.
-                    will_publish=publishes_to_pr,
-                ),
-                start_to_close_timeout=_QUICK_TIMEOUT,
-                retry_policy=_RETRY,
-            )
-
-            workflow.logger.info("STAGE 7/7 · Publish review")
-            # The pr_number check is implied by the gate; restated so mypy narrows it to int.
-            if publishes_to_pr and meta.pr_number is not None:
-                publish_result = await workflow.execute_activity(
-                    publish_review_activity,
-                    PublishInput(
-                        team_id=inputs.team_id,
-                        report_id=report_id,
-                        head_sha=head_sha,
-                        run_index=stage.run_index,
-                        owner=inputs.owner,
-                        repo=inputs.repo,
-                        # The resolved destination: the input PR, or the open PR fetch discovered
-                        # for a branch target.
-                        pr_number=meta.pr_number,
-                        urgency_threshold=acting.urgency_threshold,
-                    ),
-                    start_to_close_timeout=_QUICK_TIMEOUT,
-                    retry_policy=_RETRY,
-                )
-            elif inputs.publish:
-                workflow.logger.info("No PR to publish to (branch target); the review is stored only")
-            else:
-                workflow.logger.info("Publishing disabled for this run (publish=False)")
+            publish_result = await self._run_pipeline(inputs, meta, acting, acting_user_id, publishes_to_pr)
         except Exception:
-            # A dead run must not read as forever in progress on the PR or in the Code review UI
-            # (the activity also returns the report to rest, covering a publish that died with the
-            # idle write still deferred); best-effort so the edit can never mask the original error.
-            if status_comment:
-                try:
-                    await workflow.execute_activity(
-                        fail_status_comment_activity,
-                        StatusCommentInput(team_id=inputs.team_id, report_id=report_id),
-                        start_to_close_timeout=_QUICK_TIMEOUT,
-                        retry_policy=_RETRY,
-                    )
-                except Exception:
-                    workflow.logger.warning("Could not mark the status comment as failed")
-            # The signal report's log records a failed turn too (a receipt per executed turn,
-            # completion or failure); best-effort so it can never mask the original error.
-            await self._append_code_review_receipt(
-                inputs, report_id=report_id, run_index=meta.run_index, outcome="failed", best_effort=True
-            )
-            # The completed event's other half: without a failed event, a run that dies drops out of
-            # every per-review metric, so a reviewer-model arm that crashes on its hardest PRs would
-            # read as cheaper and more precise than it is. Best-effort like the receipt above.
-            if workflow.patched("track-review-failed-2026-07"):
-                try:
-                    await workflow.execute_activity(
-                        track_review_failed_activity,
-                        TrackReviewFailedInput(team_id=inputs.team_id, report_id=report_id, run_index=meta.run_index),
-                        start_to_close_timeout=_QUICK_TIMEOUT,
-                        retry_policy=_RETRY,
-                    )
-                except Exception:
-                    workflow.logger.exception("Could not capture the review-failed analytics event")
+            await self._finalize_failed(inputs, meta, publishes_to_pr)
             raise
 
+        await self._finalize_completed(inputs, meta, acting, publish_result, publishes_to_pr)
+        await self._dispatch_resolution(inputs, meta, acting, acting_user_id)
+
+        workflow.logger.info(f"ReviewHog complete · report stored on ReviewReport {report_id}")
+        return report_id
+
+    @staticmethod
+    def _skip_this_turn(meta: ReviewMeta, repository: str, target: str) -> bool:
+        """True when this turn has nothing to do — no receipt is appended (nothing was done).
+
+        `already_published` means this exact head was already reviewed AND posted, so re-running the
+        pipeline would recompute the same review and publish would self-skip — burning sandbox cost
+        for no output. New inline comments do NOT force a turn yet (logged in fetch); reacting to
+        comments lands with the "fix the issues" capability — see DECISIONS.md (Stage 5b / Action
+        plane). A no-publish eval run is never gated here (it has no published head), so the
+        frozen-PR eval loop still recomputes to measure reviewer changes. `empty_diff` is the
+        "pushed nothing → do nothing" rule for branch targets.
+        """
+        if meta.already_published:
+            workflow.logger.info(
+                f"Review already published for {repository} {target} at {meta.head_sha[:12]}; "
+                f"nothing changed this turn ({meta.new_comment_count} new comment(s), not yet acted on) — skipping"
+            )
+            return True
+        if meta.empty_diff:
+            workflow.logger.info(
+                f"Branch '{meta.branch}' has no reviewable diff against its base (pushed nothing); skipping"
+            )
+            return True
+        return False
+
+    @staticmethod
+    def _opted_out(inputs: ReviewPRWorkflowInputs, meta: ReviewMeta, acting: ResolveActingUserResult) -> bool:
+        """True when a trigger-aware opt-out gate skips the review.
+
+        Read off the resolve-time settings snapshot (mid-run edits can't flip gates). Label gates
+        only the cloud path (no explicit acting-user override) — an explicit CLI/eval invocation
+        always runs. Inbox re-checks the receiver-side gate here for snapshot-at-resolve consistency.
+        Manual stays ungated.
+        """
+        if inputs.trigger_source == TRIGGER_LABEL and inputs.acting_user_id is None and not acting.review_labeled_prs:
+            workflow.logger.info(
+                f"PR author '{meta.author_login}' (user {acting.acting_user_id}) has labeled-PR reviews "
+                "turned off; skipping review"
+            )
+            return True
+        if inputs.trigger_source == TRIGGER_INBOX and not acting.review_inbox_prs:
+            workflow.logger.info(f"Acting user {acting.acting_user_id} has inbox reviews turned off; skipping review")
+            return True
+        return False
+
+    @staticmethod
+    async def _post_status_comment(inputs: ReviewPRWorkflowInputs, report_id: str) -> None:
+        try:
+            await workflow.execute_activity(
+                post_status_comment_activity,
+                StatusCommentInput(team_id=inputs.team_id, report_id=report_id),
+                start_to_close_timeout=_QUICK_TIMEOUT,
+                retry_policy=_RETRY,
+            )
+        except ActivityError:
+            workflow.logger.warning("Could not post the status comment; continuing without it")
+
+    async def _run_pipeline(
+        self,
+        inputs: ReviewPRWorkflowInputs,
+        meta: ReviewMeta,
+        acting: ResolveActingUserResult,
+        acting_user_id: int,
+        publishes_to_pr: bool,
+    ) -> PublishResult | None:
+        """Stages 2-7: split → review → dedup → validate → build → publish. Returns the publish result."""
+        await workflow.execute_activity(
+            sync_review_skills_activity,
+            SyncReviewSkillsInput(team_id=inputs.team_id),
+            start_to_close_timeout=_FETCH_TIMEOUT,
+            retry_policy=_RETRY,
+        )
+        await workflow.execute_activity(
+            generate_schemas_activity,
+            GenerateSchemasInput(),
+            start_to_close_timeout=_QUICK_TIMEOUT,
+            retry_policy=_RETRY,
+        )
+
+        stage = SandboxStageInput(
+            team_id=inputs.team_id,
+            user_id=inputs.user_id,
+            report_id=meta.report_id,
+            head_sha=meta.head_sha,
+            repository=inputs.repository,
+            branch=meta.branch,
+            run_index=meta.run_index,
+        )
+
+        workflow.logger.info("STAGE 2/7 · Split into chunks")
+        chunk_ids: list[int] = await workflow.execute_activity(
+            split_chunks_activity,
+            stage,
+            start_to_close_timeout=_SANDBOX_TIMEOUT,
+            heartbeat_timeout=_SANDBOX_HEARTBEAT,
+            retry_policy=_ONESHOT_RETRY,
+        )
+
+        parent_id = workflow.info().workflow_id
+
+        workflow.logger.info("STAGE 3/7 · Review chunks (perspective wave + blind-spot check)")
+        await workflow.execute_child_workflow(
+            ReviewPerspectivesWorkflow.run,
+            ReviewPerspectivesInputs(
+                team_id=stage.team_id,
+                user_id=stage.user_id,
+                report_id=stage.report_id,
+                head_sha=stage.head_sha,
+                repository=stage.repository,
+                branch=stage.branch,
+                run_index=stage.run_index,
+                chunk_ids=chunk_ids,
+                acting_user_id=acting_user_id,
+            ),
+            id=f"{parent_id}/review",
+            retry_policy=_RETRY,
+        )
+
+        # Combine + scope-clean run inside the dedup activity (local flatten over the persisted
+        # perspective results) — only the survivors' ids come back, never the issue JSON.
+        workflow.logger.info("STAGE 4/7 · Combine, scope-clean & deduplicate issues")
+        dedup: DedupResult = await workflow.execute_activity(
+            dedup_activity,
+            stage,
+            start_to_close_timeout=_SANDBOX_TIMEOUT,
+            heartbeat_timeout=_SANDBOX_HEARTBEAT,
+            retry_policy=_ONESHOT_RETRY,
+        )
+        workflow.logger.info(f"Persisted {len(dedup.issue_ids)} finding(s) to the review report")
+
+        workflow.logger.info("STAGE 5/7 · Validate issues")
+        await workflow.execute_child_workflow(
+            ValidateIssuesWorkflow.run,
+            ValidateIssuesInputs(
+                team_id=stage.team_id,
+                user_id=stage.user_id,
+                report_id=stage.report_id,
+                head_sha=stage.head_sha,
+                repository=stage.repository,
+                branch=stage.branch,
+                run_index=stage.run_index,
+                issue_ids=dedup.issue_ids,
+                acting_user_id=acting_user_id,
+            ),
+            id=f"{parent_id}/validate",
+            retry_policy=_RETRY,
+        )
+
+        workflow.logger.info("STAGE 6/7 · Build report")
+        await workflow.execute_activity(
+            build_body_activity,
+            BuildBodyInput(
+                team_id=inputs.team_id,
+                report_id=stage.report_id,
+                head_sha=stage.head_sha,
+                run_index=stage.run_index,
+                issue_ids=dedup.issue_ids,
+                urgency_threshold=acting.urgency_threshold,
+                # Publishing runs stay ACTIVE through stage 7; publish/failure return them to rest.
+                will_publish=publishes_to_pr,
+            ),
+            start_to_close_timeout=_QUICK_TIMEOUT,
+            retry_policy=_RETRY,
+        )
+
+        workflow.logger.info("STAGE 7/7 · Publish review")
+        # The pr_number check is implied by the gate; restated so mypy narrows it to int.
+        if publishes_to_pr and meta.pr_number is not None:
+            return await workflow.execute_activity(
+                publish_review_activity,
+                PublishInput(
+                    team_id=inputs.team_id,
+                    report_id=stage.report_id,
+                    head_sha=stage.head_sha,
+                    run_index=stage.run_index,
+                    owner=inputs.owner,
+                    repo=inputs.repo,
+                    # The resolved destination: the input PR, or the open PR fetch discovered
+                    # for a branch target.
+                    pr_number=meta.pr_number,
+                    urgency_threshold=acting.urgency_threshold,
+                ),
+                start_to_close_timeout=_QUICK_TIMEOUT,
+                retry_policy=_RETRY,
+            )
+        if inputs.publish:
+            workflow.logger.info("No PR to publish to (branch target); the review is stored only")
+        else:
+            workflow.logger.info("Publishing disabled for this run (publish=False)")
+        return None
+
+    async def _finalize_failed(self, inputs: ReviewPRWorkflowInputs, meta: ReviewMeta, publishes_to_pr: bool) -> None:
+        """Best-effort cleanup for a dead run: fail the status comment, log a receipt, count the failure."""
+        # A dead run must not read as forever in progress on the PR or in the Code review UI
+        # (the activity also returns the report to rest, covering a publish that died with the
+        # idle write still deferred); best-effort so the edit can never mask the original error.
+        if publishes_to_pr:
+            try:
+                await workflow.execute_activity(
+                    fail_status_comment_activity,
+                    StatusCommentInput(team_id=inputs.team_id, report_id=meta.report_id),
+                    start_to_close_timeout=_QUICK_TIMEOUT,
+                    retry_policy=_RETRY,
+                )
+            except Exception:
+                workflow.logger.warning("Could not mark the status comment as failed")
+        # The signal report's log records a failed turn too (a receipt per executed turn,
+        # completion or failure); best-effort so it can never mask the original error.
+        await self._append_code_review_receipt(
+            inputs, report_id=meta.report_id, run_index=meta.run_index, outcome="failed", best_effort=True
+        )
+        # The completed event's other half: without a failed event, a run that dies drops out of
+        # every per-review metric, so a reviewer-model arm that crashes on its hardest PRs would
+        # read as cheaper and more precise than it is. Best-effort like the receipt above.
+        if workflow.patched("track-review-failed-2026-07"):
+            try:
+                await workflow.execute_activity(
+                    track_review_failed_activity,
+                    TrackReviewFailedInput(team_id=inputs.team_id, report_id=meta.report_id, run_index=meta.run_index),
+                    start_to_close_timeout=_QUICK_TIMEOUT,
+                    retry_policy=_RETRY,
+                )
+            except Exception:
+                workflow.logger.exception("Could not capture the review-failed analytics event")
+
+    async def _finalize_completed(
+        self,
+        inputs: ReviewPRWorkflowInputs,
+        meta: ReviewMeta,
+        acting: ResolveActingUserResult,
+        publish_result: PublishResult | None,
+        publishes_to_pr: bool,
+    ) -> None:
+        """Best-effort closeout for a finished run: analytics, the outcome status edit, and the receipt."""
         posted = publish_result is not None and publish_result.posted
+        review_url = publish_result.review_url if publish_result is not None else None
         # One analytics event per finalized turn (the review-level count dashboards aggregate);
         # best-effort — a review must never fail over its own telemetry.
         try:
@@ -668,8 +720,8 @@ class ReviewPRWorkflow:
                 track_review_completed_activity,
                 TrackReviewCompletedInput(
                     team_id=inputs.team_id,
-                    report_id=report_id,
-                    head_sha=head_sha,
+                    report_id=meta.report_id,
+                    head_sha=meta.head_sha,
                     run_index=meta.run_index,
                     published=posted,
                     workflow_started_at=workflow.info().start_time.isoformat(),
@@ -682,16 +734,16 @@ class ReviewPRWorkflow:
         # The outcome edit: the full found-vs-published counts land on the status comment, so a PR
         # with two inline comments never reads as "the review only found two things" — and a
         # zero-publishable run gets explicit closure instead of silence. Best-effort like the receipt.
-        if status_comment:
+        if publishes_to_pr:
             try:
                 await workflow.execute_activity(
                     finalize_status_comment_activity,
                     FinalizeStatusCommentInput(
                         team_id=inputs.team_id,
-                        report_id=report_id,
+                        report_id=meta.report_id,
                         run_index=meta.run_index,
                         urgency_threshold=acting.urgency_threshold,
-                        review_url=publish_result.review_url if publish_result is not None else None,
+                        review_url=review_url,
                         resolved_from=acting.resolved_from,
                     ),
                     start_to_close_timeout=_QUICK_TIMEOUT,
@@ -704,55 +756,59 @@ class ReviewPRWorkflow:
         # returns before this append anyway, so the receipt would stay lost either way.
         await self._append_code_review_receipt(
             inputs,
-            report_id=report_id,
+            report_id=meta.report_id,
             run_index=meta.run_index,
             outcome="published" if posted else "stored",
-            review_url=publish_result.review_url if publish_result is not None else None,
+            review_url=review_url,
             best_effort=True,
         )
 
-        # Reviewing includes resolving: hand the PR to the resolution stage once this turn's comments
-        # are on it. The acting user's `resolve_comments` setting decides (via the resolve-time
-        # snapshot, publishing runs only — an unpublished eval/CLI review must not write to the PR);
-        # `inputs.resolve_comments` is the per-run override (the UI's "review without resolving").
-        # Fire-and-forget (ABANDON) — the resolution run outlives this workflow — and best-effort: a
-        # dispatch failure must never fail a finished review. Deterministic under replay: both
-        # operands come from recorded history (workflow input + activity result), and pre-field
-        # histories decode input None + snapshot False, so the command never fires where it didn't.
+    @staticmethod
+    async def _dispatch_resolution(
+        inputs: ReviewPRWorkflowInputs, meta: ReviewMeta, acting: ResolveActingUserResult, acting_user_id: int
+    ) -> None:
+        """Hand the PR to the resolution stage once this turn's comments are on it.
+
+        The acting user's `resolve_comments` setting decides (via the resolve-time snapshot,
+        publishing runs only — an unpublished eval/CLI review must not write to the PR);
+        `inputs.resolve_comments` is the per-run override (the UI's "review without resolving").
+        Fire-and-forget (ABANDON) — the resolution run outlives this workflow — and best-effort: a
+        dispatch failure must never fail a finished review. Deterministic under replay: both
+        operands come from recorded history (workflow input + activity result), and pre-field
+        histories decode input None + snapshot False, so the command never fires where it didn't.
+        """
         resolve_after = (
             inputs.resolve_comments
             if inputs.resolve_comments is not None
             else (inputs.publish and acting.resolve_comments)
         )
-        if resolve_after and meta.pr_number is not None:
-            workflow.logger.info("Dispatching the resolution stage for this PR")
-            try:
-                await workflow.start_child_workflow(
-                    "resolve-pr",
-                    ResolvePRWorkflowInputs(
-                        team_id=inputs.team_id,
-                        user_id=inputs.user_id,
-                        owner=inputs.owner,
-                        repo=inputs.repo,
-                        pr_number=meta.pr_number,
-                        pr_url=meta.pr_url or "",
-                        acting_user_id=acting_user_id,
-                        trigger_source=inputs.trigger_source,
-                    ),
-                    id=resolve_pr_workflow_id(
-                        team_id=inputs.team_id, owner=inputs.owner, repo=inputs.repo, pr_number=meta.pr_number
-                    ),
-                    parent_close_policy=ParentClosePolicy.ABANDON,
-                    # A resolution run already in flight for this PR wins; this dispatch just no-ops.
-                    id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
-                )
-            except Exception as e:
-                # Broad by design (best-effort — a dispatch failure must never fail a finished review);
-                # log the detail so a real failure is distinguishable from the benign already-running race.
-                workflow.logger.warning(f"Could not dispatch the resolution stage; the review is unaffected: {e!r}")
-
-        workflow.logger.info(f"ReviewHog complete · report stored on ReviewReport {report_id}")
-        return report_id
+        if not (resolve_after and meta.pr_number is not None):
+            return
+        workflow.logger.info("Dispatching the resolution stage for this PR")
+        try:
+            await workflow.start_child_workflow(
+                "resolve-pr",
+                ResolvePRWorkflowInputs(
+                    team_id=inputs.team_id,
+                    user_id=inputs.user_id,
+                    owner=inputs.owner,
+                    repo=inputs.repo,
+                    pr_number=meta.pr_number,
+                    pr_url=meta.pr_url or "",
+                    acting_user_id=acting_user_id,
+                    trigger_source=inputs.trigger_source,
+                ),
+                id=resolve_pr_workflow_id(
+                    team_id=inputs.team_id, owner=inputs.owner, repo=inputs.repo, pr_number=meta.pr_number
+                ),
+                parent_close_policy=ParentClosePolicy.ABANDON,
+                # A resolution run already in flight for this PR wins; this dispatch just no-ops.
+                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+            )
+        except Exception as e:
+            # Broad by design (best-effort — a dispatch failure must never fail a finished review);
+            # log the detail so a real failure is distinguishable from the benign already-running race.
+            workflow.logger.warning(f"Could not dispatch the resolution stage; the review is unaffected: {e!r}")
 
     @staticmethod
     async def _append_code_review_receipt(
