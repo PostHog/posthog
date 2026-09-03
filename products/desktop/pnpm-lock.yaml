@@ -27,6 +27,9 @@ catalogs:
     '@phosphor-icons/react':
       specifier: ^2.1.10
       version: 2.1.10
+    '@posthog/brand':
+      specifier: 0.11.0
+      version: 0.11.0
     '@posthog/quill':
       specifier: 0.3.0-beta.28
       version: 0.3.0-beta.28
@@ -1161,6 +1164,9 @@ importers:
 
   packages/quick-ask:
     dependencies:
+      '@posthog/brand':
+        specifier: 'catalog:'
+        version: 0.11.0(react@19.2.6)
       '@posthog/core':
         specifier: workspace:*
         version: link:../core
@@ -1192,6 +1198,9 @@ importers:
 
   packages/shared:
     dependencies:
+      '@posthog/brand':
+        specifier: 'catalog:'
+        version: 0.11.0(react@19.2.6)
       zod:
         specifier: 4.4.3
         version: 4.4.3
@@ -1727,8 +1736,8 @@ importers:
         specifier: ^1.2.10
         version: 1.2.10(@shikijs/themes@3.23.0)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
       '@posthog/brand':
-        specifier: 0.9.0
-        version: 0.9.0(react@19.2.6)
+        specifier: 'catalog:'
+        version: 0.11.0(react@19.2.6)
       '@posthog/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -6229,8 +6238,8 @@ packages:
   '@popperjs/core@2.11.8':
     resolution: {integrity: sha512-P1st0aksCrn9sGZhp8GMYwBnQsbvAWsZAX44oXNNvLHGqAOcoVxmjZiohstwQ7SqKnbR47akdNi+uleWD8+g6A==}
 
-  '@posthog/brand@0.9.0':
-    resolution: {integrity: sha512-rd4wWXBlduvGE+qzPftgAjUOfCoGdp/08o29PG4RYc+SRfNolaH1rCgWElvjdp9F84VSctqN8AS8lEsHOwEgGA==}
+  '@posthog/brand@0.11.0':
+    resolution: {integrity: sha512-IvSSnTZjg+i/lSys1OOulXIVlZL45cudAhMq0E9JaDKGxockC4TCDFgvu9KrMtur23JsjmaD8vv0tz7sC9K7mg==}
     engines: {node: '>=22.18'}
     peerDependencies:
       react: 19.2.6
@@ -20964,7 +20973,7 @@ snapshots:
 
   '@popperjs/core@2.11.8': {}
 
-  '@posthog/brand@0.9.0(react@19.2.6)':
+  '@posthog/brand@0.11.0(react@19.2.6)':
     optionalDependencies:
       react: 19.2.6
 
