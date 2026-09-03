@@ -29,9 +29,12 @@ fun isContainer(v) {
 }
 
 // Write the flattened leaf paths of \`obj\` into \`out\`, joining keys with the separator.
+// Every nested step adds the separator, also when the parent key is an empty string. Without
+// that, a property named '' would emit its children as unprefixed top-level keys and overwrite
+// the properties that already use those names.
 fun flattenInto(out, obj, prefix, sep) {
     for (let key, value in obj) {
-        let path := empty(prefix) ? toString(key) : concat(prefix, sep, toString(key))
+        let path := concat(prefix, sep, toString(key))
         if (isContainer(value)) {
             flattenInto(out, value, path, sep)
         } else {
