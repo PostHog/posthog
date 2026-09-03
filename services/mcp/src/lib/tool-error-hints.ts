@@ -39,6 +39,31 @@ const LOGS_QUERY_URL_FRAGMENTS = [
     '/logs/sparkline/',
 ]
 
+/**
+ * The survey create/update endpoint returns a 5xx when a structured parameter
+ * arrives as a JSON-encoded string instead of an object or array. Some MCP
+ * clients stringify args whose generated schema is empty. The server then reads
+ * a member of the string and fails. The recovery is to send the parameter as a
+ * real JSON value.
+ */
+const SURVEY_WRITE_RECOVERY_HINT = [
+    'This survey write failed server-side. The most common cause is a structured parameter sent as a JSON-encoded string instead of a real object or array — not a bug in the survey itself.',
+    '',
+    'Check `targeting_flag_filters`, `conditions`, `appearance`, `questions`, and `form_content`. Each must be a JSON object or array, not a string.',
+    '',
+    'Wrong: `targeting_flag_filters: "{\\"groups\\": []}"`.',
+    'Right: `targeting_flag_filters: { "groups": [] }`.',
+    '',
+    'Fix the value that is a string, then retry once.',
+].join('\n')
+
+/**
+ * Matches the survey create and update paths (`/surveys/` and `/surveys/{id}/`)
+ * but not the sub-action paths (`/surveys/{id}/stats/`, `/launch/`, `/stop/`),
+ * whose 5xx failures are query problems, not input problems.
+ */
+const SURVEY_WRITE_URL_RE = /\/surveys\/(?:[^/]+\/)?$/
+
 interface RecoveryHintInput {
     /** The failed request URL (from `PostHogApiError.url`), if the error was an HTTP failure. */
     url?: string | undefined
@@ -61,6 +86,9 @@ export function getToolRecoveryHint({ url, status }: RecoveryHintInput): string 
     }
     if (url && LOGS_QUERY_URL_FRAGMENTS.some((fragment) => url.includes(fragment))) {
         return LOGS_QUERY_RECOVERY_HINT
+    }
+    if (url && SURVEY_WRITE_URL_RE.test(url)) {
+        return SURVEY_WRITE_RECOVERY_HINT
     }
     return undefined
 }

@@ -3,7 +3,8 @@ import { useActions, useValues } from 'kea'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
-import { CONFIDENCE_LEVEL_OPTIONS } from 'scenes/experiments/constants'
+
+import { CONFIDENCE_LEVEL_OPTIONS } from 'products/experiments/frontend/constants'
 
 import { experimentsConfigLogic } from './experimentsConfigLogic'
 

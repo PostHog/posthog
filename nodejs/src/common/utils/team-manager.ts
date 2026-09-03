@@ -2,7 +2,7 @@ import { Properties } from '~/plugin-scaffold'
 import { OrganizationAvailableFeature, ProjectId, Team } from '~/types'
 
 import { PostgresRouter, PostgresUse } from './db/postgres'
-import { LazyLoader, LoaderRetryOptions } from './lazy-loader'
+import { LazyLoader, LoadOptions, LoaderRetryOptions } from './lazy-loader'
 import { logger } from './logger'
 import { captureTeamEvent } from './posthog'
 
@@ -50,8 +50,8 @@ export class TeamManager {
         return this.lazyLoader.getMany(teamIds.map(String))
     }
 
-    public async getTeamsByTokens(tokens: string[]): Promise<Record<string, Team | null>> {
-        return this.lazyLoader.getMany(tokens)
+    public async getTeamsByTokens(tokens: string[], options?: LoadOptions): Promise<Record<string, Team | null>> {
+        return this.lazyLoader.getMany(tokens, options)
     }
 
     public async hasAvailableFeature(teamId: number, feature: OrganizationAvailableFeature): Promise<boolean> {

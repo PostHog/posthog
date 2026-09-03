@@ -609,7 +609,6 @@ _POE_PREFIXES = (
     "posthog/clickhouse/",
     "posthog/queries/",
     "ee/clickhouse/",
-    "products/product_analytics/backend/tests/api/",
 )
 _CORE_IGNORED_PREFIXES = ("posthog/dags/", "common/hogvm/python/test/", "posthog/test/repo_invariants/")
 

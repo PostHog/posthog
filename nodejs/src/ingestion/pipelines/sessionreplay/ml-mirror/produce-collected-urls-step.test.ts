@@ -3,10 +3,10 @@ import { parseJSON } from '~/common/utils/json-parse'
 import { TopHogRegistry } from '~/ingestion/framework/extensions/tophog'
 import { PipelineResultType } from '~/ingestion/framework/results'
 import type { CrawlHistoryStore } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/crawl-history'
-import { CollectedUrl } from '~/ingestion/pipelines/sessionreplay/parse-and-anonymize-step'
 import { MlImageFetchOutput } from '~/ingestion/pipelines/sessionreplay/shared/outputs'
 import { RecordedTopHogMetric, createRecordingTopHog } from '~/tests/helpers/tophog'
 
+import { CollectedUrl } from './parse-and-anonymize-step'
 import { CollectedUrlsMessage, createProduceCollectedUrlsStep } from './produce-collected-urls-step'
 
 describe('produceCollectedUrlsStep', () => {

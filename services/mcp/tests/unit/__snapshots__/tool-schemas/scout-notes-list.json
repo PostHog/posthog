@@ -25,7 +25,7 @@
         },
         "include_general": {
             "default": true,
-            "description": "Only meaningful with `skill_name`: when false, exclude the general fleet-wide notes and return the skill's own notes only.",
+            "description": "Only meaningful with `skill_name`: when false, exclude the general fleet-wide notes and return the target's own notes only.",
             "type": "boolean"
         },
         "limit": {
@@ -35,7 +35,7 @@
             "type": "number"
         },
         "skill_name": {
-            "description": "Return the notes addressed to this scout (`signals-scout-*`) plus the general (blank-target) notes for the whole fleet. Omit to browse every note on the project.",
+            "description": "Return the notes addressed to this target plus the general (blank-target) notes for the whole fleet. Pass a scout skill (`signals-scout-*`) or a pipeline audience (`pipeline:report-research`). Omit to browse every note on the project.",
             "minLength": 1,
             "type": "string"
         }

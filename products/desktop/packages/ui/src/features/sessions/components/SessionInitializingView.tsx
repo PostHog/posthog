@@ -1,5 +1,5 @@
-import { Spinner } from "@phosphor-icons/react";
 import type { TaskRunStatus } from "@posthog/shared/domain-types";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { Flex, Text } from "@radix-ui/themes";
 import { useEffect, useState } from "react";
 import zenHedgehog from "../../../assets/images/zen.png";
@@ -66,7 +66,7 @@ export function SessionInitializingView({
         justify="center"
         className="absolute inset-0 bg-background"
       >
-        <Spinner size={32} className="animate-spin text-gray-9" />
+        <Spinner size={32} className="text-gray-9" />
       </Flex>
     );
   }
@@ -84,7 +84,7 @@ export function SessionInitializingView({
       </div>
       <Flex direction="column" align="center" gap="2">
         <Flex align="center" gap="2">
-          <Spinner size={16} className="animate-spin text-gray-9" />
+          <Spinner size={16} className="text-gray-9" />
           <Text className="font-medium text-base">{visibleHeading}</Text>
         </Flex>
         <Text color="gray" className="text-sm">

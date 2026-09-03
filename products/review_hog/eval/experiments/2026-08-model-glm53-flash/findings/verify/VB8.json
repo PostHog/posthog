@@ -1,0 +1,9 @@
+{
+    "id": "VB8",
+    "is_real": false,
+    "severity": "not_an_issue",
+    "confidence": "medium",
+    "source": "fresh",
+    "evidence": "Receiver leg: receivers.py:93/121/137 reads pr_url, task_run_id, team_id from the run's OWN saved row (identity relation), and the queue_inbox_pr_review facade (api.py:128) is the sole caller, tach-confined. So process_inbox_pr_review does not 'trust supplied identifiers pointing at another PR' (matches prior KB5=false). Webhook leg: tasks.py:191 find_signal_implementation_run matches the GitHub-webhook's real pr.html_url via find_task_run(output__pr_url=..., task__repository__iexact=repo), then rechecks run.team_id==repo_config.team_id (facade api.py:504) plus fork-safety (head_repo==base). output.pr_url is caller-writable only via set_output, which requires task:write AND team scoping (_get_visible_run, api.py:1802). The carve-out also requires a bot-authored repo-native PR, a synced+enabled repo config in that team, and the acting reviewer resolved from the run's suggested_reviewers artefact (an opted-in org member, receivers.py:159). No cross-tenant escalation; the 'bypass' needs an actor already inside the team's trust boundary. Doc's 'linkage-verified' claim holds.",
+    "reasoning": "Both paths are linkage-verified as documented: the receiver reviews the run's own persisted pr_url, and the webhook matches the real GitHub PR to an in-team, in-repo, fork-safe run with team scope rechecked. The caller-writable output.pr_url is confined to a task:write holder in the same team, and provenance stamping additionally requires a bot-authored PR in that team's connected repo plus an opted-in org-member reviewer tied to the run's signal report. This is defense-in-depth on a single-caller, team-scoped, opt-in-gated flow, not a reachable approval-gate bypass. Refuted."
+}

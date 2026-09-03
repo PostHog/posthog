@@ -13,6 +13,7 @@ interface TestableServer {
     taskRunId?: string | null;
     taskUserId?: number | null;
     taskTitle?: string | null;
+    taskOriginKey?: string | null;
     repositories?: string[];
     runtimeAdapter?: string | null;
     sandboxEnvironmentId?: string | null;
@@ -215,6 +216,7 @@ describe("AgentServer.configureEnvironment", () => {
       taskRunId: "run-xyz",
       taskUserId: 42,
       taskTitle: "Fix the bug",
+      taskOriginKey: "desktop_onboarding_session:42",
       repositories: ["posthog/posthog", "posthog/posthog-js"],
       runtimeAdapter: "claude",
       sandboxEnvironmentId: "environment-123",
@@ -231,6 +233,7 @@ describe("AgentServer.configureEnvironment", () => {
       "x-posthog-property-task_run_id": "run-xyz",
       "x-posthog-property-task_user_id": "42",
       "x-posthog-property-task_title": "Fix the bug",
+      "x-posthog-property-task_origin_key": "desktop_onboarding_session:42",
       "x-posthog-property-task_repositories":
         '["posthog/posthog","posthog/posthog-js"]',
       "x-posthog-property-task_runtime_adapter": "claude",
@@ -254,6 +257,7 @@ describe("AgentServer.configureEnvironment", () => {
       taskRunId: "run-xyz",
       taskUserId: 42,
       taskTitle: "Fix the bug",
+      taskOriginKey: "desktop_onboarding_session:42",
       repositories: ["posthog/posthog", "posthog/posthog-js"],
       runtimeAdapter: "claude",
       sandboxEnvironmentId: "environment-123",
@@ -271,6 +275,7 @@ describe("AgentServer.configureEnvironment", () => {
         "x-posthog-property-task_run_id: run-xyz",
         "x-posthog-property-task_user_id: 42",
         "x-posthog-property-task_title: Fix the bug",
+        "x-posthog-property-task_origin_key: desktop_onboarding_session:42",
         'x-posthog-property-task_repositories: ["posthog/posthog","posthog/posthog-js"]',
         "x-posthog-property-task_runtime_adapter: claude",
         "x-posthog-property-task_sandbox_environment_id: environment-123",

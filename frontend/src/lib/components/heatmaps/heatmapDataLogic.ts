@@ -123,6 +123,13 @@ export function heatmapApiPath(context: HeatmapDataLogicProps['context'], endpoi
     return `/api/heatmap/${endpoint}`
 }
 
+// A row added but not yet pointed at an event carries a null id. It selects nothing, and the API rejects
+// it, so leave those out of the request instead of failing the whole heatmap over a half-filled row.
+export function eventFilterParam(events: CommonFilters['events']): string | undefined {
+    const selected = events?.filter((event) => !!event.id)
+    return selected?.length ? JSON.stringify(selected) : undefined
+}
+
 export type HrefMatchType = 'exact' | 'pattern'
 
 export function isWithinBounds(
@@ -476,7 +483,7 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
 
                     actions.setIsReady(false)
 
-                    const { date_from, date_to, filter_test_accounts, cohort_ids } = values.commonFilters
+                    const { date_from, date_to, filter_test_accounts, cohort_ids, events } = values.commonFilters
                     const { type, aggregation } = values.heatmapFilters
 
                     // toolbar fetch collapses queryparams but this URL has multiple with the same name
@@ -491,7 +498,8 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                             viewport_width_max: values.viewportRange.max,
                             aggregation,
                             filter_test_accounts,
-                            cohort_ids: cohort_ids && cohort_ids.length > 0 ? cohort_ids : undefined,
+                            cohort_ids: cohort_ids && cohort_ids.length > 0 ? JSON.stringify(cohort_ids) : undefined,
+                            events: eventFilterParam(events),
                             limit: UNBOUNDED_HEATMAP_LIMIT,
                         },
                         '?'
@@ -517,7 +525,7 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
 
                     await breakpoint(100)
 
-                    const { date_from, date_to, filter_test_accounts, cohort_ids } = values.commonFilters
+                    const { date_from, date_to, filter_test_accounts, cohort_ids, events } = values.commonFilters
                     const { type } = values.heatmapFilters
 
                     const apiURL = `${heatmapApiPath(props.context, 'events/')}${encodeParams(
@@ -531,6 +539,7 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                             viewport_width_max: values.viewportRange.max,
                             filter_test_accounts,
                             cohort_ids: cohort_ids && cohort_ids.length > 0 ? cohort_ids : undefined,
+                            events: eventFilterParam(events),
                             points: JSON.stringify(area.points),
                         },
                         '?'
@@ -709,6 +718,9 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
     }),
     listeners(({ actions, values, props }) => ({
         setCommonFilters: () => {
+            // The open drill-down lists interactions for the filters it was opened with. Close it so it
+            // can't show sessions the new filters exclude; the user reselects a hotspot on the new overlay.
+            actions.clearSelectedArea()
             actions.loadHeatmap()
         },
         setHeatmapFilters: () => {
@@ -740,7 +752,7 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                 return
             }
 
-            const { date_from, date_to, filter_test_accounts, cohort_ids } = values.commonFilters
+            const { date_from, date_to, filter_test_accounts, cohort_ids, events } = values.commonFilters
             const { type } = values.heatmapFilters
             const nextOffset = currentEvents.results.length
 
@@ -755,6 +767,7 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                     viewport_width_max: values.viewportRange.max,
                     filter_test_accounts,
                     cohort_ids: cohort_ids && cohort_ids.length > 0 ? cohort_ids : undefined,
+                    events: eventFilterParam(events),
                     points: JSON.stringify(area.points),
                     offset: nextOffset,
                 },

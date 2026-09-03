@@ -2,7 +2,9 @@ import { Text } from "@components/text";
 import { computeRefundEligibility } from "@posthog/core/inbox/refundEligibility";
 import {
   formatSignalReportSummaryMarkdown,
+  humanizeReportTitle,
   inboxStatusLabel,
+  parseConventionalCommitTitle,
 } from "@posthog/core/inbox/reportPresentation";
 import {
   DISMISSAL_REASON_OPTIONS,
@@ -42,6 +44,7 @@ import { useUserQuery } from "@/features/auth";
 import { MarkdownText } from "@/features/chat/components/MarkdownText";
 import { getReportRepository } from "@/features/inbox/api";
 import { buildCreatePrReportPrompt } from "@/features/inbox/buildCreatePrReportPrompt";
+import { ConventionalCommitTag } from "@/features/inbox/components/ConventionalCommitTag";
 import { CreatePrFeedbackSheet } from "@/features/inbox/components/CreatePrFeedbackSheet";
 import { DiscussReportSheet } from "@/features/inbox/components/DiscussReportSheet";
 import {
@@ -441,6 +444,7 @@ export default function ReportDetailScreen() {
     );
   }
 
+  const conventionalTitle = parseConventionalCommitTitle(report.title);
   const updatedAt = new Date(report.updated_at);
   const hoursSince = differenceInHours(new Date(), updatedAt);
   const timeDisplay =
@@ -484,6 +488,12 @@ export default function ReportDetailScreen() {
           {report.actionability && (
             <ActionabilityBadge value={report.actionability} />
           )}
+          {conventionalTitle ? (
+            <ConventionalCommitTag
+              type={conventionalTitle.type}
+              scope={conventionalTitle.scope}
+            />
+          ) : null}
           {report.is_suggested_reviewer && (
             <View className="rounded bg-status-warning/20 px-2 py-1">
               <Text className="font-medium text-[12px] text-status-warning">
@@ -495,7 +505,7 @@ export default function ReportDetailScreen() {
 
         {/* Title */}
         <Text className="mb-2 font-semibold text-[18px] text-gray-12">
-          {report.title ?? "Untitled report"}
+          {humanizeReportTitle(report.title, "Untitled report")}
         </Text>
 
         {/* Meta row */}

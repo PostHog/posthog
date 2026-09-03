@@ -2437,14 +2437,19 @@ class TestManagementCommands(BaseTest):
             created_by=self.user,
             filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
         )
-        ctx = EvaluationContext.objects.create(team=self.team, name="original-context-name")
+        # Out of alphabetical order on purpose. The assertions below also cover the sort that
+        # ArrayAgg(distinct=True) applies, which the Rust builder matches with
+        # ARRAY_AGG(DISTINCT ...). Remove distinct=True and the two write different arrays.
+        ctx = EvaluationContext.objects.create(team=self.team, name="zulu-context")
+        other_ctx = EvaluationContext.objects.create(team=self.team, name="alpha-context")
         FeatureFlagEvaluationContext.objects.create(feature_flag=flag, evaluation_context=ctx)
+        FeatureFlagEvaluationContext.objects.create(feature_flag=flag, evaluation_context=other_ctx)
 
         # Warm the cache
         update_flags_cache(self.team)
 
         # Rename the context directly in DB (bypassing signals to simulate stale cache)
-        EvaluationContext.objects.filter(id=ctx.id).update(name="renamed-context-name")
+        EvaluationContext.objects.filter(id=ctx.id).update(name="mike-context")
 
         # Verify should detect the mismatch
         result = verify_team_flags(self.team, verbose=True)
@@ -2456,8 +2461,8 @@ class TestManagementCommands(BaseTest):
 
         field_diffs = result["diffs"][0]["field_diffs"]
         eval_tag_diff = next(d for d in field_diffs if d["field"] == "evaluation_contexts")
-        self.assertEqual(eval_tag_diff["cached_value"], ["original-context-name"])
-        self.assertEqual(eval_tag_diff["db_value"], ["renamed-context-name"])
+        self.assertEqual(eval_tag_diff["cached_value"], ["alpha-context", "zulu-context"])
+        self.assertEqual(eval_tag_diff["db_value"], ["alpha-context", "mike-context"])
 
         # Mismatch result should include db_data for cache fix optimization
         self.assertIn("db_data", result)

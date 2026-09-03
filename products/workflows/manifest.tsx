@@ -14,6 +14,7 @@ export const manifest: ProductManifest = {
             iconType: 'workflows',
             projectBased: true,
             description: 'Automate user communication and internal processes',
+            docsHref: 'https://posthog.com/docs/workflows',
         },
         Workflow: {
             import: () => import('./frontend/Workflows/WorkflowScene'),

@@ -3,6 +3,8 @@ import { useCallback } from 'react'
 
 import { TimeSeriesBarChart, type PointClickData } from '@posthog/quill-charts'
 
+import { AnnotationsLayer } from 'lib/components/AnnotationsOverlay/AnnotationsLayer'
+
 import { makeChartErrorHandler } from 'products/product_analytics/frontend/insights/trends/shared/chartErrorHandler'
 
 import { type SqlChartProps } from './SqlChart'
@@ -38,7 +40,11 @@ export const SqlBarGraph = (props: SqlChartProps): JSX.Element => {
                     config={model.config}
                     onPointClick={onPointClickProp ? onPointClick : undefined}
                     onError={handleChartError}
-                />
+                >
+                    {props.showAnnotations && props.insightNumericId && (
+                        <AnnotationsLayer insightNumericId={props.insightNumericId} dates={model.labels} />
+                    )}
+                </TimeSeriesBarChart>
             )}
         </div>
     )

@@ -1,13 +1,19 @@
+import re
+from collections.abc import Collection, Mapping
 from datetime import UTC, datetime, time, timedelta
 from typing import cast
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.validators import validate_email
 from django.db.models import Exists, OuterRef, Q, QuerySet
 from django.db.models.fields.json import KeyTextTransform
 from django.utils import timezone
 from django.utils.dateparse import parse_date, parse_datetime
 
 from posthog.models.tagged_item import TaggedItem
+from posthog.utils import relative_date_parse
 
 from products.customer_analytics.backend.facade import contracts
 from products.customer_analytics.backend.models import Account, AccountRelationship, CustomPropertyValue, DisplayType
@@ -37,6 +43,9 @@ ACCOUNT_DATETIME_FIELDS = frozenset(
         contracts.AccountTableField.IGNORED_AT,
     }
 )
+RELATIVE_DATE_VALUE_RE = re.compile(r"[+-]?\d+[hdwmqysHDWMQY](?:Start|End)?")
+UTC_TIMEZONE = ZoneInfo("UTC")
+
 ACCOUNT_DIRECT_FIELDS = {
     contracts.AccountTableField.NAME: "name",
     contracts.AccountTableField.EXTERNAL_ID: "external_id",
@@ -47,14 +56,46 @@ ACCOUNT_DIRECT_FIELDS = {
 }
 
 
-def _coerce_datetime_filter_value(value: float | bool | str) -> datetime:
+def parse_email_search(query: str) -> str | None:
+    normalized = query.strip().lower()
+    local_part, separator, domain = normalized.partition("@")
+    if not separator or not local_part or "." not in domain:
+        return None
+    try:
+        validate_email(normalized)
+    except DjangoValidationError:
+        return None
+    return normalized
+
+
+def account_search_q(query: str, *, member_external_ids: Collection[str] = ()) -> Q:
+    """Free-text account search over account identity and matching properties."""
+    predicate = Q(name__icontains=query) | Q(external_id__icontains=query)
+    normalized = query.strip().lower()
+    email = parse_email_search(normalized)
+    if email is not None:
+        predicate |= Q(_properties__known_emails__contains=[email])
+        if member_external_ids:
+            predicate |= Q(external_id__in=member_external_ids)
+        domain = email.rsplit("@", 1)[-1]
+    else:
+        domain = normalized if "@" not in normalized else ""
+    if "." in domain:
+        predicate |= Q(_properties__email_domains__contains=[domain])
+    return predicate
+
+
+def _coerce_datetime_filter_value(value: float | bool | str, *, timezone_info: ZoneInfo) -> datetime:
     if not isinstance(value, str):
-        raise InvalidAccountFilter("Date filters require ISO-8601 values.")
+        raise InvalidAccountFilter("Date filters require ISO-8601 or relative date values.")
+    if RELATIVE_DATE_VALUE_RE.fullmatch(value):
+        relative_value = value.lstrip("+-")
+        return relative_date_parse(relative_value, timezone_info, increase=not value.startswith("-"))
     parsed_datetime = parse_datetime(value)
     if parsed_datetime is None:
         parsed_date = parse_date(value)
         if parsed_date is None:
-            raise InvalidAccountFilter("Date filters require ISO-8601 values.")
+            raise InvalidAccountFilter("Date filters require ISO-8601 or relative date values.")
         parsed_datetime = datetime.combine(parsed_date, time.min, tzinfo=UTC)
     elif timezone.is_naive(parsed_datetime):
         parsed_datetime = timezone.make_aware(parsed_datetime, UTC)
@@ -62,7 +103,7 @@ def _coerce_datetime_filter_value(value: float | bool | str) -> datetime:
 
 
 def _apply_account_field_filter(
-    queryset: QuerySet[Account], filter_: contracts.AccountTableFieldFilter
+    queryset: QuerySet[Account], filter_: contracts.AccountTableFieldFilter, *, timezone_info: ZoneInfo
 ) -> QuerySet[Account]:
     field = filter_.field
     operator = filter_.operator
@@ -109,7 +150,7 @@ def _apply_account_field_filter(
     if field in ACCOUNT_DATETIME_FIELDS:
         if len(values) != 1:
             raise InvalidAccountFilter("Date account field filters require one value.")
-        target = _coerce_datetime_filter_value(values[0])
+        target = _coerce_datetime_filter_value(values[0], timezone_info=timezone_info)
         if operator == contracts.AccountTableFieldOperator.DATE_EXACT:
             target_date = target.replace(hour=0, minute=0, second=0, microsecond=0)
             return queryset.filter(
@@ -129,7 +170,7 @@ def _apply_account_field_filter(
 
 
 def _coerce_custom_property_filter_values(
-    filter_: contracts.AccountTableCustomPropertyFilter, display_type: DisplayType
+    filter_: contracts.AccountTableCustomPropertyFilter, display_type: DisplayType, *, timezone_info: ZoneInfo
 ) -> tuple[float | bool | str | datetime, ...]:
     data_type = DATA_TYPE_BY_DISPLAY_TYPE[display_type]
     values = filter_.values
@@ -161,16 +202,16 @@ def _coerce_custom_property_filter_values(
                 raise InvalidAccountFilter("Boolean custom property filters require true or false values.")
         return tuple(coerced)
     if data_type == DataType.DATETIME:
-        return tuple(_coerce_datetime_filter_value(value) for value in values)
+        return tuple(_coerce_datetime_filter_value(value, timezone_info=timezone_info) for value in values)
     return tuple(str(value) for value in values)
 
 
 def _custom_property_filter_predicate(
-    filter_: contracts.AccountTableCustomPropertyFilter, display_type: DisplayType
+    filter_: contracts.AccountTableCustomPropertyFilter, display_type: DisplayType, *, timezone_info: ZoneInfo
 ) -> tuple[Q, bool]:
     operator = filter_.operator
     data_type = DATA_TYPE_BY_DISPLAY_TYPE[display_type]
-    values = _coerce_custom_property_filter_values(filter_, display_type)
+    values = _coerce_custom_property_filter_values(filter_, display_type, timezone_info=timezone_info)
     value_field = {
         DataType.STRING: "value_str",
         DataType.NUMERIC: "value_num",
@@ -250,7 +291,10 @@ def apply_account_filters(
     team_id: int,
     filters: tuple[contracts.AccountTableFilter, ...],
     custom_property_display_types: dict[UUID, DisplayType],
+    timezone_info: ZoneInfo | None = None,
+    member_external_ids_by_query: Mapping[str, Collection[str]] | None = None,
 ) -> QuerySet[Account]:
+    effective_timezone_info = timezone_info or UTC_TIMEZONE
     active_relationships = AccountRelationship.objects.for_team(team_id).filter(
         account_id=OuterRef("pk"), ended_at__isnull=True, user_id__isnull=False
     )
@@ -258,7 +302,10 @@ def apply_account_filters(
         if isinstance(filter_, contracts.AccountTableSearchFilter):
             query = filter_.query.strip()
             if query:
-                queryset = queryset.filter(Q(name__icontains=query) | Q(external_id__icontains=query))
+                member_external_ids = (
+                    member_external_ids_by_query.get(query, ()) if member_external_ids_by_query is not None else ()
+                )
+                queryset = queryset.filter(account_search_q(query, member_external_ids=member_external_ids))
         elif isinstance(filter_, contracts.AccountTableTagsFilter):
             if filter_.tag_names:
                 matching_tags = TaggedItem.objects.filter(
@@ -268,18 +315,34 @@ def apply_account_filters(
         elif isinstance(filter_, contracts.AccountTableAssignedToFilter):
             if filter_.user_ids:
                 queryset = queryset.filter(Exists(active_relationships.filter(user_id__in=filter_.user_ids)))
+        elif isinstance(filter_, contracts.AccountTableAssignedFilter):
+            queryset = queryset.filter(Exists(active_relationships))
         elif isinstance(filter_, contracts.AccountTableUnassignedFilter):
             queryset = queryset.filter(~Exists(active_relationships))
+        elif isinstance(filter_, contracts.AccountTableRelationshipFilter):
+            relationship = active_relationships.filter(definition_id=filter_.definition_id)
+            if filter_.operator == contracts.AccountTableRelationshipOperator.IS_SET:
+                queryset = queryset.filter(Exists(relationship))
+            elif filter_.operator == contracts.AccountTableRelationshipOperator.IS_NOT_SET:
+                queryset = queryset.filter(~Exists(relationship))
+            elif filter_.operator == contracts.AccountTableRelationshipOperator.EXACT:
+                if not filter_.user_ids:
+                    raise InvalidAccountFilter("Relationship filters require at least one user.")
+                queryset = queryset.filter(Exists(relationship.filter(user_id__in=filter_.user_ids)))
+            elif filter_.operator == contracts.AccountTableRelationshipOperator.IS_NOT:
+                if not filter_.user_ids:
+                    raise InvalidAccountFilter("Relationship filters require at least one user.")
+                queryset = queryset.filter(~Exists(relationship.filter(user_id__in=filter_.user_ids)))
         elif isinstance(filter_, contracts.AccountTableAccountIdFilter):
             queryset = queryset.filter(id=filter_.account_id)
         elif isinstance(filter_, contracts.AccountTableFieldFilter):
-            queryset = _apply_account_field_filter(queryset, filter_)
+            queryset = _apply_account_field_filter(queryset, filter_, timezone_info=effective_timezone_info)
         elif isinstance(filter_, contracts.AccountTableCustomPropertyFilter):
             active_values = CustomPropertyValue.objects.for_team(team_id).filter(
                 account_id=OuterRef("pk"), definition_id=filter_.definition_id, is_deleted=False
             )
             predicate, negate_exists = _custom_property_filter_predicate(
-                filter_, custom_property_display_types[filter_.definition_id]
+                filter_, custom_property_display_types[filter_.definition_id], timezone_info=effective_timezone_info
             )
             matching_values = active_values.filter(predicate)
             queryset = queryset.filter(~Exists(matching_values) if negate_exists else Exists(matching_values))

@@ -1,7 +1,7 @@
 import { scoutSkillSlug } from "./scout-naming";
 
-export const DEEPLINK_PROTOCOL_PRODUCTION = "posthog-code";
-export const DEEPLINK_PROTOCOL_DEVELOPMENT = "posthog-code-dev";
+const DEEPLINK_PROTOCOL_PRODUCTION = "posthog-code";
+const DEEPLINK_PROTOCOL_DEVELOPMENT = "posthog-code-dev";
 
 export function getDeeplinkProtocol(isDevBuild: boolean): string {
   return isDevBuild

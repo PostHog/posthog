@@ -77,9 +77,11 @@ class Command(BaseCommand):
             self.stdout.write("  Override entry to add to ENUM_NAME_OVERRIDES in web.py")
             self.stdout.write("  (key defaults to the current auto-resolved name; rename for a nicer schema type):")
             if c["has_spec_id"] and not c["inline_override_matches"]:
-                self.stdout.write(f'    "{c["auto_name"]}": "your.models.module.Model.ChoicesClass",')
+                self.stdout.write(f'    "{c["auto_name"]}": "products.<name>.backend.facade.enums.ChoicesClass",')
                 self.stdout.write(
-                    "    # ChoiceField with custom labels (labels != values) — override must be a model class path"
+                    "    # ChoiceField with custom labels (labels != values) — override must be a choices class path."
+                    "\n    # For a product enum, point at a re-export in backend/facade/enums.py, never at an"
+                    "\n    # internal module: internal targets go stale invisibly when the product refactors."
                 )
             else:
                 vals = c["values"]

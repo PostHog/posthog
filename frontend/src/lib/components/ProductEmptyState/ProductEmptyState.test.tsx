@@ -67,4 +67,26 @@ describe('ProductEmptyState', () => {
 
         expect(screen.getByTestId('create-experiment').getAttribute('aria-disabled')).toBe(expected)
     })
+
+    // A one-click opt-in ("Enable X") must not survive into `waiting-for-data`, where the
+    // product is already on and clicking would re-send the same team update.
+    it.each([
+        ['needs-setup' as const, true],
+        ['waiting-for-data' as const, false],
+    ])('in %s renders a needs-setup-only action: %s', (mode, expected) => {
+        const modeKeyedConfig: ProductEmptyStateConfig = {
+            ...config,
+            text: {
+                'needs-setup': { headline: 'Headline', lead: 'Lead', hint: 'Hint' },
+                'waiting-for-data': { headline: 'Waiting' },
+            },
+            primaryAction: { 'needs-setup': { label: 'Enable experiments', dataAttr: 'enable-experiments' } },
+        }
+
+        render(<ProductEmptyState config={modeKeyedConfig} mode={mode} />)
+
+        expect(!!screen.queryByTestId('enable-experiments')).toBe(expected)
+        // The hint introduces the action, so it leaves with it rather than dangling.
+        expect(!!screen.queryByText('Hint')).toBe(expected)
+    })
 })

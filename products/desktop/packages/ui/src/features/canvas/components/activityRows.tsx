@@ -192,7 +192,7 @@ const BADGE_TONES = {
 type BeadTone = keyof typeof BEAD_TONES;
 
 /** Opaque and above the connector, so the line reads as running into it. */
-export function EventBead({
+function EventBead({
   children,
   tone = "neutral",
 }: {
@@ -239,7 +239,7 @@ export function PersonBead({
 }
 
 export const MESSAGE_BADGE = <PaperPlaneTiltIcon size={8} weight="fill" />;
-export const COMMENT_BADGE = <ChatCircleIcon size={8} weight="fill" />;
+const COMMENT_BADGE = <ChatCircleIcon size={8} weight="fill" />;
 export const CREATED_BADGE = <PlusIcon size={8} weight="bold" />;
 
 const EVENT_TONES: Record<ActivityEvent["kind"], BeadTone> = {
@@ -434,7 +434,7 @@ function eventDetail(event: ActivityEvent): ReactNode {
   }
 }
 
-export function DetailAction({
+function DetailAction({
   children,
   onClick,
 }: {
@@ -453,7 +453,7 @@ export function DetailAction({
  * them (`@[Name](email)` becomes a mailto link), so a message carrying either goes through
  * `MentionText` instead.
  */
-export function MessageBody({ content }: { content: string }) {
+function MessageBody({ content }: { content: string }) {
   const hasOwnMarkup = useMemo(() => {
     const { segments } = xmlToContent(content);
     return (

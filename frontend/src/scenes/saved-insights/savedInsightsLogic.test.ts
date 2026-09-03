@@ -255,6 +255,30 @@ describe('savedInsightsLogic', () => {
         )
     })
 
+    it('flags a failed load so the list can show an error instead of an empty state', async () => {
+        useMocks({
+            get: {
+                '/api/environments/:team_id/insights/': () => [500, { detail: 'boom' }],
+            },
+        })
+
+        logic.actions.loadInsights(false)
+        await expectLogic(logic)
+            .toDispatchActions(['loadInsights', 'loadInsightsFailure'])
+            .toMatchValues({ insightsLoadFailed: true })
+
+        // A later successful load clears the flag so a recovered list drops the error state
+        useMocks({
+            get: {
+                '/api/environments/:team_id/insights/': () => [200, createSavedInsights('recovered', 0)],
+            },
+        })
+        logic.actions.loadInsights(false)
+        await expectLogic(logic)
+            .toDispatchActions(['loadInsights', 'loadInsightsSuccess'])
+            .toMatchValues({ insightsLoadFailed: false })
+    })
+
     it('discards stale API responses when a newer request is in flight', async () => {
         const pendingRequests: Array<{
             resolve: (value: [number, any]) => void

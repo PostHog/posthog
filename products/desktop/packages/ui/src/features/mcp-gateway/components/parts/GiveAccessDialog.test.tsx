@@ -22,6 +22,7 @@ const server: McpGatewayServer = {
   docs_url: "",
   template_id: "template-1",
   template_auth_type: null,
+  auth_type: null,
   tool_count: 0,
   connections: [],
   your_connection: null,
@@ -219,7 +220,9 @@ describe("GiveAccessDialog", () => {
 
     screen.getByRole("combobox").focus();
     await user.keyboard("{ArrowDown}{Enter}");
-    await user.click(screen.getByRole("radio", { name: "All team agents" }));
+    await user.click(
+      screen.getByRole("radio", { name: "Everyone in this project" }),
+    );
     await user.click(screen.getByRole("button", { name: "Share access" }));
 
     expect(onGrant).toHaveBeenCalledWith(

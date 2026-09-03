@@ -32,6 +32,7 @@ import {
 } from '~/types'
 
 import { SHARED_DASHBOARD_AUTO_FORCE_IF_STALE_MINUTES } from './dashboardConstants'
+import { isDashboardFilterEmpty } from './dashboardFilterEmpty'
 
 export function getInsightQueryError(insight: QueryBasedInsightModel): ApiError | null {
     const queryStatus = insight.query_status
@@ -68,6 +69,7 @@ export function dashboardToSaveableTemplate(
                         body: tile.text.body,
                         layouts: tile.layouts,
                         color: tile.color,
+                        transparent_background: tile.transparent_background,
                     }
                 }
                 if (tile.insight) {
@@ -78,6 +80,7 @@ export function dashboardToSaveableTemplate(
                         query: tile.insight.query,
                         layouts: tile.layouts,
                         color: tile.color,
+                        transparent_background: tile.transparent_background,
                     }
                 }
                 if (tile.button_tile) {
@@ -91,6 +94,7 @@ export function dashboardToSaveableTemplate(
                         },
                         layouts: tile.layouts,
                         color: tile.color,
+                        transparent_background: tile.transparent_background,
                     }
                 }
                 if (tile.widget) {
@@ -100,6 +104,7 @@ export function dashboardToSaveableTemplate(
                         config: tile.widget.config,
                         layouts: tile.layouts,
                         color: tile.color,
+                        transparent_background: tile.transparent_background,
                     }
                 }
                 throw new Error('Unknown tile type')
@@ -453,6 +458,23 @@ export const encodeURLFilters = (filters: DashboardFilter): Record<string, strin
     }
 
     return encodedFilters
+}
+
+/**
+ * Search params for a dashboard filter change. A filter that constrains nothing drops the param instead
+ * of writing an empty one, so clearing the last filter doesn't leave the dashboard looking overridden on
+ * its next load. Spreading the encoded filter can't do this — it never removes a key already in the URL.
+ */
+export function searchParamsWithUrlFilters(
+    searchParams: Record<string, any>,
+    filters: DashboardFilter
+): Record<string, any> {
+    const nextSearchParams = { ...searchParams }
+    if (isDashboardFilterEmpty(filters)) {
+        delete nextSearchParams[SEARCH_PARAM_FILTERS_KEY]
+        return nextSearchParams
+    }
+    return { ...nextSearchParams, ...encodeURLFilters(filters) }
 }
 
 export function combineDashboardFilters(...filters: DashboardFilter[]): DashboardFilter {

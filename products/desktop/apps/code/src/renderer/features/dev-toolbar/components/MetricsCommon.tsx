@@ -43,7 +43,7 @@ const MEMORY_TIPS: TipItem[] = [
   },
 ];
 
-export const HISTORY_LENGTH = 60;
+const HISTORY_LENGTH = 60;
 
 export function useMetricsHistory(enabled: boolean) {
   const trpcReact = useTRPC();

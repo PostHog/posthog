@@ -34,6 +34,7 @@ import type {
     ReviewStateCountsApi,
     RunApi,
     SnapshotApi,
+    UnquarantineQueryApi,
     VisualReviewReposListParams,
     VisualReviewReposQuarantineListParams,
     VisualReviewReposRunsListParams,
@@ -241,14 +242,14 @@ export const visualReviewReposQuarantineExpireCreate = async (
     projectId: string,
     id: string,
     runType: string,
-    quarantineInputApi: QuarantineInputApi,
+    unquarantineQueryApi: UnquarantineQueryApi,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getVisualReviewReposQuarantineExpireCreateUrl(projectId, id, runType), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(quarantineInputApi),
+        body: JSON.stringify(unquarantineQueryApi),
     })
 }
 

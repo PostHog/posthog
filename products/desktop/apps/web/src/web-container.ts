@@ -619,10 +619,15 @@ const webBrowserTabsClient: BrowserTabsClient = {
   openTab: (input) => Promise.resolve(webBrowserTabsStore.openTab(input)),
   setTabTarget: (input) =>
     Promise.resolve(webBrowserTabsStore.setTabTarget(input)),
-  close: (tabId) => Promise.resolve(webBrowserTabsStore.close(tabId)),
+  close: (tabId, newTabId) =>
+    Promise.resolve(webBrowserTabsStore.close(tabId, newTabId)),
   closeMany: (input) =>
     Promise.resolve(
-      webBrowserTabsStore.closeMany(input.tabIds, input.focusTabId),
+      webBrowserTabsStore.closeMany(
+        input.tabIds,
+        input.newTabId,
+        input.focusTabId,
+      ),
     ),
   setOrder: (input) => Promise.resolve(webBrowserTabsStore.setOrder(input)),
   setActiveTab: (input) =>
@@ -665,11 +670,14 @@ container.bind(SHELL_CLIENT).toConstantValue(webShellClient);
 
 // ── Archive (sidebar's ArchivedTasksController) ──
 // The controller resolves eagerly for the sidebar; UnarchiveService needs an
-// ARCHIVE_CLIENT. Its methods are user actions (unarchive/delete/context menu)
-// backed by workspace-server on desktop — not available on web, so reject. The
-// archived-task LIST comes from the api-client, not this client.
+// ARCHIVE_CLIENT. User-initiated restore and delete remain unavailable on web,
+// while server archive sync uses the web host's local archive implementation.
 container.load(archiveModule);
 container.bind(ARCHIVE_CLIENT).toConstantValue({
+  archive: (input) => hostTrpcClient.archive.archive.mutate(input),
+  refreshArchiveState: async () => {
+    await queryClient.invalidateQueries({ queryKey: [["archive"]] });
+  },
   unarchive: () =>
     Promise.reject(new Error("Unarchive is not available on the web")),
   delete: () => Promise.reject(new Error("Delete is not available on the web")),

@@ -5,7 +5,7 @@ function parseTime(value: string | null | undefined): number {
   return Number.isFinite(timestamp) ? timestamp : Number.NEGATIVE_INFINITY;
 }
 
-export function getTaskFreshness(task: Task): number {
+function getTaskFreshness(task: Task): number {
   return Math.max(
     parseTime(task.updated_at),
     parseTime(task.latest_run?.updated_at),

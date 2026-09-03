@@ -1,7 +1,7 @@
 import { Theme } from "@radix-ui/themes";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@posthog/ui/features/command-center/hooks/useAvailableTasks", () => ({
   useAvailableTasks: () => [],
@@ -18,6 +18,8 @@ vi.mock("@posthog/ui/features/folders/useFolders", () => ({
 
 import { TaskSelector } from "./TaskSelector";
 
+const onNewTask = vi.fn();
+
 function renderSelector() {
   return render(
     <Theme>
@@ -25,6 +27,7 @@ function renderSelector() {
         cellIndex={0}
         open
         onOpenChange={() => {}}
+        onNewTask={onNewTask}
         onNewTerminal={() => {}}
       >
         <button type="button">Add task</button>
@@ -40,6 +43,10 @@ function expectPopupWidth(input: HTMLElement) {
 }
 
 describe("TaskSelector", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   it("keeps the task popup wider than its compact trigger", () => {
     renderSelector();
 
@@ -52,5 +59,14 @@ describe("TaskSelector", () => {
     await userEvent.click(screen.getByRole("button", { name: "Terminal" }));
 
     expectPopupWidth(screen.getByPlaceholderText("Search folders..."));
+  });
+
+  // Routing this to the full-page composer navigates the whole grid away.
+  it("composes a new task in the tile rather than navigating", async () => {
+    renderSelector();
+
+    await userEvent.click(screen.getByRole("button", { name: "New task" }));
+
+    expect(onNewTask).toHaveBeenCalledOnce();
   });
 });

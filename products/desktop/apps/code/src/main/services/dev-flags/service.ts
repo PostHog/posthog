@@ -15,7 +15,7 @@ import {
 const log = logger.scope("dev-flags");
 
 const FLAGS_FILE_NAME = "dev-flags.json";
-export const DEV_FLAGS_CLI_PREFIX = "--posthog-code-flags=";
+const DEV_FLAGS_CLI_PREFIX = "--posthog-code-flags=";
 
 let cachedFlags: DevFlags | null = null;
 

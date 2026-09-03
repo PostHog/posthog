@@ -221,7 +221,8 @@ def wrap_scorers(
     experiment_id: str,
     experiment_name: str,
     agent_trace_id_lookup: dict[str, str],
-    trace_namespace: str = "sandboxed-agent",
+    *,
+    trace_namespace: str,
 ) -> tuple[list[Any], dict[tuple[str, str], str]]:
     """Wrap scorers with tracing.
 

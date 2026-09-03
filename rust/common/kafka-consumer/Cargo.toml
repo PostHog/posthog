@@ -1,0 +1,11 @@
+[package]
+name = "common-kafka-consumer"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+rdkafka = { workspace = true }

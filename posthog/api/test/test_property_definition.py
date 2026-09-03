@@ -202,6 +202,17 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         db_results = self._exclude_virtual(response.json()["results"])
         assert len(db_results) == 6
 
+    def test_list_property_definitions_omits_person_property_setters(self):
+        for name in ("$set", "$set_once"):
+            PropertyDefinition.objects.get_or_create(team=self.team, name=name, property_type="String")
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?search=set")
+
+        assert response.status_code == status.HTTP_200_OK
+        names = [r["name"] for r in response.json()["results"]]
+        assert "$set" not in names
+        assert "$set_once" not in names
+
     def test_list_numerical_property_definitions(self):
         response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?is_numerical=true")
         assert response.status_code == status.HTTP_200_OK

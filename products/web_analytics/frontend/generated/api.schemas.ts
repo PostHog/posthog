@@ -12,9 +12,9 @@
  * * `iframe` - Iframe
  * * `recording` - Recording
  */
-export type HeatmapTypeApi = (typeof HeatmapTypeApi)[keyof typeof HeatmapTypeApi]
+export type SavedHeatmapTypeEnumApi = (typeof SavedHeatmapTypeEnumApi)[keyof typeof SavedHeatmapTypeEnumApi]
 
-export const HeatmapTypeApi = {
+export const SavedHeatmapTypeEnumApi = {
     Screenshot: 'screenshot',
     Iframe: 'iframe',
     Recording: 'recording',
@@ -24,10 +24,9 @@ export const HeatmapTypeApi = {
  * * `server` - Server
  * * `toolbar` - Toolbar
  */
-export type HeatmapScreenshotResponseSourceEnumApi =
-    (typeof HeatmapScreenshotResponseSourceEnumApi)[keyof typeof HeatmapScreenshotResponseSourceEnumApi]
+export type SavedHeatmapSourceEnumApi = (typeof SavedHeatmapSourceEnumApi)[keyof typeof SavedHeatmapSourceEnumApi]
 
-export const HeatmapScreenshotResponseSourceEnumApi = {
+export const SavedHeatmapSourceEnumApi = {
     Server: 'server',
     Toolbar: 'toolbar',
 } as const
@@ -37,10 +36,9 @@ export const HeatmapScreenshotResponseSourceEnumApi = {
  * * `completed` - Completed
  * * `failed` - Failed
  */
-export type HeatmapScreenshotResponseStatusEnumApi =
-    (typeof HeatmapScreenshotResponseStatusEnumApi)[keyof typeof HeatmapScreenshotResponseStatusEnumApi]
+export type SavedHeatmapStatusEnumApi = (typeof SavedHeatmapStatusEnumApi)[keyof typeof SavedHeatmapStatusEnumApi]
 
-export const HeatmapScreenshotResponseStatusEnumApi = {
+export const SavedHeatmapStatusEnumApi = {
     Processing: 'processing',
     Completed: 'completed',
     Failed: 'failed',
@@ -128,11 +126,7 @@ export interface HeatmapScreenshotResponseApi {
      * @maxLength 2000
      */
     url: string
-    /**
-     * URL whose heatmap data is overlaid on the screenshot (defaults to 'url').
-     * @maxLength 2000
-     * @nullable
-     */
+    /** URL whose heatmap data is overlaid on the screenshot (defaults to 'url'). */
     data_url?: string | null
     /** Viewport widths (CSS pixels) the screenshot is rendered at. */
     readonly target_widths: readonly number[]
@@ -141,18 +135,18 @@ export interface HeatmapScreenshotResponseApi {
      * * `screenshot` - Screenshot
      * * `iframe` - Iframe
      * * `recording` - Recording */
-    type?: HeatmapTypeApi
+    type?: SavedHeatmapTypeEnumApi
     /** How the screenshot was captured: 'server' (rendered headlessly via Browserless) or 'toolbar' (captured client-side from the on-page toolbar, e.g. for pages behind a login).
      *
      * * `server` - Server
      * * `toolbar` - Toolbar */
-    readonly source: HeatmapScreenshotResponseSourceEnumApi
+    readonly source: SavedHeatmapSourceEnumApi
     /** Screenshot generation status: 'processing', 'completed', or 'failed'.
      *
      * * `processing` - Processing
      * * `completed` - Completed
      * * `failed` - Failed */
-    readonly status: HeatmapScreenshotResponseStatusEnumApi
+    readonly status: SavedHeatmapStatusEnumApi
     /** Whether at least one rendered image is ready to fetch. */
     readonly has_content: boolean
     /** Per-width render metadata. Fetch the actual image bytes for a width from the content endpoint. */
@@ -240,11 +234,7 @@ export interface SavedHeatmapRequestApi {
      * @maxLength 2000
      */
     url: string
-    /**
-     * URL whose heatmap data is overlaid on the screenshot. Defaults to 'url' when omitted.
-     * @maxLength 2000
-     * @nullable
-     */
+    /** URL whose heatmap data is overlaid on the screenshot. Defaults to 'url' when omitted. */
     data_url?: string | null
     /**
      * Viewport widths (px, 100-3000) to render the heatmap screenshot at — one render per width. Defaults to [320, 375, 425, 768, 1024, 1440, 1920] when omitted. At most 16 widths.
@@ -258,7 +248,7 @@ export interface SavedHeatmapRequestApi {
      * * `screenshot` - Screenshot
      * * `iframe` - Iframe
      * * `recording` - Recording */
-    type?: HeatmapTypeApi
+    type?: SavedHeatmapTypeEnumApi
     /** Set true to soft-delete the saved heatmap. */
     deleted?: boolean
     /** When true, ask the headless browser to dismiss cookie/consent banners before capturing the screenshot. Off by default: the blocker can stall the render on some sites and time out. Only applies to 'screenshot' heatmaps. */
@@ -277,11 +267,7 @@ export interface PatchedSavedHeatmapRequestApi {
      * @maxLength 2000
      */
     url?: string
-    /**
-     * URL whose heatmap data is overlaid on the screenshot. Defaults to 'url' when omitted.
-     * @maxLength 2000
-     * @nullable
-     */
+    /** URL whose heatmap data is overlaid on the screenshot. Defaults to 'url' when omitted. */
     data_url?: string | null
     /**
      * Viewport widths (px, 100-3000) to render the heatmap screenshot at — one render per width. Defaults to [320, 375, 425, 768, 1024, 1440, 1920] when omitted. At most 16 widths.
@@ -295,7 +281,7 @@ export interface PatchedSavedHeatmapRequestApi {
      * * `screenshot` - Screenshot
      * * `iframe` - Iframe
      * * `recording` - Recording */
-    type?: HeatmapTypeApi
+    type?: SavedHeatmapTypeEnumApi
     /** Set true to soft-delete the saved heatmap. */
     deleted?: boolean
     /** When true, ask the headless browser to dismiss cookie/consent banners before capturing the screenshot. Off by default: the blocker can stall the render on some sites and time out. Only applies to 'screenshot' heatmaps. */
@@ -303,8 +289,11 @@ export interface PatchedSavedHeatmapRequestApi {
 }
 
 export interface SavedHeatmapCaptureRequestApi {
-    /** Single screenshot of the page, captured client-side by the toolbar (JPEG or PNG). Max 20MB. Pair with 'width'. Use 'images'/'widths' instead to save several viewport widths on one heatmap. */
-    image?: string
+    /**
+     * Single screenshot of the page, captured client-side by the toolbar (JPEG or PNG). Max 20MB. Pair with 'width'. Use 'images'/'widths' instead to save several viewport widths on one heatmap.
+     * @nullable
+     */
+    image?: string | null
     /**
      * Viewport width (CSS pixels) the single 'image' was captured at.
      * @minimum 100
@@ -832,6 +821,11 @@ export type HeatmapsListParams = {
      */
     date_to?: string
     /**
+     * JSON array of event filters (e.g. '[{"id": "purchase", "properties": []}]') to restrict results to sessions in which those events occurred. Each entry needs a string 'id' (the event name) and may carry a 'properties' array of property filters applied to that event, each of type 'event' or 'element'. Several entries are combined with AND: the session must contain a matching event for every entry. At most 10 entries, each with at most 20 property filters. Requires project-wide heatmap access, since the filter reads the project's events rather than one saved heatmap. Feature-flagged; ignored when the event filter is not enabled for the caller.
+     * @nullable
+     */
+    events?: string | null
+    /**
      * When true, exclude sessions from internal/test accounts using the project's test-account filters.
      * @nullable
      */
@@ -908,6 +902,11 @@ export type HeatmapsEventsRetrieveParams = {
      * @minLength 1
      */
     date_to?: string
+    /**
+     * JSON array of event filters (e.g. '[{"id": "purchase", "properties": []}]') to restrict results to sessions in which those events occurred. Each entry needs a string 'id' (the event name) and may carry a 'properties' array of property filters applied to that event, each of type 'event' or 'element'. Several entries are combined with AND: the session must contain a matching event for every entry. At most 10 entries, each with at most 20 property filters. Requires project-wide heatmap access, since the filter reads the project's events rather than one saved heatmap. Feature-flagged; ignored when the event filter is not enabled for the caller.
+     * @nullable
+     */
+    events?: string | null
     /**
      * When true, exclude sessions from internal/test accounts using the project's test-account filters.
      * @nullable
