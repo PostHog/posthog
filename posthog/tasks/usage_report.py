@@ -31,6 +31,7 @@ from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.constants import FlagRequestType
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.logging.timing import timed_log
 from posthog.models import OrganizationMembership, User
@@ -788,6 +789,12 @@ def get_teams_with_event_count_with_groups_in_period(begin: datetime, end: datet
         )
 
 
+@frozen
+class _AISubSDKEventMetricCounts:
+    counts_by_metric: dict[str, list[tuple[int, int]]]
+    parent_subtractions: dict[str, dict[int, int]]
+
+
 def _get_ai_sub_sdk_event_metric_counts(
     begin: datetime,
     end: datetime,
@@ -795,7 +802,7 @@ def _get_ai_sub_sdk_event_metric_counts(
     lib_expression: str,
     ai_lib_expression: str,
     use_new_events_schema: bool,
-) -> tuple[dict[str, list[tuple[int, int]]], dict[str, dict[int, int]]]:
+) -> _AISubSDKEventMetricCounts:
     ai_sdk_to_metric: dict[tuple[str, str], str] = {}
     parent_metric_by_lib = {lib: sdk_metric for lib, ai_lib, sdk_metric in sdk_metrics if ai_lib is None}
     ai_parent_libs: list[str] = []
@@ -810,7 +817,7 @@ def _get_ai_sub_sdk_event_metric_counts(
             ai_libs.append(ai_lib)
 
     if not ai_sdk_to_metric:
-        return {}, {}
+        return _AISubSDKEventMetricCounts(counts_by_metric={}, parent_subtractions={})
 
     quoted_ai_parent_libs = ", ".join(f"'{lib}'" for lib in ai_parent_libs)
     quoted_ai_libs = ", ".join(f"'{ai_lib}'" for ai_lib in ai_libs)
@@ -850,9 +857,12 @@ def _get_ai_sub_sdk_event_metric_counts(
         parent_team_counts = parent_subtractions.setdefault(parent_metric_name, {})
         parent_team_counts[team_id] = parent_team_counts.get(team_id, 0) + count
 
-    return {
-        metric_name: list(team_counts.items()) for metric_name, team_counts in ai_counts_by_metric.items()
-    }, parent_subtractions
+    return _AISubSDKEventMetricCounts(
+        counts_by_metric={
+            metric_name: list(team_counts.items()) for metric_name, team_counts in ai_counts_by_metric.items()
+        },
+        parent_subtractions=parent_subtractions,
+    )
 
 
 # MCP Analytics events emitted verbatim by the @posthog/mcp SDK, beyond `$mcp_tool_call` (which
@@ -1077,7 +1087,7 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
             params={},
             num_splits=12,
         )
-        ai_counts_by_metric, parent_subtractions = _get_ai_sub_sdk_event_metric_counts(
+        ai_sub_sdk_metric_counts = _get_ai_sub_sdk_event_metric_counts(
             begin=begin,
             end=end,
             sdk_metrics=sdk_metrics,
@@ -1088,11 +1098,11 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
         mcp_analytics_counts_by_metric = _get_mcp_analytics_event_metric_counts(begin=begin, end=end)
 
     # Remove sub-SDK events from each parent metric. max(0, count) guards against cross-query ingestion jitter.
-    for parent_metric, team_subtractions in parent_subtractions.items():
+    for parent_metric, team_subtractions in ai_sub_sdk_metric_counts.parent_subtractions.items():
         metrics[parent_metric] = [
             (team_id, max(0, count - team_subtractions.get(team_id, 0))) for team_id, count in metrics[parent_metric]
         ]
-    metrics.update(ai_counts_by_metric)
+    metrics.update(ai_sub_sdk_metric_counts.counts_by_metric)
     metrics.update(mcp_analytics_counts_by_metric)
 
     return metrics

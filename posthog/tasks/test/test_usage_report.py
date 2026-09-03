@@ -6004,7 +6004,7 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
             distinct_id="mcp_user",
             event_uuid=tool_call_event_uuid,
             timestamp=self.begin + relativedelta(hours=1),
-            properties={"$lib": "custom-mcp-client"},
+            properties={"$lib": "posthog-node-mcp"},
         )
         _create_event(
             event="$mcp_tool_call",
