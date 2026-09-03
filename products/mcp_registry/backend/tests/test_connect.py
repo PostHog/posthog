@@ -107,6 +107,19 @@ class TestConnectInstructions(SimpleTestCase):
         assert instructions["methods"][0]["method"] == "remote_oauth"
         assert instructions["methods"][-1]["method"] == "remote_api_key"
 
+    def test_publisher_controlled_url_is_shell_quoted(self) -> None:
+        # A registry publisher chooses canonical_url, and an agent is told to run the
+        # command verbatim, so shell syntax in the URL must not survive as syntax.
+        server = _server(
+            canonical_url="https://evil.example.com/mcp?x=1;touch /tmp/pwned",
+            liveness="alive_open",
+            auth_method="none",
+        )
+
+        command = build_connect_instructions(server)["methods"][0]["steps"][0]["command"]
+
+        assert "'https://evil.example.com/mcp?x=1;touch /tmp/pwned'" in command
+
     def test_row_overrides_replace_derived_methods(self) -> None:
         override_methods = [
             {

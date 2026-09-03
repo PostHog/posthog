@@ -28,6 +28,26 @@ def _raw_entry(name: str, published_at: str = "2026-01-01T00:00:00Z", **server: 
 
 
 class TestCrawl(BaseTest):
+    def test_over_long_publisher_values_do_not_abort_the_crawl(self) -> None:
+        # The registry stores whatever a publisher writes, and a value wider than its
+        # column used to fail the whole batch, stalling the crawl for every server.
+        long_url = "https://example.com/" + "a" * 3_000
+        entries = [
+            _raw_entry("io.example/long-url", remotes=[{"type": "streamable-http", "url": long_url}]),
+            _raw_entry("io.example/" + "x" * 500),
+            _raw_entry(
+                "io.example/fine",
+                remotes=[{"type": "streamable-http", "url": "https://fine.example.com/mcp"}],
+            ),
+        ]
+
+        outcome = upsert_registry_entries(entries)
+
+        # The unusable name is skipped; the over-long URL is dropped but its server kept.
+        assert outcome.created == 2
+        assert MCPRegistryServer.objects.get(registry_name="io.example/long-url").canonical_url == ""
+        assert MCPRegistryServer.objects.get(registry_name="io.example/fine").canonical_url.endswith("/mcp")
+
     @patch("products.mcp_registry.backend.crawl.requests.get")
     def test_crawl_paginates_and_skips_inactive_entries(self, mock_get: Mock) -> None:
         deleted = _wrapper("io.example/gone")

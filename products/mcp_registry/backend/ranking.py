@@ -10,6 +10,7 @@ query-independent "is this server any good?" half.
 
 import math
 from collections.abc import Callable
+from datetime import timedelta
 
 from django.utils import timezone
 
@@ -17,6 +18,7 @@ import structlog
 
 from posthog.dataclasses import frozen
 
+from products.mcp_registry.backend.constants import MEASURED_STALE_AFTER_DAYS
 from products.mcp_registry.backend.models import MCPMeasuredStats, MCPRankingRun, MCPRankingScore, MCPRegistryServer
 
 logger = structlog.get_logger(__name__)
@@ -58,7 +60,14 @@ def _measured_trust(stats: list[MCPMeasuredStats]) -> tuple[float, dict[str, flo
 
     Multiple stats rows (same server measured in several projects) combine by call
     volume, so a high-traffic deployment dominates a toy one.
+
+    Rows past MEASURED_STALE_AFTER_DAYS are dropped. Aggregation only upserts servers
+    that appeared in the window, so a server that stopped being called keeps its last
+    row; counting it would let a server coast forever on trust it earned while busy.
+    A server whose rows have all gone stale falls back to its metadata prior.
     """
+    cutoff = timezone.now() - timedelta(days=MEASURED_STALE_AFTER_DAYS)
+    stats = [row for row in stats if row.computed_at and row.computed_at >= cutoff]
     total_calls = sum(row.calls for row in stats)
     if total_calls <= 0:
         return 0.0, {}

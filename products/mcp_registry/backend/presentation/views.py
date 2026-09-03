@@ -46,6 +46,7 @@ from products.mcp_registry.backend.presentation.serializers import (
     MCPRegistryCompareRowSerializer,
     MCPRegistryServerDetailSerializer,
     MCPRegistryServerListSerializer,
+    MCPRegistryToolSerializer,
 )
 
 _MAX_SEARCH_TOKENS = 5
@@ -61,14 +62,52 @@ _MAX_TOKEN_WEIGHT = 4.0
 # record matters. Tuning these is a ranking-version decision, not a per-query one.
 _FIT_EXPONENT = 0.6
 _AUTHORITY_EXPONENT = 0.4
+# Components computed from measured rows, so they carry the same disclosure risk.
+_DERIVED_COMPONENT_KEYS = frozenset(
+    {"trust", "measured_reliability", "measured_volume_confidence", "measured_intent_coverage"}
+)
 # Words that match nearly every server, so they only dilute relevance.
 _STOPWORDS = frozenset(
     {"and", "any", "can", "for", "from", "get", "how", "into", "its", "make", "me", "my", "our", "the", "with", "you"}
 )
 
 
-def _visible_measured_stats(server: MCPRegistryServer, team_id: int | None, is_staff: bool) -> list[MCPMeasuredStats]:
-    """The measured rows this caller may see.
+def _visible_components(components: dict[str, Any], sees_every_row: bool) -> dict[str, Any]:
+    """Score inputs, minus the ones computed from measurements this caller cannot see.
+
+    A measured server's components are derived from every contributing project's rows, so
+    handing them over whole would disclose by arithmetic what the tiering on the stats
+    withholds directly. The rank itself stays: a caller may learn that a server ranks well
+    and that real usage backs it, without the numbers behind it.
+    """
+    if sees_every_row or not components.get("measured"):
+        return components
+    return {key: value for key, value in components.items() if key not in _DERIVED_COMPONENT_KEYS}
+
+
+def _visible_tools(server: MCPRegistryServer, can_see_measured: bool) -> list[MCPRegistryTool]:
+    """Tools known only from another project's traffic stay hidden.
+
+    A probed tools/list is ours, because we asked the server for it. A tool learned from
+    analytics is evidence of somebody's calls, so it follows the same tier as the stats.
+    """
+    tools = list(server.tools.all())
+    if can_see_measured:
+        return tools
+    return [tool for tool in tools if tool.source != "analytics"]
+
+
+def _measured_visibility(
+    server: MCPRegistryServer, team_id: int | None, is_staff: bool
+) -> tuple[list[MCPMeasuredStats], bool]:
+    """The measured rows this caller may see, and whether they are all of them.
+
+    The second value gates the derived score components, which blend every contributing
+    project's rows. Seeing one row is not licence to see a number computed from somebody
+    else's, so a project sharing a server with other measurers gets its own figures and a
+    redacted breakdown.
+
+    The rows themselves follow the tiering below.
 
     Registry rows are global, but each stats row aggregates one project's own
     $mcp_tool_call events, so visibility is tiered. PostHog staff see every row, which is
@@ -82,9 +121,10 @@ def _visible_measured_stats(server: MCPRegistryServer, team_id: int | None, is_s
     """
     rows = list(server.measured_stats.all())
     if is_staff:
-        return rows
+        return rows, True
     # No row carries a null team_id, so a caller without a project matches nothing.
-    return [row for row in rows if row.team_id == team_id]
+    visible = [row for row in rows if row.team_id == team_id]
+    return visible, len(visible) == len(rows)
 
 
 def _measured_summary(stats: list[MCPMeasuredStats]) -> dict[str, Any] | None:
@@ -281,6 +321,8 @@ class MCPRegistryServerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def retrieve(self, request: Request, pk: str | None = None, **kwargs) -> Response:
         server = self.get_object()
+        visible_stats, sees_every_row = _measured_visibility(server, self.team.id, self._caller_is_staff())
+        can_see_measured = bool(visible_stats)
         latest_scores = []
         for version in sorted(RANKING_VERSIONS):
             run = latest_completed_run(version)
@@ -292,7 +334,7 @@ class MCPRegistryServerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     {
                         "version": version,
                         "score": score.score,
-                        "components": score.components,
+                        "components": _visible_components(score.components, sees_every_row),
                         "computed_at": run.computed_at,
                     }
                 )
@@ -301,9 +343,8 @@ class MCPRegistryServerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             context={
                 "latest_scores": latest_scores,
                 "connect_instructions": build_connect_instructions(server),
-                "visible_measured_stats": MCPMeasuredStatsSerializer(
-                    _visible_measured_stats(server, self.team.id, self._caller_is_staff()), many=True
-                ).data,
+                "visible_measured_stats": MCPMeasuredStatsSerializer(visible_stats, many=True).data,
+                "visible_tools": MCPRegistryToolSerializer(_visible_tools(server, can_see_measured), many=True).data,
             },
         )
         return Response(serializer.data)
@@ -336,7 +377,8 @@ class MCPRegistryServerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise ValidationError({"limit": "must be an integer"})
 
         caller_is_staff = self._caller_is_staff()
-        tokens = intent.lower().split()[:_MAX_SEARCH_TOKENS]
+        # Same tokens ranking used, so a stopword cannot surface a tool the rank ignored.
+        tokens = _content_tokens(intent)
         servers = list(
             self._ranked_queryset(version=version, search=intent, measured_only=False).prefetch_related(
                 "tools", "measured_stats"
@@ -346,7 +388,8 @@ class MCPRegistryServerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         candidates = []
         for index, server in enumerate(servers):
             score = MCPRankingScore.objects.filter(run=latest_completed_run(version), server=server).first()
-            stats = _visible_measured_stats(server, self.team.id, caller_is_staff)
+            stats, sees_every_row = _measured_visibility(server, self.team.id, caller_is_staff)
+            can_see_measured = bool(stats)
             candidates.append(
                 {
                     "rank": index + 1,
@@ -355,13 +398,13 @@ class MCPRegistryServerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     "title": server.display_name,
                     "description": server.description,
                     "score": getattr(server, "rank_score", None) or 0.0,
-                    "why": score.components if score else {},
+                    "why": _visible_components(score.components, sees_every_row) if score else {},
                     "liveness": server.liveness,
                     "auth_method": server.auth_method,
                     "measured": _measured_summary(stats),
                     "matched_tools": [
                         {"name": tool.name, "description": tool.description[:160], "source": tool.source}
-                        for tool in server.tools.all()
+                        for tool in _visible_tools(server, can_see_measured)
                         if any(token in tool.name.lower() for token in tokens)
                     ][:_DISCOVER_TOOLS_PER_CANDIDATE],
                     "connect": build_connect_instructions(server),

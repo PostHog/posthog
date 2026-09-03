@@ -26,6 +26,10 @@ Method taxonomy, most to least automated:
   tells them exactly where and takes over from paste onward.
 - ``local_package``: no hosted remote; the agent runs the published package locally.
 
+Values that a registry publisher controls (a remote URL, a package identifier) are
+shell-quoted before they reach a ``command`` string. An agent is told to run these
+verbatim, so a URL carrying shell syntax would otherwise run whatever it appended.
+
 Defaults are derived from probe results (auth_method, remotes, packages). Per-server
 knowledge that probing can't discover (signup URLs, key locations, CLI commands,
 agent-provisioning endpoints) lives in ``connect_overrides`` on the row, with a
@@ -33,6 +37,7 @@ small curated seed in KNOWN_CONNECT_OVERRIDES.
 """
 
 import re
+import shlex
 from typing import Any
 from urllib.parse import urlparse
 
@@ -184,7 +189,7 @@ def _derived_methods(server: MCPRegistryServer) -> list[dict[str, Any]]:
                     {
                         "actor": "agent",
                         "description": "Add the server and start calling tools.",
-                        "command": f"claude mcp add {slug} --transport http {url}",
+                        "command": f"claude mcp add {slug} --transport http {shlex.quote(url)}",
                     }
                 ],
             }
@@ -199,7 +204,7 @@ def _derived_methods(server: MCPRegistryServer) -> list[dict[str, Any]]:
                     {
                         "actor": "agent",
                         "description": "Add the server; the client runs OAuth discovery and registration.",
-                        "command": f"claude mcp add {slug} --transport http {url}",
+                        "command": f"claude mcp add {slug} --transport http {shlex.quote(url)}",
                     },
                     {
                         "actor": "human",
@@ -228,7 +233,7 @@ def _derived_methods(server: MCPRegistryServer) -> list[dict[str, Any]]:
                     {
                         "actor": "agent",
                         "description": "Add the server with the provided key and verify the connection.",
-                        "command": f'claude mcp add {slug} --transport http {url} --header "Authorization: Bearer ${{API_KEY}}"',
+                        "command": f'claude mcp add {slug} --transport http {shlex.quote(url)} --header "Authorization: Bearer ${{API_KEY}}"',
                     },
                 ],
             }
@@ -243,7 +248,7 @@ def _derived_methods(server: MCPRegistryServer) -> list[dict[str, Any]]:
                     {
                         "actor": "agent",
                         "description": "Add the server and attempt OAuth; fall back to asking the user for a key.",
-                        "command": f"claude mcp add {slug} --transport http {url}",
+                        "command": f"claude mcp add {slug} --transport http {shlex.quote(url)}",
                     },
                     {
                         "actor": "human",
@@ -265,7 +270,7 @@ def _derived_methods(server: MCPRegistryServer) -> list[dict[str, Any]]:
                     {
                         "actor": "agent",
                         "description": "Add the server as a local process.",
-                        "command": f"claude mcp add {slug} -- npx -y {package['identifier']}",
+                        "command": f"claude mcp add {slug} -- npx -y {shlex.quote(package['identifier'])}",
                     }
                 ],
             }

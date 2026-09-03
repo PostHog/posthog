@@ -1,8 +1,11 @@
+from datetime import timedelta
+
 from freezegun import freeze_time
 from posthog.test.base import BaseTest
 
 from django.utils import timezone
 
+from products.mcp_registry.backend.constants import MEASURED_STALE_AFTER_DAYS
 from products.mcp_registry.backend.models import MCPMeasuredStats, MCPRankingRun, MCPRegistryServer
 from products.mcp_registry.backend.ranking import compute_ranking_run, latest_completed_run
 
@@ -57,6 +60,18 @@ class TestRanking(BaseTest):
         scores = {score.server_id: score.score for score in compute_ranking_run("v2_measured_trust").scores.all()}
 
         assert scores[reliable.id] > scores[unreliable_server.id]
+
+    def test_stale_measurements_stop_earning_trust(self) -> None:
+        # Aggregation only upserts servers seen in the window, so a server that stopped
+        # being called keeps its last row. It must not keep the trust that row earned.
+        server = _measured_server()
+        MCPMeasuredStats.objects.filter(server=server).update(
+            computed_at=timezone.now() - timedelta(days=MEASURED_STALE_AFTER_DAYS + 1)
+        )
+
+        score = compute_ranking_run("v2_measured_trust").scores.get(server=server)
+
+        assert score.components["measured"] is False
 
     def test_run_persists_scores_with_components(self) -> None:
         server = _measured_server()

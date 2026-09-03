@@ -11,6 +11,10 @@ OFFICIAL_REGISTRY_MAX_PAGES = 1_000
 
 # How far back the measured-signal aggregation looks, and the window stamped on stats rows.
 MEASURED_WINDOW_DAYS = 30
+# A stats row stops counting toward trust once it is this old. Aggregation only upserts
+# servers that appeared in the window, so a server that stopped being called keeps its
+# last row forever; without this it would keep the trust it earned when it was busy.
+MEASURED_STALE_AFTER_DAYS = 60
 # Per-server cap on tool rows kept from analytics aggregation (ordered by call volume).
 MEASURED_TOOL_LIMIT = 200
 # Cap on teams pulled into one aggregation run; revisit before wide rollout.

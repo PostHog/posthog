@@ -134,7 +134,10 @@ class MCPRegistryServerDetailSerializer(MCPRegistryServerListSerializer):
     repository_url = serializers.CharField(help_text="Source repository URL, when published.")
     website_url = serializers.CharField(help_text="Vendor website URL, when published.")
     last_probed_at = serializers.DateTimeField(allow_null=True, help_text="When the shallow probe last ran.")
-    tools = MCPRegistryToolSerializer(many=True, help_text="Known tools, fused from probes and analytics.")
+    tools = serializers.SerializerMethodField(
+        help_text="Known tools, fused from probes and analytics. A tool known only from another "
+        "project's traffic is limited to callers who may see that project's measurements."
+    )
     measured_stats = serializers.SerializerMethodField(
         help_text="Behavioral aggregates, one per measured MCP Analytics project. Limited to this "
         "project's own measurements unless the server is marked measured_public."
@@ -161,6 +164,10 @@ class MCPRegistryServerDetailSerializer(MCPRegistryServerListSerializer):
             "scores",
             "connect",
         ]
+
+    @extend_schema_field(MCPRegistryToolSerializer(many=True))
+    def get_tools(self, obj: MCPRegistryServer) -> list[dict]:
+        return self.context["visible_tools"]
 
     @extend_schema_field(MCPMeasuredStatsSerializer(many=True))
     def get_measured_stats(self, obj: MCPRegistryServer) -> list[dict]:

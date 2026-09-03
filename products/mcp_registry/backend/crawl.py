@@ -22,6 +22,11 @@ logger = structlog.get_logger(__name__)
 
 REQUEST_TIMEOUT_SECONDS = 30
 PAGE_LIMIT = 100
+# Column widths for publisher-supplied values. The registry accepts whatever a publisher
+# writes, so one over-wide value would otherwise fail the whole batch on a DataError and
+# stall the daily crawl for every server.
+_MAX_NAME_CHARS = 400
+_MAX_URL_CHARS = 2048
 
 
 @frozen
@@ -54,6 +59,15 @@ def fetch_registry_entries() -> list[dict[str, Any]]:
     raise RuntimeError(f"registry pagination did not terminate within {OFFICIAL_REGISTRY_MAX_PAGES} pages")
 
 
+def _url_within_limit(url: str) -> str:
+    """Drop an over-long URL rather than truncate it.
+
+    A shortened URL is a different URL, and storing one would send an agent somewhere the
+    publisher never listed. Dropping it only makes the server look package-only.
+    """
+    return url if len(url) <= _MAX_URL_CHARS else ""
+
+
 def _canonical_remote_url(remotes: list[dict[str, Any]]) -> str:
     for remote in remotes:
         if remote.get("type") == "streamable-http" and remote.get("url"):
@@ -67,7 +81,9 @@ def _canonical_remote_url(remotes: list[dict[str, Any]]) -> str:
 def normalize_entry(server: dict[str, Any]) -> dict[str, Any] | None:
     """Map a raw registry payload onto MCPRegistryServer content fields."""
     name = server.get("name")
-    if not name:
+    if not name or len(name) > _MAX_NAME_CHARS:
+        # registry_name is the upsert key, so a truncated one could collide with a
+        # different server. Skipping the entry is the safe outcome.
         return None
     remotes = [{"type": r.get("type"), "url": r.get("url")} for r in (server.get("remotes") or []) if r.get("url")]
     packages = [
@@ -78,13 +94,13 @@ def normalize_entry(server: dict[str, Any]) -> dict[str, Any] | None:
     meta = server.get("_registry_meta") or {}
     return {
         "registry_name": name,
-        "display_name": server.get("title") or name.rsplit("/", 1)[-1],
+        "display_name": (server.get("title") or name.rsplit("/", 1)[-1])[:_MAX_NAME_CHARS],
         "description": server.get("description") or "",
-        "canonical_url": _canonical_remote_url(remotes),
+        "canonical_url": _url_within_limit(_canonical_remote_url(remotes)),
         "remotes": remotes,
         "packages": packages,
-        "repository_url": (server.get("repository") or {}).get("url") or "",
-        "website_url": server.get("websiteUrl") or "",
+        "repository_url": _url_within_limit((server.get("repository") or {}).get("url") or ""),
+        "website_url": _url_within_limit(server.get("websiteUrl") or ""),
         "registry_meta": {
             "version": server.get("version"),
             "published_at": meta.get("publishedAt"),

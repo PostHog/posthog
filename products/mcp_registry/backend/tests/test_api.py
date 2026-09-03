@@ -259,6 +259,67 @@ class TestMCPRegistryAPI(APIBaseTest):
         assert [row["team_id"] for row in rows] == [self.team.id + 1, self.team.id]
         assert [row["calls"] for row in rows] == [999_999, 50_000]
 
+    def _reassign_measurements_to_another_project(self, server: MCPRegistryServer) -> None:
+        MCPMeasuredStats.objects.filter(server=server).update(team_id=self.team.id + 1)
+        compute_ranking_run("v2_measured_trust")
+
+    def _v2_components(self, detail: dict[str, Any]) -> dict[str, Any]:
+        return next(row for row in detail["scores"] if row["version"] == "v2_measured_trust")["components"]
+
+    def test_components_derived_from_hidden_measurements_are_withheld(self) -> None:
+        # Ranking components are computed from every contributing project, so returning
+        # them whole would disclose by arithmetic what hiding the stats withholds.
+        servers = self._seed_index()
+        self._reassign_measurements_to_another_project(servers["measured"])
+
+        detail = self.client.get(self._url(f"{servers['measured'].id}/")).json()
+        components = self._v2_components(detail)
+
+        assert "measured_reliability" not in components
+        assert "trust" not in components
+        # The rank itself still shows: only the numbers behind it are withheld.
+        assert components["measured"] is True
+        assert detail["measured_stats"] == []
+
+    def test_sharing_a_server_withholds_the_blended_breakdown(self) -> None:
+        # This project measured the server too, but the components blend its rows with
+        # another project's, so it gets its own figures and a redacted breakdown.
+        servers = self._seed_index()
+        self._seed_another_projects_stats(servers["measured"])
+        compute_ranking_run("v2_measured_trust")
+
+        detail = self.client.get(self._url(f"{servers['measured'].id}/")).json()
+
+        assert [row["calls"] for row in detail["measured_stats"]] == [50_000]
+        assert "measured_reliability" not in self._v2_components(detail)
+
+    def test_staff_get_the_full_component_breakdown(self) -> None:
+        servers = self._seed_index()
+        self._reassign_measurements_to_another_project(servers["measured"])
+        self.user.is_staff = True
+        self.user.save()
+
+        components = self._v2_components(self.client.get(self._url(f"{servers['measured'].id}/")).json())
+
+        assert "measured_reliability" in components
+
+    def test_analytics_sourced_tools_stay_hidden_from_other_projects(self) -> None:
+        # A probed tool is ours to show; one learned from another project's traffic is not.
+        servers = self._seed_index()
+        for name, source in (("probed_tool", "tools_list"), ("learned_from_traffic", "analytics")):
+            MCPRegistryTool.objects.create(
+                server=servers["measured"],
+                name=name,
+                description="",
+                source=source,
+                last_seen_at=timezone.now(),
+            )
+        self._reassign_measurements_to_another_project(servers["measured"])
+
+        detail = self.client.get(self._url(f"{servers['measured'].id}/")).json()
+
+        assert [tool["name"] for tool in detail["tools"]] == ["probed_tool"]
+
     def test_discover_requires_an_intent(self) -> None:
         assert self.client.get(self._url("discover/")).status_code == 400
 

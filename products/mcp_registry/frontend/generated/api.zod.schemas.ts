@@ -178,7 +178,9 @@ export const MCPRegistryServerDetailApi = zod.object({
                     .describe('Last time this tool was observed by either source.'),
             })
         )
-        .describe('Known tools, fused from probes and analytics.'),
+        .describe(
+            "Known tools, fused from probes and analytics. A tool known only from another project's traffic is limited to callers who may see that project's measurements."
+        ),
     measured_stats: zod
         .array(
             zod.object({

@@ -172,8 +172,8 @@ export interface MCPRegistryServerDetailApi {
      * @nullable
      */
     last_probed_at: string | null
-    /** Known tools, fused from probes and analytics. */
-    tools: MCPRegistryToolApi[]
+    /** Known tools, fused from probes and analytics. A tool known only from another project's traffic is limited to callers who may see that project's measurements. */
+    readonly tools: readonly MCPRegistryToolApi[]
     /** Behavioral aggregates, one per measured MCP Analytics project. Limited to this project's own measurements unless the server is marked measured_public. */
     readonly measured_stats: readonly MCPMeasuredStatsApi[]
     /** Latest score under every ranking version with a completed run. */
