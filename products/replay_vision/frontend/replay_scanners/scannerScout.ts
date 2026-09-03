@@ -110,7 +110,7 @@ Every run leaves exactly one report: your digest. That report is what the team r
 
 ## First moves
 
-1. \`vision-scanners-get\` with scanner_id \`${scannerId}\` — the scanner's current name, type, prompt, and enabled state. If it no longer exists, close out with a one-line summary and no report.
+1. \`vision-scanners-get\` with id \`${scannerId}\` — the scanner's current name, type, prompt, and enabled state. If it no longer exists, close out with a one-line summary and no report.
 2. \`scout-runs-list\` filtered to your own skill_name — find your previous successful run. Your window is everything since it (fall back to the last 24 hours on the first run or after a gap).
 3. \`scout-scratchpad-search\` (text: \`${scannerId}\`) — baselines, known noise, and \`report:\`/\`dedupe:\` pointers from prior runs. Every entry you write is keyed on that id, so it is what finds them again.
 4. \`llma-skill-get\` \`exploring-replay-vision-observations\` — the observation data model, what \`confidence\` and each status mean, and how to cite a finding.

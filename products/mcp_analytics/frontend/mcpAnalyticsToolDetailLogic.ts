@@ -5,6 +5,13 @@ import { urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { dateFilterToText, dateStringToDayJs } from 'lib/utils/dateFilters'
+import {
+    buildBucketKeys,
+    lastBucketIsInProgress,
+    normalizeBucket,
+    parseIntervalParam,
+    resolveInterval,
+} from 'lib/utils/timeBuckets'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -22,14 +29,6 @@ import {
     NodeKind,
 } from '~/queries/schema/schema-general'
 import { IntervalType } from '~/types'
-
-import {
-    buildBucketKeys,
-    lastBucketIsInProgress,
-    normalizeBucket,
-    parseIntervalParam,
-    resolveInterval,
-} from './timeBuckets'
 export interface ToolSummary {
     calls: number
     errors: number

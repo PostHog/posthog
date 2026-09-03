@@ -2,6 +2,9 @@ import { cleanup, render, screen } from '@testing-library/react'
 import { kea, path } from 'kea'
 import { router } from 'kea-router'
 
+import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene } from 'scenes/sceneTypes'
+
 import { useMocks } from '~/mocks/jest'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -23,6 +26,17 @@ const config: ProductEmptyStateConfig = {
 const noopStatusLogic = kea([path(['lib', 'components', 'ProductEmptyState', 'testNoopStatusLogic'])])
 
 const emptyState: SceneProductEmptyState = { config, statusLogic: noopStatusLogic }
+
+const tabScopedEmptyState: SceneProductEmptyState = {
+    config: {
+        ...config,
+        productKey: ProductKey.WORKFLOWS,
+        productName: 'Workflows',
+        text: { 'needs-setup': { headline: 'Set up workflows', lead: 'Lead' } },
+    },
+    statusLogic: noopStatusLogic,
+    scenes: [{ scene: Scene.Workflows, tabs: [undefined, 'workflows'] }],
+}
 
 describe('ProductEmptyStateGate', () => {
     beforeEach(() => {
@@ -60,5 +74,29 @@ describe('ProductEmptyStateGate', () => {
 
         expect(!!screen.queryByText('Set up experiments')).toBe(expectedForced)
         expect(!!screen.queryByText('the real scene')).toBe(!expectedForced)
+    })
+
+    // One scene serves every workflows tab, so gating the scene would take the sibling tabs
+    // down with it: a project with no workflows could not reach channels or opt-outs at all.
+    it.each([
+        [undefined, true],
+        ['workflows', true],
+        ['channels', false],
+        ['opt-outs', false],
+    ])('gates the %s tab: %s', (tab, expectedGated) => {
+        const statusLogic = productSetupStatusLogic({ productKey: ProductKey.WORKFLOWS })
+        statusLogic.mount()
+        statusLogic.actions.setDetectedStatus('needs-setup')
+        sceneLogic.mount()
+        sceneLogic.actions.setScene(Scene.Workflows, undefined, { params: {}, searchParams: {}, hashParams: {} })
+
+        render(
+            <ProductEmptyStateGate emptyState={tabScopedEmptyState} params={{ tab }}>
+                <div>the real scene</div>
+            </ProductEmptyStateGate>
+        )
+
+        expect(!!screen.queryByText('Set up workflows')).toBe(expectedGated)
+        expect(!!screen.queryByText('the real scene')).toBe(!expectedGated)
     })
 })

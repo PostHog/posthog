@@ -63,7 +63,7 @@ const DELTA_RESPONSE = {
             highlights: [{ session_id: 'card-session-2', reason: '3 rage clicks' }],
         },
     ],
-    arms: [
+    variants: [
         { key: 'control', persons: 100, sessions: 140 },
         { key: 'test', persons: 100, sessions: 138 },
     ],
@@ -76,10 +76,11 @@ const DELTA_RESPONSE = {
     used_exposure_fallback: false,
     sessions_truncated: false,
     events_truncated: false,
-    min_arm_persons: 50,
+    min_variant_persons: 50,
     max_card_recordings: 20,
     dropped_duplicate_cards: 0,
     too_early: false,
+    empty_reason: null,
 }
 
 const PURCHASE_METRIC = {
@@ -445,7 +446,7 @@ describe('experimentReplayTabLogic', () => {
         partiallyLinkable.actions.setMetricSelected('metric-funnel', true)
         await expectLogic(partiallyLinkable).toFinishAllListeners()
         // A multi-source metric resolves server-side, where the unmatchable step is simply one
-        // OR arm that never matches a session — so it drops out without narrowing anything.
+        // OR variant that never matches a session — so it drops out without narrowing anything.
         expect(experimentsSessionBucketsCreate).toHaveBeenLastCalledWith(expect.any(String), 45, {
             bucket: 'fired_any',
             metric_uuids: ['metric-funnel'],

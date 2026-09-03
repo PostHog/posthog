@@ -723,6 +723,7 @@ export interface CorrelationConfigType {
 export interface ProjectType extends ProjectBasicType {
     created_at: string
     is_pending_deletion: boolean
+    tags?: string[]
 }
 
 export interface TeamSurveyConfigType {
@@ -2543,6 +2544,8 @@ export interface Tileable {
     color: InsightColor | null
 }
 
+export type DashboardTileIdOrNew = number | null
+
 export interface DashboardTile<T = InsightModel> extends Tileable {
     id: number
     insight?: T
@@ -2616,6 +2619,10 @@ export interface InsightModel extends Cacheable, WithAccessControl {
     favorited?: boolean
     order: number | null
     result: any
+    /** Result column names, served alongside `result`. SQL insights draw from these. */
+    columns?: string[] | null
+    /** ClickHouse type of each entry in `columns`, as [name, type] pairs. */
+    types?: string[][] | null
     deleted: boolean
     saved: boolean
     created_at: string
@@ -2777,6 +2784,7 @@ export type DashboardTemplateStoredInsightTile = {
     query?: Node | Record<string, unknown> | null
     layouts?: Record<DashboardLayoutSize, TileLayout> | Record<string, never>
     color?: InsightColor | null
+    transparent_background?: boolean | null
     filters?: Record<string, unknown>
 }
 
@@ -2785,6 +2793,7 @@ export type DashboardTemplateStoredTextTile = {
     body: string
     layouts?: Record<DashboardLayoutSize, TileLayout> | Record<string, never>
     color?: InsightColor | null
+    transparent_background?: boolean | null
 }
 
 export type DashboardTemplateStoredButtonTile = {
@@ -2797,6 +2806,7 @@ export type DashboardTemplateStoredButtonTile = {
     }
     layouts?: Record<DashboardLayoutSize, TileLayout> | Record<string, never>
     color?: InsightColor | null
+    transparent_background?: boolean | null
 }
 
 export type DashboardTemplateStoredWidgetTile = {
@@ -2805,6 +2815,7 @@ export type DashboardTemplateStoredWidgetTile = {
     config?: Record<string, unknown>
     layouts?: Record<DashboardLayoutSize, TileLayout> | Record<string, never>
     color?: InsightColor | null
+    transparent_background?: boolean | null
 }
 
 export type DashboardTemplateStoredTile =
@@ -4505,11 +4516,6 @@ export enum FeatureFlagStatus {
     ARCHIVED = 'archived',
     DELETED = 'deleted',
     UNKNOWN = 'unknown',
-}
-
-export interface FeatureFlagStatusResponse {
-    status: FeatureFlagStatus
-    reason: string
 }
 
 export interface CombinedFeatureFlagAndValueType {
@@ -7128,6 +7134,7 @@ export enum SDKKey {
     FLUTTER = 'flutter',
     GATSBY = 'gatsby',
     GO = 'go',
+    GOOGLE_ADK = 'google_adk',
     GOOGLE_GEMINI = 'google_gemini',
     GOOGLE_TAG_MANAGER = 'google_tag_manager',
     GROQ = 'groq',
@@ -7314,6 +7321,7 @@ export type CyclotronJobInputSchemaType = {
         | 'task_repository'
         | 'task_mcp_installations'
         | 'signals_scout'
+        | 'task_skills'
     key: string
     label: string
     choices?: { value: string; label: string }[]

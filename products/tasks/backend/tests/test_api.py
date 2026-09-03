@@ -1285,10 +1285,12 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["results"][0]["latest_run"]["id"], str(latest_run.id))
 
+        # Latest runs must come from one page-scoped DISTINCT ON query, not a correlated
+        # subquery that runs against posthog_task_run for every task row.
         task_run_sql = "\n".join(query["sql"] for query in ctx.captured_queries)
         self.assertIn('FROM "posthog_task_run"', task_run_sql)
-        self.assertIn('LIMIT 1) AS "_latest_run_id"', task_run_sql)
-        self.assertNotIn("DISTINCT ON", task_run_sql)
+        self.assertIn('DISTINCT ON ("posthog_task_run"."task_id")', task_run_sql)
+        self.assertNotIn('AS "_latest_run_id"', task_run_sql)
 
     def test_latest_run_tiebreaks_by_id(self):
         task = self.create_task("Tie-break task")
@@ -4972,7 +4974,16 @@ class TestTaskInternalFilterAPI(BaseTaskAPITest):
 
 class TestTaskSummariesAPI(BaseTaskAPITest):
     SUMMARIES_URL = "/api/projects/@current/tasks/summaries/"
-    SUMMARY_FIELDS = {"id", "title", "repository", "created_at", "updated_at", "origin_product", "latest_run"}
+    SUMMARY_FIELDS = {
+        "id",
+        "title",
+        "repository",
+        "created_by_id",
+        "created_at",
+        "updated_at",
+        "origin_product",
+        "latest_run",
+    }
 
     def post_summaries(self, ids):
         return self.client.post(self.SUMMARIES_URL, {"ids": ids}, format="json")
@@ -5032,7 +5043,7 @@ class TestTaskSummariesAPI(BaseTaskAPITest):
         [payload] = response.json()["results"]
         self.assertEqual(
             payload["latest_run"],
-            {"status": valid_run.status, "environment": valid_run.environment},
+            {"id": str(valid_run.id), "status": valid_run.status, "environment": valid_run.environment},
         )
 
     @parameterized.expand(
@@ -5059,7 +5070,8 @@ class TestTaskSummariesAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         [payload] = response.json()["results"]
         self.assertEqual(set(payload.keys()), self.SUMMARY_FIELDS)
-        expected_run = {"status": run.status, "environment": run.environment} if run else None
+        self.assertEqual(payload["created_by_id"], self.user.id)
+        expected_run = {"id": str(run.id), "status": run.status, "environment": run.environment} if run else None
         self.assertEqual(payload["latest_run"], expected_run)
 
     def test_summaries_paginates_large_id_sets(self):

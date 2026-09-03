@@ -10,6 +10,7 @@
         "kea-forms": "catalog:",
         "kea-loaders": "catalog:",
         "kea-router": "catalog:",
+        "kea-subscriptions": "catalog:",
         "kea-test-utils": "catalog:",
         "posthog-js": "catalog:"
     },

@@ -78,7 +78,11 @@ export const RotatedCategoryLabels: Story = {
                     series={LONG_CATEGORY_SERIES}
                     labels={LONG_CATEGORY_LABELS}
                     theme={theme}
-                    config={{ xAxis: { tickLabelRotation: -45 }, yAxis: { showGrid: true } }}
+                    config={{
+                        xAxis: { tickLabelRotation: -45 },
+                        yAxis: { showGrid: true },
+                        maxCategoryLabelWidth: 160,
+                    }}
                 />
             </Stage>
         )

@@ -56,6 +56,7 @@ from products.experiments.backend.session_event_deltas import (
     MAX_FALLBACK_DELTA_SCAN_DAYS,
     DeltaStrength,
     WatchCardKind,
+    WatchEmptyReason,
 )
 from products.feature_flags.backend.api.feature_flag import MinimalFeatureFlagSerializer
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, experiment_eligibility_error
@@ -1987,7 +1988,7 @@ class ExperimentWatchCardSerializer(serializers.Serializer):
     )
 
 
-class ExperimentWatchArmSerializer(serializers.Serializer):
+class ExperimentWatchVariantSerializer(serializers.Serializer):
     """One variant's compared population."""
 
     key = serializers.CharField(help_text="The variant key.")
@@ -2020,12 +2021,15 @@ class ExperimentSessionEventDeltaResponseSerializer(serializers.Serializer):
         help_text=(
             "The shelf, strongest comparison first, then the variant's own rendering, then metric shortcuts. "
             "Events the variants can't be told apart on get no card at all rather than a weak one, so an empty "
-            "shelf means no difference was big enough to be sure of, not that nothing was measured. Group by "
-            "kind before presenting: a 'variant_only' card outranks every real difference by construction, and "
-            "reading the shelf in order would report it as the headline."
+            "shelf means no difference was big enough to be sure of, not that nothing was measured. Empty also "
+            "takes the metric shortcuts with it: a shelf of shortcuts and no finding restates what the "
+            "experiment's results already answer while reading as a finding, so it is withheld. Read "
+            "empty_reason and say what it reports instead of presenting an empty shelf. Group by kind before "
+            "presenting: a 'variant_only' card outranks every real difference by construction, and reading the "
+            "shelf in order would report it as the headline."
         ),
     )
-    arms = ExperimentWatchArmSerializer(
+    variants = ExperimentWatchVariantSerializer(
         many=True,
         help_text="Every variant's compared population, in the flag's variant order.",
     )
@@ -2092,7 +2096,7 @@ class ExperimentSessionEventDeltaResponseSerializer(serializers.Serializer):
             "some were never considered."
         )
     )
-    min_arm_persons = serializers.IntegerField(
+    min_variant_persons = serializers.IntegerField(
         help_text=(
             "How many exposed people a variant needs before it can be compared at all. Below it a variant's "
             "cards would be noise whatever the evidence bar allows."
@@ -2112,8 +2116,30 @@ class ExperimentSessionEventDeltaResponseSerializer(serializers.Serializer):
     )
     too_early = serializers.BooleanField(
         help_text=(
-            "True when fewer than two variants have min_arm_persons exposed people, so no comparison exists and "
-            "cards is empty. Say 'too early to compare' and show the arms' counts; an empty shelf presented "
-            "without this would read as 'the variants behaved identically'."
+            "True when fewer than two variants have min_variant_persons exposed people, so no comparison exists and "
+            "cards is empty. Show the variants' counts alongside it: an empty shelf presented without them would "
+            "read as 'the variants behaved identically'. Read empty_reason before telling anyone to check back: "
+            "this is also true when the variants are empty because no exposure in the window carried a session, "
+            "which empty_reason reports as 'no_session_linked_exposures' and which more time does not fix on its own."
         )
+    )
+    empty_reason = serializers.ChoiceField(
+        choices=[reason.value for reason in WatchEmptyReason],
+        allow_null=True,
+        help_text=(
+            "Why cards is empty, and null whenever cards is not empty. Report which of the four happened "
+            "rather than reporting an empty shelf, because they ask different things of the reader. "
+            "'too_early': fewer than two variants have min_variant_persons exposed people, so nothing was compared "
+            "yet and the answer can still change. 'no_separation': the variants were compared and no event told "
+            "them apart, which is a result rather than a failure. 'no_recordings': events did tell the variants "
+            "apart, but no recording behind them can be opened, so the project's session replay sampling and "
+            "retention are what decide whether this surface can ever show anything. "
+            "'no_session_linked_exposures': people were exposed between date_from and date_to, and not one exposure "
+            "carried a session id, so there was nothing to compare. Only that window was checked, so say so. It is "
+            "how exposure is captured rather than a wait: exposures captured from a client-side SDK carry a session "
+            "and exposures captured server-side do not, so more of the same capture yields more of the same. Point "
+            "at capturing exposure from a client-side SDK before telling anyone to check back. Never fill an empty "
+            "shelf with the experiment's metrics: shortcut cards to those metrics' events are withheld here for "
+            "exactly that reason."
+        ),
     )
