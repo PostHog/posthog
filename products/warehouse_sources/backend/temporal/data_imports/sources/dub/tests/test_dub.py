@@ -45,7 +45,7 @@ def _make_http_response(body: Any, status_code: int = 200) -> Response:
 
 class TestDubCursorPaginator:
     def test_full_page_advances_cursor_to_last_row_id(self) -> None:
-        paginator = DubCursorPaginator(page_size=3)
+        paginator = DubCursorPaginator()
         paginator.update_state(MagicMock(), data=_rows(3))
 
         assert paginator.has_next_page is True
@@ -57,34 +57,46 @@ class TestDubCursorPaginator:
     @pytest.mark.parametrize(
         ("label", "rows"),
         [
-            ("short_page", _rows(2)),
             ("empty_page", []),
             ("non_list_body", cast(list[Any], None)),
         ],
     )
     def test_terminal_pages_stop_pagination(self, label: str, rows: list[Any]) -> None:
-        paginator = DubCursorPaginator(page_size=3)
+        paginator = DubCursorPaginator()
         response = MagicMock()
         response.json.return_value = rows
         paginator.update_state(response, data=rows if isinstance(rows, list) else None)
 
         assert paginator.has_next_page is False
 
+    def test_short_page_keeps_paginating(self) -> None:
+        # Dub filters a page's rows after selecting the cursor window (archived links, folder
+        # and permission scoping), so a page under `pageSize` can still have rows behind it.
+        # Treating it as terminal silently truncated the links table mid-workspace.
+        paginator = DubCursorPaginator()
+        paginator.update_state(MagicMock(), data=_rows(2))
+
+        assert paginator.has_next_page is True
+
+        request = Request(method="GET", url="https://api.dub.co/links", params={})
+        paginator.update_request(request)
+        assert request.params["startingAfter"] == "row-1"
+
     def test_fresh_paginator_does_not_inject_cursor_on_first_request(self) -> None:
-        paginator = DubCursorPaginator(page_size=100)
+        paginator = DubCursorPaginator()
         request = Request(method="GET", url="https://api.dub.co/links", params={})
         paginator.init_request(request)
 
         assert "startingAfter" not in request.params
 
     def test_resume_state_round_trip(self) -> None:
-        paginator = DubCursorPaginator(page_size=3)
+        paginator = DubCursorPaginator()
         paginator.update_state(MagicMock(), data=_rows(3))
 
         state = paginator.get_resume_state()
         assert state == {"starting_after": "row-2"}
 
-        resumed = DubCursorPaginator(page_size=3)
+        resumed = DubCursorPaginator()
         resumed.set_resume_state(state or {})
         request = Request(method="GET", url="https://api.dub.co/links", params={})
         resumed.init_request(request)
@@ -93,8 +105,8 @@ class TestDubCursorPaginator:
         assert resumed.has_next_page is True
 
     def test_no_resume_state_on_terminal_page(self) -> None:
-        paginator = DubCursorPaginator(page_size=3)
-        paginator.update_state(MagicMock(), data=_rows(1))
+        paginator = DubCursorPaginator()
+        paginator.update_state(MagicMock(), data=_rows(0))
 
         assert paginator.get_resume_state() is None
 
@@ -207,15 +219,19 @@ class TestDubSourceResumeBehavior:
         responses = [
             _make_http_response(_rows(100, "a")),
             _make_http_response(_rows(100, "b")),
+            # A short page is not the end of the list — the cursor advances past it and only
+            # the following empty page stops the sync.
             _make_http_response(_rows(1, "c")),
+            _make_http_response([]),
         ]
         sent_params = self._drive("links", manager, responses)
 
-        assert [p.get("startingAfter") for p in sent_params] == [None, "a-99", "b-99"]
+        assert [p.get("startingAfter") for p in sent_params] == [None, "a-99", "b-99", "c-0"]
         saved = [call.args[0] for call in manager.save_state.call_args_list]
         assert saved == [
             DubResumeConfig(starting_after="a-99"),
             DubResumeConfig(starting_after="b-99"),
+            DubResumeConfig(starting_after="c-0"),
         ]
 
     def test_cursor_endpoint_resumes_from_saved_cursor(self) -> None:
@@ -223,9 +239,9 @@ class TestDubSourceResumeBehavior:
         manager.can_resume.return_value = True
         manager.load_state.return_value = DubResumeConfig(starting_after="a-42")
 
-        sent_params = self._drive("links", manager, [_make_http_response(_rows(1))])
+        sent_params = self._drive("links", manager, [_make_http_response(_rows(1)), _make_http_response([])])
 
-        assert [p.get("startingAfter") for p in sent_params] == ["a-42"]
+        assert [p.get("startingAfter") for p in sent_params] == ["a-42", "row-0"]
 
     def test_page_endpoint_saves_page_number(self) -> None:
         manager = MagicMock(spec=ResumableSourceManager)

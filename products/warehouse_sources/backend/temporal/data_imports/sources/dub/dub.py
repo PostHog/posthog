@@ -38,13 +38,15 @@ class DubResumeConfig:
 class DubCursorPaginator(BasePaginator):
     """Paginator for Dub endpoints using `startingAfter` cursor pagination.
 
-    The cursor is the `id` of the last row on the current page; a page shorter than
-    `page_size` signals the end (the API returns a bare array with no next-page marker).
+    The cursor is the `id` of the last row on the current page; only an empty page signals
+    the end (the API returns a bare array with no next-page marker). A short page does not,
+    because Dub filters a page's rows after selecting the cursor window — `showArchived`
+    drops archived links, and folder and permission scoping drop rows the key can't see — so
+    a page can come back under `page_size` with more rows still behind the cursor.
     """
 
-    def __init__(self, page_size: int) -> None:
+    def __init__(self) -> None:
         super().__init__()
-        self._page_size = page_size
         self._starting_after: Optional[str] = None
 
     def _inject_cursor(self, request: Request) -> None:
@@ -59,7 +61,7 @@ class DubCursorPaginator(BasePaginator):
 
     def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
         rows = data if data is not None else response.json()
-        if not isinstance(rows, list) or len(rows) < self._page_size:
+        if not isinstance(rows, list) or not rows:
             self._has_next_page = False
             return
 
@@ -94,7 +96,7 @@ def _format_timestamp(value: Any) -> str:
 
 def _build_paginator(config: DubEndpointConfig) -> BasePaginator:
     if config.pagination == "cursor":
-        return DubCursorPaginator(page_size=config.page_size)
+        return DubCursorPaginator()
     return PageNumberPaginator(base_page=1, page_param="page", total_path=None)
 
 
