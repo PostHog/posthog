@@ -2,7 +2,7 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import '@testing-library/jest-dom'
 
-import { cleanup, render } from '@testing-library/react'
+import { cleanup, fireEvent, render } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { router } from 'kea-router'
 
@@ -57,6 +57,17 @@ describe('<ReplayDataRetentionSettings /> locked retention options', () => {
         render(<ReplayDataRetentionSettings />)
 
         await userEvent.click(getByDataAttr(document.body, 'session-recording-retention-button-5y'))
+
+        expect(router.values.location.pathname).not.toBe('/organization/billing')
+    })
+
+    it('does not navigate from a locked option while organization settings are loading', () => {
+        mountSettings()
+        organizationLogic.actions.loadCurrentOrganization()
+
+        render(<ReplayDataRetentionSettings />)
+
+        fireEvent.click(getByDataAttr(document.body, 'session-recording-retention-button-90d'))
 
         expect(router.values.location.pathname).not.toBe('/organization/billing')
     })
