@@ -4,11 +4,11 @@ import { IconExternal } from '@posthog/icons'
 import { LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { urls } from 'scenes/urls'
 
 import { ScenePanelLabel } from '~/layout/scenes/SceneLayout'
 
 import { ErrorTrackingAlertThreadApi } from '../../../generated/api.schemas'
+import { configurationRedirect } from '../../../settingsRedirects'
 import { issueAlertThreadsLogic } from './issueAlertThreadsLogic'
 
 function ThreadRow({ thread }: { thread: ErrorTrackingAlertThreadApi }): JSX.Element {
@@ -62,9 +62,7 @@ export function IssueNotifications({ issueId }: { issueId: string }): JSX.Elemen
                 ) : threadsLoaded && threads.length === 0 ? (
                     <span className="text-xs text-secondary py-1">
                         No Slack threads for this issue.{' '}
-                        <Link to={urls.settings('environment-error-tracking', 'error-tracking-alerting')}>
-                            Manage alerts
-                        </Link>
+                        <Link to={configurationRedirect('error-tracking-alerting', {}, {})}>Manage alerts</Link>
                     </span>
                 ) : (
                     threads.map((thread) => <ThreadRow key={thread.id} thread={thread} />)
