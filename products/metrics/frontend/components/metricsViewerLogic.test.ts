@@ -436,7 +436,8 @@ describe('metricsViewerLogic', () => {
     it('create alert reuses the saved insight while the query is unchanged', async () => {
         const push = jest.spyOn(router.actions, 'push').mockImplementation(() => {})
         jest.mocked(insightsApi.create).mockImplementation(
-            async (insight: any) => ({ id: 1, short_id: 'abc123', ...insight, query: { ...insight.query, version: 1 } }) as any
+            async (insight: any) =>
+                ({ id: 1, short_id: 'abc123', ...insight, query: { ...insight.query, version: 1 } }) as any
         )
         logic.actions.setMetricName('queue_depth')
 

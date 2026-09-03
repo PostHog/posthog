@@ -373,6 +373,7 @@ export interface metricsViewerLogicValues {
     metricsQueryNode: MetricsQuery | null
     namedClauses: MetricsViewerClause[]
     pendingAddToDashboard: boolean
+    pendingAlert: boolean
     queryAbortController: AbortController | null
     queryError: string | null
     queryFilters: _MetricFilterApi[]
@@ -430,9 +431,6 @@ export interface metricsViewerLogicActions {
     cancelInProgressAnomaly: (controller: AbortController | null) => {
         controller: AbortController | null
     }
-    createAlert: () => {
-        value: true
-    }
     cancelInProgressQuery: (controller: AbortController | null) => {
         controller: AbortController | null
     }
@@ -452,6 +450,9 @@ export interface metricsViewerLogicActions {
         payload?: any
     }
     closeAddToDashboardModal: () => {
+        value: true
+    }
+    createAlert: () => {
         value: true
     }
     duplicateClause: (index: number) => {
