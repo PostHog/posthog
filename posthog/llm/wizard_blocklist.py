@@ -34,7 +34,7 @@ _DOT_INSENSITIVE_DOMAINS = frozenset({"gmail.com", "googlemail.com"})
 # the same whether it lands at consent, at the mint, or on a query.
 WIZARD_BLOCKED_DETAIL = (
     "This account is blocked from the PostHog AI gateway for suspected abuse. "
-    "Contact support@posthog.com if you believe this is a mistake."
+    "Contact wizard@posthog.com if you believe this is a mistake."
 )
 
 # `allowed` is the denominator a block count needs to read as a rate.
