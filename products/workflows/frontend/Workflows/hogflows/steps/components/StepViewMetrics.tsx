@@ -28,7 +28,9 @@ export function StepViewMetrics({
         return (
             <div
                 className={
-                    layout === 'list' ? 'mt-2 flex h-4 max-w-64 items-center gap-2' : 'flex h-2 items-center gap-1 px-1'
+                    layout === 'list'
+                        ? 'ml-auto flex h-7 w-32 shrink-0 items-center gap-2 rounded border bg-fill-button-tertiary px-2'
+                        : 'flex h-2 items-center gap-1 px-1'
                 }
             >
                 <LemonSkeleton className="w-full h-[6px]" />
@@ -42,7 +44,7 @@ export function StepViewMetrics({
         <div
             className={
                 layout === 'list'
-                    ? 'mt-2 flex flex-row items-center gap-4 text-xs font-mono'
+                    ? 'ml-auto flex shrink-0 flex-row items-center gap-3 self-center rounded border bg-fill-button-tertiary px-2 py-1 text-xs font-mono'
                     : 'flex flex-row items-center text-[6px] font-mono'
             }
         >
