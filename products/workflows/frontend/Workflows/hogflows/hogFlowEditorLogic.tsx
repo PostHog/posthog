@@ -137,6 +137,7 @@ export function computeMoveEdges(
 
 export const HOG_FLOW_EDITOR_MODES = ['build', 'variables', 'test', 'metrics', 'logs'] as const
 export type HogFlowEditorMode = (typeof HOG_FLOW_EDITOR_MODES)[number]
+export type HogFlowEditorLayout = 'simple' | 'advanced'
 export type HogFlowEditorActionMetrics = {
     actionId: string
     succeeded: number
@@ -173,6 +174,7 @@ export interface hogFlowEditorLogicValues {
     isCopyingNode: boolean
     isMovingNode: boolean
     isZoomedOutFar: boolean
+    editorLayout: HogFlowEditorLayout
     mode: HogFlowEditorMode
     movingNodeId: string | null
     nodeToBeAdded: CreateActionType | HogFlowActionNode | null
@@ -2016,6 +2018,9 @@ export interface hogFlowEditorLogicActions {
     setIsZoomedOutFar: (isZoomedOutFar: boolean) => {
         isZoomedOutFar: boolean
     }
+    setEditorLayout: (editorLayout: HogFlowEditorLayout) => {
+        editorLayout: HogFlowEditorLayout
+    }
     setMode: (mode: HogFlowEditorMode) => {
         mode: 'build' | 'logs' | 'metrics' | 'test' | 'variables'
     }
@@ -2123,6 +2128,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         onDrop: (event?: DragEvent, targetEdge?: HogFlowEdge) => ({ event, targetEdge }),
         setNodeToBeAdded: (nodeToBeAdded: CreateActionType | HogFlowActionNode | null) => ({ nodeToBeAdded }),
         setHighlightedDropzoneNodeId: (highlightedDropzoneNodeId: string | null) => ({ highlightedDropzoneNodeId }),
+        setEditorLayout: (editorLayout: HogFlowEditorLayout) => ({ editorLayout }),
         setMode: (mode: HogFlowEditorMode) => ({ mode }),
         setAnimatingEdgePair: (from: string, to: string) => ({ from, to }),
         clearAnimatingEdgePair: true,
@@ -2141,6 +2147,12 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         setIsZoomedOutFar: (isZoomedOutFar: boolean) => ({ isZoomedOutFar }),
     }),
     reducers(() => ({
+        editorLayout: [
+            'simple' as HogFlowEditorLayout,
+            {
+                setEditorLayout: (_, { editorLayout }) => editorLayout,
+            },
+        ],
         mode: [
             'build' as HogFlowEditorMode,
             {
@@ -2960,16 +2972,21 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         return {
             setSelectedNodeId: () => syncProperty('node', values.selectedNodeId ?? null),
             setMode: () => syncProperty('mode', values.mode),
+            setEditorLayout: () => syncProperty('view', values.editorLayout === 'simple' ? 'linear' : 'graph'),
         }
     }),
     urlToAction(({ actions, values }) => {
         const reactToTabChange = (_: any, search: Record<string, string>): void => {
-            const { node = null, mode } = search
+            const { node = null, mode, view } = search
             if (node !== values.selectedNodeId) {
                 actions.setSelectedNodeId(node ?? null)
             }
             if (mode && HOG_FLOW_EDITOR_MODES.includes(mode as HogFlowEditorMode) && mode !== values.mode) {
                 actions.setMode(mode as HogFlowEditorMode)
+            }
+            const editorLayout = view === 'graph' ? 'advanced' : 'simple'
+            if (editorLayout !== values.editorLayout) {
+                actions.setEditorLayout(editorLayout)
             }
         }
 
