@@ -305,7 +305,8 @@ def should_emit_episode_signal(
     """Whether this investigation should reach the Signals inbox.
 
     A re-investigation only emits when its verdict differs from the last one on the same
-    episode, so one incident produces one report that later changes update.
+    episode. That bounds an incident to one emission per verdict it reaches, so a long
+    incident cannot file a report for every check of it.
     """
     if verdict == previous_verdict:
         return False
@@ -360,7 +361,9 @@ async def _emit_investigation_signal(
     """Emit an `alerts/anomaly_investigation` signal carrying the agent's verdict and findings.
 
     The source id is the episode's first check, not this one, so every investigation of one
-    incident carries the same identity and grouping folds them into a single inbox report.
+    incident carries the same identity. Grouping matches a signal on its description and on
+    semantically near signals, not on the source id, so one report per episode is a strong
+    default and not a guarantee: a re-emit can still open a report of its own.
     """
     await signals.emit_signal(
         team=team,
