@@ -1858,14 +1858,14 @@ export const surveyLogic = kea<surveyLogicType>([
                 const survey = values.survey as Survey
                 const queryFilters: SurveyQueryFilters = {
                     timestampFilter: values.timestampFilter,
-                    answerFilterHogQLExpression: values.answerFilterHogQLExpression,
+                    answerFilters: values.answerFilters,
                     archivedResponsesFilter: values.archivedResponsesFilter,
                 }
                 const queryParams = {
                     queryParams: { filters: { properties: values.propertyFilters } },
                 }
-                const aggregateQuery = buildAggregateQuery(survey, queryFilters, values.dateRange)
-                const openEndedResult = buildOpenEndedQuery(survey, queryFilters, values.dateRange)
+                const aggregateQuery = buildAggregateQuery(survey, queryFilters)
+                const openEndedResult = buildOpenEndedQuery(survey, queryFilters)
 
                 const startMs = performance.now()
                 let aggregateDuration = 0
