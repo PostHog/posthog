@@ -89,10 +89,10 @@ membership without adding permissions to Task.
 ### `/api/projects/{id}/task_channels/`
 
 - `GET /` — list channels: all live public channels plus the requester's
-  personal channel. Listing lazily `get_or_create`s the personal `#me` channel,
-  so every user always has one. Paging is opt-in: `?limit=&offset=` returns one
-  page in a `count`/`next`/`previous` envelope, and a request without `limit`
-  returns every channel as a plain array.
+  personal `#me` channel when it exists. Listing does not provision; call
+  `provision_defaults` to create the default channels. Paging is opt-in:
+  `?limit=&offset=` returns one page in a `count`/`next`/`previous` envelope,
+  and a request without `limit` returns every channel as a plain array.
 - `POST / {name}` — resolve-or-create a public channel by name
   (`get_or_create`, so concurrent creates and name-bridging are race-safe).
 - `PATCH /{id}/ {name}` - any project member can rename or configure a public channel. Private `#me` spaces cannot be renamed.
