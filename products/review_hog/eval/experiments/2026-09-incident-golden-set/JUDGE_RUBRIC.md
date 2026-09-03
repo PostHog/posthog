@@ -62,10 +62,12 @@ partial and partial over hit when in doubt.
 
 The reviewer is an off-the-shelf LLM; these PRs and their fixes are public and the sandbox clones
 the current repo, so the later fix sits in git history. For every match (and every near-miss), check:
+
 - does the finding text or validator_note mirror the fix PR's title/body/commit wording?
 - does the validator_note cite `master`, `origin/master`, "the team eventually adopted", "later
   fixed", a specific later migration/file that only exists after the fix? (This means it looked at
   the future.)
+
 Report `memorization_suspicion`: none | possible | likely, with the evidence. A finding that was
 derived from the future is still recorded with its verdict, but flagged.
 
