@@ -18,6 +18,7 @@ ran is a different question, and ``CellRunsCompleted`` already answers it from t
 
 from __future__ import annotations
 
+import re
 import asyncio
 from typing import Any
 
@@ -65,6 +66,46 @@ def _markdown_body(content: Any) -> str | None:
         return None
     markdown = attrs.get("markdown")
     return markdown if isinstance(markdown, str) and markdown else None
+
+
+_CELL_TAG_START = re.compile(r"^<([A-Z][A-Za-z0-9]*)(?=[\s/>])")
+
+
+def _cell_block_end(lines: list[str], start: int, tag_name: str) -> int | None:
+    """Index of the line that closes the cell block opened at ``start``, or None if unclosed."""
+    block: list[str] = []
+    cursor = start
+    while cursor < len(lines) and (cursor == start or lines[cursor].strip()):
+        block.append(lines[cursor])
+        scanned = "\n".join(block).strip()
+        if scanned.endswith("/>") or f"</{tag_name}>" in scanned:
+            return cursor
+        cursor += 1
+    return None
+
+
+def _notebook_prose(markdown: str) -> str:
+    """The notebook markdown with every component cell block removed.
+
+    A finished run writes its result back into the cell tag, so the stored document also
+    carries the query's first page of rows and the run's stdout. The prose around the
+    cells is what the agent chose to say, which is where a conclusion lives.
+
+    Mirrors the block scan in ``services/mcp/src/tools/notebooks/cellTags.ts``: a block
+    opens on a line that starts a component tag and closes on the line that ends it.
+    """
+    lines = markdown.split("\n")
+    kept: list[str] = []
+    index = 0
+    while index < len(lines):
+        opening = _CELL_TAG_START.match(lines[index].strip())
+        end = _cell_block_end(lines, index, opening.group(1)) if opening else None
+        if end is None:
+            kept.append(lines[index])
+            index += 1
+            continue
+        index = end + 1
+    return "\n".join(kept)
 
 
 class NotebookCreated(AsyncOnlyScorerMixin, Scorer):
@@ -185,9 +226,14 @@ class ChurnCohortSurfaced(AsyncOnlyScorerMixin, Scorer):
     Opt in with ``expected = {"churn_cohort_surfaced": {}}`` on a case seeded by
     ``seed_churn_signal``. Reads the planted cohort from ``seed["churn_needle"]`` and
     looks for each account's identifiers — email, name, distinct id, account key — in the
-    notebook markdown the agent left behind and its final message. The planted accounts
+    prose of the notebook the agent left behind and its final message. The planted accounts
     are power users who went silent, so a sound churn prediction should list them; the
     score is the fraction it surfaced, a synthetic ground truth for the prediction itself.
+
+    Only prose counts. A completed cell run writes its rows and stdout back into the cell
+    tag, so an account the SQL merely returned sits in the stored document beside one the
+    analysis picked out. Grading the whole document would hand full recall to a notebook
+    that selected every account and concluded nothing.
 
     Each notebook is graded on its own and the best one wins. Concatenating every
     notebook's markdown would let accounts named across separate scratch or retry
@@ -217,7 +263,7 @@ class ChurnCohortSurfaced(AsyncOnlyScorerMixin, Scorer):
         candidates = bodies or [""]
 
         best = max(
-            (self._grade(f"{body}\n{final_message}".lower(), accounts) for body in candidates),
+            (self._grade(f"{_notebook_prose(body)}\n{final_message}".lower(), accounts) for body in candidates),
             key=lambda graded: len(graded.surfaced),
         )
         return Score(
