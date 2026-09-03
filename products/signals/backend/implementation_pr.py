@@ -126,11 +126,17 @@ _PR_CLOSE_COMMENTS["resolved"] = (
 # Superseding says something different from the other two: the report is still open, and the work
 # continues in another PR. The replacement's own description explains what changed, so this only has
 # to get the reader there.
+# It must not offer closing the replacement as the undo. The replacement is the report's newest
+# implementation task, so `report_has_newer_implementation_task` is False for it and the
+# `skip_superseded` guard does not spare it: closing it unmerged archives a report that is still
+# being worked, and the report goes on surfacing that closed PR because `get_latest_pr_url_by_task`
+# does not read PR state.
 _SUPERSEDED_COMMENT = (
     "🔕 Closing this PR because more research changed what the fix should be. "
     "The report it came from is still open, and {replacement} replaces this PR.\n\n"
     "That PR's description says what changed. If this one was still the right fix, reopen it and "
-    "close the replacement."
+    "say so on the replacement. Leave the replacement open. Closing it archives the report in "
+    "PostHog, and the report still links to the replacement rather than to this PR."
 )
 _SUPERSEDED_COMMENT_NO_URL = (
     "🔕 Closing this PR because more research changed what the fix should be. "

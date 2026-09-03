@@ -252,6 +252,10 @@ class TestSupersededPrClose(BaseTest):
         comment_body = github.comment_on_pull_request.call_args.args[2]
         assert _REPLACEMENT_PR_URL in comment_body
         assert "superseded" not in comment_body
+        # Closing the replacement is the one undo the comment must never offer: the replacement is
+        # the report's newest implementation task, so closing it unmerged archives a report that is
+        # still being worked.
+        assert "Leave the replacement open" in comment_body
 
     def test_superseded_comment_stands_alone_without_a_replacement_url(self):
         github = self._github()
