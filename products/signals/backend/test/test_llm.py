@@ -120,17 +120,17 @@ async def test_eval_fixture_generation_opts_in_as_signals_eval():
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "model,thinking,expect_prefill,expect_temperature,expect_thinking",
+    "model,thinking,expect_prefill,expect_temperature,expect_thinking,expect_effort",
     [
-        ("claude-sonnet-4-5", False, True, True, None),
-        ("claude-sonnet-4-5", True, False, True, "enabled"),
-        ("claude-sonnet-5", False, False, False, None),
-        ("claude-sonnet-5", True, False, False, "adaptive"),
-        ("claude-sonnet-4-6", False, False, True, None),
+        ("claude-sonnet-4-5", False, True, True, None, None),
+        ("claude-sonnet-4-5", True, False, True, "enabled", None),
+        ("claude-sonnet-5", False, False, False, None, "medium"),
+        ("claude-sonnet-5", True, False, False, "adaptive", "medium"),
+        ("claude-sonnet-4-6", False, False, True, None, "medium"),
     ],
 )
 async def test_request_shape_follows_model_capabilities(
-    model, thinking, expect_prefill, expect_temperature, expect_thinking
+    model, thinking, expect_prefill, expect_temperature, expect_thinking, expect_effort
 ):
     client = _mock_anthropic_client()
     with (
@@ -151,5 +151,4 @@ async def test_request_shape_follows_model_capabilities(
     assert prefilled is expect_prefill
     assert ("temperature" in kwargs) is expect_temperature
     assert (kwargs.get("thinking") or {}).get("type") == expect_thinking
-    if expect_thinking == "adaptive":
-        assert kwargs["output_config"] == {"effort": "high"}
+    assert kwargs.get("output_config") == ({"effort": expect_effort} if expect_effort else None)

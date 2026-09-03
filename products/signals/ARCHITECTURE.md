@@ -1014,7 +1014,7 @@ Telemetry is best-effort; failures are logged, not raised.
 
 ## LLM Integration
 
-Most direct LLM calls use Anthropic via the shared `call_llm()` helper in `backend/temporal/llm.py`, with model selection driven by `SIGNAL_MATCHING_LLM_MODEL` (default: `claude-sonnet-5`). The emission stage (summarization, actionability) uses its own `SIGNAL_EMISSION_LLM_MODEL` (default: `claude-sonnet-5`). Each model's request shape (assistant prefill, per-request temperature, extended thinking) is resolved from `MODEL_CAPABILITIES` in `backend/temporal/llm.py`, so swapping either default is a config change.
+Most direct LLM calls use Anthropic via the shared `call_llm()` helper in `backend/temporal/llm.py`, with model selection driven by `SIGNAL_MATCHING_LLM_MODEL` (default: `claude-sonnet-5`). The emission stage (summarization, actionability) uses its own `SIGNAL_EMISSION_LLM_MODEL` (default: `claude-sonnet-5`). Each model's request shape (assistant prefill, per-request temperature, extended thinking) is resolved from `MODEL_CAPABILITIES` in `backend/temporal/llm.py`, so swapping either default is a config change. Adaptive-thinking models run every call at `ADAPTIVE_MODEL_EFFORT` (`medium`), set through `effort_kwargs()` in the same module.
 
 That said, **not all “LLM-ish” behavior in Signals goes through `call_llm()` anymore**:
 

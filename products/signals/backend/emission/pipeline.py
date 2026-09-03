@@ -27,6 +27,7 @@ from products.signals.backend.emission.steering import apply_steering, steering_
 from products.signals.backend.facade.api import emit_signal
 from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.drop_telemetry import summarize_drop_error
+from products.signals.backend.temporal.llm import effort_kwargs
 
 logger = structlog.get_logger(__name__)
 
@@ -186,6 +187,7 @@ async def _summarize_description(
                     max_tokens=LLM_MAX_OUTPUT_TOKENS,
                     metadata={"user_id": f"team-{team_id}"},
                     extra_headers=extra_headers,
+                    **effort_kwargs(LLM_MODEL),
                 ),
                 timeout=LLM_CALL_TIMEOUT_SECONDS,
             )
@@ -326,6 +328,7 @@ async def check_actionability(
                     max_tokens=LLM_MAX_OUTPUT_TOKENS,
                     metadata={"user_id": f"team-{team_id}"},
                     extra_headers=extra_headers,
+                    **effort_kwargs(LLM_MODEL),
                 ),
                 timeout=LLM_CALL_TIMEOUT_SECONDS,
             )

@@ -1,11 +1,11 @@
 import os
 from collections.abc import Callable
-from typing import Literal, Optional, TypeVar
+from typing import Final, Literal, Optional, TypedDict, TypeVar
 
 from django.conf import settings
 
 import structlog
-from anthropic.types import Message, MessageParam
+from anthropic.types import Message, MessageParam, OutputConfigParam
 
 from posthog.dataclasses import frozen
 from posthog.helpers.tiktoken_encoding import TEXT_EMBEDDING_3_TOKEN_COUNT_PROXY_MODEL, get_tiktoken_encoding_for_model
@@ -56,12 +56,25 @@ MODEL_CAPABILITIES: dict[str, ModelCapabilities] = {
     "claude-opus-5": _MODERN,
 }
 
-# Effort replaces the explicit token budget on adaptive-thinking models.
-ADAPTIVE_THINKING_EFFORT = "high"
+# Adaptive-thinking models take an effort level instead of a token budget, and they apply it to every
+# call, not only the ones that enable thinking. Medium keeps eval quality level with high while
+# cutting output tokens by a quarter (see products/signals/eval/reports/2026-09-03.md).
+ADAPTIVE_MODEL_EFFORT: Final = "medium"
+
+
+class EffortKwargs(TypedDict, total=False):
+    output_config: OutputConfigParam
 
 
 def get_model_capabilities(model: str) -> ModelCapabilities:
     return MODEL_CAPABILITIES.get(model, _MODERN)
+
+
+def effort_kwargs(model: str) -> EffortKwargs:
+    """Request fields that pin the effort level on a model that resolves it adaptively; empty otherwise."""
+    if get_model_capabilities(model).thinking != "adaptive":
+        return {}
+    return {"output_config": {"effort": ADAPTIVE_MODEL_EFFORT}}
 
 
 MAX_RETRIES = 3
@@ -164,6 +177,7 @@ async def call_llm(
         "messages": messages,
         "max_tokens": MAX_RESPONSE_TOKENS,
         "timeout": TIMEOUT,
+        **effort_kwargs(MATCHING_MODEL),
     }
     if capabilities.temperature:
         create_kwargs["temperature"] = temperature
@@ -185,7 +199,6 @@ async def call_llm(
             create_kwargs["temperature"] = 1  # Required for thinking
         else:
             create_kwargs["thinking"] = {"type": "adaptive"}
-            create_kwargs["output_config"] = {"effort": ADAPTIVE_THINKING_EFFORT}
             create_kwargs.pop("temperature", None)
 
     last_exception: Exception | None = None
