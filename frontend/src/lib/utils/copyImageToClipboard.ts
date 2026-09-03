@@ -19,7 +19,7 @@ export function canCopyImageToClipboard(): boolean {
 export async function captureElementAsPng(element: HTMLElement, excludeSelector?: string): Promise<Blob> {
     return captureElementImage(element, {
         // Hover controls and other chrome inside the element are part of the app, not of the picture.
-        filter: excludeSelector ? (node) => !(node instanceof Element) || !node.matches(excludeSelector) : undefined,
+        filter: excludeSelector ? (node) => !(node instanceof Element && node.matches(excludeSelector)) : undefined,
         type: CLIPBOARD_IMAGE_TYPE,
         // Charts are read at a glance after being pasted, so capture at 2x to keep text and lines sharp.
         pixelRatio: 2,
