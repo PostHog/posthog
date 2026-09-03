@@ -248,6 +248,21 @@ class TestContentAutopilotAPI(APIBaseTest):
         self.assertEqual(rejected.json()["lifecycle_status"], ContentAutopilotProposal.LifecycleStatus.REJECTED)
         self.assertEqual(regenerated.json()["lifecycle_status"], ContentAutopilotProposal.LifecycleStatus.GENERATING)
 
+    def test_edit_stores_markdown_whitespace_exactly(self) -> None:
+        proposal = self._reviewable_proposal()
+        markdown = "    indented code block\n\n# Reviewed draft\n\nUseful content.\n"
+
+        edited = self.client.post(
+            self._proposals_url(f"{proposal.id}/edit/"),
+            {"proposed_markdown": markdown, "content_package": proposal.content_package},
+            format="json",
+        )
+
+        self.assertEqual(edited.status_code, status.HTTP_200_OK, edited.json())
+        self.assertEqual(edited.json()["proposed_markdown"], markdown)
+        proposal.refresh_from_db()
+        self.assertEqual(proposal.proposed_markdown, markdown)
+
     def _reviewable_proposal(self, *, validation_passed: bool = True) -> ContentAutopilotProposal:
         run = create_content_autopilot_run(self.team, create_content_autopilot_profile(self.team))
         return create_content_autopilot_proposal(self.team, run, validation_passed=validation_passed)

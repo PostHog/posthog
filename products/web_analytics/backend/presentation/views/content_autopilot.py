@@ -384,7 +384,9 @@ class ContentAutopilotProposalListQuerySerializer(serializers.Serializer):
 
 class ContentAutopilotProposalEditRequestSerializer(serializers.Serializer):
     proposed_markdown = serializers.CharField(
-        max_length=MAX_PROPOSAL_MARKDOWN_CHARS, help_text="Edited Markdown to save for review."
+        max_length=MAX_PROPOSAL_MARKDOWN_CHARS,
+        trim_whitespace=False,
+        help_text="Edited Markdown to save for review.",
     )
     content_package = ContentAutopilotPackageSerializer(
         help_text="Updated structured package to save with the proposal."
