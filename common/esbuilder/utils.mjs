@@ -16,6 +16,8 @@ import postcss from 'postcss'
 import postcssPresetEnv from 'postcss-preset-env'
 import ts from 'typescript'
 
+import { chunkLoaderScript, chunkMapFileContents, chunkMapFileName } from './chunkLoader.mjs'
+
 // Re-exported for one-shot builds outside buildInParallel (e.g. the toolbar loader, which is
 // built after the toolbar app build so it can embed the hashed entry filename). Consumers
 // depend on @posthog/esbuilder, not on esbuild directly, so pnpm's strict node_modules
@@ -107,23 +109,20 @@ export function copyIndexHtml(
     // Esbuild "chunks" a scene into possibly hundreds of tiny files. When we load the first few files,
     // they tell us which other files to load. This cascading loading is slow. That's why we cache
     // the list of chunks per scene, and load them all in parallel when a scene is loaded.
+    //
+    // The full map is written to its own content-hashed file in dist and fetched by the inline
+    // loader, instead of being inlined into the HTML: the map is hundreds of KB that changed on
+    // every deploy and had to be downloaded and parsed before the app could boot, on every page.
 
     // Don't use chunks in dev mode.
     // Django caches the generated index.html, and we'll end up loading the wrong chunks after one change.
     const chunksToServe = isDev ? {} : chunks
-    const chunkCode = `
-        window.ESBUILD_LOADED_CHUNKS = new Set();
-        window.ESBUILD_LOAD_CHUNKS = function(name) {
-            const chunks = ${JSON.stringify(chunksToServe)}[name] || [];
-            for (const chunk of chunks) {
-                if (!window.ESBUILD_LOADED_CHUNKS.has(chunk)) {
-                    window.ESBUILD_LOAD_SCRIPT('chunk-'+chunk+'.js');
-                    window.ESBUILD_LOADED_CHUNKS.add(chunk);
-                }
-            }
-        }
-        window.ESBUILD_LOAD_CHUNKS('index');
-    `
+    let chunkMapFile = null
+    if (Object.keys(chunksToServe).length > 0) {
+        chunkMapFile = chunkMapFileName(entry, chunksToServe)
+        fse.writeFileSync(path.resolve(absWorkingDir, 'dist', chunkMapFile), chunkMapFileContents(chunksToServe))
+    }
+    const chunkCode = chunkLoaderScript(chunksToServe, chunkMapFile)
 
     // Fallback to non-hashed CSS (with cache-busting build ID) when the hashed
     // version fails to load (e.g. CDN returns 403). Mirrors the JS fallback above.
