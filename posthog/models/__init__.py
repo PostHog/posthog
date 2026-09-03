@@ -34,6 +34,7 @@ from .group import Group
 from .group_usage_metric import GroupUsageMetric
 from .group_type_mapping import GroupTypeMapping
 from .host_definition import HostDefinition
+from .health_check_run import HealthCheckRun
 from .health_issue import HealthIssue
 from .identity_provider_config import IdentityProviderConfig
 from .linked_identity_provider_config import LinkedIdentityProviderConfig  # noqa: F401
@@ -115,6 +116,7 @@ __all__ = [
     "Group",
     "GroupUsageMetric",
     "GroupTypeMapping",
+    "HealthCheckRun",
     "HealthIssue",
     "HostDefinition",
     "IdentityProviderConfig",

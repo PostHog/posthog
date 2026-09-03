@@ -13,6 +13,7 @@ import { SidePanelTab } from '~/types'
 import { buildHealthIssuePrompt, kindToLabel, severityLabel, severityToTagType } from '../healthUtils'
 import { getIssueRenderer } from '../issueRenderers'
 import type { HealthIssue } from '../types'
+import { HealthCheckFreshness } from './HealthCheckFreshness'
 import { HealthIssueActions } from './HealthIssueActions'
 import { HealthIssueSnoozedTag } from './HealthIssueSnoozedTag'
 
@@ -21,11 +22,13 @@ export const HealthIssueCard = ({
     onSnooze,
     onDismiss,
     onUndismiss,
+    onRechecked,
 }: {
     issue: HealthIssue
     onSnooze: (id: string, duration: string) => void
     onDismiss: (id: string) => void
     onUndismiss: (id: string) => void
+    onRechecked?: () => void
 }): JSX.Element => {
     const Renderer = getIssueRenderer(issue.kind)
     const { openSidePanel } = useActions(sidePanelStateLogic)
@@ -43,7 +46,7 @@ export const HealthIssueCard = ({
                         {severityLabel(issue.severity)}
                     </LemonTag>
                     <span className="text-xs text-muted shrink-0">
-                        <TZLabel time={issue.created_at} />
+                        Found <TZLabel time={issue.created_at} />
                     </span>
                     <HealthIssueSnoozedTag issue={issue} />
                 </div>
@@ -66,6 +69,7 @@ export const HealthIssueCard = ({
                 </div>
             </div>
             <Renderer issue={issue} />
+            <HealthCheckFreshness kind={issue.kind} onRechecked={onRechecked} />
         </div>
     )
 }

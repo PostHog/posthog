@@ -143,6 +143,11 @@ On each check run, for every team in the batch:
 
 1. **Upsert** — Issues returned by the detector are written (or updated) as `status=active`.
 2. **Resolve** — Active issues for checked teams that were _not_ returned by the detector are marked `status=resolved`.
+3. **Record the run** — A `HealthCheckRun` row per (team, kind) is stamped with `last_run_at` and whether the run found anything.
+
+Step 3 is what makes a result readable. A check only runs for teams whose organization has been logged into recently, so an absent issue can mean "checked, nothing wrong" or "never checked, and the last finding is frozen". The run row tells the two apart, and `GET /api/environments/:id/health_issues/checks/` serves it with the check's cron schedule so a surface can show when the check last ran, when it runs next, and whether it is overdue.
+
+A user (or a product event, such as a reverse proxy going live) can re-run a check on demand with `POST /api/environments/:id/health_issues/refresh/`. Pass `{"kinds": [...]}` to scope it to specific checks, which has its own short cooldown; omit it to re-run everything on the strict per-team cooldown.
 
 ## Execution policies
 

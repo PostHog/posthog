@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 from django.db.models import Case, Count, Q, QuerySet, When
 from django.utils import timezone
 
+from croniter import CroniterBadCronError, CroniterBadDateError, croniter
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
     OpenApiParameter,
@@ -25,8 +26,9 @@ from rest_framework.viewsets import GenericViewSet
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.exceptions_capture import capture_exception
+from posthog.models.health_check_run import HealthCheckRun
 from posthog.models.health_issue import HealthIssue
-from posthog.rate_limit import HealthIssueRefreshThrottle
+from posthog.rate_limit import HealthIssueKindRefreshThrottle, HealthIssueRefreshThrottle
 from posthog.utils import relative_date_parse
 
 
@@ -164,6 +166,111 @@ class HealthIssueSummarySerializer(serializers.Serializer):
             "so callers can decide for themselves whether a snoozed issue is worth surfacing."
         )
     )
+
+
+class HealthCheckStateSerializer(serializers.Serializer):
+    kind = serializers.CharField(help_text="The check this state belongs to (e.g. 'reverse_proxy').")
+    status = serializers.CharField(
+        help_text=(
+            "'issues' when the last run for this team found something, 'healthy' when it found nothing, and "
+            "'never_run' when no run has covered this team yet. A check only runs for teams whose organization "
+            "has been logged into recently, so 'never_run' is a normal state for a dormant project."
+        )
+    )
+    last_run_at = serializers.DateTimeField(
+        allow_null=True, help_text="When this check last evaluated the team (ISO 8601), or null if it never has."
+    )
+    next_run_at = serializers.DateTimeField(
+        allow_null=True,
+        help_text=(
+            "When the check is next scheduled to run (ISO 8601), or null when it has no schedule. Scheduled runs "
+            "skip dormant organizations, so treat this as the earliest likely run, not a guarantee."
+        ),
+    )
+    schedule = serializers.CharField(
+        allow_null=True, help_text="The check's cron schedule in UTC, or null when it only runs on demand."
+    )
+    stale = serializers.BooleanField(
+        help_text=(
+            "True when the check has not run for this team within two of its scheduled intervals — what it last "
+            "reported may no longer be true. Surface a re-check rather than presenting the result as current."
+        )
+    )
+
+
+class HealthCheckStatesSerializer(serializers.Serializer):
+    results = HealthCheckStateSerializer(many=True, help_text="One entry per registered health check.")
+
+
+class HealthIssueRefreshRequestSerializer(serializers.Serializer):
+    kinds = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Only re-run these check kinds (e.g. ['reverse_proxy']). Omit to re-run every check for the project. "
+            "A scoped refresh has its own, shorter cooldown, so fixing one thing and re-checking it does not "
+            "block the rest."
+        ),
+    )
+
+
+# How many scheduled intervals a check can miss before what it last reported stops counting as current.
+STALE_AFTER_MISSED_INTERVALS = 2
+
+
+def _requested_kinds(request: Request) -> list[str] | None:
+    """The kinds a refresh was scoped to, or None when it covers the whole project."""
+    data = getattr(request, "data", None)
+    if not isinstance(data, dict):
+        return None
+
+    kinds = data.get("kinds")
+    if kinds is None:
+        return None
+    if not isinstance(kinds, list) or not kinds or not all(isinstance(kind, str) for kind in kinds):
+        raise serializers.ValidationError({"kinds": "Expected a non-empty list of check kinds."})
+    return kinds
+
+
+def _cron_interval(schedule: str, after: datetime) -> timedelta | None:
+    try:
+        iterator = croniter(schedule, after)
+        first = iterator.get_next(datetime)
+        second = iterator.get_next(datetime)
+    except (CroniterBadCronError, CroniterBadDateError, ValueError):
+        return None
+    return second - first
+
+
+def _next_scheduled_run(schedule: str, after: datetime) -> datetime | None:
+    try:
+        return croniter(schedule, after).get_next(datetime)
+    except (CroniterBadCronError, CroniterBadDateError, ValueError):
+        return None
+
+
+def _check_state(kind: str, schedule: str | None, run: HealthCheckRun | None, now: datetime) -> dict[str, Any]:
+    next_run_at = _next_scheduled_run(schedule, now) if schedule else None
+
+    if run is None:
+        status = "never_run"
+        stale = True
+    else:
+        status = "issues" if run.found_issues else "healthy"
+        interval = _cron_interval(schedule, now) if schedule else None
+        # Without a schedule there is no expected cadence to fall behind, so only a check we can
+        # predict can go stale.
+        stale = interval is not None and now - run.last_run_at > STALE_AFTER_MISSED_INTERVALS * interval
+
+    return {
+        "kind": kind,
+        "status": status,
+        "last_run_at": run.last_run_at if run else None,
+        "next_run_at": next_run_at,
+        "schedule": schedule,
+        "stale": stale,
+    }
 
 
 class HealthIssueRemediationSerializer(serializers.Serializer):
@@ -406,7 +513,43 @@ class HealthIssueViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelMi
         )
 
     @extend_schema(
-        request=None,
+        summary="Report when each health check last ran",
+        description=(
+            "Returns one entry per registered health check describing when it last evaluated this team, when it "
+            "is next scheduled to run, and whether what it last reported is stale. Health issues record findings "
+            "only, so this is the endpoint that tells a missing issue ('checked, nothing wrong') apart from a "
+            "check that has not run for the team yet."
+        ),
+        responses={200: HealthCheckStatesSerializer},
+    )
+    @action(methods=["GET"], detail=False, url_path="checks", required_scopes=["health_issue:read"])
+    def checks(self, request: Request, **kwargs) -> Response:
+        from posthog.temporal.health_checks.registry import HEALTH_CHECKS, ensure_registry_loaded
+
+        ensure_registry_loaded()
+
+        runs = {run.kind: run for run in HealthCheckRun.objects.filter(team_id=self.team_id)}
+        now = timezone.now()
+        results = [
+            _check_state(kind, registration.schedule, runs.get(kind), now)
+            for kind, registration in sorted(HEALTH_CHECKS.items())
+        ]
+
+        return Response({"results": results})
+
+    def get_throttles(self):
+        # A whole-project refresh runs every check, so it stays on the strict per-team cooldown. A
+        # scoped one runs a single check for a user who just fixed something, so it gets its own,
+        # shorter bucket per set of kinds — otherwise re-checking one card locks every other card
+        # out for five minutes.
+        if self.action == "refresh":
+            if _requested_kinds(self.request):
+                return [HealthIssueKindRefreshThrottle()]
+            return [HealthIssueRefreshThrottle()]
+        return super().get_throttles()
+
+    @extend_schema(
+        request=HealthIssueRefreshRequestSerializer,
         responses={
             202: OpenApiResponse(description="Health check refresh jobs scheduled for the team."),
             429: OpenApiResponse(description="Refresh was triggered recently; try again later."),
@@ -416,7 +559,6 @@ class HealthIssueViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelMi
         methods=["POST"],
         detail=False,
         url_path="refresh",
-        throttle_classes=[HealthIssueRefreshThrottle],
         required_scopes=["health_issue:write"],
     )
     def refresh(self, request: Request, **kwargs) -> Response:
@@ -424,7 +566,15 @@ class HealthIssueViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelMi
         from posthog.temporal.health_checks.registry import HEALTH_CHECKS, ensure_registry_loaded
 
         ensure_registry_loaded()
-        kinds = list(HEALTH_CHECKS.keys())
+
+        requested_kinds = _requested_kinds(request)
+        if requested_kinds is not None:
+            unknown = sorted(set(requested_kinds) - set(HEALTH_CHECKS))
+            if unknown:
+                raise serializers.ValidationError({"kinds": f"Unknown check kind(s): {', '.join(unknown)}"})
+            kinds = list(dict.fromkeys(requested_kinds))
+        else:
+            kinds = list(HEALTH_CHECKS.keys())
 
         scheduled: list[str] = []
         failed: list[str] = []

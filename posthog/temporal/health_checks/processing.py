@@ -2,6 +2,7 @@ import time
 
 import structlog
 
+from posthog.models.health_check_run import HealthCheckRun
 from posthog.temporal.health_checks.alerts import emit_health_check_alert
 from posthog.temporal.health_checks.db import resolve_stale_issues_with_deltas, upsert_issues_with_deltas
 from posthog.temporal.health_checks.models import BatchDetectFn, BatchResult
@@ -52,6 +53,10 @@ def _process_batch_detection(
     newly_resolved = resolve_stale_issues_with_deltas(kind, issues_by_team, healthy_team_ids)
     result.issues_resolved = len(newly_resolved)
     result.resolve_duration = time.monotonic() - start
+
+    # Stamp the run itself, not just what it found — a team with no issue of this kind is either
+    # healthy or never checked, and only this row tells the two apart.
+    HealthCheckRun.record_run(kind, team_ids, set(issues_by_team.keys()))
 
     for issue in newly_active:
         emit_health_check_alert(issue, status="firing")

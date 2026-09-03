@@ -5,6 +5,7 @@ import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { Link } from 'lib/lemon-ui/Link'
 import { isExternalLink } from 'lib/utils/url'
+import { HealthCheckFreshness } from 'scenes/health/components/HealthCheckFreshness'
 
 import { HealthCheck, HealthCheckStatus } from '../healthCheckTypes'
 import { webAnalyticsHealthLogic } from '../webAnalyticsHealthLogic'
@@ -14,7 +15,7 @@ interface HealthCheckItemProps {
 }
 
 export function HealthCheckItem({ check }: HealthCheckItemProps): JSX.Element {
-    const { trackActionClicked } = useActions(webAnalyticsHealthLogic)
+    const { trackActionClicked, loadHealthIssues } = useActions(webAnalyticsHealthLogic)
 
     const handleActionClick = (): void => {
         trackActionClicked(check.id, check.category, check.status, check.urgent ?? false)
@@ -39,6 +40,9 @@ export function HealthCheckItem({ check }: HealthCheckItemProps): JSX.Element {
                 </div>
                 <div className="text-sm text-secondary mt-0.5">
                     {check.status === 'loading' ? <LemonSkeleton className="w-32 h-4" /> : check.description}
+                </div>
+                <div className="mt-1">
+                    <HealthCheckFreshness kind={check.kind} onRechecked={loadHealthIssues} />
                 </div>
             </div>
             {check.action && (
