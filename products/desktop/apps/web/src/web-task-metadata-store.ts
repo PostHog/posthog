@@ -26,6 +26,12 @@ const store = createRecordStore(
   taskMetadataSchema,
 );
 
+function timestampOrZero(value: string | null | undefined): number {
+  if (!value) return 0;
+  const timestamp = Date.parse(value);
+  return Number.isNaN(timestamp) ? 0 : timestamp;
+}
+
 function update(taskId: string, patch: Partial<TaskMetadata>): TaskMetadata {
   const current = store.get();
   const next = { ...(current[taskId] ?? EMPTY), ...patch };
@@ -55,8 +61,16 @@ export const webTaskMetadataStore = {
     return { isPinned: pinnedAt !== null, pinnedAt };
   },
 
-  markViewed(taskId: string): void {
-    update(taskId, { lastViewedAt: new Date().toISOString() });
+  markViewed(taskId: string, activityAt?: string): void {
+    const current = store.get()[taskId] ?? EMPTY;
+    const lastViewedAt = new Date(
+      Math.max(
+        Date.now(),
+        timestampOrZero(activityAt),
+        timestampOrZero(current.lastActivityAt),
+      ),
+    ).toISOString();
+    update(taskId, { lastViewedAt });
   },
 
   markActivity(taskId: string): void {

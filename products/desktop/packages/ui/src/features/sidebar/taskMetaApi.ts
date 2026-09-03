@@ -57,8 +57,10 @@ export const taskViewedApi = {
     return parseTimestamps(await workspace().getAllTaskTimestamps.query());
   },
 
-  markAsViewed(taskId: string): void {
-    void workspace().markViewed.mutate({ taskId }).then(invalidateTimestamps);
+  markAsViewed(taskId: string, activityAt?: string): void {
+    void workspace()
+      .markViewed.mutate({ taskId, activityAt })
+      .then(invalidateTimestamps);
   },
 
   markActivity(taskId: string): void {
