@@ -474,10 +474,10 @@ def validate_external_host(host: str) -> None:
 
     name_reason = _blocked_host_reason(host)
     if name_reason is not None:
-        raise ValueError(f"{name_reason}: {host}")
+        raise ValueError(name_reason)
 
     ips = resolve_host_ips(host)
     if not ips:
-        raise ValueError(f"Could not resolve host: {host}")
+        raise ValueError("Could not resolve host")
     if any(_is_internal_ip(ip) for ip in ips):
-        raise ValueError(f"Host resolves to an internal IP: {host}")
+        raise ValueError("Host resolves to an internal IP")
