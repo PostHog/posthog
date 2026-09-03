@@ -1,28 +1,29 @@
 use std::collections::{HashMap, VecDeque};
-use std::future::Future;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use common_kafka_consumer::{Charge, Offset, Partition, TopicOffsetLedger, TopicPartition};
+use common_kafka_consumer::{
+    Charge, GroupCompletion, Offset, Partition, TopicOffsetLedger, TopicPartition,
+};
 use futures::StreamExt;
 use lifecycle::Handle;
 use metrics::{counter, gauge, histogram};
 use rdkafka::consumer::{CommitMode, Consumer, StreamConsumer};
 use rdkafka::message::{Headers, Message};
 use rdkafka::TopicPartitionList;
+use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tracing::{error, info, warn};
 
+use crate::batcher::{make_batch_id, Batcher, BatcherOutputs};
 use crate::config::Config;
 use crate::debug_recorder::{record_if, DebugEventKind, DebugRecorder, PartitionOffset};
 use crate::discovery::DiscoveryMode;
-use crate::dispatcher::{Dispatcher, KeyOffset, SubBatch};
-use crate::grpc_transport::{GrpcTransport, PendingWorkerStreamSend};
+use crate::dispatcher::Dispatcher;
+use crate::grpc_transport::GrpcTransport;
 use crate::ledger_shadow::LedgerShadow;
 use crate::order_sentinel::{CommitSentinel, OffsetSpan, SentinelContext};
-use crate::transport::SendError;
-use crate::types::{Accumulator, Group, SerializedKafkaMessage};
-use crate::worker_registry::WorkerId;
+use crate::types::{Accumulator, SerializedKafkaMessage};
 
 /// Batch-wide statistics gathered while collecting, used to emit parity
 /// metrics. Per-partition facts live on [`PartitionDeliveries`].
@@ -116,35 +117,69 @@ impl PartitionDeliveries {
 /// Output of `collect_batch`.
 struct CollectedBatch {
     /// The poll's messages, demuxed per partition and routing key.
-    groups: Vec<Group>,
+    accumulator: Accumulator,
     partitions: HashMap<TopicPartition, PartitionDeliveries>,
     stats: BatchStats,
 }
 
-struct ProcessedBatch {
+/// One submitted poll, awaiting its group completions. The consumer
+/// correlates completions to it by assignment epoch, partition, and offset;
+/// the poll commits only once completions cover every message.
+struct InFlightPoll {
+    /// Consumer-side id for logs and debug events only; the batcher's
+    /// internal batch id never crosses the boundary.
+    poll_id: String,
+    /// The epoch the batcher stamped on this poll's completions.
+    assignment_epoch: u64,
     partitions: HashMap<TopicPartition, PartitionDeliveries>,
-    /// Messages accepted so far. Deferred groups (keys whose worker was
-    /// draining/dead) are flushed in `complete_oldest_batch`, which adds to this.
-    total_accepted: u32,
-    /// Total messages in the batch; the batch commits only once `total_accepted`
-    /// reaches it (i.e. all deferred groups have been flushed and ACKed).
-    batch_size: u32,
-    elapsed: Duration,
+    message_count: u32,
+    /// Messages covered by completions so far, accepted or not.
+    covered: u32,
+    /// Worker-accepted messages so far. The poll commits only when this
+    /// reaches `message_count`.
+    accepted: u32,
+    dispatched_at: Instant,
 }
 
-struct InFlightBatch {
-    batch_id: String,
-    handle: JoinHandle<anyhow::Result<ProcessedBatch>>,
+impl InFlightPoll {
+    fn is_complete(&self) -> bool {
+        self.covered >= self.message_count
+    }
+
+    fn contains(&self, partition: Partition, offset: i64) -> bool {
+        self.partitions.iter().any(|(topic_partition, deliveries)| {
+            topic_partition.partition == partition.0
+                && deliveries.span.first <= offset
+                && offset <= deliveries.span.last
+        })
+    }
 }
 
-/// A sub-batch whose send order is already established on its worker's stream
-/// (`GrpcTransport::begin_send`), plus the metadata the resolve protocol needs.
-struct PendingSubBatch {
-    worker: WorkerId,
-    routing_keys: Vec<String>,
-    key_offsets: Vec<KeyOffset>,
-    message_count: usize,
-    pending: PendingWorkerStreamSend,
+/// Credit a completion to the poll it belongs to: the one collected under the
+/// same assignment epoch whose offset span holds the completion's offsets.
+/// Within one epoch, poll spans are disjoint per partition, so at most one
+/// poll matches. A completion that matches no in-flight poll (its partition
+/// was revoked and reassigned while the group was out, or its poll is gone)
+/// is discarded and counted.
+fn apply_completion(in_flight: &mut VecDeque<InFlightPoll>, completion: GroupCompletion) {
+    let Some(first) = completion.offsets.first().map(|offset| offset.0) else {
+        return;
+    };
+    let Some(poll) = in_flight.iter_mut().find(|poll| {
+        poll.assignment_epoch == completion.assignment_epoch
+            && poll.contains(completion.partition, first)
+    }) else {
+        counter!("ingestion_consumer_stale_group_completions_total").increment(1);
+        warn!(
+            partition = %completion.partition,
+            offset = first,
+            epoch = completion.assignment_epoch,
+            "Discarding group completion that matches no in-flight poll"
+        );
+        return;
+    };
+    poll.covered += completion.offsets.len() as u32;
+    poll.accepted += completion.accepted;
 }
 
 /// Options for constructing an [`IngestionConsumer`] from pre-built parts.
@@ -157,28 +192,30 @@ pub struct IngestionConsumerOptions {
     pub batch_timeout: Duration,
     pub max_in_flight_batches: usize,
     pub group_id: String,
-    /// No-progress bound on flushing a batch's deferred groups: the deadline
-    /// resets whenever any of the batch's messages land, and the batch fails
-    /// only after a full window with zero progress. `new` takes it from
+    /// No-progress bound on flushing a batch's deferred groups, enforced by
+    /// the batcher's flush driver: the deadline resets whenever any of the
+    /// batch's messages land, and the batch fails only after a full window
+    /// with zero progress. Production takes it from
     /// `CONSUMER_DEFERRED_FLUSH_TIMEOUT_MS` (default 60s).
     pub deferred_flush_timeout: Duration,
     /// Debug event recorder; `None` unless `DEBUG_API_ENABLED`.
     pub debug_recorder: Option<Arc<DebugRecorder>>,
 }
 
-/// The main consumer loop: reads from Kafka, routes messages by Kafka key
-/// via the health-aware Dispatcher, dispatches sub-batches to workers over
-/// ordered gRPC streams, and commits offsets only after all workers ACK.
+/// The main consumer loop: reads from Kafka, demuxes each poll into groups,
+/// submits them to the [`Batcher`] (which routes, dispatches, and flushes),
+/// and commits offsets once the batcher's completions cover a poll.
 pub struct IngestionConsumer {
     consumer: Arc<StreamConsumer<SentinelContext>>,
-    dispatcher: Arc<Dispatcher>,
+    batcher: Batcher,
+    /// Taken once by `process`.
+    outputs: Option<BatcherOutputs>,
     transport: Arc<GrpcTransport>,
     worker_urls: Vec<String>,
     batch_size: usize,
     batch_size_bytes: usize,
     batch_timeout: Duration,
     max_in_flight_batches: usize,
-    deferred_flush_timeout: Duration,
     handle: Handle,
     group_id: String,
     /// Validates commit contiguity/monotonicity per partition. Shared with the
@@ -191,7 +228,9 @@ pub struct IngestionConsumer {
 
 impl IngestionConsumer {
     /// Constructs a consumer from pre-built parts. Useful in integration tests
-    /// where the Kafka consumer is created and subscribed externally.
+    /// where the Kafka consumer is created and subscribed externally. Builds
+    /// the batcher from the dispatcher and transport; `new` instead takes one
+    /// built in `main`.
     pub fn from_parts(
         consumer: StreamConsumer<SentinelContext>,
         dispatcher: Arc<Dispatcher>,
@@ -206,27 +245,34 @@ impl IngestionConsumer {
         // the kill switch, and a detached context always carries one.
         let commit_sentinel = consumer.context().commit_sentinel();
         let topic_offset_ledger = consumer.context().topic_offset_ledger();
+        let (batcher, outputs) = Batcher::new(
+            dispatcher,
+            Arc::clone(&transport),
+            handle.clone(),
+            options.deferred_flush_timeout,
+        );
         Self {
             commit_sentinel,
             debug_recorder: options.debug_recorder,
+            ledger_shadow: LedgerShadow::new(topic_offset_ledger),
             consumer: Arc::new(consumer),
-            dispatcher,
+            batcher,
+            outputs: Some(outputs),
             transport,
             worker_urls,
             batch_size: options.batch_size,
             batch_size_bytes: options.batch_size_bytes,
             batch_timeout: options.batch_timeout,
             max_in_flight_batches: options.max_in_flight_batches.max(1),
-            deferred_flush_timeout: options.deferred_flush_timeout,
             handle,
             group_id: options.group_id,
-            ledger_shadow: LedgerShadow::new(topic_offset_ledger),
         }
     }
 
     pub fn new(
         config: &Config,
-        dispatcher: Arc<Dispatcher>,
+        batcher: Batcher,
+        outputs: BatcherOutputs,
         transport: Arc<GrpcTransport>,
         handle: Handle,
         debug_recorder: Option<Arc<DebugRecorder>>,
@@ -252,7 +298,7 @@ impl IngestionConsumer {
         );
         let commit_sentinel = Arc::new(CommitSentinel::new());
         commit_sentinel.set_enabled(config.consumer_order_sentinel_enabled);
-        let key_sentinel = dispatcher.key_order_sentinel();
+        let key_sentinel = batcher.key_order_sentinel();
         key_sentinel.set_enabled(config.consumer_order_sentinel_enabled);
         // Off, the consumer has no ledger at all: the rebalance callbacks
         // have nothing to forget and the shadow nothing to charge.
@@ -282,26 +328,28 @@ impl IngestionConsumer {
             consumer: Arc::new(consumer),
             commit_sentinel,
             debug_recorder,
-            dispatcher,
+            ledger_shadow: LedgerShadow::new(topic_offset_ledger),
+            batcher,
+            outputs: Some(outputs),
             transport,
             worker_urls,
             batch_size: config.consumer_batch_size,
             batch_size_bytes: config.consumer_batch_size_kb.saturating_mul(1024),
             batch_timeout: Duration::from_millis(config.consumer_batch_timeout_ms),
             max_in_flight_batches: config.consumer_max_background_tasks.max(1),
-            deferred_flush_timeout: Duration::from_millis(
-                config.consumer_deferred_flush_timeout_ms,
-            ),
             handle,
             group_id: config.ingestion_consumer_group_id.clone(),
-            ledger_shadow: LedgerShadow::new(topic_offset_ledger),
         })
     }
 
     /// Run the consumer loop until shutdown is signalled via the lifecycle handle.
     /// Waits for all workers to be ready before starting to consume from Kafka.
-    pub async fn process(self) {
+    pub async fn process(mut self) {
         let _guard = self.handle.process_scope();
+        let BatcherOutputs {
+            mut completions,
+            mut errors,
+        } = self.outputs.take().expect("process is called once");
 
         info!("Waiting for workers to be ready");
         if let Err(err) = self
@@ -331,19 +379,19 @@ impl IngestionConsumer {
             self.handle.clone(),
         )));
 
-        let mut in_flight_batches = VecDeque::new();
+        let mut in_flight_polls: VecDeque<InFlightPoll> = VecDeque::new();
         let mut accepting_new_batches = true;
 
-        while accepting_new_batches || !in_flight_batches.is_empty() {
+        while accepting_new_batches || !in_flight_polls.is_empty() {
             // Consumer-level concurrency: how many Kafka batches are being
             // processed in parallel, bounded by `max_in_flight_batches`.
-            gauge!("ingestion_consumer_in_flight_batches").set(in_flight_batches.len() as f64);
+            gauge!("ingestion_consumer_in_flight_batches").set(in_flight_polls.len() as f64);
 
-            if accepting_new_batches && in_flight_batches.len() < self.max_in_flight_batches {
+            if accepting_new_batches && in_flight_polls.len() < self.max_in_flight_batches {
                 tokio::select! {
                     _ = self.handle.shutdown_recv() => {
                         info!(
-                            in_flight = in_flight_batches.len(),
+                            in_flight = in_flight_polls.len(),
                             "Shutdown signal received, draining in-flight batches"
                         );
                         accepting_new_batches = false;
@@ -357,16 +405,16 @@ impl IngestionConsumer {
                             }
                         };
 
-                        if collected.groups.is_empty() {
+                        if collected.accumulator.message_count() == 0 {
                             self.handle.report_healthy();
-                            if in_flight_batches.is_empty() {
+                            if in_flight_polls.is_empty() {
                                 continue;
                             }
                         } else {
-                            in_flight_batches.push_back(self.spawn_batch_processing(collected));
+                            in_flight_polls.push_back(self.submit_poll(collected));
                             self.handle.report_healthy();
 
-                            if in_flight_batches.len() < self.max_in_flight_batches {
+                            if in_flight_polls.len() < self.max_in_flight_batches {
                                 continue;
                             }
                         }
@@ -374,7 +422,10 @@ impl IngestionConsumer {
                 }
             }
 
-            if let Err(err) = self.complete_oldest_batch(&mut in_flight_batches).await {
+            if let Err(err) = self
+                .complete_oldest_poll(&mut in_flight_polls, &mut completions, &mut errors)
+                .await
+            {
                 self.fail_batch_processing(err);
                 return;
             }
@@ -383,190 +434,104 @@ impl IngestionConsumer {
         info!("Consumer loop stopped");
     }
 
-    fn spawn_batch_processing(&self, mut collected: CollectedBatch) -> InFlightBatch {
-        let batch_size: usize = collected.groups.iter().map(Group::len).sum();
-        let batch_id = make_batch_id();
-        // Register AND assign here, on the consumer loop, so both happen in
-        // true batch order. Registration first, so the stash learns batch
-        // order before failed-send deferrals (which land in gather order) can
-        // reach it. Assignment too: on spawned tasks, batch N+1's assign could
-        // beat batch N's to the pin table and send a key's newer messages
-        // first — per-key send order must be fixed exactly once, in Kafka
-        // order, at assignment.
-        self.dispatcher.register_batch(&batch_id);
+    /// Submit one collected poll to the batcher and track it as in flight.
+    fn submit_poll(&self, collected: CollectedBatch) -> InFlightPoll {
+        let CollectedBatch {
+            accumulator,
+            partitions,
+            stats,
+        } = collected;
+        let message_count = accumulator.message_count();
+        let poll_id = make_batch_id();
         record_if(&self.debug_recorder, || DebugEventKind::BatchDispatched {
-            batch_id: batch_id.clone(),
-            messages: batch_size,
-            partitions: debug_partition_offsets(&collected.partitions),
+            batch_id: poll_id.clone(),
+            messages: message_count,
+            partitions: debug_partition_offsets(&partitions),
         });
-        let assign_start = Instant::now();
-        let groups = std::mem::take(&mut collected.groups);
-        // Send order is established here too, still on the consumer loop and
-        // under the dispatcher's lock: `begin_send` is synchronous, so a key's
-        // sub-batches enter its worker's stream in assignment order — spawned
-        // tasks racing to send would scramble it.
-        let pending = self
-            .dispatcher
-            .assign_and_send(&batch_id, groups, |sub_batch| {
-                Self::begin_send(&self.transport, &batch_id, sub_batch, false)
-            });
-        // Assignment serializes on the consumer loop (it no longer overlaps
-        // batch collection) — watch this stays a small fraction of the batch
-        // collection interval.
-        histogram!("ingestion_consumer_assign_duration_seconds")
-            .record(assign_start.elapsed().as_secs_f64());
+        emit_poll_stats(
+            &stats,
+            &partitions,
+            message_count,
+            &self.group_id,
+            self.batch_size,
+            self.batch_size_bytes,
+        );
 
-        let task_batch_id = batch_id.clone();
-        let dispatcher = Arc::clone(&self.dispatcher);
-        let group_id = self.group_id.clone();
-        let max_batch_size = self.batch_size;
-        let max_batch_bytes = self.batch_size_bytes;
-
-        let handle = tokio::spawn(async move {
-            Self::process_collected_batch(
-                collected,
-                pending,
-                batch_size,
-                task_batch_id,
-                dispatcher,
-                group_id,
-                max_batch_size,
-                max_batch_bytes,
-            )
-            .await
-        });
+        let assignment_epoch = self.batcher.submit(accumulator);
 
         info!(
-            batch_id = %batch_id,
-            messages = batch_size,
+            batch_id = %poll_id,
+            messages = message_count,
             "Kafka batch dispatched"
         );
 
-        InFlightBatch { batch_id, handle }
+        InFlightPoll {
+            poll_id,
+            assignment_epoch,
+            partitions,
+            message_count: message_count as u32,
+            covered: 0,
+            accepted: 0,
+            dispatched_at: Instant::now(),
+        }
     }
 
-    async fn complete_oldest_batch(
+    /// Wait for completions to cover the oldest in-flight poll, then commit
+    /// it. Commits only the oldest poll: later completed polls stay
+    /// uncommitted behind any earlier one, preserving at-least-once delivery
+    /// across worker or pipeline failures. Completions for newer polls are
+    /// still credited while waiting.
+    async fn complete_oldest_poll(
         &self,
-        in_flight_batches: &mut VecDeque<InFlightBatch>,
+        in_flight_polls: &mut VecDeque<InFlightPoll>,
+        completions: &mut mpsc::UnboundedReceiver<GroupCompletion>,
+        errors: &mut mpsc::UnboundedReceiver<String>,
     ) -> anyhow::Result<()> {
-        let Some(batch) = in_flight_batches.pop_front() else {
+        if in_flight_polls.front().is_none() {
             return Ok(());
-        };
-
-        let batch_id = batch.batch_id.clone();
-        let mut processed = self.await_processed_batch(batch).await?;
-
-        // Flush this batch's deferred groups (keys whose worker was draining/dead)
-        // in order, re-routing them to healthy workers. Doing it here — serialized,
-        // oldest batch first — preserves per-key order across batches. The
-        // batch isn't committable until all its messages are accepted.
-        self.flush_deferred(&batch_id, &mut processed).await?;
-
-        if processed.total_accepted < processed.batch_size {
-            anyhow::bail!(
-                "accepted {}/{} messages — not committing offsets",
-                processed.total_accepted,
-                processed.batch_size
-            );
         }
 
-        // Commit only the oldest completed batch. Later successful batches stay
-        // uncommitted behind any earlier failed batch, preserving at-least-once
-        // delivery across worker or pipeline failures.
-        self.commit_offsets(&processed.partitions)?;
-        self.dispatcher.release_batch(&batch_id);
-        emit_latest_processed_timestamp_metrics(&processed.partitions, &self.group_id);
-        record_if(&self.debug_recorder, || DebugEventKind::BatchCommitted {
-            batch_id: batch_id.clone(),
-            accepted: processed.total_accepted,
-            duration_ms: processed.elapsed.as_millis() as u64,
-            partitions: debug_partition_offsets(&processed.partitions),
-        });
-
-        histogram!("ingestion_consumer_batch_processing_duration_seconds")
-            .record(processed.elapsed.as_secs_f64());
-        counter!("ingestion_consumer_messages_processed_total")
-            .increment(processed.total_accepted as u64);
-        counter!("ingestion_consumer_batches_processed_total").increment(1);
-        self.handle.report_healthy();
-
-        Ok(())
-    }
-
-    async fn await_processed_batch(&self, batch: InFlightBatch) -> anyhow::Result<ProcessedBatch> {
-        let batch_id = batch.batch_id;
-        let processed = self.heartbeat_while(batch.handle).await??;
-        info!(batch_id = %batch_id, "Kafka batch processing completed");
-        Ok(processed)
-    }
-
-    async fn heartbeat_while<F: Future>(&self, fut: F) -> F::Output {
-        tokio::pin!(fut);
         let mut heartbeat = tokio::time::interval(Duration::from_secs(1));
-
-        loop {
+        while !in_flight_polls
+            .front()
+            .expect("front is present")
+            .is_complete()
+        {
             tokio::select! {
-                output = &mut fut => return output,
+                completion = completions.recv() => match completion {
+                    Some(completion) => apply_completion(in_flight_polls, completion),
+                    None => anyhow::bail!("batcher completion channel closed"),
+                },
+                failure = errors.recv() => match failure {
+                    Some(message) => anyhow::bail!(message),
+                    None => anyhow::bail!("batcher error channel closed"),
+                },
                 _ = heartbeat.tick() => self.handle.report_healthy(),
             }
         }
-    }
 
-    /// Flush a completed batch's deferred groups (keys whose worker was
-    /// draining/dead), re-routing them to healthy workers and accumulating the
-    /// accepted count. Retries with backoff while a flush can't route (no healthy
-    /// worker yet). Called serialized, oldest-first, so a key's deferred
-    /// messages flush in Kafka order.
-    ///
-    /// `deferred_flush_timeout` bounds **stalls, not total time**: the deadline
-    /// resets whenever any of the batch's messages are accepted, so a large
-    /// backlog draining slowly under saturation keeps
-    /// going, and the batch only fails — exiting the process and replaying —
-    /// when flushing is truly wedged: nothing landed for a full timeout
-    /// (nothing routable, or a flapping worker re-deferring every send).
-    /// Failing the whole process for a mere slow drain amplified today's
-    /// saturation: each restart replayed all its partitions into an already
-    /// overloaded pool.
-    async fn flush_deferred(
-        &self,
-        batch_id: &str,
-        processed: &mut ProcessedBatch,
-    ) -> anyhow::Result<()> {
-        if self.dispatcher.has_unfinished_flush(batch_id) {
-            let mut stall_deadline = Instant::now() + self.deferred_flush_timeout;
-            while self.dispatcher.has_unfinished_flush(batch_id) {
-                if Instant::now() >= stall_deadline {
-                    anyhow::bail!("deferred messages made no progress within the flush timeout");
-                }
-                let mut accepted_this_round = 0u32;
-                // Serialized on the consumer loop, oldest batch first, so
-                // begin_send order preserves the flush's key order.
-                let pending = self
-                    .dispatcher
-                    .flush_deferred_and_send(batch_id, |sub_batch| {
-                        Self::begin_send(&self.transport, batch_id, sub_batch, true)
-                    });
-                if pending.is_empty() {
-                    // Nothing is routable right now (no healthy worker), so wait.
-                    tokio::select! {
-                        _ = self.handle.shutdown_recv() => {
-                            anyhow::bail!("shutdown while flushing deferred messages");
-                        }
-                        _ = tokio::time::sleep(Duration::from_millis(200)) => {
-                            self.handle.report_healthy();
-                        }
-                    }
-                } else {
-                    accepted_this_round += self
-                        .heartbeat_while(Self::scatter(&self.dispatcher, batch_id, pending, true))
-                        .await?;
-                }
-                processed.total_accepted += accepted_this_round;
-                if accepted_this_round > 0 {
-                    stall_deadline = Instant::now() + self.deferred_flush_timeout;
-                }
-            }
+        let poll = in_flight_polls.pop_front().expect("front is present");
+        if poll.accepted < poll.message_count {
+            anyhow::bail!(
+                "accepted {}/{} messages — not committing offsets",
+                poll.accepted,
+                poll.message_count
+            );
         }
+
+        self.commit_offsets(&poll.partitions)?;
+        emit_latest_processed_timestamp_metrics(&poll.partitions, &self.group_id);
+        record_if(&self.debug_recorder, || DebugEventKind::BatchCommitted {
+            batch_id: poll.poll_id.clone(),
+            accepted: poll.accepted,
+            duration_ms: poll.dispatched_at.elapsed().as_millis() as u64,
+            partitions: debug_partition_offsets(&poll.partitions),
+        });
+
+        counter!("ingestion_consumer_messages_processed_total").increment(poll.accepted as u64);
+        counter!("ingestion_consumer_batches_processed_total").increment(1);
+        self.handle.report_healthy();
+
         Ok(())
     }
 
@@ -579,200 +544,6 @@ impl IngestionConsumer {
         });
         self.handle
             .signal_failure(format!("Batch processing failed: {err:#}"));
-    }
-
-    /// Establish a sub-batch's send order. Synchronous and non-blocking on
-    /// purpose: called under the dispatcher's lock on the consumer loop, where
-    /// send order is decided, so a key's sub-batches enter its worker's stream
-    /// in exactly that order.
-    fn begin_send(
-        transport: &GrpcTransport,
-        batch_id: &str,
-        sub_batch: SubBatch,
-        replay: bool,
-    ) -> PendingSubBatch {
-        let SubBatch {
-            worker,
-            messages,
-            routing_keys,
-            key_offsets,
-        } = sub_batch;
-        let message_count = messages.len();
-        let pending = transport.begin_send(&worker, batch_id, messages, replay);
-        PendingSubBatch {
-            worker,
-            routing_keys,
-            key_offsets,
-            message_count,
-            pending,
-        }
-    }
-
-    /// Await a batch's pre-ordered sub-batch sends, gather results, and feed
-    /// passive health signals. Assignment and send ordering already happened
-    /// on the consumer loop (see `spawn_batch_processing`); offset commits
-    /// happen later, in Kafka batch order, in `complete_oldest_batch`.
-    #[allow(clippy::too_many_arguments)]
-    async fn process_collected_batch(
-        collected: CollectedBatch,
-        pending: Vec<PendingSubBatch>,
-        batch_size: usize,
-        batch_id: String,
-        dispatcher: Arc<Dispatcher>,
-        group_id: String,
-        max_batch_size: usize,
-        max_batch_bytes: usize,
-    ) -> anyhow::Result<ProcessedBatch> {
-        let start = Instant::now();
-
-        counter!("ingestion_consumer_messages_received_total").increment(batch_size as u64);
-        gauge!("ingestion_consumer_batch_size").set(batch_size as f64);
-
-        // Batch fill ratio (batch size / configured max) — matches Node.js
-        // `consumer_batch_utilization`. A useful scaling signal: sustained high
-        // utilization means batches are saturating and the consumer is demand-bound.
-        if max_batch_size > 0 {
-            gauge!("consumer_batch_utilization", "groupId" => group_id.clone())
-                .set(batch_size as f64 / max_batch_size as f64);
-        }
-
-        // The same ratio against the byte bound. Reported separately because the
-        // two disagree on lanes whose events are large: a count utilization can
-        // sit far below 1.0 while batches are in fact full, simply because the
-        // byte bound (or the prefetch queue behind it) ends collection first.
-        // Reading only the count ratio there invites raising a cap that cannot
-        // be reached. Absent when the byte bound is disabled.
-        if max_batch_bytes > 0 {
-            gauge!("consumer_batch_utilization_bytes", "groupId" => group_id.clone())
-                .set(collected.stats.total_bytes as f64 / max_batch_bytes as f64);
-        }
-
-        // Batch size distribution — matches Node.js `consumer_batch_size` histogram.
-        histogram!("consumer_batch_size").record(batch_size as f64);
-        histogram!("consumer_batch_size_kb").record(collected.stats.total_bytes as f64 / 1024.0);
-
-        // Per-partition ingestion lag gauge — matches Node.js `ingestion_lag_ms`.
-        for (topic_partition, partition) in &collected.partitions {
-            let Some(max_lag) = partition.max_lag_ms else {
-                continue;
-            };
-            gauge!(
-                "ingestion_lag_ms",
-                "topic" => topic_partition.topic.clone(),
-                "partition" => topic_partition.partition.to_string(),
-                "groupId" => group_id.clone()
-            )
-            .set(max_lag as f64);
-        }
-
-        // Per-message lag histogram — matches Node.js `ingestion_lag_ms_histogram`.
-        for (partition, lag_ms) in &collected.stats.message_lags_ms {
-            histogram!(
-                "ingestion_lag_ms_histogram",
-                "groupId" => group_id.clone(),
-                "partition" => partition.to_string()
-            )
-            .record(*lag_ms as f64);
-        }
-
-        // Nothing to send and no deferred groups means no usable workers.
-        if pending.is_empty() && !dispatcher.batch_has_flush_activity(&batch_id) {
-            counter!("ingestion_consumer_no_healthy_workers_total").increment(1);
-            anyhow::bail!("No healthy workers available to route batch");
-        }
-
-        let total_accepted = Self::scatter(&dispatcher, &batch_id, pending, false).await?;
-
-        Ok(ProcessedBatch {
-            partitions: collected.partitions,
-            total_accepted,
-            batch_size: batch_size as u32,
-            elapsed: start.elapsed(),
-        })
-    }
-
-    /// Await sub-batch sends in parallel and resolve each in the dispatcher.
-    /// On a send failure (the worker died mid-send, or its worker stream was fenced),
-    /// the failed messages are deferred — before the resolve, so the pin
-    /// isn't evicted — to be replayed in order. Returns the number of
-    /// messages accepted.
-    ///
-    /// `from_flush` is true when awaiting sub-batches produced by `flush_deferred`:
-    /// the resolve then clears one deferral per key, so a key stays deferring from
-    /// when it was first held until its flushed messages actually land (preventing
-    /// a newer batch from racing them).
-    async fn scatter(
-        dispatcher: &Arc<Dispatcher>,
-        batch_id: &str,
-        pending: Vec<PendingSubBatch>,
-        from_flush: bool,
-    ) -> anyhow::Result<u32> {
-        let mut handles = Vec::with_capacity(pending.len());
-        for sub_batch in pending {
-            let dispatcher = Arc::clone(dispatcher);
-            let PendingSubBatch {
-                worker,
-                routing_keys,
-                key_offsets,
-                message_count,
-                pending,
-            } = sub_batch;
-            let bid = batch_id.to_string();
-
-            handles.push(tokio::spawn(async move {
-                match pending.wait().await {
-                    Ok(accepted) => {
-                        // Advance ACK high-water marks before the resolve, which
-                        // may evict the keys' sentinel state.
-                        dispatcher.on_sub_batch_acked(&key_offsets);
-                        dispatcher.on_sub_batch_resolved(
-                            &worker,
-                            message_count,
-                            &routing_keys,
-                            from_flush,
-                            false,
-                        );
-                        dispatcher.record_send_outcome(&worker, false);
-                        accepted
-                    }
-                    Err(send_err) => {
-                        // Re-defer the failed messages first, so the ref-count drop
-                        // in `on_sub_batch_resolved` doesn't evict the pin while the
-                        // key still has work to replay. On the flush path this pairs
-                        // with the `clears_deferral` decrement in the resolve, so the
-                        // outstanding count nets to unchanged (never dipping to zero)
-                        // and the key keeps deferring across the retry.
-                        // Backpressure (a busy worker) is transient, not a fault:
-                        // re-route the work but do not count it against the
-                        // worker's health, so passive health tracks real faults.
-                        let SendError {
-                            error,
-                            messages,
-                            fence_guard,
-                        } = send_err;
-                        let is_fault = !error.is_backpressure();
-                        dispatcher.defer_failed(&bid, messages);
-                        // Stashed: let the worker stream stop fencing new arrivals.
-                        drop(fence_guard);
-                        dispatcher.on_sub_batch_resolved(
-                            &worker,
-                            message_count,
-                            &routing_keys,
-                            from_flush,
-                            true,
-                        );
-                        dispatcher.record_send_outcome(&worker, is_fault);
-                        0
-                    }
-                }
-            }));
-        }
-
-        let mut accepted = 0u32;
-        for handle in handles {
-            accepted += handle.await?;
-        }
-        Ok(accepted)
     }
 
     /// Collect messages from Kafka until the first of `batch_size` messages,
@@ -914,7 +685,7 @@ impl IngestionConsumer {
         }
 
         Ok(CollectedBatch {
-            groups: accumulator.into_groups(),
+            accumulator,
             partitions,
             stats,
         })
@@ -963,6 +734,68 @@ impl IngestionConsumer {
         counter!("ingestion_consumer_offset_commits_total").increment(1);
 
         Ok(())
+    }
+}
+
+/// Emit the per-poll parity metrics (received counts, batch sizes,
+/// utilization, and lag) right after collection, before the poll is
+/// submitted.
+fn emit_poll_stats(
+    stats: &BatchStats,
+    partitions: &HashMap<TopicPartition, PartitionDeliveries>,
+    batch_size: usize,
+    group_id: &str,
+    max_batch_size: usize,
+    max_batch_bytes: usize,
+) {
+    counter!("ingestion_consumer_messages_received_total").increment(batch_size as u64);
+    gauge!("ingestion_consumer_batch_size").set(batch_size as f64);
+
+    // Batch fill ratio (batch size / configured max) — matches Node.js
+    // `consumer_batch_utilization`. A useful scaling signal: sustained high
+    // utilization means batches are saturating and the consumer is demand-bound.
+    if max_batch_size > 0 {
+        gauge!("consumer_batch_utilization", "groupId" => group_id.to_string())
+            .set(batch_size as f64 / max_batch_size as f64);
+    }
+
+    // The same ratio against the byte bound. Reported separately because the
+    // two disagree on lanes whose events are large: a count utilization can
+    // sit far below 1.0 while batches are in fact full, simply because the
+    // byte bound (or the prefetch queue behind it) ends collection first.
+    // Reading only the count ratio there invites raising a cap that cannot
+    // be reached. Absent when the byte bound is disabled.
+    if max_batch_bytes > 0 {
+        gauge!("consumer_batch_utilization_bytes", "groupId" => group_id.to_string())
+            .set(stats.total_bytes as f64 / max_batch_bytes as f64);
+    }
+
+    // Batch size distribution — matches Node.js `consumer_batch_size` histogram.
+    histogram!("consumer_batch_size").record(batch_size as f64);
+    histogram!("consumer_batch_size_kb").record(stats.total_bytes as f64 / 1024.0);
+
+    // Per-partition ingestion lag gauge — matches Node.js `ingestion_lag_ms`.
+    for (topic_partition, partition) in partitions {
+        let Some(max_lag) = partition.max_lag_ms else {
+            continue;
+        };
+        gauge!(
+            "ingestion_lag_ms",
+            "topic" => topic_partition.topic.clone(),
+            "partition" => topic_partition.partition.to_string(),
+            "groupId" => group_id.to_string()
+        )
+        .set(max_lag as f64);
+    }
+
+    // Per-message lag histogram — matches Node.js `ingestion_lag_ms_histogram`.
+    for (partition, lag_ms) in &stats.message_lags_ms {
+        histogram!(
+            "ingestion_lag_ms_histogram",
+            "groupId" => group_id.to_string(),
+            "partition" => partition.to_string()
+        )
+        .record(*lag_ms as f64);
     }
 }
 
@@ -1069,15 +902,6 @@ fn message_charge(message: &impl Message) -> Charge {
     }
 }
 
-fn make_batch_id() -> String {
-    let ts = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis();
-    let rand: u32 = rand::random();
-    format!("{ts:x}-{rand:08x}")
-}
-
 fn current_time_ms() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -1113,119 +937,78 @@ fn emit_latest_processed_timestamp_metrics(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rdkafka::message::{Header, OwnedHeaders, OwnedMessage};
-    use rdkafka::Timestamp;
+    use common_kafka_consumer::Offset as MessageOffset;
 
-    fn delivery(offset: i64) -> Delivery {
-        Delivery {
-            offset,
-            charge: Charge {
-                events: 1,
-                bytes: 1,
+    fn poll(epoch: u64, partition: i32, first: i64, last: i64, count: u32) -> InFlightPoll {
+        let mut partitions = HashMap::new();
+        partitions.insert(
+            TopicPartition::new("test", partition),
+            PartitionDeliveries {
+                span: OffsetSpan { first, last },
+                generation: 0,
+                generations_version_seen: 0,
+                charges: Vec::new(),
+                latest_kafka_ts: 0,
+                max_lag_ms: None,
             },
-            kafka_ts: offset,
-            lag_ms: Some(offset),
+        );
+        InFlightPoll {
+            poll_id: format!("poll-{epoch}-{partition}-{first}"),
+            assignment_epoch: epoch,
+            partitions,
+            message_count: count,
+            covered: 0,
+            accepted: 0,
+            dispatched_at: Instant::now(),
         }
     }
 
-    fn charged_offsets(deliveries: &PartitionDeliveries) -> Vec<i64> {
-        deliveries
-            .charges
-            .iter()
-            .map(|(offset, _)| offset.0)
-            .collect()
+    fn completion(epoch: u64, partition: i32, offsets: &[i64], accepted: u32) -> GroupCompletion {
+        GroupCompletion {
+            partition: Partition(partition),
+            assignment_epoch: epoch,
+            offsets: offsets.iter().map(|o| MessageOffset(*o)).collect(),
+            accepted,
+        }
     }
 
     #[test]
-    fn a_mid_batch_regain_restarts_the_ledger_slice_and_keeps_the_span() {
-        let mut deliveries = PartitionDeliveries::new(3, 7, &delivery(10));
-        deliveries.record(
-            7,
-            || unreachable!("unchanged version, no generation read"),
-            &delivery(11),
-        );
+    fn apply_completion_credits_the_poll_holding_the_offsets() {
+        let mut in_flight = VecDeque::from([poll(1, 0, 0, 3, 4), poll(1, 0, 4, 7, 4)]);
 
-        // The partition is revoked and regained: Kafka redelivers from the
-        // committed offset 5 under generation 4.
-        deliveries.record(8, || 4, &delivery(5));
-        deliveries.record(
-            8,
-            || unreachable!("stamped once per version change"),
-            &delivery(6),
-        );
+        apply_completion(&mut in_flight, completion(1, 0, &[4, 6], 2));
 
-        assert_eq!(charged_offsets(&deliveries), vec![5, 6]);
-        assert_eq!(deliveries.generation, 4);
-        assert_eq!(deliveries.span, OffsetSpan { first: 5, last: 11 });
+        assert_eq!(in_flight[0].covered, 0);
+        assert_eq!(in_flight[1].covered, 2);
+        assert_eq!(in_flight[1].accepted, 2);
+        assert!(!in_flight[1].is_complete());
+
+        apply_completion(&mut in_flight, completion(1, 0, &[5, 7], 2));
+        assert!(in_flight[1].is_complete());
     }
 
     #[test]
-    fn another_partitions_generation_change_keeps_the_slice() {
-        let mut deliveries = PartitionDeliveries::new(3, 7, &delivery(10));
-        deliveries.record(8, || 3, &delivery(11));
+    fn apply_completion_requires_a_matching_epoch() {
+        // The same offsets exist in two polls when a partition was revoked,
+        // reassigned, and replayed. The epoch keeps each incarnation's
+        // completions in its own poll.
+        let mut in_flight = VecDeque::from([poll(1, 0, 0, 3, 4), poll(2, 0, 0, 3, 4)]);
 
-        assert_eq!(charged_offsets(&deliveries), vec![10, 11]);
-        assert_eq!(deliveries.generation, 3);
+        apply_completion(&mut in_flight, completion(2, 0, &[0, 1, 2, 3], 4));
+
+        assert_eq!(in_flight[0].covered, 0);
+        assert_eq!(in_flight[1].covered, 4);
     }
 
     #[test]
-    fn a_partition_keeps_its_max_timestamp_and_lag() {
-        let mut deliveries = PartitionDeliveries::new(0, 0, &delivery(10));
-        deliveries.record(
-            0,
-            || 0,
-            &Delivery {
-                offset: 11,
-                charge: Charge::ZERO,
-                kafka_ts: 5,
-                lag_ms: None,
-            },
-        );
+    fn apply_completion_discards_a_completion_matching_no_poll() {
+        let mut in_flight = VecDeque::from([poll(1, 0, 0, 3, 4)]);
 
-        assert_eq!(deliveries.latest_kafka_ts, 10);
-        assert_eq!(deliveries.max_lag_ms, Some(10));
-    }
+        // Wrong partition, then wrong epoch: neither may be credited.
+        apply_completion(&mut in_flight, completion(1, 2, &[1], 1));
+        apply_completion(&mut in_flight, completion(9, 0, &[1], 1));
 
-    #[test]
-    fn message_charge_counts_payload_key_and_headers() {
-        let headers = OwnedHeaders::new()
-            .insert(Header {
-                key: "ab",
-                value: Some("xyz".as_bytes()),
-            })
-            .insert(Header {
-                key: "c",
-                value: None::<&[u8]>,
-            });
-        let message = OwnedMessage::new(
-            Some(vec![0; 10]),
-            Some(vec![0; 3]),
-            "events".to_string(),
-            Timestamp::NotAvailable,
-            0,
-            0,
-            Some(headers),
-        );
-
-        let charge = message_charge(&message);
-        assert_eq!(charge.events, 1);
-        assert_eq!(charge.bytes, 10 + 3 + (2 + 3) + 1);
-    }
-
-    #[test]
-    fn message_charge_of_an_empty_message_is_one_event() {
-        let message = OwnedMessage::new(
-            None,
-            None,
-            "events".to_string(),
-            Timestamp::NotAvailable,
-            0,
-            0,
-            None,
-        );
-
-        let charge = message_charge(&message);
-        assert_eq!(charge.events, 1);
-        assert_eq!(charge.bytes, 0);
+        assert_eq!(in_flight[0].covered, 0);
+        assert_eq!(in_flight[0].accepted, 0);
     }
 }
