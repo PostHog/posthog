@@ -731,6 +731,31 @@ class SurveyEventsConditionSchemaSerializer(serializers.Serializer):
     )
 
 
+class SurveyCancelEventsConditionSchemaSerializer(serializers.Serializer):
+    values = SurveyConditionEventValueSchemaSerializer(
+        many=True,
+        required=False,
+        help_text="Events that cancel a survey that waits to show, each with optional filters on the event properties.",
+    )
+
+
+class SurveyConditionActionValueSchemaSerializer(serializers.Serializer):
+    id = serializers.IntegerField(help_text="ID of an action that triggers the survey.")
+    name = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Name of the action. The survey stores the action by ID, so this value is ignored on write.",
+    )
+
+
+class SurveyActionsConditionSchemaSerializer(serializers.Serializer):
+    values = SurveyConditionActionValueSchemaSerializer(
+        many=True,
+        required=False,
+        help_text="Actions that trigger the survey.",
+    )
+
+
 class SurveyConditionsSchemaSerializer(serializers.Serializer):
     url = serializers.CharField(required=False, allow_blank=True)
     selector = serializers.CharField(required=False, allow_blank=True)
@@ -745,6 +770,18 @@ class SurveyConditionsSchemaSerializer(serializers.Serializer):
         help_text=SURVEY_MATCH_TYPE_HELP_TEXT,
     )
     events = SurveyEventsConditionSchemaSerializer(required=False)
+    cancelEvents = SurveyCancelEventsConditionSchemaSerializer(
+        required=False,
+        help_text="Events that cancel a survey that waits to show.",
+    )
+    actions = SurveyActionsConditionSchemaSerializer(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Actions that trigger the survey. A write replaces the whole set, so send back every action "
+            "the survey should keep."
+        ),
+    )
     deviceTypes = serializers.ListField(
         required=False,
         child=serializers.ChoiceField(choices=SURVEY_DEVICE_TYPE_CHOICES),

@@ -749,6 +749,79 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                             ),
                     })
                     .optional(),
+                cancelEvents: zod
+                    .object({
+                        values: zod
+                            .array(
+                                zod.object({
+                                    name: zod.string().describe('Event name that triggers the survey.'),
+                                    propertyFilters: zod
+                                        .record(
+                                            zod.string(),
+                                            zod.object({
+                                                values: zod
+                                                    .array(zod.string())
+                                                    .describe(
+                                                        "Values to compare the event property against. Positive operators like 'exact' match when the property matches one of these values. Negative operators like 'is_not' match only when the property matches none of them."
+                                                    ),
+                                                operator: zod
+                                                    .enum([
+                                                        'exact',
+                                                        'is_not',
+                                                        'icontains',
+                                                        'not_icontains',
+                                                        'regex',
+                                                        'not_regex',
+                                                        'gt',
+                                                        'gte',
+                                                        'lt',
+                                                        'lte',
+                                                    ])
+                                                    .describe(
+                                                        '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
+                                                    )
+                                                    .describe(
+                                                        'How to compare the event property against the values.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
+                                                    ),
+                                            })
+                                        )
+                                        .optional()
+                                        .describe(
+                                            'Filters on the properties of the triggering event, keyed by property name. The survey only shows if the event matches every filter. Leave this out to trigger on the event name alone.'
+                                        ),
+                                })
+                            )
+                            .optional()
+                            .describe(
+                                'Events that cancel a survey that waits to show, each with optional filters on the event properties.'
+                            ),
+                    })
+                    .optional()
+                    .describe('Events that cancel a survey that waits to show.'),
+                actions: zod
+                    .union([
+                        zod.object({
+                            values: zod
+                                .array(
+                                    zod.object({
+                                        id: zod.number().describe('ID of an action that triggers the survey.'),
+                                        name: zod
+                                            .string()
+                                            .nullish()
+                                            .describe(
+                                                'Name of the action. The survey stores the action by ID, so this value is ignored on write.'
+                                            ),
+                                    })
+                                )
+                                .optional()
+                                .describe('Actions that trigger the survey.'),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe(
+                        'Actions that trigger the survey. A write replaces the whole set, so send back every action the survey should keep.'
+                    ),
                 deviceTypes: zod
                     .array(
                         zod
@@ -1644,6 +1717,79 @@ export const SurveysUpdateBody = /* @__PURE__ */ zod.object({
                             ),
                     })
                     .optional(),
+                cancelEvents: zod
+                    .object({
+                        values: zod
+                            .array(
+                                zod.object({
+                                    name: zod.string().describe('Event name that triggers the survey.'),
+                                    propertyFilters: zod
+                                        .record(
+                                            zod.string(),
+                                            zod.object({
+                                                values: zod
+                                                    .array(zod.string())
+                                                    .describe(
+                                                        "Values to compare the event property against. Positive operators like 'exact' match when the property matches one of these values. Negative operators like 'is_not' match only when the property matches none of them."
+                                                    ),
+                                                operator: zod
+                                                    .enum([
+                                                        'exact',
+                                                        'is_not',
+                                                        'icontains',
+                                                        'not_icontains',
+                                                        'regex',
+                                                        'not_regex',
+                                                        'gt',
+                                                        'gte',
+                                                        'lt',
+                                                        'lte',
+                                                    ])
+                                                    .describe(
+                                                        '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
+                                                    )
+                                                    .describe(
+                                                        'How to compare the event property against the values.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
+                                                    ),
+                                            })
+                                        )
+                                        .optional()
+                                        .describe(
+                                            'Filters on the properties of the triggering event, keyed by property name. The survey only shows if the event matches every filter. Leave this out to trigger on the event name alone.'
+                                        ),
+                                })
+                            )
+                            .optional()
+                            .describe(
+                                'Events that cancel a survey that waits to show, each with optional filters on the event properties.'
+                            ),
+                    })
+                    .optional()
+                    .describe('Events that cancel a survey that waits to show.'),
+                actions: zod
+                    .union([
+                        zod.object({
+                            values: zod
+                                .array(
+                                    zod.object({
+                                        id: zod.number().describe('ID of an action that triggers the survey.'),
+                                        name: zod
+                                            .string()
+                                            .nullish()
+                                            .describe(
+                                                'Name of the action. The survey stores the action by ID, so this value is ignored on write.'
+                                            ),
+                                    })
+                                )
+                                .optional()
+                                .describe('Actions that trigger the survey.'),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe(
+                        'Actions that trigger the survey. A write replaces the whole set, so send back every action the survey should keep.'
+                    ),
                 deviceTypes: zod
                     .array(
                         zod
@@ -2541,6 +2687,79 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                             ),
                     })
                     .optional(),
+                cancelEvents: zod
+                    .object({
+                        values: zod
+                            .array(
+                                zod.object({
+                                    name: zod.string().describe('Event name that triggers the survey.'),
+                                    propertyFilters: zod
+                                        .record(
+                                            zod.string(),
+                                            zod.object({
+                                                values: zod
+                                                    .array(zod.string())
+                                                    .describe(
+                                                        "Values to compare the event property against. Positive operators like 'exact' match when the property matches one of these values. Negative operators like 'is_not' match only when the property matches none of them."
+                                                    ),
+                                                operator: zod
+                                                    .enum([
+                                                        'exact',
+                                                        'is_not',
+                                                        'icontains',
+                                                        'not_icontains',
+                                                        'regex',
+                                                        'not_regex',
+                                                        'gt',
+                                                        'gte',
+                                                        'lt',
+                                                        'lte',
+                                                    ])
+                                                    .describe(
+                                                        '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
+                                                    )
+                                                    .describe(
+                                                        'How to compare the event property against the values.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
+                                                    ),
+                                            })
+                                        )
+                                        .optional()
+                                        .describe(
+                                            'Filters on the properties of the triggering event, keyed by property name. The survey only shows if the event matches every filter. Leave this out to trigger on the event name alone.'
+                                        ),
+                                })
+                            )
+                            .optional()
+                            .describe(
+                                'Events that cancel a survey that waits to show, each with optional filters on the event properties.'
+                            ),
+                    })
+                    .optional()
+                    .describe('Events that cancel a survey that waits to show.'),
+                actions: zod
+                    .union([
+                        zod.object({
+                            values: zod
+                                .array(
+                                    zod.object({
+                                        id: zod.number().describe('ID of an action that triggers the survey.'),
+                                        name: zod
+                                            .string()
+                                            .nullish()
+                                            .describe(
+                                                'Name of the action. The survey stores the action by ID, so this value is ignored on write.'
+                                            ),
+                                    })
+                                )
+                                .optional()
+                                .describe('Actions that trigger the survey.'),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe(
+                        'Actions that trigger the survey. A write replaces the whole set, so send back every action the survey should keep.'
+                    ),
                 deviceTypes: zod
                     .array(
                         zod

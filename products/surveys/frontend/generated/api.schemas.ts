@@ -1206,6 +1206,26 @@ export interface SurveyEventsConditionSchemaApi {
     values?: SurveyConditionEventValueSchemaApi[]
 }
 
+export interface SurveyCancelEventsConditionSchemaApi {
+    /** Events that cancel a survey that waits to show, each with optional filters on the event properties. */
+    values?: SurveyConditionEventValueSchemaApi[]
+}
+
+export interface SurveyConditionActionValueSchemaApi {
+    /** ID of an action that triggers the survey. */
+    id: number
+    /**
+     * Name of the action. The survey stores the action by ID, so this value is ignored on write.
+     * @nullable
+     */
+    name?: string | null
+}
+
+export interface SurveyActionsConditionSchemaApi {
+    /** Actions that trigger the survey. */
+    values?: SurveyConditionActionValueSchemaApi[]
+}
+
 /**
  * * `Desktop` - Desktop
  * * `Mobile` - Mobile
@@ -1237,6 +1257,10 @@ export interface SurveyConditionsSchemaApi {
      * * `not_icontains` - not_icontains */
     urlMatchType?: SurveyMatchTypeEnumApi
     events?: SurveyEventsConditionSchemaApi
+    /** Events that cancel a survey that waits to show. */
+    cancelEvents?: SurveyCancelEventsConditionSchemaApi
+    /** Actions that trigger the survey. A write replaces the whole set, so send back every action the survey should keep. */
+    actions?: SurveyActionsConditionSchemaApi | null
     /** Device types that should match for this survey to be shown. */
     deviceTypes?: DeviceTypesEnumApi[]
     /** URL/device matching types: 'regex' (matches regex pattern), 'not_regex' (does not match regex pattern), 'exact' (exact string match), 'is_not' (not exact match), 'icontains' (case-insensitive contains), 'not_icontains' (case-insensitive does not contain).

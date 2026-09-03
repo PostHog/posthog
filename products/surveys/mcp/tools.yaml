@@ -239,8 +239,8 @@ tools:
                 description: >
                     Complete replacement display conditions object. Do not provide this field unless changing display
                     targeting. Use targeting_flag_filters for person, group, or cohort property targeting. Preserve
-                    existing URL, selector, event, device, wait-period, and linked flag variant conditions unless
-                    explicitly changing them.
+                    existing URL, selector, event, cancel event, action, device, wait-period, and linked flag
+                    variant conditions unless explicitly changing them.
             targeting_flag_filters:
                 description: >
                     Update an in-app survey's person, group, or cohort property targeting. Pass rules in
