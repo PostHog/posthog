@@ -750,6 +750,7 @@ describe("schedule modes", () => {
     ["0 9 31 2,3 MON"],
     ["0 9 * * 5#2"],
     ["0 0 L * *"],
+    ["10,50 0,23 * * 1"],
   ])("accepts %s", (expression) => {
     expect(scoutCronScheduleError(expression)).toBeNull();
   });
@@ -766,6 +767,7 @@ describe("schedule modes", () => {
       "This schedule never matches a real date. Check the day and month.",
     ],
     ["*/20 * * * *", "Runs must be at least 30 minutes apart."],
+    ["10,50 0,23 * * *", "Runs must be at least 30 minutes apart."],
   ])("refuses %s", (expression, expected) => {
     expect(scoutCronScheduleError(expression)).toBe(expected);
   });
