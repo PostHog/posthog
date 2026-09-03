@@ -470,6 +470,28 @@ describe('metricsViewerLogic', () => {
         push.mockRestore()
     })
 
+    // The armed createAlert flag must clear after routing: if it stayed set, a later plain
+    // "Save as insight" would be mis-routed to the alerts page (and its toast suppressed).
+    it('a plain save after a create-alert save does not route to the alerts page', async () => {
+        const push = jest.spyOn(router.actions, 'push').mockImplementation(() => {})
+        jest.mocked(insightsApi.create).mockImplementation(
+            async (insight: any) => ({ id: 1, short_id: 'abc123', ...insight }) as any
+        )
+        logic.actions.setMetricName('queue_depth')
+
+        logic.actions.createAlert()
+        await expectLogic(logic).toDispatchActions(['saveAsInsightSuccess'])
+        expect(push).toHaveBeenCalledWith('/insights/abc123/alerts')
+        expect(logic.values.pendingAlert).toBe(false)
+
+        push.mockClear()
+        logic.actions.setAggregation('rate')
+        logic.actions.saveAsInsight()
+        await expectLogic(logic).toDispatchActions(['saveAsInsightSuccess'])
+        expect(push).not.toHaveBeenCalled()
+        push.mockRestore()
+    })
+
     // A failed query (bad regex, 500) used to render the same "No data" empty state as a genuinely
     // empty result. The failure records the message so the viewer can show a real error instead.
     // kea-loaders dispatches `<key>Failure(error.message, error)`, so the reducer reads the message.

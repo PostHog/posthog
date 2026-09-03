@@ -518,6 +518,9 @@ export interface metricsViewerLogicActions {
     removeGoalLine: (index: number) => {
         index: number
     }
+    resetPendingAlert: () => {
+        value: true
+    }
     saveAsInsight: () => any
     saveAsInsightFailure: (
         error: string,
@@ -699,6 +702,11 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         // builds a MetricsAlertConfig on it. Surfaces insight alerts for metrics instead of
         // a parallel metrics-specific alert model.
         createAlert: true,
+        // Clears the armed createAlert flag after the success listener has routed to the alerts
+        // page, so a later plain save isn't mis-routed. Resetting in the reducer on
+        // saveAsInsightSuccess wouldn't work — reducers run before listeners, so the listener
+        // would already read it cleared and never route.
+        resetPendingAlert: true,
         // AbortController plumbing mirrors logsViewerDataLogic: a `cancelInProgress`
         // action aborts the previous controller before storing the new one.
         setQueryAbortController: (controller: AbortController | null) => ({ controller }),
@@ -886,11 +894,14 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
             },
         ],
         // Armed while a createAlert-initiated save is in flight, so the success listener routes to
-        // the alerts page instead of showing the "View insight" toast. Mirrors pendingAddToDashboard.
+        // the alerts page instead of showing the "View insight" toast. Reducers run before listeners,
+        // so this can't reset on saveAsInsightSuccess (the listener needs to read it still armed);
+        // the listener clears it via resetPendingAlert after routing. Cleared on failure.
         pendingAlert: [
             false,
             {
                 createAlert: (state) => (canCreateMetricsInsight() ? true : state),
+                resetPendingAlert: () => false,
                 saveAsInsightFailure: () => false,
             },
         ],
@@ -1035,6 +1046,8 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                 }
                 if (savedInsight && values.pendingAlert) {
                     router.actions.push(urls.insightAlerts(savedInsight.short_id))
+                    // Clear the armed flag so a later plain save isn't mis-routed to the alerts page.
+                    actions.resetPendingAlert()
                 }
             },
             createAlert: () => {
