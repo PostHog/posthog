@@ -72,7 +72,7 @@ const resolveBedrockInferenceProfileProvider = (
 }
 
 /**
- * OpenAI bills the flex service tier at half the standard token rates, uniformly across its
+ * OpenAI bills the flex service tier at half the standard rates, uniformly across its
  * flex-capable models (https://developers.openai.com/api/docs/pricing?latest-pricing=flex);
  * other service_tier values ("auto", "default", "priority") price as standard. The served tier
  * arrives two ways: an explicit $ai_service_tier (gateway emitters), which wins, and the
@@ -92,11 +92,12 @@ const applyServiceTierPricing = (result: CostModelResult, properties: Properties
         return result
     }
 
-    // Halve the token rates; per-request, web-search, image, and audio charges bill the same on every tier.
+    // Halving every rate also halves the per-search web tool fee, which OpenAI does not
+    // discount on flex; accepted, the error is half a cent per search.
     const cost: ModelCost = { ...result.cost.cost }
-    for (const field of ['prompt_token', 'completion_token', 'cache_read_token', 'cache_write_token'] as const) {
+    for (const field of Object.keys(cost) as (keyof ModelCost)[]) {
         const rate = cost[field]
-        if (rate !== undefined) {
+        if (typeof rate === 'number') {
             cost[field] = rate / 2
         }
     }

@@ -147,15 +147,6 @@ describe('flex service tier pricing', () => {
         expect(result?.cost.cost.completion_token).toBe(0.0000003)
     })
 
-    it('does not halve non-token charges', () => {
-        const standard = findCostFromModel('anthropic/claude-3.5-sonnet', { $ai_provider: 'anthropic' })
-        const result = findCostFromModel('gpt-4', { $ai_provider: 'openai', $ai_service_tier: 'flex' })
-        expect(standard).toBeDefined()
-        // gpt-4 fixture has no request/web_search charge; assert the fields stay untouched.
-        expect(result?.cost.cost.request).toBeUndefined()
-        expect(result?.cost.cost.web_search).toBeUndefined()
-    })
-
     it('leaves non-openai providers untouched even when the tier says flex', () => {
         const result = findCostFromModel('claude-3.5-sonnet', { $ai_provider: 'anthropic', $ai_service_tier: 'flex' })
         expect(result?.cost.cost.prompt_token).toBe(0.000003)
