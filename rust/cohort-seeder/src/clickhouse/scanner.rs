@@ -15,22 +15,23 @@ use cohort_core::hogvm::VmErrorClass;
 use common_types::cohort::TeamAllowlist;
 use metrics::{counter, histogram};
 use tokio_util::sync::CancellationToken;
-use tracing::info;
+use tracing::{info, warn};
 
 use super::log_comment::{ScanLogComment, LOG_COMMENT_OPTION};
 use super::row::{row_to_event, EventRow};
 use super::scan_volume::{self, ScanKind};
-use super::sql::{plan_scan, scan_sql, ScanPlan};
+use super::sql::{plan_scan, scan_sql, ScanPlan, ScanSpec};
 use crate::domain::{
-    conditions_active_on, ActiveConditions, AggregateError, BlobSource, CancelCause,
-    ChunkAccumulator, ChunkDomainError, ChunkProjection, ClaimedChunk, ConditionAnalyses, DayIdx,
-    EventNameSet, Halted, PinnedCondition, PinnedRun, RecordOutcome, RecordStats, ScanVolume,
-    ScannedChunk, SeedDomain, SeedTile, UtcMillis,
+    conditions_active_on, diff_tiles, ActiveConditions, AggregateError, BlobSource, CancelCause,
+    ChunkAccumulator, ChunkDomainError, ChunkProjection, ChunkSpec, ClaimedChunk,
+    ConditionAnalyses, DayIdx, EventNameSet, Halted, PinnedCondition, PinnedRun, RecordOutcome,
+    RecordStats, ScanVolume, ScannedChunk, SeedDomain, SeedTile, TileDiff, UtcMillis,
 };
 use crate::observability::metrics::{
     team_label, MetricTimer, AGGREGATE_ENTRIES, CHUNKS_PROJECTED, CHUNKS_VACUOUS,
     CHUNK_SCAN_DURATION_SECONDS, CONDITIONS_EVALUATED, EVENTS_SKIPPED, HOGVM_ERRORS,
-    PROJECTION_KEYS, ROWS_SCANNED,
+    PROJECTION_KEYS, ROWS_SCANNED, SHADOW_COMPARE, SHADOW_COMPARE_DURATION_SECONDS,
+    SHADOW_COMPARE_LEGACY_SKIPPED,
 };
 
 #[derive(Clone)]
@@ -40,11 +41,22 @@ pub struct ChunkScanner {
     /// admission decision from it — discovery already did, and re-deciding here would give one
     /// chunk a second, quieter place to be dropped.
     allowlist: TeamAllowlist,
+    /// `SEEDER_SCAN_SHADOW_COMPARE`: re-scan each chunk wide and diff the tiles. On by default and
+    /// diagnostic only — the projected arm's tiles are what the chunk returns either way.
+    ///
+    /// While it is on, a chunk's projected tiles stay live as the legacy aggregate is built, so
+    /// peak scan memory roughly doubles. A `SEEDER_BANDS_PER_DAY` sized against an observed
+    /// `seeder_aggregate_entries` has about half the headroom it had.
+    shadow_compare: bool,
 }
 
 impl ChunkScanner {
-    pub fn new(client: clickhouse::Client, allowlist: TeamAllowlist) -> Self {
-        Self { client, allowlist }
+    pub fn new(client: clickhouse::Client, allowlist: TeamAllowlist, shadow_compare: bool) -> Self {
+        Self {
+            client,
+            allowlist,
+            shadow_compare,
+        }
     }
 
     /// `analyses` is the run's, not the chunk's: it is a pure function of the pinned bytecode, so
@@ -97,7 +109,7 @@ impl ChunkScanner {
         lease_cancel: &CancellationToken,
         shutdown: &CancellationToken,
     ) -> Result<(Vec<SeedTile>, ScanVolume), ScanHalt> {
-        let _timer = MetricTimer::start(CHUNK_SCAN_DURATION_SECONDS);
+        let timer = MetricTimer::start(CHUNK_SCAN_DURATION_SECONDS);
         let spec = chunk.spec();
         let domain = run.domain_for(&spec).map_err(ScanError::from)?;
         let active = active_conditions_at(spec.day, run.tz, now_ms, &run.conditions);
@@ -121,41 +133,203 @@ impl ChunkScanner {
         let projection = analyses.projection(&active);
         self.record_projection(run.team_id, &projection);
 
-        let mut cursor = self
-            .client
-            .query(&scan_sql(&scan_spec, &projection))
-            .with_option(
-                LOG_COMMENT_OPTION,
+        let (tiles, volume, projected_fold) = self
+            .scan_once(
+                spec,
+                run,
+                &domain,
+                &active,
+                &scan_spec,
+                &projection,
+                ScanKind::Behavioral,
                 ScanLogComment::BehavioralChunk {
                     spec,
                     cohort_id: run.sole_cohort_id(),
-                }
-                .to_string(),
+                },
+                lease_cancel,
+                shutdown,
             )
+            .await?;
+        // Closed before the diagnostic arm, which must not lengthen the chunk's reported scan.
+        drop(timer);
+
+        if self.shadow_compare {
+            match CompareSkip::of(&projection, projected_fold) {
+                Some(skip) => {
+                    let team = team_label(&self.allowlist, run.team_id);
+                    counter!(SHADOW_COMPARE, "result" => skip.as_str(), "team_id" => team)
+                        .increment(1);
+                }
+                None => {
+                    self.compare_scan(
+                        spec,
+                        run,
+                        &domain,
+                        &active,
+                        &scan_spec,
+                        &tiles,
+                        projected_fold,
+                        lease_cancel,
+                        shutdown,
+                    )
+                    .await?;
+                }
+            }
+        }
+        Ok((tiles, volume))
+    }
+
+    /// One rendering of this chunk's scan: build the cursor from [`scan_sql`], fold it through a
+    /// fresh accumulator, meter the moved bytes under `kind`, and return the sorted tiles.
+    ///
+    /// `kind` and `comment` co-vary at the two call sites. The per-row and per-chunk fold metrics
+    /// are emitted for the authoritative [`ScanKind::Behavioral`] arm only, so a diagnostic
+    /// re-scan of the same rows never doubles a throughput series.
+    #[allow(clippy::too_many_arguments)]
+    async fn scan_once(
+        &self,
+        spec: ChunkSpec,
+        run: &PinnedRun,
+        domain: &SeedDomain,
+        active: &ActiveConditions,
+        scan_spec: &ScanSpec,
+        projection: &ChunkProjection,
+        kind: ScanKind,
+        comment: ScanLogComment,
+        lease_cancel: &CancellationToken,
+        shutdown: &CancellationToken,
+    ) -> Result<(Vec<SeedTile>, ScanVolume, FoldSummary), ScanHalt> {
+        let mut cursor = self
+            .client
+            .query(&scan_sql(scan_spec, projection))
+            .with_option(LOG_COMMENT_OPTION, comment.to_string())
             .fetch::<EventRow>()
             .map_err(ScanError::Query)?;
         let mut accumulator =
-            ChunkAccumulator::new(run.team_id, &run.filters, &active).map_err(ScanError::from)?;
+            ChunkAccumulator::new(run.team_id, &run.filters, active).map_err(ScanError::from)?;
 
         // Every way out of the fold funnels back here, so the volume is metered once whether the
         // scan finished, was cancelled, or failed mid-stream.
         let folded = fold_cursor(
             &mut cursor,
             &mut accumulator,
-            &domain,
+            domain,
             run.team_id,
+            kind,
             lease_cancel,
             shutdown,
         )
         .await;
-        let volume = scan_volume::observe(ScanKind::Behavioral, &cursor);
-        if folded? == RowsSeen::None {
-            counter!(CHUNKS_VACUOUS, "reason" => "no_rows").increment(1);
+        let volume = scan_volume::observe(kind, &cursor);
+        let summary = folded?;
+        if kind == ScanKind::Behavioral {
+            if summary.rows == RowsSeen::None {
+                counter!(CHUNKS_VACUOUS, "reason" => "no_rows").increment(1);
+            }
+            histogram!(AGGREGATE_ENTRIES).record(accumulator.entry_count() as f64);
         }
+        Ok((
+            accumulator.into_tiles(domain, run.run_id, spec.lease.epoch()),
+            volume,
+            summary,
+        ))
+    }
 
-        histogram!(AGGREGATE_ENTRIES).record(accumulator.entry_count() as f64);
-        let tiles = accumulator.into_tiles(&domain, run.run_id, spec.lease.epoch());
-        Ok((tiles, volume))
+    /// The diagnostic arm: re-scan the same chunk wide, diff the two tile vectors, meter the
+    /// verdict, and drop the legacy tiles. Called only for a chunk whose authoritative scan
+    /// narrowed, since a wide one would be compared against itself.
+    ///
+    /// A scan *failure* here is metered and swallowed: the diagnostic never fails a chunk. A
+    /// *cancellation* propagates and is then handled exactly as one raised during the projected
+    /// arm — so a lost lease still spends the attempt, and this arm widens the window in which
+    /// that can happen to a fully computed chunk. Swallowing it is worse: another worker reclaims
+    /// a `scanning` chunk once its lease expires (`store/chunks.rs`), so pressing on would produce
+    /// tiles for a chunk this worker no longer owns, alongside the worker that now does. A
+    /// shutdown must also stay prompt.
+    #[allow(clippy::too_many_arguments)]
+    async fn compare_scan(
+        &self,
+        spec: ChunkSpec,
+        run: &PinnedRun,
+        domain: &SeedDomain,
+        active: &ActiveConditions,
+        scan_spec: &ScanSpec,
+        projected_tiles: &[SeedTile],
+        projected_fold: FoldSummary,
+        lease_cancel: &CancellationToken,
+        shutdown: &CancellationToken,
+    ) -> Result<(), ScanHalt> {
+        let team = team_label(&self.allowlist, run.team_id);
+        // Spans the re-scan, its fold, and the diff. Records on every exit, so a cancelled or
+        // failed compare still reports the time it held the chunk's slot and lease.
+        let _timer = MetricTimer::start(SHADOW_COMPARE_DURATION_SECONDS);
+        let (legacy_tiles, legacy_fold) = match self
+            .scan_once(
+                spec,
+                run,
+                domain,
+                active,
+                scan_spec,
+                &ChunkProjection::FullColumns,
+                ScanKind::BehavioralCompare,
+                ScanLogComment::BehavioralCompareChunk {
+                    spec,
+                    cohort_id: run.sole_cohort_id(),
+                },
+                lease_cancel,
+                shutdown,
+            )
+            .await
+        {
+            Ok((tiles, _, legacy_fold)) => (tiles, legacy_fold),
+            Err(ScanHalt::Cancelled(cause)) => return Err(ScanHalt::Cancelled(cause)),
+            Err(ScanHalt::Failed(error)) => {
+                counter!(SHADOW_COMPARE, "result" => "error", "team_id" => team.clone())
+                    .increment(1);
+                // Debug, not Display: the variant's message names the stage, and only its source
+                // chain carries what ClickHouse actually said.
+                warn!(
+                    run_id = %run.run_id.0,
+                    team_id = run.team_id.0,
+                    chunk = %spec.lease.chunk_id().0,
+                    day = spec.day,
+                    band = spec.band.band(),
+                    error = ?error,
+                    "shadow compare scan failed; projected tiles emitted unverified"
+                );
+                return Ok(());
+            }
+        };
+        // The difference, not the wide arm's total: a blob kept whole or rebuilt from keys fails
+        // the same parse on both arms and explains no divergence. Recorded whatever the verdict,
+        // and at zero too, because on a blob the projection emptied this is the only count of
+        // malformed rows anything will ever take.
+        let diff = record_compare(
+            team,
+            projected_tiles,
+            &legacy_tiles,
+            projected_fold,
+            legacy_fold,
+        );
+        if diff.is_match() {
+            return Ok(());
+        }
+        warn!(
+            run_id = %run.run_id.0,
+            team_id = run.team_id.0,
+            chunk = %spec.lease.chunk_id().0,
+            day = spec.day,
+            band = spec.band.band(),
+            missing = diff.missing,
+            extra = diff.extra,
+            count_differs = diff.count_differs,
+            legacy_only_globals_parse_errors = legacy_fold.legacy_only_skips(projected_fold),
+            legacy_globals_parse_errors = legacy_fold.globals_parse_errors,
+            projected_globals_parse_errors = projected_fold.globals_parse_errors,
+            exemplars = ?diff.exemplars,
+            "shadow compare diverged between the projected and legacy scans"
+        );
+        Ok(())
     }
 
     /// Publish what this chunk's scan narrowed to, so a team that stops projecting is visible
@@ -191,12 +365,98 @@ fn record_projected_keys(blob: &'static str, source: &BlobSource, team: Arc<str>
     histogram!(PROJECTION_KEYS, "blob" => blob, "team_id" => team).record(keys as f64);
 }
 
+/// Why a chunk's compare is not worth issuing, when it is not. Each case would spend a second
+/// full-width ClickHouse query on a diff that can only agree, and the second query's right side is
+/// an unbounded `person_distinct_id_overrides` aggregate over the whole team.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CompareSkip {
+    /// The authoritative scan read no rows. Both arms build their FROM, JOIN and WHERE from the
+    /// same [`ScanSpec`] and vary only in the SELECT list, so the wide arm has nothing to diff and
+    /// nothing to skip. Only the unfenced overrides join could put rows on one side, which is a
+    /// divergence with no projection defect behind it.
+    NoRows,
+    /// The authoritative scan was already wide, so `scan_sql` renders both arms identically and
+    /// the verdict is `match` by construction.
+    NotProjected,
+}
+
+impl CompareSkip {
+    /// `None` when the compare is worth running.
+    fn of(projection: &ChunkProjection, fold: FoldSummary) -> Option<Self> {
+        match (fold.rows, projection) {
+            (RowsSeen::None, _) => Some(Self::NoRows),
+            (RowsSeen::Some, ChunkProjection::FullColumns) => Some(Self::NotProjected),
+            (RowsSeen::Some, ChunkProjection::Projected(_)) => None,
+        }
+    }
+
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::NoRows => "no_rows",
+            Self::NotProjected => "not_projected",
+        }
+    }
+}
+
+/// Publish a chunk's compare verdict and the skips only its wide arm took, and hand back the diff
+/// the caller logs. Free-standing because [`ChunkScanner::compare_scan`] needs a ClickHouse cursor
+/// and this needs two tile vectors, which is what lets the verdict the backfill gate reads be
+/// tested at all.
+fn record_compare(
+    team: Arc<str>,
+    projected_tiles: &[SeedTile],
+    legacy_tiles: &[SeedTile],
+    projected_fold: FoldSummary,
+    legacy_fold: FoldSummary,
+) -> TileDiff {
+    counter!(SHADOW_COMPARE_LEGACY_SKIPPED, "team_id" => team.clone())
+        .increment(legacy_fold.legacy_only_skips(projected_fold));
+    let diff = diff_tiles(projected_tiles, legacy_tiles);
+    let result = if diff.is_match() { "match" } else { "diff" };
+    counter!(SHADOW_COMPARE, "result" => result, "team_id" => team).increment(1);
+    diff
+}
+
 /// Whether the cursor yielded anything, which is what separates a chunk with no matching history
 /// from one that produced no tiles for another reason.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 enum RowsSeen {
+    #[default]
     None,
     Some,
+}
+
+/// What a fold observed beyond the metrics it emitted.
+///
+/// `globals_parse_errors` is counted on every arm, metered or not. The two arms only treat a row
+/// differently where the projection emptied a blob, so it is the difference between the arms'
+/// counts that explains a divergence, never either count alone.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct FoldSummary {
+    rows: RowsSeen,
+    globals_parse_errors: u64,
+}
+
+impl FoldSummary {
+    /// Count the outcomes the two arms can disagree on, which is the malformed-blob skip alone:
+    /// both read the same rows with the same timestamps, and only the wide arm parses a blob the
+    /// projection replaced with an empty literal.
+    fn observe(&mut self, outcome: ScanEventOutcome) {
+        if outcome == ScanEventOutcome::Skipped(ScanSkipReason::GlobalsParseError) {
+            self.globals_parse_errors += 1;
+        }
+    }
+
+    /// Rows only this wide fold skipped, against the projected fold of the same chunk. A blob the
+    /// projection kept whole or rebuilt from keys fails the same parse on both arms, so the wide
+    /// arm's own total explains nothing; the difference does.
+    ///
+    /// Saturating, because the arms resolve identity independently: an override landing between
+    /// them can move a malformed row out of the scanned band and put the projected count ahead.
+    fn legacy_only_skips(self, projected: Self) -> u64 {
+        self.globals_parse_errors
+            .saturating_sub(projected.globals_parse_errors)
+    }
 }
 
 /// Drive the cursor into the accumulator until it is exhausted, cancelled, or fails. Returns rather
@@ -206,10 +466,12 @@ async fn fold_cursor(
     accumulator: &mut ChunkAccumulator,
     domain: &SeedDomain,
     team_id: TeamId,
+    kind: ScanKind,
     lease_cancel: &CancellationToken,
     shutdown: &CancellationToken,
-) -> Result<RowsSeen, ScanHalt> {
-    let mut rows_seen = RowsSeen::None;
+) -> Result<FoldSummary, ScanHalt> {
+    let metered = kind == ScanKind::Behavioral;
+    let mut summary = FoldSummary::default();
     loop {
         let row = tokio::select! {
             biased;
@@ -218,16 +480,23 @@ async fn fold_cursor(
             row = cursor.next() => row.map_err(ScanError::Cursor)?,
         };
         let Some(row) = row else {
-            return Ok(rows_seen);
+            return Ok(summary);
         };
-        rows_seen = RowsSeen::Some;
-        counter!(ROWS_SCANNED).increment(1);
-        match fold_event(domain, accumulator, row_to_event(team_id, row))
-            .map_err(ScanError::from)?
-        {
-            ScanEventOutcome::Evaluated(stats) => record_evaluation(stats),
-            ScanEventOutcome::Skipped(reason) => {
-                counter!(EVENTS_SKIPPED, "reason" => reason.as_str()).increment(1);
+        summary.rows = RowsSeen::Some;
+        // The per-row series describe the authoritative scan. A diagnostic re-scan walks the same
+        // rows, so counting them again would double every reading a dashboard takes off these.
+        if metered {
+            counter!(ROWS_SCANNED).increment(1);
+        }
+        let outcome =
+            fold_event(domain, accumulator, row_to_event(team_id, row)).map_err(ScanError::from)?;
+        summary.observe(outcome);
+        if metered {
+            match outcome {
+                ScanEventOutcome::Evaluated(stats) => record_evaluation(stats),
+                ScanEventOutcome::Skipped(reason) => {
+                    counter!(EVENTS_SKIPPED, "reason" => reason.as_str()).increment(1);
+                }
             }
         }
     }
@@ -306,15 +575,24 @@ enum ScanEventOutcome {
     Skipped(ScanSkipReason),
 }
 
+/// Why a scanned row produced no evaluation. The closed `reason` vocabulary on
+/// `seeder_events_skipped_total`, which is why [`ScanSkipReason::ALL`] exists: a validation run
+/// gated on `globals_parse_error` staying at zero needs the series present before it reads it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ScanSkipReason {
+pub enum ScanSkipReason {
     TimestampParse,
     DayMismatch,
     GlobalsParseError,
 }
 
 impl ScanSkipReason {
-    const fn as_str(self) -> &'static str {
+    pub const ALL: [Self; 3] = [
+        Self::TimestampParse,
+        Self::DayMismatch,
+        Self::GlobalsParseError,
+    ];
+
+    pub const fn as_str(self) -> &'static str {
         match self {
             Self::TimestampParse => "timestamp_parse",
             Self::DayMismatch => "day_mismatch",
@@ -362,6 +640,7 @@ mod tests {
     use uuid::Uuid;
 
     use std::collections::BTreeSet;
+    use std::num::NonZeroU32;
 
     use super::*;
     use crate::domain::{
@@ -484,6 +763,7 @@ mod tests {
         let scanner = ChunkScanner::new(
             clickhouse::Client::default(),
             TeamAllowlist::Only(std::collections::HashSet::from([2])),
+            false,
         );
         let recorder = metrics_exporter_prometheus::PrometheusBuilder::new().build_recorder();
         let handle = recorder.handle();
@@ -538,6 +818,142 @@ mod tests {
                 "{blob} took a sample from the full-columns chunk:\n{rendered}"
             );
         }
+    }
+
+    /// The one number that separates a projection defect from the malformed-blob over-count
+    /// `sql::render_blob` documents, and the only reading a fully-`Empty` projection can ever
+    /// produce. It has to count the globals skip and nothing else.
+    #[test]
+    fn the_fold_summary_tallies_malformed_blobs_and_no_other_outcome() {
+        let mut summary = FoldSummary::default();
+        for outcome in [
+            ScanEventOutcome::Evaluated(RecordStats::default()),
+            ScanEventOutcome::Skipped(ScanSkipReason::TimestampParse),
+            ScanEventOutcome::Skipped(ScanSkipReason::DayMismatch),
+        ] {
+            summary.observe(outcome);
+        }
+        assert_eq!(summary.globals_parse_errors, 0);
+
+        summary.observe(ScanEventOutcome::Skipped(ScanSkipReason::GlobalsParseError));
+        summary.observe(ScanEventOutcome::Skipped(ScanSkipReason::GlobalsParseError));
+        assert_eq!(summary.globals_parse_errors, 2);
+    }
+
+    /// Publishing the wide arm's own total would attribute every shared parse failure to the
+    /// projection, which is the misreading the counter exists to prevent.
+    #[test]
+    fn only_the_skips_the_projection_caused_reach_the_compare_counter() {
+        let fold = |globals_parse_errors| FoldSummary {
+            rows: RowsSeen::Some,
+            globals_parse_errors,
+        };
+        // A blob kept whole or rebuilt from keys fails on both arms and explains no divergence.
+        assert_eq!(fold(7).legacy_only_skips(fold(7)), 0);
+        assert_eq!(fold(9).legacy_only_skips(fold(4)), 5);
+        // Override drift can put the projected arm ahead; the count floors instead of wrapping.
+        assert_eq!(fold(2).legacy_only_skips(fold(5)), 0);
+    }
+
+    fn tile(person: u128, count: u32) -> SeedTile {
+        SeedTile::new(
+            TeamId(2),
+            Uuid::from_u128(person),
+            ConditionHash::parse(HASH).unwrap(),
+            NonZeroU32::new(count).expect("a tile's count is non-zero by construction"),
+            20_000,
+            SChunkMs(1),
+            RunId(Uuid::nil()),
+            ClaimEpoch(1),
+        )
+    }
+
+    fn fold(rows: RowsSeen, globals_parse_errors: u64) -> FoldSummary {
+        FoldSummary {
+            rows,
+            globals_parse_errors,
+        }
+    }
+
+    /// Each skip removes a full-width ClickHouse query. Issuing one anyway is invisible in the
+    /// output, since both arms agree on exactly these chunks, so nothing but this test says the
+    /// gate still holds.
+    #[test]
+    fn the_compare_is_issued_only_where_the_two_arms_can_disagree() {
+        let projected = ChunkProjection::Projected(ColumnPlan::full());
+        let cases = [
+            (
+                fold(RowsSeen::None, 0),
+                &projected,
+                Some(CompareSkip::NoRows),
+            ),
+            (
+                fold(RowsSeen::None, 0),
+                &ChunkProjection::FullColumns,
+                Some(CompareSkip::NoRows),
+            ),
+            (
+                fold(RowsSeen::Some, 0),
+                &ChunkProjection::FullColumns,
+                Some(CompareSkip::NotProjected),
+            ),
+            (fold(RowsSeen::Some, 0), &projected, None),
+        ];
+        for (summary, projection, expected) in cases {
+            assert_eq!(
+                CompareSkip::of(projection, summary),
+                expected,
+                "{summary:?} on {}",
+                projection.outcome()
+            );
+        }
+    }
+
+    /// The verdict the backfill gate reads. A change that inverts the match/diff choice, or drops
+    /// the skip increment, produces a clean-looking signal from a run that diverged, on a rebuild
+    /// no later run corrects.
+    #[test]
+    fn the_compare_verdict_and_the_skips_only_the_wide_arm_took_reach_prometheus() {
+        let recorder = metrics_exporter_prometheus::PrometheusBuilder::new().build_recorder();
+        let handle = recorder.handle();
+        metrics::with_local_recorder(&recorder, || {
+            let agreed = record_compare(
+                Arc::from("2"),
+                &[tile(1, 3)],
+                &[tile(1, 3)],
+                fold(RowsSeen::Some, 4),
+                fold(RowsSeen::Some, 9),
+            );
+            assert!(agreed.is_match());
+            let diverged = record_compare(
+                Arc::from("3"),
+                &[tile(1, 3)],
+                &[tile(1, 5)],
+                fold(RowsSeen::Some, 0),
+                fold(RowsSeen::Some, 0),
+            );
+            assert_eq!(diverged.count_differs, 1);
+        });
+        let rendered = handle.render();
+
+        // Each verdict is pinned to the team whose arms produced it. One shared label would let a
+        // swapped match/diff choice render the very same two series.
+        for (team, verdict) in [("2", "match"), ("3", "diff")] {
+            assert!(
+                rendered.contains(&format!(
+                    "{SHADOW_COMPARE}{{result=\"{verdict}\",team_id=\"{team}\"}} 1"
+                )),
+                "team {team} did not publish {verdict}:\n{rendered}"
+            );
+        }
+        // 9 wide skips against 4 projected ones: only the 5 the projection caused are published,
+        // and the second call adds nothing, which is the "at zero as well" claim.
+        assert!(
+            rendered.contains(&format!(
+                "{SHADOW_COMPARE_LEGACY_SKIPPED}{{team_id=\"2\"}} 5"
+            )),
+            "the published skip count is not the difference between the arms:\n{rendered}"
+        );
     }
 
     #[test]

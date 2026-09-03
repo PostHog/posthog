@@ -41,6 +41,9 @@ In order: staff suspension or an AWS-paused tenant drops to tier 0; a dirty 7-da
 Rates only count on a meaningful denominator; below the complaint floor, the absolute complaint backstop still applies, including in windows with no sends.
 Pinned teams never move automatically.
 
+While the tier is enforced, the sweep notifies teams it moved: a rate demotion sends an in-app notification plus an email to project admins, and an earned promotion sends an in-app notification only.
+Decay, suspension drops, admin recomputes, and the backfill stay silent.
+
 ## Rollout order
 
 1. Merge and deploy with both modes `off`. The daily sweep starts computing and storing tiers immediately.

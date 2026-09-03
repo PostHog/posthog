@@ -162,6 +162,7 @@ Tracked after sandbox and agent server are provisioned.
 | `agent_session_init_ms`         | `int`  | Agent session initialization time                         |
 | `agent_server_total_ms`         | `int`  | Agent server initialization time                          |
 | `agent_server_http_ready_ms`    | `int`  | Time from agent process start to HTTP listen              |
+| `agent_launcher_to_process_ms`  | `int`  | Time from sandbox launch command to agent process start   |
 | `agent_context_fetch_ms`        | `int`  | Task and run context fetch time inside agent-server       |
 | `agent_acp_initialize_ms`       | `int`  | ACP process handshake time                                |
 | `agent_repository_ready_ms`     | `int`  | Time waiting on the repository-ready barrier              |

@@ -1541,10 +1541,15 @@ def create_run(
     mode: str = "background",
     extra_state: dict | None = None,
     branch: str | None = None,
+    acting_user_id: int | None = None,
 ) -> contracts.TaskRunDTO:
-    """Create a new run for an existing task (e.g. resuming an interactive sandbox session)."""
+    """Create a new run for an existing task (e.g. resuming an interactive sandbox session).
+
+    ``acting_user_id`` attributes the run to the user whose AI run preferences should apply
+    when ``extra_state`` pins no runtime selection; it falls back to the task's creator.
+    """
     task = Task.objects.get(id=task_id)
-    run = task.create_run(mode=mode, extra_state=extra_state, branch=branch)
+    run = task.create_run(mode=mode, extra_state=extra_state, branch=branch, acting_user_id=acting_user_id)
     return _task_run_to_dto(run, task=task)
 
 
@@ -4691,7 +4696,9 @@ def bootstrap_task_run(
         "Creating task run for task %s with mode=%s, branch=%s, environment=%s", task.id, mode, branch, environment
     )
     try:
-        run = task.create_run(environment=environment, mode=mode, branch=branch, extra_state=extra_state)
+        run = task.create_run(
+            environment=environment, mode=mode, branch=branch, extra_state=extra_state, acting_user_id=user_id
+        )
     except InvalidTaskOriginError as error:
         return contracts.TaskRunCreateResult(
             error=contracts.TaskRunValidationError(
@@ -5547,6 +5554,28 @@ def compute_repository_readiness(team_id: int, *, repository: str, window_days: 
     return _compute(team=team, repository=repository, window_days=window_days, refresh=refresh)
 
 
+def _capture_no_repo_selection_override(*, team: Team, report_id: str, resolved_repository: str | None) -> None:
+    """Record a person starting work on a report whose scout chose no repository.
+
+    The count tells the signals team how often the scouts' `NO_REPO` default disagrees with what a
+    person wanted, and `resolved_repository` separates a recovery from a cascade that also found
+    nothing. Keyed on the team, like the other scout events. Best-effort: a capture failure must
+    never fail the task creation."""
+    try:
+        posthoganalytics.capture(
+            distinct_id=str(team.uuid),
+            event="signal_report_no_repo_selection_overridden",
+            properties={
+                "report_id": report_id,
+                "team_id": team.id,
+                "resolved_repository": resolved_repository,
+            },
+            groups=groups(team=team),
+        )
+    except Exception as e:
+        logger.warning("signal_report_no_repo_selection_overridden capture failed for report %s: %s", report_id, e)
+
+
 def create_task(
     team_id: int,
     user_id: int | None,
@@ -5629,6 +5658,16 @@ def create_task(
     # which costs latency but can never hand over a Run booted under another product's budget or
     # PR-authorship rules.
     if warm_branch_provided and user_id is not None:
+        # Post-defaults comparison: warm runs are provisioned with the default triple
+        # filled in, so the requested selection must be resolved the same way to match.
+        warm_selection = _with_ai_run_defaults(
+            {"runtime_adapter": warm_runtime_adapter, "model": warm_model, "reasoning_effort": warm_reasoning_effort},
+            team_id=team_id,
+            acting_user_id=user_id,
+        )
+        warm_runtime_adapter = warm_selection.get("runtime_adapter")
+        warm_model = warm_selection.get("model")
+        warm_reasoning_effort = warm_selection.get("reasoning_effort")
         warm_run = _find_idling_warm_run(
             team_id,
             user_id,
@@ -5715,13 +5754,18 @@ def create_task(
     # Popped so it isn't forwarded to the model; the link itself is recorded by record_report_task below.
     signal_report_task_relationship = validated_data.pop("signal_report_task_relationship", None)
 
-    # Inbox "Create PR" / "Discuss" don't pre-select a repo, so resolve one here rather than
-    # creating a report-linked task that can never open a PR.
+    # Inbox "Create PR" doesn't pre-select a repo, so resolve one here rather than creating a
+    # report-linked task that can never open a PR. Only "implementation" (Create PR) and legacy
+    # clients (no relationship) resolve one: "Discuss" (and any other non-implementation label)
+    # must stay repo-less to keep the code-access exemption (`task_exempt_from_code_access`).
+    # Giving a discussion a repository would 403 a caller without Desktop access on the very click
+    # this path exists to unblock.
     signal_report = validated_data.get("signal_report")
     if (
         signal_report is not None
         and not validated_data.get("repository")
         and validated_data.get("origin_product") == Task.OriginProduct.SIGNAL_REPORT
+        and signal_report_task_relationship in (None, "implementation")
     ):
         from products.signals.backend.facade.api import (  # noqa: PLC0415 — cross-product read kept off the api import path
             persisted_repo_selection,
@@ -5730,13 +5774,14 @@ def create_task(
             cascade_select_repository,
         )
 
-        # The report's own selection is authoritative — including a scout's deliberate no-repo
-        # (`repository=None`), which must not fall through to the cascade.
+        # A named selection wins. A no-repo selection (`repository=None`) does not: autostart
+        # already honors it in signals (it never creates a task without a repository), so reaching
+        # here means a person clicked "Create PR", which is the stronger signal. Fall through to
+        # the cascade rather than create a task whose sandbox can only read, never push.
         selection = persisted_repo_selection(str(signal_report.id))
-        resolved_repository = (
-            selection.repository
-            if selection is not None
-            else cascade_select_repository(
+        resolved_repository = selection.repository if selection is not None else None
+        if not resolved_repository:
+            resolved_repository = cascade_select_repository(
                 team_id,
                 user_id,
                 validated_data.get("description") or "",
@@ -5744,7 +5789,10 @@ def create_task(
                 single_repo_wins=True,
                 allow_refresh=False,
             )
-        )
+            if selection is not None:
+                _capture_no_repo_selection_override(
+                    team=team, report_id=str(signal_report.id), resolved_repository=resolved_repository
+                )
         if resolved_repository:
             validated_data["repository"] = resolved_repository
 
@@ -6194,6 +6242,26 @@ def can_mint_readonly_github_token(team_id: int) -> bool:
     return _can_mint(team_id)
 
 
+def _with_ai_run_defaults(data: dict, *, team_id: int, acting_user_id: int | None, internal: bool = False) -> dict:
+    """A copy of ``data`` with the team/user default AI run triple filled in when it pins
+    no runtime selection (see ``resolve_ai_run_selection``).
+
+    Applied ahead of warm-run matching so requests and warm runs compare post-defaults —
+    a warm run provisioned under the default triple must match a submit that pinned
+    nothing. ``Task.create_run`` applies the same resolution as a safety net for every
+    other path, so this is deterministic double-resolution, not a divergence.
+    """
+    if internal:
+        return data
+    from products.tasks.backend.logic.services.ai_run_defaults import (  # noqa: PLC0415 — keep ORM-heavy logic services off the api import path
+        apply_ai_run_defaults,
+    )
+
+    updated = dict(data)
+    apply_ai_run_defaults(updated, team_id, acting_user_id)
+    return updated
+
+
 def _find_idling_warm_run(
     team_id: int,
     user_id: int | None,
@@ -6483,6 +6551,17 @@ def warm_task_sandbox(
         )
         if custom_image is None or not custom_image.is_ready:
             return None
+
+    # Resolve team/user defaults up front so the warm run is provisioned (and later
+    # matched) on the runtime the activating submit will effectively request.
+    warm_selection = _with_ai_run_defaults(
+        {"runtime_adapter": runtime_adapter, "model": model, "reasoning_effort": reasoning_effort},
+        team_id=team_id,
+        acting_user_id=user_id,
+    )
+    runtime_adapter = warm_selection.get("runtime_adapter")
+    model = warm_selection.get("model")
+    reasoning_effort = warm_selection.get("reasoning_effort")
 
     existing = _find_idling_warm_run(
         team_id,
@@ -6791,6 +6870,17 @@ def run_task(
 
         branch = autostart_base_branch_for_repository(
             team_id, task.repositories[0] if task.repositories else task.repository
+        )
+
+    if not resume_from_run_id:
+        # Fill team/user default AI run preferences before warm matching: a warm run
+        # provisioned under the default triple must still match a submit that pinned
+        # nothing. Resumes instead carry the previous run's selection (below).
+        validated_data = _with_ai_run_defaults(
+            validated_data,
+            team_id=task.team_id,
+            acting_user_id=user_id if user_id is not None else task.created_by_id,
+            internal=task.internal,
         )
 
     warm_run = _idling_warm_run_for_task(task)
@@ -7113,7 +7203,7 @@ def run_task(
     logger.info("Creating task run for task %s with mode=%s, branch=%s", task.id, mode, branch)
     try:
         with transaction.atomic():
-            task_run = task.create_run(mode=mode, branch=branch, extra_state=extra_state)
+            task_run = task.create_run(mode=mode, branch=branch, extra_state=extra_state, acting_user_id=user_id)
             if report_id_for_slot_check is not None:
                 enforce_report_implementation_rerun_cap(
                     team_id=team_id, report_id=report_id_for_slot_check, task_id=str(task.id)

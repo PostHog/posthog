@@ -142,6 +142,7 @@ export {
   isNotAuthenticatedError,
   isRateLimitError,
   isTransientUpstreamError,
+  isTurnEndedWithoutResponseError,
   NotAuthenticatedError,
   type PromptFailure,
   type PromptFailureKind,

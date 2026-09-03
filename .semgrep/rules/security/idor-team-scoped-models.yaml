@@ -160,6 +160,9 @@ rules:
                               |EventFilterConfig
                               |EventStream
                               |EventStreamMember
+                              |ErrorTrackingAlert
+                              |ErrorTrackingAlertDestination
+                              |ErrorTrackingAlertThread
                               |ErrorTrackingAssignmentRule
                               |ErrorTrackingBypassRule
                               |ErrorTrackingGroupingRule
@@ -351,6 +354,7 @@ rules:
                               |TaskWorkflowDispatch
                               |TaskSearchDocument
                               |TaskSession
+                              |UserTasksConfig
                               |TaskThreadMessage
                               |TaskThreadMessageMention
                               |Channel
@@ -375,8 +379,6 @@ rules:
                               |UserInterview
                               |UserInterviewTopic
                               |UserRepoPreference
-                              |VisionAction
-                              |VisionActionRun
                               |VisionAlertConfiguration
                               |VisionAlertMatch
                               |WarehouseColumnAnnotation
@@ -547,6 +549,9 @@ rules:
                         |EventFilterConfig
                         |EventStream
                         |EventStreamMember
+                        |ErrorTrackingAlert
+                        |ErrorTrackingAlertDestination
+                        |ErrorTrackingAlertThread
                         |ErrorTrackingAssignmentRule
                         |ErrorTrackingBypassRule
                         |ErrorTrackingGroupingRule
@@ -728,6 +733,7 @@ rules:
                         |TaskRun
                         |TaskWorkflowDispatch
                         |TaskSession
+                        |UserTasksConfig
                         |TaskThreadMessage
                         |TaskThreadMessageMention
                         |Channel
@@ -752,8 +758,6 @@ rules:
                         |UserInterview
                         |UserInterviewTopic
                         |UserRepoPreference
-                        |VisionAction
-                        |VisionActionRun
                         |VisionAlertConfiguration
                         |VisionAlertMatch
                         |WarehouseColumnAnnotation
