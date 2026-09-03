@@ -412,7 +412,7 @@ export const sanitizeLogMessage = (args: any[], sensitiveValues?: string[], maxL
     let truncateAt = maxLength
 
     // Check if we're in the middle of a surrogate pair
-    if (truncateAt > 0 && truncateAt < message.length + TRUNCATION_SUFFIX.length) {
+    if (truncateAt > 0 && truncateAt < message.length) {
         const charAtTruncate = message.charCodeAt(truncateAt)
         const charBeforeTruncate = message.charCodeAt(truncateAt - 1)
 
