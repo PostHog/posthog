@@ -92,7 +92,7 @@ describe('CustomerTasksTable', () => {
         const dialog = screen.getByRole('dialog')
         expect(within(dialog).getByText('Task details')).toBeInTheDocument()
         expect(within(dialog).getByText('Account (optional)')).toBeInTheDocument()
-        expect(within(dialog).getByText('No account')).toBeInTheDocument()
+        expect(within(dialog).getByDisplayValue('No account')).toBeDisabled()
         expect(within(dialog).getByDisplayValue('Follow up')).toBeDisabled()
         expect(within(dialog).queryByText('Save changes')).not.toBeInTheDocument()
         expect(within(dialog).getByText('Close')).toBeInTheDocument()
