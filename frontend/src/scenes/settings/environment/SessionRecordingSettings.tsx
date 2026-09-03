@@ -327,7 +327,7 @@ export function ReplayMaskingSettings(): JSX.Element {
 export function ReplayDataRetentionSettings(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
-    const { currentOrganization } = useValues(organizationLogic)
+    const { currentOrganization, currentOrganizationLoading } = useValues(organizationLogic)
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
@@ -343,13 +343,10 @@ export function ReplayDataRetentionSettings(): JSX.Element {
 
     const renderOptions = (loading: boolean): LemonSegmentedButtonOption<SessionRecordingRetentionPeriod>[] => {
         const disabledReason = loading ? 'Loading...' : (restrictedReason ?? undefined)
-        // Loading or a permission limit disables every option, so that reason wins over the upsell
         const blockedOutsideEntitlement = loading || !!restrictedReason
-        // An option the organization cannot buy yet stays disabled, but sends the click to the plans that unlock it
         const upsell = (
             neededMonths: number,
-            reason: string,
-            products?: ProductKey[]
+            reason: string
         ): Pick<LemonSegmentedButtonOption<SessionRecordingRetentionPeriod>, 'disabledReason' | 'onDisabledClick'> => {
             if (blockedOutsideEntitlement) {
                 return { disabledReason }
@@ -359,7 +356,7 @@ export function ReplayDataRetentionSettings(): JSX.Element {
             }
             return {
                 disabledReason: reason,
-                onDisabledClick: () => router.actions.push(urls.organizationBilling(products)),
+                onDisabledClick: () => router.actions.push(urls.organizationBilling([ProductKey.PLATFORM_AND_SUPPORT])),
             }
         }
 
@@ -376,27 +373,21 @@ export function ReplayDataRetentionSettings(): JSX.Element {
                 icon: <IconHourglass />,
                 label: '90 days',
                 'data-attr': 'session-recording-retention-button-90d',
-                ...upsell(3, 'Only available on the pay-as-you-go plan. Click to see your upgrade options.', [
-                    ProductKey.PLATFORM_AND_SUPPORT,
-                ]),
+                ...upsell(3, 'Only available on the pay-as-you-go plan. Click to see your upgrade options.'),
             },
             {
                 value: '1y' as SessionRecordingRetentionPeriod,
                 icon: <IconCalendar />,
                 label: '1 year (365 days)',
                 'data-attr': 'session-recording-retention-button-1y',
-                ...upsell(12, 'Only available with the Boost or Scale packages. Click to see your upgrade options.', [
-                    ProductKey.PLATFORM_AND_SUPPORT,
-                ]),
+                ...upsell(12, 'Only available with the Boost or Scale packages. Click to see your upgrade options.'),
             },
             {
                 value: '5y' as SessionRecordingRetentionPeriod,
                 icon: <IconInfinity />,
                 label: '5 years (1825 days)',
                 'data-attr': 'session-recording-retention-button-5y',
-                ...upsell(60, 'Only available with the Enterprise package. Click to see your upgrade options.', [
-                    ProductKey.PLATFORM_AND_SUPPORT,
-                ]),
+                ...upsell(60, 'Only available with the Enterprise package. Click to see your upgrade options.'),
             },
         ]
     }
@@ -426,7 +417,7 @@ export function ReplayDataRetentionSettings(): JSX.Element {
             <LemonSegmentedButton
                 value={currentRetention}
                 onChange={(val) => val && handleRetentionChange(val)}
-                options={renderOptions(currentTeamLoading)}
+                options={renderOptions(currentTeamLoading || currentOrganizationLoading)}
                 disabledReason={restrictedReason ?? undefined}
             />
             {entitledMonths < 60 && (

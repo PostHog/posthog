@@ -34,13 +34,17 @@ describe('<ReplayDataRetentionSettings /> locked retention options', () => {
 
     afterEach(cleanup)
 
-    it('opens billing on the platform packages for a locked option', async () => {
+    it.each([
+        'session-recording-retention-button-90d',
+        'session-recording-retention-button-1y',
+        'session-recording-retention-button-5y',
+    ])('opens billing on the platform packages for a locked option: %s', async (dataAttr) => {
         mountSettings()
         loadOrganization({ membership_level: OrganizationMembershipLevel.Admin })
 
         render(<ReplayDataRetentionSettings />)
 
-        await userEvent.click(getByDataAttr(document.body, 'session-recording-retention-button-90d'))
+        await userEvent.click(getByDataAttr(document.body, dataAttr))
 
         expect(router.values.location.pathname).toBe('/organization/billing')
         expect(router.values.location.search).toBe('?products=platform_and_support')
