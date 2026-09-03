@@ -409,9 +409,13 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
                     try:
                         from products.access_control.backend.models.role import RoleMembership
 
-                        user_roles = RoleMembership.objects.filter(
-                            user=self, organization_member__in=[membership.id for membership in org_memberships]
-                        ).values_list("role_id", flat=True)
+                        user_roles = (
+                            RoleMembership.objects.filter(
+                                user=self, organization_member__in=[membership.id for membership in org_memberships]
+                            )
+                            .valid_for_authorization()
+                            .values_list("role_id", flat=True)
+                        )
 
                         role_accessible_team_ids = set(
                             AccessControl.objects.filter(
@@ -562,9 +566,8 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
             try:
                 from products.access_control.backend.models.role import RoleMembership
 
-                RoleMembership.objects.create(
-                    role_id=organization.default_role_id, user=self, organization_member=membership
-                )
+                role = organization.roles.get(id=organization.default_role_id)
+                RoleMembership.objects.create(role=role, user=self, organization_member=membership)
             except Exception as e:
                 capture_exception(
                     e,

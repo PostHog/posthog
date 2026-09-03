@@ -389,7 +389,10 @@ rules:
                               |WebAnalyticsFilterPreset
                               |WebAnalyticsInteraction
                               |WebAnalyticsVisit
+                              |WizardRun
+                              |WizardRunArtifact
                               |WizardSession
+                              |WizardWorker
                           )$
                 - focus-metavariable: $SINK
       pattern-sanitizers:
@@ -770,7 +773,10 @@ rules:
                         |WebAnalyticsFilterPreset
                         |WebAnalyticsInteraction
                         |WebAnalyticsVisit
+                        |WizardRun
+                        |WizardRunArtifact
                         |WizardSession
+                        |WizardWorker
                     )$
           # Exclude when team filter is present
           - pattern-not: $M.objects. ... .$METHOD2(..., team__project_id=$T, ...)
