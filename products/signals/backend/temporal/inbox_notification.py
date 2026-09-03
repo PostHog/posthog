@@ -21,6 +21,7 @@ import temporalio
 from temporalio import workflow
 from temporalio.common import RetryPolicy
 
+from posthog.dataclasses import frozen
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.scoped import scoped_temporal
@@ -40,7 +41,7 @@ class InboxNotificationInput:
     report_id: str
 
 
-@dataclass
+@frozen
 class InboxNotificationState:
     has_implementation_task: bool
     pr_available: bool
