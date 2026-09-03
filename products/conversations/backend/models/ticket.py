@@ -185,6 +185,17 @@ class Ticket(UUIDTModel):
                 name="posthog_org_slack_ch_idx",
                 condition=models.Q(channel_source="slack"),
             ),
+            # Compose dedupe fallback: find recent outbound email tickets by (team, email channel,
+            # sender) within a short window, newest first. Runs on every new compose, so without
+            # this it scans the channel's whole ticket history. Partial to email keeps it small.
+            models.Index(
+                models.F("team_id"),
+                models.F("email_config_id"),
+                models.F("email_from"),
+                models.F("created_at").desc(),
+                name="posthog_con_compose_dedupe_idx",
+                condition=models.Q(channel_source="email"),
+            ),
         ]
         constraints = [
             models.UniqueConstraint(fields=["team", "ticket_number"], name="unique_ticket_number_per_team"),

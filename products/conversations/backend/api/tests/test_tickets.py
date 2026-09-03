@@ -2030,23 +2030,6 @@ class TestComposeTicketAPI(APIBaseTest):
         assert search.status_code == status.HTTP_200_OK
         assert [t["id"] for t in search.json()["results"]] == [str(ticket.id)]
 
-    def test_compose_applies_tags_to_the_new_ticket(self, mock_on_commit):
-        # Tags let support filter composed tickets by source (e.g. roadmap pitches). If compose
-        # drops the field, the ticket lands untagged and that filtering breaks.
-        response = self._compose(
-            {
-                "recipient_email": "pitch@test.com",
-                "email_config_id": str(self.email_config.id),
-                "message": "Great idea, we logged it.",
-                "tags": ["roadmap_pitch"],
-            }
-        )
-        assert response.status_code == status.HTTP_201_CREATED
-
-        detail = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{response.json()['id']}/")
-        assert detail.status_code == status.HTTP_200_OK
-        assert detail.json()["tags"] == ["roadmap_pitch"]
-
     def test_compose_identical_request_is_idempotent(self, mock_on_commit):
         # A caller that retries a slow compose (e.g. a workflow webhook whose fetch timed out) must
         # get the same ticket back, not a second one — and the customer must not be emailed twice.
@@ -2133,6 +2116,26 @@ class TestComposeTicketAPI(APIBaseTest):
         assert Ticket.objects.get(pk=first.json()["id"]).distinct_id == "person-a"
         assert Ticket.objects.get(pk=second.json()["id"]).distinct_id == "person-b"
 
+    def test_compose_same_content_from_different_agents_is_not_deduplicated(self, mock_on_commit):
+        # Two support agents can each reach out to the same recipient with the same subject and body
+        # within the dedupe window. Those are two distinct tickets, each authored by its own agent,
+        # so the fingerprint must not collapse them onto one.
+        other_user = User.objects.create_and_join(self.organization, "other-agent@posthog.com", None)
+        payload = {
+            "recipient_email": "pitch@test.com",
+            "email_config_id": str(self.email_config.id),
+            "message": "Same body",
+        }
+
+        first = self._compose(payload)
+        self.client.force_login(other_user)
+        second = self._compose(payload)
+
+        assert first.status_code == status.HTTP_201_CREATED
+        assert second.status_code == status.HTTP_201_CREATED
+        assert first.json()["id"] != second.json()["id"]
+        assert Ticket.objects.filter(team=self.team).count() == 2
+
     def test_compose_conflicts_while_an_identical_request_is_in_flight(self, mock_on_commit):
         payload = {
             "recipient_email": "pitch@test.com",
@@ -2147,6 +2150,7 @@ class TestComposeTicketAPI(APIBaseTest):
             message="Great idea, we logged it.",
             rich_content=None,
             distinct_id="pitch@test.com",
+            creator_id=self.user.id,
         )
         assert fingerprint is not None
         # Another request holds the reservation and hasn't finished creating yet.
@@ -2158,6 +2162,23 @@ class TestComposeTicketAPI(APIBaseTest):
         assert response.status_code == status.HTTP_409_CONFLICT
         assert response.json()["error_type"] == reply_dedupe.COMPOSE_IN_PROGRESS_ERROR_TYPE
         assert not Ticket.objects.filter(team=self.team).exists()
+
+    def test_compose_applies_tags_to_the_new_ticket(self, mock_on_commit):
+        # Tags let support filter composed tickets by source (e.g. roadmap pitches). If compose
+        # drops the field, the ticket lands untagged and that filtering breaks.
+        response = self._compose(
+            {
+                "recipient_email": "pitch@test.com",
+                "email_config_id": str(self.email_config.id),
+                "message": "Great idea, we logged it.",
+                "tags": ["roadmap_pitch"],
+            }
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+
+        detail = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{response.json()['id']}/")
+        assert detail.status_code == status.HTTP_200_OK
+        assert detail.json()["tags"] == ["roadmap_pitch"]
 
 
 class TestTicketPersonalAPIKeyScopes(APIBaseTest):

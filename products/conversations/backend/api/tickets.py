@@ -1804,6 +1804,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
             message=data["message"],
             rich_content=data.get("rich_content"),
             distinct_id=distinct_id,
+            creator_id=request.user.id if request.user and request.user.is_authenticated else None,
         )
         assert fingerprint is not None
         guarded = reply_dedupe.create_ticket_deduplicated(fingerprint, create_ticket)
