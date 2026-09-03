@@ -941,7 +941,16 @@ class SignalReportArtefactSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.ChoiceField(choices=SignalActorKind.choices))
     def get_actor_kind(self, obj: SignalReportArtefact) -> str:
-        return obj.actor_kind or SignalActorKind.SYSTEM
+        if obj.actor_kind:
+            return obj.actor_kind
+        # Rows written before `actor_kind` existed still carry their producer in the FK columns, as
+        # do the read-time synthetic legacy `task_run` rows, which are never persisted and so can
+        # never be backfilled. Only a row with neither is genuinely a system write.
+        if obj.task_id:
+            return SignalActorKind.TASK
+        if obj.created_by_id:
+            return SignalActorKind.USER
+        return SignalActorKind.SYSTEM
 
     def get_content(self, obj: SignalReportArtefact) -> dict | list:
         try:
