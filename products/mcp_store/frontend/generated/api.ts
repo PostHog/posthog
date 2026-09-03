@@ -1148,8 +1148,8 @@ export const getMcpServersListUrl = (projectId: string, params?: McpServersListP
 /**
  * Lists curated MCP server templates that users can install with one click.
  *
- * Templates are seeded by PostHog operators and carry shared, encrypted
- * OAuth client credentials. Inactive templates are hidden from the catalog.
+ * Active templates are installable. Coming-soon templates are visible but not
+ * installable, while other inactive templates remain hidden.
  */
 export const mcpServersList = async (
     projectId: string,
