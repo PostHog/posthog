@@ -1977,6 +1977,10 @@ export type HogFlowsListParams = {
      */
     offset?: number
     /**
+     * Only workflows someone turned suggestions on for.
+     */
+    optimisation_enabled?: boolean
+    /**
      * Filter to workflows owned by a product surface, e.g. `loops` for Desktop loops.
      */
     origin_product?: HogFlowsListOriginProduct

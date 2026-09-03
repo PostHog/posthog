@@ -126,8 +126,23 @@ export interface workflowProposalsLogicActions {
     setOptimisationEnabled: (enabled: boolean) => {
         enabled: boolean
     }
-    setOptimisationUnreadable: (unreadable: boolean) => {
-        unreadable: boolean
+    setOptimisationEnabledFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    setOptimisationEnabledSuccess: (
+        optimisation: HogFlowOptimisationApi,
+        payload?: {
+            enabled: boolean
+        }
+    ) => {
+        optimisation: HogFlowOptimisationApi
+        payload?: {
+            enabled: boolean
+        }
     }
     setOptimisationUnreadable: (unreadable: boolean) => {
         unreadable: boolean
