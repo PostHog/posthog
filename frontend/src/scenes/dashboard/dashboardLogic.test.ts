@@ -848,12 +848,15 @@ describe('dashboardLogic', () => {
 
         it('keeps unapplied filters separate from layout cancellation and layout saving', async () => {
             const autoPreviewLimitSpy = jest.spyOn(featureFlagLib, 'getFeatureFlagPayload').mockReturnValue(8)
-            const nineTileDashboard = {
+            const nineTileDashboard: DashboardType<QueryBasedInsightModel> = {
                 ...dashboards[5],
                 tiles: Array.from({ length: 9 }, (_, index) => ({
                     ...dashboards[5].tiles[0],
                     id: index + 200,
-                    layouts: { sm: { i: String(index + 200), x: index, y: 0, w: 1, h: 1 } },
+                    layouts: {
+                        sm: { i: String(index + 200), x: index, y: 0, w: 1, h: 1 },
+                        xs: { i: String(index + 200), x: 0, y: index, w: 1, h: 1 },
+                    },
                 })),
             }
             logic.unmount()

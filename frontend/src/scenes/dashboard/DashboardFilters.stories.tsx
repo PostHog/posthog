@@ -5,13 +5,29 @@ import { router } from 'kea-router'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 
 import { mswDecorator } from '~/mocks/browser'
-import { AccessControlLevel, DashboardMode, DashboardTile, DashboardType, QueryBasedInsightModel } from '~/types'
+import {
+    AccessControlLevel,
+    DashboardMode,
+    DashboardTile,
+    DashboardType,
+    PropertyFilterType,
+    PropertyOperator,
+    QueryBasedInsightModel,
+} from '~/types'
 
 import { DashboardFilterBar } from './DashboardFilters'
 import { dashboardLogic } from './dashboardLogic'
 import { encodeURLFilters, SEARCH_PARAM_FILTERS_KEY } from './dashboardUtils'
 
-type FilterBarState = 'saved' | 'unsaved' | 'temporary' | 'temporary-viewer' | 'layout' | 'narrow' | 'large'
+type FilterBarState =
+    | 'saved'
+    | 'unsaved'
+    | 'temporary'
+    | 'temporary-combined'
+    | 'temporary-viewer'
+    | 'layout'
+    | 'narrow'
+    | 'large'
 
 const DASHBOARD_ID = 955
 
@@ -57,8 +73,23 @@ function DashboardFilterBarStory({ state }: { state: FilterBarState }): JSX.Elem
     const logic = dashboardLogic({ id: DASHBOARD_ID, dashboard: storyDashboard })
     logic.mount()
 
-    if (state === 'temporary' || state === 'temporary-viewer') {
-        const filters = encodeURLFilters({ date_from: '-7d' })
+    if (state === 'temporary' || state === 'temporary-combined' || state === 'temporary-viewer') {
+        const filters = encodeURLFilters(
+            state === 'temporary-combined'
+                ? {
+                      date_from: '-7d',
+                      properties: [
+                          {
+                              key: '$browser',
+                              type: PropertyFilterType.Event,
+                              operator: PropertyOperator.Exact,
+                              value: 'Chrome',
+                          },
+                      ],
+                      breakdown_filter: { breakdown: '$browser', breakdown_type: 'event' },
+                  }
+                : { date_from: '-7d' }
+        )
         router.actions.push(
             `/dashboard/${DASHBOARD_ID}?${SEARCH_PARAM_FILTERS_KEY}=${filters[SEARCH_PARAM_FILTERS_KEY]}`
         )
@@ -119,6 +150,10 @@ export const UnsavedFilters: Story = {
 
 export const TemporaryFilters: Story = {
     args: { state: 'temporary' },
+}
+
+export const CombinedTemporaryFilters: Story = {
+    args: { state: 'temporary-combined' },
 }
 
 export const TemporaryFiltersWithoutEditAccess: Story = {

@@ -73,6 +73,13 @@ Do not call normal saved filters temporary. All filters change the displayed dat
 - Save layout with unsaved filters. Confirm that the layout saves and filter edits remain unsaved.
 - Check wide and narrow filter-bar containers. Confirm that direct actions switch to an actions dropdown only at the defined container breakpoint.
 
+## Storybook coverage
+
+- Keep a Storybook state for saved filters, unsaved filters, a combined temporary URL-filter view, and temporary URL filters without edit access.
+- Keep a Storybook state for layout editing with unsaved filters and for the manual-preview dashboard size.
+- Add a URL-variable story when a visible temporary-variable treatment exists. Do not add an empty story before that UI exists.
+- Do not create a dashboard filter-bar story for embedded context when the embedding surface owns that context. Add the story beside the embedding surface if it gains visible context UI.
+
 ## Source files
 
 - `frontend/src/scenes/dashboard/DashboardFilters.tsx`
