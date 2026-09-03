@@ -109,7 +109,7 @@ export function validateChannelName(name: string): string | null {
   if (RESERVED_PERSONAL_NAMES.has(lowered)) {
     return `"${trimmed}" is reserved for your private space.`;
   }
-  if (lowered === GENERAL_CHANNEL_NAME) {
+  if (normalizeChannelName(lowered) === GENERAL_CHANNEL_NAME) {
     return `"${trimmed}" is reserved for your team's shared space.`;
   }
   return null;
