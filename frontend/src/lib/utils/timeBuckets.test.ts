@@ -4,6 +4,7 @@ import { IntervalType } from '~/types'
 
 import {
     buildBucketKeys,
+    buildComparisonWindow,
     formatBucketLabel,
     intervalOptionsForWindow,
     lastBucketIsInProgress,
@@ -201,6 +202,45 @@ describe('timeBuckets', () => {
                 { value: 'week', label: 'Week', disabledReason: null },
                 { value: 'month', label: 'Month', disabledReason: 'Range too short' },
             ])
+        })
+    })
+    describe('buildComparisonWindow', () => {
+        it.each([
+            ['2024-01-08', '2024-01-15', 'day', '2024-01-08 00:00:00', '2023-12-31'],
+            ['2024-01-01', '2024-01-31', 'day', '2024-01-01 00:00:00', '2023-12-01'],
+        ])(
+            'extends [%s, %s] back to an equal-length prior window with cutoff at the selected start',
+            (dateFrom, dateTo, interval, expectedCutoff, expectedPriorStart) => {
+                const window = buildComparisonWindow(dateFrom, dateTo, 'UTC', interval as 'day')
+                expect(window.currentStartBucket).toBe(expectedCutoff)
+                expect(dayjs(window.dateFrom).format('YYYY-MM-DD')).toBe(expectedPriorStart)
+            }
+        )
+
+        it('rolls an hour-level range from now and steps the prior window back by its exact length', () => {
+            jest.useFakeTimers().setSystemTime(new Date('2026-06-18T12:37:00Z'))
+            try {
+                // "-1h" resolves to the trailing hour; prior window is the hour before that, not the
+                // hour before the bucket it starts in.
+                const window = buildComparisonWindow('-1h', null, 'UTC', 'hour')
+                expect(window.currentStart).toBe('2026-06-18 11:37:00')
+                expect(window.currentStartBucket).toBe('2026-06-18 11:00:00')
+                expect(dayjs(window.dateFrom).toISOString()).toBe('2026-06-18T10:37:00.000Z')
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
+        it('resolves the relative -7d default against now', () => {
+            jest.useFakeTimers().setSystemTime(new Date('2026-06-18T12:00:00Z'))
+            try {
+                const window = buildComparisonWindow('-7d', null, 'UTC', 'day')
+                expect(window.currentStartBucket).toBe('2026-06-11 00:00:00')
+                // prior window is as long as the selected one: seven days plus today's elapsed 12h
+                expect(dayjs(window.dateFrom).format('YYYY-MM-DD')).toBe('2026-06-03')
+            } finally {
+                jest.useRealTimers()
+            }
         })
     })
 })
