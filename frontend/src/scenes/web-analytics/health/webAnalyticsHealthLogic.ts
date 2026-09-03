@@ -96,9 +96,9 @@ const WEB_HEALTH_CHECKS: WebHealthCheckConfig[] = [
         kind: 'missing_session_id',
         category: 'events',
         title: 'Session IDs',
-        passingDescription: 'Pageviews carry a valid session ID, so visitor and session counts are accurate.',
+        passingDescription: 'Pageviews carry a session ID that web analytics can use.',
         failingDescription:
-            'Some pageviews arrive without a valid session ID. Web analytics leaves those events out, so your visitor and session counts come in low. This usually means events are sent server-side or through a pipeline that omits the session ID.',
+            'Some pageviews arrive without a session ID that web analytics can use. Web analytics needs a UUIDv7, and leaves out any pageview without one, so your visitor and session counts come in low. This usually means events are sent server-side or through a pipeline that omits the session ID.',
         failingAction: {
             label: 'Set up session IDs',
             to: 'https://posthog.com/docs/data/sessions#custom-session-ids',
