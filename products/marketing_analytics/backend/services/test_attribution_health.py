@@ -180,6 +180,7 @@ def _pageview(
     utm_source: str | None = None,
     utm_medium: str | None = None,
     gclid: str | None = None,
+    timestamp: datetime | None = None,
 ) -> None:
     props: dict = {}
     if utm_source is not None:
@@ -193,7 +194,7 @@ def _pageview(
         event="$pageview",
         team=team,
         properties=props,
-        timestamp=timezone.now() - timedelta(hours=1),
+        timestamp=timestamp or timezone.now() - timedelta(hours=1),
     )
 
 
@@ -418,3 +419,27 @@ class TestAttributionHealthPaidSignalClickhouse(ClickhouseTestMixin, BaseTest):
 
         assert google.events_matched_paid_last_7d == 1
         assert google.events_matched_tagged_medium_last_7d == 0
+
+
+class TestAttributionHealthFutureTimestampClickhouse(ClickhouseTestMixin, BaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def setUp(self) -> None:
+        super().setUp()
+        _pageview(self.team, "u1", utm_source="google")
+        _pageview(self.team, "u2", utm_source="google", timestamp=timezone.now() + timedelta(days=1800))
+        flush_persons_and_events()
+
+    def tearDown(self) -> None:
+        flush_persons_and_events()
+        super().tearDown()
+
+    @pytest.mark.asyncio
+    async def test_future_stamped_event_is_excluded(self) -> None:
+        response = await get_attribution_health(self.team, lookback_days=30)
+
+        google = next(e for e in response.integrations if e.integration_key == "google_ads")
+        assert google.events_matched_last_7d == 1
+        assert response.total_events_with_utm == 1
+        assert google.last_event_with_matching_utm_at is not None
+        assert google.last_event_with_matching_utm_at <= timezone.now()
