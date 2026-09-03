@@ -29,12 +29,14 @@ import {
   ItemContent,
   ItemDescription,
   ItemTitle,
+  Spinner,
 } from "@posthog/quill";
 import { EXTERNAL_LINKS } from "@posthog/shared";
 import { useArchivedTaskIds } from "@posthog/ui/features/archive/useArchivedTaskIds";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import {
+  useCreateOrganizationMutation,
   useLogoutMutation,
   useSelectProjectMutation,
   useSwitchOrgMutation,
@@ -81,11 +83,13 @@ export function ProjectSwitcher({
     holdPeek(next);
   };
 
+  const cloudRegion = useAuthStateValue((state) => state.cloudRegion);
   const currentOrgId = useAuthStateValue((state) => state.currentOrgId);
   const sessionType = useAuthStateValue((state) => state.sessionType);
   const sessionExpiresAt = useAuthStateValue((state) => state.sessionExpiresAt);
   const client = useOptionalAuthenticatedClient();
   const { data: currentUser } = useCurrentUser({ client });
+  const createOrganizationMutation = useCreateOrganizationMutation();
   const selectProjectMutation = useSelectProjectMutation();
   const switchOrgMutation = useSwitchOrgMutation();
   const logoutMutation = useLogoutMutation();
@@ -151,6 +155,9 @@ export function ProjectSwitcher({
   );
 
   const handleProjectSelect = (projectId: number) => {
+    if (createOrganizationMutation.isPending) {
+      return;
+    }
     if (projectId !== currentProjectId) {
       selectProjectMutation.mutate(projectId);
     }
@@ -158,6 +165,9 @@ export function ProjectSwitcher({
   };
 
   const handleOrgSelect = (orgId: string) => {
+    if (createOrganizationMutation.isPending) {
+      return;
+    }
     if (orgId !== currentOrgId) {
       switchOrgMutation.mutate(orgId);
     }
@@ -165,14 +175,19 @@ export function ProjectSwitcher({
   };
 
   const handleCreateProject = () => {
+    if (createOrganizationMutation.isPending) {
+      return;
+    }
     const url = getPostHogUrl("/organization/create-project");
     if (url) openExternalUrl(url);
     setPopoverOpen(false);
   };
 
   const handleCreateOrg = () => {
-    const url = getPostHogUrl("/create-organization");
-    if (url) openExternalUrl(url);
+    if (!cloudRegion || createOrganizationMutation.isPending) {
+      return;
+    }
+    createOrganizationMutation.mutate(cloudRegion);
     setPopoverOpen(false);
   };
 
@@ -292,7 +307,9 @@ export function ProjectSwitcher({
               <DropdownMenuLabel>Project</DropdownMenuLabel>
 
               <DropdownMenuSub>
-                <DropdownMenuSubTrigger>
+                <DropdownMenuSubTrigger
+                  disabled={createOrganizationMutation.isPending}
+                >
                   <FolderSimple size={14} className="text-gray-11" />
                   {currentProject?.name ?? "No project selected"}
                 </DropdownMenuSubTrigger>
@@ -306,7 +323,10 @@ export function ProjectSwitcher({
                 </MenuSubFlyout>
               </DropdownMenuSub>
 
-              <DropdownMenuItem onClick={handleCreateProject}>
+              <DropdownMenuItem
+                onClick={handleCreateProject}
+                disabled={createOrganizationMutation.isPending}
+              >
                 <Plus size={14} className="text-gray-11" />
                 Create project
                 <ArrowSquareOut size={14} className="ml-auto text-gray-11" />
@@ -317,7 +337,9 @@ export function ProjectSwitcher({
               <DropdownMenuLabel>Organization</DropdownMenuLabel>
 
               <DropdownMenuSub>
-                <DropdownMenuSubTrigger>
+                <DropdownMenuSubTrigger
+                  disabled={createOrganizationMutation.isPending}
+                >
                   <Buildings size={14} className="text-gray-11" />
                   {currentOrgName}
                 </DropdownMenuSubTrigger>
@@ -331,8 +353,15 @@ export function ProjectSwitcher({
                 </MenuSubFlyout>
               </DropdownMenuSub>
 
-              <DropdownMenuItem onClick={handleCreateOrg}>
-                <Plus size={14} className="text-gray-11" />
+              <DropdownMenuItem
+                onClick={handleCreateOrg}
+                disabled={!cloudRegion || createOrganizationMutation.isPending}
+              >
+                {createOrganizationMutation.isPending ? (
+                  <Spinner className="size-3.5" />
+                ) : (
+                  <Plus size={14} className="text-gray-11" />
+                )}
                 Create organization
                 <ArrowSquareOut size={14} className="ml-auto text-gray-11" />
               </DropdownMenuItem>

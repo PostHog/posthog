@@ -200,6 +200,37 @@ export class OAuthService {
     }
   }
 
+  public async startOrganizationCreationFlow(
+    region: CloudRegion,
+  ): Promise<StartFlowOutput> {
+    try {
+      this.cancelFlow();
+
+      const config: OAuthConfig = {
+        scopes: OAUTH_SCOPES,
+        cloudRegion: region,
+      };
+
+      const codeVerifier = this.generateCodeVerifier();
+      const authUrl = this.buildAuthorizeUrl(region, codeVerifier);
+      const organizationUrl = this.buildOrganizationCreationUrl(
+        region,
+        authUrl,
+      );
+
+      return await this.startFlowWithUrl(
+        config,
+        codeVerifier,
+        organizationUrl.toString(),
+      );
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error",
+      };
+    }
+  }
+
   /**
    * Refresh an access token using a refresh token.
    */
@@ -451,6 +482,16 @@ export class OAuthService {
     const nextPath = `${authUrl.pathname}${authUrl.search}`;
     signupUrl.searchParams.set("next", nextPath);
     return signupUrl;
+  }
+
+  private buildOrganizationCreationUrl(region: CloudRegion, authUrl: URL): URL {
+    const cloudUrl = getCloudUrlFromRegion(region);
+    const organizationUrl = new URL(`${cloudUrl}/create-organization`);
+    organizationUrl.searchParams.set(
+      "next",
+      `${authUrl.pathname}${authUrl.search}`,
+    );
+    return organizationUrl;
   }
 
   private async startFlowWithUrl(

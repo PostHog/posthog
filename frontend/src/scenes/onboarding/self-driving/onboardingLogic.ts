@@ -4,6 +4,7 @@ import { router } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { eventUsageLogic, type OnboardingEventProperties } from 'lib/utils/eventUsageLogic'
+import { getRelativeNextPath } from 'lib/utils/url'
 import { completeProductOnboarding, teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -179,7 +180,12 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 })
                 actions.clearUseCase()
                 actions.reportOnboardingCompleted(setup.primaryProduct, SELF_DRIVING_ONBOARDING_EVENT_PROPS)
-                router.actions.push(urls.inbox())
+                const nextUrl = getRelativeNextPath(router.values.searchParams.next, location)
+                if (nextUrl) {
+                    window.location.href = nextUrl
+                } else {
+                    router.actions.push(urls.inbox())
+                }
             } catch {
                 lemonToast.error("Couldn't finish onboarding. Please try again.")
             } finally {

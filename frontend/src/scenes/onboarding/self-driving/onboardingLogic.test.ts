@@ -1,5 +1,6 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
@@ -58,6 +59,37 @@ describe('onboardingLogic', () => {
                 return true
             },
         ])
+    })
+
+    it('returns to a preserved OAuth destination after completion', async () => {
+        const nextPath = '/oauth/authorize?client_id=desktop&redirect_uri=posthog-code%3A%2F%2Fcallback'
+        router.actions.push('/onboarding', { next: nextPath })
+        const originalLocation = window.location
+        let currentHref = originalLocation.href
+        Object.defineProperty(window, 'location', {
+            configurable: true,
+            value: {
+                ...originalLocation,
+                origin: originalLocation.origin,
+                get href() {
+                    return currentHref
+                },
+                set href(value: string) {
+                    currentHref = new URL(value, originalLocation.origin).href
+                },
+            },
+        })
+
+        try {
+            await logic.asyncActions.completeOnboarding()
+
+            expect(window.location.href).toBe(new URL(nextPath, originalLocation.origin).href)
+        } finally {
+            Object.defineProperty(window, 'location', {
+                configurable: true,
+                value: originalLocation,
+            })
+        }
     })
 
     it('short-circuits when a completion is already in flight', async () => {

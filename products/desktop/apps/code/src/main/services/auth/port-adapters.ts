@@ -51,6 +51,10 @@ export class OAuthFlowPortAdapter implements IAuthOAuthFlowService {
     return this.oauth.startSignupFlow(region);
   }
 
+  startOrganizationCreationFlow(region: CloudRegion): Promise<StartFlowOutput> {
+    return this.oauth.startOrganizationCreationFlow(region);
+  }
+
   refreshToken(
     refreshToken: string,
     region: CloudRegion,

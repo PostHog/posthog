@@ -189,6 +189,8 @@ These are issued by external services and consumed by the app. You should not ne
 
 PKCE OAuth callback for user sign-in. PostHog Cloud redirects to this URL after the user authorises in their browser.
 
+PostHog Desktop also uses this callback after browser organization creation. The callback refreshes the Desktop session and selects the new organization's first project.
+
 | Parameter | Required | Description |
 |---|---|---|
 | `code` | Conditional | Authorisation code on success |

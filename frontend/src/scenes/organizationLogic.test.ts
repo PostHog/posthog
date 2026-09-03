@@ -1,5 +1,6 @@
 import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
 
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
@@ -29,6 +30,48 @@ describe('organizationLogic', () => {
         it('currentOrganizationId returns the id when loaded', async () => {
             await expectLogic(logic).toDispatchActions(['loadCurrentOrganizationSuccess'])
             expect(logic.values.currentOrganizationId).toBe('WXYZ')
+        })
+    })
+
+    describe('organization creation', () => {
+        it('preserves the OAuth return path through onboarding', () => {
+            window.POSTHOG_APP_CONTEXT = {
+                current_user: { organization: MOCK_DEFAULT_ORGANIZATION },
+            } as unknown as AppContext
+            initKeaTests()
+            const nextPath = '/oauth/authorize?client_id=desktop&redirect_uri=posthog-code%3A%2F%2Fcallback'
+            router.actions.push('/create-organization', { next: nextPath })
+            const originalLocation = window.location
+            let currentHref = originalLocation.href
+            Object.defineProperty(window, 'location', {
+                configurable: true,
+                value: {
+                    ...originalLocation,
+                    origin: originalLocation.origin,
+                    get href() {
+                        return currentHref
+                    },
+                    set href(value: string) {
+                        currentHref = new URL(value, originalLocation.origin).href
+                    },
+                },
+            })
+            logic = organizationLogic()
+            logic.mount()
+
+            try {
+                logic.actions.createOrganizationSuccess(MOCK_DEFAULT_ORGANIZATION)
+
+                const redirectUrl = new URL(window.location.href, originalLocation.origin)
+                expect(redirectUrl.pathname).toBe('/onboarding')
+                expect(redirectUrl.searchParams.get('next')).toBe(nextPath)
+            } finally {
+                logic.unmount()
+                Object.defineProperty(window, 'location', {
+                    configurable: true,
+                    value: originalLocation,
+                })
+            }
         })
     })
 
