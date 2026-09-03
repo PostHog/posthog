@@ -116,6 +116,10 @@ const UPSTREAM_TRANSIENT_ERROR_REGEXES = [
   /socket connection (?:was )?closed/i,
   /API Error:.*\b(?:timed out|timeout)\b/i,
   /API Error:\s*(?:429|5\d\d)\b/i,
+  // The provider refuses a turn whose transcript content blocks do not line up
+  // ("Content block not found", "Content block is not a thinking block"). The
+  // wording changes with the provider, so match the family, not each string.
+  /API Error:\s*Content block\b/i,
 ] as const;
 
 const TURN_ENDED_WITHOUT_RESPONSE_REGEX =

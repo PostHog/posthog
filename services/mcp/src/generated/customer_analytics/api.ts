@@ -132,7 +132,12 @@ export const AccountsListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     ordering: zod.string().optional().describe("Sort order. Defaults to '-created_at'."),
-    search: zod.string().optional().describe('Case-insensitive substring search across account name and external ID.'),
+    search: zod
+        .string()
+        .optional()
+        .describe(
+            'Case-insensitive substring search across account name and external ID. A query holding an email address also matches accounts that list it as a known email, and a query holding a domain matches accounts that own that email domain.'
+        ),
     tags: zod
         .string()
         .optional()

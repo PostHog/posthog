@@ -156,8 +156,9 @@ jobs:
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
             - uses: ./.github/actions/paths-filter
               # Skipped on master push and on the hourly schedule: every output then
-              # defaults to true. On schedule the action would otherwise diff only the
-              # last commit and could turn the full-matrix run into a no-op.
+              # defaults to true. See "The hourly master lane" in
+              # .agents/skills/authoring-ci-workflows/SKILL.md for why a cron cannot
+              # diff, and what breaks if this guard is dropped.
               if: github.event_name != 'push' && github.event_name != 'schedule'
               id: filter
               with:

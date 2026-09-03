@@ -44,6 +44,7 @@ from posthog.models.product_intent.product_intent import ProductIntent
 from posthog.models.team.team import Team
 
 from products.actions.backend.models.action import Action
+from products.alerts.backend.facade.api import redact_urls_in_name
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.business_knowledge.backend.models.constants import SourceStatus
 from products.business_knowledge.backend.models.knowledge_source import KnowledgeSource
@@ -73,8 +74,9 @@ logger = logging.getLogger(__name__)
 # Bumps when the inventory schema changes meaningfully — `get_project_profile` invalidates
 # rows whose `source_version` doesn't match the current build, so adding a new key here
 # (or restructuring an existing one) without bumping the version would silently mix old
-# and new shapes in the cache.
-INVENTORY_SOURCE_VERSION = "v12"
+# and new shapes in the cache. A redaction change bumps it too, so rows built before the
+# redaction stop being served.
+INVENTORY_SOURCE_VERSION = "v13"
 
 # Top-events ClickHouse query bounds. 7d is short enough to spot recent bursts and long
 # enough to stabilize counts on low-traffic teams; 50 covers the long tail without
@@ -581,7 +583,7 @@ def _recent_alerts(team: Team) -> dict[str, Any]:
         "recent": [
             {
                 "id": str(row["id"]),
-                "name": row["name"] or "",
+                "name": redact_urls_in_name(row["name"] or ""),
                 "enabled": row["enabled"],
                 "state": row["state"],
                 "calculation_interval": row["calculation_interval"],
@@ -599,6 +601,10 @@ def _recent_hog_functions(team: Team) -> dict[str, Any]:
     `type` discriminates destinations vs transformations vs site apps — the agent
     pattern-matches on it to decide whether activity is "data plumbing" or "user
     surface" work.
+
+    An alert destination is a hog function whose name embeds the full webhook URL, so a
+    name can carry a live channel credential in its path or query. The profile goes into
+    an agent context, so each name keeps only its host.
     """
     qs = HogFunction.objects.filter(team=team, deleted=False)
     total = qs.count()
@@ -612,7 +618,7 @@ def _recent_hog_functions(team: Team) -> dict[str, Any]:
         "recent": [
             {
                 "id": str(row["id"]),
-                "name": row["name"] or "",
+                "name": redact_urls_in_name(row["name"] or ""),
                 "type": row["type"],
                 "kind": row["kind"],
                 "enabled": row["enabled"],

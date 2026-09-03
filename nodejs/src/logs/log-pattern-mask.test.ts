@@ -4,15 +4,18 @@ import RE2 from 're2'
 import {
     JSON_ARRAY,
     KEY_SET_MAX_KEYS,
+    type LogPatternResult,
     MASK_RULES,
     MESSAGE_KEYS,
     PATTERN_CAPS,
     PATTERN_VERSION,
-    computeLogPattern,
+    buildLogPattern,
     maskString,
 } from './log-pattern-mask'
 
 describe('log-pattern-mask', () => {
+    const patternResult = (body: string | null | undefined): LogPatternResult => buildLogPattern(body, MESSAGE_KEYS)
+
     describe('maskString', () => {
         it.each([
             ['timestamp iso Z', 'started at 2026-08-24T10:20:45.123Z ok', 'started at <TIMESTAMP> ok'],
@@ -120,7 +123,7 @@ describe('log-pattern-mask', () => {
         })
     })
 
-    describe('computeLogPattern', () => {
+    describe('buildLogPattern', () => {
         it('masks before truncating, so a UUID straddling the cut point still yields its placeholder', () => {
             // Long enough that the raw UUID crosses the output cap, short enough that `<UUID>` does not.
             // Filled with a non-hex letter, or the run itself masks to `<HEX>`.
@@ -128,19 +131,19 @@ describe('log-pattern-mask', () => {
             const body = `${head} 0f2d6faf-07e3-4cff-bf47-7efa1024aee2`
             expect(body.length).toBeGreaterThan(PATTERN_CAPS.maxOutputChars)
 
-            const result = computeLogPattern(body)
+            const result = patternResult(body)
             expect(result.pattern).toEqual(`${head} <UUID>`)
             expect(result.maskedLength).toEqual(`${head} <UUID>`.length)
         })
 
         it('reports the pre-truncation masked length and truncates the pattern', () => {
-            const result = computeLogPattern('x'.repeat(PATTERN_CAPS.maxOutputChars * 2))
+            const result = patternResult('x'.repeat(PATTERN_CAPS.maxOutputChars * 2))
             expect(result.pattern).toEqual('x'.repeat(PATTERN_CAPS.maxOutputChars))
             expect(result.maskedLength).toEqual(PATTERN_CAPS.maxOutputChars * 2)
         })
 
         it('caps the input before masking and reports it', () => {
-            const result = computeLogPattern(`${'z'.repeat(PATTERN_CAPS.maxInputChars)} 12345678`)
+            const result = patternResult(`${'z'.repeat(PATTERN_CAPS.maxInputChars)} 12345678`)
             expect(result.inputCapped).toEqual(true)
             // The number sat past the input cap, so no rule ever saw it.
             expect(result.maskedLength).toEqual(PATTERN_CAPS.maxInputChars)
@@ -149,7 +152,7 @@ describe('log-pattern-mask', () => {
 
         it('caps the raw body before the JSON parse, so an oversized JSON body is treated as truncated prose', () => {
             const body = JSON.stringify({ message: 'x'.repeat(PATTERN_CAPS.maxInputChars) })
-            const result = computeLogPattern(body)
+            const result = patternResult(body)
             expect(result.inputCapped).toEqual(true)
             expect(result.bodyKind).toEqual('plaintext')
             expect(result.pattern).toEqual(body.slice(0, PATTERN_CAPS.maxOutputChars))
@@ -175,13 +178,13 @@ describe('log-pattern-mask', () => {
             ['json object behind leading whitespace', ' \n\t{"msg":"hi 9"}', 'json_object_or_array', 'hi <N>'],
             ['prose body that opens like JSON', 'null pointer at line 4', 'plaintext', 'null pointer at line <N>'],
         ])('body kind %s', (_name, body, expectedKind, expectedPattern) => {
-            const result = computeLogPattern(body)
+            const result = patternResult(body)
             expect(result.bodyKind).toEqual(expectedKind)
             expect(result.pattern).toEqual(expectedPattern)
         })
 
         describe('key-set identity for message-less JSON objects', () => {
-            const patternOf = (body: string): string => computeLogPattern(body).pattern
+            const patternOf = (body: string): string => patternResult(body).pattern
 
             it('is independent of source key order', () => {
                 expect(patternOf('{"b":1,"a":2}')).toEqual('<JSON:a,b>')
@@ -195,13 +198,13 @@ describe('log-pattern-mask', () => {
                 const expected = `<JSON:${keys.slice(0, 32).join(',')},+8>`
                 expect(patternOf(forward)).toEqual(expected)
                 expect(patternOf(reversed)).toEqual(expected)
-                expect(computeLogPattern(forward).jsonKeyCount).toEqual(40)
+                expect(patternResult(forward).jsonKeyCount).toEqual(40)
             })
 
             it('reports the key count only for key-set patterns', () => {
-                expect(computeLogPattern('{"a":1}').jsonKeyCount).toEqual(1)
-                expect(computeLogPattern('[1,2]').jsonKeyCount).toBeUndefined()
-                expect(computeLogPattern('{"message":"hi"}').jsonKeyCount).toBeUndefined()
+                expect(patternResult('{"a":1}').jsonKeyCount).toEqual(1)
+                expect(patternResult('[1,2]').jsonKeyCount).toBeUndefined()
+                expect(patternResult('{"message":"hi"}').jsonKeyCount).toBeUndefined()
             })
 
             it('renders an empty object as an empty key set', () => {
@@ -290,7 +293,7 @@ describe('log-pattern-mask', () => {
 
         const shapeDigest = (): string =>
             createHash('sha256')
-                .update([SHAPE_INPUTS, ...CORPUS.map((body) => computeLogPattern(body).pattern)].join('\x01'))
+                .update([SHAPE_INPUTS, ...CORPUS.map((body) => patternResult(body).pattern)].join('\x01'))
                 .digest('hex')
                 .slice(0, 16)
 
@@ -301,7 +304,7 @@ describe('log-pattern-mask', () => {
         it('reaches every mask rule, so a new rule cannot land without moving the digest', () => {
             const fires = MASK_RULES.map(() => 0)
             for (const body of CORPUS) {
-                computeLogPattern(body).ruleFires.forEach((count, index) => (fires[index] += count))
+                patternResult(body).ruleFires.forEach((count, index) => (fires[index] += count))
             }
             // Reported by pattern, not name: klogtime is four rules under one name, so a name would
             // not say which of them the corpus misses.
@@ -312,7 +315,7 @@ describe('log-pattern-mask', () => {
             // `parseLogBodyForIngestion` picks which branch of `computeLogPattern` runs, and it lives in
             // another module that neither half of the digest hashes. Reaching every kind is what makes a
             // change over there surface as a moved digest instead of as silence.
-            const kinds = [...new Set(CORPUS.map((body) => computeLogPattern(body).bodyKind))].sort()
+            const kinds = [...new Set(CORPUS.map((body) => patternResult(body).bodyKind))].sort()
             expect(kinds).toEqual(['empty', 'json_object_or_array', 'json_string', 'plaintext', 'primitive'])
         })
 

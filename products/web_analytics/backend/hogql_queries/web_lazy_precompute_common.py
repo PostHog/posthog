@@ -24,7 +24,7 @@ import structlog
 import posthoganalytics
 from prometheus_client import Counter
 
-from posthog.schema import SessionsV2JoinMode
+from posthog.schema import SessionsV2JoinMode, WebAnalyticsPreComputeStrategy
 
 from posthog.hogql import ast
 from posthog.hogql.property import get_property_type, property_to_expr
@@ -742,7 +742,15 @@ def set_lazy_precompute_ineligible_reason(reason: Optional[str]) -> None:
         tag_queries(web_analytics_precompute_ineligible_reason=reason)
 
 
-def lazy_precompute_ineligible_reason() -> Optional[str]:
+def lazy_precompute_ineligible_reason(strategy: WebAnalyticsPreComputeStrategy) -> Optional[str]:
+    """Give the reason a gate refused this read, but only for a response the live path served.
+
+    The gates run before the runner selects a strategy. A read the lazy gate rejects can still be
+    served from the pre-aggregated tables, so the tag must not ride out next to a strategy that is
+    not `LIVE`.
+    """
+    if strategy != WebAnalyticsPreComputeStrategy.LIVE:
+        return None
     return get_query_tag_value("web_analytics_precompute_ineligible_reason")
 
 
