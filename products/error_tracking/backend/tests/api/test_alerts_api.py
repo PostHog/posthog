@@ -490,7 +490,9 @@ class TestErrorTrackingAlertThreads(APIBaseTest):
         self.addCleanup(flag_patcher.stop)
 
     def test_lists_an_issues_threads_with_provider_links_and_health(self):
-        integration = Integration.objects.create(team=self.team, kind="slack", config={"team": {"name": "PostHog"}})
+        integration = Integration.objects.create(
+            team=self.team, kind="slack", config={"team": {"id": "T0WORK", "name": "PostHog"}}
+        )
         issue = ErrorTrackingIssue.objects.create(team=self.team, name="TypeError")
         other_issue = ErrorTrackingIssue.objects.create(team=self.team, name="Other")
         with team_scope(self.team.id):
@@ -528,7 +530,7 @@ class TestErrorTrackingAlertThreads(APIBaseTest):
         thread = body[0]
         assert thread["alert_name"] == "Production errors"
         assert thread["channel_name"] == "#alerts"
-        assert thread["external_url"] == "https://slack.com/archives/C0123/p1725270000123456"
+        assert thread["external_url"] == "https://app.slack.com/client/T0WORK/C0123/thread/C0123-1725270000.123456"
         assert "delivered_count" not in thread
         assert thread["last_error"] == "Slack error: not_in_channel"
         assert thread["consecutive_failures"] == 2
