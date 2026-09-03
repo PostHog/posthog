@@ -19,7 +19,7 @@ pub struct Db {
 impl Db {
     pub async fn connect(url: &str) -> Result<Self> {
         let mut cfg: tokio_postgres::Config = url.parse().context("parsing PGAPI_DATABASE_URL")?;
-        cfg.ssl_mode(Self::tls_policy(url));
+        cfg.ssl_mode(tokio_postgres::config::SslMode::Require);
         let tls_cfg = rustls::ClientConfig::builder()
             .with_root_certificates(rustls::RootCertStore {
                 roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
@@ -51,18 +51,6 @@ impl Db {
             .await
             .context("stats database unreachable")?;
         Ok(db)
-    }
-
-    fn tls_policy(url: &str) -> tokio_postgres::config::SslMode {
-        use tokio_postgres::config::SslMode;
-        let lower = url.to_ascii_lowercase();
-        if lower.contains("sslmode=disable") {
-            SslMode::Disable
-        } else if lower.contains("sslmode=prefer") {
-            SslMode::Prefer
-        } else {
-            SslMode::Require
-        }
     }
 
     pub async fn ping(&self) -> bool {
