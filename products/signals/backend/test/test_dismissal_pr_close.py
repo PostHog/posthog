@@ -274,6 +274,55 @@ class TestCloseImplementationPrForReport(BaseTest):
 
         github.close_pull_request.assert_called_once_with("PostHog/posthog", 123)
 
+    def test_keeps_a_merge_that_lands_during_the_github_round_trip(self):
+        # Closing a merged PR reports success without reopening it, so a merge that arrives after the
+        # status fetch would otherwise be overwritten with closed, permanently.
+        def merge_lands(*args, **kwargs):
+            SignalReportAssignment.all_teams.filter(pk=self.assignment.pk).update(
+                pr_state=SignalReportAssignment.PrState.MERGED,
+                pr_merged=True,
+            )
+            return {"success": True, "number": 123, "state": "closed"}
+
+        github = MagicMock()
+        github.get_pull_request.return_value = {"success": True, "state": "open", "merged": False}
+        github.comment_on_pull_request.return_value = {"success": True}
+        github.close_pull_request.side_effect = merge_lands
+        with patch(
+            "products.signals.backend.implementation_pr.GitHubIntegration.first_for_team_repository",
+            return_value=github,
+        ):
+            close_implementation_pr_for_report(self.team.id, str(self.report.id))
+
+        self.assignment.refresh_from_db()
+        assert self.assignment.pr_state == SignalReportAssignment.PrState.MERGED
+        assert self.assignment.pr_merged is True
+
+    def test_does_not_write_the_result_onto_a_replacement_pr(self):
+        replacement_url = "https://github.com/PostHog/posthog/pull/456"
+
+        def reclaim_swaps_the_pr(*args, **kwargs):
+            SignalReportAssignment.all_teams.filter(pk=self.assignment.pk).update(
+                pr_url=replacement_url,
+                pr_number=456,
+                pr_state=SignalReportAssignment.PrState.OPEN,
+            )
+            return {"success": True, "number": 123, "state": "closed"}
+
+        github = MagicMock()
+        github.get_pull_request.return_value = {"success": True, "state": "open", "merged": False}
+        github.comment_on_pull_request.return_value = {"success": True}
+        github.close_pull_request.side_effect = reclaim_swaps_the_pr
+        with patch(
+            "products.signals.backend.implementation_pr.GitHubIntegration.first_for_team_repository",
+            return_value=github,
+        ):
+            close_implementation_pr_for_report(self.team.id, str(self.report.id))
+
+        self.assignment.refresh_from_db()
+        assert self.assignment.pr_url == replacement_url
+        assert self.assignment.pr_state == SignalReportAssignment.PrState.OPEN
+
     @parameterized.expand(
         [
             (
