@@ -35,15 +35,29 @@ describe('facetPresenceLogic', () => {
     })
 
     // A failed probe used to render a rail that looks complete but is missing every
-    // resource-attribute facet, so the failure has to be visible and the retry has to clear it.
-    it('flags a failed presence probe until a retry succeeds', async () => {
+    // resource-attribute facet. The failure has to stay visible through the retry, including while it
+    // is in flight, so a stalled retry cannot make the incomplete rail look healthy again.
+    it('keeps the failure flag raised through an in-flight retry and clears it only on success', async () => {
         mockAttributes.mockRejectedValueOnce(new Error('Malformed JSON response'))
         logic = facetPresenceLogic({ id: 'test-viewer' })
         logic.mount()
 
         await expectLogic(logic).toFinishAllListeners().toMatchValues({ presenceLoadFailed: true })
 
-        mockAttributes.mockResolvedValue({
+        // Hold the retry in flight: the banner is gated on the flag, so the flag must stay raised
+        // (and the loader must report loading) until the retry actually resolves.
+        type AttributesResponse = Awaited<ReturnType<typeof logsAttributesRetrieve>>
+        let resolveRetry!: (value: AttributesResponse) => void
+        mockAttributes.mockReturnValueOnce(
+            new Promise<AttributesResponse>((resolve) => {
+                resolveRetry = resolve
+            })
+        )
+        logic.actions.loadPresentResourceKeys()
+
+        await expectLogic(logic).toMatchValues({ presenceLoadFailed: true, presentResourceKeysLoading: true })
+
+        resolveRetry({
             results: [
                 {
                     name: 'service.name',
@@ -53,7 +67,6 @@ describe('facetPresenceLogic', () => {
             ],
             count: 1,
         })
-        logic.actions.loadPresentResourceKeys()
 
         await expectLogic(logic)
             .toFinishAllListeners()

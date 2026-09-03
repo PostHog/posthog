@@ -87,16 +87,22 @@ export const facetPresenceLogic = kea<facetPresenceLogicType>([
             [] as string[],
             {
                 // Which resource attribute keys the tenant emits — gates which curated facets render.
-                loadPresentResourceKeys: async () => {
+                loadPresentResourceKeys: async (_, breakpoint) => {
                     if (!values.currentTeamId) {
                         return []
                     }
-                    const response = await logsAttributesRetrieve(String(values.currentTeamId), {
-                        attribute_type: 'resource',
-                        dateRange: PRESENCE_LOOKBACK,
-                        limit: 100,
-                    })
-                    return response.results.map((r) => r.name)
+                    try {
+                        const response = await logsAttributesRetrieve(String(values.currentTeamId), {
+                            attribute_type: 'resource',
+                            dateRange: PRESENCE_LOOKBACK,
+                            limit: 100,
+                        })
+                        return response.results.map((r) => r.name)
+                    } finally {
+                        // A retry click and a filter bump can overlap. Cancel a superseded probe so an
+                        // older response cannot land its keys or raise the failure flag over a newer one.
+                        breakpoint()
+                    }
                 },
             },
         ],
@@ -104,11 +110,13 @@ export const facetPresenceLogic = kea<facetPresenceLogicType>([
 
     reducers({
         // The probe gates which facets exist at all, so a failed one renders a short rail that looks
-        // complete. The rail shows this as an error the user can retry instead.
+        // complete. The rail shows this as an error the user can retry instead. The flag clears only
+        // on success, not at request start, so the warning and its retry spinner stay visible while a
+        // retry is in flight instead of unmounting the moment the user clicks it.
         presenceLoadFailed: [
             false,
             {
-                loadPresentResourceKeys: () => false,
+                loadPresentResourceKeysSuccess: () => false,
                 loadPresentResourceKeysFailure: () => true,
             },
         ],
