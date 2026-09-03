@@ -16,7 +16,12 @@ if (empty(event.properties)) {
     return event
 }
 
-let ua := event.properties.$useragent ?? event.properties['$user-agent'] ?? event.properties.$user_agent
+// $raw_user_agent is what capture and the Vercel source set. Read it after the aliases so an
+// explicitly populated one still wins.
+let ua := event.properties.$useragent
+    ?? event.properties['$user-agent']
+    ?? event.properties.$user_agent
+    ?? event.properties.$raw_user_agent
 if (empty(ua) or typeof(ua) != 'string') {
     return event
 }
@@ -46,7 +51,8 @@ if (not empty(parsed.browser)) {
     returnEvent.properties.$browser_type := parsed.browserType
 }
 
-// Strip the raw user agent values now that they are parsed.
+// Strip the raw user agent values now that they are parsed. $raw_user_agent stays, because bot
+// detection and the ad destinations read it after this transformation runs.
 if (not empty(event.properties.$useragent)) {
     returnEvent.properties.$useragent := null
 }
