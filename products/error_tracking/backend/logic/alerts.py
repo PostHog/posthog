@@ -191,8 +191,16 @@ def _validate_filter_surface(filters: dict[str, Any]) -> None:
                 raise AlertValidationError(f"Alert event filters must have type events, got: {entity.get('type')}.")
             property_lists.append(entity.get("properties") or [])
     for property_list in property_lists:
+        # The compiler accepts an object here and iterating it would only yield keys,
+        # so the leaf checks below would never run.
+        if not isinstance(property_list, list):
+            raise AlertValidationError("Alert property filters must be a list.")
         for property_filter in property_list:
-            if isinstance(property_filter, dict) and property_filter.get("type") not in (None, "event"):
+            # A leaf without a key makes the compiler fall back to a constant-true
+            # branch, turning a "filtered" alert into a match-all.
+            if not isinstance(property_filter, dict) or not isinstance(property_filter.get("key"), str):
+                raise AlertValidationError("Each alert property filter must be an object with a key.")
+            if property_filter.get("type") not in (None, "event"):
                 raise AlertValidationError(
                     f"Alert filters support event properties only, got: {property_filter.get('type')}."
                 )

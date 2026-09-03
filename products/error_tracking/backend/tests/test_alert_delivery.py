@@ -591,6 +591,18 @@ class TestAlertFilterEvaluation(AlertTestMixin):
         client.chat_postMessage.assert_called_once()
         assert fetcher.call_count == 2
 
+    def test_null_lifecycle_fields_shadow_exception_properties(self):
+        # The CDP plane spreads lifecycle properties over the exception's with nulls
+        # winning; a team's own `severity` on the exception must not leak through here.
+        client = self._mock_slack()
+        self._create_filtered_alert({"properties": [{"key": "severity", "value": "critical", "type": "event"}]})
+        self._patch_exception_properties({"severity": "critical"})
+
+        delivered = deliver_alert_notifications(self._inputs("$error_tracking_issue_created", severity=None))
+
+        assert delivered == 0
+        client.chat_postMessage.assert_not_called()
+
     def test_lifecycle_only_properties_are_filterable(self):
         client = self._mock_slack()
         self._create_filtered_alert(
