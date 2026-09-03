@@ -25,7 +25,7 @@ export function useTasks(
     showAllUsers?: boolean;
     showInternal?: boolean;
   },
-  options?: { enabled?: boolean },
+  options?: { enabled?: boolean; subscribed?: boolean },
 ) {
   const { data: currentUser } = useMeQuery();
   const createdBy = filters?.showAllUsers ? undefined : currentUser?.id;
@@ -41,6 +41,7 @@ export function useTasks(
       }) as unknown as Promise<Task[]>,
     {
       enabled: (options?.enabled ?? true) && !!currentUser?.id,
+      subscribed: options?.subscribed,
       refetchInterval: TASK_LIST_POLL_INTERVAL_MS,
     },
   );
