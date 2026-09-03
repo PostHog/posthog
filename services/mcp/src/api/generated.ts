@@ -34234,8 +34234,6 @@ export namespace Schemas {
          */
       external_url: string | null;
       root_headline: string;
-      /** Recent lifecycle notifications delivered into the thread. */
-      delivered_count: number;
       /** Last delivery error for the destination, empty when healthy. */
       last_error: string;
       consecutive_failures: number;
