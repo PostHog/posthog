@@ -113,6 +113,18 @@ const POLICY_ERROR_MESSAGE =
   "This request was blocked by a safety policy. Revise the request and try again.";
 const GENERIC_FATAL_ERROR_MESSAGE =
   "The agent stopped before completing this request. Please try again.";
+const MAX_FATAL_CAUSE_CHARS = 500;
+
+/**
+ * The friendly sentence with the upstream cause appended. This message is the
+ * only text the recorded failure carries, so dropping the cause leaves an
+ * outage upstream of the adapter with nothing in telemetry that names it.
+ */
+function fatalErrorMessage(cause: string | undefined): string {
+  const trimmed = cause?.trim();
+  if (!trimmed) return GENERIC_FATAL_ERROR_MESSAGE;
+  return `${GENERIC_FATAL_ERROR_MESSAGE} Cause: ${trimmed.slice(0, MAX_FATAL_CAUSE_CHARS)}`;
+}
 
 type ApprovalRequestDetail = {
   itemId?: string;
@@ -286,6 +298,8 @@ export class CodexAppServerAgent extends BaseAcpAgent {
   private jsonSchema?: Record<string, unknown>;
   /** Final assistant message text for the in-flight turn (structured output). */
   private lastAgentMessage = "";
+  /** Last error codex reported for the in-flight turn; names the cause when the turn fails. */
+  private lastTurnErrorMessage?: string;
   /** True between a contextCompaction item's start and its boundary (dedupes the boundary). */
   private compactionActive = false;
   /** Maps the host's taskRunId to this session, replayed for cloud notifications. */
@@ -1120,6 +1134,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
       await this.interruptTurn(turnId, "steer turn/interrupt failed");
       this.planProposal = undefined;
       this.streamedPlanToolCallId = undefined;
+      this.lastTurnErrorMessage = undefined;
       let started: { turn?: { id?: string } };
       try {
         started = await this.rpc.request<{ turn?: { id?: string } }>(
@@ -1160,6 +1175,9 @@ export class CodexAppServerAgent extends BaseAcpAgent {
   /** Start one codex turn and await its completion. */
   private async runTurn(input: CodexUserInput[]): Promise<PromptResponse> {
     this.lastAgentMessage = "";
+    // The turn/started reset only fires for native turns; clear here so a local
+    // turn codex never announces can't inherit the previous turn's cause.
+    this.lastTurnErrorMessage = undefined;
     this.resetUsage();
     this.planProposal = undefined;
     this.streamedPlanToolCallId = undefined;
@@ -1604,6 +1622,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
     if (!isMainThread) return;
 
     if (method === APP_SERVER_NOTIFICATIONS.TURN_STARTED) {
+      this.lastTurnErrorMessage = undefined;
       // Capture the active turn id (steer precondition / interrupt target).
       const turnId = (params as { turn?: { id?: string } })?.turn?.id;
       if (!this.turns.isPending && turnId) {
@@ -1711,18 +1730,23 @@ export class CodexAppServerAgent extends BaseAcpAgent {
         turnId?: string;
         error?: { message?: unknown; codexErrorInfo?: unknown };
       };
+      if (turnId && turnId !== this.turns.activeTurnId) {
+        return;
+      }
+      const message = typeof error?.message === "string" ? error.message : "";
+      const codexErrorInfo =
+        typeof error?.codexErrorInfo === "string"
+          ? error.codexErrorInfo
+          : undefined;
+      // Keep the cause even when codex retries: a turn that fails later often
+      // sends no fatal notification of its own, and this is the only text
+      // naming what went wrong.
+      const cause = message || codexErrorInfo;
+      if (cause) this.lastTurnErrorMessage = cause;
       if (willRetry === false) {
-        if (turnId && turnId !== this.turns.activeTurnId) {
-          return;
-        }
         this.logger.warn("codex app-server fatal error notification", {
           params,
         });
-        const message = typeof error?.message === "string" ? error.message : "";
-        const codexErrorInfo =
-          typeof error?.codexErrorInfo === "string"
-            ? error.codexErrorInfo
-            : undefined;
         // A gateway billing denial rejects the prompt so the host classifies
         // it and shows the upgrade gate. It must be a RequestError: a plain
         // Error serializes to a bare "Internal error" at the ACP boundary,
@@ -1756,7 +1780,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
         void this.failTurn(
           new RequestError(
             ACP_INTERNAL_ERROR_CODE,
-            GENERIC_FATAL_ERROR_MESSAGE,
+            fatalErrorMessage(this.takeTurnErrorMessage()),
           ),
         );
       }
@@ -2103,8 +2127,17 @@ export class CodexAppServerAgent extends BaseAcpAgent {
         return;
       }
       if (!this.turns.isPending) return;
-      this.refuseTurnWithMessage(GENERIC_FATAL_ERROR_MESSAGE);
+      this.refuseTurnWithMessage(
+        fatalErrorMessage(this.takeTurnErrorMessage()),
+      );
     }, 250);
+  }
+
+  /** Read and clear the in-flight turn's error text so a later turn can't inherit it. */
+  private takeTurnErrorMessage(): string | undefined {
+    const message = this.lastTurnErrorMessage;
+    this.lastTurnErrorMessage = undefined;
+    return message;
   }
 
   private refuseTurnWithMessage(message: string): void {
