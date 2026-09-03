@@ -535,6 +535,31 @@ class TestPostgresSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            # ENETUNREACH — a resolved-but-unroutable host (IPv6-only, or a firewall dropping our
+            # IPs). Host/IP and port are invented, not real customer values.
+            'connection is bad: connection to server at "2600:1f18::1", port 5432 failed: Network is unreachable',
+            # EHOSTUNREACH — the routing sibling; libpq may append the "Is the server running..." hint.
+            'connection failed: connection to server at "203.0.113.7", port 5432 failed: No route to host',
+        ],
+    )
+    def test_unreachable_host_surfaces_actionable_message(self, source, error_msg):
+        # A resolved-but-unroutable host stays non-retryable, but the sync path must surface the same
+        # IPv4/firewall guidance the validate path gives rather than the raw driver text (which
+        # echoes the customer's host/IP into latest_error). Mirror the finalizer's first-match
+        # selection so a reorder that shadows it with an earlier None key, or a revert back to None,
+        # is caught.
+        matches = [
+            friendly
+            for pattern, friendly in source.get_non_retryable_errors().items()
+            if error_message_matches(error_msg, [pattern])
+        ]
+        assert matches, f"an unreachable host must be classified non-retryable: {error_msg}"
+        assert matches[0] is not None, "an unreachable host must surface an actionable message, not raw driver text"
+        assert "IPv4" in matches[0]
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             'OperationalError: connection failed: connection to server at "db.example.com", port 5432 failed: server closed the connection unexpectedly',
             'OperationalError: connection failed: connection to server at "db.example.com", port 5432 failed: SSL connection has been closed unexpectedly',
         ],
