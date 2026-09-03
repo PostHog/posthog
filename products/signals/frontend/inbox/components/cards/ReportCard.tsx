@@ -7,7 +7,7 @@ import { LemonButton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { derivePrState } from 'lib/signals/prState'
+import { derivePrState, prCiGlyphStatus } from 'lib/signals/prState'
 import { ScoutLink } from 'lib/signals/ScoutLink'
 import { scoutDisplayName } from 'lib/signals/signalCardSourceLine'
 import { PrBadge } from 'lib/signals/SignalReportPrBadge'
@@ -166,6 +166,8 @@ export function ReportCard({
     // Painted from the shared map the report lists fill; absent until (or unless) GitHub answers.
     const { ciStatusByReportId } = useValues(prCiStatusLogic)
     const ciStatus = preview ? null : ciStatusByReportId[report.id]
+    const prState = derivePrState(report.status, report.implementation_pr_merged === true)
+    const glyphStatus = prCiGlyphStatus(prState, ciStatus)
 
     const isRefunded = !!report.refund
     const showsDismiss = !!onDismiss || !redesign
@@ -195,7 +197,8 @@ export function ReportCard({
                     className={clsx(
                         'min-w-0 break-words font-semibold text-sm leading-snug text-balance',
                         // A CI glyph widens the pill, so the title gives back the space it takes.
-                        hasPr && (ciStatus ? 'pr-24' : 'pr-14')
+                        // A state that draws no glyph keeps the pill at its plain width.
+                        hasPr && (glyphStatus ? 'pr-24' : 'pr-14')
                     )}
                 >
                     {conventionalTitle && (
@@ -282,7 +285,7 @@ export function ReportCard({
                             // No link in preview mode: the sample PR url is fabricated, and a link would
                             // stay keyboard-focusable inside the otherwise non-routable card.
                             prUrl={preview ? null : prUrl}
-                            state={derivePrState(report.status, report.implementation_pr_merged === true)}
+                            state={prState}
                             ciStatus={ciStatus}
                         />
                     </div>
