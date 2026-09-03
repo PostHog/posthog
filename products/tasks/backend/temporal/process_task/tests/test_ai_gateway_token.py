@@ -145,13 +145,34 @@ class TestMintScopedToken:
             "claude-sonnet-4-5",
             "claude-sonnet-4-6",
             "claude-sonnet-5",
+            "claude-opus-4-5",
+            "claude-opus-4-6",
+            "claude-opus-4-7",
             "claude-opus-4-8",
             "claude-opus-5",
+            "claude-fable-5",
+            "gpt-5",
             "gpt-5.5",
             "gpt-5.6-sol",
             "gpt-5.6-luna",
             "gpt-5.6-terra",
         ]
+
+    def test_review_hog_pin_covers_every_registry_arm_model(self):
+        """A persisted reviewer arm resolves against the live registry with no
+        re-pin, so any registry model missing from the pin fails its turns
+        after cutover. Slash-namespaced served models are exempt: the reviewer
+        never draws them, and an entry the gateway cannot resolve fails the
+        whole mint."""
+        from products.tasks.backend.facade.run_config import RuntimeAdapter, get_models_for_runtime_adapter
+        from products.tasks.backend.temporal.process_task.ai_gateway_token import _PRODUCT_ALLOWED_MODELS
+
+        registry = set(get_models_for_runtime_adapter(RuntimeAdapter.CLAUDE)) | set(
+            get_models_for_runtime_adapter(RuntimeAdapter.CODEX)
+        )
+        arm_models = {model for model in registry if "/" not in model}
+        missing = arm_models - set(_PRODUCT_ALLOWED_MODELS["review_hog"])
+        assert not missing, f"registry arm models absent from the review_hog pin: {sorted(missing)}"
 
     def test_non_pinned_products_send_no_allowed_models(self, mint_settings):
         with patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post:

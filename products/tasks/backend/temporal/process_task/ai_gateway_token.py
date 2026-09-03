@@ -67,20 +67,28 @@ MINTABLE_PRODUCTS = frozenset(
     }
 )
 
-# Model pins carried on the minted token: the pipeline's stage pins plus the
+# Model pins carried on the minted token: the pipeline's stage pins, the
 # implicit agent-SDK calls (the haiku small/fast utility model and the sonnet
-# generations the explore subagent's bare `sonnet` alias resolves to).
-# GLM/DeepSeek and older opus-4-x arms are unpinned: routing is per product, so
-# a persisted old arm is denied and the experiment harness must re-pin first.
-# A gateway without allowed_models support ignores the field.
+# generations the explore subagent's bare `sonnet` alias resolves to), and
+# every registry-supported reviewer-arm model. Persisted arms resolve against
+# the live registry with no re-pin step, and a dispatch denial does not fall
+# back to the legacy gateway, so an arm outside the pin would fail its turns
+# outright. Gateway-served models (slash-namespaced) stay out: an entry the
+# gateway cannot resolve fails the whole mint with a 400. A gateway without
+# allowed_models support ignores the field.
 _PRODUCT_ALLOWED_MODELS: dict[str, list[str]] = {
     "review_hog": [
         "claude-haiku-4-5",
         "claude-sonnet-4-5",
         "claude-sonnet-4-6",
         "claude-sonnet-5",
+        "claude-opus-4-5",
+        "claude-opus-4-6",
+        "claude-opus-4-7",
         "claude-opus-4-8",
         "claude-opus-5",
+        "claude-fable-5",
+        "gpt-5",
         "gpt-5.5",
         "gpt-5.6-sol",
         "gpt-5.6-luna",
