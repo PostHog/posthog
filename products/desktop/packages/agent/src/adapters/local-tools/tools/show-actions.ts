@@ -20,6 +20,10 @@ const SHOW_ACTIONS_TOOL_DESCRIPTION =
   "`compose` opens the new-task composer prefilled with `prompt` (and `repo` " +
   "when given). The user reads, edits and sends it themselves, so it does NOT " +
   "start a task and does NOT send anything on click. " +
+  "A `compose` action also takes an optional `description`, which no other " +
+  "kind accepts. Giving one draws that button as a larger card instead of a " +
+  "pill, so use it for the offers that matter most. Write one short sentence " +
+  "on what the prefilled task will do, never a restatement of the label. " +
   "`open_space` opens a channel's feed. `open_canvas` opens a canvas inside a " +
   "channel, and needs both `channel_id` and `canvas_id`. " +
   "`open_inbox` opens Self-driving, where PostHog files the reports it writes " +

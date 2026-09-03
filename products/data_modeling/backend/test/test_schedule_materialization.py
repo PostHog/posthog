@@ -79,30 +79,33 @@ class TestScheduleMaterializationV2Guard(BaseTest):
         nodeless.refresh_from_db()
         assert nodeless.is_materialized is False
 
-    def test_disables_materialization_when_dag_is_not_on_v2(self):
-        self.sq.is_materialized = True
-        self.sq.save(update_fields=["is_materialized"])
+    def test_reports_and_disables_when_there_is_no_node_to_bootstrap(self):
+        # a DAG with no v2 schedule is bootstrapped through its node, so the one way left to
+        # reach the end of schedule_materialization with nothing scheduled is a query that has
+        # no node at all. That is the arrival the winddown reporter exists to catch.
+        nodeless = DataWarehouseSavedQuery.objects.create(
+            name="sync_failed",
+            team=self.team,
+            query={"query": "SELECT 1", "kind": "HogQLQuery"},
+            is_materialized=True,
+        )
         with (
             mock.patch(GET_V2_DAG_IDS, return_value=set()),
-            mock.patch(f"{RECONCILE}.schedule_exists", return_value=True),
             mock.patch(f"{MODEL}.capture_exception") as capture,
         ):
-            self.sq.schedule_materialization()
+            nodeless.schedule_materialization()
 
-        self.sq.refresh_from_db()
-        assert self.sq.is_materialized is False
+        nodeless.refresh_from_db()
+        assert nodeless.is_materialized is False
         assert isinstance(capture.call_args.args[0], V1SchedulingPathReached)
         assert capture.call_args.args[1]["team_id"] == self.team.pk
 
-    def test_virgin_dag_is_born_on_tiers_instead_of_minting_a_v1_schedule(self):
-        # a brand-new team's DAG has no v2 schedule *and* no v1 schedules, so the v2 lookup says
-        # "not on v2" and the query would get a per-query v1 schedule — that is how every new team
-        # lands on v1 and why the v1 population grows on its own
+    def test_virgin_dag_is_born_on_tiers(self):
+        # a brand-new team's DAG has no schedule at all, so the v2 lookup says "not on v2" and
+        # nothing would ever materialize the query — the bootstrap is what gives it a schedule
         node = Node.objects.get(saved_query=self.sq)
         with (
             mock.patch(GET_V2_DAG_IDS, return_value=set()),
-            mock.patch(f"{RECONCILE}.schedule_exists", return_value=False),
-            mock.patch(f"{RECONCILE}.feature_enabled_or_false", return_value=True),
             mock.patch(f"{RECONCILE}.sync_connect"),
             mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=_no_schedules())),
             mock.patch(f"{RECONCILE}.a_create_schedule", new=mock.AsyncMock()) as create,
@@ -118,29 +121,6 @@ class TestScheduleMaterializationV2Guard(BaseTest):
         self.sq.refresh_from_db()
         assert self.sq.sync_frequency_interval is None
 
-    def test_virgin_dag_is_born_on_tiers_with_the_tiered_flag_off(self):
-        # nothing mints v1 schedules any more, so a bootstrap the flag declines leaves the query
-        # with no scheduler at all — and the flag reads false on every self-hosted deployment
-        node = Node.objects.get(saved_query=self.sq)
-        with (
-            mock.patch(GET_V2_DAG_IDS, return_value=set()),
-            mock.patch(f"{RECONCILE}.schedule_exists", return_value=False),
-            mock.patch(f"{RECONCILE}.feature_enabled_or_false", return_value=False),
-            mock.patch(f"{RECONCILE}.sync_connect"),
-            mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=_no_schedules())),
-            mock.patch(f"{RECONCILE}.a_create_schedule", new=mock.AsyncMock()) as create,
-            mock.patch(f"{NODE_MAT}.sync_connect"),
-            self.captureOnCommitCallbacks(execute=True),
-        ):
-            self.sq.schedule_materialization()
-
-        create.assert_called_once()
-        assert is_tier_schedule_id(create.call_args.kwargs["id"])
-        # the flag gates the write-through path, so the requested cadence has to survive as a
-        # seeded target instead
-        node.refresh_from_db()
-        assert get_declared_target(node) == timedelta(hours=12)
-
     def test_failed_bootstrap_retracts_the_materialized_claim(self):
         # the reconcile runs after the caller's transaction commits, so a failure has no caller
         # left to raise into: leaving is_materialized set would report a schedule that was
@@ -149,8 +129,6 @@ class TestScheduleMaterializationV2Guard(BaseTest):
         self.sq.save(update_fields=["is_materialized"])
         with (
             mock.patch(GET_V2_DAG_IDS, return_value=set()),
-            mock.patch(f"{RECONCILE}.schedule_exists", return_value=False),
-            mock.patch(f"{RECONCILE}.feature_enabled_or_false", return_value=True),
             mock.patch(f"{RECONCILE}.sync_connect"),
             mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=_no_schedules())),
             mock.patch(
@@ -174,8 +152,6 @@ class TestScheduleMaterializationV2Guard(BaseTest):
         self.sq.save(update_fields=["sync_frequency_interval"])
         with (
             mock.patch(GET_V2_DAG_IDS, return_value=set()),
-            mock.patch(f"{RECONCILE}.schedule_exists", return_value=False),
-            mock.patch(f"{RECONCILE}.feature_enabled_or_false", return_value=True),
             mock.patch(f"{RECONCILE}.sync_connect"),
             mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=_no_schedules())),
             mock.patch(f"{RECONCILE}.a_create_schedule", new=mock.AsyncMock()) as create,

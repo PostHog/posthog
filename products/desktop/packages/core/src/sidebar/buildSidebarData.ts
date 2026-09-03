@@ -13,7 +13,9 @@ export interface FullTask {
   updated_at: string;
   last_activity_at?: string | null;
   origin_product?: string;
+  created_by?: { id: number } | null;
   latest_run?: {
+    id?: string;
     status?: TaskRunStatus | null;
     environment?: "local" | "cloud" | null;
     output?: { pr_url?: unknown } | null;
@@ -30,7 +32,9 @@ export interface SidebarTask {
   last_activity_at?: string | null;
   origin_product?: string;
   slack_thread_url?: string;
+  created_by_id?: number | null;
   latest_run?: {
+    id?: string;
     status?: TaskRunStatus | null;
     environment?: "local" | "cloud" | null;
     output?: { pr_url?: unknown } | null;
@@ -72,8 +76,10 @@ export function narrowFullTask(task: FullTask | Task): SidebarTask {
     created_at: task.created_at,
     updated_at: task.updated_at,
     last_activity_at: task.last_activity_at ?? null,
+    created_by_id: task.created_by?.id ?? null,
     latest_run: task.latest_run
       ? {
+          id: task.latest_run.id,
           status: task.latest_run.status,
           environment: task.latest_run.environment ?? null,
           output: task.latest_run.output ?? null,
@@ -203,11 +209,12 @@ export function deriveTaskRunState(
   session: TaskSession | undefined,
 ): Pick<
   TaskData,
-  "id" | "isGenerating" | "taskRunStatus" | "taskRunEnvironment"
+  "id" | "isGenerating" | "taskRunId" | "taskRunStatus" | "taskRunEnvironment"
 > {
   return {
     id: task.id,
     isGenerating: session?.isPromptPending ?? false,
+    taskRunId: task.latest_run?.id ?? undefined,
     taskRunStatus: session?.cloudStatus ?? task.latest_run?.status ?? undefined,
     taskRunEnvironment: task.latest_run?.environment ?? undefined,
   };
@@ -237,6 +244,7 @@ export function deriveTaskData(
   return {
     ...deriveTaskRunState(task, session),
     title: task.title,
+    createdById: task.created_by_id ?? undefined,
     createdAt,
     lastActivityAt,
     isUnread,

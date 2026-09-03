@@ -8,7 +8,6 @@ import { useEffect } from 'react'
 
 import * as judge from '@posthog/brand/hoggies/png/judge'
 import * as star from '@posthog/brand/hoggies/png/star'
-import { IconDocument } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonInput, Link } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
@@ -21,7 +20,6 @@ import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { toSentenceCase } from 'lib/utils/strings'
 import { couponLogic } from 'scenes/coupons/couponLogic'
-import { getProductIcon } from 'scenes/onboarding/shared/utils'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -35,7 +33,6 @@ import { billingLogic } from './billingLogic'
 import { BillingNoAccess } from './BillingNoAccess'
 import { BillingProduct } from './BillingProduct'
 import { BillingSummary } from './BillingSummary'
-import { CodeSeatsSection } from './CodeSeatsSection'
 import { CreditCTAHero } from './CreditCTAHero'
 import { StripePortalButton } from './StripePortalButton'
 import { UnsubscribeCard } from './UnsubscribeCard'
@@ -264,32 +261,6 @@ export function Billing(): JSX.Element {
                     </div>
                 ))}
 
-            {featureFlags[FEATURE_FLAGS.POSTHOG_CODE_BILLING] && (
-                <div className="flex flex-wrap max-w-300 pb-8">
-                    <div className="border border-primary rounded w-full bg-surface-primary">
-                        <div className="border-b border-primary rounded-t p-4">
-                            <div className="flex gap-4 items-center justify-between">
-                                <div className="flex gap-x-2">
-                                    <div>{getProductIcon('IconTerminal', { className: 'text-2xl shrink-0' })}</div>
-                                    <div>
-                                        <h3 className="font-bold mb-0">PostHog Desktop</h3>
-                                        <div>Manage existing PostHog Desktop seats.</div>
-                                    </div>
-                                </div>
-                                <LemonButton
-                                    icon={<IconDocument />}
-                                    size="small"
-                                    to="https://posthog.com/docs/posthog-desktop"
-                                    tooltip="Read the docs"
-                                />
-                            </div>
-                        </div>
-                        <div className="p-8">
-                            <CodeSeatsSection />
-                        </div>
-                    </div>
-                </div>
-            )}
             <div>
                 {billing?.subscription_level == 'paid' && !!platformAndSupportProduct ? (
                     <>
