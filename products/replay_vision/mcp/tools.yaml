@@ -156,16 +156,20 @@ tools:
             Search replay vision observations by meaning, not keywords: `q` is a natural-language description of what to
             find (e.g. "users confused by the pricing page") and results come back under `results`, most relevant first.
             Each result pairs the `observation` with its `distance` to the query (lower is closer, only comparable
-            within one response) and `matched_content`, the observation's text that matched (may be empty for old
-            rows). Observations too far from the query are not returned at all, so an off-topic search yields no
-            results rather than the nearest unrelated ones. The search ranks each observation's LLM output (a summarizer's title and summary,
-            other scanners' reasoning) by semantic similarity, so it finds sessions described differently from
+            within one response) and `matched_content`, the observation's text that matched (may be empty for old rows).
+            Observations too far from the query are not returned at all, so an off-topic search yields no results rather
+            than the nearest unrelated ones. The search ranks each observation's LLM output (a summarizer's title and
+            summary, other scanners' reasoning) by semantic similarity, so it finds sessions described differently from
             the query. Scope with `scanner_id` to search one scanner, otherwise every scanner the caller can read is
             searched. Narrow by exact outcome with `verdict` (comma-separated, e.g. `yes,inconclusive`), `tags`
             (comma-separated classifier tags), and `min_score`/`max_score` (scorer bounds), or by time with
-            `date_from`/`date_to` (ISO 8601 or relative like `-7d`). These filter, while `q` ranks. `limit` defaults to 20 (max 50). Use `vision-observations-retrieve` for a result's full detail, or
-            `vision-observations-list` for everything observed about one session.
+            `date_from`/`date_to` (ISO 8601 or relative like `-7d`). These filter, while `q` ranks. `limit` defaults to
+            20 (max 50). Use `vision-observations-retrieve` for a result's full detail, or `vision-observations-list`
+            for everything observed about one session.
         requires_ai_consent: true
+    vision-observations-search-suggestions-retrieve:
+        operation: vision_observations_search_suggestions_retrieve
+        enabled: false
     vision-quota-retrieve:
         operation: environment_vision_quota_retrieve
         enabled: true
@@ -237,8 +241,8 @@ tools:
         description: >
             Create a replay vision scanner. Pick a `scanner_type` — `monitor` (open-ended observations), `classifier`
             (assign a tag from a fixed label set), `scorer` (numeric rubric), or `summarizer` (free-text summary,
-            embedded for search) — and fill `scanner_config` to match: all types need a `prompt`; monitors
-            optionally set `allow_inconclusive`; classifiers also need `tags` (and optionally `multi_label`,
+            embedded for search) — and fill `scanner_config` to match: all types need a `prompt`; monitors optionally
+            set `allow_inconclusive`; classifiers also need `tags` (and optionally `multi_label`,
             `allow_freeform_tags`); scorers also need `scale`; summarizers optionally set `length`. Unknown
             `scanner_config` keys are rejected. `query` is a `RecordingsQuery` shape that defines which sessions the
             scanner watches — `date_from` and `date_to` are ignored (the schedule controls time). `sampling_mode` is a
@@ -382,9 +386,9 @@ tools:
             List all replay vision scanners in the current project. A scanner watches a slice of session recordings
             (defined by its `query`, `sampling_mode` and `sampling_rate`) and runs one of four LLM analyses against each
             matching session: `monitor` (open-ended observations), `classifier` (tag from a fixed label set), `scorer`
-            (numeric rubric), or `summarizer` (free-text summary, embedded for downstream search). Each
-            scanner returns its current configuration, enabled state, sampling settings, `last_swept_at` timestamp, and
-            its credit figures (`credits_per_observation`, `estimated_monthly_credits`, `credits_this_month`).
+            (numeric rubric), or `summarizer` (free-text summary, embedded for downstream search). Each scanner returns
+            its current configuration, enabled state, sampling settings, `last_swept_at` timestamp, and its credit
+            figures (`credits_per_observation`, `estimated_monthly_credits`, `credits_this_month`).
     vision-scanners-observations-create-task-create:
         operation: vision_scanners_observations_create_task_create
         enabled: false
