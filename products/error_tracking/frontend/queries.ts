@@ -250,12 +250,19 @@ export const errorTrackingIssueCorrelationQuery = ({
     })
 }
 
+// Must match the fingerprint projection runner's defaults, or similarity reads a set of embeddings
+// that the fingerprint map never populated.
+export const FINGERPRINT_EMBEDDING_MODEL = 'text-embedding-3-large-3072'
+export const FINGERPRINT_EMBEDDING_RENDERING = 'type_message_and_stack'
+
 export const errorTrackingDocumentSimilarityQuery = ({
     documentId,
     timestamp,
+    limit,
 }: {
     documentId: string
     timestamp: string
+    limit?: number
 }): DocumentSimilarityQuery => {
     return setLatestVersionsOnQuery<DocumentSimilarityQuery>({
         kind: NodeKind.DocumentSimilarityQuery,
@@ -269,10 +276,11 @@ export const errorTrackingDocumentSimilarityQuery = ({
         order_by: 'distance',
         order_direction: 'asc',
         distance_func: 'cosineDistance',
-        model: 'text-embedding-3-small-1536',
+        model: FINGERPRINT_EMBEDDING_MODEL,
         products: ['error_tracking'],
         document_types: ['fingerprint'],
-        renderings: [],
+        renderings: [FINGERPRINT_EMBEDDING_RENDERING],
+        limit,
         tags: { productKey: ProductKey.ERROR_TRACKING },
     })
 }
@@ -282,9 +290,16 @@ export const errorTrackingIssueFingerprintsQuery = (
     first_seen: string,
     fingerprints: string[]
 ): HogQLQueryString => {
-    return hogql`SELECT properties.$exception_fingerprint as fingerprint, count() as c, groupUniqArray(map('type', properties.$exception_types[1], 'value', properties.$exception_values[1])) as samples
+    return hogql`SELECT properties.$exception_fingerprint as fingerprint, count() as c, groupUniqArray(map('type', properties.$exception_types[1], 'value', properties.$exception_values[1], 'lib', properties.$lib)) as samples
                 FROM events
                 WHERE event = '$exception' and issue_id = ${issue_id} and has(${fingerprints}, properties.$exception_fingerprint) and timestamp >= toDateTime(${first_seen})
+                GROUP BY properties.$exception_fingerprint`
+}
+
+export const errorTrackingFingerprintSamplesQuery = (fingerprints: string[], since: string): HogQLQueryString => {
+    return hogql`SELECT properties.$exception_fingerprint as fingerprint, any(issue_id) as issue_id, groupUniqArray(map('type', properties.$exception_types[1], 'value', properties.$exception_values[1], 'lib', properties.$lib)) as samples
+                FROM events
+                WHERE event = '$exception' and has(${fingerprints}, properties.$exception_fingerprint) and timestamp >= toDateTime(${since})
                 GROUP BY properties.$exception_fingerprint`
 }
 
