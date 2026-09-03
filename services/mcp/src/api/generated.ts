@@ -64683,7 +64683,7 @@ export namespace Schemas {
     }
 
     export interface TeamFeatureFlagPolicyConfig {
-      /** When enabled, a new feature flag must carry at least one tag, and an existing tagged flag cannot have its last tag removed. Flags generated to back a survey, experiment, early access feature, product tour, or web experiment are exempt. */
+      /** When enabled, a new feature flag needs at least one tag, and a tagged flag cannot lose its last one. A create that declares it comes from a survey, experiment, early access feature, product tour, or web experiment is exempt, because those forms have no tag input. The caller sets that declaration, so a flag can still be created without a tag. */
       require_tags?: boolean;
     }
 

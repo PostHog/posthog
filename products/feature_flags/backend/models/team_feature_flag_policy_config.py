@@ -8,11 +8,15 @@ logger = logging.getLogger(__name__)
 
 
 class TeamFeatureFlagPolicyConfig(models.Model):
-    """Customer-editable rules a team can impose on the flags its members create.
+    """Customer-editable rules that guard how a team's members create flags.
 
     Distinct from TeamFeatureFlagsConfig, which holds staff-only rollout switches and is never
     exposed to customers. This one is reachable by project admins as `feature_flag_policy_config`
     on the team/project API.
+
+    These rules are bookkeeping, and they do not hold on every write path. The exemptions are
+    declared by the caller, and a path that builds a serializer context without `get_team` skips
+    the rules entirely: the organization-level flag copy and the approvals apply path both do.
     """
 
     # db_constraint=False: a real FK constraint would take a SHARE ROW EXCLUSIVE
