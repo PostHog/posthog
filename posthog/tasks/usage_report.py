@@ -320,6 +320,7 @@ class UsageReportCounters:
     opencode_events_count_in_period: int
     posthog_pi_events_count_in_period: int
     posthog_ai_events_count_in_period: int
+    posthog_python_ai_events_count_in_period: int
     edge_events_count_in_period: int
     convex_events_count_in_period: int
     android_events_count_in_period: int
@@ -793,25 +794,30 @@ def _get_ai_sub_sdk_event_metric_counts(
     lib_expression: str,
     ai_lib_expression: str,
     use_new_events_schema: bool,
-) -> tuple[dict[str, list[tuple[int, int]]], dict[int, int]]:
-    ai_lib_to_metric: dict[str, str] = {}
+) -> tuple[dict[str, list[tuple[int, int]]], dict[str, dict[int, int]]]:
+    ai_sdk_to_metric: dict[tuple[str, str], str] = {}
+    parent_metric_by_lib = {lib: sdk_metric for lib, ai_lib, sdk_metric in sdk_metrics if ai_lib is None}
     ai_parent_libs: list[str] = []
+    ai_libs: list[str] = []
     for lib, ai_lib, sdk_metric in sdk_metrics:
         if ai_lib is None:
             continue
-        ai_lib_to_metric[ai_lib] = sdk_metric
+        ai_sdk_to_metric[(lib, ai_lib)] = sdk_metric
         if lib not in ai_parent_libs:
             ai_parent_libs.append(lib)
+        if ai_lib not in ai_libs:
+            ai_libs.append(ai_lib)
 
-    if not ai_lib_to_metric:
+    if not ai_sdk_to_metric:
         return {}, {}
 
     quoted_ai_parent_libs = ", ".join(f"'{lib}'" for lib in ai_parent_libs)
-    quoted_ai_libs = ", ".join(f"'{ai_lib}'" for ai_lib in ai_lib_to_metric)
+    quoted_ai_libs = ", ".join(f"'{ai_lib}'" for ai_lib in ai_libs)
     # nosemgrep: clickhouse-fstring-param-audit - SDK property expressions come from internal helpers
     query_template = f"""
         SELECT
             team_id,
+            {lib_expression} AS sdk_lib,
             {ai_lib_expression} AS ai_lib,
             count(1) as count
         FROM {events_read_table(use_new_events_schema)}
@@ -819,7 +825,7 @@ def _get_ai_sub_sdk_event_metric_counts(
             AND {lib_expression} IN ({quoted_ai_parent_libs})
             AND startsWith(event, '$ai_')
         WHERE {ai_lib_expression} IN ({quoted_ai_libs})
-        GROUP BY team_id, ai_lib
+        GROUP BY team_id, sdk_lib, ai_lib
     """
 
     ai_rows = _execute_split_query(
@@ -831,19 +837,21 @@ def _get_ai_sub_sdk_event_metric_counts(
         combine_results_func=_flatten_split_query_results,
     )
 
-    ai_counts_by_metric: dict[str, dict[int, int]] = {metric_name: {} for metric_name in ai_lib_to_metric.values()}
-    node_subtractions: dict[int, int] = {}
-    for team_id, ai_lib, count in ai_rows:
-        metric_name = ai_lib_to_metric.get(ai_lib)
-        if metric_name is None:
+    ai_counts_by_metric: dict[str, dict[int, int]] = {metric_name: {} for metric_name in ai_sdk_to_metric.values()}
+    parent_subtractions: dict[str, dict[int, int]] = {}
+    for team_id, sdk_lib, ai_lib, count in ai_rows:
+        metric_name = ai_sdk_to_metric.get((sdk_lib, ai_lib))
+        parent_metric_name = parent_metric_by_lib.get(sdk_lib)
+        if metric_name is None or parent_metric_name is None:
             continue
         team_counts = ai_counts_by_metric[metric_name]
         team_counts[team_id] = team_counts.get(team_id, 0) + count
-        node_subtractions[team_id] = node_subtractions.get(team_id, 0) + count
+        parent_team_counts = parent_subtractions.setdefault(parent_metric_name, {})
+        parent_team_counts[team_id] = parent_team_counts.get(team_id, 0) + count
 
     return {
         metric_name: list(team_counts.items()) for metric_name, team_counts in ai_counts_by_metric.items()
-    }, node_subtractions
+    }, parent_subtractions
 
 
 # MCP Analytics events emitted verbatim by the @posthog/mcp SDK, beyond `$mcp_tool_call` (which
@@ -948,6 +956,7 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
         ("posthog-server", None, "java_events"),
         ("posthog-react-native", None, "react_native_events"),
         ("posthog-ruby", None, "ruby_events"),
+        ("posthog-python", "posthog-ai", "posthog_python_ai_events"),
         ("posthog-python", None, "python_events"),
         ("posthog-php", None, "php_events"),
         ("posthog-dotnet", None, "dotnet_events"),
@@ -1004,6 +1013,7 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
             "opencode_events": {},
             "posthog_pi_events": {},
             "posthog_ai_events": {},
+            "posthog_python_ai_events": {},
             "edge_events": {},
             "convex_events": {},
             "android_events": {},
@@ -1062,7 +1072,7 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
             params={},
             num_splits=12,
         )
-        ai_counts_by_metric, node_subtractions = _get_ai_sub_sdk_event_metric_counts(
+        ai_counts_by_metric, parent_subtractions = _get_ai_sub_sdk_event_metric_counts(
             begin=begin,
             end=end,
             sdk_metrics=sdk_metrics,
@@ -1072,11 +1082,11 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
         )
         mcp_analytics_counts_by_metric = _get_mcp_analytics_event_metric_counts(begin=begin, end=end)
 
-    # Fold the AI sub-counts in and remove them from node_events (the main scan counts every
-    # posthog-node event as node_events). max(0, count) guards against tiny cross-query ingestion jitter.
-    metrics["node_events"] = [
-        (team_id, max(0, count - node_subtractions.get(team_id, 0))) for team_id, count in metrics["node_events"]
-    ]
+    # Remove sub-SDK events from each parent metric. max(0, count) guards against cross-query ingestion jitter.
+    for parent_metric, team_subtractions in parent_subtractions.items():
+        metrics[parent_metric] = [
+            (team_id, max(0, count - team_subtractions.get(team_id, 0))) for team_id, count in metrics[parent_metric]
+        ]
     metrics.update(ai_counts_by_metric)
     metrics.update(mcp_analytics_counts_by_metric)
 
@@ -2882,6 +2892,7 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         "teams_with_opencode_events_count_in_period": all_metrics["opencode_events"],
         "teams_with_posthog_pi_events_count_in_period": all_metrics["posthog_pi_events"],
         "teams_with_posthog_ai_events_count_in_period": all_metrics["posthog_ai_events"],
+        "teams_with_posthog_python_ai_events_count_in_period": all_metrics["posthog_python_ai_events"],
         "teams_with_edge_events_count_in_period": all_metrics["edge_events"],
         "teams_with_convex_events_count_in_period": all_metrics["convex_events"],
         "teams_with_android_events_count_in_period": all_metrics["android_events"],
@@ -3300,6 +3311,9 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         opencode_events_count_in_period=all_data["teams_with_opencode_events_count_in_period"].get(team.id, 0),
         posthog_pi_events_count_in_period=all_data["teams_with_posthog_pi_events_count_in_period"].get(team.id, 0),
         posthog_ai_events_count_in_period=all_data["teams_with_posthog_ai_events_count_in_period"].get(team.id, 0),
+        posthog_python_ai_events_count_in_period=all_data["teams_with_posthog_python_ai_events_count_in_period"].get(
+            team.id, 0
+        ),
         edge_events_count_in_period=all_data["teams_with_edge_events_count_in_period"].get(team.id, 0),
         convex_events_count_in_period=all_data["teams_with_convex_events_count_in_period"].get(team.id, 0),
         android_events_count_in_period=all_data["teams_with_android_events_count_in_period"].get(team.id, 0),

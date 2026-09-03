@@ -162,17 +162,20 @@
   '''
   
   SELECT team_id,
+         replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') AS sdk_lib,
          replaceRegexpAll(JSONExtractRaw(properties, '$ai_lib'), '^"|"$', '') AS ai_lib,
          count(1) as count
   FROM events PREWHERE timestamp >= '2022-01-10 00:00:00'
   AND timestamp < '2022-01-10 02:00:00'
-  AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-node')
+  AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-node',
+                                                                            'posthog-python')
   AND startsWith(event, '$ai_')
   WHERE replaceRegexpAll(JSONExtractRaw(properties, '$ai_lib'), '^"|"$', '') IN ('posthog-openclaw',
                                                                                  'posthog-opencode',
                                                                                  '@posthog/pi',
                                                                                  'posthog-ai')
   GROUP BY team_id,
+           sdk_lib,
            ai_lib
   '''
 # ---
@@ -180,17 +183,20 @@
   '''
   
   SELECT team_id,
+         replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') AS sdk_lib,
          replaceRegexpAll(JSONExtractRaw(properties, '$ai_lib'), '^"|"$', '') AS ai_lib,
          count(1) as count
   FROM events PREWHERE timestamp >= '2022-01-10 02:00:00'
   AND timestamp < '2022-01-10 04:00:00'
-  AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-node')
+  AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-node',
+                                                                            'posthog-python')
   AND startsWith(event, '$ai_')
   WHERE replaceRegexpAll(JSONExtractRaw(properties, '$ai_lib'), '^"|"$', '') IN ('posthog-openclaw',
                                                                                  'posthog-opencode',
                                                                                  '@posthog/pi',
                                                                                  'posthog-ai')
   GROUP BY team_id,
+           sdk_lib,
            ai_lib
   '''
 # ---
@@ -198,17 +204,20 @@
   '''
   
   SELECT team_id,
+         replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') AS sdk_lib,
          replaceRegexpAll(JSONExtractRaw(properties, '$ai_lib'), '^"|"$', '') AS ai_lib,
          count(1) as count
   FROM events PREWHERE timestamp >= '2022-01-10 04:00:00'
   AND timestamp < '2022-01-10 06:00:00'
-  AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-node')
+  AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-node',
+                                                                            'posthog-python')
   AND startsWith(event, '$ai_')
   WHERE replaceRegexpAll(JSONExtractRaw(properties, '$ai_lib'), '^"|"$', '') IN ('posthog-openclaw',
                                                                                  'posthog-opencode',
                                                                                  '@posthog/pi',
                                                                                  'posthog-ai')
   GROUP BY team_id,
+           sdk_lib,
            ai_lib
   '''
 # ---
@@ -216,17 +225,20 @@
   '''
   
   SELECT team_id,
+         replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') AS sdk_lib,
          replaceRegexpAll(JSONExtractRaw(properties, '$ai_lib'), '^"|"$', '') AS ai_lib,
          count(1) as count
   FROM events PREWHERE timestamp >= '2022-01-10 06:00:00'
   AND timestamp < '2022-01-10 08:00:00'
-  AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-node')
+  AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-node',
+                                                                            'posthog-python')
   AND startsWith(event, '$ai_')
   WHERE replaceRegexpAll(JSONExtractRaw(properties, '$ai_lib'), '^"|"$', '') IN ('posthog-openclaw',
                                                                                  'posthog-opencode',
                                                                                  '@posthog/pi',
                                                                                  'posthog-ai')
   GROUP BY team_id,
+           sdk_lib,
            ai_lib
   '''
 # ---
@@ -234,17 +246,20 @@
   '''
   
   SELECT team_id,
+         replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') AS sdk_lib,
          replaceRegexpAll(JSONExtractRaw(properties, '$ai_lib'), '^"|"$', '') AS ai_lib,
          count(1) as count
   FROM events PREWHERE timestamp >= '2022-01-10 08:00:00'
   AND timestamp < '2022-01-10 10:00:00'
-  AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-node')
+  AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-node',
+                                                                            'posthog-python')
   AND startsWith(event, '$ai_')
   WHERE replaceRegexpAll(JSONExtractRaw(properties, '$ai_lib'), '^"|"$', '') IN ('posthog-openclaw',
                                                                                  'posthog-opencode',
                                                                                  '@posthog/pi',
                                                                                  'posthog-ai')
   GROUP BY team_id,
+           sdk_lib,
            ai_lib
   '''
 # ---
@@ -252,17 +267,20 @@
   '''
   
   SELECT team_id,
+         replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') AS sdk_lib,
          replaceRegexpAll(JSONExtractRaw(properties, '$ai_lib'), '^"|"$', '') AS ai_lib,
          count(1) as count
   FROM events PREWHERE timestamp >= '2022-01-10 10:00:00'
   AND timestamp < '2022-01-10 12:00:00'
-  AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-node')
+  AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-node',
+                                                                            'posthog-python')
   AND startsWith(event, '$ai_')
   WHERE replaceRegexpAll(JSONExtractRaw(properties, '$ai_lib'), '^"|"$', '') IN ('posthog-openclaw',
                                                                                  'posthog-opencode',
                                                                                  '@posthog/pi',
                                                                                  'posthog-ai')
   GROUP BY team_id,
+           sdk_lib,
            ai_lib
   '''
 # ---
@@ -270,17 +288,20 @@
   '''
   
   SELECT team_id,
+         replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') AS sdk_lib,
          replaceRegexpAll(JSONExtractRaw(properties, '$ai_lib'), '^"|"$', '') AS ai_lib,
          count(1) as count
   FROM events PREWHERE timestamp >= '2022-01-10 12:00:00'
   AND timestamp < '2022-01-10 14:00:00'
-  AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-node')
+  AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-node',
+                                                                            'posthog-python')
   AND startsWith(event, '$ai_')
   WHERE replaceRegexpAll(JSONExtractRaw(properties, '$ai_lib'), '^"|"$', '') IN ('posthog-openclaw',
                                                                                  'posthog-opencode',
                                                                                  '@posthog/pi',
                                                                                  'posthog-ai')
   GROUP BY team_id,
+           sdk_lib,
            ai_lib
   '''
 # ---
@@ -325,17 +346,20 @@
   '''
   
   SELECT team_id,
+         replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') AS sdk_lib,
          replaceRegexpAll(JSONExtractRaw(properties, '$ai_lib'), '^"|"$', '') AS ai_lib,
          count(1) as count
   FROM events PREWHERE timestamp >= '2022-01-10 14:00:00'
   AND timestamp < '2022-01-10 16:00:00'
-  AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-node')
+  AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-node',
+                                                                            'posthog-python')
   AND startsWith(event, '$ai_')
   WHERE replaceRegexpAll(JSONExtractRaw(properties, '$ai_lib'), '^"|"$', '') IN ('posthog-openclaw',
                                                                                  'posthog-opencode',
                                                                                  '@posthog/pi',
                                                                                  'posthog-ai')
   GROUP BY team_id,
+           sdk_lib,
            ai_lib
   '''
 # ---
@@ -343,17 +367,20 @@
   '''
   
   SELECT team_id,
+         replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') AS sdk_lib,
          replaceRegexpAll(JSONExtractRaw(properties, '$ai_lib'), '^"|"$', '') AS ai_lib,
          count(1) as count
   FROM events PREWHERE timestamp >= '2022-01-10 16:00:00'
   AND timestamp < '2022-01-10 18:00:00'
-  AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-node')
+  AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-node',
+                                                                            'posthog-python')
   AND startsWith(event, '$ai_')
   WHERE replaceRegexpAll(JSONExtractRaw(properties, '$ai_lib'), '^"|"$', '') IN ('posthog-openclaw',
                                                                                  'posthog-opencode',
                                                                                  '@posthog/pi',
                                                                                  'posthog-ai')
   GROUP BY team_id,
+           sdk_lib,
            ai_lib
   '''
 # ---
@@ -361,17 +388,20 @@
   '''
   
   SELECT team_id,
+         replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') AS sdk_lib,
          replaceRegexpAll(JSONExtractRaw(properties, '$ai_lib'), '^"|"$', '') AS ai_lib,
          count(1) as count
   FROM events PREWHERE timestamp >= '2022-01-10 18:00:00'
   AND timestamp < '2022-01-10 20:00:00'
-  AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-node')
+  AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-node',
+                                                                            'posthog-python')
   AND startsWith(event, '$ai_')
   WHERE replaceRegexpAll(JSONExtractRaw(properties, '$ai_lib'), '^"|"$', '') IN ('posthog-openclaw',
                                                                                  'posthog-opencode',
                                                                                  '@posthog/pi',
                                                                                  'posthog-ai')
   GROUP BY team_id,
+           sdk_lib,
            ai_lib
   '''
 # ---
@@ -379,17 +409,20 @@
   '''
   
   SELECT team_id,
+         replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') AS sdk_lib,
          replaceRegexpAll(JSONExtractRaw(properties, '$ai_lib'), '^"|"$', '') AS ai_lib,
          count(1) as count
   FROM events PREWHERE timestamp >= '2022-01-10 20:00:00'
   AND timestamp < '2022-01-10 22:00:00'
-  AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-node')
+  AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-node',
+                                                                            'posthog-python')
   AND startsWith(event, '$ai_')
   WHERE replaceRegexpAll(JSONExtractRaw(properties, '$ai_lib'), '^"|"$', '') IN ('posthog-openclaw',
                                                                                  'posthog-opencode',
                                                                                  '@posthog/pi',
                                                                                  'posthog-ai')
   GROUP BY team_id,
+           sdk_lib,
            ai_lib
   '''
 # ---
@@ -397,17 +430,20 @@
   '''
   
   SELECT team_id,
+         replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') AS sdk_lib,
          replaceRegexpAll(JSONExtractRaw(properties, '$ai_lib'), '^"|"$', '') AS ai_lib,
          count(1) as count
   FROM events PREWHERE timestamp >= '2022-01-10 22:00:00'
   AND timestamp < '2022-01-10 23:59:59'
-  AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-node')
+  AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-node',
+                                                                            'posthog-python')
   AND startsWith(event, '$ai_')
   WHERE replaceRegexpAll(JSONExtractRaw(properties, '$ai_lib'), '^"|"$', '') IN ('posthog-openclaw',
                                                                                  'posthog-opencode',
                                                                                  '@posthog/pi',
                                                                                  'posthog-ai')
   GROUP BY team_id,
+           sdk_lib,
            ai_lib
   '''
 # ---

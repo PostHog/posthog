@@ -77,13 +77,15 @@
   '''
   
   SELECT team_id,
+         ifNull(properties.`$lib`, '') AS sdk_lib,
          replaceRegexpAll(ifNull(if(toJSONString(properties.^`$ai_lib`) != '{}', toJSONString(properties.^`$ai_lib`), if(startsWith(dynamicType(properties.`$ai_lib`), 'Array')
                                                                                                                          OR startsWith(dynamicType(properties.`$ai_lib`), 'Map')
                                                                                                                          OR startsWith(dynamicType(properties.`$ai_lib`), 'Tuple'), toJSONString(properties.`$ai_lib`), if(startsWith(dynamicType(properties.`$ai_lib`), 'DateTime'), replaceOne(toString(properties.`$ai_lib`), ' ', 'T'), toString(properties.`$ai_lib`)))), ''), '^"|"$', '') AS ai_lib,
          count(1) as count
   FROM events_json PREWHERE timestamp >= '2022-01-10 00:00:00'
   AND timestamp < '2022-01-10 02:00:00'
-  AND ifNull(properties.`$lib`, '') IN ('posthog-node')
+  AND ifNull(properties.`$lib`, '') IN ('posthog-node',
+                                        'posthog-python')
   AND startsWith(event, '$ai_')
   WHERE replaceRegexpAll(ifNull(if(toJSONString(properties.^`$ai_lib`) != '{}', toJSONString(properties.^`$ai_lib`), if(startsWith(dynamicType(properties.`$ai_lib`), 'Array')
                                                                                                                         OR startsWith(dynamicType(properties.`$ai_lib`), 'Map')
@@ -92,6 +94,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                     '@posthog/pi',
                                                                                                                                                                                                                                                                                                                                                                                                     'posthog-ai')
   GROUP BY team_id,
+           sdk_lib,
            ai_lib
   '''
 # ---
@@ -99,13 +102,15 @@
   '''
   
   SELECT team_id,
+         ifNull(properties.`$lib`, '') AS sdk_lib,
          replaceRegexpAll(ifNull(if(toJSONString(properties.^`$ai_lib`) != '{}', toJSONString(properties.^`$ai_lib`), if(startsWith(dynamicType(properties.`$ai_lib`), 'Array')
                                                                                                                          OR startsWith(dynamicType(properties.`$ai_lib`), 'Map')
                                                                                                                          OR startsWith(dynamicType(properties.`$ai_lib`), 'Tuple'), toJSONString(properties.`$ai_lib`), if(startsWith(dynamicType(properties.`$ai_lib`), 'DateTime'), replaceOne(toString(properties.`$ai_lib`), ' ', 'T'), toString(properties.`$ai_lib`)))), ''), '^"|"$', '') AS ai_lib,
          count(1) as count
   FROM events_json PREWHERE timestamp >= '2022-01-10 02:00:00'
   AND timestamp < '2022-01-10 04:00:00'
-  AND ifNull(properties.`$lib`, '') IN ('posthog-node')
+  AND ifNull(properties.`$lib`, '') IN ('posthog-node',
+                                        'posthog-python')
   AND startsWith(event, '$ai_')
   WHERE replaceRegexpAll(ifNull(if(toJSONString(properties.^`$ai_lib`) != '{}', toJSONString(properties.^`$ai_lib`), if(startsWith(dynamicType(properties.`$ai_lib`), 'Array')
                                                                                                                         OR startsWith(dynamicType(properties.`$ai_lib`), 'Map')
@@ -114,6 +119,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                     '@posthog/pi',
                                                                                                                                                                                                                                                                                                                                                                                                     'posthog-ai')
   GROUP BY team_id,
+           sdk_lib,
            ai_lib
   '''
 # ---
@@ -121,13 +127,15 @@
   '''
   
   SELECT team_id,
+         ifNull(properties.`$lib`, '') AS sdk_lib,
          replaceRegexpAll(ifNull(if(toJSONString(properties.^`$ai_lib`) != '{}', toJSONString(properties.^`$ai_lib`), if(startsWith(dynamicType(properties.`$ai_lib`), 'Array')
                                                                                                                          OR startsWith(dynamicType(properties.`$ai_lib`), 'Map')
                                                                                                                          OR startsWith(dynamicType(properties.`$ai_lib`), 'Tuple'), toJSONString(properties.`$ai_lib`), if(startsWith(dynamicType(properties.`$ai_lib`), 'DateTime'), replaceOne(toString(properties.`$ai_lib`), ' ', 'T'), toString(properties.`$ai_lib`)))), ''), '^"|"$', '') AS ai_lib,
          count(1) as count
   FROM events_json PREWHERE timestamp >= '2022-01-10 04:00:00'
   AND timestamp < '2022-01-10 06:00:00'
-  AND ifNull(properties.`$lib`, '') IN ('posthog-node')
+  AND ifNull(properties.`$lib`, '') IN ('posthog-node',
+                                        'posthog-python')
   AND startsWith(event, '$ai_')
   WHERE replaceRegexpAll(ifNull(if(toJSONString(properties.^`$ai_lib`) != '{}', toJSONString(properties.^`$ai_lib`), if(startsWith(dynamicType(properties.`$ai_lib`), 'Array')
                                                                                                                         OR startsWith(dynamicType(properties.`$ai_lib`), 'Map')
@@ -136,6 +144,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                     '@posthog/pi',
                                                                                                                                                                                                                                                                                                                                                                                                     'posthog-ai')
   GROUP BY team_id,
+           sdk_lib,
            ai_lib
   '''
 # ---
@@ -143,13 +152,15 @@
   '''
   
   SELECT team_id,
+         ifNull(properties.`$lib`, '') AS sdk_lib,
          replaceRegexpAll(ifNull(if(toJSONString(properties.^`$ai_lib`) != '{}', toJSONString(properties.^`$ai_lib`), if(startsWith(dynamicType(properties.`$ai_lib`), 'Array')
                                                                                                                          OR startsWith(dynamicType(properties.`$ai_lib`), 'Map')
                                                                                                                          OR startsWith(dynamicType(properties.`$ai_lib`), 'Tuple'), toJSONString(properties.`$ai_lib`), if(startsWith(dynamicType(properties.`$ai_lib`), 'DateTime'), replaceOne(toString(properties.`$ai_lib`), ' ', 'T'), toString(properties.`$ai_lib`)))), ''), '^"|"$', '') AS ai_lib,
          count(1) as count
   FROM events_json PREWHERE timestamp >= '2022-01-10 06:00:00'
   AND timestamp < '2022-01-10 08:00:00'
-  AND ifNull(properties.`$lib`, '') IN ('posthog-node')
+  AND ifNull(properties.`$lib`, '') IN ('posthog-node',
+                                        'posthog-python')
   AND startsWith(event, '$ai_')
   WHERE replaceRegexpAll(ifNull(if(toJSONString(properties.^`$ai_lib`) != '{}', toJSONString(properties.^`$ai_lib`), if(startsWith(dynamicType(properties.`$ai_lib`), 'Array')
                                                                                                                         OR startsWith(dynamicType(properties.`$ai_lib`), 'Map')
@@ -158,6 +169,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                     '@posthog/pi',
                                                                                                                                                                                                                                                                                                                                                                                                     'posthog-ai')
   GROUP BY team_id,
+           sdk_lib,
            ai_lib
   '''
 # ---
@@ -165,13 +177,15 @@
   '''
   
   SELECT team_id,
+         ifNull(properties.`$lib`, '') AS sdk_lib,
          replaceRegexpAll(ifNull(if(toJSONString(properties.^`$ai_lib`) != '{}', toJSONString(properties.^`$ai_lib`), if(startsWith(dynamicType(properties.`$ai_lib`), 'Array')
                                                                                                                          OR startsWith(dynamicType(properties.`$ai_lib`), 'Map')
                                                                                                                          OR startsWith(dynamicType(properties.`$ai_lib`), 'Tuple'), toJSONString(properties.`$ai_lib`), if(startsWith(dynamicType(properties.`$ai_lib`), 'DateTime'), replaceOne(toString(properties.`$ai_lib`), ' ', 'T'), toString(properties.`$ai_lib`)))), ''), '^"|"$', '') AS ai_lib,
          count(1) as count
   FROM events_json PREWHERE timestamp >= '2022-01-10 08:00:00'
   AND timestamp < '2022-01-10 10:00:00'
-  AND ifNull(properties.`$lib`, '') IN ('posthog-node')
+  AND ifNull(properties.`$lib`, '') IN ('posthog-node',
+                                        'posthog-python')
   AND startsWith(event, '$ai_')
   WHERE replaceRegexpAll(ifNull(if(toJSONString(properties.^`$ai_lib`) != '{}', toJSONString(properties.^`$ai_lib`), if(startsWith(dynamicType(properties.`$ai_lib`), 'Array')
                                                                                                                         OR startsWith(dynamicType(properties.`$ai_lib`), 'Map')
@@ -180,6 +194,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                     '@posthog/pi',
                                                                                                                                                                                                                                                                                                                                                                                                     'posthog-ai')
   GROUP BY team_id,
+           sdk_lib,
            ai_lib
   '''
 # ---
@@ -187,13 +202,15 @@
   '''
   
   SELECT team_id,
+         ifNull(properties.`$lib`, '') AS sdk_lib,
          replaceRegexpAll(ifNull(if(toJSONString(properties.^`$ai_lib`) != '{}', toJSONString(properties.^`$ai_lib`), if(startsWith(dynamicType(properties.`$ai_lib`), 'Array')
                                                                                                                          OR startsWith(dynamicType(properties.`$ai_lib`), 'Map')
                                                                                                                          OR startsWith(dynamicType(properties.`$ai_lib`), 'Tuple'), toJSONString(properties.`$ai_lib`), if(startsWith(dynamicType(properties.`$ai_lib`), 'DateTime'), replaceOne(toString(properties.`$ai_lib`), ' ', 'T'), toString(properties.`$ai_lib`)))), ''), '^"|"$', '') AS ai_lib,
          count(1) as count
   FROM events_json PREWHERE timestamp >= '2022-01-10 10:00:00'
   AND timestamp < '2022-01-10 12:00:00'
-  AND ifNull(properties.`$lib`, '') IN ('posthog-node')
+  AND ifNull(properties.`$lib`, '') IN ('posthog-node',
+                                        'posthog-python')
   AND startsWith(event, '$ai_')
   WHERE replaceRegexpAll(ifNull(if(toJSONString(properties.^`$ai_lib`) != '{}', toJSONString(properties.^`$ai_lib`), if(startsWith(dynamicType(properties.`$ai_lib`), 'Array')
                                                                                                                         OR startsWith(dynamicType(properties.`$ai_lib`), 'Map')
@@ -202,6 +219,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                     '@posthog/pi',
                                                                                                                                                                                                                                                                                                                                                                                                     'posthog-ai')
   GROUP BY team_id,
+           sdk_lib,
            ai_lib
   '''
 # ---
@@ -209,13 +227,15 @@
   '''
   
   SELECT team_id,
+         ifNull(properties.`$lib`, '') AS sdk_lib,
          replaceRegexpAll(ifNull(if(toJSONString(properties.^`$ai_lib`) != '{}', toJSONString(properties.^`$ai_lib`), if(startsWith(dynamicType(properties.`$ai_lib`), 'Array')
                                                                                                                          OR startsWith(dynamicType(properties.`$ai_lib`), 'Map')
                                                                                                                          OR startsWith(dynamicType(properties.`$ai_lib`), 'Tuple'), toJSONString(properties.`$ai_lib`), if(startsWith(dynamicType(properties.`$ai_lib`), 'DateTime'), replaceOne(toString(properties.`$ai_lib`), ' ', 'T'), toString(properties.`$ai_lib`)))), ''), '^"|"$', '') AS ai_lib,
          count(1) as count
   FROM events_json PREWHERE timestamp >= '2022-01-10 12:00:00'
   AND timestamp < '2022-01-10 14:00:00'
-  AND ifNull(properties.`$lib`, '') IN ('posthog-node')
+  AND ifNull(properties.`$lib`, '') IN ('posthog-node',
+                                        'posthog-python')
   AND startsWith(event, '$ai_')
   WHERE replaceRegexpAll(ifNull(if(toJSONString(properties.^`$ai_lib`) != '{}', toJSONString(properties.^`$ai_lib`), if(startsWith(dynamicType(properties.`$ai_lib`), 'Array')
                                                                                                                         OR startsWith(dynamicType(properties.`$ai_lib`), 'Map')
@@ -224,6 +244,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                     '@posthog/pi',
                                                                                                                                                                                                                                                                                                                                                                                                     'posthog-ai')
   GROUP BY team_id,
+           sdk_lib,
            ai_lib
   '''
 # ---
@@ -231,13 +252,15 @@
   '''
   
   SELECT team_id,
+         ifNull(properties.`$lib`, '') AS sdk_lib,
          replaceRegexpAll(ifNull(if(toJSONString(properties.^`$ai_lib`) != '{}', toJSONString(properties.^`$ai_lib`), if(startsWith(dynamicType(properties.`$ai_lib`), 'Array')
                                                                                                                          OR startsWith(dynamicType(properties.`$ai_lib`), 'Map')
                                                                                                                          OR startsWith(dynamicType(properties.`$ai_lib`), 'Tuple'), toJSONString(properties.`$ai_lib`), if(startsWith(dynamicType(properties.`$ai_lib`), 'DateTime'), replaceOne(toString(properties.`$ai_lib`), ' ', 'T'), toString(properties.`$ai_lib`)))), ''), '^"|"$', '') AS ai_lib,
          count(1) as count
   FROM events_json PREWHERE timestamp >= '2022-01-10 14:00:00'
   AND timestamp < '2022-01-10 16:00:00'
-  AND ifNull(properties.`$lib`, '') IN ('posthog-node')
+  AND ifNull(properties.`$lib`, '') IN ('posthog-node',
+                                        'posthog-python')
   AND startsWith(event, '$ai_')
   WHERE replaceRegexpAll(ifNull(if(toJSONString(properties.^`$ai_lib`) != '{}', toJSONString(properties.^`$ai_lib`), if(startsWith(dynamicType(properties.`$ai_lib`), 'Array')
                                                                                                                         OR startsWith(dynamicType(properties.`$ai_lib`), 'Map')
@@ -246,6 +269,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                     '@posthog/pi',
                                                                                                                                                                                                                                                                                                                                                                                                     'posthog-ai')
   GROUP BY team_id,
+           sdk_lib,
            ai_lib
   '''
 # ---
@@ -290,13 +314,15 @@
   '''
   
   SELECT team_id,
+         ifNull(properties.`$lib`, '') AS sdk_lib,
          replaceRegexpAll(ifNull(if(toJSONString(properties.^`$ai_lib`) != '{}', toJSONString(properties.^`$ai_lib`), if(startsWith(dynamicType(properties.`$ai_lib`), 'Array')
                                                                                                                          OR startsWith(dynamicType(properties.`$ai_lib`), 'Map')
                                                                                                                          OR startsWith(dynamicType(properties.`$ai_lib`), 'Tuple'), toJSONString(properties.`$ai_lib`), if(startsWith(dynamicType(properties.`$ai_lib`), 'DateTime'), replaceOne(toString(properties.`$ai_lib`), ' ', 'T'), toString(properties.`$ai_lib`)))), ''), '^"|"$', '') AS ai_lib,
          count(1) as count
   FROM events_json PREWHERE timestamp >= '2022-01-10 16:00:00'
   AND timestamp < '2022-01-10 18:00:00'
-  AND ifNull(properties.`$lib`, '') IN ('posthog-node')
+  AND ifNull(properties.`$lib`, '') IN ('posthog-node',
+                                        'posthog-python')
   AND startsWith(event, '$ai_')
   WHERE replaceRegexpAll(ifNull(if(toJSONString(properties.^`$ai_lib`) != '{}', toJSONString(properties.^`$ai_lib`), if(startsWith(dynamicType(properties.`$ai_lib`), 'Array')
                                                                                                                         OR startsWith(dynamicType(properties.`$ai_lib`), 'Map')
@@ -305,6 +331,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                     '@posthog/pi',
                                                                                                                                                                                                                                                                                                                                                                                                     'posthog-ai')
   GROUP BY team_id,
+           sdk_lib,
            ai_lib
   '''
 # ---
@@ -312,13 +339,15 @@
   '''
   
   SELECT team_id,
+         ifNull(properties.`$lib`, '') AS sdk_lib,
          replaceRegexpAll(ifNull(if(toJSONString(properties.^`$ai_lib`) != '{}', toJSONString(properties.^`$ai_lib`), if(startsWith(dynamicType(properties.`$ai_lib`), 'Array')
                                                                                                                          OR startsWith(dynamicType(properties.`$ai_lib`), 'Map')
                                                                                                                          OR startsWith(dynamicType(properties.`$ai_lib`), 'Tuple'), toJSONString(properties.`$ai_lib`), if(startsWith(dynamicType(properties.`$ai_lib`), 'DateTime'), replaceOne(toString(properties.`$ai_lib`), ' ', 'T'), toString(properties.`$ai_lib`)))), ''), '^"|"$', '') AS ai_lib,
          count(1) as count
   FROM events_json PREWHERE timestamp >= '2022-01-10 18:00:00'
   AND timestamp < '2022-01-10 20:00:00'
-  AND ifNull(properties.`$lib`, '') IN ('posthog-node')
+  AND ifNull(properties.`$lib`, '') IN ('posthog-node',
+                                        'posthog-python')
   AND startsWith(event, '$ai_')
   WHERE replaceRegexpAll(ifNull(if(toJSONString(properties.^`$ai_lib`) != '{}', toJSONString(properties.^`$ai_lib`), if(startsWith(dynamicType(properties.`$ai_lib`), 'Array')
                                                                                                                         OR startsWith(dynamicType(properties.`$ai_lib`), 'Map')
@@ -327,6 +356,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                     '@posthog/pi',
                                                                                                                                                                                                                                                                                                                                                                                                     'posthog-ai')
   GROUP BY team_id,
+           sdk_lib,
            ai_lib
   '''
 # ---
@@ -334,13 +364,15 @@
   '''
   
   SELECT team_id,
+         ifNull(properties.`$lib`, '') AS sdk_lib,
          replaceRegexpAll(ifNull(if(toJSONString(properties.^`$ai_lib`) != '{}', toJSONString(properties.^`$ai_lib`), if(startsWith(dynamicType(properties.`$ai_lib`), 'Array')
                                                                                                                          OR startsWith(dynamicType(properties.`$ai_lib`), 'Map')
                                                                                                                          OR startsWith(dynamicType(properties.`$ai_lib`), 'Tuple'), toJSONString(properties.`$ai_lib`), if(startsWith(dynamicType(properties.`$ai_lib`), 'DateTime'), replaceOne(toString(properties.`$ai_lib`), ' ', 'T'), toString(properties.`$ai_lib`)))), ''), '^"|"$', '') AS ai_lib,
          count(1) as count
   FROM events_json PREWHERE timestamp >= '2022-01-10 20:00:00'
   AND timestamp < '2022-01-10 22:00:00'
-  AND ifNull(properties.`$lib`, '') IN ('posthog-node')
+  AND ifNull(properties.`$lib`, '') IN ('posthog-node',
+                                        'posthog-python')
   AND startsWith(event, '$ai_')
   WHERE replaceRegexpAll(ifNull(if(toJSONString(properties.^`$ai_lib`) != '{}', toJSONString(properties.^`$ai_lib`), if(startsWith(dynamicType(properties.`$ai_lib`), 'Array')
                                                                                                                         OR startsWith(dynamicType(properties.`$ai_lib`), 'Map')
@@ -349,6 +381,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                     '@posthog/pi',
                                                                                                                                                                                                                                                                                                                                                                                                     'posthog-ai')
   GROUP BY team_id,
+           sdk_lib,
            ai_lib
   '''
 # ---
@@ -356,13 +389,15 @@
   '''
   
   SELECT team_id,
+         ifNull(properties.`$lib`, '') AS sdk_lib,
          replaceRegexpAll(ifNull(if(toJSONString(properties.^`$ai_lib`) != '{}', toJSONString(properties.^`$ai_lib`), if(startsWith(dynamicType(properties.`$ai_lib`), 'Array')
                                                                                                                          OR startsWith(dynamicType(properties.`$ai_lib`), 'Map')
                                                                                                                          OR startsWith(dynamicType(properties.`$ai_lib`), 'Tuple'), toJSONString(properties.`$ai_lib`), if(startsWith(dynamicType(properties.`$ai_lib`), 'DateTime'), replaceOne(toString(properties.`$ai_lib`), ' ', 'T'), toString(properties.`$ai_lib`)))), ''), '^"|"$', '') AS ai_lib,
          count(1) as count
   FROM events_json PREWHERE timestamp >= '2022-01-10 22:00:00'
   AND timestamp < '2022-01-10 23:59:59'
-  AND ifNull(properties.`$lib`, '') IN ('posthog-node')
+  AND ifNull(properties.`$lib`, '') IN ('posthog-node',
+                                        'posthog-python')
   AND startsWith(event, '$ai_')
   WHERE replaceRegexpAll(ifNull(if(toJSONString(properties.^`$ai_lib`) != '{}', toJSONString(properties.^`$ai_lib`), if(startsWith(dynamicType(properties.`$ai_lib`), 'Array')
                                                                                                                         OR startsWith(dynamicType(properties.`$ai_lib`), 'Map')
@@ -371,6 +406,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                     '@posthog/pi',
                                                                                                                                                                                                                                                                                                                                                                                                     'posthog-ai')
   GROUP BY team_id,
+           sdk_lib,
            ai_lib
   '''
 # ---

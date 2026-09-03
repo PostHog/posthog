@@ -291,6 +291,7 @@ QUERIES: list[QuerySpec] = [
             "opencode_events": "teams_with_opencode_events_count_in_period",
             "posthog_pi_events": "teams_with_posthog_pi_events_count_in_period",
             "posthog_ai_events": "teams_with_posthog_ai_events_count_in_period",
+            "posthog_python_ai_events": "teams_with_posthog_python_ai_events_count_in_period",
             "edge_events": "teams_with_edge_events_count_in_period",
             "convex_events": "teams_with_convex_events_count_in_period",
             "android_events": "teams_with_android_events_count_in_period",
