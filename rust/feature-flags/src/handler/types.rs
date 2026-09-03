@@ -128,6 +128,8 @@ pub enum Library {
     PosthogPhp,
     /// posthog-ruby SDK
     PosthogRuby,
+    /// posthog-rails integration
+    PosthogRails,
     /// posthog-go SDK
     PosthogGo,
     /// posthog-java SDK
@@ -173,6 +175,7 @@ impl Library {
             Library::PosthogPython => "posthog-python",
             Library::PosthogPhp => "posthog-php",
             Library::PosthogRuby => "posthog-ruby",
+            Library::PosthogRails => "posthog-rails",
             Library::PosthogGo => "posthog-go",
             Library::PosthogJava => "posthog-java",
             Library::PosthogDotnet => "posthog-dotnet",
@@ -202,6 +205,7 @@ impl Library {
         Library::PosthogPython,
         Library::PosthogPhp,
         Library::PosthogRuby,
+        Library::PosthogRails,
         Library::PosthogGo,
         Library::PosthogJava,
         Library::PosthogDotnet,
@@ -315,6 +319,7 @@ mod tests {
     #[case("posthog-php/3.0.0", Library::PosthogPhp)]
     #[case("posthog-ruby/2.3.0", Library::PosthogRuby)]
     #[case("posthog-ruby2.3.0", Library::PosthogRuby)]
+    #[case("posthog-rails/3.18.0", Library::PosthogRails)]
     #[case("posthog-go/1.0.0", Library::PosthogGo)]
     #[case("posthog-java/1.2.0", Library::PosthogJava)]
     #[case("posthog-dotnet/1.0.0", Library::PosthogDotnet)]
@@ -406,6 +411,7 @@ mod tests {
     #[case(Library::PosthogPython, "posthog-python")]
     #[case(Library::PosthogPhp, "posthog-php")]
     #[case(Library::PosthogRuby, "posthog-ruby")]
+    #[case(Library::PosthogRails, "posthog-rails")]
     #[case(Library::PosthogGo, "posthog-go")]
     #[case(Library::PosthogJava, "posthog-java")]
     #[case(Library::PosthogDotnet, "posthog-dotnet")]
@@ -433,6 +439,7 @@ mod tests {
     #[case(Library::PosthogPython, "\"posthog-python\"")]
     #[case(Library::PosthogPhp, "\"posthog-php\"")]
     #[case(Library::PosthogRuby, "\"posthog-ruby\"")]
+    #[case(Library::PosthogRails, "\"posthog-rails\"")]
     #[case(Library::PosthogGo, "\"posthog-go\"")]
     #[case(Library::PosthogJava, "\"posthog-java\"")]
     #[case(Library::PosthogDotnet, "\"posthog-dotnet\"")]

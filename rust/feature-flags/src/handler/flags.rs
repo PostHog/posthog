@@ -645,6 +645,7 @@ mod tests {
             "posthog-python/1.4.0",
             "posthog-ruby/2.0.0",
             "posthog-ruby2.0.0",
+            "posthog-rails/3.18.0",
             "posthog-php/3.0.0",
             "posthog-java/1.0.0",
             "posthog-server/1.0.0",

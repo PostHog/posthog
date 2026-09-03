@@ -571,6 +571,7 @@ mod tests {
         #[case(Some("posthog-unity/4.5.0"), "posthog-unity")]
         #[case(Some("posthog-python/1.4.0"), "posthog-python")]
         #[case(Some("posthog-ruby/2.0.0"), "posthog-ruby")]
+        #[case(Some("posthog-rails/3.18.0"), "posthog-rails")]
         #[case(Some("posthog-ruby2.0.0"), "posthog-ruby")]
         #[case(Some("posthog-php/3.0.0"), "posthog-php")]
         #[case(Some("posthog-java/1.0.0"), "posthog-java")]

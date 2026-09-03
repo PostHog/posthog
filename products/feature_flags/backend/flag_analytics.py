@@ -34,6 +34,7 @@ SDK_LIBRARIES = [
     "posthog-python",
     "posthog-php",
     "posthog-ruby",
+    "posthog-rails",
     "posthog-go",
     "posthog-java",
     "posthog-dotnet",
