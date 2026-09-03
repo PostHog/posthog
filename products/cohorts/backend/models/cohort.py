@@ -330,6 +330,14 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             models.Index(fields=["team", "-created_at"], name="cohort_team_created_idx"),
             # Backs `name__icontains` search (the cohort picker's server-side search).
             GinIndex(fields=["name"], name="cohort_name_trgm_idx", opclasses=["gin_trgm_ops"]),
+            # Same shape as `cohort_team_created_idx`, but partial on `deleted=False`, which the
+            # list endpoint always applies. Without it, the pagination count reads every cohort
+            # row the team has ever had, not only the rows the list returns.
+            models.Index(
+                fields=["team", "-created_at"],
+                condition=models.Q(deleted=False),
+                name="cohort_team_created_live_idx",
+            ),
         ]
         db_table = "posthog_cohort"
 
