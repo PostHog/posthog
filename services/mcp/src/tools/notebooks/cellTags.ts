@@ -272,8 +272,18 @@ export function variableReaders(
     return readers
 }
 
-export function uniqueDataframeName(base: string, cells: CellTagBlock[]): string {
-    const used = new Set(cells.map((cell) => cell.returnVariable.toLowerCase()).filter(Boolean))
+/**
+ * A frame name no cell and no notebook variable already holds. A Python cell reads a variable and
+ * a dataframe out of one kernel namespace, so an auto-assigned `df` on a notebook that declares
+ * `df` would shadow the variable — the collision notebooks-set-variables refuses from the other
+ * side.
+ */
+export function uniqueDataframeName(base: string, cells: CellTagBlock[], variableNames: string[] = []): string {
+    const used = new Set(
+        [...cells.map((cell) => cell.returnVariable), ...variableNames]
+            .map((name) => name.toLowerCase())
+            .filter(Boolean)
+    )
     if (!used.has(base.toLowerCase())) {
         return base
     }

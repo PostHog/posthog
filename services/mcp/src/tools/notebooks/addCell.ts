@@ -239,7 +239,11 @@ export const addCellHandler: ToolBase<typeof NotebooksAddCellSchema, AddCellResu
     const initial = await fetchMarkdownNotebook(context, params.notebook_id)
     const dataframeName =
         params.dataframe_name ??
-        uniqueDataframeName(params.cell_type === 'sql' ? 'sql_df' : 'df', parseCellTags(initial.markdown))
+        uniqueDataframeName(
+            params.cell_type === 'sql' ? 'sql_df' : 'df',
+            parseCellTags(initial.markdown),
+            (initial.notebook.variables ?? []).map((variable) => variable.name)
+        )
     const tag = buildCellTag(tagName, { nodeId, title, code: params.code, returnVariable: dataframeName })
 
     const { markdown } = await applyMarkdownEdit(context, params.notebook_id, (current) =>
