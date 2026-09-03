@@ -200,8 +200,9 @@ pub struct Config {
     /// Kill switch for the shadow offset ledger. The ledger accounts every
     /// delivered offset and reports where its frontier disagrees with the
     /// offset the consumer commits; it never changes what is committed.
-    /// Disable it only if its accounting or metrics are implicated in a
-    /// problem.
+    /// Off, the consumer builds no ledger: nothing is charged, settled,
+    /// forgotten on rebalance, or reported. Disable it only if its
+    /// accounting or metrics are implicated in a problem.
     #[envconfig(from = "CONSUMER_OFFSET_LEDGER_SHADOW_ENABLED", default = "true")]
     pub consumer_offset_ledger_shadow_enabled: bool,
 

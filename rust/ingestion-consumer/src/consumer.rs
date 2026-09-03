@@ -202,9 +202,9 @@ impl IngestionConsumer {
     ) -> Self {
         // Share the context's commit sentinel and ledger so rebalance
         // callbacks reset the same baselines the commit path checks against.
+        // The shadow runs whenever the context carries a ledger: `new` reads
+        // the kill switch, and a detached context always carries one.
         let commit_sentinel = consumer.context().commit_sentinel();
-        // The shadow is always on here: the tests that build a consumer from
-        // parts are the ones that exercise it. `new` reads the kill switch.
         let topic_offset_ledger = consumer.context().topic_offset_ledger();
         Self {
             commit_sentinel,
@@ -220,7 +220,7 @@ impl IngestionConsumer {
             deferred_flush_timeout: options.deferred_flush_timeout,
             handle,
             group_id: options.group_id,
-            ledger_shadow: LedgerShadow::new(topic_offset_ledger, true),
+            ledger_shadow: LedgerShadow::new(topic_offset_ledger),
         }
     }
 
@@ -251,14 +251,18 @@ impl IngestionConsumer {
             config.consumer_batch_size_kb,
         );
         let commit_sentinel = Arc::new(CommitSentinel::new());
-        let topic_offset_ledger = Arc::new(TopicOffsetLedger::new());
         commit_sentinel.set_enabled(config.consumer_order_sentinel_enabled);
         let key_sentinel = dispatcher.key_order_sentinel();
         key_sentinel.set_enabled(config.consumer_order_sentinel_enabled);
+        // Off, the consumer has no ledger at all: the rebalance callbacks
+        // have nothing to forget and the shadow nothing to charge.
+        let topic_offset_ledger = config
+            .consumer_offset_ledger_shadow_enabled
+            .then(|| Arc::new(TopicOffsetLedger::new()));
         let mut context = SentinelContext::new(
             Arc::clone(&commit_sentinel),
             key_sentinel,
-            Arc::clone(&topic_offset_ledger),
+            topic_offset_ledger.clone(),
         );
         context.set_assignment_epoch(transport.assignment_epoch());
         let consumer: StreamConsumer<SentinelContext> =
@@ -290,10 +294,7 @@ impl IngestionConsumer {
             ),
             handle,
             group_id: config.ingestion_consumer_group_id.clone(),
-            ledger_shadow: LedgerShadow::new(
-                topic_offset_ledger,
-                config.consumer_offset_ledger_shadow_enabled,
-            ),
+            ledger_shadow: LedgerShadow::new(topic_offset_ledger),
         })
     }
 

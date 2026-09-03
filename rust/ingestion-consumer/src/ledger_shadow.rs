@@ -14,11 +14,11 @@ use tracing::{info, warn};
 use crate::order_sentinel::OffsetSpan;
 
 /// Runs the offset ledger next to the current commit path without taking
-/// part in commit choice. While disabled every call is a no-op, so the flag
-/// is a kill switch for the whole shadow.
+/// part in commit choice. Without a ledger every call is a no-op: the kill
+/// switch leaves the consumer with no ledger at all, so nothing is charged,
+/// settled, or forgotten anywhere.
 pub(crate) struct LedgerShadow {
-    ledger: Arc<TopicOffsetLedger>,
-    enabled: bool,
+    ledger: Option<Arc<TopicOffsetLedger>>,
     /// Partitions whose frontier disagrees with the commit, by the ledger
     /// generation the disagreement was seen under. A persistent disagreement
     /// logs when it starts and when it ends, not on every batch.
@@ -26,29 +26,28 @@ pub(crate) struct LedgerShadow {
 }
 
 impl LedgerShadow {
-    pub(crate) fn new(ledger: Arc<TopicOffsetLedger>, enabled: bool) -> Self {
+    pub(crate) fn new(ledger: Option<Arc<TopicOffsetLedger>>) -> Self {
         Self {
             ledger,
-            enabled,
             mismatched: Mutex::new(HashMap::new()),
         }
     }
 
-    /// See [`TopicOffsetLedger::generations_version`]; constant while
-    /// disabled.
+    /// See [`TopicOffsetLedger::generations_version`]; constant without a
+    /// ledger.
     pub(crate) fn generations_version(&self) -> u64 {
-        if !self.enabled {
+        let Some(ledger) = &self.ledger else {
             return 0;
-        }
-        self.ledger.generations_version()
+        };
+        ledger.generations_version()
     }
 
-    /// See [`TopicOffsetLedger::generation`]; 0 while disabled.
+    /// See [`TopicOffsetLedger::generation`]; 0 without a ledger.
     pub(crate) fn generation(&self, topic_partition: &TopicPartition) -> u64 {
-        if !self.enabled {
+        let Some(ledger) = &self.ledger else {
             return 0;
-        }
-        self.ledger.generation(topic_partition)
+        };
+        ledger.generation(topic_partition)
     }
 
     /// Charge one batch's slice of a partition to its ledger and publish what
@@ -59,13 +58,10 @@ impl LedgerShadow {
         stamp: u64,
         charges: &[(Offset, Charge)],
     ) {
-        if !self.enabled {
+        let Some(ledger) = &self.ledger else {
             return;
-        }
-        match self
-            .ledger
-            .charge(topic_partition, stamp, charges.iter().copied())
-        {
+        };
+        match ledger.charge(topic_partition, stamp, charges.iter().copied()) {
             Ok(held) => set_held_gauges(&topic_partition.topic, topic_partition.partition, held),
             Err(rejection) => count_rejection("charge", topic_partition, rejection),
         }
@@ -81,10 +77,10 @@ impl LedgerShadow {
         offsets: impl IntoIterator<Item = Offset>,
         span: &OffsetSpan,
     ) {
-        if !self.enabled {
+        let Some(ledger) = &self.ledger else {
             return;
-        }
-        let settlement = match self.ledger.settle(topic_partition, stamp, offsets) {
+        };
+        let settlement = match ledger.settle(topic_partition, stamp, offsets) {
             Ok(settlement) => settlement,
             Err(rejection) => {
                 count_rejection("settle", topic_partition, rejection);
@@ -92,11 +88,11 @@ impl LedgerShadow {
             }
         };
         self.observe(topic_partition, &settlement, span, stamp);
-        self.ledger.take_frontier(topic_partition);
+        ledger.take_frontier(topic_partition);
         set_held_gauges(
             &topic_partition.topic,
             topic_partition.partition,
-            self.ledger.held(topic_partition),
+            ledger.held(topic_partition),
         );
     }
 
@@ -248,9 +244,9 @@ mod tests {
         TopicPartition::new(topic, partition)
     }
 
-    fn shadow(enabled: bool) -> (Arc<TopicOffsetLedger>, LedgerShadow) {
+    fn shadow() -> (Arc<TopicOffsetLedger>, LedgerShadow) {
         let ledger = Arc::new(TopicOffsetLedger::new());
-        (Arc::clone(&ledger), LedgerShadow::new(ledger, enabled))
+        (Arc::clone(&ledger), LedgerShadow::new(Some(ledger)))
     }
 
     fn charges(offsets: &[i64]) -> Vec<(Offset, Charge)> {
@@ -262,7 +258,7 @@ mod tests {
 
     #[test]
     fn settle_drains_live_partitions_and_skips_stale_batches() {
-        let (ledger, shadow) = shadow(true);
+        let (ledger, shadow) = shadow();
         let reassigned = tp("events", 0);
         let live = tp("events", 1);
         shadow.charge(&reassigned, 0, &charges(&[10]));
@@ -289,7 +285,7 @@ mod tests {
 
     #[test]
     fn a_partition_with_an_incomplete_prefix_holds_its_offsets() {
-        let (ledger, shadow) = shadow(true);
+        let (ledger, shadow) = shadow();
         let held = tp("events", 0);
         shadow.charge(&held, 0, &charges(&[10, 11]));
 
@@ -299,20 +295,19 @@ mod tests {
     }
 
     #[test]
-    fn a_disabled_shadow_touches_nothing() {
-        let (ledger, shadow) = shadow(false);
+    fn a_shadow_without_a_ledger_does_nothing() {
+        let shadow = LedgerShadow::new(None);
         let p0 = tp("events", 0);
         shadow.charge(&p0, 0, &charges(&[10]));
         shadow.settle(&p0, 0, [Offset(10)], &span(10, 10));
 
-        assert_eq!(ledger.held(&p0).offsets, 0);
         assert_eq!(shadow.generations_version(), 0);
         assert_eq!(shadow.generation(&p0), 0);
     }
 
     #[test]
     fn a_mismatch_is_tracked_from_its_first_batch_until_the_frontier_agrees() {
-        let (_, shadow) = shadow(true);
+        let (_, shadow) = shadow();
         let p0 = tp("events", 0);
         shadow.charge(&p0, 0, &charges(&[10, 11]));
 

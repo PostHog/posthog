@@ -47,7 +47,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use metrics::{counter, gauge};
 use rdkafka::consumer::{BaseConsumer, ConsumerContext, Rebalance};
-use rdkafka::{ClientContext, Statistics};
+use rdkafka::{ClientContext, Statistics, TopicPartitionList};
 use tracing::{info, warn};
 
 use crate::ledger_shadow::set_held_gauges;
@@ -571,8 +571,9 @@ pub struct SentinelContext {
     commit_sentinel: Arc<CommitSentinel>,
     key_sentinel: Arc<KeyOrderSentinel>,
     /// The offset ledger the commit path settles against. Owned here so the
-    /// rebalance callbacks forget partitions on the same ledger.
-    topic_offset_ledger: Arc<TopicOffsetLedger>,
+    /// rebalance callbacks forget partitions on the same ledger. `None` when
+    /// the ledger is switched off: the consumer then has no ledger anywhere.
+    topic_offset_ledger: Option<Arc<TopicOffsetLedger>>,
     /// Advanced once per assignment callback; the gRPC transport stamps it
     /// on sub-batches so the worker's feed-order sentinel rebaselines across
     /// rebalances. Distinct from the offset ledger's generations, which move
@@ -584,7 +585,7 @@ impl SentinelContext {
     pub fn new(
         commit_sentinel: Arc<CommitSentinel>,
         key_sentinel: Arc<KeyOrderSentinel>,
-        topic_offset_ledger: Arc<TopicOffsetLedger>,
+        topic_offset_ledger: Option<Arc<TopicOffsetLedger>>,
     ) -> Self {
         Self {
             commit_sentinel,
@@ -606,7 +607,7 @@ impl SentinelContext {
         Self::new(
             Arc::new(CommitSentinel::new()),
             Arc::new(KeyOrderSentinel::new()),
-            Arc::new(TopicOffsetLedger::new()),
+            Some(Arc::new(TopicOffsetLedger::new())),
         )
     }
 
@@ -614,8 +615,20 @@ impl SentinelContext {
         Arc::clone(&self.commit_sentinel)
     }
 
-    pub fn topic_offset_ledger(&self) -> Arc<TopicOffsetLedger> {
-        Arc::clone(&self.topic_offset_ledger)
+    pub fn topic_offset_ledger(&self) -> Option<Arc<TopicOffsetLedger>> {
+        self.topic_offset_ledger.clone()
+    }
+
+    /// Start a new ledger generation for every partition in `tpl`, dropping
+    /// its window and zeroing its gauges. Nothing to do without a ledger.
+    fn forget_ledger_partitions(&self, tpl: &TopicPartitionList) {
+        let Some(ledger) = &self.topic_offset_ledger else {
+            return;
+        };
+        ledger.forget_partitions(tpl.elements().iter().map(|e| (e.topic(), e.partition())));
+        for element in tpl.elements() {
+            set_held_gauges(element.topic(), element.partition(), Held::default());
+        }
     }
 }
 
@@ -635,11 +648,7 @@ impl ConsumerContext for SentinelContext {
                 info!(partitions = tpl.count(), "Rebalance: partitions revoked");
                 self.commit_sentinel
                     .forget_partitions(tpl.elements().iter().map(|e| (e.topic(), e.partition())));
-                self.topic_offset_ledger
-                    .forget_partitions(tpl.elements().iter().map(|e| (e.topic(), e.partition())));
-                for element in tpl.elements() {
-                    set_held_gauges(element.topic(), element.partition(), Held::default());
-                }
+                self.forget_ledger_partitions(tpl);
                 // Revoked partitions may be replayed by another consumer (or by
                 // us after re-assignment) from the last commit — every per-key
                 // baseline is stale.
@@ -661,11 +670,7 @@ impl ConsumerContext for SentinelContext {
             // any surviving ledger for them is stale. The revoke callback
             // normally dropped it already; this covers losses with no revoke
             // callback (an error rebalance, a fenced member).
-            self.topic_offset_ledger
-                .forget_partitions(tpl.elements().iter().map(|e| (e.topic(), e.partition())));
-            for element in tpl.elements() {
-                set_held_gauges(element.topic(), element.partition(), Held::default());
-            }
+            self.forget_ledger_partitions(tpl);
             if let Some(epoch) = &self.assignment_epoch {
                 epoch.fetch_add(1, Ordering::Relaxed);
             }
