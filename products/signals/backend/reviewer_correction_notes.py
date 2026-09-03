@@ -62,6 +62,13 @@ MAX_NOTE_TARGETS = 20
 # a large fleet is still found, and the key-prefix filter drops the rest.
 _MEMORY_SEARCH_LIMIT = 200
 
+# `_memory_holders` runs one unindexed scratchpad scan per removed login, so an oversized stored
+# reviewer list (writable through the generic artefacts API, which caps neither the list nor a login)
+# could turn one edit into thousands of scans on the request thread. A real correction removes a
+# handful of logins, so bound the scan fan-out well above that and far below the attack. The fleet
+# fan-out is capped separately by `MAX_NOTE_TARGETS`.
+MAX_REMOVED_LOGINS_SEARCHED = 25
+
 # One person trimming the same login off a morning's worth of reports is one piece of evidence, not
 # ten. Inside this window a login already named in a note to a target is left out of the next one, so
 # each scout is told once and the notes channel stays readable.
@@ -210,7 +217,10 @@ def _memory_holders(team_id: int, removed_logins: Sequence[str]) -> list[str]:
     if not removed_logins:
         return []
     named: set[str] = set()
-    for login in removed_logins:
+    # Bound the per-login scan fan-out: a real correction is well under the cap, and a note reaches at
+    # most `MAX_NOTE_TARGETS` scouts regardless, so an oversized stored list cannot amplify one edit
+    # into thousands of unindexed scans on the request thread.
+    for login in removed_logins[:MAX_REMOVED_LOGINS_SEARCHED]:
         for entry in search_scratchpad(team_id=team_id, text=login, keys_only=True, limit=_MEMORY_SEARCH_LIMIT):
             # `search_scratchpad` has no key-prefix filter, so the routing keys are picked out here.
             if entry.key.startswith(REVIEWER_MEMORY_KEY_PREFIX) and entry.created_by_skill:

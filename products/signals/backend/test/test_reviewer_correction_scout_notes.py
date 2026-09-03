@@ -1,9 +1,14 @@
 from __future__ import annotations
 
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from products.signals.backend.models import SignalReport, SignalScoutNote
-from products.signals.backend.reviewer_correction_notes import ReviewerCorrection, forward_reviewer_correction_note
+from products.signals.backend.reviewer_correction_notes import (
+    MAX_REMOVED_LOGINS_SEARCHED,
+    ReviewerCorrection,
+    forward_reviewer_correction_note,
+)
 
 
 class TestReviewerCorrectionScoutNotes(APIBaseTest):
@@ -55,3 +60,17 @@ class TestReviewerCorrectionScoutNotes(APIBaseTest):
         notes = self._correction_notes()
         assert len(notes) == 1
         assert "Removed: `alice`" in notes[0].content
+
+    def test_memory_holder_search_is_bounded_for_oversized_removed_list(self) -> None:
+        # The generic artefacts API caps neither the reviewer list nor a login, so a removal can carry
+        # far more logins than a real correction. The per-login scratchpad scan must stay bounded so
+        # one oversized stored list can't turn a later edit into thousands of scans on the request path.
+        report = self._create_report()
+        removed = tuple(f"user{i}" for i in range(MAX_REMOVED_LOGINS_SEARCHED * 4))
+
+        with patch(
+            "products.signals.backend.reviewer_correction_notes.search_scratchpad", return_value=[]
+        ) as mock_search:
+            self._forward(report, added=(), removed=removed)
+
+        assert mock_search.call_count == MAX_REMOVED_LOGINS_SEARCHED
