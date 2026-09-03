@@ -41,12 +41,13 @@ tools:
         description:
             List support tickets in the project. Supports filtering by status (new, open, pending, on_hold, resolved),
             priority (low, medium, high, critical), channel_source (widget, email, slack), assignee, tags, SLA state, AI
-            triage result, date range, and search. To work with a saved ticket view, pass its short_id as the `view`
-            parameter (find it via conversations-views-list); the view's saved filters are applied server-side, and any
-            filter parameter passed explicitly overrides the view's value for that dimension. Results are paginated and
-            ordered by updated_at descending by default. Returns ticket metadata including status, priority, message
-            counts, and timestamps. Use conversations-tickets-retrieve for one ticket's full details and
-            conversations-tickets-messages-retrieve for its message thread.
+            triage result, date range, and search. Pass zendesk_ticket_ids to look tickets up by the Zendesk ticket they
+            were imported from. To work with a saved ticket view, pass its short_id as the `view` parameter (find it via
+            conversations-views-list); the view's saved filters are applied server-side, and any filter parameter passed
+            explicitly overrides the view's value for that dimension. Results are paginated and ordered by updated_at
+            descending by default. Returns ticket metadata including status, priority, message counts, and timestamps.
+            Use conversations-tickets-retrieve for one ticket's full details and conversations-tickets-messages-retrieve
+            for its message thread.
         response:
             include:
                 - id
@@ -60,6 +61,7 @@ tools:
                 - unread_team_count
                 - created_at
                 - updated_at
+                - zendesk_ticket_id
     conversations-tickets-messages-retrieve:
         operation: conversations_tickets_messages_list
         enabled: true

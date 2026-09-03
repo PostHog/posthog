@@ -368,6 +368,49 @@ class TestTicketAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 1)
 
+    def test_filter_by_zendesk_ticket_ids(self, mock_on_commit):
+        self.ticket.zendesk_ticket_id = 60186
+        self.ticket.save()
+
+        imported = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.EMAIL,
+            distinct_id="imported-user",
+            zendesk_ticket_id=60187,
+        )
+        Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.EMAIL,
+            distinct_id="native-user",
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/conversations/tickets/?zendesk_ticket_ids=60186,%2360187"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertEqual(response.json()["count"], 2)
+        self.assertEqual(
+            {(r["zendesk_ticket_id"], r["ticket_number"]) for r in results},
+            {(60186, self.ticket.ticket_number), (60187, imported.ticket_number)},
+        )
+
+    @parameterized.expand(
+        [
+            ("empty", ""),
+            ("non_numeric", "abc"),
+            ("unicode_digit", "%C2%B2"),
+            ("blank_entry", "60186,,60187"),
+            ("too_many", ",".join(str(i) for i in range(101))),
+        ]
+    )
+    def test_invalid_zendesk_ticket_ids_rejected(self, mock_on_commit, _name, invalid_value):
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/conversations/tickets/?zendesk_ticket_ids={invalid_value}"
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
     def test_filter_by_multiple_statuses(self, mock_on_commit):
         """Test filtering tickets by multiple statuses (comma-separated)."""
         self.ticket.status = Status.NEW

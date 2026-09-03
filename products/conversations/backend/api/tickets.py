@@ -505,6 +505,28 @@ NOTE_MESSAGE_ID_PARAM = OpenApiParameter(
     description="The UUID of the private note (comment) to edit or delete.",
 )
 
+MAX_ZENDESK_TICKET_IDS = 100
+
+
+def _parse_zendesk_ticket_ids(raw: str) -> list[int]:
+    """Parse the comma-separated `zendesk_ticket_ids` filter into Zendesk ticket ids.
+
+    Unlike the other list filters, a bad value here is rejected rather than dropped: callers use
+    this to map a known set of Zendesk ids onto tickets, and silently ignoring an unparseable or
+    over-long list would hand them a map that is quietly missing entries.
+    """
+    if not raw.strip():
+        raise ValidationError({"zendesk_ticket_ids": "Provide at least one Zendesk ticket id."})
+    entries = [entry.strip().lstrip("#") for entry in raw.split(",")]
+    if len(entries) > MAX_ZENDESK_TICKET_IDS:
+        raise ValidationError(
+            {"zendesk_ticket_ids": f"Provide at most {MAX_ZENDESK_TICKET_IDS} Zendesk ticket ids per request."}
+        )
+    # `isascii` guards `int()`: `isdigit()` also accepts characters like `²` that `int()` rejects.
+    if not all(entry.isascii() and entry.isdigit() for entry in entries):
+        raise ValidationError({"zendesk_ticket_ids": "Zendesk ticket ids must be numeric."})
+    return [int(entry) for entry in entries]
+
 
 def _status_implied_by_snooze(before: datetime | None, after: datetime | None) -> str | None:
     """Return the status a snooze change implies, or None when it implies no status change.
@@ -650,6 +672,10 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         channel_detail = self.request.query_params.get("channel_detail")
         if channel_detail and channel_detail in [d.value for d in ChannelDetail]:
             queryset = queryset.filter(channel_detail=channel_detail)
+
+        zendesk_ticket_ids_param = self.request.query_params.get("zendesk_ticket_ids")
+        if zendesk_ticket_ids_param is not None:
+            queryset = queryset.filter(zendesk_ticket_id__in=_parse_zendesk_ticket_ids(zendesk_ticket_ids_param))
 
         # Related-ticket matching: a ticket belongs to the same customer if it shares one of the
         # person's merged distinct_ids OR the same email address. Email widens the match to tickets
@@ -870,6 +896,17 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
                     "Comma-separated list of email addresses to filter by, matched case-insensitively "
                     "against `email_from` (max 100). When combined with `distinct_ids`, tickets matching "
                     "either the distinct_ids or the emails are returned (OR)."
+                ),
+            ),
+            OpenApiParameter(
+                "zendesk_ticket_ids",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description=(
+                    "Comma-separated list of Zendesk ticket ids to filter by, matched against `zendesk_ticket_id` "
+                    f"(max {MAX_ZENDESK_TICKET_IDS}). Each id may be prefixed with `#`. Use this to map Zendesk "
+                    "ticket ids onto PostHog tickets imported from Zendesk. Returns 400 if the list is empty, "
+                    "too long, or holds an entry that is not a number."
                 ),
             ),
             OpenApiParameter(
