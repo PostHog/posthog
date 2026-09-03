@@ -12,8 +12,6 @@ import { insightsApi } from 'scenes/insights/utils/api'
 import { getMarkdownNotebookMarkdown } from 'scenes/notebooks/Notebook/markdownNotebookV2'
 import { NotebookNodeType } from 'scenes/notebooks/types'
 import { defaultNotebookContent } from 'scenes/notebooks/utils'
-import { sceneLogic } from 'scenes/sceneLogic'
-import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
@@ -216,6 +214,13 @@ function createMonacoWithModel(model: any): any {
     return monaco
 }
 
+async function runDebouncedAction(action: () => void): Promise<void> {
+    jest.useFakeTimers()
+    action()
+    await jest.advanceTimersByTimeAsync(600)
+    jest.useRealTimers()
+}
+
 describe('sqlEditorLogic', () => {
     let logic: ReturnType<typeof sqlEditorLogic.build>
     let editorRootLogic: ReturnType<typeof editorSceneLogic.build> | undefined
@@ -295,11 +300,8 @@ describe('sqlEditorLogic', () => {
         })
 
         initKeaTests()
-        teamLogic.mount()
-        sceneLogic.mount()
         databaseLogic = databaseTableListLogic()
         databaseLogic.mount()
-        await expectLogic(teamLogic).toFinishAllListeners()
     })
 
     afterEach(() => {
@@ -1514,8 +1516,7 @@ describe('sqlEditorLogic', () => {
                 outputActiveTab: OutputTab.Visualization,
             })
 
-            logic.actions.setQueryInput('SELECT 2')
-            await new Promise((resolve) => setTimeout(resolve, 600))
+            await runDebouncedAction(() => logic.actions.setQueryInput('SELECT 2'))
 
             expect(router.values.hashParams.q).toEqual('SELECT 2')
             expect(router.values.hashParams.output_tab).toEqual(OutputTab.Visualization)
@@ -2009,8 +2010,7 @@ describe('sqlEditorLogic', () => {
 
             await expectLogic(logic).toDispatchActions(['setEditorSource', 'createTab', 'updateTab'])
 
-            logic.actions.setQueryInput('SELECT 2')
-            await new Promise((resolve) => setTimeout(resolve, 600))
+            await runDebouncedAction(() => logic.actions.setQueryInput('SELECT 2'))
 
             expect(router.values.searchParams.source).toBeUndefined()
             expect(router.values.hashParams.q).toEqual('SELECT 2')
@@ -2051,8 +2051,7 @@ describe('sqlEditorLogic', () => {
 
             await expectLogic(logic).toDispatchActions(['setEditorSource', 'createTab', 'updateTab'])
 
-            logic.actions.setQueryInput('SELECT 2')
-            await new Promise((resolve) => setTimeout(resolve, 600))
+            await runDebouncedAction(() => logic.actions.setQueryInput('SELECT 2'))
 
             expect(router.values.searchParams.source).toBeUndefined()
             expect(router.values.hashParams.q).toEqual('SELECT 2')
@@ -2117,8 +2116,7 @@ describe('sqlEditorLogic', () => {
             expect(logic.values.sourceQuery.source.connectionId).toEqual('conn-123')
             expect(router.values.hashParams.c).toEqual('conn-123')
 
-            logic.actions.setQueryInput('SELECT 2')
-            await new Promise((resolve) => setTimeout(resolve, 600))
+            await runDebouncedAction(() => logic.actions.setQueryInput('SELECT 2'))
 
             expect(router.values.hashParams.q).toEqual('SELECT 2')
             expect(router.values.hashParams.c).toEqual('conn-123')
@@ -2140,8 +2138,7 @@ describe('sqlEditorLogic', () => {
             expect(logic.values.sendRawQueryEnabled).toEqual(true)
             expect(String(router.values.hashParams.raw)).toEqual('1')
 
-            logic.actions.setQueryInput('SELECT 2')
-            await new Promise((resolve) => setTimeout(resolve, 600))
+            await runDebouncedAction(() => logic.actions.setQueryInput('SELECT 2'))
 
             expect(router.values.hashParams.q).toEqual('SELECT 2')
             expect(router.values.hashParams.c).toEqual('conn-123')
