@@ -6,6 +6,7 @@ from django.test import override_settings
 import requests
 
 from products.tasks.backend.logic.services.agent_command import (
+    CONTENT_BLOCK_USER_ERROR,
     REFRESH_SESSION_METHOD,
     REFRESH_TIMEOUT_SECONDS,
     CommandResult,
@@ -15,6 +16,7 @@ from products.tasks.backend.logic.services.agent_command import (
     send_cancel,
     send_refresh_session,
     send_user_message,
+    user_facing_agent_error,
     validate_sandbox_url,
 )
 
@@ -323,13 +325,20 @@ class TestSendAgentCommand:
 
     @patch("products.tasks.backend.logic.services.agent_command.validate_sandbox_url", return_value=None)
     @patch("products.tasks.backend.logic.services.agent_command.requests.post")
-    def test_content_block_stream_error_is_retryable(self, mock_post, mock_validate):
+    @pytest.mark.parametrize(
+        "message",
+        [
+            "Internal error: API Error: Content block not found",
+            "Internal error: API Error: Content block is not a thinking block",
+        ],
+    )
+    def test_content_block_error_is_retryable(self, mock_post, mock_validate, message):
         mock_resp = MagicMock()
         mock_resp.status_code = 200
         mock_resp.json.return_value = {
             "jsonrpc": "2.0",
             "id": 1,
-            "error": {"code": -32603, "message": "Internal error: API Error: Content block not found"},
+            "error": {"code": -32603, "message": message},
         }
         mock_post.return_value = mock_resp
 
@@ -569,3 +578,17 @@ class TestBuildRequestArgsHoglandParam:
         headers, query_params = _build_request_args("hog-tok", None, token_param="token")
         assert "Authorization" not in headers
         assert query_params == {"token": "hog-tok"}
+
+
+class TestUserFacingAgentError:
+    @pytest.mark.parametrize(
+        "error,expected",
+        [
+            ("Internal error: API Error: Content block not found", CONTENT_BLOCK_USER_ERROR),
+            ("Internal error: API Error: Content block is not a thinking block", CONTENT_BLOCK_USER_ERROR),
+            ("Internal error: API Error: 402 admission rejected", "Internal error: API Error: 402 admission rejected"),
+            (None, "Failed to send message to sandbox"),
+        ],
+    )
+    def test_content_block_rejections_are_rewritten(self, error, expected):
+        assert user_facing_agent_error(error) == expected

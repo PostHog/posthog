@@ -328,6 +328,11 @@ class MCPGatewayServer(TeamScopedRootMixin, UUIDModel):
     template = models.ForeignKey(
         MCPServerTemplate, on_delete=models.SET_NULL, related_name="gateway_servers", null=True, blank=True
     )
+    # How members authenticate to a custom server, copied from the credential
+    # that registered the row. Later connections follow it instead of asking
+    # each member to guess. Templates carry their own auth_type. Blank on rows
+    # that predate the column; members then choose.
+    auth_type = models.CharField(max_length=20, choices=AUTH_TYPE_CHOICES, blank=True, default="", db_default="")
     created_by = models.ForeignKey(
         "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
     )

@@ -20,7 +20,7 @@ Load all matching topics in one `learn` command first. Topics are cumulative.
 - urls: Load before writing any PostHog app link or URL.
 - feedback: Send feedback about PostHog.
 
-**Metrics & SQL trust**: for any metric question (business or operational), and before writing SQL or joins, run `learn analytics` — the catalog defines governed metrics (`system.information_schema.metrics`), certified tables/views, and verified joins. Check it before insights or raw SQL and state the outcome in query context.
+**Metrics & SQL trust**: for any metric question (business or operational), inspect the complete governed catalog with `metric-list` before insights, domain tools, or raw SQL. Use `metric-describe` for a candidate's definition, including HogQL or SQL, before adapting it. Run `learn analytics` before writing SQL or joins — it covers certified tables/views and verified joins. State the catalog outcome in query context.
 
 **SCHEMA DRILL-DOWN RULE — HARD REQUIREMENT**
 
@@ -46,8 +46,9 @@ per team. If the event isn't in the schema, tell the user instead of querying a 
 
 Always run `info read-data-schema` first — the recipes below are common cases, not the full schema.
 
-- Events/Actions: `call read-data-schema {"query": {"kind": "events"/"actions"}}` (paginate with `limit`/`offset` if needed)
-- Properties: `call read-data-schema {"query": {"kind": "event_properties", "event_name": "<event>"}}`
+- Events: `call read-data-schema {"query": {"kind": "events"}}` (paginate with `limit`/`offset` if needed). Actions come from `actions-get-all` instead.
+- Event properties: `call read-data-schema {"query": {"kind": "event_properties", "event_name": "<event>"}}`
+- Person, session, and group properties: `call read-data-schema {"query": {"kind": "entity_properties", "entity": "<entity>"}}` (`entity` is `person`, `session`, or a group type name)
 - Values: `call read-data-schema {"query": {"kind": "event_property_values", "event_name": "<event>", "property_name": "<prop>"}}`
 
 **CORRECT usage pattern:**

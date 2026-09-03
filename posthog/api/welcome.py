@@ -49,6 +49,16 @@ _SCOPE_URL_BUILDERS = {
     "Survey": lambda team_id, item_id: f"/project/{team_id}/surveys/{item_id}",
 }
 
+
+def _activity_path_id(scope: str, item_id: str | None, detail: dict[str, Any]) -> str | None:
+    # Insight scene routes look up by short_id. Activity log item_id is the numeric PK, so a
+    # `/insights/<pk>` link 404s even though the insight exists.
+    if scope == "Insight":
+        short_id = detail.get("short_id")
+        return short_id if isinstance(short_id, str) and short_id else None
+    return item_id
+
+
 _RECENT_ACTIVITY_MAX_ITEMS = 10
 _POPULAR_DASHBOARDS_MAX_ITEMS = 3
 _TEAM_MEMBERS_MAX_ITEMS = 8
@@ -454,8 +464,9 @@ def _format_activity_row(row: ActivityLog, team_ids: list[int]) -> dict[str, Any
 
     entity_url = None
     url_builder = _SCOPE_URL_BUILDERS.get(row.scope)
-    if url_builder is not None and row.item_id and row.team_id:
-        entity_url = url_builder(row.team_id, row.item_id)
+    path_id = _activity_path_id(row.scope, row.item_id, detail)
+    if url_builder is not None and path_id and row.team_id:
+        entity_url = url_builder(row.team_id, path_id)
 
     timestamp = row.created_at
     if timezone.is_naive(timestamp):

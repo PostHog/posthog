@@ -9,6 +9,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    AiObservabilityInstrumentationChecklistRetrieveParams,
     BatchCheckRequestApi,
     BatchCheckResponseApi,
     ClusteringConfigApi,
@@ -166,8 +167,23 @@ export const llmAnalyticsPersonalSpendList = async (
     })
 }
 
-export const getAiObservabilityInstrumentationChecklistRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/ai_observability/instrumentation_checklist/`
+export const getAiObservabilityInstrumentationChecklistRetrieveUrl = (
+    projectId: string,
+    params?: AiObservabilityInstrumentationChecklistRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/ai_observability/instrumentation_checklist/?${stringifiedParams}`
+        : `/api/projects/${projectId}/ai_observability/instrumentation_checklist/`
 }
 
 /**
@@ -175,12 +191,16 @@ export const getAiObservabilityInstrumentationChecklistRetrieveUrl = (projectId:
  */
 export const aiObservabilityInstrumentationChecklistRetrieve = async (
     projectId: string,
+    params?: AiObservabilityInstrumentationChecklistRetrieveParams,
     options?: RequestInit
 ): Promise<InstrumentationChecklistApi> => {
-    return apiMutator<InstrumentationChecklistApi>(getAiObservabilityInstrumentationChecklistRetrieveUrl(projectId), {
-        ...options,
-        method: 'GET',
-    })
+    return apiMutator<InstrumentationChecklistApi>(
+        getAiObservabilityInstrumentationChecklistRetrieveUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getAiObservabilityInstrumentationChecklistDismissCreateUrl = (projectId: string) => {
