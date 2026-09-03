@@ -27,4 +27,9 @@ class Migration(migrations.Migration):
             name="email_sending_warned_at",
             field=models.DateTimeField(blank=True, null=True),
         ),
+        migrations.AddField(
+            model_name="hogflow",
+            name="email_sending_paused_by",
+            field=models.CharField(blank=True, db_default="", default="", max_length=16),
+        ),
     ]
