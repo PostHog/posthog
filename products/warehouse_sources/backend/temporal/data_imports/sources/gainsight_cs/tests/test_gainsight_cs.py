@@ -1,3 +1,4 @@
+import io
 import json
 from collections.abc import Iterable
 from datetime import UTC, datetime
@@ -42,9 +43,8 @@ DOMAIN = "acme.gainsightcloud.com"
 def _response(body: Any, *, status_code: int = 200, headers: dict[str, str] | None = None) -> Response:
     resp = Response()
     resp.status_code = status_code
-    resp._content = json.dumps(body).encode()
-    # The source streams bodies through a size cap; a pre-filled Response only iterates once consumed.
-    resp._content_consumed = True
+    # The source streams bodies through a size cap, so give the response a raw stream to read from.
+    resp.raw = io.BytesIO(json.dumps(body).encode())
     if headers:
         resp.headers.update(headers)
     return resp
