@@ -387,7 +387,9 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
 
         # Mock Temporal-related functions to avoid connection errors
         with (
-            patch("products.data_warehouse.backend.logic.data_load.saved_query_service.sync_saved_query_workflow"),
+            patch(
+                "products.data_modeling.backend.models.datawarehouse_saved_query.DataWarehouseSavedQuery.schedule_materialization"
+            ),
             patch(
                 "products.data_warehouse.backend.logic.data_load.saved_query_service.saved_query_workflow_exists",
                 return_value=False,
@@ -606,8 +608,9 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
             created_by=self.user,
         )
 
-        # Mock sync workflow
-        with patch("products.data_warehouse.backend.logic.data_load.saved_query_service.sync_saved_query_workflow"):
+        with patch(
+            "products.data_modeling.backend.models.datawarehouse_saved_query.DataWarehouseSavedQuery.schedule_materialization"
+        ):
             # Enable materialization on v1
             response = self.client.put(
                 f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
@@ -622,7 +625,9 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(v1.saved_query.name, "versioned_mat_v1")
 
         # Create v2 by changing query
-        with patch("products.data_warehouse.backend.logic.data_load.saved_query_service.sync_saved_query_workflow"):
+        with patch(
+            "products.data_modeling.backend.models.datawarehouse_saved_query.DataWarehouseSavedQuery.schedule_materialization"
+        ):
             response = self.client.put(
                 f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
                 {"query": {"kind": "HogQLQuery", "query": "SELECT 2"}},
@@ -673,7 +678,9 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
         self.assertFalse(v2.is_materialized)
 
         # Enable materialization on v1 specifically (not the current version)
-        with patch("products.data_warehouse.backend.logic.data_load.saved_query_service.sync_saved_query_workflow"):
+        with patch(
+            "products.data_modeling.backend.models.datawarehouse_saved_query.DataWarehouseSavedQuery.schedule_materialization"
+        ):
             response = self.client.put(
                 f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/?version=1",
                 {"is_materialized": True, "data_freshness_seconds": 86400},
