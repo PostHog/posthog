@@ -15836,9 +15836,32 @@ export namespace Schemas {
       origins: string[];
     }
 
+    /**
+     * One provider a canvas may call through ph.connectors, with the tools it may use.
+     */
+    export interface CanvasConnectorDeclaration {
+      /**
+         * Connector provider id: a native provider such as 'github', or 'mcp:<server host>' (e.g. 'mcp:mcp.calendly.com') for a server the viewer connected in the MCP store.
+         * @maxLength 300
+         */
+      provider: string;
+      /**
+         * Tool names the canvas may call on this provider. Read-only tools only.
+         * @minItems 1
+         * @maxItems 64
+         * @items.maxLength 200
+         */
+      tools: string[];
+    }
+
     export interface CanvasCapabilities {
       posthog: CanvasPostHogCapabilities;
       network: CanvasNetworkCapabilities;
+      /**
+         * Third-party providers the canvas reads through ph.connectors, each with the tools it may call. Every call runs with the viewer's own connection; declaring one shows it in the promote review.
+         * @maxItems 20
+         */
+      connectors?: CanvasConnectorDeclaration[];
     }
 
     /**
@@ -15862,6 +15885,151 @@ export namespace Schemas {
       state_scopes_added: string[];
       /** Action verbs the draft newly declares it may invoke via ph.actions. */
       actions_added: string[];
+      /** Connector providers and tools the draft newly declares it may call via ph.connectors. */
+      connectors_added: CanvasConnectorDeclaration[];
+    }
+
+    /**
+     * * `native` - Native
+     * * `mcp` - Mcp
+     */
+    export type ConnectorKindEnum = typeof ConnectorKindEnum[keyof typeof ConnectorKindEnum];
+
+
+    export const ConnectorKindEnum = {
+      Native: 'native',
+      Mcp: 'mcp',
+    } as const;
+
+    /**
+     * JSON Schema of the tool's arguments object.
+     */
+    export type CanvasConnectorToolInputSchema = { [key: string]: unknown };
+
+    /**
+     * One tool a connector provider exposes to canvases.
+     */
+    export interface CanvasConnectorTool {
+      /** Tool name, as passed to ph.connectors.call. */
+      name: string;
+      /** One line naming what the tool reads. */
+      summary: string;
+      /** True when the tool only reads. Canvases may call read-only tools. */
+      is_read_only: boolean;
+      /** JSON Schema of the tool's arguments object. */
+      input_schema: CanvasConnectorToolInputSchema;
+      /** Authoring docs: argument and result shape, limits, and behavior. */
+      usage: string;
+    }
+
+    /**
+     * One connector provider, with the caller's connection state and the tools it exposes.
+     */
+    export interface CanvasConnector {
+      /** Provider id to declare and call, e.g. 'github' or 'mcp:mcp.calendly.com'. */
+      provider: string;
+      /** Display name of the provider. */
+      display_name: string;
+      /** 'native' runs through a PostHog personal integration; 'mcp' through an MCP store installation.
+       *
+       * * `native` - Native
+       * * `mcp` - Mcp */
+      kind: ConnectorKindEnum;
+      /** True when the caller has a usable connection to this provider. */
+      connected: boolean;
+      /** In-app path where the caller connects this provider. */
+      connect_path: string;
+      /** Tools the caller's connection exposes, sorted by name. */
+      tools: CanvasConnectorTool[];
+    }
+
+    /**
+     * Tool arguments, validated against the tool's input schema.
+     */
+    export type CanvasConnectorCallArguments = { [key: string]: unknown };
+
+    /**
+     * Payload for calling one connector tool as the viewer.
+     */
+    export interface CanvasConnectorCall {
+      /**
+         * Declared provider id, e.g. 'github'.
+         * @maxLength 300
+         */
+      provider: string;
+      /**
+         * Declared tool name, e.g. 'list_pull_requests'.
+         * @maxLength 200
+         */
+      tool: string;
+      /** Tool arguments, validated against the tool's input schema. */
+      arguments?: CanvasConnectorCallArguments;
+    }
+
+    /**
+     * Tool output. Native tools return their documented shape; MCP tools return {content, structured_content, is_error}.
+     * @nullable
+     */
+    export type CanvasConnectorCallResultResult = { [key: string]: unknown } | null;
+
+    /**
+     * * `ok` - Ok
+     * * `not_connected` - Not Connected
+     * * `needs_reauth` - Needs Reauth
+     * * `blocked` - Blocked
+     * * `tool_missing` - Tool Missing
+     * * `write_blocked` - Write Blocked
+     * * `upstream_error` - Upstream Error
+     */
+    export type ConnectorCallStatusEnum = typeof ConnectorCallStatusEnum[keyof typeof ConnectorCallStatusEnum];
+
+
+    export const ConnectorCallStatusEnum = {
+      Ok: 'ok',
+      NotConnected: 'not_connected',
+      NeedsReauth: 'needs_reauth',
+      Blocked: 'blocked',
+      ToolMissing: 'tool_missing',
+      WriteBlocked: 'write_blocked',
+      UpstreamError: 'upstream_error',
+    } as const;
+
+    /**
+     * Result of one connector call. `status` is 'ok' when `result` holds the tool's output.
+     */
+    export interface CanvasConnectorCallResult {
+      /** 'ok' carries a result. 'not_connected' and 'needs_reauth' mean the viewer must connect the provider at connect_path. 'blocked' is team policy. 'write_blocked' is a tool that may write. 'upstream_error' is a failure at the provider.
+       *
+       * * `ok` - Ok
+       * * `not_connected` - Not Connected
+       * * `needs_reauth` - Needs Reauth
+       * * `blocked` - Blocked
+       * * `tool_missing` - Tool Missing
+       * * `write_blocked` - Write Blocked
+       * * `upstream_error` - Upstream Error */
+      status: ConnectorCallStatusEnum;
+      /**
+         * Tool output. Native tools return their documented shape; MCP tools return {content, structured_content, is_error}.
+         * @nullable
+         */
+      result: CanvasConnectorCallResultResult;
+      /** Human-readable explanation for a non-ok status. */
+      detail: string;
+      /** True when the result exceeded the size cap and was cut to a preview. */
+      truncated: boolean;
+      /**
+         * In-app path where the viewer can connect the provider, when that would help.
+         * @nullable
+         */
+      connect_path: string | null;
+    }
+
+    /**
+     * The connector catalog: every provider a canvas may declare and call.
+     */
+    export interface CanvasConnectorsResponse {
+      /** Native providers first, then the requested MCP hosts. */
+      connectors: CanvasConnector[];
     }
 
     /**
@@ -91909,6 +92077,13 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type CanvasesConnectorsRetrieveParams = {
+    /**
+     * Comma-separated MCP server hosts to include (e.g. 'mcp.calendly.com'). Defaults to every server the caller has connected in the MCP store.
+     */
+    mcp_hosts?: string;
     };
 
     export type ChangeRequestsListParams = {

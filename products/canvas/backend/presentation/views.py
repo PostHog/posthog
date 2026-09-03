@@ -28,10 +28,13 @@ from posthog.temporal.oauth import SANDBOX_OAUTH_APP_CLIENT_IDS
 
 from products.canvas.backend import build_service, error_reports
 from products.canvas.backend.actions import CANVAS_ACTIONS, canvas_actions_disabled
-from products.canvas.backend.capabilities import declared_actions, declared_state_scopes
+from products.canvas.backend.capabilities import declared_actions, declared_connectors, declared_state_scopes
 from products.canvas.backend.contract import contract_limits
 from products.canvas.backend.facade.api import (
     apply_layout_ops,
+    call_connector_tool,
+    canvas_connectors_enabled,
+    connector_listings,
     default_layout,
     seed_home_canvas,
     subtract_preexisting_diagnostics,
@@ -49,6 +52,9 @@ from products.canvas.backend.presentation.serializers import (
     CanvasBuildSerializer,
     CanvasBuildsResponseSerializer,
     CanvasCapabilityWideningSerializer,
+    CanvasConnectorCallResultSerializer,
+    CanvasConnectorCallSerializer,
+    CanvasConnectorsResponseSerializer,
     CanvasCreateSerializer,
     CanvasDraftSerializer,
     CanvasErrorReportResultSerializer,
@@ -184,6 +190,14 @@ class CanvasActionInvokeThrottle(CanvasStateWriteThrottle):
     rate = "60/min"
 
 
+class CanvasConnectorCallThrottle(CanvasStateWriteThrottle):
+    """Per viewer per canvas. Every call spends the viewer's third-party rate
+    limit, so a board that polls too eagerly is throttled here first."""
+
+    scope = "canvas_connector_call"
+    rate = "120/min"
+
+
 class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """Canvases: agent-built sandboxed browser apps, filed into channels.
 
@@ -208,6 +222,7 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "validate",
         "state",
         "layout",
+        "connectors",
     ]
     scope_object_write_actions = [
         "create",
@@ -224,6 +239,7 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "request_fix",
         "set_state",
         "invoke_action",
+        "call_connector",
         "request_agent",
         "publish_layout",
         "patch_layout",
@@ -237,6 +253,8 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return [*super().get_throttles(), CanvasStateWriteThrottle()]
         if self.action == "invoke_action":
             return [*super().get_throttles(), CanvasActionInvokeThrottle()]
+        if self.action == "call_connector":
+            return [*super().get_throttles(), CanvasConnectorCallThrottle()]
         return super().get_throttles()
 
     def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
@@ -1599,6 +1617,13 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         """The user whose personal state is read or written."""
         return self._request_user()
 
+    def _connector_actor(self, request: Request) -> User | None:
+        """The viewer whose third-party connections a connector call may use.
+        A sandbox token acts for an agent, not a viewer, so it gets none."""
+        if self._is_sandbox_authenticated(request):
+            return None
+        return self._request_user()
+
     @extend_schema(
         operation_id="canvases_actions_retrieve",
         responses={200: CanvasActionsResponseSerializer},
@@ -1680,6 +1705,118 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
         self._report_canvas_action("canvas action invoked", canvas, verb=verb)
         return Response(CanvasActionResultSerializer(instance={"verb": verb, "result": result}).data)
+
+    @extend_schema(
+        operation_id="canvases_connectors_retrieve",
+        parameters=[
+            OpenApiParameter(
+                "mcp_hosts",
+                OpenApiTypes.STR,
+                required=False,
+                description=(
+                    "Comma-separated MCP server hosts to include (e.g. 'mcp.calendly.com'). Defaults to every "
+                    "server the caller has connected in the MCP store."
+                ),
+            )
+        ],
+        responses={
+            200: CanvasConnectorsResponseSerializer,
+            403: OpenApiResponse(description="Connectors are not enabled for this team, or the caller is a sandbox."),
+        },
+    )
+    @action(methods=["GET"], detail=False, url_path="connectors")
+    def connectors(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """List the connector catalog: every provider and tool a canvas may declare, with the caller's connection state.
+
+        Authoring agents read this to write ph.connectors.call sites and the
+        matching capabilities.connectors declarations.
+        """
+        user = self._connector_actor(request)
+        if user is None:
+            return Response(
+                {"detail": "The connector catalog is a viewer surface; sandbox tokens cannot read it."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        if not canvas_connectors_enabled(self.team):
+            return Response(
+                {"detail": "Canvas connectors are not enabled for this team."}, status=status.HTTP_403_FORBIDDEN
+            )
+        raw_hosts = request.query_params.get("mcp_hosts")
+        mcp_hosts = [host.strip() for host in raw_hosts.split(",") if host.strip()] if raw_hosts else None
+        listings = connector_listings(self.team_id, user.id, mcp_hosts)
+        return Response(CanvasConnectorsResponseSerializer(instance={"connectors": listings}).data)
+
+    @extend_schema(
+        operation_id="canvases_connectors_call",
+        request=CanvasConnectorCallSerializer,
+        responses={
+            200: CanvasConnectorCallResultSerializer,
+            400: OpenApiResponse(description="The arguments failed the tool's schema."),
+            403: OpenApiResponse(
+                description="The provider or tool is not declared in the canvas's capabilities, connectors are "
+                "not enabled for the team, or the caller is a sandbox."
+            ),
+        },
+    )
+    @action(methods=["POST"], detail=True, url_path="connectors/call")
+    def call_connector(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Call one declared connector tool as the viewer.
+
+        The canvas must declare the provider and tool in capabilities.connectors
+        (the reviewed permission boundary); the call runs with the viewer's own
+        connection, so two viewers of the same canvas see their own data.
+        """
+        canvas = self.get_object()
+        user = self._connector_actor(request)
+        if user is None:
+            return Response(
+                {"detail": "Connector calls are made by viewers; sandbox tokens cannot use them."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        if not canvas_connectors_enabled(self.team):
+            return Response(
+                {"detail": "Canvas connectors are not enabled for this team."}, status=status.HTTP_403_FORBIDDEN
+            )
+        payload = CanvasConnectorCallSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        provider = payload.validated_data["provider"]
+        tool = payload.validated_data["tool"]
+        version = canvas.current_source_version
+        declared = declared_connectors(version.capabilities if version else None)
+        if tool not in declared.get(provider, set()):
+            return Response(
+                {
+                    "detail": f'The canvas does not declare connector tool "{tool}" on "{provider}". '
+                    "Add it to capabilities.connectors and publish."
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        result = call_connector_tool(
+            self.team_id,
+            user.id,
+            provider,
+            tool,
+            payload.validated_data["arguments"],
+            actor_label=user.email or "",
+        )
+        # Every call is audited: the trigger names the tool, the activity log
+        # row names the viewer whose connection it used. Never the arguments.
+        self._log_canvas_activity(
+            canvas,
+            "connector_tool_called",
+            Detail(
+                name=canvas.name,
+                trigger=Trigger(
+                    job_type="canvas_connector",
+                    job_id=f"{provider}/{tool}",
+                    payload={"provider": provider, "tool": tool, "status": str(result.status)},
+                ),
+            ),
+        )
+        self._report_canvas_action(
+            "canvas connector tool called", canvas, provider=provider, tool=tool, status=str(result.status)
+        )
+        return Response(CanvasConnectorCallResultSerializer(instance=result).data)
 
     @extend_schema(
         operation_id="canvases_state_retrieve",
