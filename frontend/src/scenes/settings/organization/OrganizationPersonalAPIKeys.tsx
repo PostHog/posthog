@@ -30,14 +30,10 @@ function ownerLabel(owner: OrganizationPersonalAPIKeyApi['owner']): string {
     return fullName(owner) || owner.email
 }
 
-export function OrganizationPersonalAPIKeys(): JSX.Element {
+// Mounted only behind the paywall and the admin check, so we never request keys the page cannot show.
+function OrganizationPersonalAPIKeysTable(): JSX.Element {
     const { filteredKeys, keysLoading, search } = useValues(organizationPersonalAPIKeysLogic)
     const { setSearch } = useActions(organizationPersonalAPIKeysLogic)
-    const restrictionReason = useRestrictedArea({ minimumAccessLevel: OrganizationMembershipLevel.Admin })
-
-    if (restrictionReason) {
-        return <p className="text-muted">{restrictionReason}</p>
-    }
 
     const columns: LemonTableColumns<OrganizationPersonalAPIKeyApi> = [
         {
@@ -83,10 +79,7 @@ export function OrganizationPersonalAPIKeys(): JSX.Element {
     ]
 
     return (
-        <PayGateMini
-            feature={AvailableFeature.ORGANIZATION_SECURITY_SETTINGS}
-            featureDetail="organization-personal-api-keys"
-        >
+        <>
             <div className="mb-2">
                 <LemonInput
                     type="search"
@@ -108,6 +101,23 @@ export function OrganizationPersonalAPIKeys(): JSX.Element {
                         : 'No personal API keys have access to this organization.'
                 }
             />
+        </>
+    )
+}
+
+export function OrganizationPersonalAPIKeys(): JSX.Element {
+    const restrictionReason = useRestrictedArea({ minimumAccessLevel: OrganizationMembershipLevel.Admin })
+
+    if (restrictionReason) {
+        return <p className="text-muted">{restrictionReason}</p>
+    }
+
+    return (
+        <PayGateMini
+            feature={AvailableFeature.ORGANIZATION_SECURITY_SETTINGS}
+            featureDetail="organization-personal-api-keys"
+        >
+            <OrganizationPersonalAPIKeysTable />
         </PayGateMini>
     )
 }
