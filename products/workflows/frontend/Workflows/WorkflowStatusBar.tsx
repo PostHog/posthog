@@ -91,7 +91,7 @@ export function WorkflowStatusBar({
             </div>
             {/* Interactive controls sit right-anchored with variable-width text leftmost, so the
                 toggle and History never shift as the narration or the timestamp changes. */}
-            {showWorkflowStatus && (
+            {showWorkflowStatus && historyWorkflowId && (
                 <div className="flex items-center gap-3 shrink-0">
                     {autoSaveEnabled && showSaving ? (
                         <span className="text-xs text-tertiary flex items-center gap-1">
@@ -118,17 +118,15 @@ export function WorkflowStatusBar({
                             <IconInfo className="text-tertiary size-4" />
                         </Tooltip>
                     </span>
-                    {historyWorkflowId && (
-                        <LemonButton
-                            type="tertiary"
-                            size="small"
-                            icon={<IconClock />}
-                            to={urls.workflow(historyWorkflowId, 'history')}
-                            tooltip="See and restore previous versions"
-                        >
-                            History
-                        </LemonButton>
-                    )}
+                    <LemonButton
+                        type="tertiary"
+                        size="small"
+                        icon={<IconClock />}
+                        to={urls.workflow(historyWorkflowId, 'history')}
+                        tooltip="See and restore previous versions"
+                    >
+                        History
+                    </LemonButton>
                 </div>
             )}
         </div>
