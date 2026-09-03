@@ -1990,18 +1990,18 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 actions.syncUrlWithQuery()
             },
             enforceConnectionRawQueryMode: () => {
-                // Raw-only connections cannot compile HogQL — force raw SQL mode.
-                // The managed warehouse (auto-provisioned Duckgres) speaks DuckDB
-                // natively end-to-end, so raw mode is the better default for it too:
-                // it skips the HogQL reprint and reaches the engine verbatim.
+                // Raw-only connections cannot compile HogQL, so force raw SQL mode.
+                // Trino and the managed warehouse default to raw so native SQL reaches the engine unchanged.
+                // They still advertise HogQL support, which keeps the mode toggle available.
                 if (values.selectedConnectionId && !values.sourceQuery.source.sendRawQuery) {
                     const option = (values.connectionOptions ?? []).find(
                         (option) => option.id === values.selectedConnectionId
                     )
                     const isManagedWarehouseSource =
                         option?.prefix === MANAGED_WAREHOUSE_SOURCE_PREFIX && option?.source_type === 'Postgres'
+                    const defaultsToRawQuery = isManagedWarehouseSource || option?.engine === 'trino'
 
-                    if (!values.selectedConnectionSupportsHogQL || isManagedWarehouseSource) {
+                    if (!values.selectedConnectionSupportsHogQL || defaultsToRawQuery) {
                         actions.setSendRawQuery(true)
                     }
                 }

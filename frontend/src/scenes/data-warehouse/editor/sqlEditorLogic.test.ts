@@ -2185,36 +2185,57 @@ describe('sqlEditorLogic', () => {
             expect(String(router.values.hashParams.raw)).toEqual('1')
         })
 
-        it('defaults to raw SQL mode for the managed warehouse connection', async () => {
+        it.each([
+            {
+                label: 'managed warehouse',
+                connection: {
+                    id: 'managed-conn-1',
+                    prefix: MANAGED_WAREHOUSE_SOURCE_PREFIX,
+                    engine: 'duckdb',
+                    source_type: 'Postgres',
+                    access_method: 'direct',
+                    supports_hogql: true,
+                    is_builtin_managed_warehouse: false,
+                },
+                source: {
+                    id: 'managed-conn-1',
+                    source_id: 'src-managed-1',
+                    prefix: MANAGED_WAREHOUSE_SOURCE_PREFIX,
+                    source_type: 'Postgres',
+                    access_method: 'direct',
+                    engine: 'duckdb',
+                } as any,
+                query: 'SELECT * FROM managed_warehouse.events',
+            },
+            {
+                label: 'Trino',
+                connection: {
+                    id: 'trino-conn-1',
+                    prefix: 'trino',
+                    engine: 'trino',
+                    source_type: 'Trino',
+                    access_method: 'direct',
+                    supports_hogql: true,
+                    is_builtin_managed_warehouse: false,
+                },
+                source: {
+                    id: 'trino-conn-1',
+                    source_id: 'src-trino-1',
+                    prefix: 'trino',
+                    source_type: 'Trino',
+                    access_method: 'direct',
+                    engine: 'trino',
+                } as any,
+                query: 'SELECT * FROM orders',
+            },
+        ])('defaults to raw SQL mode for $label connections', async ({ connection, source, query }) => {
             useMocks({
                 get: {
-                    '/api/projects/:team_id/external_data_sources/connections/': [
-                        200,
-                        [
-                            {
-                                id: 'managed-conn-1',
-                                prefix: MANAGED_WAREHOUSE_SOURCE_PREFIX,
-                                engine: 'duckdb',
-                                source_type: 'Postgres',
-                                access_method: 'direct',
-                                supports_hogql: true,
-                                is_builtin_managed_warehouse: false,
-                            },
-                        ],
-                    ],
+                    '/api/projects/:team_id/external_data_sources/connections/': [200, [connection]],
                     '/api/environments/:team_id/external_data_sources/': [
                         200,
                         {
-                            results: [
-                                {
-                                    id: 'managed-conn-1',
-                                    source_id: 'src-managed-1',
-                                    prefix: MANAGED_WAREHOUSE_SOURCE_PREFIX,
-                                    source_type: 'Postgres',
-                                    access_method: 'direct',
-                                    engine: 'duckdb',
-                                } as any,
-                            ],
+                            results: [source],
                         },
                     ],
                 },
@@ -2226,7 +2247,7 @@ describe('sqlEditorLogic', () => {
             })
             logic.mount()
 
-            router.actions.push(urls.sqlEditor(), undefined, { q: 'SELECT 1', c: 'managed-conn-1' })
+            router.actions.push(urls.sqlEditor(), undefined, { q: 'SELECT 1', c: connection.id })
 
             await expectLogic(logic).toDispatchActions(['setSourceQuery', 'createTab', 'updateTab'])
             await expectLogic(logic).toDispatchActions(['setSendRawQuery'])
@@ -2235,12 +2256,10 @@ describe('sqlEditorLogic', () => {
             expect(logic.values.sourceQuery.source.sendRawQuery).toEqual(true)
             expect(logic.values.sendRawQueryEnabled).toEqual(true)
 
-            // The database sidebar opens a query through this URL without a raw hash param.
-            // The connection stays the same, so the query-opening path must reapply the default.
             router.actions.push(
                 urls.sqlEditor({
-                    query: 'SELECT * FROM managed_warehouse.events',
-                    connectionId: 'managed-conn-1',
+                    query,
+                    connectionId: connection.id,
                 })
             )
 
