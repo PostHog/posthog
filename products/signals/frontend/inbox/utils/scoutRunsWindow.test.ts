@@ -148,6 +148,7 @@ describe('scout schedule modes', () => {
         ['a rolling interval', null, '1440'],
         ['a plain daily cron', '0 9 * * *', SCOUT_DAILY_AT_SCHEDULE_MODE],
         ['a single weekday cron', '30 8 * * 4', SCOUT_WEEKLY_ON_SCHEDULE_MODE],
+        ['a Sunday cron written as 7', '30 8 * * 7', SCOUT_WEEKLY_ON_SCHEDULE_MODE],
         ['a weekday-range cron', '0 9 * * 1-5', SCOUT_CUSTOM_CRON_SCHEDULE_MODE],
         ['a monthly cron', '0 9 1 * *', SCOUT_CUSTOM_CRON_SCHEDULE_MODE],
     ])('reads %s as its own mode', (_label, runCronSchedule, expected) => {
@@ -159,6 +160,10 @@ describe('scout schedule modes', () => {
     it('round-trips a weekly day and time through the cron it writes', () => {
         expect(dayTimeToWeeklyCron('4', '08:30')).toEqual('30 8 * * 4')
         expect(weeklyCronToDayTime('30 8 * * 4')).toEqual({ day: '4', time: '08:30' })
+    })
+
+    it('reads the other Sunday spelling as the dropdown value', () => {
+        expect(weeklyCronToDayTime('30 8 * * 7')).toEqual({ day: '0', time: '08:30' })
     })
 
     describe('scoutCronScheduleError', () => {

@@ -556,14 +556,17 @@ export function timeToDailyCron(time: string): string {
 /**
  * "30 9 * * 4" → `{ day: '4', time: '09:30' }` when the cron is a plain weekly slot (the shape the
  * settings form writes). Multi-day and month-restricted expressions return null and are edited as
- * raw cron instead.
+ * raw cron instead. Cron takes both 0 and 7 for Sunday; the dropdown offers 0, so 7 maps onto it.
  */
 export function weeklyCronToDayTime(cron: string | null | undefined): { day: string; time: string } | null {
-    const match = cron?.trim().match(/^(\d{1,2}) (\d{1,2}) \* \* ([0-6])$/)
+    const match = cron?.trim().match(/^(\d{1,2}) (\d{1,2}) \* \* ([0-7])$/)
     if (!match) {
         return null
     }
-    return { day: match[3], time: `${match[2].padStart(2, '0')}:${match[1].padStart(2, '0')}` }
+    return {
+        day: match[3] === '7' ? '0' : match[3],
+        time: `${match[2].padStart(2, '0')}:${match[1].padStart(2, '0')}`,
+    }
 }
 
 /** `('4', '09:30')` → "30 9 * * 4" — the inverse of `weeklyCronToDayTime`. */
