@@ -8391,7 +8391,7 @@ export const ErrorTrackingQueryIssuesListCreateBody = () => zod.object({
     assignee: zod
         .union([
             zod.object({
-                id: zod.union([zod.string(), zod.number(), zod.null()]).describe('User ID or role UUID to filter by.'),
+                id: zod.union([zod.string(), zod.number()]).describe('User ID or role UUID to filter by.'),
                 type: zod
                     .enum(['user', 'role'])
                     .describe('\* `user` - user\n\* `role` - role')

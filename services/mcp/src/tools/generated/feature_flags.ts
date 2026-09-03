@@ -416,6 +416,47 @@ const featureFlagsBulkUpdateTagsCreate = (): ToolBase<
     },
 })
 
+const FeatureFlagsCopyFlagsCreateSchema = () => {
+    const FeatureFlagsCopyFlagsCreateBody = orvalSchemas.FeatureFlagsCopyFlagsCreateBody()
+    return FeatureFlagsCopyFlagsCreateBody
+}
+
+const featureFlagsCopyFlagsCreate = (): ToolBase<
+    ReturnType<typeof FeatureFlagsCopyFlagsCreateSchema>,
+    Schemas.CopyFlagsResponse
+> => ({
+    name: 'feature-flags-copy-flags-create',
+    schema: FeatureFlagsCopyFlagsCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof FeatureFlagsCopyFlagsCreateSchema>>) => {
+        const orgId = await context.stateManager.getOrgID()
+        const body: Record<string, unknown> = {}
+        if (params.feature_flag_key !== undefined) {
+            body['feature_flag_key'] = params.feature_flag_key
+        }
+        if (params.from_project !== undefined) {
+            body['from_project'] = params.from_project
+        }
+        if (params.target_project_ids !== undefined) {
+            body['target_project_ids'] = params.target_project_ids
+        }
+        if (params.copy_schedule !== undefined) {
+            body['copy_schedule'] = params.copy_schedule
+        }
+        if (params.disable_copied_flag !== undefined) {
+            body['disable_copied_flag'] = params.disable_copied_flag
+        }
+        if (params.copy_dependencies !== undefined) {
+            body['copy_dependencies'] = params.copy_dependencies
+        }
+        const result = await context.api.request<Schemas.CopyFlagsResponse>({
+            method: 'POST',
+            path: `/api/organizations/${encodeURIComponent(String(orgId))}/feature_flags/copy_flags/`,
+            body,
+        })
+        return result
+    },
+})
+
 const FeatureFlagsDependentFlagsRetrieveSchema = () => {
     const FeatureFlagsDependentFlagsListParams = orvalSchemas.FeatureFlagsDependentFlagsListParams()
     return FeatureFlagsDependentFlagsListParams.omit({ project_id: true }).extend({
@@ -842,6 +883,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'feature-flags-bulk-delete-create': featureFlagsBulkDeleteCreate,
     'feature-flags-bulk-keys-retrieve': featureFlagsBulkKeysRetrieve,
     'feature-flags-bulk-update-tags-create': featureFlagsBulkUpdateTagsCreate,
+    'feature-flags-copy-flags-create': featureFlagsCopyFlagsCreate,
     'feature-flags-dependent-flags-retrieve': featureFlagsDependentFlagsRetrieve,
     'feature-flags-evaluation-reasons-retrieve': featureFlagsEvaluationReasonsRetrieve,
     'feature-flags-my-flags-retrieve': featureFlagsMyFlagsRetrieve,
