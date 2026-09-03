@@ -124,6 +124,8 @@ pub enum Library {
     PosthogConvex,
     /// posthog-python SDK
     PosthogPython,
+    /// posthog-python-mcp integration
+    PosthogPythonMcp,
     /// posthog-php SDK
     PosthogPhp,
     /// posthog-ruby SDK
@@ -173,6 +175,7 @@ impl Library {
             Library::PosthogEdge => "posthog-edge",
             Library::PosthogConvex => "posthog-convex",
             Library::PosthogPython => "posthog-python",
+            Library::PosthogPythonMcp => "posthog-python-mcp",
             Library::PosthogPhp => "posthog-php",
             Library::PosthogRuby => "posthog-ruby",
             Library::PosthogRails => "posthog-rails",
@@ -203,6 +206,7 @@ impl Library {
         Library::PosthogEdge,
         Library::PosthogConvex,
         Library::PosthogPython,
+        Library::PosthogPythonMcp,
         Library::PosthogPhp,
         Library::PosthogRuby,
         Library::PosthogRails,
@@ -316,6 +320,7 @@ mod tests {
     #[case("posthog-edge/3.1.0", Library::PosthogEdge)]
     #[case("posthog-convex/0.2.0", Library::PosthogConvex)]
     #[case("posthog-python/2.5.0", Library::PosthogPython)]
+    #[case("posthog-python-mcp/0.1.0", Library::PosthogPythonMcp)]
     #[case("posthog-php/3.0.0", Library::PosthogPhp)]
     #[case("posthog-ruby/2.3.0", Library::PosthogRuby)]
     #[case("posthog-ruby2.3.0", Library::PosthogRuby)]
@@ -409,6 +414,7 @@ mod tests {
     #[case(Library::PosthogEdge, "posthog-edge")]
     #[case(Library::PosthogConvex, "posthog-convex")]
     #[case(Library::PosthogPython, "posthog-python")]
+    #[case(Library::PosthogPythonMcp, "posthog-python-mcp")]
     #[case(Library::PosthogPhp, "posthog-php")]
     #[case(Library::PosthogRuby, "posthog-ruby")]
     #[case(Library::PosthogRails, "posthog-rails")]
@@ -437,6 +443,7 @@ mod tests {
     #[case(Library::PosthogEdge, "\"posthog-edge\"")]
     #[case(Library::PosthogConvex, "\"posthog-convex\"")]
     #[case(Library::PosthogPython, "\"posthog-python\"")]
+    #[case(Library::PosthogPythonMcp, "\"posthog-python-mcp\"")]
     #[case(Library::PosthogPhp, "\"posthog-php\"")]
     #[case(Library::PosthogRuby, "\"posthog-ruby\"")]
     #[case(Library::PosthogRails, "\"posthog-rails\"")]

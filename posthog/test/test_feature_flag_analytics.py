@@ -649,6 +649,7 @@ class TestSdkBreakdown(BaseTest):
             "posthog-edge",
             "posthog-convex",
             "posthog-python",
+            "posthog-python-mcp",
             "posthog-php",
             "posthog-ruby",
             "posthog-rails",
