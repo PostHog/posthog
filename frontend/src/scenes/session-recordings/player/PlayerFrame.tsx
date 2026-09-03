@@ -23,11 +23,14 @@ const PLAYER_FRAME_CONTENT_ID = 'player-frame-content'
 
 export const PlayerFrame = (): JSX.Element => {
     const replayDimensionRef = useRef<viewportResizeDimension>()
-    const { player, sessionRecordingId, maskingWindow, speed, resolution } = useValues(sessionRecordingPlayerLogic)
-    const { setScale, setRootFrame } = useActions(sessionRecordingPlayerLogic)
+    const { player, sessionRecordingId, maskingWindow, speed, resolution, playerFrameDocumentFailed } =
+        useValues(sessionRecordingPlayerLogic)
+    const { setScale, setRootFrame, playerFrameDocumentLoadFailed } = useActions(sessionRecordingPlayerLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const ownDocument = !!featureFlags[FEATURE_FLAGS.REPLAY_PLAYER_OWN_DOCUMENT]
+    // A frame that loaded without its mount node falls back to the container below, which is the
+    // flag-off path. That path still works, so the player renders rather than staying blank.
+    const ownDocument = !!featureFlags[FEATURE_FLAGS.REPLAY_PLAYER_OWN_DOCUMENT] && !playerFrameDocumentFailed
 
     const iframeRef = useRef<HTMLIFrameElement | null>(null)
     // rrweb's mount point. Under the flag it lives in the player frame's document, not this one.
@@ -87,6 +90,9 @@ export const PlayerFrame = (): JSX.Element => {
     const handleFrameLoad = useCallback((): void => {
         const content = iframeRef.current?.contentDocument?.getElementById(PLAYER_FRAME_CONTENT_ID)
         if (!content) {
+            // A same-origin error page, a login redirect, and a browser error page all fire load too,
+            // so a load event does not prove the shell document arrived.
+            playerFrameDocumentLoadFailed()
             return
         }
         frameRef.current = content as HTMLDivElement
@@ -94,13 +100,14 @@ export const PlayerFrame = (): JSX.Element => {
         // already run against a document that did not exist yet.
         applyFrameStyles()
         setRootFrame(frameRef.current)
-    }, [setRootFrame, applyFrameStyles])
+    }, [setRootFrame, applyFrameStyles, playerFrameDocumentLoadFailed])
 
     // Need useEffect to populate replayer on component paint. Under the flag the frame may still be
     // loading, in which case handleFrameLoad does this instead.
     // ownDocument is a dependency because flags resolve after the first paint. A user who holds a
     // stale enabled flag paints the frame, then React swaps in the container below when the fresh
-    // value arrives, and the replayer must move with it.
+    // value arrives, and the replayer must move with it. The fallback after a failed frame load
+    // swaps the same way.
     useEffect(() => {
         if (frameRef.current) {
             setRootFrame(frameRef.current)
