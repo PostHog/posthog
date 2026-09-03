@@ -64,6 +64,13 @@
 #   strips artifact uploads (above), so those changes are depot-exempt.
 # - OpenAPI types: validation remains a separate job like canonical, but its
 #   auto-commit side effect is dropped
+# - Deterministic-failure self-cancel: canonical cancels its own run when repo-checks or
+#   check-openapi-types fails deterministically, and ORs those jobs' deterministic_failure
+#   outputs onto the gate condition so a real failure still reports failure rather than
+#   cancelled. The shadow has neither the cancelling jobs nor those outputs, so the
+#   disjuncts are depot-exempt. The gate keeps its sampling `&&` for the same reason
+#   canonical may not use one: an `&&` can skip the gate, and only here is that harmless,
+#   because this status never blocks a merge.
 # - events_json variants: gated on the test-new-events-schema label only; canonical also
 #   doubles the matrices on workflow_dispatch, but shadow dispatches stay legacy-only so
 #   trial runs do the same work as sampled PR runs
@@ -2497,9 +2504,10 @@ jobs:
         name: '[optional, does not block merge] Django Tests Pass'
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
-        # always() collates skipped/failed matrix jobs; gated on the sampling result so it
-        # doesn't spin up a lone runner when this run was sampled out (or the shadow is off).
-        if: always() && needs.sample.outputs.sampled == 'true'
+        # !cancelled() collates skipped/failed matrix jobs without reporting failure on a
+        # superseded run (mirrors canonical); gated on the sampling result so it doesn't
+        # spin up a lone runner when this run was sampled out (or the shadow is off).
+        if: ${{ !cancelled() && needs.sample.outputs.sampled == 'true' }}
         steps:
             - name: Summarize dependency results
               run: |

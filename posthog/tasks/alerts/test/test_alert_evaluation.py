@@ -11,6 +11,7 @@ from posthog.models.instance_setting import set_instance_setting
 from posthog.tasks.alerts.test.alert_check_helpers import run_alert_check
 
 from products.alerts.backend.models import AlertCheck, AlertConfiguration
+from products.product_analytics.backend.facade.models import Insight
 
 
 @freeze_time("2024-06-02T08:55:00.000Z")
@@ -89,11 +90,14 @@ class TestAlertEvaluation(APIBaseTest, ClickhouseDestroyTablesMixin):
     def test_alert_with_insight_with_filter(
         self, mock_send_notifications_for_breaches: MagicMock, mock_send_errors: MagicMock
     ) -> None:
-        insight = self.dashboard_api.create_insight(
-            data={"name": "insight", "filters": {"events": [{"id": "$pageview"}], "display": "BoldNumber"}}
-        )[1]
+        # An alert still runs on an insight stored as filters, and only the ORM writes one now.
+        insight = Insight.objects.create(
+            team=self.team,
+            name="insight",
+            filters={"events": [{"id": "$pageview"}], "display": "BoldNumber"},
+        )
 
-        self.client.patch(f"/api/projects/{self.team.id}/alerts/{self.alert['id']}", data={"insight": insight["id"]})
+        self.client.patch(f"/api/projects/{self.team.id}/alerts/{self.alert['id']}", data={"insight": insight.id})
         self.set_thresholds(lower=1)
 
         run_alert_check(self.alert["id"])

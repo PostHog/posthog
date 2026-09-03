@@ -106,11 +106,11 @@ jobs:
         name: Agent Proxy CI Pass
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        # always(), not !cancelled(): a skipped required check is treated as a pass by
-        # branch protection, so on cancellation the gate must run and emit an explicit
-        # result rather than skip into a green. A cancelled or timed-out job is caught
-        # by the != success && != skipped checks below; a legitimate no-change skip passes.
-        if: always()
+        # !cancelled(): a superseded run records cancelled (which branch protection
+        # does not treat as a pass) instead of running on to report failure. A cancelled
+        # or timed-out dependency on a live run is still caught by the != success &&
+        # != skipped checks below; a legitimate no-change skip passes.
+        if: ${{ !cancelled() }}
         steps:
             - name: Check outcomes
               run: |
