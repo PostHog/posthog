@@ -731,6 +731,25 @@ async def finalize_desc_sort_incremental_value(
             await database_sync_to_async_pool(schema.update_incremental_field_value)(last_incremental_field_value)
 
 
+async def advance_incremental_field_last_value_on_complete(
+    resource: SourceResponse,
+    schema: "ExternalDataSchema",
+    logger: FilteringBoundLogger,
+    log_prefix: str = "",
+    staging_run_uuid: str | None = None,
+) -> None:
+    value = resource.incremental_field_last_value_on_complete
+    if not schema.should_use_incremental_field or value is None:
+        return
+
+    await logger.adebug(f"{log_prefix}Advancing incremental field to completed source boundary {value}")
+    await database_sync_to_async_pool(schema.refresh_from_db)()
+    if staging_run_uuid is not None:
+        await database_sync_to_async_pool(schema.stage_incremental_field_value)(staging_run_uuid, value)
+    else:
+        await database_sync_to_async_pool(schema.update_incremental_field_value)(value)
+
+
 async def advance_xmin_state(
     resource: SourceResponse,
     schema: "ExternalDataSchema",

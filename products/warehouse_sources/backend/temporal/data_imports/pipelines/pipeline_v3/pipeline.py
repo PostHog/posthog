@@ -26,6 +26,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import (
+    advance_incremental_field_last_value_on_complete,
     advance_xmin_state,
     cleanup_memory,
     finalize_desc_sort_incremental_value,
@@ -518,6 +519,9 @@ class PipelineV3(Generic[ResumableData]):
         total_batches = len(self._batch_results)
 
         if total_batches == 0:
+            await advance_incremental_field_last_value_on_complete(
+                self._resource, self._schema, self._logger, log_prefix="V3 Pipeline: "
+            )
             self._logger.debug("V3 Pipeline: No batches extracted, skipping finalization")
             return
 
@@ -545,6 +549,14 @@ class PipelineV3(Generic[ResumableData]):
             self._resource,
             self._schema,
             self._last_incremental_field_value,
+            self._logger,
+            log_prefix="V3 Pipeline: ",
+            staging_run_uuid=self._s3_batch_writer.get_run_uuid(),
+        )
+
+        await advance_incremental_field_last_value_on_complete(
+            self._resource,
+            self._schema,
             self._logger,
             log_prefix="V3 Pipeline: ",
             staging_run_uuid=self._s3_batch_writer.get_run_uuid(),
