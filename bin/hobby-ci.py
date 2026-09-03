@@ -835,10 +835,10 @@ runcmd:
             return False, f"Failed to configure CSP_REPORT_ENDPOINT: {env_result['stderr'][:500]}"
 
         # `docker-compose up -d web` recreates the container, which reruns the hobby entrypoint's
-        # full migration sequence from scratch. That takes minutes, not seconds, so this wait needs
-        # its own longer budget rather than the short poll timeout the caller uses for an
-        # already-running service.
-        restart_timeout_seconds = max(timeout_seconds, 300)
+        # migration check, then brings up a temporary Unit instance to validate the app before
+        # starting the real one Caddy proxies to. Measured over 5 minutes on CI, so this wait needs
+        # a bigger budget than the short poll timeout the caller uses for an already-running service.
+        restart_timeout_seconds = max(timeout_seconds, 600)
         print(f"⏳ Waiting for the served policy to advertise it (timeout {restart_timeout_seconds}s)...", flush=True)
         deadline = time.time() + restart_timeout_seconds
         attempt = 0
