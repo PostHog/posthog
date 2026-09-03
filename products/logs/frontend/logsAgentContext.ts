@@ -15,43 +15,32 @@ import {
     foldLegacyColumnFilters,
     isValidSeverityLevel,
 } from './components/LogsViewer/Filters/logsViewerFiltersLogic'
-import { INVESTIGATING_LOGS_SKILL, LOGS_MCP_TOOLS } from './generated/agentContext'
 
 // Each visible chip and the hidden payload items it stands for share a dismiss group, so closing
 // the chip actually detaches the payload instead of only hiding the chip.
 const SKILL_DISMISS_GROUP = 'logs-scene-skill'
 const VIEWER_STATE_DISMISS_GROUP = 'logs-scene-viewer-state'
 
-// All static strings below are build-time constants from our own repo (skill markdown + tool
-// descriptions), which is what makes them safe to attach as trusted `instructions` items.
+const INVESTIGATING_LOGS_SKILL = 'investigating-logs'
+
+// All static strings below are our own build-time constants, which is what makes them safe to attach
+// as trusted `instructions` items. The skill body and tool schemas are not embedded: product skills
+// are installed in the agent's sandbox, and the exec MCP tool already exposes the logs commands, so
+// naming them is enough to skip discovery.
 const PREAMBLE_CONTEXT_ITEM: AttachedContextItem = {
     type: 'instructions',
     hidden: true,
     dismissGroup: SKILL_DISMISS_GROUP,
     value:
-        'The user has the PostHog logs viewer open. The full investigating-logs skill and the complete ' +
-        'logs MCP tool catalog are included in this context - you already have everything needed to act. ' +
-        'Do not spend turns discovering tools or reading skill files: call the listed tools directly, and use ' +
-        'the exec `info <tool>` command only when you need a full input schema.',
+        `The user has the PostHog logs viewer open. Load the ${INVESTIGATING_LOGS_SKILL} skill before your first ` +
+        'tool call. Act through the logs MCP tools (the exec `logs-*` commands plus query-logs: query-logs, ' +
+        'logs-count, logs-patterns, logs-patterns-diff, logs-anomalies-scan, logs-attributes-list, and the rest). ' +
+        'Do not search for tools; use the exec `info <tool>` command when you need a full input schema.',
 }
-
-const SKILL_CONTENT_CONTEXT_ITEM: AttachedContextItem = {
-    type: 'instructions',
-    hidden: true,
-    dismissGroup: SKILL_DISMISS_GROUP,
-    value: `Skill ${INVESTIGATING_LOGS_SKILL.name} (embedded): ${INVESTIGATING_LOGS_SKILL.content}`,
-}
-
-const TOOL_CONTEXT_ITEMS: AttachedContextItem[] = LOGS_MCP_TOOLS.map((tool) => ({
-    type: 'instructions',
-    hidden: true,
-    dismissGroup: SKILL_DISMISS_GROUP,
-    value: `MCP tool ${tool.name}: ${tool.description}`,
-}))
 
 const SKILL_CHIP_CONTEXT_ITEM: AttachedContextItem = {
     type: 'skill',
-    key: INVESTIGATING_LOGS_SKILL.name,
+    key: INVESTIGATING_LOGS_SKILL,
     label: 'Investigating logs skill',
     dismissGroup: SKILL_DISMISS_GROUP,
 }
@@ -87,16 +76,14 @@ function serializeViewerState(filters: LogsViewerFilters): string {
 }
 
 /**
- * The default agent context for the logs viewer: the embedded investigating-logs skill, the logs MCP
- * tool catalog, an instruction that query-logs calls reflect onto the open page, and the live viewer
- * filter state so the agent can read what the user is filtering on without a fetch.
+ * The default agent context for the logs viewer: a pointer to the investigating-logs skill and the
+ * logs MCP tools, an instruction that query-logs calls reflect onto the open page, and the live
+ * viewer filter state so the agent can read what the user is filtering on without a fetch.
  */
 export function buildLogsAgentContext(filters: LogsViewerFilters): AttachedContextItem[] {
     return [
         PREAMBLE_CONTEXT_ITEM,
         SKILL_CHIP_CONTEXT_ITEM,
-        SKILL_CONTENT_CONTEXT_ITEM,
-        ...TOOL_CONTEXT_ITEMS,
         APPLY_BACK_CONTEXT_ITEM,
         {
             type: 'logs_viewer_state',
