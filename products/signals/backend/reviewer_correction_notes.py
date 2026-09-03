@@ -70,6 +70,12 @@ SUPPRESSION_WINDOW = timedelta(hours=24)
 # Report titles are unbounded TextFields; a note references them for recognition only.
 _MAX_TITLE_CHARS = 200
 
+# The direction labels the note body writes and the suppression parser reads back. One source of
+# truth so the two can't drift: suppression is keyed per direction off these section prefixes, so an
+# added login never suppresses a later removal of the same login (a reversal the scout needs to hear).
+_ADDED_SECTION_PREFIX = "Added: "
+_REMOVED_SECTION_PREFIX = "Removed: "
+
 
 @frozen
 class ReviewerCorrection:
@@ -149,9 +155,9 @@ def _forward(*, team: Team, correction: ReviewerCorrection) -> ForwardedCorrecti
     expires_at = timezone.now() + DERIVED_NOTE_TTL
     note_ids: list[str] = []
     for skill_name in targets:
-        recent = _logins_already_told(canonical_team.id, skill_name)
-        added = tuple(login for login in correction.added_logins if login not in recent)
-        removed = tuple(login for login in correction.removed_logins if login not in recent)
+        added_told, removed_told = _logins_already_told(canonical_team.id, skill_name)
+        added = tuple(login for login in correction.added_logins if login not in added_told)
+        removed = tuple(login for login in correction.removed_logins if login not in removed_told)
         if not added and not removed:
             continue
         content = _build_note_content(
@@ -224,17 +230,32 @@ def _removed_themselves(team_id: int, actor: User, removed_logins: Sequence[str]
     return bool(actor_login) and actor_login in removed_logins
 
 
-def _logins_already_told(team_id: int, skill_name: str) -> set[str]:
-    """The logins this target was already told about inside the suppression window."""
+def _logins_already_told(team_id: int, skill_name: str) -> tuple[set[str], set[str]]:
+    """The logins this target was already told about inside the window, split by direction.
+
+    Suppression is per action, not per login: an added login must not suppress a later removal of the
+    same login, since a reversal is exactly the stale-routing correction this channel exists to carry.
+    Added and removed logins are therefore read back from their own note sections. Coalescing across
+    reports stays intentional — the same login removed off another report inside the window is still
+    one note, because it is the same direction.
+    """
     contents = SignalScoutNote.objects.filter(
         team_id=team_id,
         skill_name=skill_name,
         origin=SignalScoutNote.Origin.REPORT_REVIEWER_CORRECTION,
         created_at__gte=timezone.now() - SUPPRESSION_WINDOW,
     ).values_list("content", flat=True)
-    # Logins ride the note content in backticks, which is enough to recognize them without a second
-    # table to track what was sent.
-    return {login for content in contents for login in _quoted_logins(content)}
+    # Logins ride the note content in backticks under a literal `Added:` / `Removed:` section, which is
+    # enough to recognize direction without a second table to track what was sent.
+    added_told: set[str] = set()
+    removed_told: set[str] = set()
+    for content in contents:
+        for paragraph in content.split("\n\n"):
+            if paragraph.startswith(_ADDED_SECTION_PREFIX):
+                added_told |= _quoted_logins(paragraph)
+            elif paragraph.startswith(_REMOVED_SECTION_PREFIX):
+                removed_told |= _quoted_logins(paragraph)
+    return added_told, removed_told
 
 
 def _quoted_logins(content: str) -> set[str]:
@@ -254,11 +275,11 @@ def _build_note_content(
     sections = [f"Inbox routing correction: someone changed the suggested reviewers on {_subject(report)}"]
     if added_logins:
         sections.append(
-            f"Added: {_listed(added_logins)}. An added login is a positive ownership fact for this "
+            f"{_ADDED_SECTION_PREFIX}{_listed(added_logins)}. An added login is a positive ownership fact for this "
             "surface — record it with the report id and the date."
         )
     if removed_logins:
-        removal = f"Removed: {_listed(removed_logins)}."
+        removal = f"{_REMOVED_SECTION_PREFIX}{_listed(removed_logins)}."
         if removed_themselves:
             removal += " The editor removed their own login, which is weaker evidence than a teammate removing someone."
         sections.append(removal)
