@@ -99,7 +99,7 @@ const CAPABILITY_LADDERS: Record<RuntimeAdapterEnumApi, CapabilityNotch[]> = {
         { model: 'claude-sonnet-5', effort: ReasoningEffortEnumApi.High },
         { model: 'claude-opus-5', effort: ReasoningEffortEnumApi.Medium },
         { model: 'claude-opus-5', effort: ReasoningEffortEnumApi.Xhigh },
-        { model: 'claude-fable-5', effort: ReasoningEffortEnumApi.Max },
+        { model: 'claude-fable-5-1', effort: ReasoningEffortEnumApi.Max },
     ],
     [RuntimeAdapterEnumApi.Codex]: [
         { model: 'gpt-5.6-terra', effort: ReasoningEffortEnumApi.Low },
