@@ -41,6 +41,14 @@ export DEBIAN_FRONTEND=noninteractive
 : "${INSTALL_SKILLS:?INSTALL_SKILLS is required (path in-box to install-skills.sh)}"
 AGENT_VERSION="${AGENT_VERSION:-latest}"
 
+# Free-RAM scrub (see scrub_free_ram): leave this much RAM untouched so the scrub
+# never races the OOM killer. Tunable for a differently-sized seed box.
+SCRUB_HEADROOM_MIB="${SCRUB_HEADROOM_MIB:-2048}"
+# Off by default: dropping reclaimable page cache would let the scrub zero even
+# more frames, but it evicts the warm tool-binary cache that keeps restores fast.
+# Set to 1 only if a smaller image matters more than restore warmth.
+SCRUB_DROP_PAGECACHE="${SCRUB_DROP_PAGECACHE:-0}"
+
 # --- Version pins, mirrored from Dockerfile.sandbox-base ARGs -----------------
 GIT_VERSION=2.49.1
 GIT_SHA256=310831de967f1c8c5e8ff55f92807dea89f83dc3d3d2a5d16c209bd01a31def1
@@ -76,6 +84,120 @@ log() { printf '[setup-golden] %s\n' "$*" >&2; }
 fetch() {
     # fetch <url> <out>
     curl -fsSL --retry 5 --retry-all-errors --retry-max-time 60 --connect-timeout 10 -o "$2" "$1"
+}
+
+# --- Free-RAM scrub: shrink the snapshot's stored/faulted memory image --------
+# The hogland snapshot store elides every all-zero 4 MiB chunk: a zero chunk is
+# served as a zero page on restore, never stored in S3, never uploaded, never
+# faulted. But Linux never zeroes a page it frees, so every frame the guest
+# dirtied during this ~90-min bake (apt, npm, freed heap) keeps its stale
+# non-zero content forever — mempack stores and uploads it and each restore
+# faults it from S3. Writing zeros over free RAM converts those frames to zero,
+# so mempack collapses them to SrcZero (not stored, not uploaded, not faulted).
+#
+# This is a pure optimization, so it fails SOFT: any error only logs a warning
+# and returns 0, and the C helper raises its own oom_score_adj so memory pressure
+# kills the scrub first, never the bake. Runs LAST, after all other guest writes,
+# so no later step re-dirties the frames it just zeroed.
+scrub_free_ram() {
+    command -v cc >/dev/null 2>&1 || { log "WARN: free-RAM scrub skipped: no cc"; return 0; }
+
+    local src bin cc_log
+    src="$(mktemp --suffix=.c)"
+    bin="$(mktemp)"
+    cc_log="$(mktemp)"
+
+    # Self-contained C: mmap N bytes of anonymous memory, write zeros through every
+    # page, then release it. Anonymous pages fault in zero-filled, so each backing
+    # frame ends up all-zero and is freed still zeroed at exit. C (no GC/interpreter)
+    # is the most reliable way to touch every page without leaving its own churn.
+    cat > "$src" <<'ZEROFREE_C'
+#include <fcntl.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/mman.h>
+#include <unistd.h>
+
+int main(int argc, char **argv) {
+    if (argc != 2) {
+        fprintf(stderr, "usage: %s <bytes>\n", argv[0]);
+        return 2;
+    }
+
+    unsigned long long bytes = strtoull(argv[1], NULL, 10);
+    if (bytes == 0) {
+        return 0;
+    }
+
+    /* Die first under memory pressure: never let the OOM killer pick the bake
+     * or hogpanion over this optional scrub. Best effort — proceed if it fails. */
+    int fd = open("/proc/self/oom_score_adj", O_WRONLY);
+    if (fd >= 0) {
+        ssize_t w = write(fd, "1000\n", 5);
+        (void)w;
+        close(fd);
+    }
+
+    size_t len = (size_t)bytes;
+    void *p = mmap(NULL, len, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (p == MAP_FAILED) {
+        perror("mmap");
+        return 1;
+    }
+
+    /* Fault in and zero every page. Anonymous pages fault in zero-filled, so
+     * this leaves each backing frame all-zero. After we exit, the kernel frees
+     * them still zeroed — exactly what mempack collapses to SrcZero. */
+    memset(p, 0, len);
+
+    munmap(p, len);
+    return 0;
+}
+ZEROFREE_C
+
+    if ! cc -O2 -o "$bin" "$src" 2>"$cc_log"; then
+        log "WARN: free-RAM scrub skipped: compile failed: $(tr '\n' ' ' < "$cc_log")"
+        rm -f "$src" "$bin" "$cc_log"
+        return 0
+    fi
+
+    # Optional, off by default: drop clean reclaimable page cache so the scrub can
+    # zero those frames too. It evicts the warm tool-binary cache, so it is gated.
+    if [ "$SCRUB_DROP_PAGECACHE" = "1" ] && [ -w /proc/sys/vm/drop_caches ]; then
+        sync
+        echo 1 > /proc/sys/vm/drop_caches 2>/dev/null || log "WARN: drop_caches failed; continuing"
+        log "dropped reclaimable page cache before scrub (SCRUB_DROP_PAGECACHE=1)"
+    fi
+
+    # MemFree, not MemAvailable: MemAvailable counts reclaimable page cache we want
+    # to KEEP resident for warm restores. Touching only genuinely-free frames avoids
+    # evicting that cache. MemFree is in kB.
+    local memfree_kb headroom_bytes target_bytes
+    memfree_kb="$(awk '/^MemFree:/ {print $2; exit}' /proc/meminfo)"
+    if [ -z "$memfree_kb" ]; then
+        log "WARN: free-RAM scrub skipped: could not read MemFree"
+        rm -f "$src" "$bin" "$cc_log"
+        return 0
+    fi
+    headroom_bytes=$(( SCRUB_HEADROOM_MIB * 1024 * 1024 ))
+    target_bytes=$(( memfree_kb * 1024 - headroom_bytes ))
+    if [ "$target_bytes" -le 0 ]; then
+        log "free-RAM scrub skipped: MemFree ${memfree_kb} kB is within the ${SCRUB_HEADROOM_MIB} MiB headroom"
+        rm -f "$src" "$bin" "$cc_log"
+        return 0
+    fi
+
+    log "free-RAM scrub: zeroing ${target_bytes} bytes (MemFree ${memfree_kb} kB, headroom ${SCRUB_HEADROOM_MIB} MiB)"
+    if "$bin" "$target_bytes"; then
+        log "free-RAM scrub done"
+    else
+        # A non-zero exit (mmap fail) or an OOM-kill signal lands here. Soft-fail.
+        log "WARN: free-RAM scrub did not complete cleanly (rc $?); continuing"
+    fi
+
+    rm -f "$src" "$bin" "$cc_log"
+    return 0
 }
 
 log "apt packages"
@@ -320,4 +442,11 @@ for ak in /home/hog/.ssh/authorized_keys /root/.ssh/authorized_keys; do
     [ -f "$ak" ] && : >"$ak"
 done
 log "truncated CI ssh authorized_keys"
+
+# Absolute last guest write before bake-golden.sh calls `box snapshot` (over the
+# hogplane API, not SSH — no further guest activity runs after this returns).
+# Zeroing free RAM here, after every other step, means no later step re-dirties
+# the frames it just zeroed. See scrub_free_ram for why (zero-page collapse).
+scrub_free_ram
+
 log "setup-golden complete"
