@@ -42,11 +42,11 @@ import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilte
 import { Query } from '~/queries/Query/Query'
 import { ActivityScope, CohortType, InsightShortId, SidePanelTab } from '~/types'
 
+import { CohortCountWarning } from 'products/cohorts/frontend/CohortCountWarning'
 import type { CohortUsedInResponseApi } from 'products/cohorts/frontend/generated/api.schemas'
 
 import { AddPersonToCohortModal } from './AddPersonToCohortModal'
 import { addPersonToCohortModalLogic } from './addPersonToCohortModalLogic'
-import { CohortCountWarning } from './CohortCountWarning'
 import { CohortSceneMenuBar } from './CohortSceneMenuBar'
 import { createCohortDataNodeLogicKey } from './cohortUtils'
 import { PersonSelectList } from './PersonSelectList'

@@ -3,10 +3,10 @@ import { useValues } from 'kea'
 import { IconWarning } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
+import { cohortCountWarningLogic } from 'scenes/cohorts/cohortCountWarningLogic'
+
 import { DataTableNode } from '~/queries/schema/schema-general'
 import { CohortType } from '~/types'
-
-import { cohortCountWarningLogic } from './cohortCountWarningLogic'
 
 /**
  * Warns that the persons table shows fewer people than the cohort count.
