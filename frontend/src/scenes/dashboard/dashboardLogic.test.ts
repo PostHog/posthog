@@ -764,6 +764,204 @@ describe('dashboardLogic', () => {
             payloadSpy.mockRestore()
         })
 
+        it('keeps combined auto-preview filters after a page reload, then clears and saves them', async () => {
+            const sevenTileDashboard = {
+                ...dashboards[5],
+                tiles: Array.from({ length: 7 }, (_, index) => ({
+                    ...dashboards[5].tiles[0],
+                    id: index + 100,
+                    layouts: {},
+                })),
+            }
+            logic.unmount()
+            logic = dashboardLogic({ id: 5, dashboard: sevenTileDashboard })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.canAutoPreview).toBe(true)
+
+            await expectLogic(logic, () => {
+                logic.actions.setDates('-7d', null)
+            }).toFinishAllListeners()
+            await expectLogic(logic, () => {
+                logic.actions.setProperties([
+                    {
+                        key: 'browser',
+                        type: PropertyFilterType.Event,
+                        operator: PropertyOperator.Exact,
+                        value: 'Chrome',
+                    },
+                ])
+            }).toFinishAllListeners()
+            await expectLogic(logic, () => {
+                logic.actions.setBreakdownFilter({ breakdown: '$browser', breakdown_type: 'event' })
+            }).toFinishAllListeners()
+            await expectLogic(logic, () => {
+                logic.actions.setInterval('week')
+            }).toFinishAllListeners()
+
+            const filters = {
+                date_from: '-7d',
+                properties: [
+                    {
+                        key: 'browser',
+                        type: PropertyFilterType.Event,
+                        operator: PropertyOperator.Exact,
+                        value: 'Chrome',
+                    },
+                ],
+                breakdown_filter: { breakdown: '$browser', breakdown_type: 'event' },
+                interval: 'week',
+            }
+
+            expect(logic.values.urlFilters).toEqual(expect.objectContaining(filters))
+
+            logic.unmount()
+            logic = dashboardLogic({ id: 5, dashboard: sevenTileDashboard })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.effectiveEditBarFilters).toEqual(expect.objectContaining(filters))
+
+            await expectLogic(logic, () => {
+                logic.actions.discardDashboardFilters()
+            }).toFinishAllListeners()
+
+            expect(logic.values.urlFilters).toEqual({})
+            expect(logic.values.filtersDirty).toBe(false)
+
+            await expectLogic(logic, () => {
+                logic.actions.setDates('-1d', null)
+            }).toFinishAllListeners()
+
+            jest.spyOn(api, 'update').mockResolvedValueOnce({
+                ...sevenTileDashboard,
+                persisted_filters: { date_from: '-1d' },
+            })
+            await expectLogic(logic, () => {
+                logic.actions.saveDashboardFilters()
+            }).toFinishAllListeners()
+
+            expect(logic.values.dashboard?.persisted_filters).toEqual({ date_from: '-1d' })
+            expect(logic.values.urlFilters).toEqual({})
+        })
+
+        it('keeps unapplied filters separate from layout cancellation and layout saving', async () => {
+            const autoPreviewLimitSpy = jest.spyOn(featureFlagLib, 'getFeatureFlagPayload').mockReturnValue(8)
+            const nineTileDashboard = {
+                ...dashboards[5],
+                tiles: Array.from({ length: 9 }, (_, index) => ({
+                    ...dashboards[5].tiles[0],
+                    id: index + 200,
+                    layouts: { sm: { i: String(index + 200), x: index, y: 0, w: 1, h: 1 } },
+                })),
+            }
+            logic.unmount()
+            logic = dashboardLogic({ id: 5, dashboard: nineTileDashboard })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.canAutoPreview).toBe(false)
+
+            await expectLogic(logic, () => {
+                logic.actions.setDates('-7d', null)
+            }).toFinishAllListeners()
+            await expectLogic(logic, () => {
+                logic.actions.setProperties([
+                    {
+                        key: 'browser',
+                        type: PropertyFilterType.Event,
+                        operator: PropertyOperator.Exact,
+                        value: 'Chrome',
+                    },
+                ])
+            }).toFinishAllListeners()
+            await expectLogic(logic, () => {
+                logic.actions.setBreakdownFilter({ breakdown: '$browser', breakdown_type: 'event' })
+            }).toFinishAllListeners()
+
+            expect(logic.values.intermittentFilters).toEqual(
+                expect.objectContaining({
+                    date_from: '-7d',
+                    breakdown_filter: { breakdown: '$browser', breakdown_type: 'event' },
+                })
+            )
+
+            await expectLogic(logic, () => {
+                logic.actions.applyFilters()
+            }).toFinishAllListeners()
+
+            expect(logic.values.urlFilters).toEqual(expect.objectContaining({ date_from: '-7d' }))
+
+            await expectLogic(logic, () => {
+                logic.actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.SceneCommonButtons)
+            }).toFinishAllListeners()
+
+            const firstTile = logic.values.dashboard!.tiles[0]
+            const changedLayouts = {
+                ...logic.values.layouts,
+                sm: logic.values.layouts.sm?.map((layout) =>
+                    layout.i === String(firstTile.id) ? { ...layout, x: (layout.x ?? 0) + 1 } : layout
+                ),
+            }
+            await expectLogic(logic, () => {
+                logic.actions.updateLayouts(changedLayouts)
+            }).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.cancelLayoutEdit()
+            })
+                .toNotHaveDispatchedActions(['resetIntermittentFilters', 'resetUrlFilters'])
+                .toFinishAllListeners()
+
+            expect(logic.values.urlFilters).toEqual(expect.objectContaining({ date_from: '-7d' }))
+            expect(logic.values.intermittentFilters).toEqual(expect.objectContaining({ date_from: '-7d' }))
+
+            await expectLogic(logic, () => {
+                logic.actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.SceneCommonButtons)
+            }).toFinishAllListeners()
+            await expectLogic(logic, () => {
+                logic.actions.updateLayouts(changedLayouts)
+            }).toFinishAllListeners()
+
+            ;(api.update as jest.Mock).mockClear()
+            ;(api.update as jest.Mock).mockResolvedValueOnce({
+                ...nineTileDashboard,
+                persisted_filters: logic.values.effectiveEditBarFilters,
+            })
+            await expectLogic(logic, () => {
+                logic.actions.saveDashboardFilters()
+            }).toFinishAllListeners()
+
+            expect(logic.values.hasUnsavedLayoutChanges).toBe(true)
+            expect(logic.values.dashboard?.tiles[0].layouts).toEqual(
+                changedLayouts.sm?.[0] ? { sm: changedLayouts.sm[0] } : {}
+            )
+
+            ;(api.update as jest.Mock).mockResolvedValueOnce(nineTileDashboard)
+            await expectLogic(logic, () => {
+                logic.actions.saveLayout()
+            }).toFinishAllListeners()
+
+            expect(api.update).toHaveBeenLastCalledWith(
+                `api/environments/${MOCK_TEAM_ID}/dashboards/5`,
+                expect.not.objectContaining({ filters: expect.anything() })
+            )
+            expect(logic.values.dashboard?.persisted_filters).toEqual(expect.objectContaining({ date_from: '-7d' }))
+            expect(logic.values.urlFilters).toEqual({})
+            expect(logic.values.intermittentFilters).toEqual({
+                date_from: undefined,
+                date_to: undefined,
+                properties: undefined,
+                breakdown_filter: undefined,
+                explicitDate: undefined,
+                interval: undefined,
+                filterTestAccounts: undefined,
+            })
+
+            autoPreviewLimitSpy.mockRestore()
+        })
+
         it('saving after breakdown color change calls api', async () => {
             await expectLogic(logic).toFinishAllListeners()
 
