@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useEffect } from 'react'
 
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 
@@ -38,6 +38,15 @@ export function ScoutCreateModalHost({
     onClose,
     onCreated,
 }: ScoutCreateModalHostProps): JSX.Element | null {
+    const isOpen = initialValues !== null
+    // Open is the top of the create funnel. Without it only a successful create was captured, so an
+    // abandoned draft was invisible and the abandonment could not be sized.
+    useEffect(() => {
+        if (isOpen) {
+            captureScoutAction({ actionType: 'open_create_modal', surface: 'fleet_list' })
+        }
+    }, [isOpen])
+
     if (!initialValues) {
         return null
     }
