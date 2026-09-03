@@ -1613,19 +1613,20 @@ class TestCustomerAnalyticsAccessControl(APIBaseTest):
         )
         self.client.force_login(self.editor_user)
 
+        payload: dict[str, object]
         if nested_resource == "notebook":
             url = f"{self.accounts_url}{self.account.id}/notebooks/"
             payload = {"title": "Account note"}
         elif nested_resource == "custom_property":
-            definition = create_custom_property_definition(team_id=self.team.id, name="Plan")
+            property_definition = create_custom_property_definition(team_id=self.team.id, name="Plan")
             url = f"{self.accounts_url}{self.account.id}/custom_property_values/"
-            payload = {"definition": str(definition.id), "value": "enterprise"}
+            payload = {"definition": str(property_definition.id), "value": "enterprise"}
         else:
-            definition = AccountRelationshipDefinition.objects.for_team(self.team.id).create(
+            relationship_definition = AccountRelationshipDefinition.objects.for_team(self.team.id).create(
                 team_id=self.team.id, name="CSM"
             )
             url = f"{self.accounts_url}{self.account.id}/relationships/"
-            payload = {"definition": str(definition.id), "user": self.editor_user.id}
+            payload = {"definition": str(relationship_definition.id), "user": self.editor_user.id}
 
         response = self.client.post(url, payload, format="json")
 
