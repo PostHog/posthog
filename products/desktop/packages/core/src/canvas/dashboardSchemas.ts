@@ -238,3 +238,31 @@ export type CanvasActionResult = z.infer<typeof canvasActionResultSchema>;
 export const requestCanvasAgentInput = canvasAgentRequestInputSchema.extend({
   id: z.string().min(1),
 });
+
+export const canvasConnectorCallServiceInput = z.object({
+  id: z.string().min(1),
+  provider: z.string().min(1).max(300),
+  tool: z.string().min(1).max(200),
+  arguments: z.record(z.string(), z.unknown()).default({}),
+});
+
+// Mirrors the API's connector call result. `status` is "ok" when `result`
+// holds the tool output; every other status explains itself in `detail`.
+export const canvasConnectorCallResultSchema = z.object({
+  status: z.enum([
+    "ok",
+    "not_connected",
+    "needs_reauth",
+    "blocked",
+    "tool_missing",
+    "write_blocked",
+    "upstream_error",
+  ]),
+  result: z.record(z.string(), z.unknown()).nullable(),
+  detail: z.string(),
+  truncated: z.boolean(),
+  connect_path: z.string().nullable(),
+});
+export type CanvasConnectorCallResult = z.infer<
+  typeof canvasConnectorCallResultSchema
+>;

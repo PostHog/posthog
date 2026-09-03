@@ -8,6 +8,7 @@ const loadInsight = vi.fn();
 const setState = vi.fn();
 const listState = vi.fn();
 const invokeAction = vi.fn();
+const callConnector = vi.fn();
 vi.mock("../hostClient", () => ({
   hostClient: () => ({
     canvasData: { loadInsight: { mutate: loadInsight } },
@@ -15,6 +16,7 @@ vi.mock("../hostClient", () => ({
       setState: { mutate: setState },
       listState: { query: listState },
       invokeAction: { mutate: invokeAction },
+      callConnector: { mutate: callConnector },
     },
   }),
 }));
@@ -29,6 +31,7 @@ const capabilities: CanvasCapabilities = {
     actions: ["tasks.create"],
   },
   network: { origins: [] },
+  connectors: [{ provider: "github", tools: ["list_pull_requests"] }],
 };
 
 describe("assertCanvasCapability", () => {
@@ -39,6 +42,15 @@ describe("assertCanvasCapability", () => {
     ["stateSet", { scope: "shared", key: "k", value: 1 }],
     ["actionInvoke", { verb: "annotations.create", payload: {} }],
     ["agentRequest", { prompt: "Change it" }],
+    // Declaring a provider does not declare every tool on it.
+    [
+      "connectorCall",
+      { provider: "github", tool: "search_issues", arguments: {} },
+    ],
+    [
+      "connectorCall",
+      { provider: "mcp:mcp.example.com", tool: "list_pull_requests" },
+    ],
   ])("rejects undeclared %s access", (method, payload) => {
     expect(() => assertCanvasCapability(capabilities, method, payload)).toThrow(
       "not allowed",
@@ -50,6 +62,10 @@ describe("assertCanvasCapability", () => {
     ["capture", { event: "allowed-event" }],
     ["stateGet", { scope: "user", key: "k" }],
     ["actionInvoke", { verb: "tasks.create", payload: {} }],
+    [
+      "connectorCall",
+      { provider: "github", tool: "list_pull_requests", arguments: {} },
+    ],
   ])("allows declared %s access", (method, payload) => {
     expect(() =>
       assertCanvasCapability(capabilities, method, payload),
@@ -108,12 +124,49 @@ describe("handleFreeformDataRequest", () => {
     ["stateSet", { key: "k", value: 1 }],
     ["stateList", {}],
     ["actionInvoke", { verb: "tasks.create", payload: {} }],
+    ["connectorCall", { provider: "github", tool: "list_pull_requests" }],
   ])("%s without a canvas context is refused", async (method, payload) => {
     const queryClient = new QueryClient();
 
     await expect(
       handleFreeformDataRequest(method, payload, queryClient),
     ).rejects.toThrow("requires a canvas context");
+  });
+
+  // The capability check that admits a connector call is per canvas, so a cached
+  // result must not be served to a second canvas that made the same call.
+  it("does not share a cached connector result across canvases", async () => {
+    const queryClient = new QueryClient();
+    callConnector.mockReset().mockResolvedValue({
+      status: "ok",
+      result: { pull_requests: [] },
+      detail: "",
+      truncated: false,
+      connect_path: null,
+    });
+    const payload = {
+      provider: "github",
+      tool: "list_pull_requests",
+      arguments: { repository: "app" },
+    };
+
+    await handleFreeformDataRequest("connectorCall", payload, queryClient, {
+      dashboardId: "canvas-1",
+    });
+    await handleFreeformDataRequest("connectorCall", payload, queryClient, {
+      dashboardId: "canvas-1",
+    });
+    await handleFreeformDataRequest("connectorCall", payload, queryClient, {
+      dashboardId: "canvas-2",
+    });
+
+    expect(callConnector).toHaveBeenCalledTimes(2);
+    expect(callConnector).toHaveBeenLastCalledWith({
+      id: "canvas-2",
+      provider: "github",
+      tool: "list_pull_requests",
+      arguments: { repository: "app" },
+    });
   });
 
   // Reads are cached by their content, so `variables` has to be part of the key. If

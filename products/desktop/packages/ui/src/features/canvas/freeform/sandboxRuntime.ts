@@ -287,6 +287,17 @@ export function buildSandboxDocument(
       actions: {
         invoke: (verb, payload) => call("actionInvoke", { verb, payload: payload ?? {} }),
       },
+      // Read live third-party data with the viewer's own connection. Every
+      // provider and tool must be declared in capabilities.connectors; the
+      // result is cached per canvas for \`refresh\` seconds (default 60):
+      // \`ph.connectors.call("github", "list_pull_requests", { repository: "app" })\`.
+      // A "not_connected" status carries a connect_path; \`connect(provider)\`
+      // opens that settings page from a click.
+      connectors: {
+        call: (provider, tool, args, options) =>
+          call("connectorCall", { provider, tool, arguments: args ?? {}, refresh: options && options.refresh }),
+        connect: (provider) => post({ type: "navigate", nav: { target: "connect", provider } }),
+      },
       // Ask the authoring agent for a change; the host shows the exact prompt
       // and asks the viewer to approve before anything is dispatched:
       // \`ph.agent.request("Make the square blue")\`.

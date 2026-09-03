@@ -41,6 +41,17 @@ export const canvasCapabilitiesSchema = z.object({
       origins: z.array(z.string().url().max(2_048)).max(20).default([]),
     })
     .default({ origins: [] }),
+  // Third-party providers the canvas reads through ph.connectors, each with
+  // the tools it may call. Every call runs with the viewer's own connection.
+  connectors: z
+    .array(
+      z.object({
+        provider: z.string().min(1).max(300),
+        tools: z.array(z.string().min(1).max(200)).min(1).max(64),
+      }),
+    )
+    .max(20)
+    .default([]),
 });
 export type CanvasCapabilities = z.infer<typeof canvasCapabilitiesSchema>;
 

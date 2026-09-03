@@ -20,6 +20,7 @@ describe("BuiltCanvas", () => {
       agentRequests: false,
     },
     network: { origins: [] },
+    connectors: [],
   };
   const initialIsDarkMode = useThemeStore.getState().isDarkMode;
   afterEach(() => useThemeStore.setState({ isDarkMode: initialIsDarkMode }));
