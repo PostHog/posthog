@@ -13,7 +13,6 @@ from llm_gateway.rate_limiting.cost_throttles import (
     UserCostSustainedThrottle,
 )
 from llm_gateway.services.billing_period_resolver import OrganizationBillingPeriod
-from llm_gateway.services.plan_resolver import BillingPeriod, PlanInfo
 from llm_gateway.services.quota_resolver import QuotaResourceStatus
 from tests.conftest import create_test_app
 
@@ -109,17 +108,12 @@ class TestUsageEndpoint:
             for key in bucket:
                 assert "usd" not in key.lower(), f"Bucket field {key!r} leaks USD"
 
-    def test_includes_billing_period_end_for_pro_plan(self, authenticated_usage_client: TestClient) -> None:
+    def test_includes_billing_period_end_from_org_period(self, authenticated_usage_client: TestClient) -> None:
         app = authenticated_usage_client.app
-        app.state.plan_resolver.get_plan = AsyncMock(
-            return_value=PlanInfo(
-                plan_key="posthog-code-200-20260301",
-                seat_created_at="2026-01-01T00:00:00+00:00",
-                billing_period=BillingPeriod(
-                    current_period_start="2026-05-01T00:00:00+00:00",
-                    current_period_end="2026-05-31T00:00:00+00:00",
-                    interval="month",
-                ),
+        app.state.billing_period_resolver.get_period = AsyncMock(
+            return_value=OrganizationBillingPeriod(
+                current_period_start="2026-05-01T00:00:00+00:00",
+                current_period_end="2026-05-31T00:00:00+00:00",
             )
         )
 
@@ -132,19 +126,8 @@ class TestUsageEndpoint:
         assert data["billing_period_end"] is not None
         assert data["billing_period_end"].startswith("2026-05-31")
 
-    def test_org_usage_billing_period_wins_over_seat_period(self, authenticated_usage_client: TestClient) -> None:
+    def test_org_usage_billing_period_reported(self, authenticated_usage_client: TestClient) -> None:
         app = authenticated_usage_client.app
-        app.state.plan_resolver.get_plan = AsyncMock(
-            return_value=PlanInfo(
-                plan_key="posthog-code-200-20260301",
-                seat_created_at="2026-01-01T00:00:00+00:00",
-                billing_period=BillingPeriod(
-                    current_period_start="2026-07-16T00:00:00Z",
-                    current_period_end="2026-08-16T00:00:00Z",
-                    interval="month",
-                ),
-            )
-        )
         app.state.billing_period_resolver.get_period = AsyncMock(
             return_value=OrganizationBillingPeriod(
                 current_period_start="2026-07-09T00:00:00Z",
@@ -170,15 +153,10 @@ class TestUsageEndpoint:
 
     def test_billing_period_end_normalises_naive_iso_to_utc(self, authenticated_usage_client: TestClient) -> None:
         app = authenticated_usage_client.app
-        app.state.plan_resolver.get_plan = AsyncMock(
-            return_value=PlanInfo(
-                plan_key="posthog-code-200-20260301",
-                seat_created_at="2026-01-01T00:00:00+00:00",
-                billing_period=BillingPeriod(
-                    current_period_start="2026-05-01T00:00:00",
-                    current_period_end="2026-05-31T00:00:00",
-                    interval="month",
-                ),
+        app.state.billing_period_resolver.get_period = AsyncMock(
+            return_value=OrganizationBillingPeriod(
+                current_period_start="2026-05-01T00:00:00",
+                current_period_end="2026-05-31T00:00:00",
             )
         )
 
@@ -195,15 +173,10 @@ class TestUsageEndpoint:
 
     def test_billing_period_end_null_when_unparseable(self, authenticated_usage_client: TestClient) -> None:
         app = authenticated_usage_client.app
-        app.state.plan_resolver.get_plan = AsyncMock(
-            return_value=PlanInfo(
-                plan_key="posthog-code-200-20260301",
-                seat_created_at="2026-01-01T00:00:00+00:00",
-                billing_period=BillingPeriod(
-                    current_period_start="2026-05-01T00:00:00+00:00",
-                    current_period_end="not-a-real-date",
-                    interval="month",
-                ),
+        app.state.billing_period_resolver.get_period = AsyncMock(
+            return_value=OrganizationBillingPeriod(
+                current_period_start="2026-05-01T00:00:00+00:00",
+                current_period_end="not-a-real-date",
             )
         )
 
@@ -216,12 +189,7 @@ class TestUsageEndpoint:
         assert response.json()["billing_period_end"] is None
         assert any(log.get("event") == "usage.billing_period_end_unparseable" for log in logs)
 
-    def test_billing_period_end_null_for_free_plan(self, authenticated_usage_client: TestClient) -> None:
-        app = authenticated_usage_client.app
-        app.state.plan_resolver.get_plan = AsyncMock(
-            return_value=PlanInfo(plan_key=None, seat_created_at="2026-01-01T00:00:00+00:00")
-        )
-
+    def test_billing_period_end_null_without_org_period(self, authenticated_usage_client: TestClient) -> None:
         response = authenticated_usage_client.get(
             "/v1/usage/posthog_code",
             headers={"Authorization": "Bearer phx_test"},
@@ -229,54 +197,17 @@ class TestUsageEndpoint:
         assert response.status_code == 200
         assert response.json()["billing_period_end"] is None
 
-    @pytest.mark.parametrize(
-        "plan_key,expected_is_pro",
-        [
-            ("posthog-code-200-20260301", True),
-            ("posthog-code-free-20260301", False),
-            (None, False),
-        ],
-    )
-    def test_is_pro_reflects_plan_key(
-        self, authenticated_usage_client: TestClient, plan_key: str | None, expected_is_pro: bool
-    ) -> None:
-        app = authenticated_usage_client.app
-        app.state.plan_resolver.get_plan = AsyncMock(
-            return_value=PlanInfo(plan_key=plan_key, seat_created_at="2026-01-01T00:00:00+00:00")
-        )
-
+    def test_is_pro_always_false(self, authenticated_usage_client: TestClient) -> None:
+        # Seat billing was retired on 2026-07-16, so no caller is on a Pro seat.
+        # The field stays in the response until older Desktop builds age out.
         response = authenticated_usage_client.get(
             "/v1/usage/posthog_code",
             headers={"Authorization": "Bearer phx_test"},
         )
         assert response.status_code == 200
-        assert response.json()["is_pro"] is expected_is_pro
+        assert response.json()["is_pro"] is False
 
-    def test_returns_free_limits_for_free_plan_with_seat(self, authenticated_usage_client: TestClient) -> None:
-        app = authenticated_usage_client.app
-        app.state.plan_resolver.get_plan = AsyncMock(
-            return_value=PlanInfo(plan_key=None, seat_created_at="2026-01-01T00:00:00+00:00")
-        )
-
-        response = authenticated_usage_client.get(
-            "/v1/usage/posthog_code",
-            headers={"Authorization": "Bearer phx_test"},
-        )
-        assert response.status_code == 200
-        data = response.json()
-
-        assert data["burst"]["used_percent"] == 0
-        assert data["sustained"]["used_percent"] == 0
-
-    def test_old_free_user_still_gets_limits(self, authenticated_usage_client: TestClient) -> None:
-        app = authenticated_usage_client.app
-        app.state.plan_resolver.get_plan = AsyncMock(
-            return_value=PlanInfo(
-                plan_key="posthog-code-free-20260301",
-                seat_created_at="2025-01-01T00:00:00+00:00",
-            )
-        )
-
+    def test_returns_limits_for_every_caller(self, authenticated_usage_client: TestClient) -> None:
         response = authenticated_usage_client.get(
             "/v1/usage/posthog_code",
             headers={"Authorization": "Bearer phx_test"},
@@ -288,23 +219,6 @@ class TestUsageEndpoint:
         assert data["burst"]["exceeded"] is False
         assert data["sustained"]["used_percent"] == 0
         assert data["sustained"]["exceeded"] is False
-        assert data["is_rate_limited"] is False
-
-    def test_returns_pro_limits_with_pro_plan(self, authenticated_usage_client: TestClient) -> None:
-        app = authenticated_usage_client.app
-        app.state.plan_resolver.get_plan = AsyncMock(
-            return_value=PlanInfo(plan_key="posthog-code-200-20260301", seat_created_at=None)
-        )
-
-        response = authenticated_usage_client.get(
-            "/v1/usage/posthog_code",
-            headers={"Authorization": "Bearer phx_test"},
-        )
-        assert response.status_code == 200
-        data = response.json()
-
-        assert data["burst"]["used_percent"] == 0
-        assert data["sustained"]["used_percent"] == 0
         assert data["is_rate_limited"] is False
 
     def test_returns_401_without_auth(self, client: TestClient) -> None:
@@ -406,9 +320,6 @@ class TestUsageEndpoint:
         app = authenticated_usage_client.app
         resolver_mock = AsyncMock(return_value=QuotaResourceStatus(limited=True))
         app.state.quota_resolver.get_resource_status = resolver_mock
-        app.state.plan_resolver.get_plan = AsyncMock(
-            return_value=PlanInfo(plan_key=None, seat_created_at=None, seat_missing=True)
-        )
 
         response = authenticated_usage_client.get(
             "/v1/usage/posthog_code",
@@ -420,21 +331,15 @@ class TestUsageEndpoint:
         assert data["is_rate_limited"] is True
         assert resolver_mock.call_args.args[0] == "posthog_code_credits"
 
-    @pytest.mark.parametrize("plan_key", ["posthog-code-200-20260301", "posthog-code-free-20260301", None])
-    def test_exhausted_bucket_reported_for_every_caller(
-        self, authenticated_usage_client: TestClient, plan_key: str | None
-    ) -> None:
+    def test_exhausted_bucket_reported_for_every_caller(self, authenticated_usage_client: TestClient) -> None:
         # Mirrors BillableCreditThrottle: every posthog_code generation counts into
         # the org's bucket, so exhaustion blocks (and must be reported to) every
-        # caller regardless of seat state — clients gate on this response, and a
-        # carve-out here would let them keep sending requests enforcement denies.
+        # caller — clients gate on this response, and a carve-out here would let
+        # them keep sending requests enforcement denies.
         from llm_gateway.services.quota_resolver import QuotaResourceStatus
 
         app = authenticated_usage_client.app
         app.state.quota_resolver.get_resource_status = AsyncMock(return_value=QuotaResourceStatus(limited=True))
-        app.state.plan_resolver.get_plan = AsyncMock(
-            return_value=PlanInfo(plan_key=plan_key, seat_created_at="2026-01-01T00:00:00+00:00")
-        )
 
         response = authenticated_usage_client.get(
             "/v1/usage/posthog_code",
@@ -531,26 +436,3 @@ class TestUsageEndpoint:
         )
         assert response.status_code == 200
         assert response.json()["code_usage_subscribed"] is billing_active
-
-    def test_invalidate_plan_cache_calls_resolver(self, authenticated_usage_client: TestClient) -> None:
-        app = authenticated_usage_client.app
-        app.state.plan_resolver.invalidate = AsyncMock()
-
-        response = authenticated_usage_client.post(
-            "/v1/usage/posthog_code/invalidate-plan-cache",
-            headers={"Authorization": "Bearer phx_test"},
-        )
-        assert response.status_code == 200
-        assert response.json() == {"ok": True}
-        app.state.plan_resolver.invalidate.assert_called_once_with(42)
-
-    def test_invalidate_plan_cache_404_for_other_product(self, authenticated_usage_client: TestClient) -> None:
-        response = authenticated_usage_client.post(
-            "/v1/usage/wizard/invalidate-plan-cache",
-            headers={"Authorization": "Bearer phx_test"},
-        )
-        assert response.status_code == 404
-
-    def test_invalidate_plan_cache_401_without_auth(self, client: TestClient) -> None:
-        response = client.post("/v1/usage/posthog_code/invalidate-plan-cache")
-        assert response.status_code == 401

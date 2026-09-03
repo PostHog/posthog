@@ -25,7 +25,7 @@ from llm_gateway.dependencies import (
     get_model_from_request,
     get_provider_from_request,
     get_request_json,
-    resolve_plan_and_quota,
+    resolve_quota,
 )
 from llm_gateway.products.config import POSTHOG_CODE_US_APP_ID, SIGNALS_DEV_APP_ID
 from llm_gateway.rate_limiting.cost_throttles import SandboxTaskCostThrottle
@@ -35,7 +35,6 @@ from llm_gateway.services.desktop_access_resolver import (
     DesktopAccessReason,
     DesktopAccessStatus,
 )
-from llm_gateway.services.plan_resolver import PlanInfo
 from llm_gateway.services.quota_resolver import QuotaResourceStatus
 
 
@@ -287,19 +286,14 @@ class TestEnforceThrottles:
         assert context.end_user_id is None
 
 
-class TestResolvePlanAndQuota:
+class TestResolveQuota:
     """The quota resolver roundtrip runs for bucket-billed products (against the
     product's own bucket) and is skipped entirely for unbilled ones."""
 
     async def _run(self, product: str) -> tuple:
-        plan_info = PlanInfo(plan_key="pro", seat_created_at=None)
-        plan_mock = AsyncMock(return_value=plan_info)
         quota_mock = AsyncMock(return_value=QuotaResourceStatus(limited=True))
-        with (
-            patch("llm_gateway.dependencies.resolve_plan_info", plan_mock),
-            patch("llm_gateway.dependencies.resolve_quota_status", quota_mock),
-        ):
-            result = await resolve_plan_and_quota(_make_request(), user_id=1, team_id=42, product=product)
+        with patch("llm_gateway.dependencies.resolve_quota_status", quota_mock):
+            result = await resolve_quota(_make_request(), team_id=42, product=product)
         return result, quota_mock
 
     @pytest.mark.asyncio
@@ -308,7 +302,7 @@ class TestResolvePlanAndQuota:
         [("slack_app", "ai_credits"), ("posthog_code", "posthog_code_credits")],
     )
     async def test_bucket_billed_product_resolves_its_own_bucket(self, product: str, expected_resource: str) -> None:
-        (_, quota_status), quota_mock = await self._run(product)
+        quota_status, quota_mock = await self._run(product)
 
         quota_mock.assert_awaited_once()
         assert quota_mock.call_args.args[2] == expected_resource
@@ -317,7 +311,7 @@ class TestResolvePlanAndQuota:
     @pytest.mark.asyncio
     async def test_unbilled_product_skips_quota_resolver(self) -> None:
         # wizard is unbilled — it shouldn't pay for the quota resolver roundtrip.
-        (_, quota_status), quota_mock = await self._run("wizard")
+        quota_status, quota_mock = await self._run("wizard")
 
         quota_mock.assert_not_awaited()
         assert quota_status.limited is False
@@ -416,8 +410,8 @@ class TestPreviewModelGateWiring:
     @pytest.fixture(autouse=True)
     def billed_org(self):
         with patch(
-            "llm_gateway.dependencies.resolve_plan_and_quota",
-            AsyncMock(return_value=(MagicMock(), QuotaResourceStatus(limited=False, code_usage_billing_active=True))),
+            "llm_gateway.dependencies.resolve_quota",
+            AsyncMock(return_value=QuotaResourceStatus(limited=False, code_usage_billing_active=True)),
         ):
             yield
 
@@ -467,8 +461,8 @@ class TestBasetenExclusiveModelGateWiring:
     @pytest.fixture(autouse=True)
     def billed_org(self):
         with patch(
-            "llm_gateway.dependencies.resolve_plan_and_quota",
-            AsyncMock(return_value=(MagicMock(), QuotaResourceStatus(limited=False, code_usage_billing_active=True))),
+            "llm_gateway.dependencies.resolve_quota",
+            AsyncMock(return_value=QuotaResourceStatus(limited=False, code_usage_billing_active=True)),
         ):
             yield
 

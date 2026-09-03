@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import json
 from typing import Annotated, Any
 
@@ -22,6 +21,7 @@ from llm_gateway.flags import evaluate_flag
 from llm_gateway.products.config import (
     ALLOWED_PRODUCTS,
     INTERNAL_RUN_SCOPE,
+    POSTHOG_CODE_PRODUCT,
     check_free_tier_model_access,
     check_product_access,
     get_product_config,
@@ -37,7 +37,6 @@ from llm_gateway.request_context import (
     set_throttle_context,
 )
 from llm_gateway.services.desktop_access_resolver import DesktopAccessResolver
-from llm_gateway.services.plan_resolver import POSTHOG_CODE_PRODUCT, PlanInfo, resolve_plan_info
 from llm_gateway.services.quota_resolver import QuotaResourceStatus, resolve_quota_status
 
 logger = structlog.get_logger(__name__)
@@ -239,19 +238,17 @@ async def _extract_end_user_id_from_body(request: Request) -> str | None:
     return None
 
 
-async def resolve_plan_and_quota(
+async def resolve_quota(
     request: Request,
     *,
-    user_id: int,
     team_id: int | None,
     product: str,
-) -> tuple[PlanInfo, QuotaResourceStatus]:
-    """Fetch plan info and (for bucket-billed products) the bucket's quota in parallel.
+) -> QuotaResourceStatus:
+    """Fetch the bucket's quota for bucket-billed products.
 
-    Both calls are independent Django roundtrips on cache miss, so for products
-    billing into a credit bucket we overlap them. Unbilled products short-circuit
-    the throttle stack regardless of quota state, so we skip the resolver entirely
-    rather than paying for the Redis GET (and the HTTP fallback on cache miss).
+    Unbilled products short-circuit the throttle stack regardless of quota state,
+    so we skip the resolver entirely rather than paying for the Redis GET (and the
+    HTTP fallback on cache miss).
 
     Caveat: ``code_usage_billing_active`` rides the quota fetch, so a product
     without a credit bucket always reads as unbilled — removing or repointing
@@ -259,13 +256,8 @@ async def resolve_plan_and_quota(
     """
     product_config = get_product_config(product)
     if product_config and product_config.credit_bucket is not None:
-        plan_info, quota_status = await asyncio.gather(
-            resolve_plan_info(request, user_id, product),
-            resolve_quota_status(request, team_id, product_config.credit_bucket.value),
-        )
-        return plan_info, quota_status
-    plan_info = await resolve_plan_info(request, user_id, product)
-    return plan_info, QuotaResourceStatus(limited=False)
+        return await resolve_quota_status(request, team_id, product_config.credit_bucket.value)
+    return QuotaResourceStatus(limited=False)
 
 
 def _format_retry_delay(seconds: int) -> str:
@@ -292,9 +284,8 @@ async def enforce_throttles(
     else:
         end_user_id = await _extract_end_user_id_from_body(request)
 
-    plan_info, quota_status = await resolve_plan_and_quota(
+    quota_status = await resolve_quota(
         request,
-        user_id=user.user_id,
         team_id=user.team_id,
         product=product,
     )
@@ -355,11 +346,7 @@ async def enforce_throttles(
         product=product,
         request_id=get_request_id() or None,
         end_user_id=end_user_id,
-        plan_key=plan_info.plan_key,
-        seat_created_at=plan_info.seat_created_at,
-        seat_missing=plan_info.seat_missing,
         code_usage_billed=quota_status.code_usage_billing_active,
-        billing_period_start=plan_info.billing_period.current_period_start if plan_info.billing_period else None,
         credits_exhausted=quota_status.limited,
         sandbox_task_id=user.sandbox_task_id,
     )
