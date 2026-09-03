@@ -112,6 +112,8 @@ rules:
                               |CoreMemory
                               |CustomerJourney
                               |CustomerProfileConfig
+                              |CustomerTask
+                              |CustomerTaskActivity
                               |CustomOAuth2Integration
                               |CustomPropertyDefinition
                               |CustomPropertySource
@@ -501,6 +503,8 @@ rules:
                         |CoreMemory
                         |CustomerJourney
                         |CustomerProfileConfig
+                        |CustomerTask
+                        |CustomerTaskActivity
                         |CustomOAuth2Integration
                         |CustomPropertyDefinition
                         |CustomPropertySource
