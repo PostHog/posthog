@@ -30,6 +30,28 @@ def _is_account_member_search_enabled(team: Team, user: User) -> bool:
     )
 
 
+def get_account_member_search_staff_user(team: Team) -> User | None:
+    active_memberships = OrganizationMembership.objects.filter(
+        organization_id=team.organization_id,
+        user__is_active=True,
+    )
+    if active_memberships.filter(user__is_staff=False).exists():
+        return None
+
+    staff_user = (
+        User.objects.filter(
+            organization_membership__organization_id=team.organization_id,
+            is_active=True,
+            is_staff=True,
+        )
+        .order_by("id")
+        .first()
+    )
+    if staff_user is None or not _is_account_member_search_enabled(team, staff_user):
+        return None
+    return staff_user
+
+
 def _list_us_organization_ids(email: str) -> tuple[str, ...]:
     if email.endswith(INTERNAL_BOT_EMAIL_SUFFIX):
         return ()

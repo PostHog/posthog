@@ -69,9 +69,14 @@ class TestEmailAccountMatching(BaseTest):
             (str(domain.id), "email_domain"),
         }
 
-    def test_matches_organization_member_without_a_domain_or_group_event(self) -> None:
+    @patch(
+        "products.customer_analytics.backend.logic.account_member_search.posthog_feature_flag_enabled",
+        return_value=True,
+    )
+    def test_matches_organization_member_without_a_domain_or_group_event(self, _mock_flag: MagicMock) -> None:
         self.user.email = "member@gmail.com"
-        self.user.save(update_fields=["email"])
+        self.user.is_staff = True
+        self.user.save(update_fields=["email", "is_staff"])
         account = self._create_account(
             name="Customer",
             external_id=str(self.organization.id),
@@ -83,8 +88,26 @@ class TestEmailAccountMatching(BaseTest):
             (str(account.id), "organization_member")
         ]
 
-    def test_matches_a_mixed_case_organization_member_email(self) -> None:
-        User.objects.filter(id=self.user.id).update(email="Member@Gmail.com")
+    @patch(
+        "products.customer_analytics.backend.logic.account_member_search.posthog_feature_flag_enabled",
+        return_value=True,
+    )
+    def test_does_not_match_organization_members_for_a_non_staff_team(self, _mock_flag: MagicMock) -> None:
+        self.user.email = "member@gmail.com"
+        self.user.save(update_fields=["email"])
+        self._create_account(name="Customer", external_id=str(self.organization.id))
+
+        matches = match_email_accounts(self.team.id, [self.user.email])
+
+        assert matches == []
+        _mock_flag.assert_not_called()
+
+    @patch(
+        "products.customer_analytics.backend.logic.account_member_search.posthog_feature_flag_enabled",
+        return_value=True,
+    )
+    def test_matches_a_mixed_case_organization_member_email(self, _mock_flag: MagicMock) -> None:
+        User.objects.filter(id=self.user.id).update(email="Member@Gmail.com", is_staff=True)
         account = self._create_account(name="Customer", external_id=str(self.organization.id))
 
         matches = match_email_accounts(self.team.id, ["member@gmail.com"])
@@ -93,9 +116,30 @@ class TestEmailAccountMatching(BaseTest):
             (str(account.id), "organization_member")
         ]
 
-    def test_does_not_match_an_organization_member_of_multiple_accounts(self) -> None:
+    @patch(
+        "products.customer_analytics.backend.logic.account_member_search.posthog_feature_flag_enabled",
+        return_value=True,
+    )
+    def test_does_not_match_case_folded_duplicate_users(self, _mock_flag: MagicMock) -> None:
+        User.objects.filter(id=self.user.id).update(email="member@gmail.com", is_staff=True)
+        other_user = User.objects.create(email="Member@Gmail.com")
+        other_organization = Organization.objects.create(name="Other customer")
+        OrganizationMembership.objects.create(user=other_user, organization=other_organization)
+        self._create_account(name="First customer", external_id=str(self.organization.id))
+        self._create_account(name="Second customer", external_id=str(other_organization.id))
+
+        matches = match_email_accounts(self.team.id, ["member@gmail.com"])
+
+        assert matches == []
+
+    @patch(
+        "products.customer_analytics.backend.logic.account_member_search.posthog_feature_flag_enabled",
+        return_value=True,
+    )
+    def test_does_not_match_an_organization_member_of_multiple_accounts(self, _mock_flag: MagicMock) -> None:
         self.user.email = "member@gmail.com"
-        self.user.save(update_fields=["email"])
+        self.user.is_staff = True
+        self.user.save(update_fields=["email", "is_staff"])
         other_organization = Organization.objects.create(name="Other customer")
         OrganizationMembership.objects.create(user=self.user, organization=other_organization)
         self._create_account(name="First customer", external_id=str(self.organization.id))

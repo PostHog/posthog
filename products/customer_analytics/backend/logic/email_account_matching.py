@@ -11,6 +11,7 @@ from posthog.models.team import Team
 from posthog.models.user import User
 
 from products.conversations.backend.facade.api import resolve_group_keys_by_email
+from products.customer_analytics.backend.logic.account_member_search import get_account_member_search_staff_user
 from products.customer_analytics.backend.models import Account
 
 logger = structlog.get_logger(__name__)
@@ -95,14 +96,21 @@ def _match_accounts_by_person_group(team: Team, emails: list[str]) -> tuple[dict
 def _match_accounts_by_organization_membership(
     team: Team, emails: list[str]
 ) -> tuple[dict[str, MatchedAccount], set[str]]:
-    users_by_id = {
-        user.id: user
-        for user in User.objects.annotate(normalized_email=Lower("email"))
-        .filter(normalized_email__in=emails)
-        .only("id", "email")
-    }
-    if not users_by_id:
+    if get_account_member_search_staff_user(team) is None:
         return {}, set()
+
+    users_by_email: dict[str, list[User]] = {}
+    for user in (
+        User.objects.annotate(normalized_email=Lower("email"))
+        .filter(normalized_email__in=emails, is_active=True)
+        .only("id", "email")
+    ):
+        users_by_email.setdefault(user.email.lower(), []).append(user)
+
+    ambiguous = {email for email, users in users_by_email.items() if len(users) > 1}
+    users_by_id = {users[0].id: users[0] for email, users in users_by_email.items() if email not in ambiguous}
+    if not users_by_id:
+        return {}, ambiguous
 
     memberships = list(OrganizationMembership.objects.filter(user_id__in=users_by_id))
     accounts_by_organization_id = {
@@ -122,7 +130,6 @@ def _match_accounts_by_organization_membership(
         candidates_by_email.setdefault(email, {})[str(account.id)] = account
 
     matches: dict[str, MatchedAccount] = {}
-    ambiguous: set[str] = set()
     for email, candidates in candidates_by_email.items():
         if len(candidates) == 1:
             matches[email] = MatchedAccount(account=next(iter(candidates.values())), source=ORGANIZATION_MEMBER_MATCH)
