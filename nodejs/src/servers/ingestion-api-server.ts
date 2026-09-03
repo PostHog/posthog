@@ -341,8 +341,12 @@ export class IngestionApiServer implements NodeServer {
             maxOptimisticUpdateRetries: this.config.PERSON_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES,
             optimisticUpdateRetryInterval: this.config.PERSON_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS,
             updateAllProperties: this.config.PERSON_PROPERTIES_UPDATE_ALL,
+            mergeTombstoneTeamAllowlist: this.config.PERSON_MERGE_TOMBSTONE_TEAM_ALLOWLIST,
+            mergeEventsEnabled: effectivePersonMergeEventsEnabled(this.config),
+            mergeEventsPartitionCount: this.config.PERSON_MERGE_EVENTS_PARTITION_COUNT,
+            mergeEventsTeamAllowlist: this.config.PERSON_MERGE_EVENTS_TEAM_ALLOWLIST,
         })
-        // Which world person writes land in, deployment-wide: pg (the
+        // Which backend person writes land in, deployment-wide: pg (the
         // default) builds nothing new; the other modes construct the
         // personhog store, shadow keeping pg authoritative.
         const personsStoreMode = parsePersonsStoreMode(this.config.PERSONS_STORE_MODE)
@@ -411,12 +415,8 @@ export class IngestionApiServer implements NodeServer {
                 PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: this.config.PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT,
                 PERSON_MERGE_ASYNC_ENABLED: this.config.PERSON_MERGE_ASYNC_ENABLED,
                 PERSON_MERGE_SYNC_BATCH_SIZE: this.config.PERSON_MERGE_SYNC_BATCH_SIZE,
-                PERSON_MERGE_EVENTS_ENABLED: effectivePersonMergeEventsEnabled(this.config),
-                PERSON_MERGE_EVENTS_PARTITION_COUNT: this.config.PERSON_MERGE_EVENTS_PARTITION_COUNT,
-                PERSON_MERGE_EVENTS_TEAM_ALLOWLIST: this.config.PERSON_MERGE_EVENTS_TEAM_ALLOWLIST,
                 PERSON_MERGE_FOLD_ENABLED: this.config.PERSON_MERGE_FOLD_ENABLED,
                 PERSON_MERGE_FOLD_TEAM_ALLOWLIST: this.config.PERSON_MERGE_FOLD_TEAM_ALLOWLIST,
-                PERSON_MERGE_TOMBSTONE_TEAM_ALLOWLIST: this.config.PERSON_MERGE_TOMBSTONE_TEAM_ALLOWLIST,
                 PERSON_JSONB_SIZE_ESTIMATE_ENABLE: this.config.PERSON_JSONB_SIZE_ESTIMATE_ENABLE,
                 PERSON_PROPERTIES_UPDATE_ALL: this.config.PERSON_PROPERTIES_UPDATE_ALL,
                 FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: this.config.FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS,

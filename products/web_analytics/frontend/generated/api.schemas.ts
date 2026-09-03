@@ -691,6 +691,365 @@ export interface RecordVisitResponseApi {
     recorded: boolean
 }
 
+export interface ContentAutopilotSiteProfileApi {
+    readonly id: string
+    /**
+     * Name used to identify this site in the workspace.
+     * @maxLength 255
+     */
+    name?: string
+    /**
+     * Authorized site origin for this profile.
+     * @maxLength 2048
+     */
+    domain: string
+    /** Public sitemap and factual source URLs used to build the site profile. */
+    source_urls: string[]
+    /** Same-origin URL path prefixes allowed for research. */
+    content_boundaries: string[]
+    /** Brand, terminology, and editorial rules applied to every proposal. */
+    brand_rules: string[]
+    /** Whether to use connected Google Search Console data. */
+    search_console_enabled?: boolean
+    readonly created_at: string
+    readonly updated_at: string
+}
+
+export interface PaginatedContentAutopilotSiteProfileListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ContentAutopilotSiteProfileApi[]
+}
+
+export interface PatchedContentAutopilotSiteProfileApi {
+    readonly id?: string
+    /**
+     * Name used to identify this site in the workspace.
+     * @maxLength 255
+     */
+    name?: string
+    /**
+     * Authorized site origin for this profile.
+     * @maxLength 2048
+     */
+    domain?: string
+    /** Public sitemap and factual source URLs used to build the site profile. */
+    source_urls?: string[]
+    /** Same-origin URL path prefixes allowed for research. */
+    content_boundaries?: string[]
+    /** Brand, terminology, and editorial rules applied to every proposal. */
+    brand_rules?: string[]
+    /** Whether to use connected Google Search Console data. */
+    search_console_enabled?: boolean
+    readonly created_at?: string
+    readonly updated_at?: string
+}
+
+export interface ContentAutopilotSiteDiscoveryRequestApi {
+    /** Public site URL to inspect for onboarding defaults. */
+    domain: string
+}
+
+export interface ContentAutopilotSiteDiscoveryResponseApi {
+    /** Site name inferred from the homepage or hostname. */
+    name: string
+    /** Normalized site origin. */
+    domain: string
+    /** Detected sitemap URLs or an editable conventional suggestion. */
+    source_urls: string[]
+    /** Editable same-origin path boundaries. */
+    content_boundaries: string[]
+    /** Whether at least one sitemap was verified. */
+    sitemap_detected: boolean
+    /** Non-blocking discovery warnings. */
+    warnings: string[]
+}
+
+/**
+ * * `new_content` - New content
+ * * `page_improvement` - Page improvement
+ */
+export type ContentAutopilotProposalProposalTypeEnumApi =
+    (typeof ContentAutopilotProposalProposalTypeEnumApi)[keyof typeof ContentAutopilotProposalProposalTypeEnumApi]
+
+export const ContentAutopilotProposalProposalTypeEnumApi = {
+    NewContent: 'new_content',
+    PageImprovement: 'page_improvement',
+} as const
+
+/**
+ * * `generating` - Generating
+ * * `ready_for_review` - Ready for review
+ * * `rejected` - Rejected
+ * * `exported` - Exported
+ * * `failed` - Failed
+ */
+export type ContentAutopilotProposalLifecycleStatusEnumApi =
+    (typeof ContentAutopilotProposalLifecycleStatusEnumApi)[keyof typeof ContentAutopilotProposalLifecycleStatusEnumApi]
+
+export const ContentAutopilotProposalLifecycleStatusEnumApi = {
+    Generating: 'generating',
+    ReadyForReview: 'ready_for_review',
+    Rejected: 'rejected',
+    Exported: 'exported',
+    Failed: 'failed',
+} as const
+
+/**
+ * * `poor_ctr` - Poor click-through rate
+ * * `content_gap` - Content gap
+ * * `organic_decline` - Organic decline
+ * * `ai_visibility_gap` - AI visibility gap
+ * * `site_hygiene` - Site hygiene
+ */
+export type OpportunityKindEnumApi = (typeof OpportunityKindEnumApi)[keyof typeof OpportunityKindEnumApi]
+
+export const OpportunityKindEnumApi = {
+    PoorCtr: 'poor_ctr',
+    ContentGap: 'content_gap',
+    OrganicDecline: 'organic_decline',
+    AiVisibilityGap: 'ai_visibility_gap',
+    SiteHygiene: 'site_hygiene',
+} as const
+
+export interface ContentAutopilotEvidenceApi {
+    /** Reason the opportunity was selected.
+     *
+     * * `poor_ctr` - Poor click-through rate
+     * * `content_gap` - Content gap
+     * * `organic_decline` - Organic decline
+     * * `ai_visibility_gap` - AI visibility gap
+     * * `site_hygiene` - Site hygiene */
+    opportunity_kind: OpportunityKindEnumApi
+    /** Plain-language explanation of the supporting evidence. */
+    explanation: string
+    /** Page supported by this evidence. */
+    page_url?: string
+    /** Search query supported by this evidence. */
+    query?: string
+}
+
+export interface ContentAutopilotValidationCheckApi {
+    /** Stable identifier for the validation gate. */
+    check_key: string
+    /** Human-readable validation name. */
+    label: string
+    /** Whether the proposal passed this validation. */
+    passed: boolean
+    /** Validation result and any action needed. */
+    message: string
+    /** Whether failure prevents export. */
+    blocking: boolean
+}
+
+export interface ContentAutopilotValidationReportApi {
+    /** Whether every blocking validation passed. */
+    passed: boolean
+    /** Factual, brand, intent, originality, linking, crawlability, and schema checks. */
+    checks: ContentAutopilotValidationCheckApi[]
+}
+
+export interface ContentAutopilotProposalListApi {
+    readonly id: string
+    readonly run_id: string
+    readonly proposal_type: ContentAutopilotProposalProposalTypeEnumApi
+    readonly lifecycle_status: ContentAutopilotProposalLifecycleStatusEnumApi
+    readonly title: string
+    readonly target_query: string
+    /** Performance evidence for this proposal. */
+    evidence: ContentAutopilotEvidenceApi[]
+    /** Blocking and advisory validation results. */
+    validation_report: ContentAutopilotValidationReportApi
+    /** Repository-relative export path. */
+    readonly file_path: string
+    readonly created_at: string
+    readonly updated_at: string
+}
+
+export interface PaginatedContentAutopilotProposalListListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ContentAutopilotProposalListApi[]
+}
+
+export interface ContentAutopilotFrontmatterEntryApi {
+    /** Frontmatter field name. */
+    key: string
+    /** Serialized frontmatter value. */
+    value: string
+}
+
+export interface ContentAutopilotPackageApi {
+    /** Repository-relative Markdown or MDX file path. */
+    file_path: string
+    /** Content title. */
+    title: string
+    /** Search description or summary. */
+    description: string
+    /** URL slug. */
+    slug: string
+    /** Ordered frontmatter entries. */
+    frontmatter: ContentAutopilotFrontmatterEntryApi[]
+    /** Validated same-origin internal links included in the content. */
+    internal_links: string[]
+    /** Portable source notes included with the export. */
+    source_notes: string[]
+}
+
+export interface ContentAutopilotProposalApi {
+    readonly id: string
+    /** Run that generated this proposal. */
+    readonly run_id: string
+    /** New article or bounded page improvement.
+     *
+     * * `new_content` - New content
+     * * `page_improvement` - Page improvement */
+    readonly proposal_type: ContentAutopilotProposalProposalTypeEnumApi
+    /** Review and export lifecycle status.
+     *
+     * * `generating` - Generating
+     * * `ready_for_review` - Ready for review
+     * * `rejected` - Rejected
+     * * `exported` - Exported
+     * * `failed` - Failed */
+    readonly lifecycle_status: ContentAutopilotProposalLifecycleStatusEnumApi
+    /** Review title for this proposal. */
+    readonly title: string
+    /** Primary query or topic targeted by this proposal. */
+    readonly target_query: string
+    /** Existing or intended public URL. */
+    readonly target_url: string
+    /** Performance evidence for this proposal. */
+    evidence: ContentAutopilotEvidenceApi[]
+    /** Blocking and advisory validation results. */
+    validation_report: ContentAutopilotValidationReportApi
+    /** Structured package that accompanies the exported Markdown. */
+    content_package: ContentAutopilotPackageApi
+    /** Existing content for page-improvement diffs. */
+    readonly original_markdown: string
+    /** Full proposed Markdown after edits. */
+    readonly proposed_markdown: string
+    readonly created_at: string
+    readonly updated_at: string
+}
+
+export interface ContentAutopilotProposalEditRequestApi {
+    /**
+     * Edited Markdown to save for review.
+     * @maxLength 500000
+     */
+    proposed_markdown: string
+    /** Updated structured package to save with the proposal. */
+    content_package: ContentAutopilotPackageApi
+}
+
+export interface ContentAutopilotExportResponseApi {
+    /** Suggested export filename. */
+    filename: string
+    /** Validated Markdown content. */
+    markdown: string
+    /** Structured JSON package for a CMS adapter. */
+    content_package: ContentAutopilotPackageApi
+}
+
+/**
+ * * `pending` - Pending
+ * * `generating` - Generating
+ * * `ready_for_review` - Ready for review
+ * * `completed` - Completed
+ * * `canceled` - Canceled
+ * * `failed` - Failed
+ */
+export type ContentAutopilotRunRunStatusEnumApi =
+    (typeof ContentAutopilotRunRunStatusEnumApi)[keyof typeof ContentAutopilotRunRunStatusEnumApi]
+
+export const ContentAutopilotRunRunStatusEnumApi = {
+    Pending: 'pending',
+    Generating: 'generating',
+    ReadyForReview: 'ready_for_review',
+    Completed: 'completed',
+    Canceled: 'canceled',
+    Failed: 'failed',
+} as const
+
+/**
+ * * `standard` - Standard
+ * * `lower` - Lower
+ */
+export type ContentAutopilotSnapshotConfidenceEnumApi =
+    (typeof ContentAutopilotSnapshotConfidenceEnumApi)[keyof typeof ContentAutopilotSnapshotConfidenceEnumApi]
+
+export const ContentAutopilotSnapshotConfidenceEnumApi = {
+    Standard: 'standard',
+    Lower: 'lower',
+} as const
+
+export interface ContentAutopilotSnapshotApi {
+    /** Site domain used for the run. */
+    domain?: string
+    /** Confidence level based on the available data sources.
+     *
+     * * `standard` - Standard
+     * * `lower` - Lower */
+    confidence?: ContentAutopilotSnapshotConfidenceEnumApi
+    /** Public sources authorized for this run. */
+    source_urls?: string[]
+    /** Site paths authorized for this run. */
+    content_boundaries?: string[]
+    /** Editorial rules captured for this run. */
+    brand_rules?: string[]
+}
+
+export interface ContentAutopilotErrorApi {
+    /** Stable machine-readable error code. */
+    error_code: string
+    /** Error explanation suitable for the review workspace. */
+    message: string
+}
+
+export interface ContentAutopilotRunApi {
+    readonly id: string
+    /** Site profile used by this run. */
+    readonly profile_id: string
+    /** Current durable workflow status.
+     *
+     * * `pending` - Pending
+     * * `generating` - Generating
+     * * `ready_for_review` - Ready for review
+     * * `completed` - Completed
+     * * `canceled` - Canceled
+     * * `failed` - Failed */
+    readonly run_status: ContentAutopilotRunRunStatusEnumApi
+    /** Immutable inputs captured at run start. */
+    input_snapshot: ContentAutopilotSnapshotApi
+    /** Inspectable workflow errors from this run. */
+    errors: ContentAutopilotErrorApi[]
+    readonly created_at: string
+    readonly updated_at: string
+    /** @nullable */
+    readonly completed_at: string | null
+}
+
+export interface PaginatedContentAutopilotRunListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ContentAutopilotRunApi[]
+}
+
+export interface ContentAutopilotRunStartRequestApi {
+    /** Site profile to research. */
+    profile_id: string
+}
+
 export interface WebAnalyticsFilterPresetApi {
     readonly id: string
     readonly short_id: string
@@ -1020,6 +1379,51 @@ export type WebAnalyticsWeeklyDigestParams = {
      * Lookback window in days (1–90). Defaults to 7.
      */
     days?: number
+}
+
+export type WebAnalyticsContentAutopilotProfilesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type WebAnalyticsContentAutopilotProposalsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Only return proposals for this site profile.
+     */
+    profile_id?: string
+    /**
+     * Only return proposals from this content run.
+     */
+    run_id?: string
+}
+
+export type WebAnalyticsContentAutopilotRunsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Only return runs for this site profile.
+     */
+    profile_id?: string
 }
 
 export type WebAnalyticsFilterPresetsListParams = {
