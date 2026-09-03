@@ -1,5 +1,5 @@
 import { isChunkLoadError } from './isChunkLoadError'
-import { retryBootImport, retryImport } from './retryImport'
+import { requireBootExport, retryBootImport, retryImport } from './retryImport'
 
 describe('retryImport', () => {
     beforeEach(() => {
@@ -47,13 +47,34 @@ describe('retryImport', () => {
         expect(factory).toHaveBeenCalledTimes(3)
     })
 
-    it('marks a minified boot module-evaluation TypeError without retrying', async () => {
-        const error = new TypeError('g is not a function')
+    it.each([
+        ['a bare minified identifier', 'g is not a function'],
+        ['a property access on a minified identifier', 'i.bootApp is not a function'],
+    ])('marks a boot module-evaluation TypeError from %s without retrying', async (_label, message) => {
+        const error = new TypeError(message)
         const factory = jest.fn().mockRejectedValue(error)
 
         await expect(retryBootImport(factory)).rejects.toBe(error)
         expect(factory).toHaveBeenCalledTimes(1)
         expect(isChunkLoadError(error)).toBe(true)
+    })
+
+    it('returns the export a boot module carries', () => {
+        const bootApp = jest.fn()
+
+        expect(requireBootExport({ bootApp }, 'bootApp')).toBe(bootApp)
+    })
+
+    it('classifies a boot module without its export as a chunk-load failure', () => {
+        let thrown: unknown
+        try {
+            requireBootExport({ bootApp: undefined }, 'bootApp')
+        } catch (error) {
+            thrown = error
+        }
+
+        expect(thrown).toBeInstanceOf(TypeError)
+        expect(isChunkLoadError(thrown)).toBe(true)
     })
 
     it('rethrows a non-chunk error immediately without retrying', async () => {

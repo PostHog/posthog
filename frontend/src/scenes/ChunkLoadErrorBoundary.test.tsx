@@ -1,7 +1,9 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
-import { Component, type ReactNode } from 'react'
+import { act, cleanup, render, screen } from '@testing-library/react'
+import { Component, Suspense, lazy, type ReactNode } from 'react'
+
+import { requireBootExport } from 'lib/utils/retryImport'
 
 import { ChunkLoadErrorBoundary } from './ChunkLoadErrorBoundary'
 
@@ -103,6 +105,33 @@ describe('ChunkLoadErrorBoundary', () => {
         expect(
             screen.queryByText('Failed to fetch dynamically imported module: /static/react-json-view.js')
         ).not.toBeInTheDocument()
+    })
+
+    it('reloads when a boot chunk resolves without its export', async () => {
+        const reload = jest.fn()
+        // The shape of the entry's lazy factory (frontend/src/index.tsx) against a stale chunk:
+        // the module loads, but the export the boot path must call is gone.
+        const StaleBootApp = lazy(() =>
+            Promise.resolve<{ bootApp?: () => void }>({}).then((bootModule) => {
+                requireBootExport(bootModule, 'bootApp')()
+                return { default: () => <div>app</div> }
+            })
+        )
+
+        await act(async () => {
+            render(
+                <TestErrorBoundary>
+                    <ChunkLoadErrorBoundary reload={reload}>
+                        <Suspense fallback={<div>loading</div>}>
+                            <StaleBootApp />
+                        </Suspense>
+                    </ChunkLoadErrorBoundary>
+                </TestErrorBoundary>
+            )
+        })
+
+        expect(reload).toHaveBeenCalledTimes(1)
+        expect(screen.queryByText(/without a bootApp export/)).not.toBeInTheDocument()
     })
 
     it('lets non-chunk errors bubble to the parent error boundary', () => {

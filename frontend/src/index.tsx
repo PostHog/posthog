@@ -5,7 +5,7 @@ import './buffer-polyfill'
 import { Suspense, lazy } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 
-import { retryBootImport } from 'lib/utils/retryImport'
+import { requireBootExport, retryBootImport } from 'lib/utils/retryImport'
 
 import { RootErrorBoundary } from './RootErrorBoundary'
 import { ChunkLoadErrorBoundary } from './scenes/ChunkLoadErrorBoundary'
@@ -18,7 +18,7 @@ import { ChunkLoadErrorBoundary } from './scenes/ChunkLoadErrorBoundary'
 const App = lazy(() =>
     Promise.all([retryBootImport(() => import('scenes/App')), retryBootImport(() => import('scenes/bootApp'))]).then(
         ([appModule, bootModule]) => {
-            bootModule.bootApp()
+            requireBootExport(bootModule, 'bootApp')()
             return { default: appModule.App }
         }
     )

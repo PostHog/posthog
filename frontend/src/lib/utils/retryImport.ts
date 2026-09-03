@@ -7,7 +7,30 @@ function isMinifiedBootModuleEvaluationError(error: unknown): boolean {
         return false
     }
     const { name, message } = error as { name?: string; message?: string }
-    return name === 'TypeError' && typeof message === 'string' && /^[A-Za-z_$] is not a function$/.test(message)
+    // A minified identifier, alone or with one property access: `g is not a function`,
+    // `i.bootApp is not a function`. Deliberately narrow, so a real application bug on a
+    // readable name is not mistaken for a stale chunk.
+    return (
+        name === 'TypeError' && typeof message === 'string' && /^[A-Za-z_$](\.[\w$]+)? is not a function$/.test(message)
+    )
+}
+
+/**
+ * Reads an export that the boot path must call off a freshly-imported module.
+ *
+ * A stale chunk can resolve without the export it should carry. A call to the missing export throws
+ * inside the import's `.then` handler, where neither `retryBootImport` nor `isChunkLoadError` sees
+ * it, so `ChunkLoadErrorBoundary` skips its one-time reload and the person gets the fatal error
+ * screen. Mark the failure as a chunk-load error, so the boundary reloads once.
+ */
+export function requireBootExport<T extends object, K extends keyof T>(module: T, exportName: K): NonNullable<T[K]> {
+    const value = module[exportName]
+    if (typeof value !== 'function') {
+        const error = new TypeError(`Boot module resolved without a ${String(exportName)} export`)
+        markAsChunkLoadError(error)
+        throw error
+    }
+    return value as NonNullable<T[K]>
 }
 
 /**
