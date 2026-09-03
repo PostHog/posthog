@@ -624,6 +624,67 @@ describe("buildSessionOptions", () => {
     });
   });
 
+  describe("gateway prompt cache TTL", () => {
+    const KEYS = [
+      "CLAUDE_CODE_PROMPT_CACHE_TTL",
+      "CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL",
+    ] as const;
+    const original: Partial<Record<string, string | undefined>> = {};
+
+    beforeEach(() => {
+      for (const key of KEYS) {
+        original[key] = process.env[key];
+        delete process.env[key];
+      }
+    });
+
+    afterEach(() => {
+      for (const key of KEYS) {
+        const value = original[key];
+        if (value === undefined) {
+          delete process.env[key];
+        } else {
+          process.env[key] = value;
+        }
+      }
+    });
+
+    const gatewayEnv = {
+      anthropicBaseUrl: "https://gateway.example",
+      anthropicAuthToken: "tok",
+      openaiBaseUrl: "https://gateway.example/v1",
+      openaiApiKey: "tok",
+    };
+
+    it("holds the cache for an hour on gateway sessions", () => {
+      const env = buildSessionOptions({ ...makeParams(), gatewayEnv }).env;
+
+      expect(env?.CLAUDE_CODE_PROMPT_CACHE_TTL).toBe("1h");
+      expect(env?.CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL).toBe("1h");
+    });
+
+    it("honors a caller-supplied TTL", () => {
+      process.env.CLAUDE_CODE_PROMPT_CACHE_TTL = "5m";
+      process.env.CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL = "5m";
+
+      const env = buildSessionOptions({ ...makeParams(), gatewayEnv }).env;
+
+      expect(env?.CLAUDE_CODE_PROMPT_CACHE_TTL).toBe("5m");
+      expect(env?.CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL).toBe("5m");
+    });
+
+    it("leaves subscription sessions on the automatic default", () => {
+      const env = buildSessionOptions({
+        ...makeParams(),
+        machineAuth: {},
+        gatewayEnv,
+      }).env;
+
+      expect(env?.CLAUDE_CODE_PROMPT_CACHE_TTL).toBeUndefined();
+      expect(env?.CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL).toBeUndefined();
+    });
+  });
+
   describe("gateway turn tracing env", () => {
     const KEYS = [
       "CLAUDE_CODE_ENABLE_TELEMETRY",

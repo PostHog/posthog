@@ -285,6 +285,14 @@ function applyGatewayAuth(
     return;
   }
 
+  // The gateway authenticates with an API key, which defaults the prompt cache
+  // to 5 minutes. A turn that waits on a build, a test run or CI lands outside
+  // that window and rewrites the whole grown context. One hour spans the wait.
+  env.CLAUDE_CODE_PROMPT_CACHE_TTL =
+    process.env.CLAUDE_CODE_PROMPT_CACHE_TTL ?? "1h";
+  env.CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL =
+    process.env.CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL ?? "1h";
+
   // Every var is load-bearing (ablation-tested): the CLI stamps the per-turn
   // traceparent only once its OTel tracer initializes, and the dead endpoint
   // keeps the throwaway spans off any local collector. Exporter and protocol
