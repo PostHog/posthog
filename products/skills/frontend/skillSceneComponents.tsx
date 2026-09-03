@@ -47,7 +47,7 @@ export function openPublishToCommunityDialog({
     LemonDialog.openForm({
         title: 'Publish to community',
         description:
-            "Publishing commits the skill's instructions and every bundled file to a public GitHub repo, then opens a pull request for a maintainer to review. The contents are public from the moment you submit, so don't include credentials or internal details.",
+            "Publishing commits the skill's instructions, every bundled file, and any template variables (their prompts and defaults) to a public GitHub repo, then opens a pull request for a maintainer to review. The contents are public from the moment you submit, so don't include credentials or internal details.",
         initialValues: {
             display_name: skillName.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
             tags: '',

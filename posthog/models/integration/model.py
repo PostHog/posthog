@@ -281,8 +281,21 @@ class Integration(models.Model):
             return self.config.get("email", self.integration_id)
         if self.kind == "apns":
             return self.config.get("bundle_id", self.integration_id)
+        if self.kind == Integration.IntegrationKind.POSTGRESQL:
+            # The derived id reads as "1-db.example.com-5432-postgres", so prefer a name the
+            # user chose. Falls back to host and user, which still beats the raw id.
+            if name := self.config.get("name"):
+                return name
+            host = self.config.get("host")
+            user = self.config.get("user")
+            return f"{user}@{host}" if user and host else f"ID: {self.integration_id}"
 
         return f"ID: {self.integration_id}"
+
+    def can_be_managed_by_creator(self, user_id: int | None) -> bool:
+        return (
+            user_id is not None and self.kind == self.IntegrationKind.GOOGLE_CALENDAR and self.created_by_id == user_id
+        )
 
     @property
     def access_token(self) -> str | None:

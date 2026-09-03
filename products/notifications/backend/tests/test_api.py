@@ -7,6 +7,7 @@ from unittest.mock import patch
 from django.core.cache import cache
 from django.utils import timezone
 
+from parameterized import parameterized
 from rest_framework.test import APIClient
 
 from posthog.models import Organization, Team, User
@@ -525,6 +526,43 @@ class TestNotificationsAPI(BaseTest):
         assert resp.json()["updated"] == 3
         for ev in (self.event, a1, a2):
             assert NotificationArchiveState.objects.filter(notification_event=ev, user=self.user).exists()
+
+    @parameterized.expand(
+        [
+            ("detail", "{base}/{id}/archive/", None),
+            ("bulk", "{base}/archive_bulk/", "notification_ids"),
+            ("all", "{base}/archive_all/", None),
+        ]
+    )
+    def test_archive_marks_notification_read(self, _name, path_template, ids_field):
+        event = self._create_notification()
+        base = f"/api/environments/{self.team.id}/notifications"
+        path = path_template.format(base=base, id=event.id)
+        payload = {ids_field: [str(event.id)]} if ids_field else None
+
+        resp = self.client.post(path, payload, format="json") if payload else self.client.post(path)
+
+        assert resp.status_code == 200
+        assert NotificationReadState.objects.filter(notification_event=event, user=self.user).exists()
+
+    def test_archived_notification_serializes_as_read(self):
+        event = self._create_notification()
+        self.client.post(f"/api/environments/{self.team.id}/notifications/{event.id}/archive/")
+
+        resp = self.client.get(f"/api/environments/{self.team.id}/notifications/?archived=true")
+
+        row = next(r for r in resp.json()["results"] if r["id"] == str(event.id))
+        assert row["read"] is True
+        assert row["read_at"] is not None
+
+    def test_archive_does_not_mark_read_for_another_user(self):
+        other_user = User.objects.create_and_join(self.organization, "archiveread@test.com", "password")
+        event = self._create_notification()
+        NotificationEvent.objects.filter(pk=event.pk).update(resolved_user_ids=[self.user.id, other_user.id])
+
+        self.client.post(f"/api/environments/{self.team.id}/notifications/{event.id}/archive/")
+
+        assert not NotificationReadState.objects.filter(notification_event=event, user=other_user).exists()
 
     def test_archive_is_per_user(self):
         other_user = User.objects.create_and_join(self.organization, "archiveother@test.com", "password")

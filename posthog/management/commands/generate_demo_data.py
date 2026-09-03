@@ -399,10 +399,7 @@ class Command(BaseCommand):
                 team=team,
                 user=user,
                 product_path=product_path,
-                defaults={
-                    "enabled": True,
-                    "reason": None,
-                },
+                defaults={"enabled": True},
             )
             if created:
                 created_count += 1

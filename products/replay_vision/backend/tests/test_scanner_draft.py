@@ -1,37 +1,48 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.utils import timezone
+
 from rest_framework import status
 
 from posthog.schema import RecordingsQuery
 
-from posthog.models import PersonalAPIKey
+from posthog.models import EventDefinition, PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.rate_limit import AIBurstRateThrottle
 
+from products.actions.backend.models.action import Action
 from products.posthog_ai.backend.models.assistant import CoreMemory
 from products.replay_vision.backend.models.replay_scanner import ScannerType
 from products.replay_vision.backend.queries.scanner_candidate_query import MIN_SAMPLING_RATE
 from products.replay_vision.backend.queries.scanner_volume_estimate import ScannerVolumeEstimate
 from products.replay_vision.backend.queries.visited_paths import VisitedPath
 from products.replay_vision.backend.scanner_draft import (
+    _MAX_BASELINE_EVENTS,
     DraftError,
     ScannerDraft,
     _build_user_content,
     _business_context,
+    _events_for_goal,
     _existing_scanners,
     _ExistingScanner,
     _finalize,
     _finalize_v2,
     _generate,
+    _goal_entity_matches,
+    _goal_terms,
     _LlmDraft,
     _LlmDraftV2,
+    _LlmEventPropertyFilter,
+    _MatchedAction,
+    _MatchedSurvey,
     _solve_budget,
     _v2_query,
     draft_scanner_from_goal_v2,
 )
 from products.replay_vision.backend.tag_suggestions import _ProductTaxonomy
 from products.replay_vision.backend.tests.test_api import _VisionAPITestCase
+from products.surveys.backend.models import Survey
 
 _GENERATE_PATH = "products.replay_vision.backend.scanner_draft._generate"
 _MODULE = "products.replay_vision.backend.scanner_draft"
@@ -41,7 +52,12 @@ _CORE_MEMORY_FLAG_PATH = "products.replay_vision.backend.scanner_draft.is_core_m
 
 def _access_control(*, allow: bool) -> MagicMock:
     ac = MagicMock()
-    ac.filter_queryset_by_access_level.side_effect = (lambda qs: qs) if allow else (lambda qs: qs.none())
+    # Callers pass `resource=` for resources that have their own access controls, so accept kwargs.
+    ac.filter_queryset_by_access_level.side_effect = (
+        (lambda qs, **kwargs: qs) if allow else (lambda qs, **kwargs: qs.none())
+    )
+    # The resource-level checks default to a truthy MagicMock, which is the "has access" path; a
+    # test that needs the denial sets them False explicitly.
     return ac
 
 
@@ -587,10 +603,141 @@ class TestDraftScannerEndpoint(_VisionAPITestCase):
         assert resp.status_code == status.HTTP_429_TOO_MANY_REQUESTS
 
 
+class TestGoalTerms:
+    def test_keeps_the_words_that_carry_intent_longest_first(self):
+        # Longest first because only the first terms are looked up, and a specific word is a better
+        # event-name lookup than a vague one.
+        assert _goal_terms("watch users who answered the Onboarding feedback survey") == [
+            "onboarding",
+            "answered",
+            "feedback",
+            "survey",
+        ]
+
+    @pytest.mark.parametrize(
+        "goal",
+        [
+            "what do users want to see",  # all stopwords
+            "who is on it",  # all below the length floor
+            "",
+        ],
+    )
+    def test_a_goal_with_no_usable_words_looks_nothing_up(self, goal):
+        # No terms means the baseline alone, not an unfiltered scan of every event name.
+        assert _goal_terms(goal) == []
+
+
+class TestEventsForGoal(_VisionAPITestCase):
+    def _event(self, name: str):
+        return EventDefinition.objects.create(team=self.team, name=name, last_seen_at=timezone.now())
+
+    def test_a_rare_event_named_in_the_goal_is_surfaced_ahead_of_the_baseline(self):
+        # The regression this exists for: a relevant event too rare to sit in any baseline. The old
+        # briefing showed a fixed recency slice, so a goal naming this event saw nothing to filter on.
+        self._event("survey sent")
+        for i in range(_MAX_BASELINE_EVENTS + 10):
+            self._event(f"filler_event_{i:03d}")
+
+        events = _events_for_goal(self.team, "watch people who answered the pricing survey")
+
+        assert "survey sent" in events
+        # Matched events lead, so the one the goal points at is not buried under the sample.
+        assert events[0] == "survey sent"
+
+    def test_internal_events_stay_excluded_even_when_the_goal_names_them(self):
+        # `$`-prefixed events are PostHog internals, not product categories, on both paths.
+        self._event("$pageview")
+
+        assert _events_for_goal(self.team, "watch the pageview funnel") == []
+
+    def test_a_goal_matching_nothing_still_returns_the_baseline(self):
+        self._event("checkout_started")
+
+        events = _events_for_goal(self.team, "understand the zzzz nonexistent flow")
+
+        assert events == ["checkout_started"]
+
+
+class TestGoalEntityMatches(_VisionAPITestCase):
+    def _survey(self, name: str):
+        return Survey.objects.create(team=self.team, name=name, created_by=self.user)
+
+    def test_a_survey_named_in_the_goal_comes_back_with_its_id(self):
+        # The filter needs the id: every survey fires the same "survey sent" event, so a name alone
+        # cannot target one.
+        survey = self._survey("Pricing feedback")
+        self._survey("Onboarding NPS")
+
+        surveys, _ = _goal_entity_matches(
+            self.team, "watch people who answered the pricing feedback survey", _access_control(allow=True)
+        )
+
+        assert [(m.name, m.survey_id) for m in surveys] == [("Pricing feedback", str(survey.id))]
+
+    def test_an_action_named_in_the_goal_comes_back_with_its_id(self):
+        # An action is the team's own curated definition of a behavior, so a goal naming one is the
+        # sharpest filter available and must come back with the id the query needs.
+        action = Action.objects.create(team=self.team, name="Completed checkout")
+
+        _, actions = _goal_entity_matches(
+            self.team, "sessions where someone completed checkout", _access_control(allow=True)
+        )
+
+        assert [(a.name, a.action_id) for a in actions] == [("Completed checkout", action.id)]
+
+    def test_an_entity_the_caller_cannot_read_is_never_named_back(self):
+        # Surveys and actions are access-controlled, so naming one back would leak its existence.
+        self._survey("Pricing feedback")
+        Action.objects.create(team=self.team, name="Pricing feedback click")
+
+        assert _goal_entity_matches(self.team, "the pricing feedback survey", _access_control(allow=False)) == ([], [])
+
+    def test_no_resource_access_returns_nothing_even_though_the_queryset_filter_would_pass_it(self):
+        # `filter_queryset_by_access_level` returns the queryset untouched when the caller has
+        # neither resource access nor object grants, and this helper has no viewset permission check
+        # behind it, so the resource check is what stops the leak.
+        self._survey("Pricing feedback")
+        denied = _access_control(allow=True)
+        denied.check_access_level_for_resource.return_value = False
+        denied.has_any_specific_access_for_resource.return_value = False
+
+        assert _goal_entity_matches(self.team, "the pricing feedback survey", denied) == ([], [])
+
+    def test_a_scoped_token_lacking_survey_read_gets_no_surveys(self):
+        # A token with scanner and recording scopes but not survey:read must not learn a survey's
+        # name or id through the draft. RBAC alone would allow it; the scope gate is what stops it.
+        self._survey("Pricing feedback")
+        Action.objects.create(team=self.team, name="Pricing feedback click")
+
+        surveys, actions = _goal_entity_matches(
+            self.team,
+            "the pricing feedback survey",
+            _access_control(allow=True),
+            allowed_scopes=["replay_scanner:write", "session_recording:read"],
+        )
+
+        assert surveys == []
+        # The action is also gated: no action:read scope either.
+        assert actions == []
+
+    def test_a_write_scope_implies_read_and_a_star_scope_grants_all(self):
+        survey = self._survey("Pricing feedback")
+
+        by_write, _ = _goal_entity_matches(
+            self.team, "the pricing feedback survey", _access_control(allow=True), allowed_scopes=["survey:write"]
+        )
+        by_star, _ = _goal_entity_matches(
+            self.team, "the pricing feedback survey", _access_control(allow=True), allowed_scopes=["*"]
+        )
+
+        assert [s.survey_id for s in by_write] == [str(survey.id)]
+        assert [s.survey_id for s in by_star] == [str(survey.id)]
+
+
 class TestV2Query:
     def test_pages_become_one_multi_value_property(self):
         # Separate properties would AND and match almost nothing: measured 68 sessions where the
-        # one-property shape matched 44,523.
+        # one-property shape matched 44,523. A page with no id is a plain regex of itself.
         query = _v2_query(["/billing", "/checkout", "/payment"], [])
 
         assert query is not None
@@ -599,7 +746,7 @@ class TestV2Query:
             "type": "recording",
             "key": "visited_page",
             "value": ["/billing", "/checkout", "/payment"],
-            "operator": "icontains",
+            "operator": "regex",
         }
         assert "events" not in query
 
@@ -621,28 +768,136 @@ class TestV2Query:
         assert query["properties"][0]["value"] == ["/billing"]
         assert query["events"][0]["id"] == "checkout_started"
 
+    def test_a_property_filter_rides_on_its_own_event_entry(self):
+        # Every survey fires the same event, so the property has to sit on that event's entry. A
+        # sibling event must not inherit it, or the filter would demand the wrong condition.
+        query = _v2_query(
+            [],
+            ["survey sent", "checkout_started"],
+            [_LlmEventPropertyFilter(event="survey sent", property="$survey_id", value="abc-123")],
+        )
+
+        assert query is not None
+        by_id = {e["id"]: e for e in query["events"]}
+        assert by_id["survey sent"]["properties"] == [
+            {"key": "$survey_id", "value": ["abc-123"], "operator": "exact", "type": "event"}
+        ]
+        assert "properties" not in by_id["checkout_started"]
+
     def test_no_pages_and_no_events_is_no_query(self):
         assert _v2_query([], []) is None
 
-    def test_collapsed_id_pages_filter_by_their_prefix(self):
-        # The grounding list says "/invoice/:id" but real URLs hold real IDs, so the literal value
-        # would match zero sessions. The prefix still matches every such URL.
+    def test_a_collapsed_id_becomes_a_wildcard(self):
+        # The grounding list says "/invoice/:id" but real URLs hold real IDs. The regex wildcards the
+        # id so it matches "/invoice/<any>" without matching a bare "/invoices-archive".
         query = _v2_query(["/invoice/:id", "/billing"], [])
 
         assert query is not None
-        assert query["properties"][0]["value"] == ["/invoice/", "/billing"]
+        assert query["properties"][0]["value"] == ["/invoice/[^/]+", "/billing"]
 
     @pytest.mark.parametrize("pathname", ["/", "/:id", "/a/:id/b"])
     def test_a_page_that_cannot_narrow_is_dropped(self, pathname):
-        # "/a/:id/b" prefixes to "/a/", two non-slash chars: icontains on it matches nearly every
+        # "/a/:id/b" has two one-character static segments: any pattern from it matches nearly every
         # URL, so it reads as a narrowing filter while narrowing nothing.
         assert _v2_query([pathname], []) is None
 
-    def test_prefix_collisions_are_deduped(self):
+    def test_an_id_prefixed_route_keeps_the_whole_path(self):
+        # When the id sits before the distinctive segment, the whole-path regex keeps
+        # "/replay-vision/scanners" instead of collapsing to the "/project/" prefix in front.
+        query = _v2_query(["/project/:id/replay-vision/scanners"], [])
+
+        assert query is not None
+        assert query["properties"][0]["value"] == ["/project/[^/]+/replay\\-vision/scanners"]
+
+    def test_a_route_with_ids_on_both_sides_wildcards_each(self):
+        # "/project/:id/replay-home/:id" is ambiguous for a substring rule, but the full-path regex
+        # keeps "replay-home" between two wildcards, so it stays specific to that page.
+        query = _v2_query(["/project/:id/replay-home/:id"], [])
+
+        assert query is not None
+        assert query["properties"][0]["value"] == ["/project/[^/]+/replay\\-home/[^/]+"]
+
+    def test_a_generic_looking_path_is_still_kept(self):
+        # "/project/:id" reads like a routing container in PostHog, but a scanner watches the
+        # customer's product, where "/project/<id>" may be a real page. So keep it as a wildcarded
+        # regex rather than assuming any team's URL shape.
+        query = _v2_query(["/project/:id"], [])
+
+        assert query is not None
+        assert query["properties"][0]["value"] == ["/project/[^/]+"]
+
+    def test_paths_that_differ_only_after_the_id_stay_distinct(self):
+        # The whole path is matched, so "/invoice/:id" and "/invoice/:id/edit" produce different
+        # regexes rather than collapsing to a shared prefix.
         query = _v2_query(["/invoice/:id", "/invoice/:id/edit"], [])
 
         assert query is not None
-        assert query["properties"][0]["value"] == ["/invoice/"]
+        assert query["properties"][0]["value"] == ["/invoice/[^/]+", "/invoice/[^/]+/edit"]
+
+
+class TestFinalizeV2PropertyFilters:
+    _SURVEY = _MatchedSurvey(name="Pricing feedback", survey_id="abc-123")
+
+    def _finalize(self, **overrides):
+        return _finalize_v2(
+            _draft_v2(filter_events=["survey sent"], **overrides),
+            allowed_pages=[],
+            allowed_events=["survey sent"],
+            team_id=1,
+            allowed_surveys=[self._SURVEY],
+        )
+
+    def test_a_grounded_survey_filter_reaches_the_query(self):
+        draft = self._finalize(
+            filter_event_properties=[
+                _LlmEventPropertyFilter(event="survey sent", property="$survey_id", value="abc-123")
+            ]
+        )
+
+        assert draft.query is not None
+        assert draft.query["events"][0]["properties"] == [
+            {"key": "$survey_id", "value": ["abc-123"], "operator": "exact", "type": "event"}
+        ]
+
+    @pytest.mark.parametrize(
+        "bad",
+        [
+            # An id the briefing never showed: it would match no session, so the scanner never runs.
+            _LlmEventPropertyFilter(event="survey sent", property="$survey_id", value="not-a-real-id"),
+            # A property the briefing never showed.
+            _LlmEventPropertyFilter(event="survey sent", property="$made_up", value="abc-123"),
+            # An event that did not survive grounding, so there is no entry to attach to.
+            _LlmEventPropertyFilter(event="never_seen_event", property="$survey_id", value="abc-123"),
+        ],
+    )
+    def test_an_ungrounded_property_filter_is_dropped(self, bad):
+        draft = self._finalize(filter_event_properties=[bad])
+
+        assert draft.query is not None
+        assert "properties" not in draft.query["events"][0]
+
+
+class TestFinalizeV2Actions:
+    _ACTION = _MatchedAction(name="Completed checkout", action_id=42)
+
+    def _finalize(self, **overrides):
+        return _finalize_v2(
+            _draft_v2(**overrides), allowed_pages=[], allowed_events=[], team_id=1, allowed_actions=[self._ACTION]
+        )
+
+    def test_a_grounded_action_name_becomes_an_action_filter_with_its_id(self):
+        draft = self._finalize(filter_actions=["Completed checkout"])
+
+        assert draft.query is not None
+        assert draft.query["actions"] == [{"id": 42, "name": "Completed checkout", "type": "actions", "order": 0}]
+
+    def test_an_invented_action_name_is_dropped(self):
+        # A name has no id to resolve to unless it came from the matched list, so it cannot invent
+        # a filter that silently matches nothing.
+        draft = self._finalize(filter_actions=["Made-up behavior"])
+
+        assert draft.query is not None
+        assert "actions" not in draft.query
 
 
 class TestFinalizeV2:

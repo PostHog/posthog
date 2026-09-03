@@ -1,6 +1,6 @@
 import asyncio
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from unittest.mock import AsyncMock, patch
@@ -892,6 +892,26 @@ class TestAdminShutdownErrorClassification:
 
         mock_capture.assert_not_called()
 
+    @pytest.mark.asyncio
+    async def test_close_does_not_report_admin_shutdown_error(self):
+        # Queue DB terminates the poll connection via an administrator command (failover,
+        # maintenance restart) while _close() tries the best-effort lease release.
+        # _close() already notes this path is best-effort; the error must not reach
+        # error tracking.
+        consumer = _make_consumer()
+        with (
+            patch.object(
+                consumer._adapter,
+                "release_all_owned",
+                new_callable=AsyncMock,
+                side_effect=psycopg.errors.AdminShutdown("terminating connection due to administrator command"),
+            ),
+            patch(f"{batch_consumer_module.__name__}.capture_exception") as mock_capture,
+        ):
+            await consumer._close()
+
+        mock_capture.assert_not_called()
+
 
 class TestStartupLiveness:
     @pytest.mark.asyncio
@@ -1383,6 +1403,60 @@ class TestPollBackoff:
 
 
 class TestFailRun:
+    MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer"
+
+    @pytest.mark.parametrize(
+        ("reason", "expect_disabled"),
+        [
+            pytest.param(
+                "Source column type changed: 'total_cost' has values that no longer fit its stored type int64",
+                True,
+                id="column_type_changed",
+            ),
+            pytest.param("Decimal value is too large to store in a Decimal128", True, id="decimal_overflow"),
+            pytest.param("Primary key required for incremental syncs", True, id="missing_primary_key"),
+            pytest.param(
+                "XMinioStorageFull: storage backend has reached its minimum free drive threshold",
+                False,
+                id="our_storage_full",
+            ),
+            pytest.param("ExternalDataSchema matching query does not exist", False, id="schema_deleted"),
+            pytest.param("ExternalDataJob matching query does not exist", False, id="job_deleted"),
+            pytest.param("max retries exceeded: the connection is closed", False, id="transient_exhausted"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_only_customer_fixable_failures_disable_the_schema(self, reason, expect_disabled):
+        consumer = _make_consumer()
+        batch = _make_batch()
+
+        with (
+            patch(f"{self.MODULE}.BatchQueue.fail_run", new_callable=AsyncMock),
+            patch(f"{self.MODULE}._update_job_status_to_failed"),
+            patch(f"{self.MODULE}._disable_schema_after_permanent_failure") as mock_disable,
+        ):
+            await consumer._fail_run(batch, reason=reason, conn=consumer._poll_conn)
+
+        assert mock_disable.called is expect_disabled
+
+    @pytest.mark.asyncio
+    async def test_disable_failure_does_not_crash_the_consumer(self):
+        consumer = _make_consumer()
+        batch = _make_batch()
+
+        with (
+            patch(f"{self.MODULE}.BatchQueue.fail_run", new_callable=AsyncMock),
+            patch(f"{self.MODULE}._update_job_status_to_failed"),
+            patch(
+                f"{self.MODULE}._disable_schema_after_permanent_failure",
+                side_effect=Exception("the connection is closed"),
+            ),
+            patch(f"{self.MODULE}.capture_exception") as mock_capture,
+        ):
+            await consumer._fail_run(batch, reason="Source column type changed: 'x'", conn=consumer._poll_conn)
+
+        mock_capture.assert_called_once()
+
     @pytest.mark.asyncio
     async def test_does_not_raise_when_job_status_update_fails(self):
         # A dropped app-DB connection while marking the job Failed must not propagate out of _fail_run.
@@ -1404,6 +1478,34 @@ class TestFailRun:
             )
 
         mock_fail_run.assert_called_once()  # queue batches still marked failed
+
+    @pytest.mark.asyncio
+    async def test_aborting_destinations_gets_a_parsed_export_signal(self):
+        # `to_export_signal()` returns a dict. Handing that straight to the abort path made every
+        # field access raise, so a destination that failed reported an AttributeError instead of
+        # the real error, and its scratch tables were never dropped.
+        consumer = _make_consumer()
+        batch = _make_batch(destination_ids=["11111111-1111-1111-1111-111111111111"])
+        seen: list[Any] = []
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.fail_run",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer._update_job_status_to_failed",
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.delivery.abort_destinations",
+                side_effect=lambda signal: seen.append(signal),
+            ),
+        ):
+            await consumer._fail_run(batch, reason="boom", conn=consumer._poll_conn)
+
+        assert len(seen) == 1
+        assert seen[0].destination_ids == ["11111111-1111-1111-1111-111111111111"]
+        assert seen[0].team_id == 1
 
     @pytest.mark.asyncio
     async def test_attempts_job_status_update_even_when_queue_update_fails(self):
@@ -2020,6 +2122,53 @@ class TestReconcileFailedRuns:
             await consumer._reconcile_failed_runs()
 
         mock_capture.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "conn_closed,expect_capture",
+        [(True, False), (False, True)],
+        ids=["closed_conn_suppresses_capture", "open_conn_still_captured"],
+    )
+    @pytest.mark.asyncio
+    async def test_stranded_sweep_closed_connection_not_captured(self, conn_closed, expect_capture):
+        # A psycopg.OperationalError from a closed connection is a transient network
+        # drop — the engine reconnects on the next cycle. Only a real unexpected error
+        # (conn still open) should reach error tracking.
+        consumer = _make_consumer()
+        # consumer._recovery_conn starts healthy so _ensure_recovery_conn returns it
+        # without reconnecting. The side-effect below simulates the connection closing
+        # mid-sweep (as it does in practice when a network blip hits an active query).
+
+        async def raise_with_maybe_closed_conn(*args: object, **kwargs: object) -> None:
+            if conn_closed:
+                cast(Any, consumer._recovery_conn).closed = True
+            raise psycopg.OperationalError("the connection is closed")
+
+        with (
+            patch(
+                f"{consumer_module.__name__}.BatchQueue.get_oldest_unclaimed_batch_age_seconds",
+                new_callable=AsyncMock,
+                return_value=0.0,
+            ),
+            patch(
+                f"{consumer_module.__name__}.BatchQueue.get_claimable_batch_count",
+                new_callable=AsyncMock,
+                return_value=0,
+            ),
+            patch(
+                f"{consumer_module.__name__}.BatchQueue.get_failed_runs",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+            patch(
+                f"{consumer_module.__name__}.BatchQueue.get_stale_stranded_runs",
+                new_callable=AsyncMock,
+                side_effect=raise_with_maybe_closed_conn,
+            ),
+            patch(f"{consumer_module.__name__}.capture_exception") as mock_capture,
+        ):
+            await consumer._reconcile_failed_runs()
+
+        assert mock_capture.called is expect_capture
 
 
 class TestConnectionRecovery:

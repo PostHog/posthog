@@ -16,8 +16,7 @@ import { PersonHogConfig } from '~/common/personhog'
 import { PersonHogClientComponent } from '~/common/personhog/personhog-client-component'
 import { PersonHogGroupReadRepository } from '~/common/personhog/personhog-group-read-repository'
 import { PersonHogPersonReadRepository } from '~/common/personhog/personhog-person-read-repository'
-import { UsageIngestionConfig, createUsageIngestionClient, usageReportTeamMatcher } from '~/common/usage-ingestion'
-import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
+import { UsageIngestionConfig, createEventUsageBatchFactory } from '~/common/usage-ingestion'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import { EventIngestionRestrictionManagerComponent } from '~/common/utils/event-ingestion-restrictions'
 import { EventSchemaEnforcementManager } from '~/common/utils/event-schema-enforcement-manager'
@@ -171,8 +170,7 @@ export function createAiConsumer(config: AiConsumerConfig, sharedScope: AiShared
             `AI_BLOB_OFFLOAD_UPLOAD_MAX_CONCURRENCY must be a positive integer, got ${uploadMaxConcurrency}`
         )
     }
-    const usageClient = createUsageIngestionClient(config, 'ai_events')
-    const usageTeamMatcher = usageReportTeamMatcher(config)
+    const createEventUsageBatch = createEventUsageBatchFactory(config, 'ai_events')
 
     const aiBlobOffloadConfig = {
         isTeamEnabled: buildIntegerMatcher(config.AI_BLOB_OFFLOAD_TEAMS, true),
@@ -209,8 +207,7 @@ export function createAiConsumer(config: AiConsumerConfig, sharedScope: AiShared
             topHog: container.topHog,
             aiBlobStore: container.aiBlobStore.store,
             aiBlobOffloadConfig,
-            createEventUsageBatch: () =>
-                new UsageRecordBatch(usageClient, { unit: 'events', isTeamEnabled: usageTeamMatcher }),
+            createEventUsageBatch,
         })
     )
 }

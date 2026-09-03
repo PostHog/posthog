@@ -1,7 +1,9 @@
+from datetime import timedelta
 from typing import Optional
 
 from django.conf import settings
 from django.db import models
+from django.db.models import Q
 
 import structlog
 
@@ -20,6 +22,19 @@ class ObjectStorageUnavailable(Exception):
     pass
 
 
+# Libraries an image can be added to. The column stays free-text so adding a consumer is one
+# line here, but the API accepts nothing outside this set: a typo would otherwise open a
+# second library that nothing lists, and give the caller no sign that it had.
+MEDIA_PURPOSE_EMAIL = "email"
+MEDIA_PURPOSE_CANVAS = "canvas"
+MEDIA_PURPOSES = [MEDIA_PURPOSE_EMAIL, MEDIA_PURPOSE_CANVAS]
+
+# A pending row older than this is abandoned: the presigned URL it was created for expires in
+# minutes, so nothing can complete it, and nothing else revisits it. Generous because the only
+# cost of waiting is one unlisted row and its staged bytes.
+ABANDONED_UPLOAD_AGE = timedelta(hours=24)
+
+
 class UploadedMedia(UUIDTModel, RootTeamMixin):
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
     project = models.ForeignKey("Project", on_delete=models.CASCADE, null=True, blank=True)
@@ -32,8 +47,55 @@ class UploadedMedia(UUIDTModel, RootTeamMixin):
     content_type = models.TextField(null=True, blank=True, max_length=100)
     file_name = models.TextField(null=True, blank=True, max_length=1000)
 
+    # Library membership. NULL means this row predates the media library (or was
+    # uploaded for a use that isn't a library, e.g. a dashboard text card) and stays
+    # invisible to library listing. A consumer sets this to its own tag (e.g. "email").
+    purpose = models.CharField(null=True, blank=True, max_length=100)
+    size_bytes = models.IntegerField(null=True, blank=True)
+    # True from presigned upload start until the uploaded object is verified. A pending
+    # row's bytes are unvetted, so it is never listed and never served.
+    pending = models.BooleanField(default=False)
+
+    class Meta:
+        indexes = [
+            # Serves the library list query: WHERE team_id = ? AND purpose = ? AND NOT pending
+            # ORDER BY created_at DESC. Excludes the vast majority of rows (dashboard images,
+            # toolbar screenshots, ...) that carry no purpose and are never listed.
+            models.Index(
+                fields=["team", "purpose", "-created_at"],
+                name="uploadedmedia_lib_by_created",
+                condition=Q(purpose__isnull=False, pending=False),
+            ),
+        ]
+
     def get_absolute_url(self) -> str:
         return absolute_uri(f"/uploaded_media/{self.id}")
+
+    @staticmethod
+    def build_media_location(team_id: int, media_id) -> str:
+        return "/".join(
+            [
+                settings.OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER,
+                f"team-{team_id}",
+                f"media-{media_id}",
+            ]
+        )
+
+    @staticmethod
+    def build_staging_location(team_id: int, media_id) -> str:
+        """The only key a presigned upload POST is ever signed for.
+
+        That signature stays valid until it expires, and Django can't revoke it early, so
+        anyone still holding the form can rewrite whatever it points at. Verified bytes
+        therefore move to `build_media_location`, a key no caller was ever signed for."""
+        return "/".join(
+            [
+                settings.OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER,
+                f"team-{team_id}",
+                "staging",
+                str(media_id),
+            ]
+        )
 
     @classmethod
     def save_content(
@@ -74,12 +136,7 @@ class UploadedMedia(UUIDTModel, RootTeamMixin):
 
 
 def save_content_to_object_storage(uploaded_media: UploadedMedia, content: bytes) -> None:
-    path_parts: list[str] = [
-        settings.OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER,
-        f"team-{uploaded_media.team.pk}",
-        f"media-{uploaded_media.pk}",
-    ]
-    object_path = "/".join(path_parts)
+    object_path = UploadedMedia.build_media_location(uploaded_media.team.pk, uploaded_media.pk)
     object_storage.write(object_path, content)
     uploaded_media.media_location = object_path
     uploaded_media.save(update_fields=["media_location"])

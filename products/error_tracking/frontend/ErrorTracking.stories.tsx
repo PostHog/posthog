@@ -1,6 +1,6 @@
 import { MOCK_DEFAULT_BASIC_USER, MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
-import { Meta, StoryObj } from '@storybook/react'
+import { Decorator, Meta, StoryObj } from '@storybook/react'
 import { useActions } from 'kea'
 import { useLayoutEffect, useState } from 'react'
 
@@ -725,13 +725,14 @@ function IngestionWarningStory(): JSX.Element | null {
     return ready ? <App /> : null
 }
 
-// No exceptions ingested yet, but autocapture enabled — the ingestion warning banner
-// renders above the issue list without the sticky filters bar overlapping it
+// A banner renders above the issue list without the sticky filters bar overlapping it.
+// Issues have to exist, or the scene's setup empty state takes over and there is no list
+// to lay the banner out against.
 export const ListPageWithIngestionWarning: Story = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/environments/:team_id/error_tracking/issues/exists/': () => [200, { exists: false }],
+                '/api/environments/:team_id/error_tracking/issues/exists/': () => [200, { exists: true }],
             },
         }),
     ],
@@ -940,6 +941,28 @@ export const GroupPageLoading: Story = {
     ],
 }
 
+function selfDrivingReportsDecorator(count: number): Decorator {
+    return mswDecorator({
+        get: {
+            '/api/projects/:team_id/signals/reports/': () => [
+                200,
+                {
+                    next: null,
+                    results: Array.from({ length: count }, (_, index) => ({
+                        id: `019f9582-93e7-77c1-8912-4f541d70cb${String(index).padStart(2, '0')}`,
+                        status: index % 2 === 0 ? 'ready' : 'resolved',
+                        title: `fix(replay): guard against a missing snapshot index (${index + 1})`,
+                        summary: 'The player throws when a recording ends on a snapshot the index never received.',
+                        implementation_pr_url: `https://github.com/PostHog/posthog/pull/${64772 + index}`,
+                        implementation_pr_merged: index % 2 === 1,
+                        updated_at: '2024-07-08T21:00:00Z',
+                    })),
+                },
+            ],
+        },
+    })
+}
+
 // Self-driving investigated this issue, so its section renders in the right pane above the exception
 // card. This is the only coverage of the placement: the section's own story fabricates a pane around
 // it, so it cannot show that the two header strips line up, that the section paints the background the
@@ -983,4 +1006,15 @@ export const GroupPageWithSelfDriving: Story = {
             },
         }),
     ],
+}
+
+// An issue the agent looked at many times. The section stops at half the pane and scrolls, so the
+// exception card and its stack trace stay on screen.
+export const GroupPageWithManySelfDrivingReports: Story = {
+    name: 'Issue scene with many self-driving reports',
+    parameters: {
+        pageUrl: urls.errorTrackingIssue(ISSUE_ID),
+        testOptions: { waitForLoadersToDisappear: false },
+    },
+    decorators: [selfDrivingReportsDecorator(12)],
 }

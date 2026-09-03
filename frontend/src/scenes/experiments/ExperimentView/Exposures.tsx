@@ -17,7 +17,8 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { ExperimentExposureCriteria, ExperimentExposureQueryResponse } from '~/queries/schema/schema-general'
 
-import { EXPERIMENT_VARIANT_MULTIPLE } from '../constants'
+import { EXPERIMENT_VARIANT_MULTIPLE } from 'products/experiments/frontend/constants'
+
 import { experimentLogic } from '../experimentLogic'
 import { getActivationConfig, isDefaultExposureConfig } from '../exposureContract'
 import { filterLowMultipleVariant, getExposureConfigDisplayName, resolveMultipleVariantHandling } from '../utils'

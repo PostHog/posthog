@@ -35,7 +35,7 @@ class TestPostSlackUpdate(TestCase):
         self._footer_patcher.start()
         self.addCleanup(self._footer_patcher.stop)
         # The gate is patched on the class so it answers without a Slack identity lookup;
-        # the deny-path test flips it to prove the url really hangs off this answer.
+        # the deny-path test flips it to prove the web url does not hang off this answer.
         self._access_patcher = patch.object(SlackThreadHandler, "viewer_can_open_code_links", return_value=True)
         self._access_patcher.start()
         self.addCleanup(self._access_patcher.stop)
@@ -577,7 +577,7 @@ class TestPostSlackUpdate(TestCase):
     @patch.object(SlackThreadHandler, "post_pr_opened")
     @patch.object(SlackThreadHandler, "update_reaction")
     @patch("products.tasks.backend.models.TaskRun")
-    def test_user_without_posthog_code_access_omits_task_url(
+    def test_user_without_posthog_code_access_still_gets_task_url(
         self,
         mock_task_run_class,
         _mock_update_reaction,
@@ -587,9 +587,9 @@ class TestPostSlackUpdate(TestCase):
         mock_post_progress,
         mock_post_completion,
     ):
-        # When the task creator is not a PostHog Desktop user, every handler call
-        # (including the progress handler) receives ``task_url=None`` so the
-        # web buttons are skipped.
+        # The web task link is never withheld — the task page enforces access
+        # itself — so every handler call (including the progress handler)
+        # receives the task url even when the reader fails the access check.
         self._access_patcher.stop()
         deny_patcher = patch.object(SlackThreadHandler, "viewer_can_open_code_links", return_value=False)
         deny_patcher.start()
@@ -629,13 +629,13 @@ class TestPostSlackUpdate(TestCase):
             handler_mock.assert_called_once()
             # ``task_url`` is the second positional argument on ``post_pr_opened``
             # and the trailing positional argument on every other handler — the
-            # contract is "no access ⇒ this argument is ``None``".
+            # contract is "no access ⇒ the web link still flows through".
             task_url_arg = (
                 handler_mock.call_args.args[1]
                 if handler_mock is mock_post_pr_opened
                 else handler_mock.call_args.args[-1]
             )
-            assert task_url_arg is None
+            assert task_url_arg == "http://localhost:8000/project/1/tasks/10?runId=run-1"
 
         mock_post_pr_opened.reset_mock()
         cleaned_with_pr = self._make_mock_run(
@@ -653,7 +653,7 @@ class TestPostSlackUpdate(TestCase):
         )
         mock_post_pr_opened.assert_called_once()
         # task_url is the second positional argument on post_pr_opened.
-        assert mock_post_pr_opened.call_args.args[1] is None
+        assert mock_post_pr_opened.call_args.args[1] == "http://localhost:8000/project/1/tasks/10?runId=run-1"
 
     @patch.object(SlackThreadHandler, "post_pr_opened")
     @patch.object(SlackThreadHandler, "update_reaction")

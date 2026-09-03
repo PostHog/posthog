@@ -107,6 +107,17 @@ class TestBuildInitialResearchPrompt:
         prompt = build_initial_research_prompt(signal, 1)
         assert "## Previously resolved report" not in prompt
 
+    # The steering section is what carries a reviewer's dismissal reason into the stage that judges
+    # whether to surface the topic again. A team that left no notes renders nothing, so a quiet
+    # project pays no tokens for a heading with nothing under it.
+    @pytest.mark.parametrize("steering_section", ["", "## Steering from this team\n\n- 2026-08-27: frozen"])
+    def test_steering_section_rendered_verbatim_only_when_present(self, steering_section):
+        signal = _make_signal({})
+        prompt = build_initial_research_prompt(signal, 1, steering_section=steering_section)
+        assert ("## Steering from this team" in prompt) == bool(steering_section)
+        if steering_section:
+            assert steering_section in prompt
+
     @pytest.mark.parametrize("has_previous_finding", [False, True])
     def test_uses_stable_finding_response_envelope(self, has_previous_finding):
         signal = _make_signal({})

@@ -11,7 +11,7 @@ import * as zod from 'zod'
 /**
  * List all reverse proxies configured for the organization. Returns proxy records along with the maximum number allowed by the current plan.
  */
-export const ProxyRecordsListParams = /* @__PURE__ */ zod.object({
+export const ProxyRecordsListParams = () => zod.object({
     organization_id: zod
         .string()
         .describe(
@@ -22,7 +22,7 @@ export const ProxyRecordsListParams = /* @__PURE__ */ zod.object({
 /**
  * Create a new managed reverse proxy. Provide the domain you want to proxy through. The response includes the CNAME target you need to add as a DNS record. Once the CNAME is configured, the proxy will be automatically verified and provisioned.
  */
-export const ProxyRecordsCreateParams = /* @__PURE__ */ zod.object({
+export const ProxyRecordsCreateParams = () => zod.object({
     organization_id: zod
         .string()
         .describe(
@@ -30,7 +30,7 @@ export const ProxyRecordsCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const ProxyRecordsCreateBody = /* @__PURE__ */ zod.object({
+export const ProxyRecordsCreateBody = () => zod.object({
     domain: zod
         .string()
         .describe("The custom domain to proxy through, e.g. 'e.example.com'. Must be a valid subdomain you control."),
@@ -39,7 +39,7 @@ export const ProxyRecordsCreateBody = /* @__PURE__ */ zod.object({
 /**
  * Get details of a specific reverse proxy by ID. Returns the full configuration including domain, CNAME target, and current provisioning status.
  */
-export const ProxyRecordsRetrieveParams = /* @__PURE__ */ zod.object({
+export const ProxyRecordsRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this proxy record.'),
     organization_id: zod
         .string()
@@ -51,7 +51,7 @@ export const ProxyRecordsRetrieveParams = /* @__PURE__ */ zod.object({
 /**
  * Delete a reverse proxy. For proxies in 'waiting', 'erroring', or 'timed_out' status, the record is deleted immediately. For active proxies, a deletion workflow is started to clean up the provisioned infrastructure.
  */
-export const ProxyRecordsDestroyParams = /* @__PURE__ */ zod.object({
+export const ProxyRecordsDestroyParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this proxy record.'),
     organization_id: zod
         .string()
@@ -63,7 +63,7 @@ export const ProxyRecordsDestroyParams = /* @__PURE__ */ zod.object({
 /**
  * Run a deep diagnostic on a reverse proxy. Inspects DNS CNAME alignment, the certificate provider's hostname state, CAA records walked up the customer's DNS tree, HTTP-01 challenge reachability, a live event probe, and certificate expiry. Returns a structured report with each check's status and concrete remediation steps (e.g. exact DNS records to add). Use this to debug why a proxy is stuck or erroring.
  */
-export const ProxyRecordsDiagnoseCreateParams = /* @__PURE__ */ zod.object({
+export const ProxyRecordsDiagnoseCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this proxy record.'),
     organization_id: zod
         .string()
@@ -75,7 +75,7 @@ export const ProxyRecordsDiagnoseCreateParams = /* @__PURE__ */ zod.object({
 /**
  * Retry provisioning a failed reverse proxy. Only available for proxies in 'erroring' or 'timed_out' status. Resets the proxy to 'waiting' status and restarts the provisioning workflow.
  */
-export const ProxyRecordsRetryCreateParams = /* @__PURE__ */ zod.object({
+export const ProxyRecordsRetryCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this proxy record.'),
     organization_id: zod
         .string()

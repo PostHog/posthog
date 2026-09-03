@@ -8,14 +8,16 @@ from django.db import transaction
 from django.utils import timezone
 
 from ..db import WRITER_DB
-from ..facade.enums import ReviewState, SnapshotResult, ToleratedReason
+from ..facade.enums import INTENTIONAL_TOLERATE_REASONS, ActorType, ReviewState, SnapshotResult, ToleratedReason
 from ..models import Run, RunSnapshot, ToleratedHash
 from . import errors, run_queries
 
 
 @transaction.atomic(using=WRITER_DB)
-def mark_snapshot_as_tolerated(run_id: UUID, snapshot_id: UUID, user_id: int, team_id: int) -> RunSnapshot:
-    """Mark a changed snapshot as a known tolerated alternate (human decision).
+def mark_snapshot_as_tolerated(
+    run_id: UUID, snapshot_id: UUID, user_id: int, team_id: int, actor: ActorType = ActorType.HUMAN
+) -> RunSnapshot:
+    """Mark a changed snapshot as a known tolerated alternate (a reviewer's decision).
 
     Creates a ToleratedHash entry tied to the current baseline, reclassifies the
     snapshot as UNCHANGED, and recalculates run summary counts.
@@ -35,19 +37,31 @@ def mark_snapshot_as_tolerated(run_id: UUID, snapshot_id: UUID, user_id: int, te
     # Explicit team_id in the lookup (not just defaults) so the IDOR audit
     # rule sees the scope; ProductTeamManager also auto-filters by canonical
     # team — both belt and suspenders.
-    tolerated, _ = ToleratedHash.objects.get_or_create(
+    tolerated, created = ToleratedHash.objects.get_or_create(
         team_id=team_id,
         repo_id=run.repo_id,
         identifier=snapshot.identifier,
         baseline_hash=snapshot.baseline_hash,
         alternate_hash=snapshot.current_hash,
         defaults={
-            "reason": ToleratedReason.HUMAN,
+            "reason": ToleratedReason.AGENT if actor == ActorType.AGENT else ToleratedReason.HUMAN,
             "source_run": run,
             "created_by_id": user_id,
             "diff_percentage": snapshot.diff_percentage,
         },
     )
+
+    # `complete_run` reads only rows whose expires_at is null or in the future, so an
+    # expired row left alone makes this call a silent no-op: it reports success and the
+    # next run flags the snapshot again. Revive it, and change nothing else. The row is
+    # shared by every snapshot that matched this hash pair, and `reason` and `created_at`
+    # describe runs that already happened: `flakiness._SOFT` counts a soft match only
+    # while the row still says auto_threshold, and the baseline overview buckets a
+    # toleration by its created_at. Rewriting either would edit that history. Today's
+    # decision is recorded per snapshot below, which is where it belongs.
+    if not created and tolerated.expires_at is not None:
+        tolerated.expires_at = None
+        tolerated.save(update_fields=["expires_at"])
 
     # result stays CHANGED — it's the technical truth (hashes differ).
     # review_state captures the human decision to tolerate.
@@ -57,10 +71,14 @@ def mark_snapshot_as_tolerated(run_id: UUID, snapshot_id: UUID, user_id: int, te
     snapshot.tolerated_hash_match = tolerated
     snapshot.save(update_fields=["review_state", "reviewed_at", "reviewed_by_id", "tolerated_hash_match"])
 
-    # Update tolerated_match_count (only human-tolerated, not auto-threshold)
+    # Update tolerated_match_count (only decided tolerations, not auto-threshold)
     tolerated_count = (
         RunSnapshot.objects.using(WRITER_DB)
-        .filter(run=run, tolerated_hash_match__isnull=False, tolerated_hash_match__reason=ToleratedReason.HUMAN)
+        .filter(
+            run=run,
+            tolerated_hash_match__isnull=False,
+            tolerated_hash_match__reason__in=INTENTIONAL_TOLERATE_REASONS,
+        )
         .count()
     )
     Run.objects.using(WRITER_DB).filter(id=run.id).update(tolerated_match_count=tolerated_count)

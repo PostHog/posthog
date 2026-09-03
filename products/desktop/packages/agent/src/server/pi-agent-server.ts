@@ -31,11 +31,17 @@ import {
 import { piRpcCommandSchema, type RpcCommand } from "../pi/rpc-transport";
 import { PiRuntime } from "../pi/runtime";
 import type { TaskContext } from "../pi/task-system-prompt";
+import {
+  type PiExtensionEvent,
+  piExtensionUIResponseSchema,
+  type RpcExtensionUIResponse,
+} from "../pi/types";
 import { PostHogAPIClient } from "../posthog-api";
 import { resolveLlmGatewayUrl } from "../utils/gateway";
 import { Logger } from "../utils/logger";
 import { TaskRunEventStreamSender } from "./event-stream-sender";
 import { type JwtPayload, JwtValidationError, validateJwt } from "./jwt";
+import { createRtkSavingsNotification } from "./rtk-savings";
 import { jsonRpcRequestSchema } from "./schemas";
 import type { AgentServerConfig } from "./types";
 
@@ -136,6 +142,7 @@ export class PiAgentServer {
     string,
     McpToolPermissionRequest
   >();
+  private rtkSavingsAttempted = false;
 
   constructor(private readonly config: AgentServerConfig) {
     this.posthogAPI = new PostHogAPIClient({
@@ -247,6 +254,7 @@ export class PiAgentServer {
     await this.flushConversationLog().catch((error) =>
       this.logger.error("Failed to persist Pi events during shutdown", error),
     );
+    await this.emitRtkSavings();
     await this.eventStreamSender?.stop();
     this.server?.close();
     this.server = null;
@@ -287,7 +295,31 @@ export class PiAgentServer {
           updateError,
         ),
       );
+    await this.emitRtkSavings();
     await this.eventStreamSender?.stop();
+  }
+
+  private async emitRtkSavings(): Promise<void> {
+    if (!this.eventStreamSender || this.rtkSavingsAttempted) {
+      return;
+    }
+    this.rtkSavingsAttempted = true;
+
+    try {
+      const notification = await createRtkSavingsNotification({
+        taskId: this.config.taskId,
+        runId: this.config.runId,
+        teamId: this.config.projectId,
+        runtimeAdapter: "pi",
+        model: this.config.model,
+        resolveSavings: this.config.resolveRtkSavings,
+      });
+      if (notification) {
+        this.eventStreamSender.enqueue(notification);
+      }
+    } catch (error) {
+      this.logger.debug("Failed to emit rtk savings", { error });
+    }
   }
 
   private createApp(): Hono {
@@ -299,6 +331,10 @@ export class PiAgentServer {
         hasSession: this.session !== null,
         bootMs: this.sessionReadyBootMs,
         sessionInitMs: this.sessionInitMs,
+        boot: {
+          totalMs: this.sessionReadyBootMs,
+          launcherToProcessMs: this.config.launcherToProcessMs,
+        },
       }),
     );
 
@@ -555,12 +591,17 @@ export class PiAgentServer {
       typeof this.config.claudeCode?.systemPrompt === "string"
         ? this.config.claudeCode.systemPrompt
         : this.config.claudeCode?.systemPrompt?.append;
+    // A repo-less run gets the tools to discover and clone a repository, and the
+    // channel prompt that names them. Derive both from one condition so the tools
+    // and the prompt that describes them can never disagree.
+    const channelMode = !this.config.repositoryPath;
     const taskContext: TaskContext = {
       projectId: this.config.projectId,
       apiHost: this.config.apiUrl,
       taskId: this.config.taskId,
       cwd,
       environment: "cloud",
+      channelMode,
       additionalInstructions: configuredSystemPrompt,
     };
     const attributionHeaders = buildPosthogPropertyHeaderRecord({
@@ -585,7 +626,7 @@ export class PiAgentServer {
     });
 
     const extensions: PiRuntimeExtension[] = ["context-wiki"];
-    if (!this.config.repositoryPath) {
+    if (channelMode) {
       extensions.push("repository-tools");
     }
     if (this.config.autoPublish === true && this.config.createPr !== false) {
@@ -627,6 +668,9 @@ export class PiAgentServer {
           });
       }
     });
+    const unsubscribeExtensions = runtime.onExtensionEvent((event) =>
+      this.handleExtensionEvent(event),
+    );
     const unsubscribeMcpPermissions = client.onMcpToolPermissionRequest(
       (request) => this.handleMcpToolPermissionRequest(request),
     );
@@ -644,6 +688,7 @@ export class PiAgentServer {
     const unsubscribe = () => {
       unsubscribeConversation();
       unsubscribeRuntime();
+      unsubscribeExtensions();
       unsubscribeMcpPermissions();
     };
 
@@ -674,6 +719,22 @@ export class PiAgentServer {
         this.logger.error("Failed to persist Pi queue state", error),
       );
     }
+  }
+
+  private handleExtensionEvent(event: PiExtensionEvent): void {
+    this.broadcast({ ...event });
+  }
+
+  private async respondExtensionUI(
+    response: RpcExtensionUIResponse,
+  ): Promise<{ resolved: true }> {
+    const runtime = this.session?.runtime;
+    if (!runtime) {
+      throw new Error("No active Pi runtime");
+    }
+    await runtime.client.respondToExtensionUI(response);
+    this.broadcast({ ...response });
+    return { resolved: true };
   }
 
   private handleMcpToolPermissionRequest(
@@ -757,6 +818,10 @@ export class PiAgentServer {
             response.requestId,
             response.decision,
           );
+        }
+        if ((command as { type?: unknown }).type === "extension_ui_response") {
+          const response = piExtensionUIResponseSchema.parse(command);
+          return this.respondExtensionUI(response);
         }
         return runtime.sendCommand(command);
       }
@@ -846,7 +911,7 @@ export class PiAgentServer {
     id: string,
     steer: boolean,
   ): Promise<unknown> {
-    const send = (type: "prompt" | "follow_up") =>
+    const send = (type: "prompt" | "follow_up" | "steer") =>
       runtime.sendCommand({ id, type, message: content, images });
     const state = await runtime.client.getState();
     if (!state.isStreaming) {
@@ -855,13 +920,15 @@ export class PiAgentServer {
     if (!steer) {
       return send("follow_up");
     }
-    await runtime.client.abort();
-    const prompted = await send("prompt");
-    if (prompted.success) {
-      return prompted;
+    const steered = await send("steer");
+    if (steered.success) {
+      return { ...steered, steered: true };
     }
-    const afterPrompt = await runtime.client.getState();
-    return afterPrompt.isStreaming ? send("follow_up") : prompted;
+    const afterSteer = await runtime.client.getState();
+    if (afterSteer.isStreaming) {
+      return send("follow_up");
+    }
+    return { ...steered, steered: false, reason: "pi_delivery_failed" };
   }
 
   private installSseController(sseController: SseController | null): void {
@@ -925,17 +992,35 @@ export class PiAgentServer {
   }
 
   private broadcast(event: Record<string, unknown>): void {
-    if (event.type === "pi_event" || event.type === "pi_run_started") {
-      const logEntry: StoredLogEntry = {
-        id: typeof event.id === "string" ? event.id : undefined,
-        type: event.type,
-        timestamp:
-          typeof event.timestamp === "string" ? event.timestamp : undefined,
-        event:
-          event.type === "pi_event"
-            ? (event.event as AgentConversationEvent)
-            : undefined,
-      };
+    const isConversationEvent =
+      event.type === "pi_event" || event.type === "pi_run_started";
+    const isExtensionMessage =
+      event.type === "extension_ui_request" ||
+      event.type === "extension_ui_response";
+    if (isConversationEvent || isExtensionMessage) {
+      const logEntry: StoredLogEntry = isExtensionMessage
+        ? {
+            id: typeof event.id === "string" ? event.id : undefined,
+            type: "pi_extension_event",
+            timestamp:
+              typeof event.timestamp === "string"
+                ? event.timestamp
+                : new Date().toISOString(),
+            notification: {
+              method: "_posthog/pi_extension_event",
+              params: event,
+            },
+          }
+        : {
+            id: typeof event.id === "string" ? event.id : undefined,
+            type: String(event.type),
+            timestamp:
+              typeof event.timestamp === "string" ? event.timestamp : undefined,
+            event:
+              event.type === "pi_event"
+                ? (event.event as AgentConversationEvent)
+                : undefined,
+          };
       const toolCallId = updatedToolCallId(logEntry.event);
       const pendingLogIndex = toolCallId
         ? this.pendingLogEntries.findLastIndex(
@@ -959,6 +1044,7 @@ export class PiAgentServer {
       }
       if (
         event.type === "pi_run_started" ||
+        isExtensionMessage ||
         this.pendingLogEntries.length >= LOG_FLUSH_ENTRY_COUNT ||
         (event.event as { type?: string } | undefined)?.type ===
           "turn_completed"

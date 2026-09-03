@@ -7,6 +7,9 @@ const ONBOARDING_BRIEF_REGEX =
 
 export const ONBOARDING_BRIEF_LABEL = "Getting started with PostHog Desktop";
 
+export const ONBOARDING_BRIEF_TOOLTIP =
+  "The agent is looking over your project to help set up the PostHog Desktop experience.";
+
 export function extractOnboardingBrief(
   content: string,
 ): { stripped: string } | null {

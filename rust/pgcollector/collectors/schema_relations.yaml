@@ -1,0 +1,33 @@
+name: schema_relations
+description: >
+  Tables, partitioned tables, views and materialized views with their columns
+  (as JSON) and storage options. Snapshot: changes become schema_relations_*
+  events with before/after (column added, type changed, table dropped ...).
+interval: 1h
+scope: database
+kind: snapshot
+prefers_reader: true
+key: [schemaname, relname]
+query: |
+  SELECT n.nspname AS schemaname, c.relname, c.oid::bigint AS oid, c.relkind::text AS relkind,
+         c.relpersistence::text AS persistence,
+         pg_get_userbyid(c.relowner) AS owner,
+         c.relhasindex AS has_index, c.relispartition AS is_partition,
+         (SELECT pn.nspname || '.' || pc.relname FROM pg_inherits i JOIN pg_class pc ON pc.oid = i.inhparent JOIN pg_namespace pn ON pn.oid = pc.relnamespace WHERE i.inhrelid = c.oid LIMIT 1) AS parent,
+         CASE WHEN c.relkind = 'p' THEN pg_get_partkeydef(c.oid) END AS partition_key,
+         CASE WHEN c.relispartition THEN pg_get_expr(c.relpartbound, c.oid) END AS partition_bound,
+         array_to_string(c.reloptions, ',') AS reloptions,
+         (SELECT count(*) FROM pg_attribute a WHERE a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped)::bigint AS n_columns,
+         (SELECT jsonb_agg(jsonb_build_object(
+                    'name', a.attname, 'type', format_type(a.atttypid, a.atttypmod),
+                    'notnull', a.attnotnull, 'default', pg_get_expr(d.adbin, d.adrelid),
+                    'identity', a.attidentity, 'generated', a.attgenerated)
+                  ORDER BY a.attnum)
+            FROM pg_attribute a LEFT JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
+            WHERE a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped) AS columns,
+         CASE WHEN c.relkind IN ('v', 'm') THEN pg_get_viewdef(c.oid, true) END AS view_definition
+  FROM pg_class c
+  JOIN pg_namespace n ON n.oid = c.relnamespace
+  WHERE c.relkind IN ('r', 'p', 'v', 'm')
+    AND n.nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast')
+    AND n.nspname NOT LIKE 'pg_temp%'

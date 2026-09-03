@@ -1,3 +1,5 @@
+import time
+
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -42,37 +44,37 @@ class TestTeamCacheSizeTracker(BaseTest):
     def test_track_cache_write_increments_total(self):
         self.assertEqual(self.tracker.get_total_size(), 0)
 
-        self.tracker.track_cache_write("test_key_1", 1000)
+        self.tracker.track_cache_write("test_key_1", 1000, 300)
         self.assertEqual(self.tracker.get_total_size(), 1000)
 
-        self.tracker.track_cache_write("test_key_2", 500)
+        self.tracker.track_cache_write("test_key_2", 500, 300)
         self.assertEqual(self.tracker.get_total_size(), 1500)
 
     def test_track_cache_write_handles_overwrite(self):
-        self.tracker.track_cache_write("test_key_1", 1000)
+        self.tracker.track_cache_write("test_key_1", 1000, 300)
         self.assertEqual(self.tracker.get_total_size(), 1000)
 
         # Overwrite with larger value
-        self.tracker.track_cache_write("test_key_1", 2000)
+        self.tracker.track_cache_write("test_key_1", 2000, 300)
         self.assertEqual(self.tracker.get_total_size(), 2000)
 
         # Overwrite with smaller value
-        self.tracker.track_cache_write("test_key_1", 500)
+        self.tracker.track_cache_write("test_key_1", 500, 300)
         self.assertEqual(self.tracker.get_total_size(), 500)
 
     def test_get_total_size_returns_correct_value(self):
         self.assertEqual(self.tracker.get_total_size(), 0)
 
-        self.tracker.track_cache_write("test_key_1", 100)
-        self.tracker.track_cache_write("test_key_2", 200)
-        self.tracker.track_cache_write("test_key_3", 300)
+        self.tracker.track_cache_write("test_key_1", 100, 300)
+        self.tracker.track_cache_write("test_key_2", 200, 300)
+        self.tracker.track_cache_write("test_key_3", 300, 300)
 
         self.assertEqual(self.tracker.get_total_size(), 600)
 
-    def test_evict_until_under_limit_removes_oldest(self):
-        self.tracker.track_cache_write("test_key_1", 100)
-        self.tracker.track_cache_write("test_key_2", 200)
-        self.tracker.track_cache_write("test_key_3", 300)
+    def test_evict_until_under_limit_removes_soonest_expiry(self) -> None:
+        self.tracker.track_cache_write("test_key_1", 100, 300)
+        self.tracker.track_cache_write("test_key_2", 200, 300)
+        self.tracker.track_cache_write("test_key_3", 300, 300)
         self._seed_entry("test_key_1", b"data1")
         self._seed_entry("test_key_2", b"data2")
         self._seed_entry("test_key_3", b"data3")
@@ -95,12 +97,23 @@ class TestTeamCacheSizeTracker(BaseTest):
         # Newest entry should still exist
         self.assertIsNotNone(self._entry("test_key_3"))
 
+    def test_evict_pops_short_ttl_entry_before_older_long_ttl_entry(self) -> None:
+        self._seed_entry("test_key_1", b"a" * 300)
+        self.tracker.track_cache_write("test_key_1", 300, 604800)
+        self._seed_entry("test_key_2", b"b" * 300)
+        self.tracker.track_cache_write("test_key_2", 300, 86400)
+
+        evicted = self.tracker.evict_until_under_limit(500, 100)
+
+        self.assertEqual(evicted, ["test_key_2"])
+        self.assertIsNotNone(self._entry("test_key_1"))
+
     def test_evict_cleans_up_expired_keys(self):
         # Track a key but don't actually store an entry for it (simulates TTL expiration)
-        self.tracker.track_cache_write("expired_key", 1000)
+        self.tracker.track_cache_write("expired_key", 1000, 300)
 
         # Track a real key
-        self.tracker.track_cache_write("real_key", 500)
+        self.tracker.track_cache_write("real_key", 500, 300)
         self._seed_entry("real_key", b"data")
 
         # Total includes the "expired" key
@@ -117,7 +130,7 @@ class TestTeamCacheSizeTracker(BaseTest):
         self.assertEqual(self.tracker.get_total_size(), 500)
 
     def test_evict_returns_empty_when_under_limit(self):
-        self.tracker.track_cache_write("test_key_1", 100)
+        self.tracker.track_cache_write("test_key_1", 100, 300)
         self._seed_entry("test_key_1", b"data1")
 
         # Already under limit
@@ -126,8 +139,8 @@ class TestTeamCacheSizeTracker(BaseTest):
         self.assertEqual(self.tracker.get_total_size(), 100)
 
     def test_purge_removes_all_tracking_data(self):
-        self.tracker.track_cache_write("test_key_1", 1000)
-        self.tracker.track_cache_write("test_key_2", 2000)
+        self.tracker.track_cache_write("test_key_1", 1000, 300)
+        self.tracker.track_cache_write("test_key_2", 2000, 300)
         self.assertEqual(self.tracker.get_total_size(), 3000)
 
         self.tracker.purge()
@@ -173,9 +186,9 @@ class TestTeamCacheSizeTracker(BaseTest):
     def test_eviction_schedules_delete_for_evicted_pointer_entries(self):
         pointer = encode_pointer(S3BlobPointer(bucket="cache-bucket", key="query_cache/1/evicted"))
         self._seed_entry("test_key_1", pointer)
-        self.tracker.track_cache_write("test_key_1", 200)
+        self.tracker.track_cache_write("test_key_1", 200, 300)
         self._seed_entry("test_key_2", b"y" * 200)
-        self.tracker.track_cache_write("test_key_2", 200)
+        self.tracker.track_cache_write("test_key_2", 200, 300)
 
         with patch("posthog.query_cache.tasks.delete_query_cache_blob.apply_async") as apply_async:
             evicted = self.tracker.evict_until_under_limit(300, 250)
@@ -186,6 +199,15 @@ class TestTeamCacheSizeTracker(BaseTest):
         task_kwargs = apply_async.call_args.kwargs["kwargs"]
         self.assertEqual(task_kwargs["key"], "query_cache/1/evicted")
         self.assertEqual(task_kwargs["trigger"], "evicted")
+
+    def test_replace_value_never_shortens_remaining_ttl(self) -> None:
+        self.tracker.redis_client.set(entry_redis_key("test_key"), b"inline-bytes", ex=5000)
+
+        assert self.tracker.replace_value("test_key", b"new-pointer", 1000, expected=b"inline-bytes")
+
+        assert self.tracker.redis_client.ttl(entry_redis_key("test_key")) > 1000
+        score = self.tracker.redis_client.zscore(self.tracker.entries_key, "test_key")
+        assert score is not None and score - time.time() > 1000
 
     def test_broker_failure_does_not_break_the_cache_write(self):
         self._seed_entry("test_key_1", encode_pointer(S3BlobPointer(bucket="cache-bucket", key="query_cache/1/old")))
@@ -203,11 +225,11 @@ class TestTeamCacheSizeTracker(BaseTest):
         # First write - under limit
         data1 = b"x" * 200
         self._seed_entry("test_key_1", data1)
-        self.tracker.track_cache_write("test_key_1", len(data1))
+        self.tracker.track_cache_write("test_key_1", len(data1), 300)
 
         data2 = b"y" * 200
         self._seed_entry("test_key_2", data2)
-        self.tracker.track_cache_write("test_key_2", len(data2))
+        self.tracker.track_cache_write("test_key_2", len(data2), 300)
 
         # This should trigger eviction of test_key_1
         data3 = b"z" * 200
@@ -220,7 +242,7 @@ class TestTeamCacheSizeTracker(BaseTest):
         self.assertIsNotNone(self._entry("test_key_3"))
 
     def test_remove_tracking_is_idempotent(self):
-        self.tracker.track_cache_write("test_key", 1000)
+        self.tracker.track_cache_write("test_key", 1000, 300)
         self.assertEqual(self.tracker.get_total_size(), 1000)
 
         # Pop it from sorted set (simulating zpopmin in eviction)
@@ -236,10 +258,10 @@ class TestTeamCacheSizeTracker(BaseTest):
 
     def test_stale_tracking_cleaned_during_eviction(self):
         # Track keys but don't store entries for them (simulates TTL expiration)
-        self.tracker.track_cache_write("stale_key_1", 1000)
-        self.tracker.track_cache_write("stale_key_2", 1000)
+        self.tracker.track_cache_write("stale_key_1", 1000, 300)
+        self.tracker.track_cache_write("stale_key_2", 1000, 300)
         # Also add a real key
-        self.tracker.track_cache_write("real_key", 500)
+        self.tracker.track_cache_write("real_key", 500, 300)
         self._seed_entry("real_key", b"data")
 
         # Total is inflated due to stale entries
@@ -261,8 +283,8 @@ class TestTeamCacheSizeTracker(BaseTest):
         tracker_team_b = TeamCacheSizeTracker(team_b.pk)
         tracker_team_b.purge()
 
-        tracker_team_a.track_cache_write("key_a", 1000)
-        tracker_team_b.track_cache_write("key_b", 2000)
+        tracker_team_a.track_cache_write("key_a", 1000, 300)
+        tracker_team_b.track_cache_write("key_b", 2000, 300)
 
         self.assertEqual(tracker_team_a.get_total_size(), 1000)
         self.assertEqual(tracker_team_b.get_total_size(), 2000)
@@ -273,9 +295,9 @@ class TestTeamCacheSizeTracker(BaseTest):
     @override_settings(TEAM_CACHE_SIZE_LIMIT_BYTES=500)
     def test_entry_larger_than_limit_evicts_all(self):
         self._seed_entry("test_key_1", b"x" * 100)
-        self.tracker.track_cache_write("test_key_1", 100)
+        self.tracker.track_cache_write("test_key_1", 100, 300)
         self._seed_entry("test_key_2", b"y" * 100)
-        self.tracker.track_cache_write("test_key_2", 100)
+        self.tracker.track_cache_write("test_key_2", 100, 300)
 
         self.assertEqual(self.tracker.get_total_size(), 200)
 

@@ -22,13 +22,14 @@ export interface EventWithProperties extends PluginEvent {
     properties: Properties
 }
 
-const PRECALCULATED_COST_PROPERTIES = [
+const COST_COMPONENT_PROPERTIES = [
     '$ai_input_cost_usd',
     '$ai_output_cost_usd',
     '$ai_request_cost_usd',
     '$ai_web_search_cost_usd',
-    '$ai_total_cost_usd',
 ] as const
+
+const PRECALCULATED_COST_PROPERTIES = [...COST_COMPONENT_PROPERTIES, '$ai_total_cost_usd'] as const
 
 /**
  * Replace each cost the client sent with its parsed number, dropping the ones
@@ -72,14 +73,83 @@ const trackCostOutcome = (totalCost: number): void => {
     }
 }
 
+// Every token count each cost calculator reads, split by the side it prices.
+// Presence is what matters, not value: `0` is a usage report that says the
+// model consumed nothing, while an absent property means the provider never
+// reported usage at all. The sides gate independently, because an interrupted
+// stream often reports one side only — Anthropic sends input tokens on
+// message_start and the output count in the final delta.
+//
+// Hand-maintained, so a calculator that starts reading a new token property has
+// to add it to its side's list too. Leave it out and an event carrying only
+// that property prices as unknown. Properties that modality extraction writes
+// but no calculator reads, such as `$ai_text_input_tokens`, do not belong here.
+//
+// The validation step (steps/validate-ai-event-tokens.ts) sanitizes only a
+// core subset of these. That is safe: every calculator read goes through
+// finiteNumberOrUndefined, which treats an unusable value as absent.
+const INPUT_TOKEN_COUNT_PROPERTIES = [
+    '$ai_input_tokens',
+    '$ai_cache_read_input_tokens',
+    '$ai_cache_creation_input_tokens',
+    '$ai_cache_creation_5m_input_tokens',
+    '$ai_cache_creation_1h_input_tokens',
+    '$ai_audio_input_tokens',
+    '$ai_image_input_tokens',
+    '$ai_cache_read_audio_tokens',
+] as const
+
+const OUTPUT_TOKEN_COUNT_PROPERTIES = [
+    '$ai_output_tokens',
+    '$ai_text_output_tokens',
+    '$ai_reasoning_tokens',
+    '$ai_audio_output_tokens',
+    '$ai_image_output_tokens',
+] as const
+
+const hasAnyTokenCount = (properties: Properties, keys: readonly string[]): boolean => {
+    return keys.some((key) => finiteNumberOrUndefined(properties[key]) !== undefined)
+}
+
 const setCostsOnEvent = (event: EventWithProperties, cost: ResolvedModelCost): void => {
-    const inputCost = calculateInputCost(event, cost)
-    const outputCost = calculateOutputCost(event, cost)
+    // Neither of these reads a token count. A per-request charge bills for the
+    // call itself, and a web search charge bills a count the provider reported,
+    // so both stay known when the token counts are not.
     const requestCost = calculateRequestCost(event, cost)
     const webSearchCost = calculateWebSearchCost(event, cost)
+    const hasNonTokenCost = parseFloat(requestCost) > 0 || parseFloat(webSearchCost) > 0
 
-    setPropertyIfValidOrMissing(event.properties, '$ai_input_cost_usd', parseFloat(inputCost))
-    setPropertyIfValidOrMissing(event.properties, '$ai_output_cost_usd', parseFloat(outputCost))
+    // Costs the client computed themselves are costs we know. They survive
+    // parsePrecalculatedCosts only as numbers, so presence is the test. One-sided
+    // costs never reach the passthrough early return, which needs both input and
+    // output, so they have to be caught here.
+    const hasClientCost = PRECALCULATED_COST_PROPERTIES.some((key) => typeof event.properties[key] === 'number')
+
+    const hasInputTokenCount = hasAnyTokenCount(event.properties, INPUT_TOKEN_COUNT_PROPERTIES)
+    const hasOutputTokenCount = hasAnyTokenCount(event.properties, OUTPUT_TOKEN_COUNT_PROPERTIES)
+
+    // A token rate multiplied by no usage is 0, which reads as "this call was
+    // free" rather than "we never learned what this call used". The two are
+    // different facts, and only one of them is true for an aborted stream: it is
+    // billed for the tokens it consumed, we just never received the count. Leave
+    // the costs unset so downstream can say it does not know — but only when
+    // nothing at all priced this call.
+    if (!hasInputTokenCount && !hasOutputTokenCount && !hasNonTokenCost && !hasClientCost) {
+        aiCostTotalOutcomeCounter.labels({ outcome: 'unknown' }).inc()
+        return
+    }
+
+    // Each side's cost is a token rate times that side's counts, so a side
+    // without counts is unknown, not zero. One reported side must not fabricate
+    // a $0 for the other. The other two components stay known either way.
+    if (hasInputTokenCount) {
+        const inputCost = calculateInputCost(event, cost)
+        setPropertyIfValidOrMissing(event.properties, '$ai_input_cost_usd', parseFloat(inputCost))
+    }
+    if (hasOutputTokenCount) {
+        const outputCost = calculateOutputCost(event, cost)
+        setPropertyIfValidOrMissing(event.properties, '$ai_output_cost_usd', parseFloat(outputCost))
+    }
     setPropertyIfValidOrMissing(event.properties, '$ai_request_cost_usd', parseFloat(requestCost))
     setPropertyIfValidOrMissing(event.properties, '$ai_web_search_cost_usd', parseFloat(webSearchCost))
 
@@ -87,18 +157,16 @@ const setCostsOnEvent = (event: EventWithProperties, cost: ResolvedModelCost): v
         return
     }
 
-    const totalCost = parseFloat(
-        bigDecimal.add(
-            bigDecimal.add(
-                String(event.properties['$ai_input_cost_usd']),
-                String(event.properties['$ai_output_cost_usd'])
-            ),
-            bigDecimal.add(
-                String(event.properties['$ai_request_cost_usd']),
-                String(event.properties['$ai_web_search_cost_usd'])
-            )
-        )
-    )
+    // A sum over the known components is still a known total; the unset ones
+    // stay unset rather than contributing a zero they never asserted.
+    let total = '0'
+    for (const key of COST_COMPONENT_PROPERTIES) {
+        const value = event.properties[key]
+        if (typeof value === 'number') {
+            total = bigDecimal.add(total, String(value))
+        }
+    }
+    const totalCost = parseFloat(total)
     event.properties['$ai_total_cost_usd'] = totalCost
     trackCostOutcome(totalCost)
 }
@@ -106,6 +174,9 @@ const setCostsOnEvent = (event: EventWithProperties, cost: ResolvedModelCost): v
 const isString = (property: unknown): property is string => {
     return typeof property === 'string'
 }
+
+// Ingestion can deliver the flag JSON-serialized, so the string "true" also counts as set.
+const isCostPassthrough = (value: unknown): boolean => value === true || value === 'true'
 
 /**
  * Process cost calculation for AI generation/embedding events.
@@ -144,6 +215,20 @@ export const processCost = (event: EventWithProperties): EventWithProperties => 
 
         event.properties['$ai_cost_model_source'] = CostModelSource.Passthrough
         return event
+    }
+
+    // $ai_cost_passthrough keeps a caller-reported total and skips estimation.
+    // Require a usable total, so an empty cost is never labeled passthrough.
+    // Zero is a usable total here because a gateway that charges nothing, such as
+    // under BYOK, reports zero. The branch above instead reads a zero input or
+    // output cost as absent.
+    if (isCostPassthrough(event.properties['$ai_cost_passthrough'])) {
+        const total = event.properties['$ai_total_cost_usd']
+        if (typeof total === 'number') {
+            event.properties['$ai_cost_model_source'] = CostModelSource.Passthrough
+            trackCostOutcome(total)
+            return event
+        }
     }
 
     // A non-numeric price throws inside js-big-decimal, so treat one as absent and

@@ -137,6 +137,9 @@ export abstract class CdpConsumerBase<TConfig extends CdpConsumerBaseConfig = Cd
         this.isStopping = true
         // Billing records live only in memory until they are sent, so a graceful stop drains them.
         await this.cdpUsageReporter.shutdown()
+        // Release the per-consumer conversion-watcher pool created in createCdpCoreServices, so
+        // graceful shutdown frees its cyclotron connections like the other cyclotron pools do.
+        await this.invocationResultsService.stop()
         logger.info('👍', `${this.name} - stopped!`)
     }
 

@@ -4,8 +4,10 @@ import { LemonTag } from '@posthog/lemon-ui'
 
 import { getSeriesColor } from 'lib/colors'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
+import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 
+import { TRACING_DATE_FORMAT, TRACING_DISPLAY_TIMEZONE, TRACING_TIME_FORMAT } from '../../dateFormats'
 import { deriveSpanSummary } from '../../spanSummary'
 import { formatDuration } from '../../TraceWaterfallView'
 import type { Span } from '../../types'
@@ -80,12 +82,18 @@ export function SpanSummaryHeader({
                     )}
                 </span>
                 <span>{formatDuration(summary.durationNano)}</span>
-                {/* UTC to match the waterfall/sparkline (displayTimezone="UTC"). end shows time-only —
-                    same day as start in all but pathological spans, so the date would just be noise. */}
+                {/* UTC to match the waterfall/sparkline. end shows time-only — same day as start in
+                    all but pathological spans, so the date would just be noise. */}
                 <span>
-                    {dayjs(summary.timestamp).tz('UTC').format('MMM D HH:mm:ss.SSS')}
+                    <TZLabel
+                        time={summary.timestamp}
+                        formatDate={TRACING_DATE_FORMAT}
+                        formatTime={TRACING_TIME_FORMAT}
+                        displayTimezone={TRACING_DISPLAY_TIMEZONE}
+                        showSeconds
+                    />
                     {' → '}
-                    {dayjs(summary.endTimestamp).tz('UTC').format('HH:mm:ss.SSS')}
+                    {dayjs(summary.endTimestamp).tz(TRACING_DISPLAY_TIMEZONE).format(TRACING_TIME_FORMAT)}
                 </span>
             </div>
 

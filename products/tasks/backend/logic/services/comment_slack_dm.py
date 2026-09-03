@@ -142,7 +142,7 @@ def send_comment_slack_dms(*, team_id: int, comment_id: UUID, task_id: UUID, rec
             )
             slack_user_id: str | None = None
             if integration is not None:
-                if not settings.DEBUG and not is_slack_app_oauth_enabled(integration, integration.integration_id):
+                if not settings.DEBUG and not is_slack_app_oauth_enabled(integration):
                     _skip(comment_id, "slack_app_oauth_disabled", user_id=user_id)
                     continue
                 slack = slack_for(integration)
@@ -152,7 +152,7 @@ def send_comment_slack_dms(*, team_id: int, comment_id: UUID, task_id: UUID, rec
                 email_destination_slack: SlackIntegration | None = None
                 ambiguous_email_destination = False
                 for candidate in integrations:
-                    if not settings.DEBUG and not is_slack_app_oauth_enabled(candidate, candidate.integration_id):
+                    if not settings.DEBUG and not is_slack_app_oauth_enabled(candidate):
                         continue
                     candidate_slack = slack_for(candidate)
                     candidate_user_id = _slack_user_id_by_email(

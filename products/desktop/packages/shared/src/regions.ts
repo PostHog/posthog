@@ -1,6 +1,6 @@
 export type CloudRegion = "us" | "eu" | "dev";
 
-export interface RegionLabel {
+interface RegionLabel {
   flag: string;
   label: string;
   hint: string;

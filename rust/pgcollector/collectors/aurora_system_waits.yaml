@@ -1,0 +1,15 @@
+name: aurora_system_waits
+description: >
+  Exact cumulative wait counts and wait time per wait event for this instance
+  (aurora_stat_system_waits). Unlike activity sampling this is measured, not
+  sampled. wait_time is microseconds. Resets on instance restart.
+interval: 60s
+scope: cluster
+kind: cumulative
+requires: { aurora: true }
+key: [type_name, event_name]
+query: |
+  SELECT t.type_name, e.event_name, w.waits, w.wait_time
+  FROM aurora_stat_system_waits() w
+  NATURAL JOIN aurora_stat_wait_type() t
+  NATURAL JOIN aurora_stat_wait_event() e

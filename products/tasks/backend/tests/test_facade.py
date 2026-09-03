@@ -93,6 +93,7 @@ class TestTaskHandoffConcurrency(TransactionTestCase):
             mode: str = "background",
             extra_state: dict | None = None,
             branch: str | None = None,
+            acting_user_id: int | None = None,
         ) -> TaskRun:
             create_reached.set()
             if not handoff_finished.wait(timeout=10):
@@ -103,6 +104,7 @@ class TestTaskHandoffConcurrency(TransactionTestCase):
                 mode=mode,
                 extra_state=extra_state,
                 branch=branch,
+                acting_user_id=acting_user_id,
             )
 
         def bootstrap() -> None:
@@ -268,7 +270,11 @@ class TestFacadeReadsAndMappers(TestCase):
             task=task,
             team=self.team,
             status=TaskRun.Status.QUEUED,
-            state={"initial_prompt_override": "framed prompt", "sandbox_jwt_kid": "secret"},
+            state={
+                "initial_prompt_override": "framed prompt",
+                "end_run_when_done": True,
+                "sandbox_jwt_kid": "secret",
+            },
         )
 
         detail = facade.get_task_run_detail(run.id, task.id, self.team.id, include_agent_state=include_agent_state)
@@ -276,6 +282,9 @@ class TestFacadeReadsAndMappers(TestCase):
         assert detail is not None
         expected = "framed prompt" if include_agent_state else None
         assert detail.state.get("initial_prompt_override") == expected
+        # The finish-tool gate reads this key at agent boot; a filter that drops it makes
+        # every unbound workflow run idle out instead of ending itself.
+        assert detail.state.get("end_run_when_done") == (True if include_agent_state else None)
         assert "sandbox_jwt_kid" not in detail.state
 
     def test_get_task_run_maps_all_fields(self):
@@ -463,6 +472,57 @@ class TestFacadeReadsAndMappers(TestCase):
         assert handle is not None
         self.assertEqual(handle.task_id, older_task.id)
         self.assertEqual(handle.run_id, active.id)
+
+    def test_get_latest_active_internal_task_run_for_organization_uses_trusted_markers(self):
+        active_task = self._make_task(internal=True)
+        active = TaskRun.objects.create(
+            task=active_task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            environment=TaskRun.Environment.CLOUD,
+            state={"ai_stage": "context-layer-dream"},
+        )
+        terminal_task = self._make_task(internal=True)
+        TaskRun.objects.create(
+            task=terminal_task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            environment=TaskRun.Environment.CLOUD,
+            state={"ai_stage": "context-layer-dream"},
+        )
+        untrusted_task = self._make_task(internal=False)
+        TaskRun.objects.create(
+            task=untrusted_task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            environment=TaskRun.Environment.CLOUD,
+            state={"ai_stage": "context-layer-dream"},
+        )
+        wrong_stage_task = self._make_task(internal=True)
+        TaskRun.objects.create(
+            task=wrong_stage_task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            environment=TaskRun.Environment.CLOUD,
+            state={"ai_stage": "another-server-flow"},
+        )
+        other_organization = Organization.objects.create(name="Other org")
+        other_team = Team.objects.create(organization=other_organization, name="Other team")
+        other_task = self._make_task(team=other_team, internal=True)
+        TaskRun.objects.create(
+            task=other_task,
+            team=other_team,
+            status=TaskRun.Status.IN_PROGRESS,
+            environment=TaskRun.Environment.CLOUD,
+            state={"ai_stage": "context-layer-dream"},
+        )
+
+        result = facade.get_latest_active_internal_task_run_for_organization(
+            self.organization.id, ai_stage="context-layer-dream"
+        )
+
+        assert result is not None
+        self.assertEqual(result.id, active.id)
 
     def test_count_in_progress_runs_for_github_integration_scopes_to_live_runs_of_that_integration(self):
         integration = Integration.objects.create(team=self.team, kind="github", config={}, sensitive_config={})

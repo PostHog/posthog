@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
-export interface TaskInputHistoryEntry {
+interface TaskInputHistoryEntry {
   text: string;
   createdAt: number | null;
 }

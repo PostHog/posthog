@@ -70,11 +70,47 @@ s3://<bucket>/<prefix>/
     └── champion.json                                     # pointer the scoring sweep loads (the only object written across partitions)
 ```
 
-- **Examples are scoring moments, not reports.** For partition `dt=D` the examples asset reads the report-state and labels snapshots `dt=D-lookback..D` and emits one row per (report, snapshot) whose head label is still 0 on that snapshot, labeled from the snapshot `horizon_days` later (3 for open, 7 for action / dismiss_wrong / pr_created). Features are that snapshot's state columns plus `age_hours`, the report's age at the snapshot. Labels are aligned to the state spine, so a report with no label event is a negative (all-zero labels), not absent. Label-only rows (no Postgres state) are skipped, as are state rows read long after their snapshot day (backfills carry current Postgres state; see `features_observed_at`) and, for the `dismiss_wrong` head, rows whose status telemetry fails the dataset's `label_provenance_ok` check. This is the serving situation replayed over history; it measured better than one row per report on the engagement heads.
+- **Examples are scoring moments, not reports.** For partition `dt=D` the examples asset reads the report-state and labels snapshots `dt=D-lookback..D` and emits one row per (report, snapshot) whose head label is still 0 on that snapshot, labeled from the snapshot `horizon_days` later (3 for open, 7 for action / dismiss_wrong / pr_created / discuss, 14 for pr_merged / refund). Features are that snapshot's state columns plus `age_hours`, the report's age at the snapshot. Labels are aligned to the state spine, so a report with no label event is a negative (all-zero labels), not absent. Label-only rows (no Postgres state) are skipped, as are state rows read long after their snapshot day (backfills carry current Postgres state; see `features_observed_at`) and, for the `dismiss_wrong` head, rows whose status telemetry fails the dataset's `label_provenance_ok` check. This is the serving situation replayed over history; it measured better than one row per report on the engagement heads.
 - **Serving population caveat.** Training keeps only moments where the head's outcome has not happened yet, but the scoring sweep cannot see outcome state, so it also scores reports that were already opened or acted on. `p_open` on an already-opened report is undefined; the shadow eval joins scores as of impression time, which keeps the read honest. Stopping a head once its outcome is observed is a sweep-side change.
 - **Features are tabular only in v0** (`products/signals/backend/ranking/features.py`: the state counters, title/summary length, age, one-hot priority/actionability). No embedding, no impression-derived columns, so the scoring sweep needs only the `SignalReport` row and its judgment artefacts. The sweep must build features through the same module; the booster's `feature_names` are checked against it at load.
 - **Candidate**: per-head XGBoost with fixed params, holdout = the last `holdout_days` of reports (cut by report, never by row), AUC + a label-permutation null. A head is _readable_ when it has enough holdout positives and clears its null by 0.05. The shipped booster (`<head>.ubj`) is refit on everything; the train-only fit is kept as `<head>.holdout.ubj` so a later candidate can grade this model on its own holdout.
+- **Metrics telemetry**: each asset also captures its metrics as events into the dogfood project (the same project the label events land in), through `training/telemetry.py`: `inbox_ranking_examples_built` and `inbox_ranking_candidate_trained` once per head (`head`, holdout / train AUC, average precision, logloss, positive rate, the permutation-null mean and spread, counts, `readable`) and `inbox_ranking_promotion_decided` once per run, all carrying `model_version` and stamped midday UTC on the partition day so re-runs and backfills chart on the day they describe. Per-head stability is a trends insight with a `head` breakdown; a readability drop is an insight alert. `metadata.json` stays the durable record. Capture is best-effort. Local dev runs (`DEBUG`) emit too, under `distinct_id` `inbox_ranking_training_local` with `environment=local`, so filter or break down on `environment` when reading the prod series; any other non-Cloud deployment emits nothing.
 - **Champion**: `promotion.decide_promotion` — promote when the candidate has a readable head, is within 0.02 AUC of the champion on every head the champion could read, and the champion is at least `INBOX_RANKING_PROMOTION_MIN_DAYS` old. The champion's AUCs come from its `<head>.holdout.ubj` scored on the candidate's holdout (`paired_champion_aucs`), so both models are compared on one set of reports; a champion without that file falls back to its stored AUC. The pointer is rewritten only when `INBOX_RANKING_AUTO_PROMOTE` is on; otherwise the decision is logged and surfaced as asset metadata, so the daily candidate series is monitoring while the first shadow read runs on a frozen champion. To promote by hand, copy a candidate's `metadata.json` to `champion.json` with a `promoted_at`.
+
+### Running the training job locally
+
+The training job is S3-only, so it can run on a laptop against copies of the prod snapshots. The dataset job cannot: it needs the dogfood project's ClickHouse and cross-region Postgres.
+
+1. With the dev stack up (`bin/start`; the script waits for object storage to accept requests), sync the two prefixes the job reads into the local object-storage bucket. This needs an SSO session with the `secrets-editor` role on `prod-us-secrets`, and the Secrets Manager id of the dataset reader credential (provisioned with the bucket; ask the owning team):
+
+   ```bash
+   aws sso login --profile prod-us-secrets
+   INBOX_RANKING_READER_SECRET_ID=<secret id> products/signals/dags/inbox_ranking/bin/sync_snapshots_local.sh
+   ```
+
+   This copies `inbox_report_state/v1/dt=*` and `inbox_report_labels/v1/dt=*` to `~/.cache/posthog/inbox_ranking/` and from there into `s3://posthog/inbox_ranking/` on SeaweedFS (`localhost:19000`). It prints the partition days present in both tables; pick the **newest** of those as the partition to run. The examples asset reads the `INBOX_RANKING_TRAINING_LOOKBACK_DAYS` snapshots behind the partition it runs for, so an early day has little history behind it and trains on almost nothing. Re-runs only move new days.
+
+   Note that the dev stack's object storage accepts unsigned requests and publishes port 19000 on every host interface, so anything synced here (and the disk cache) is readable by whoever can reach your machine. The snapshots are internal dogfood telemetry, not customer data, but run the sync on a network you trust.
+
+2. Make sure `INBOX_RANKING_DATASET_S3_BUCKET` is unset for the Dagster process: `common.s3_client()` then talks to SeaweedFS and `dataset_bucket()` is `posthog`. Checking your shell (`env | grep INBOX_RANKING`) is not enough, because `bin/start` sources `.env.local` into the processes it starts; check that file too. If the variable reaches Dagster, the dag uses your ambient AWS credentials against that bucket, and the read-only credential the sync used protects nothing.
+
+3. `bin/start` runs `dagster dev` on http://localhost:3030 with the signals location loaded; materialize `inbox_ranking_training_job` for that partition from the UI, or from the CLI:
+
+   ```bash
+   dagster job launch -w .dagster_home/workspace.yaml --location posthog.dags.locations.signals \
+       -j inbox_ranking_training_job --tags '{"dagster/partition": "2026-08-25"}'
+   ```
+
+   The schedule is stopped outside prod US, so nothing runs unasked. If the run sits in `QUEUED`, check the daemon log for `Maximum is 10, won't launch more`: runs from a killed `dagster dev` stay `STARTED` forever and count against the local queue. Terminate them from the Runs page (force termination).
+
+4. Read the result from `s3://posthog/inbox_ranking/inbox_ranking_models/v1/dt=<day>/metadata.json` (per-head AUCs, readability); the examples are at `s3://posthog/inbox_ranking/inbox_ranking_training_examples/v1/dt=<day>/part-00000.parquet`:
+
+   ```bash
+   AWS_ACCESS_KEY_ID=object_storage_root_user AWS_SECRET_ACCESS_KEY=object_storage_root_password \
+       aws --endpoint-url http://localhost:19000 s3 cp s3://posthog/inbox_ranking/inbox_ranking_models/v1/dt=2026-08-25/metadata.json -
+   ```
+
+Nothing here touches the prod bucket: the reader credential is read-only and the dag writes only to the local bucket.
 
 ### Configuration
 

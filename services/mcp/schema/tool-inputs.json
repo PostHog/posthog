@@ -55,6 +55,97 @@
             "maximum": 9007199254740991,
             "description": "Version returned by channel-instructions-retrieve. Use 0 when the channel has no instructions."
         },
+        "DashboardTileCreateSchema": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991,
+                    "description": "Dashboard ID. Use dashboard-get or dashboards-get-all to find it."
+                },
+                "type": {
+                    "type": "string",
+                    "enum": ["text", "image"],
+                    "description": "Tile type. Use text for Markdown content. Use image for a body with exactly one Markdown image."
+                },
+                "body": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 4000,
+                    "description": "Markdown body. For image, provide exactly one Markdown image. For text, provide Markdown content that is not an image-only body."
+                },
+                "layouts": {
+                    "description": "Optional dashboard-grid layout for desktop (sm) and mobile (xs).",
+                    "type": "object",
+                    "properties": {
+                        "sm": {
+                            "type": "object",
+                            "properties": {
+                                "x": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 9007199254740991
+                                },
+                                "y": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 9007199254740991
+                                },
+                                "w": {
+                                    "type": "integer",
+                                    "minimum": 1,
+                                    "maximum": 9007199254740991
+                                },
+                                "h": {
+                                    "type": "integer",
+                                    "minimum": 1,
+                                    "maximum": 9007199254740991
+                                }
+                            }
+                        },
+                        "xs": {
+                            "type": "object",
+                            "properties": {
+                                "x": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 9007199254740991
+                                },
+                                "y": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 9007199254740991
+                                },
+                                "w": {
+                                    "type": "integer",
+                                    "minimum": 1,
+                                    "maximum": 9007199254740991
+                                },
+                                "h": {
+                                    "type": "integer",
+                                    "minimum": 1,
+                                    "maximum": 9007199254740991
+                                }
+                            }
+                        }
+                    }
+                },
+                "color": {
+                    "description": "Optional tile accent color.",
+                    "anyOf": [
+                        {
+                            "type": "string",
+                            "maxLength": 400
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                }
+            },
+            "required": ["id", "type", "body"]
+        },
         "DebugMcpUiAppsSchema": {
             "type": "object",
             "properties": {
@@ -271,6 +362,44 @@
             },
             "required": ["id", "operations"]
         },
+        "EventDefinitionCreateSchema": {
+            "type": "object",
+            "properties": {
+                "eventName": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 400,
+                    "description": "The name of the event to create (e.g. \"user_signed_up\")"
+                },
+                "data": {
+                    "description": "Optional metadata for the new event definition",
+                    "type": "object",
+                    "properties": {
+                        "description": {
+                            "description": "Description explaining when the event is triggered",
+                            "type": "string"
+                        },
+                        "tags": {
+                            "description": "Tags to organize events by product area (e.g. \"checkout\", \"onboarding\") or user journey stage (e.g. \"acquisition\", \"activation\", \"monetization\", \"retention\")",
+                            "type": "array",
+                            "items": {
+                                "type": "string",
+                                "maxLength": 255
+                            }
+                        },
+                        "verified": {
+                            "description": "Mark as verified to indicate the event is properly instrumented and tracking correctly",
+                            "type": "boolean"
+                        },
+                        "hidden": {
+                            "description": "Mark event as no longer used/captured. Hides it from UI while preserving historical data",
+                            "type": "boolean"
+                        }
+                    }
+                }
+            },
+            "required": ["eventName"]
+        },
         "EventDefinitionUpdateInputSchema": {
             "type": "object",
             "properties": {
@@ -282,7 +411,8 @@
                     "description": "Tags to organize events by product area (e.g. \"checkout\", \"onboarding\") or user journey stage (e.g. \"acquisition\", \"activation\", \"monetization\", \"retention\")",
                     "type": "array",
                     "items": {
-                        "type": "string"
+                        "type": "string",
+                        "maxLength": 255
                     }
                 },
                 "verified": {
@@ -313,7 +443,8 @@
                             "description": "Tags to organize events by product area (e.g. \"checkout\", \"onboarding\") or user journey stage (e.g. \"acquisition\", \"activation\", \"monetization\", \"retention\")",
                             "type": "array",
                             "items": {
-                                "type": "string"
+                                "type": "string",
+                                "maxLength": 255
                             }
                         },
                         "verified": {
@@ -973,6 +1104,78 @@
                 }
             },
             "required": ["query"]
+        },
+        "ReportInboxInputSchema": {
+            "type": "object",
+            "properties": {
+                "view": {
+                    "default": "actionable",
+                    "description": "Inbox section to return. Defaults to actionable reports that are ready to pick up.",
+                    "type": "string",
+                    "enum": [
+                        "actionable",
+                        "needs_input",
+                        "monitoring",
+                        "resolved",
+                        "dismissed",
+                        "not_actionable",
+                        "all"
+                    ]
+                },
+                "scope": {
+                    "default": "entire_project",
+                    "description": "Limit results by suggested reviewer, or search the entire project.",
+                    "type": "string",
+                    "enum": ["for_me", "entire_project", "teammate"]
+                },
+                "teammate_uuid": {
+                    "description": "PostHog user UUID required when scope is teammate.",
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "priorities": {
+                    "description": "Priorities to include. When omitted, uses the requesting user's personal PR-generation threshold, falling back to the project threshold.",
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "enum": ["P0", "P1", "P2", "P3", "P4"]
+                    }
+                },
+                "source_products": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "scouts": {
+                    "description": "Scout skill_name slugs to include.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "search": {
+                    "description": "Case-insensitive substring match against report title and summary.",
+                    "type": "string"
+                },
+                "sort": {
+                    "default": "priority",
+                    "type": "string",
+                    "enum": ["priority", "last_updated", "newest", "oldest"]
+                },
+                "limit": {
+                    "default": 10,
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 10
+                },
+                "offset": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                }
+            }
         },
         "SavedMetricsAttachSchema": {
             "type": "array",

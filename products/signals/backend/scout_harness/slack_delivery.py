@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass
 from typing import Literal
 from urllib.parse import quote
@@ -25,6 +26,7 @@ from products.signals.backend.scout_harness.slack_charts import (
 from products.signals.backend.slack_formatting import (
     chunk_slack_mrkdwn,
     escape_slack_mrkdwn,
+    group_segments_to_limit,
     markdown_to_slack_mrkdwn,
     slack_channel_id_from_target,
     split_markdown_by_headings,
@@ -37,16 +39,19 @@ logger = structlog.get_logger(__name__)
 _PERMANENT_SLACK_ERROR_CODES = frozenset(
     {
         "account_inactive",
+        "cannot_dm_bot",
         "channel_not_found",
         "ekm_access_denied",
         "invalid_auth",
         "is_archived",
+        "messages_tab_disabled",
         "missing_scope",
         "not_authed",
         "not_in_channel",
         "org_login_required",
         "restricted_action",
         "token_revoked",
+        "user_not_found",
     }
 )
 
@@ -56,6 +61,10 @@ _PERMANENT_SLACK_ERROR_CODES = frozenset(
 _BLOCK_REJECTION_ERROR_CODES = frozenset({"invalid_blocks", "invalid_blocks_format"})
 
 ScoutSlackOutputType = Literal["finding", "report"]
+
+# Each member gets an individual DM (a group DM would need the `mpim:write` scope the Slack app
+# doesn't request), so this bounds the per-output Slack API fan-out.
+MAX_SCOUT_SLACK_DM_TARGETS = 5
 
 # A report only reaches Slack while it is surfaced. Checked both before enqueue and again just
 # before posting, since chart rendering can hold the worker long enough for the report to change.
@@ -73,7 +82,10 @@ _SCOUT_SLACK_REPLY_TEXT = "💬 If you have questions, reply in this thread and 
 @dataclass(frozen=True)
 class ScoutSlackDestination:
     integration_id: int
-    channel: str
+    # Conversation targets in the picker's `id|name` composite form: a single channel (`C…|#name`)
+    # or one or more members to DM individually (`U…|@name`) — Slack's chat.postMessage accepts
+    # either id as its `channel` argument, opening the DM for a member id.
+    targets: tuple[str, ...]
     thread_reports: bool = False
 
 
@@ -91,15 +103,24 @@ def get_scout_slack_destination(output_destinations: object) -> ScoutSlackDestin
     if not isinstance(slack, dict):
         return None
     integration_id = slack.get("integration_id")
-    channel = slack.get("channel")
     if not isinstance(integration_id, int) or isinstance(integration_id, bool) or integration_id < 1:
         return None
-    if not isinstance(channel, str) or not channel.strip():
+    thread_reports = slack.get("thread_reports") is True
+    channel = slack.get("channel")
+    if isinstance(channel, str) and channel.strip():
+        return ScoutSlackDestination(
+            integration_id=integration_id, targets=(channel.strip(),), thread_reports=thread_reports
+        )
+    users = slack.get("users")
+    if not isinstance(users, list):
+        return None
+    targets = tuple(dict.fromkeys(user.strip() for user in users if isinstance(user, str) and user.strip()))
+    if not targets:
         return None
     return ScoutSlackDestination(
         integration_id=integration_id,
-        channel=channel.strip(),
-        thread_reports=slack.get("thread_reports") is True,
+        targets=targets[:MAX_SCOUT_SLACK_DM_TARGETS],
+        thread_reports=thread_reports,
     )
 
 
@@ -165,6 +186,24 @@ def _slack_integration_for_project(*, integration_id: int, project_id: int) -> I
     return integration
 
 
+def _ensure_dm_recipient_eligible(slack: SlackIntegration, target_id: str) -> None:
+    """Re-resolve a DM recipient's eligibility at send time.
+
+    Config validation only checks the ID shape, so an API/MCP caller can persist any well-formed
+    member ID, and a member who was eligible at config time can later become a guest or leave.
+    `get_user_by_id` applies the same eligibility rules as the picker (no bots, guests, or
+    members from outside the connected workspace), so an ineligible recipient fails permanently
+    here instead of leaking internal output.
+    """
+    if not target_id.startswith(("U", "W")):
+        return
+    if slack.get_user_by_id(target_id) is None:
+        raise ScoutSlackPermanentDeliveryError(
+            "The configured Slack member can no longer receive scout output",
+            error_code="recipient_not_eligible",
+        )
+
+
 def _slack_channel_id(channel: str) -> str:
     channel_id = slack_channel_id_from_target(channel)
     if not channel_id:
@@ -224,6 +263,7 @@ def build_scout_slack_message(emission: SignalScoutEmission) -> tuple[list[dict]
 def post_scout_emission_to_slack(
     emission: SignalScoutEmission,
     *,
+    delivery_id: str,
     integration_id: int,
     channel: str,
 ) -> None:
@@ -234,13 +274,17 @@ def post_scout_emission_to_slack(
     channel_id = _slack_channel_id(channel)
 
     blocks, fallback = build_scout_slack_message(emission)
-    client = SlackIntegration(integration).client
+    slack = SlackIntegration(integration)
+    client = slack.client
     try:
+        _ensure_dm_recipient_eligible(slack, channel_id)
         response = client.chat_postMessage(
             channel=channel_id,
             blocks=blocks,
             text=fallback,
-            client_msg_id=str(emission.id),
+            # The queue derives one delivery_id per recipient, so each DM keeps its own
+            # Slack idempotency key instead of every recipient sharing the emission id.
+            client_msg_id=delivery_id,
             unfurl_links=False,
             unfurl_media=False,
         )
@@ -313,17 +357,20 @@ def build_scout_report_slack_message(
 
 
 def _report_summary_chunks(report: SignalReport) -> list[str]:
-    """Convert the report summary to mrkdwn and split it into one chunk per heading section.
+    """Convert the report summary to mrkdwn and split it into one chunk per section.
 
     Called only for a threaded delivery. The first chunk leads the channel and each later one
     becomes a reply, so the thread mirrors the report's outline at any length. Length is not the
     test: a typical digest fits inside one Slack section, so a length test leaves it as one wall of
-    text. A summary with no headings has no seam and stays one chunk. A section too long for one
+    text. A section is opened by a Markdown heading or a bold label, so the summary threads whether
+    the scout wrote `## Evidence` or `**Evidence**`. A summary with neither has no seam and stays
+    one chunk. A summary with more sections than `MAX_THREAD_SEGMENTS` has them grouped, so one
+    delivery cannot post a reply per paragraph of a malformed report. A section too long for one
     Slack section is hard-chunked on its line ends. The split runs after `strip_chart_references`
     so a chart link never straddles two messages."""
     summary_text = strip_chart_references((report.summary or "").strip())
     chunks: list[str] = []
-    for segment in split_markdown_by_headings(summary_text):
+    for segment in group_segments_to_limit(split_markdown_by_headings(summary_text)):
         rendered_segment = markdown_to_slack_mrkdwn(segment.strip())
         if not rendered_segment:
             continue
@@ -495,7 +542,11 @@ def _post_scout_report_thread_replies(
                 thread_ts=thread_ts,
                 blocks=blocks,
                 text=fallback,
-                client_msg_id=f"{delivery_id}:{index}",
+                # Slack rejects a client_msg_id that is not a UUID, and this loop swallows the
+                # error, so a plain `id:index` string costs every reply silently. The `reply`
+                # infix keeps the derivation clear of the one the DM fan-out uses for extra
+                # recipients (`<delivery_id>:<index>`), which would otherwise collide.
+                client_msg_id=str(uuid.uuid5(uuid.NAMESPACE_OID, f"{delivery_id}:reply:{index}")),
                 unfurl_links=False,
                 unfurl_media=False,
             )
@@ -642,8 +693,10 @@ def post_scout_report_to_slack(
         integration_id=integration_id,
         project_id=report.team.project_id,
     )
-    client = SlackIntegration(integration).client
+    slack = SlackIntegration(integration)
+    client = slack.client
     try:
+        _ensure_dm_recipient_eligible(slack, channel_id)
         response = _post_scout_report_lead_message(
             client,
             channel_id=channel_id,

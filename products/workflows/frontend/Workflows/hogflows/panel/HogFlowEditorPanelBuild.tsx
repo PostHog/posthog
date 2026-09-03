@@ -7,6 +7,7 @@ import { LemonButton, LemonDivider, LemonDropdown, LemonInput, LemonTag, Spinner
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { hogFunctionTemplateListLogic } from 'scenes/hog-functions/list/hogFunctionTemplateListLogic'
 import { HogFunctionStatusTag } from 'scenes/hog-functions/misc/HogFunctionStatusTag'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { HogFunctionTemplateType } from '~/types'
 
@@ -74,6 +75,19 @@ const AI_TASK_ACTION_NODE: CreateActionType = {
         inputs: { non_failure_status_codes: { value: [409] } },
     },
     output_variable: { key: 'task', result_path: null, label: 'Task' },
+}
+
+const RUN_SCOUT_ACTION_NODE: CreateActionType = {
+    type: 'function',
+    name: 'Run scout',
+    description: 'Start a Signals scout run. The scout explores as it does on its schedule.',
+    config: {
+        template_id: 'template-posthog-run-scout',
+        // Same reason as the AI-task node above: 409 (run in flight, scout paused, cooldown,
+        // budget, or quota) is backpressure the step should skip on, not fail.
+        inputs: { non_failure_status_codes: { value: [409] } },
+    },
+    output_variable: { key: 'scout_run', result_path: null, label: 'Scout run' },
 }
 
 export const DELAY_NODES_TO_SHOW: CreateActionType[] = [
@@ -298,6 +312,7 @@ function HogFunctionTemplatesChooser(): JSX.Element {
 
 export function HogFlowEditorPanelBuild(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
+    const { currentTeam } = useValues(teamLogic)
     const { isRowScopedTrigger } = useValues(workflowLogic)
 
     const registeredCategories = getRegisteredActionNodeCategories().filter(
@@ -335,6 +350,19 @@ export function HogFlowEditorPanelBuild(): JSX.Element {
                     </span>
                 </HogFlowEditorToolbarNode>
             )}
+            {/* Scouts belong to the project's main environment, and the server refuses the step elsewhere.
+            Require currentTeam explicitly: while it's still loading, both sides of the id comparison are
+            undefined, which would otherwise pass. */}
+            {featureFlags[FEATURE_FLAGS.WORKFLOW_RUN_SCOUT_ACTION] &&
+                !!currentTeam &&
+                currentTeam.id === currentTeam.project_id && (
+                    <HogFlowEditorToolbarNode key="run-scout" action={RUN_SCOUT_ACTION_NODE}>
+                        <span className="inline-flex items-center gap-1.5">
+                            {RUN_SCOUT_ACTION_NODE.name}
+                            <LemonTag type="completion">Beta</LemonTag>
+                        </span>
+                    </HogFlowEditorToolbarNode>
+                )}
             <HogFunctionTemplatesChooser />
 
             <span className="flex gap-2 text-sm font-semibold mt-2 items-center">

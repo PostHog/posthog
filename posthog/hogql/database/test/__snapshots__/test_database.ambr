@@ -2334,6 +2334,26 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
+              },
+              "pattern": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "pattern",
+                  "id": null,
+                  "name": "pattern",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "pattern_version": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "pattern_version",
+                  "id": null,
+                  "name": "pattern_version",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
               }
           },
           "id": "logs",
@@ -13764,6 +13784,26 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
+              },
+              "pattern": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "pattern",
+                  "id": null,
+                  "name": "pattern",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "pattern_version": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "pattern_version",
+                  "id": null,
+                  "name": "pattern_version",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
               }
           },
           "id": "logs",

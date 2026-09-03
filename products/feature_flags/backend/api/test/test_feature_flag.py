@@ -28,12 +28,14 @@ from rest_framework import status
 from rest_framework.relations import ManyRelatedField
 from rest_framework.response import Response
 
+from posthog.hogql.database.database import Database
+
 from posthog import redis
 from posthog.api.cohort import BATCH_FLAG_EVALUATION_PAGE_ATTEMPTS, get_cohort_actors_for_feature_flag
 from posthog.api.services.flags_service import FlagVersionConflictError
 from posthog.constants import AvailableFeature
 from posthog.models import TaggedItem, User
-from posthog.models.group.util import create_group
+from posthog.models.group.util import create_group, raw_create_group_ch
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
@@ -7997,6 +7999,33 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         status_response = self.client.get(f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/status/")
         self.assertEqual(status_response.status_code, status.HTTP_403_FORBIDDEN)
 
+        # The lifecycle actions declare feature_flag:write, so viewer access reads the flag but
+        # cannot flip its state.
+        viewable_flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="read-only flag",
+            key="read-only-flag",
+        )
+        AccessControl.objects.create(
+            resource="feature_flag", resource_id=viewable_flag.id, team=self.team, access_level="viewer"
+        )
+
+        assert (
+            self.client.get(f"/api/projects/{self.team.pk}/feature_flags/{viewable_flag.id}/").status_code
+            == status.HTTP_200_OK
+        )
+        for lifecycle_action in ("enable", "disable", "archive", "unarchive"):
+            lifecycle_response = self.client.post(
+                f"/api/projects/{self.team.pk}/feature_flags/{viewable_flag.id}/{lifecycle_action}/",
+                {},
+                format="json",
+            )
+            assert lifecycle_response.status_code == status.HTTP_403_FORBIDDEN, lifecycle_action
+        viewable_flag.refresh_from_db()
+        assert viewable_flag.active is True
+        assert viewable_flag.archived is False
+
     def test_org_admin_can_list_flag_with_default_none_after_grantee_removed(self) -> None:
         # Regression: a flag with a team-wide "none" default plus a single explicit
         # editor grant becomes invisible to everyone once the grantee is removed
@@ -9360,6 +9389,38 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         response_json = response.json()
         self.assertLessEqual({"affected": 4, "total": 10}.items(), response_json.items())
 
+    @snapshot_clickhouse_queries
+    def test_persons_seen_so_far_ignores_team_v2_argmax_modifier(self):
+        team = Team.objects.create(organization=self.organization, modifiers={"personsArgMaxVersion": "v2"})
+        for i in range(3):
+            _create_person(team_id=team.pk, distinct_ids=[f"seen_person_{i}"], properties={"group": f"{i}"})
+
+        with self.capture_select_queries() as queries:
+            assert team.persons_seen_so_far == 3
+
+        assert queries
+        for query in queries:
+            # A truncated start of the v2 dedup semi-join, on purpose. The expression continues
+            # with a subquery, so a balanced paren would build a string that never occurs and
+            # the assertion would always pass.
+            assert "in(tuple(person.id, person.version)" not in query
+
+        # The filtered path builds one database and shares it between its two counts.
+        # The denominator must keep the pinned v1 shape even then.
+        with patch.object(Database, "create_for", wraps=Database.create_for) as create_for_spy:
+            with self.capture_select_queries() as queries:
+                result = get_user_blast_radius(
+                    team,
+                    {"properties": [{"key": "group", "type": "person", "value": ["0"], "operator": "exact"}]},
+                )
+
+        assert (result.affected, result.total) == (1, 3)
+        assert create_for_spy.call_count == 1
+        denominator_queries = [query for query in queries if "count(DISTINCT" not in query]
+        assert denominator_queries
+        for query in denominator_queries:
+            assert "in(tuple(person.id, person.version)" not in query
+
     @parameterized.expand(
         [
             (
@@ -10085,6 +10146,8 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
                 group_key=f"org:{i}",
                 properties={"industry": f"{i}"},
             )
+        # A property update writes a second ClickHouse row for the same key; it is still one group.
+        raw_create_group_ch(self.team.pk, 1, "org:0", {"industry": "updated"}, created_at=now())
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",

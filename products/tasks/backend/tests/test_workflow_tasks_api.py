@@ -1,5 +1,4 @@
 from datetime import datetime, timedelta
-from types import SimpleNamespace
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -31,7 +30,7 @@ from products.tasks.backend.logic.services.workflow_tasks import (
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.visibility import task_control_q, task_visibility_q
 from products.workflows.backend.api.workflow_tasks import WorkflowTaskCreateSerializer
-from products.workflows.backend.models import HogFlow
+from products.workflows.backend.models import HogFlow, TeamWorkflowsConfig
 
 SECRET = "test-tasks-create-jwt"
 
@@ -120,6 +119,10 @@ class TestWorkflowTasksAPI(APIBaseTest):
         run = TaskRun.objects.get(id=body["run_id"])
         assert run.task_id == task.id
         assert run.status == TaskRun.Status.QUEUED
+        # No connectors selected means the run mounts no MCP servers, rather than every server
+        # shared with the project.
+        assert task.mcp_builtin_agent_key == "workflow"
+        assert task.mcp_gateway_server_allowlist == []
 
     def test_dispatches_the_agent_run_after_the_task_commits(self) -> None:
         with (
@@ -149,6 +152,25 @@ class TestWorkflowTasksAPI(APIBaseTest):
         # `finish` holds a sandbox for the full background window.
         assert run.state["inactivity_timeout_seconds"] == 120
 
+    def test_a_run_with_no_thread_binding_ends_itself(self) -> None:
+        response = self._post()
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        run = TaskRun.objects.get(id=response.json()["run_id"])
+        # No binding means no reply to protect, and the idle timeout is not a safe
+        # fallback: the PR follow-up loop raises it far past the 2-minute window.
+        assert run.state["end_run_when_done"] is True
+
+    def test_a_thread_bound_run_stays_open_so_its_reply_can_relay(self) -> None:
+        integration = self._slack_integration()
+
+        response = self._post({"slack_context": self._slack_context(integration)})
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        run = TaskRun.objects.get(id=response.json()["run_id"])
+        assert "end_run_when_done" not in run.state
+        assert SlackThreadTaskMapping.objects.filter(task_run=run).exists()
+
     def test_hands_the_agent_its_prompt_when_it_boots(self) -> None:
         response = self._post()
 
@@ -162,43 +184,76 @@ class TestWorkflowTasksAPI(APIBaseTest):
         # so the run must carry only the boot-path override.
         assert "pending_user_message" not in run.state
 
-    def test_accepts_a_team_shared_connector(self) -> None:
-        from products.mcp_store.backend.models import MCPServerInstallation
-
-        other_user = self._create_user("teammate@posthog.com")
-        shared = MCPServerInstallation.objects.create(
-            team=self.team,
-            user=other_user,
-            display_name="Linear",
-            url="https://mcp.linear.app/mcp",
-            auth_type="api_key",
-            is_enabled=True,
-            scope="shared",
+    def test_accepts_an_mcp_server_shared_with_the_project(self) -> None:
+        from products.mcp_store.backend.facade.api import get_built_in_agent
+        from products.mcp_store.backend.models import (
+            MCPGatewayServer,
+            MCPServerInstallation,
+            MCPServiceAccountServerAccess,
         )
 
-        response = self._post({"connectors": [str(shared.id)]})
+        teammate = self._create_user("teammate@posthog.com")
+        server = MCPGatewayServer.objects.for_team(self.team.id).create(
+            team_id=self.team.id, name="Linear", url="https://mcp.linear.app/mcp", is_team_enabled=True
+        )
+        installation = MCPServerInstallation.objects.create(
+            team=self.team,
+            user=teammate,
+            display_name="Linear",
+            url=server.url,
+            auth_type="api_key",
+            is_enabled=True,
+            scope="personal",
+            gateway_server=server,
+        )
+        workflow_agent = get_built_in_agent(self.team.id, "workflow")
+        assert workflow_agent is not None
+        MCPServiceAccountServerAccess.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            service_account=workflow_agent,
+            gateway_server=server,
+            user=teammate,
+            installation=installation,
+            granted_by=teammate,
+            scope="team",
+        )
+
+        response = self._post({"connectors": [str(server.id)]})
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
+        task = Task.objects.get(id=response.json()["id"])
+        # The run mounts as the workflow agent with exactly this selection. No credential owner:
+        # the workflow's runs reach the project's team shares only, never the creator's own grants.
+        assert task.mcp_builtin_agent_key == "workflow"
+        assert task.mcp_credential_owner_id is None
+        assert task.mcp_gateway_server_allowlist == [str(server.id)]
         run = TaskRun.objects.get(id=response.json()["run_id"])
-        assert run.state["config_snapshot"]["connectors"]["mcp_installation_ids"] == [str(shared.id)]
+        assert run.state["config_snapshot"]["connectors"]["mcp_gateway_server_ids"] == [str(server.id)]
 
-    @patch("products.tasks.backend.logic.services.workflow_tasks.get_active_installations")
-    def test_snapshots_validated_connectors_into_the_run(self, get_active_installations) -> None:
-        get_active_installations.return_value = [SimpleNamespace(id="inst-1"), SimpleNamespace(id="inst-2")]
+    @patch("products.tasks.backend.logic.services.workflow_tasks.resolve_agent_gateway_server_ids")
+    def test_snapshots_resolved_connectors_into_the_run(self, resolve_ids) -> None:
+        # A connector saved as a Store installation id resolves to its gateway server.
+        resolve_ids.return_value = {"inst-1": "server-1", "server-2": "server-2"}
 
-        response = self._post({"connectors": ["inst-1"]})
+        response = self._post({"connectors": ["inst-1", "server-2"]})
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
+        resolve_ids.assert_called_once_with(
+            self.team.id, agent_key="workflow", credential_owner_id=None, connector_ids=["inst-1", "server-2"]
+        )
+        task = Task.objects.get(id=response.json()["id"])
+        assert task.mcp_gateway_server_allowlist == ["server-1", "server-2"]
         run = TaskRun.objects.get(id=response.json()["run_id"])
-        assert run.state["config_snapshot"]["connectors"]["mcp_installation_ids"] == ["inst-1"]
+        assert run.state["config_snapshot"]["connectors"]["mcp_gateway_server_ids"] == ["server-1", "server-2"]
 
-    @patch("products.tasks.backend.logic.services.workflow_tasks.get_active_installations")
-    def test_rejects_connectors_the_workflow_owner_cannot_mount(self, get_active_installations) -> None:
-        get_active_installations.return_value = [SimpleNamespace(id="inst-1")]
+    @patch("products.tasks.backend.logic.services.workflow_tasks.resolve_agent_gateway_server_ids")
+    def test_rejects_a_connector_not_shared_with_the_project(self, resolve_ids) -> None:
+        resolve_ids.return_value = {"server-1": "server-1", "server-unknown": None}
 
-        response = self._post({"connectors": ["inst-1", "inst-unknown"]})
+        response = self._post({"connectors": ["server-1", "server-unknown"]})
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "server-unknown" in response.json()["detail"]
         assert not Task.objects.filter(hog_flow_id=self.hog_flow.id).exists()
 
     @parameterized.expand(
@@ -206,6 +261,9 @@ class TestWorkflowTasksAPI(APIBaseTest):
             ("no_header", "none"),
             ("wrong_signing_key", "wrong_key"),
             ("wrong_audience", "wrong_audience"),
+            # Same signing key as the scout-run step, distinct audience: that token must not
+            # spend a task creation, even though both mint from TASKS_CREATE_JWT_SECRETS.
+            ("scout_run_audience", "scout_run_audience"),
             ("expired", "expired"),
             ("missing_workflow_claim", "no_flow_claim"),
         ]
@@ -216,6 +274,7 @@ class TestWorkflowTasksAPI(APIBaseTest):
             "none": None,
             "wrong_key": _token(self.team.id, flow_id, signing_key="not-the-secret"),
             "wrong_audience": _token(self.team.id, flow_id, audience=PosthogJwtAudience.RECORDING_API),
+            "scout_run_audience": _token(self.team.id, flow_id, audience=PosthogJwtAudience.WORKFLOW_SCOUT_RUN),
             "expired": _token(self.team.id, flow_id, expiry=timedelta(minutes=-1)),
             "no_flow_claim": _token(self.team.id, None),
         }[kind]
@@ -317,6 +376,54 @@ class TestWorkflowTasksAPI(APIBaseTest):
         # round trip only to be rejected anyway.
         usage_limit_response_mock.assert_not_called()
 
+    def test_team_config_overrides_daily_caps(self) -> None:
+        TeamWorkflowsConfig.objects.update_or_create(
+            team=self.team,
+            defaults={
+                "workflow_task_rate_limit_per_day": WORKFLOW_TASK_RATE_CAP_PER_DAY + 1,
+                "workflow_task_team_rate_limit_per_day": WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY + 1,
+            },
+        )
+        self._seed_created_tasks(WORKFLOW_TASK_RATE_CAP_PER_DAY, hog_flow_id=self.hog_flow.id)
+        self._seed_created_tasks(
+            WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY - WORKFLOW_TASK_RATE_CAP_PER_DAY,
+            hog_flow_id=uuid4(),
+        )
+
+        allowed = self._post()
+        capped = self._post()
+
+        assert allowed.status_code == status.HTTP_201_CREATED, allowed.json()
+        assert capped.status_code == status.HTTP_409_CONFLICT, capped.json()
+        assert f"daily limit of {WORKFLOW_TASK_RATE_CAP_PER_DAY + 1}" in capped.json()["detail"]
+
+    @parameterized.expand(
+        [
+            (
+                "per_workflow",
+                {"workflow_task_rate_limit_per_day": 0},
+                "Task creation is paused for this workflow. "
+                "The event was skipped. Contact PostHog support to resume task creation.",
+            ),
+            (
+                "team_wide",
+                {"workflow_task_team_rate_limit_per_day": 0},
+                "Task creation from workflows is paused for this project. "
+                "The event was skipped. Contact PostHog support to resume task creation.",
+            ),
+        ]
+    )
+    def test_zero_daily_cap_reports_a_permanent_pause(
+        self, scope: str, config: dict[str, int], expected_detail: str
+    ) -> None:
+        TeamWorkflowsConfig.objects.update_or_create(team=self.team, defaults=config)
+
+        response = self._post()
+
+        assert response.status_code == status.HTTP_409_CONFLICT, response.json()
+        assert response.json()["detail"] == expected_detail
+        assert not Task.objects.exists()
+
     @parameterized.expand(["older_than_24h", "non_workflow_origin"])
     def test_old_and_foreign_tasks_do_not_consume_the_daily_caps(self, case: str) -> None:
         if case == "older_than_24h":
@@ -356,21 +463,21 @@ class TestWorkflowTasksAPI(APIBaseTest):
         assert replay.json()["run_id"] == first.json()["run_id"]
         assert Task.objects.filter(hog_flow_id=self.hog_flow.id).count() == 1
 
-    @patch("products.tasks.backend.logic.services.workflow_tasks.get_active_installations")
-    def test_a_replay_succeeds_even_after_connectors_and_the_limit_would_reject_it(
-        self, get_active_installations
-    ) -> None:
-        get_active_installations.return_value = [SimpleNamespace(id="inst-1")]
-        first = self._post({"idempotency_key": "invocation-1", "connectors": ["inst-1"], "max_parallel_tasks": 1})
+    @patch("products.tasks.backend.logic.services.workflow_tasks.resolve_agent_gateway_server_ids")
+    def test_a_replay_succeeds_even_after_connectors_and_the_limit_would_reject_it(self, resolve_ids) -> None:
+        resolve_ids.return_value = {"server-1": "server-1"}
+        first = self._post({"idempotency_key": "invocation-1", "connectors": ["server-1"], "max_parallel_tasks": 1})
         assert first.status_code == status.HTTP_201_CREATED, first.json()
 
         # The connector is gone, the workflow is at its in-flight and daily limits, and the
         # owner is over the usage limit; the retry of the already-created request must
         # still return the existing task.
-        get_active_installations.return_value = []
+        resolve_ids.return_value = {"server-1": None}
         self._seed_created_tasks(WORKFLOW_TASK_RATE_CAP_PER_DAY, hog_flow_id=self.hog_flow.id)
         with patch("products.tasks.backend.logic.services.workflow_tasks.usage_limit_response", return_value=object()):
-            replay = self._post({"idempotency_key": "invocation-1", "connectors": ["inst-1"], "max_parallel_tasks": 1})
+            replay = self._post(
+                {"idempotency_key": "invocation-1", "connectors": ["server-1"], "max_parallel_tasks": 1}
+            )
 
         assert replay.status_code == status.HTTP_200_OK, replay.json()
         assert replay.json()["id"] == first.json()["id"]
@@ -390,16 +497,16 @@ class TestWorkflowTasksAPI(APIBaseTest):
         assert response.status_code == status.HTTP_409_CONFLICT, response.json()
         assert not Task.objects.filter(hog_flow_id=self.hog_flow.id).exists()
 
-    @patch("products.tasks.backend.logic.services.workflow_tasks.get_active_installations")
-    def test_a_later_run_inherits_the_connector_snapshot(self, get_active_installations) -> None:
-        get_active_installations.return_value = [SimpleNamespace(id="inst-1")]
-        response = self._post({"connectors": ["inst-1"]})
+    @patch("products.tasks.backend.logic.services.workflow_tasks.resolve_agent_gateway_server_ids")
+    def test_a_later_run_inherits_the_connector_snapshot(self, resolve_ids) -> None:
+        resolve_ids.return_value = {"server-1": "server-1"}
+        response = self._post({"connectors": ["server-1"]})
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         task = Task.objects.get(id=response.json()["id"])
 
         later_run = task.create_run(mode="background")
 
-        assert later_run.state["config_snapshot"]["connectors"]["mcp_installation_ids"] == ["inst-1"]
+        assert later_run.state["config_snapshot"]["connectors"]["mcp_gateway_server_ids"] == ["server-1"]
 
     @parameterized.expand([("with_repository", True), ("without_repository", False)])
     def test_pr_creation_follows_the_repository(self, _name: str, with_repository: bool) -> None:
