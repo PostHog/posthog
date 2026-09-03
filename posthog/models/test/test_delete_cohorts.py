@@ -1,18 +1,17 @@
+import pytest
+from unittest.mock import patch
+
 from django.test import TestCase
 
 from parameterized import parameterized
 
-from posthog.models import AsyncDeletion, DeletionType, Team
-from posthog.models.async_deletion.delete_cohorts import CohortDeleteTarget, _collapse
-
-TEAM_ID_PLACEHOLDER = 0
+from posthog.models import AsyncDeletion, DeletionType, Organization, Team
+from posthog.models.async_deletion.delete_cohorts import CohortDeleteTarget, _collapse, sweep_cohort_deletions
 
 
 class TestCollapseCohortDeletions(TestCase):
     def setUp(self):
         super().setUp()
-        from posthog.models import Organization
-
         self.organization = Organization.objects.create(name="test")
         self.team = Team.objects.create(organization=self.organization)
 
@@ -106,3 +105,17 @@ class TestCollapseCohortDeletions(TestCase):
         assert _collapse(DeletionType.Cohort_stale) == [
             CohortDeleteTarget(team_id=self.team.pk, cohort_id=9, below_version=2)
         ]
+
+    def test_an_undrained_table_fails_the_run_instead_of_reporting_a_failed_pass(self):
+        self._queue(DeletionType.Cohort_full, "5_1")
+
+        # The job chains the person sweep on this returning, and the two must not mutate at the
+        # same time. Recording the drain as a failed pass would let the person sweep start anyway.
+        with (
+            patch("posthog.models.async_deletion.delete_cohorts.sync_execute", return_value=[]),
+            patch("posthog.models.async_deletion.delete_cohorts._unfinished_mutations", return_value=3),
+            patch("posthog.models.async_deletion.delete_cohorts.time.sleep"),
+            patch("posthog.models.async_deletion.delete_cohorts.time.monotonic", side_effect=[0.0, 0.0, 9_999.0]),
+        ):
+            with pytest.raises(TimeoutError, match="unfinished mutation"):
+                sweep_cohort_deletions()

@@ -892,7 +892,6 @@ def test_query_repr_keeps_short_query_intact():
 
 
 def _client_reporting_unfinished(counts: list[int]) -> Mock:
-    """A client whose system.mutations count walks `counts`, then stays at the last value."""
     remaining = list(counts)
     client = Mock(spec=Client)
     client.execute.side_effect = lambda *args, **kwargs: [[remaining.pop(0) if len(remaining) > 1 else remaining[0]]]

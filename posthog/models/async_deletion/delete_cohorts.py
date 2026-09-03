@@ -69,11 +69,20 @@ COHORT_MUTATION_POLL_SECONDS = 30.0
 COHORT_MUTATION_CAPACITY_TIMEOUT_SECONDS = 3600.0
 
 
-class SplitPart(Func):
-    """Postgres `split_part`, so the cohort id and version can be read in SQL rather than Python."""
+# nosemgrep: python.django.security.audit.extends-custom-expression.extends-custom-expression
+class KeyPart(Func):
+    """Postgres `substring(text from pattern)`, returning the first capture group or NULL.
 
-    function = "split_part"
-    arity = 3
+    The pattern is always a literal from this module and the only expression is a column, so no
+    caller-supplied text reaches the SQL. Capturing rather than splitting is what makes the cast
+    downstream safe: a key whose version part is the literal "None" yields NULL instead of a value
+    `bigint` cannot parse, so no plan that plays the cast before the filter can fail the query.
+    """
+
+    function = "substring"
+    arity = 2
+    template = "%(function)s(%(expressions)s)"
+    arg_joiner = " from "
     output_field = TextField()
 
 
@@ -131,7 +140,7 @@ def _collapse(deletion_type: DeletionType, limit: int = 0) -> list[CohortDeleteT
         COHORT_DELETION_UNPARSEABLE_KEY_COUNTER.labels(deletion_type=deletion_type.name).inc(skipped)
         logger.warning("Skipping cohort deletions with unparseable keys", count=skipped, deletion_type=deletion_type)
 
-    cohort_id = Cast(SplitPart("key", Value("_"), Value(1)), BigIntegerField())
+    cohort_id = Cast(KeyPart("key", Value(r"^(\d+)_")), BigIntegerField())
 
     targets: list[CohortDeleteTarget]
     if deletion_type == DeletionType.Cohort_full:
@@ -144,7 +153,7 @@ def _collapse(deletion_type: DeletionType, limit: int = 0) -> list[CohortDeleteT
             parseable.filter(key__regex=r"^\d+_\d+")
             .annotate(
                 cohort_id=cohort_id,
-                version=Cast(SplitPart("key", Value("_"), Value(2)), BigIntegerField()),
+                version=Cast(KeyPart("key", Value(r"^\d+_(\d+)")), BigIntegerField()),
             )
             .values("team_id", "cohort_id")
             .annotate(below_version=Max("version"))
@@ -207,10 +216,6 @@ def _delete(targets: list[CohortDeleteTarget]) -> int:
             settings={"lightweight_deletes_sync": 0},
         )
         issued += 1
-
-    # The caller chains the person sweep on this op finishing, and the two must not run their
-    # mutations at the same time, so the pass is not done until the cluster has drained them.
-    _wait_for_mutations(below=1)
     return issued
 
 
@@ -244,8 +249,10 @@ def _lowest_versions(targets: list[CohortDeleteTarget]) -> dict[tuple[int, int],
     return lowest
 
 
-def _mark_verified(deletion_type: DeletionType, targets: list[CohortDeleteTarget]) -> int:
-    """Tick off the queued deletions whose rows are gone. Returns how many rows were marked.
+def _mark_verified(
+    deletion_type: DeletionType, targets: list[CohortDeleteTarget]
+) -> tuple[int, set[CohortDeleteTarget]]:
+    """Tick off the queued deletions whose rows are gone. Returns the row count and the targets cleared.
 
     Filtering by `deletion_type` and a `<cohort_id>_` key prefix rides the unique index on
     (deletion_type, key), so a cohort's rows are found without scanning the queue.
@@ -253,22 +260,24 @@ def _mark_verified(deletion_type: DeletionType, targets: list[CohortDeleteTarget
     lowest = _lowest_versions(targets)
     now = timezone.now()
     marked = 0
+    cleared_targets: set[CohortDeleteTarget] = set()
 
     for chunk in chunked(targets, COHORT_VERIFY_UPDATE_CHUNK_SIZE):
-        cleared = Q(pk__in=[])
-        matched = False
+        predicate = Q(pk__in=[])
+        batch: list[CohortDeleteTarget] = []
         for target in chunk:
             surviving = lowest.get((target.team_id, target.cohort_id))
             if surviving is not None and (target.below_version is None or surviving < target.below_version):
                 # Rows this target still has to remove; nothing queued against it is done.
                 continue
-            cleared |= Q(team_id=target.team_id, key__startswith=f"{target.cohort_id}_")
-            matched = True
-        if not matched:
+            predicate |= Q(team_id=target.team_id, key__startswith=f"{target.cohort_id}_")
+            batch.append(target)
+        if not batch:
             continue
-        marked += _queued(deletion_type).filter(cleared).update(delete_verified_at=now)
+        marked += _queued(deletion_type).filter(predicate).update(delete_verified_at=now)
+        cleared_targets.update(batch)
 
-    return marked
+    return marked, cleared_targets
 
 
 def sweep_cohort_deletions(max_cohorts: int = 0) -> list[str]:
@@ -287,21 +296,24 @@ def sweep_cohort_deletions(max_cohorts: int = 0) -> list[str]:
     failed = []
 
     for deletion_type in (DeletionType.Cohort_full, DeletionType.Cohort_stale):
+        targets = _collapse(deletion_type, limit=max_cohorts)
+        if not targets:
+            logger.info("No cohort deletions queued", deletion_type=deletion_type.name)
+            continue
+
         try:
-            if targets := _collapse(deletion_type, limit=max_cohorts):
-                marked = _mark_verified(deletion_type, targets)
-                logger.info("Marked cohort deletions verified", deletion_type=deletion_type.name, marked=marked)
+            marked, cleared = _mark_verified(deletion_type, targets)
+            logger.info("Marked cohort deletions verified", deletion_type=deletion_type.name, marked=marked)
+            # Already gone, so sweeping them again would issue a mutation that removes nothing.
+            targets = [target for target in targets if target not in cleared]
         except Exception:
             logger.exception("Failed to mark cohort deletions done", deletion_type=deletion_type.name)
             COHORT_DELETION_MARK_FAILURE_COUNTER.inc()
             failed.append(f"mark:{deletion_type.name}")
 
-        # Collapsed again, so anything the pass above just ticked off is not swept a second time.
+        if not targets:
+            continue
         try:
-            targets = _collapse(deletion_type, limit=max_cohorts)
-            if not targets:
-                logger.info("No cohort deletions queued", deletion_type=deletion_type.name)
-                continue
             logger.warning("Sweeping cohortpeople", deletion_type=deletion_type.name, cohorts=len(targets))
             mutations = _delete(targets)
             logger.info("Issued cohort delete mutations", deletion_type=deletion_type.name, mutations=mutations)
@@ -310,4 +322,8 @@ def sweep_cohort_deletions(max_cohorts: int = 0) -> list[str]:
             COHORT_DELETION_RUN_FAILURE_COUNTER.inc()
             failed.append(f"run:{deletion_type.name}")
 
+    # Raised, never recorded as a failed pass. The caller chains the person sweep on this returning,
+    # and the two must not mutate at the same time, so an undrained table has to stop the run rather
+    # than hand back a result that reads as "finished with a warning".
+    _wait_for_mutations(below=1)
     return failed
