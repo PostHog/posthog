@@ -68,6 +68,7 @@ SELECT
     argMax(properties.$session_recording_start_reason, timestamp) AS start_reason,
     argMax(properties.$session_recording_remote_config, timestamp) AS remote_config,
     max(properties.$sdk_debug_recording_script_not_loaded) AS script_not_loaded,
+    max(properties.$sdk_debug_replay_rrweb_error) AS rrweb_error,
     argMax(properties.$sdk_debug_replay_url_trigger_status, timestamp) AS url_trigger,
     argMax(properties.$sdk_debug_replay_event_trigger_status, timestamp) AS event_trigger,
     argMax(properties.$sdk_debug_replay_linked_flag_trigger_status, timestamp) AS flag_trigger,
