@@ -123,6 +123,9 @@ describe('DashboardFilterBar', () => {
 
         await expectLogic(logic, () => {
             logic.actions.setDates('-7d', null)
+        }).toFinishAllListeners()
+
+        await expectLogic(logic, () => {
             logic.actions.cancelLayoutEdit()
         }).toFinishAllListeners()
 

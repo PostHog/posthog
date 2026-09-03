@@ -678,18 +678,57 @@ describe('dashboardLogic', () => {
             expect(logic.values.filtersDirty).toBe(true)
         })
 
-        it('cancelling layout editing keeps unsaved filters', async () => {
+        it('cancelling layout editing keeps auto-previewed filter changes', async () => {
             await expectLogic(logic).toFinishAllListeners()
 
             await expectLogic(logic, () => {
                 logic.actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.SceneCommonButtons)
-                logic.actions.setDates('-7d', null)
-                logic.actions.cancelLayoutEdit()
             }).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.setDates('-7d', null)
+            }).toFinishAllListeners()
+
+            expect(logic.values.urlFilters).toEqual(expect.objectContaining({ date_from: '-7d' }))
+
+            await expectLogic(logic, () => {
+                logic.actions.cancelLayoutEdit()
+            })
+                .toNotHaveDispatchedActions(['resetIntermittentFilters', 'resetUrlFilters'])
+                .toFinishAllListeners()
 
             expect(logic.values.dashboardMode).toBeNull()
             expect(logic.values.urlFilters).toEqual(expect.objectContaining({ date_from: '-7d' }))
             expect(logic.values.filtersDirty).toBe(true)
+        })
+
+        it('cancelling layout editing keeps unapplied filter changes', async () => {
+            const payloadSpy = jest.spyOn(featureFlagLib, 'getFeatureFlagPayload').mockReturnValue(1)
+
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.canAutoPreview).toBe(false)
+
+            await expectLogic(logic, () => {
+                logic.actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.SceneCommonButtons)
+            }).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.setDates('-7d', null)
+            }).toFinishAllListeners()
+
+            expect(logic.values.intermittentFilters).toEqual(expect.objectContaining({ date_from: '-7d' }))
+
+            await expectLogic(logic, () => {
+                logic.actions.cancelLayoutEdit()
+            })
+                .toNotHaveDispatchedActions(['resetIntermittentFilters', 'resetUrlFilters'])
+                .toFinishAllListeners()
+
+            expect(logic.values.dashboardMode).toBeNull()
+            expect(logic.values.intermittentFilters).toEqual(expect.objectContaining({ date_from: '-7d' }))
+            expect(logic.values.filtersDirty).toBe(true)
+
+            payloadSpy.mockRestore()
         })
 
         it('saving current filters does not refresh tiles again', async () => {
