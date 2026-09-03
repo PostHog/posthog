@@ -18,10 +18,9 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.lane_position 
 from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import (
     COMPANION_WRITE_MODE,
     CONSOLIDATED_WRITE_MODE,
-    AppendReplayFilter,
     CDCLane,
     CDCSourceManager,
-    MergeReplayFilter,
+    ReplayFilter,
     build_output_lanes,
     companion_resource_name,
     consumes_buffer,
@@ -127,20 +126,17 @@ def _patched(s3: _FakeS3):
         yield
 
 
-def _manager(*, deletion_floor: int | None = None, proof_time: dt.datetime | None = None) -> CDCSourceManager:
+def _manager(*, deletion_floor: int | None = None) -> CDCSourceManager:
     inputs = MagicMock()
     inputs.team_id = _TEAM_ID
     inputs.schema_id = _SCHEMA_ID
     inputs.reset_pipeline = False
-    return CDCSourceManager(inputs=inputs, logger=AsyncMock(), deletion_floor=deletion_floor, proof_time=proof_time)
+    return CDCSourceManager(inputs=inputs, logger=AsyncMock(), deletion_floor=deletion_floor)
 
 
-async def _collect(
-    s3: _FakeS3, *, deletion_floor: int | None = None, proof_time: dt.datetime | None = None, **kwargs
-) -> list[pa.Table]:
-    manager = _manager(deletion_floor=deletion_floor, proof_time=proof_time)
-    with _patched(s3), patch.object(CDCSourceManager, "stamp_listing", AsyncMock()):
-        return [t async for t in manager.get_items(**kwargs)]
+async def _collect(s3: _FakeS3, *, deletion_floor: int | None = None, **kwargs) -> list[pa.Table]:
+    with _patched(s3):
+        return [t async for t in _manager(deletion_floor=deletion_floor).get_items(**kwargs)]
 
 
 def _schema(**overrides) -> MagicMock:
@@ -331,30 +327,35 @@ class TestBatchesInFlight:
 
 
 @pytest.mark.asyncio
-class TestReplayFilters:
-    """What each lane drops when a run re-reads a buffer its table has partly consumed.
+class TestReplayFilter:
+    """What a lane drops when a run re-reads a buffer its table has partly consumed.
 
-    The two lanes differ only at the position itself: a merge rewrites those rows as upserts,
-    while history would keep a second copy, so only the append lane matches them by identity.
+    Both lanes run the same filter and differ only in what they asked the position for. A merge
+    asks for no identity, so nothing at the position matches and every row there is rewritten as
+    an upsert. History asks for the rows its table holds there, so it drops exactly those.
     """
 
     @staticmethod
     def _append(position, applied):
-        return AppendReplayFilter(LanePosition(position=position, applied=applied, key_columns=("id", CDC_OP_COLUMN)))
+        return ReplayFilter(LanePosition(position=position, applied=applied, key_columns=("id", CDC_OP_COLUMN)))
+
+    @staticmethod
+    def _merge(position):
+        return ReplayFilter(LanePosition(position=position, applied={}, key_columns=()))
 
     def test_nothing_is_dropped_before_a_lane_has_written_anything(self):
         table = _ops([1, 2], [10, 20], ["I", "U"])
 
         assert self._append(None, {}).apply(table) is table
-        assert MergeReplayFilter(LanePosition(position=None, applied={})).apply(table) is table
+        assert self._merge(None).apply(table) is table
 
     def test_rows_below_the_position_are_dropped(self):
-        result = MergeReplayFilter(LanePosition(position=20, applied={})).apply(_ops([1, 2, 3], [10, 20, 30]))
+        result = self._merge(20).apply(_ops([1, 2, 3], [10, 20, 30]))
 
         assert result.column(CDC_SEQ_COLUMN).to_pylist() == [20, 30]
 
     def test_the_merge_lane_keeps_every_row_at_its_position(self):
-        result = MergeReplayFilter(LanePosition(position=20, applied={})).apply(_ops([1, 2, 3], [20, 20, 30]))
+        result = self._merge(20).apply(_ops([1, 2, 3], [20, 20, 30]))
 
         assert result.column("id").to_pylist() == [1, 2, 3]
 
@@ -400,7 +401,7 @@ class TestReplayFilters:
         # The position reports the columns it actually read. If the filter keyed batch rows by a
         # wider tuple than the table was read with, nothing would ever match and every replayed
         # row would be appended a second time.
-        replay = AppendReplayFilter(LanePosition(position=20, applied={("I",): 1}, key_columns=(CDC_OP_COLUMN,)))
+        replay = ReplayFilter(LanePosition(position=20, applied={("I",): 1}, key_columns=(CDC_OP_COLUMN,)))
 
         result = replay.apply(_ops([1, 2], [20, 20], ["I", "I"]))
 
@@ -424,22 +425,18 @@ class TestFloorDeletion:
         assert s3.removed == [_key(1, 10)]
         assert s3.opened == [_key(21, 30)]
 
-    async def test_a_file_at_the_floor_is_kept_until_a_completed_run_proves_it_read(self):
+    async def test_a_file_at_the_floor_is_re_read_rather_than_deleted(self):
+        # Position alone cannot tell a consumed file from the unread tail of a transaction split
+        # across files. The replay filter drops its rows, so the re-read writes and bills nothing.
         s3 = _FakeS3({_key(11, 20): _parquet_bytes(_table([1], [20]))})
         await _collect(s3, deletion_floor=20)
 
         assert s3.removed == []
         assert s3.opened == [_key(11, 20)]
 
-    async def test_a_file_at_the_floor_goes_once_an_older_completed_listing_covers_it(self):
-        s3 = _FakeS3({_key(11, 20): _parquet_bytes(_table([1], [20]))})
-        await _collect(s3, deletion_floor=20, proof_time=_NOW)
-
-        assert s3.removed == [_key(11, 20)]
-
     async def test_nothing_is_deleted_before_every_lane_has_a_position(self):
         s3 = _FakeS3({_key(1, 10): _parquet_bytes(_table([1], [10]))})
-        await _collect(s3, deletion_floor=None, proof_time=_NOW)
+        await _collect(s3, deletion_floor=None)
 
         assert s3.removed == []
 

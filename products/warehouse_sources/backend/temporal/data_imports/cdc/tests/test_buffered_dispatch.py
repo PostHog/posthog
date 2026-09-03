@@ -64,7 +64,6 @@ def _dispatch(
         patch(f"{_MANAGER}.DeltaTableRef", _delta_ref()),
         patch(f"{_MANAGER}.read_lane_position", AsyncMock(return_value=LanePosition(position=None, applied={}))),
         patch(f"{_MANAGER}.ensure_position_stats", AsyncMock()),
-        patch(f"{_MANAGER}.completed_listing_proof", AsyncMock(return_value=None)),
         patch.object(PostgresSource, "make_ssh_tunnel_func", return_value=MagicMock()),
     ):
         objects.select_related.return_value.get.return_value = schema

@@ -309,38 +309,41 @@ class Command(BaseCommand):
             time.sleep(DRAIN_POLL_SECONDS)
 
     def _wait_for_buffer_drain(self, team_id: int, schemas: list[ExternalDataSchema], timeout: int) -> None:
-        """Block until no buffer file is left for any schema.
+        """Block until a scheduled sync has drained the buffer since capture stopped.
 
-        The consumer deletes a file at the start of a run once every table this schema feeds is
-        past it, so an empty prefix is the consumer's own proof that every change in it landed
-        everywhere. Extraction is already paused by this point, so nothing refills the prefix while
-        this waits — but the last file needs one more completed run to clear, since a file at the
-        floor goes only once a completed listing predates it.
+        The buffer's tail holds WAL the slot has already advanced past, so it has to reach the
+        tables before legacy delivery resumes. Capture is idle by now, so the prefix is static and
+        one completed sync per schema has read every file in it and written every row.
+
+        Completion of a run that STARTED after capture stopped is the proof, rather than an empty
+        prefix: the consumer deletes a file only once every table is strictly past it, and the last
+        file of a static buffer never reaches that. Those leftovers are fully applied, and the S3
+        retention clears them.
         """
-        from products.data_warehouse.backend.facade.api import get_s3_client
+        from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 
-        s3 = get_s3_client()
+        started_after = dt.datetime.now(tz=dt.UTC)
         deadline = time.monotonic() + timeout
         while True:
-            behind: list[str] = []
-            for schema in schemas:
-                prefix = strip_s3_protocol(get_buffer_prefix(team_id, str(schema.id)))
-                try:
-                    keys = s3.ls(prefix, detail=False, refresh=True)
-                except FileNotFoundError:
-                    continue
-                if any(parse_buffer_file_name(key.rsplit("/", 1)[-1]) is not None for key in keys):
-                    behind.append(schema.name)
+            behind = [
+                schema.name
+                for schema in schemas
+                if not ExternalDataJob.objects.filter(
+                    team_id=team_id,
+                    schema_id=schema.id,
+                    status=ExternalDataJob.Status.COMPLETED,
+                    created_at__gt=started_after,
+                ).exists()
+            ]
             if not behind:
                 return
             if time.monotonic() >= deadline:
                 raise CommandError(
-                    f"Buffered changes not yet applied for: {', '.join(sorted(behind))} after "
-                    f"{timeout}s. Rolling back now could lose them — the slot already advanced past that "
-                    "WAL, and the consumer deletes each file only once the job that read it completes. "
-                    "Extraction is left paused; let the scheduled syncs catch up, then re-run."
+                    f"No sync has drained the buffer for: {', '.join(sorted(behind))} after "
+                    f"{timeout}s. Rolling back now could lose changes the slot already advanced "
+                    "past. Extraction is left paused; let the scheduled syncs run, then re-run."
                 )
-            self.stdout.write(f"    waiting, buffer not drained for: {', '.join(sorted(behind))}")
+            self.stdout.write(f"    waiting, no completed sync yet for: {', '.join(sorted(behind))}")
             time.sleep(DRAIN_POLL_SECONDS)
 
     def _pause_schema_schedules_strict(self, schemas: list[ExternalDataSchema]) -> None:

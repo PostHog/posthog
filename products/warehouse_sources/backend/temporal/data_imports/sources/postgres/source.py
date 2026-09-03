@@ -1425,7 +1425,6 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import (
             CDCSourceManager,
             build_output_lanes,
-            completed_listing_proof,
             consumes_buffer,
             has_batches_in_flight,
             served_lanes,
@@ -1483,12 +1482,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         # Every table this schema's changes feed, written from one read of the buffer. Each lane
         # carries where its own table stops, because a failed run can leave one ahead of the other.
         lanes, deletion_floor = async_to_sync(build_output_lanes)(schema, job, inputs.logger)
-        manager = CDCSourceManager(
-            inputs,
-            inputs.logger,
-            deletion_floor=deletion_floor,
-            proof_time=async_to_sync(completed_listing_proof)(schema),
-        )
+        manager = CDCSourceManager(inputs, inputs.logger, deletion_floor=deletion_floor)
         return SourceResponse(
             name=lanes[0].name,
             items=manager.get_items,
