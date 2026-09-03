@@ -854,6 +854,12 @@ async fn handle_sweep(
                 EvictionAction::Write(bytes) => staged.put::<Behavioral>(&result.key, bytes),
                 EvictionAction::Delete => staged.delete::<Behavioral>(&result.key),
             }
+            // Keep this leg transition-based. The seed paths derive their single-leaf changes by
+            // diffing this register, and between a seed's acked produce and its post-ack commit
+            // the register reads `false` while downstream holds `Entered`. A register-diffed
+            // sweep would compute `false == false` there and emit no `Left`, so the entry would
+            // outlive the state that justified it. At most one of the path that emits an entry
+            // and the path that retracts it may read the register.
             if let Some(transition) = &result.transition {
                 if let Some(filters) = snapshot.team(transition.team_id) {
                     stage_register_writes(

@@ -1,9 +1,16 @@
 //! The seed-tile apply path: a pure, clock-free core ([`merge_tile_into_leaf`]) that mirrors the
 //! live fold minus dedup (slide-before-evaluate, max-merge of the tile's absolute count,
 //! structural-equality `Unchanged` — the whole of tile idempotency), and an imperative shell
-//! ([`handle_seed`]) ordered stage-1 commit → stage-2 recompute → produce → stage-2 commit → mark.
-//! Committing the stage-2 bits after the produces ack makes a failed produce re-derivable on
-//! replay; store/produce failures hold the seed offset.
+//! ([`handle_seed`]) ordered register diff → stage-1 commit → stage-2 recompute → produce →
+//! stage-2 commit → mark.
+//!
+//! Every membership bit this path writes commits only after its produce acks, so a failed produce
+//! is re-derived on replay rather than lost against an advanced bit. Composed bits come from
+//! [`recompute_stage2`]; single-leaf ones from
+//! [`diff_single_leaf_registers`](crate::workers::stage2_path::diff_single_leaf_registers), which
+//! is why `Unchanged` leaves still take part. The replay mints no transition, so the persisted
+//! register is the only record of what downstream was told. Store and produce failures hold the
+//! seed offset.
 
 use std::num::NonZeroU32;
 use std::sync::Arc;
@@ -29,7 +36,7 @@ use crate::observability::metrics::{
     STAGE1_STATE_DECODE_ERROR, STAGE1_TRANSITIONS,
 };
 use crate::partitions::offset_tracker::{MarkOutcome, OffsetTracker};
-use crate::producer::{map_transition, ChangeOrigin, CohortMembershipChange, MembershipSink};
+use crate::producer::{ChangeOrigin, CohortMembershipChange, MembershipSink};
 use crate::stage1::bucket_tz::{
     daily_bucket_len, day_idx_in_tz, start_of_day_ms_in_tz, window_start_for_now, DayIdx,
 };
@@ -40,15 +47,15 @@ use crate::stage1::pick_state::{EvictionWindow, PredicateOp};
 use crate::stage1::predicate::{compressed_predicate, daily_predicate, predicate};
 use crate::stage1::state::{Stage1State, StateVariant, StatefulRecord};
 use crate::stage1::transition::{LeafTransition, TransitionKind};
-use crate::stage2::{
-    leaf_membership, single_leaf_register_writes, stage_register_writes, MembershipRegisterSource,
-};
+use crate::stage2::leaf_membership;
 use crate::store::{Behavioral, BehavioralKey, PersonPrefix, ReadLane, StagedBatch, StoreHandle};
 use crate::sweep::EvictionQueue;
 use crate::workers::merge_path::MergeWorkerDeps;
 use crate::workers::person_seed_path::handle_person_seed;
 use crate::workers::reconcile::{ReconcileQueue, SupersedeOutcome};
-use crate::workers::stage2_path::{commit_stage2_writes, recompute_stage2};
+use crate::workers::stage2_path::{
+    commit_stage2_writes, diff_single_leaf_registers, recompute_stage2, FoldedLeaf,
+};
 use crate::workers::worker::{
     first_cascades, produce_cascades, produce_membership, transition_metric_label,
 };
@@ -640,15 +647,44 @@ pub(crate) async fn handle_seed(
     let now_ms = Utc::now().timestamp_millis();
     let now_day = day_idx_in_tz(now_ms, filters.timezone);
     let TileApplication {
-        staged,
+        mut staged,
         transitions,
-        stage2_leaves,
+        leaves,
         schedules,
     } = apply_tile_to_leaves(
         filters, &prefix, lsks, values, tile, person, now_day, now_ms,
     );
 
-    // Order: stage-1 commit → stage-2 recompute → produce → stage-2 commit → schedule → mark.
+    // Order: register diff → stage-1 commit → stage-2 recompute → produce → stage-2 commit →
+    // schedule → mark. The diff reads first, so a row this apply is about to place cannot be
+    // mistaken for one an earlier apply already told downstream about.
+    let diff = match diff_single_leaf_registers(
+        partition_id,
+        handle,
+        filters,
+        &leaves,
+        now_ms,
+        last_updated,
+        ReadLane::Maintenance,
+    )
+    .await
+    {
+        Ok(diff) => diff,
+        Err(error) => {
+            warn!(
+                partition_id,
+                team_id = tile.team_id().0,
+                error = %error,
+                "seed register read failed; holding the seed offset for redelivery",
+            );
+            hold(&merge.seed_tracker, partition_id, offset);
+            return;
+        }
+    };
+    for (key, state) in &diff.placeholders {
+        staged.put_stage2(key, &state.encode());
+    }
+
     if !staged.is_empty() {
         if let Err(error) = handle.commit(staged).await {
             warn!(
@@ -662,16 +698,17 @@ pub(crate) async fn handle_seed(
         }
     }
 
-    let mut changes: Vec<CohortMembershipChange> = Vec::new();
+    // Stage-1 flips, not emissions: the register diff owns what downstream is told.
     for transition in &transitions {
         if let Some(kind) = transition_metric_label(filters, transition) {
             counter!(STAGE1_TRANSITIONS, "kind" => kind).increment(1);
         }
-        changes.extend(map_transition(filters, transition, last_updated));
     }
+    let stage2_leaves: Vec<(LeafStateKey, Uuid)> = leaves.iter().map(|leaf| leaf.pair()).collect();
     // `event_ms := now_ms`: `last_evaluated_at_ms` is a freshness stamp, and the worker-batch
     // `last_updated` makes backfill flips win LWW downstream.
-    let recompute = match recompute_stage2(
+    let mut recompute = diff.recompute;
+    match recompute_stage2(
         partition_id,
         handle,
         filters,
@@ -682,7 +719,7 @@ pub(crate) async fn handle_seed(
     )
     .await
     {
-        Ok(recompute) => recompute,
+        Ok(composed) => recompute.extend(composed),
         Err(error) => {
             warn!(
                 partition_id,
@@ -693,8 +730,8 @@ pub(crate) async fn handle_seed(
             hold(&merge.seed_tracker, partition_id, offset);
             return;
         }
-    };
-    changes.extend(recompute.changes.iter().cloned());
+    }
+    let mut changes: Vec<CohortMembershipChange> = recompute.changes.clone();
 
     tag_seed(&mut changes, tile.run_id());
     // Only the cascade topic can re-evaluate cohort-of-cohort referrers; gate-off builds nothing.
@@ -702,8 +739,8 @@ pub(crate) async fn handle_seed(
     if !changes.is_empty() {
         let errors = produce_membership(sink, changes).await;
         if errors > 0 {
-            // Replay re-derives the stage-2 flips (bits unwritten); a lost single-leaf change is
-            // not re-emitted — the reconcile snapshot heals that class.
+            // Every bit this apply would advance is still unwritten, so the replay re-derives both
+            // halves and re-emits; the duplicates are LWW-safe downstream.
             warn!(
                 partition_id,
                 team_id = tile.team_id().0,
@@ -726,8 +763,8 @@ pub(crate) async fn handle_seed(
         return;
     }
 
-    // The bits commit only after both produces ack, so a failed produce is re-derived on replay
-    // instead of lost against a flipped bit; replay duplicates are LWW-safe downstream.
+    // The composed bits and the single-leaf register bits commit only after both produces ack, so
+    // a failed produce is re-derived on replay instead of lost against a flipped bit.
     if let Err(error) = commit_stage2_writes(handle, &recompute.writes).await {
         warn!(
             partition_id,
@@ -811,9 +848,10 @@ fn admit_reconcile(
 struct TileApplication {
     staged: StagedBatch,
     transitions: Vec<LeafTransition>,
-    /// Merged *and* Unchanged leaves both recompose Stage 2, so a crash between the two commits
-    /// self-heals on replay.
-    stage2_leaves: Vec<(LeafStateKey, Uuid)>,
+    /// Merged *and* Unchanged leaves both feed the register diff and the Stage 2 recompute, so a
+    /// crash between the two commits self-heals on replay: the replayed tile mints no transition,
+    /// but the leaf's folded truth still diffs against what downstream was told.
+    leaves: Vec<FoldedLeaf>,
     schedules: Vec<(BehavioralKey, i64)>,
 }
 
@@ -872,21 +910,13 @@ fn apply_tile_to_leaves(
                 counter!(SEED_TILES_APPLIED_TOTAL, "variant" => record.state.variant().as_str())
                     .increment(1);
                 let key = prefix.behavioral_key(lsk);
-                stage_seed_membership_registers(
-                    &mut application.staged,
-                    filters,
-                    MembershipRegisterSource {
-                        partition_id: prefix.partition_id,
-                        team_id: identity.team_id,
-                        person_id: identity.person_id,
-                        leaf_state_key: identity.lsk,
-                    },
-                    meta,
-                    &record.state,
-                    now_ms,
-                );
+                application.leaves.push(FoldedLeaf {
+                    leaf_state_key: lsk,
+                    person_id: person,
+                    in_cohort: leaf_membership(Some(&record.state), meta),
+                    minted_transition: transition.is_some(),
+                });
                 application.staged.put::<Behavioral>(&key, &record.encode());
-                application.stage2_leaves.push((lsk, person));
                 if let Some(transition) = transition {
                     application.transitions.push(transition);
                 }
@@ -897,20 +927,12 @@ fn apply_tile_to_leaves(
             LeafMergeOutcome::Unchanged { record } => {
                 counter!(SEED_TILES_UNCHANGED_TOTAL, "variant" => meta.variant.as_str())
                     .increment(1);
-                stage_seed_membership_registers(
-                    &mut application.staged,
-                    filters,
-                    MembershipRegisterSource {
-                        partition_id: prefix.partition_id,
-                        team_id: identity.team_id,
-                        person_id: identity.person_id,
-                        leaf_state_key: identity.lsk,
-                    },
-                    meta,
-                    &record.state,
-                    now_ms,
-                );
-                application.stage2_leaves.push((lsk, person));
+                application.leaves.push(FoldedLeaf {
+                    leaf_state_key: lsk,
+                    person_id: person,
+                    in_cohort: leaf_membership(Some(&record.state), meta),
+                    minted_transition: false,
+                });
             }
             LeafMergeOutcome::Dropped(reason) => {
                 counter!(SEED_TILES_DROPPED_TOTAL, "reason" => reason.as_str()).increment(1);
@@ -918,21 +940,6 @@ fn apply_tile_to_leaves(
         }
     }
     application
-}
-
-fn stage_seed_membership_registers(
-    staged: &mut StagedBatch,
-    filters: &TeamFilters,
-    source: MembershipRegisterSource,
-    meta: &LeafStateMeta,
-    state: &Stage1State,
-    now_ms: i64,
-) {
-    let in_cohort = leaf_membership(Some(state), meta);
-    stage_register_writes(
-        staged,
-        single_leaf_register_writes(filters, source, in_cohort, now_ms),
-    );
 }
 
 pub(crate) fn tag_seed(changes: &mut [CohortMembershipChange], run_id: RunId) {
@@ -1478,6 +1485,61 @@ mod tests {
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(64))]
 
+        /// The register diff derives its change from [`leaf_membership`] over the folded state,
+        /// where the derivation it replaced used the transition the merge minted. The two must
+        /// agree over any tile sequence and either comparator direction, or a first apply would
+        /// emit a change stage 1 never flipped, or swallow one it did.
+        #[test]
+        fn leaf_membership_agrees_with_the_transition_the_merge_mints(
+            tiles in prop::collection::vec((0i32..=12, 1u32..=5, 0i32..=3), 1..10),
+            gte in any::<bool>(),
+            threshold in 1u32..=4,
+        ) {
+            let op = if gte { PredicateOp::Gte(threshold) } else { PredicateOp::Lte(threshold) };
+            let meta = daily_meta(7, op);
+            let mut prev: Option<StatefulRecord> = None;
+            // Wall time advances between applies, so the window slides and the slide-induced
+            // transitions are in scope too.
+            let mut today = now_day();
+            let mut now_ms = NOW_MS;
+            for &(offset, n, advance) in &tiles {
+                today += advance;
+                now_ms += advance as i64 * 86_400_000;
+                let before = leaf_membership(prev.as_ref().map(|record| &record.state), &meta);
+                match merge_tile_into_leaf(
+                    &meta,
+                    UTC,
+                    identity(),
+                    today - offset,
+                    count(n),
+                    prev.clone(),
+                    today,
+                    now_ms,
+                ) {
+                    LeafMergeOutcome::Merged { record, transition, .. } => {
+                        let after = leaf_membership(Some(&record.state), &meta);
+                        prop_assert_eq!(
+                            transition.map(|transition| transition.kind),
+                            match (before, after) {
+                                (false, true) => Some(TransitionKind::Entered),
+                                (true, false) => Some(TransitionKind::Left),
+                                _ => None,
+                            },
+                        );
+                        prev = Some(record);
+                    }
+                    LeafMergeOutcome::Unchanged { record } => {
+                        prop_assert_eq!(
+                            leaf_membership(Some(&record.state), &meta),
+                            before,
+                            "an Unchanged merge cannot move membership",
+                        );
+                    }
+                    LeafMergeOutcome::Dropped(_) => {}
+                }
+            }
+        }
+
         /// An arbitrary tile multiset applied in an arbitrary order (some tiles below the
         /// window) reaches one unique final state.
         #[test]
@@ -1802,6 +1864,12 @@ mod tests {
         deps: MergeWorkerDeps,
         queue: EvictionQueue<BehavioralKey>,
         reconcile_queue: ReconcileQueue,
+        /// Mints a strictly increasing stamp per run, the way a partition worker does, so a
+        /// re-emission wins LWW against the change it replaces.
+        clock: crate::producer::LastUpdatedClock,
+        /// What `handle_seed` produces through. Defaults to `sink`; a test swaps it to reach an
+        /// ack shape `CaptureSink` cannot produce.
+        membership: Arc<dyn MembershipSink>,
     }
 
     impl Shell {
@@ -1883,13 +1951,15 @@ mod tests {
                 store,
                 handle,
                 catalog,
-                sink,
+                sink: sink.clone(),
                 seed_sink,
                 cascade_sink,
                 marker_sink,
                 deps,
                 queue: EvictionQueue::new(),
                 reconcile_queue,
+                clock: crate::producer::LastUpdatedClock::default(),
+                membership: Arc::new(sink),
             }
         }
 
@@ -1897,7 +1967,8 @@ mod tests {
             self.deps
                 .seed_tracker
                 .mark_dispatched(partition_id as i32, offset + 1);
-            let sink: Arc<dyn MembershipSink> = Arc::new(self.sink.clone());
+            let sink = self.membership.clone();
+            let last_updated = self.clock.next();
             handle_seed(
                 partition_id,
                 &self.handle,
@@ -1906,11 +1977,40 @@ mod tests {
                 &self.deps,
                 &mut self.queue,
                 &mut self.reconcile_queue,
-                "2026-06-15 12:00:00.000000",
+                &last_updated,
                 &work,
                 offset,
             )
             .await;
+        }
+
+        /// A new tenure over the same store, catalog, and sinks: fresh offset trackers and
+        /// in-memory queues, the way a restart or rebalance re-assigns the partition at
+        /// `Offset::Stored` and replays whatever a hold pinned.
+        fn restart(&mut self) {
+            self.deps.seed_tracker = Arc::new(OffsetTracker::new());
+            self.deps.merge_tracker = Arc::new(OffsetTracker::new());
+            self.deps.transfer_tracker = Arc::new(OffsetTracker::new());
+            self.deps.cascade_tracker = Arc::new(OffsetTracker::new());
+            self.queue = EvictionQueue::new();
+            self.reconcile_queue =
+                ReconcileQueue::new(0, self.deps.reconcile.backlog.clone(), self.handle.clone());
+        }
+
+        fn register_key(&self, partition_id: u16, person: Uuid, cohort_id: u64) -> Stage2Key {
+            Stage2Key {
+                partition_id,
+                team_id: TEAM.0 as u64,
+                cohort_id,
+                person_id: person,
+            }
+        }
+
+        fn register(&self, partition_id: u16, person: Uuid, cohort_id: u64) -> Option<Stage2State> {
+            self.store
+                .get_stage2(&self.register_key(partition_id, person, cohort_id))
+                .unwrap()
+                .map(|bytes| Stage2State::decode(&bytes).unwrap())
         }
 
         fn committable(&self, partition_id: u16) -> Option<i64> {
@@ -1920,6 +2020,25 @@ mod tests {
                 .get(&(partition_id as i32))
                 .copied()
         }
+    }
+
+    /// What the CDP consumer would hold after applying `changes` in produce order: the newest
+    /// `last_updated` per `(cohort, person)` wins, ties to the later record.
+    fn downstream(changes: &[CohortMembershipChange]) -> BTreeMap<(i32, String), MembershipStatus> {
+        let mut model: BTreeMap<(i32, String), (String, MembershipStatus)> = BTreeMap::new();
+        for change in changes {
+            let entry = (change.cohort_id, change.person_id.clone());
+            let beats = model
+                .get(&entry)
+                .is_none_or(|(seen, _)| change.last_updated >= *seen);
+            if beats {
+                model.insert(entry, (change.last_updated.clone(), change.status));
+            }
+        }
+        model
+            .into_iter()
+            .map(|(entry, (_, status))| (entry, status))
+            .collect()
     }
 
     fn today() -> DayIdx {
@@ -2051,9 +2170,17 @@ mod tests {
             .write_batch(|batch| batch.delete_stage2(&register_key))
             .unwrap();
 
-        // Re-delivery: max-merge no-op, no duplicate emission, and the missing register self-heals.
+        // Re-delivery: the max-merge is a no-op, but a missing register reads as "downstream was
+        // never told", so the entry is re-emitted and the row restored. The duplicate is what the
+        // LWW sink is for.
         shell.run(partition_id, SeedWork::Tile(tile), 10).await;
-        assert_eq!(shell.sink.changes().len(), 1);
+        let changes = shell.sink.changes();
+        assert_eq!(changes.len(), 2);
+        assert_eq!(changes[1].status, MembershipStatus::Entered);
+        assert!(
+            changes[1].last_updated > changes[0].last_updated,
+            "the re-emission carries the newer stamp, so it wins downstream",
+        );
         assert_eq!(shell.committable(partition_id), Some(11));
         assert!(
             Stage2State::decode(&shell.store.get_stage2(&register_key).unwrap().unwrap())
@@ -2298,8 +2425,11 @@ mod tests {
         assert!(shell.sink.changes().is_empty(), "no local apply either");
     }
 
+    /// Stage 1 committed, then the membership produce failed. The redelivery merges to
+    /// `Unchanged` and mints no transition, so only the register diff can tell that downstream was
+    /// never told and re-emit.
     #[tokio::test]
-    async fn membership_produce_failure_holds_the_seed_offset() {
+    async fn membership_produce_failure_holds_and_the_redelivery_re_emits_the_single_leaf_change() {
         let person = Uuid::from_u128(0x5EED);
         let partition_id = partition_of(TEAM, &person, COHORT_PARTITION_COUNT) as u16;
         let mut shell = Shell::with_sink(
@@ -2307,15 +2437,242 @@ mod tests {
             CaptureSink::failing_first(1),
             CaptureSeedTileSink::new(),
         );
+        let tile = tile_for(person, today(), 1);
 
+        shell
+            .run(partition_id, SeedWork::Tile(tile.clone()), 4)
+            .await;
+
+        assert_eq!(shell.committable(partition_id), None, "held for redelivery");
+        assert!(shell.sink.changes().is_empty());
+        assert_eq!(
+            shell
+                .register(partition_id, person, 1)
+                .map(|state| state.in_cohort),
+            Some(false),
+            "the row exists for the reconcile scan, but reads `false`: downstream was never told",
+        );
+
+        shell.restart();
+        shell.run(partition_id, SeedWork::Tile(tile), 4).await;
+
+        let changes = shell.sink.changes();
+        assert_eq!(
+            changes.len(),
+            1,
+            "the redelivery re-derived the lost change"
+        );
+        assert_eq!(changes[0].cohort_id, 1);
+        assert_eq!(changes[0].status, MembershipStatus::Entered);
+        assert_eq!(changes[0].origin, Some(ChangeOrigin::Seed));
+        assert!(
+            shell.register(partition_id, person, 1).unwrap().in_cohort,
+            "the bit advances once the produce acks",
+        );
+        assert_eq!(
+            downstream(&changes),
+            BTreeMap::from([((1, person.to_string()), MembershipStatus::Entered)]),
+        );
+        assert_eq!(shell.committable(partition_id), Some(5));
+    }
+
+    /// Acks the first record of one batch and fails the rest, which is what a broker does when
+    /// its queue fills mid-batch. The acked record lands in the wrapped capture, so the model
+    /// sees exactly what downstream got.
+    #[derive(Clone)]
+    struct PartialAckSink {
+        inner: CaptureSink,
+        split_next: Arc<std::sync::atomic::AtomicBool>,
+    }
+
+    #[async_trait::async_trait]
+    impl MembershipSink for PartialAckSink {
+        async fn produce(
+            &self,
+            changes: Vec<CohortMembershipChange>,
+        ) -> Vec<Result<(), common_kafka::kafka_producer::KafkaProduceError>> {
+            if !self
+                .split_next
+                .swap(false, std::sync::atomic::Ordering::SeqCst)
+            {
+                return self.inner.produce(changes).await;
+            }
+            let mut acks = Vec::with_capacity(changes.len());
+            for (index, change) in changes.into_iter().enumerate() {
+                if index == 0 {
+                    acks.extend(self.inner.produce(vec![change]).await);
+                } else {
+                    acks.push(Err(
+                        common_kafka::kafka_producer::KafkaProduceError::KafkaProduceCanceled,
+                    ));
+                }
+            }
+            acks
+        }
+    }
+
+    /// One record of the batch acked, the rest failed. No bit advances, so the redelivery re-emits
+    /// the whole batch and downstream converges on the store's truth.
+    #[tokio::test]
+    async fn a_partially_acked_produce_holds_and_the_redelivery_re_emits_the_whole_batch() {
+        let person = Uuid::from_u128(0x5EED);
+        let partition_id = partition_of(TEAM, &person, COHORT_PARTITION_COUNT) as u16;
+        // Two single-leaf cohorts on one leaf, so one tile produces a two-record batch.
+        let mut shell = Shell::new(vec![
+            (1, wrap(vec![single_leaf_json(7)])),
+            (2, wrap(vec![single_leaf_json(7)])),
+        ]);
+        shell.membership = Arc::new(PartialAckSink {
+            inner: shell.sink.clone(),
+            split_next: Arc::new(std::sync::atomic::AtomicBool::new(true)),
+        });
+        let tile = tile_for(person, today(), 1);
+
+        shell
+            .run(partition_id, SeedWork::Tile(tile.clone()), 4)
+            .await;
+
+        assert_eq!(shell.sink.changes().len(), 1, "only cohort 1 acked");
+        assert_eq!(shell.committable(partition_id), None, "held for redelivery");
+        for cohort_id in [1, 2] {
+            assert_eq!(
+                shell
+                    .register(partition_id, person, cohort_id)
+                    .map(|state| state.in_cohort),
+                Some(false),
+                "cohort {cohort_id}: a partial ack advances no bit at all",
+            );
+        }
+
+        shell.restart();
+        shell.run(partition_id, SeedWork::Tile(tile), 4).await;
+
+        let changes = shell.sink.changes();
+        assert_eq!(
+            changes.len(),
+            3,
+            "the acked record duplicates, the failed one lands"
+        );
+        assert_eq!(
+            downstream(&changes),
+            BTreeMap::from([
+                ((1, person.to_string()), MembershipStatus::Entered),
+                ((2, person.to_string()), MembershipStatus::Entered),
+            ]),
+            "the model matches the store's truth for both cohorts",
+        );
+        assert!(shell.register(partition_id, person, 1).unwrap().in_cohort);
+        assert!(shell.register(partition_id, person, 2).unwrap().in_cohort);
+    }
+
+    /// Membership acked, then the cascade leg failed. The single-leaf change is re-emitted with
+    /// its cascade, so a cohort-of-cohort referrer is not left stale.
+    #[tokio::test]
+    async fn a_failed_cascade_re_emits_the_single_leaf_change_and_its_cascade_on_redelivery() {
+        let person = Uuid::from_u128(0x5EED);
+        let partition_id = partition_of(TEAM, &person, COHORT_PARTITION_COUNT) as u16;
+        let mut shell = Shell::with_cascade(
+            vec![(1, wrap(vec![single_leaf_json(7)]))],
+            crate::producer::CaptureCascadeSink::failing_first(1),
+        );
+        let tile = tile_for(person, today(), 1);
+
+        shell
+            .run(partition_id, SeedWork::Tile(tile.clone()), 3)
+            .await;
+
+        assert_eq!(shell.sink.changes().len(), 1, "membership is the first leg");
+        assert!(shell.cascade_sink.messages().is_empty());
+        assert_eq!(shell.committable(partition_id), None, "held for redelivery");
+
+        shell.restart();
+        shell.run(partition_id, SeedWork::Tile(tile), 3).await;
+
+        assert_eq!(shell.sink.changes().len(), 2, "the change re-emits with it");
+        let cascades = shell.cascade_sink.messages();
+        assert_eq!(cascades.len(), 1, "the lost single-leaf cascade lands");
+        assert_eq!(cascades[0].change.cohort_id, 1);
+        assert_eq!(cascades[0].change.origin, Some(ChangeOrigin::Seed));
+    }
+
+    /// A later tile on the same leaf advances the register before the held one is redelivered, so
+    /// the redelivery has nothing to repair. Over-emission is the fix's own failure mode.
+    #[tokio::test]
+    async fn a_later_tiles_ack_silences_the_held_tiles_redelivery() {
+        let person = Uuid::from_u128(0x5EED);
+        let partition_id = partition_of(TEAM, &person, COHORT_PARTITION_COUNT) as u16;
+        let mut shell = Shell::with_sink(
+            vec![(1, wrap(vec![single_leaf_json(7)]))],
+            CaptureSink::failing_first(1),
+            CaptureSeedTileSink::new(),
+        );
+        let held = tile_for(person, today(), 1);
+
+        shell
+            .run(partition_id, SeedWork::Tile(held.clone()), 4)
+            .await;
+        assert!(shell.sink.changes().is_empty(), "held before any emission");
+
+        // A hold pauses nothing, so the next tile on the partition still applies and acks.
         shell
             .run(
                 partition_id,
-                SeedWork::Tile(tile_for(person, today(), 1)),
-                4,
+                SeedWork::Tile(tile_for(person, today() - 1, 1)),
+                5,
             )
             .await;
-        assert_eq!(shell.committable(partition_id), None, "held for redelivery");
+        assert_eq!(shell.sink.changes().len(), 1);
+
+        shell.restart();
+        shell.run(partition_id, SeedWork::Tile(held), 4).await;
+
+        let changes = shell.sink.changes();
+        assert_eq!(changes.len(), 1, "the register already matched the truth");
+        assert_eq!(
+            downstream(&changes),
+            BTreeMap::from([((1, person.to_string()), MembershipStatus::Entered)]),
+        );
+    }
+
+    /// A cohort added over leaf state that predates it has no register row, so the next tile on
+    /// that leaf tells downstream even though the merge is a no-op. Nothing minted a transition
+    /// for this person, which is why only a register diff can reach the case.
+    #[tokio::test]
+    async fn a_cohort_added_over_existing_leaf_state_enters_on_the_next_unchanged_tile() {
+        let person = Uuid::from_u128(0x5EED);
+        let partition_id = partition_of(TEAM, &person, COHORT_PARTITION_COUNT) as u16;
+        let mut shell = Shell::new(vec![(1, wrap(vec![single_leaf_json(7)]))]);
+        let tile = tile_for(person, today(), 1);
+
+        shell
+            .run(partition_id, SeedWork::Tile(tile.clone()), 0)
+            .await;
+        assert_eq!(shell.sink.changes().len(), 1, "cohort 1 entered");
+
+        // Cohort 2 arrives keyed on the same leaf, over state it never saw evaluated.
+        shell.catalog = Arc::new(CatalogHandle::from_catalog(FilterCatalog::from_teams([(
+            TEAM,
+            build_filters(
+                vec![
+                    (1, wrap(vec![single_leaf_json(7)])),
+                    (2, wrap(vec![single_leaf_json(7)])),
+                ],
+                UTC,
+            ),
+        )])));
+
+        shell.run(partition_id, SeedWork::Tile(tile), 1).await;
+
+        let changes = shell.sink.changes();
+        assert_eq!(
+            changes.len(),
+            2,
+            "the replay is Unchanged but cohort 2 is new"
+        );
+        assert_eq!(changes[1].cohort_id, 2);
+        assert_eq!(changes[1].status, MembershipStatus::Entered);
+        assert!(shell.register(partition_id, person, 2).unwrap().in_cohort);
+        assert_eq!(shell.committable(partition_id), Some(2));
     }
 
     /// A seeded flip that never cascades leaves cohort-of-cohort referrers permanently stale.

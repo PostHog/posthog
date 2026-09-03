@@ -16,9 +16,11 @@ use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::num::NonZeroU32;
 use std::panic::AssertUnwindSafe;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use async_trait::async_trait;
 use chrono_tz::UTC;
 use cohort_core::seed::{
     BehavioralShapeHash, ClaimEpoch, ConditionHash, ReconcileScope, ReconcileTile, RunId, SChunkMs,
@@ -599,6 +601,9 @@ impl Instance {
     }
 }
 
+/// `membership` replaces the Kafka membership sink, so a test can reach an ack shape a healthy
+/// broker never produces; `None` keeps the production wiring.
+#[allow(clippy::too_many_arguments)]
 async fn spawn_instance(
     topics: &Topics,
     groups: &Groups,
@@ -606,6 +611,7 @@ async fn spawn_instance(
     catalog: CatalogHandle,
     handles: [Handle; 5],
     fence_margin_ms: i64,
+    membership: Option<Arc<dyn MembershipSink>>,
 ) -> Instance {
     let [events_handle, merge_handle, transfer_handle, cascade_handle, seed_handle] = handles;
     let kafka_config = producer_kafka_config();
@@ -641,11 +647,14 @@ async fn spawn_instance(
             .await
             .expect("create seed re-key sink"),
     );
-    let membership_sink: Arc<dyn MembershipSink> = Arc::new(
-        KafkaMembershipSink::new(&kafka_config, topics.shadow.clone())
-            .await
-            .expect("create membership sink"),
-    );
+    let membership_sink: Arc<dyn MembershipSink> = match membership {
+        Some(sink) => sink,
+        None => Arc::new(
+            KafkaMembershipSink::new(&kafka_config, topics.shadow.clone())
+                .await
+                .expect("create membership sink"),
+        ),
+    };
     let marker_sink: Arc<dyn ReconcileMarkerSink> = Arc::new(
         KafkaReconcileMarkerSink::new(&kafka_config, topics.markers.clone())
             .await
@@ -837,6 +846,7 @@ async fn seed_tile_applies_on_the_owning_worker_and_commits_to_the_hwm() {
             seed_catalog(),
             handles,
             2_000,
+            None,
         )
         .await;
         wait_for(
@@ -904,6 +914,222 @@ async fn seed_tile_applies_on_the_owning_worker_and_commits_to_the_hwm() {
     .await;
 }
 
+/// Wraps the real sink and fails its first produce, so the seed offset holds with nothing on the
+/// topic, which is the crash point the redelivery has to repair.
+struct FailFirstMembershipSink {
+    inner: Arc<dyn MembershipSink>,
+    fail_next: AtomicBool,
+}
+
+#[async_trait]
+impl MembershipSink for FailFirstMembershipSink {
+    async fn produce(
+        &self,
+        changes: Vec<CohortMembershipChange>,
+    ) -> Vec<Result<(), common_kafka::kafka_producer::KafkaProduceError>> {
+        if self.fail_next.swap(false, Ordering::SeqCst) {
+            return changes
+                .iter()
+                .map(|_| Err(common_kafka::kafka_producer::KafkaProduceError::KafkaProduceCanceled))
+                .collect();
+        }
+        self.inner.produce(changes).await
+    }
+}
+
+/// Block until the apply has committed its stage-1 batch, which is what places the register row.
+async fn await_register(instance: &Instance, key: &Stage2Key) -> Stage2State {
+    let start = Instant::now();
+    loop {
+        if let Some(bytes) = instance
+            .store
+            .get_stage2(key, ReadLane::Maintenance)
+            .await
+            .expect("read register")
+        {
+            return Stage2State::decode(&bytes).expect("decode register");
+        }
+        assert!(
+            start.elapsed() < Duration::from_secs(60),
+            "the held tile never committed its placeholder register",
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
+/// Reopen the same on-disk store once the previous instance has released its RocksDB lock.
+async fn reopen_store_live(dir: &TempDir) -> CohortStore {
+    let config = StoreConfig {
+        path: dir.path().join("db"),
+        wipe_on_start: false,
+        ..StoreConfig::default()
+    };
+    let start = Instant::now();
+    loop {
+        match CohortStore::open(&config) {
+            Ok(store) => return store,
+            Err(_) if start.elapsed() < Duration::from_secs(10) => {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+            Err(error) => panic!("failed to reopen store live: {error}"),
+        }
+    }
+}
+
+/// End to end through a real broker: the first instance commits stage 1 and then fails its
+/// membership produce, so nothing reaches the topic and the seed offset holds. A second instance
+/// over the same store re-derives the change from the register the first one never advanced.
+#[tokio::test]
+#[ignore = "requires a running Kafka broker (KAFKA_HOSTS); run with --ignored against a local stack"]
+async fn a_failed_seed_produce_is_re_emitted_after_a_restart() {
+    let suffix = Uuid::new_v4();
+    let topics = Topics::unique(&suffix);
+    let groups = Groups::unique(&suffix);
+    with_topics_cleanup(&topics.names(), async {
+        topics.create().await;
+        let alice = Uuid::from_u128(0xA11CE);
+        let register = Stage2Key {
+            partition_id: part(alice),
+            team_id: TEAM as u64,
+            cohort_id: 1,
+            person_id: alice,
+        };
+        let dir = TempDir::new().unwrap();
+        let producer = murmur2_producer();
+        let seed_sink = KafkaSeedTileSink::new(&producer_kafka_config(), topics.seeds.clone())
+            .await
+            .expect("create test seed sink");
+
+        // First tenure: stage 1 commits, the membership produce fails.
+        let mut manager = Manager::builder("seed-e2e-itest")
+            .with_trap_signals(false)
+            .build();
+        let handles = register_instance(&mut manager);
+        let shutdown = handles[0].clone();
+        let monitor = manager.monitor_background();
+        let failing: Arc<dyn MembershipSink> = Arc::new(FailFirstMembershipSink {
+            inner: Arc::new(
+                KafkaMembershipSink::new(&producer_kafka_config(), topics.shadow.clone())
+                    .await
+                    .expect("create membership sink"),
+            ),
+            fail_next: AtomicBool::new(true),
+        });
+        let instance = spawn_instance(
+            &topics,
+            &groups,
+            open_store(&dir),
+            seed_catalog(),
+            handles,
+            2_000,
+            Some(failing),
+        )
+        .await;
+        wait_for(
+            "the consumer to own every partition",
+            Duration::from_secs(30),
+            || instance.owned().len() == NUM_PARTITIONS as usize,
+        )
+        .await;
+
+        produce_warm_event(
+            &producer,
+            &topics.events,
+            alice,
+            0,
+            chrono::Utc::now().timestamp_millis(),
+        )
+        .await;
+        produce_tile(
+            &seed_sink,
+            tile(alice, chrono::Utc::now().timestamp_millis() - 3_600_000),
+        )
+        .await;
+
+        let seed_partition = part(alice);
+        assert!(
+            !await_register(&instance, &register).await.in_cohort,
+            "the bit must not advance past a failed produce",
+        );
+        assert_eq!(
+            topic_message_count(&topics.shadow),
+            0,
+            "nothing was emitted"
+        );
+        assert_eq!(
+            instance.seed_committable(seed_partition),
+            None,
+            "the failed produce holds the seed offset",
+        );
+
+        shutdown.request_shutdown();
+        instance.join().await;
+        drop(monitor);
+
+        // Second tenure over the same store: the redelivered tile merges to `Unchanged`, so only
+        // the lagging register can say downstream was never told.
+        let mut manager = Manager::builder("seed-e2e-itest")
+            .with_trap_signals(false)
+            .build();
+        let handles = register_instance(&mut manager);
+        let shutdown = handles[0].clone();
+        let _monitor = manager.monitor_background();
+        let instance = spawn_instance(
+            &topics,
+            &groups,
+            reopen_store_live(&dir).await,
+            seed_catalog(),
+            handles,
+            2_000,
+            None,
+        )
+        .await;
+        wait_for(
+            "the consumer to own every partition",
+            Duration::from_secs(30),
+            || instance.owned().len() == NUM_PARTITIONS as usize,
+        )
+        .await;
+        // The new tenure resumes live consumption at its committed offset, so the apply fence
+        // needs a fresh live event before it will re-admit the redelivered tile.
+        produce_warm_event(
+            &producer,
+            &topics.events,
+            alice,
+            1,
+            chrono::Utc::now().timestamp_millis(),
+        )
+        .await;
+
+        wait_for(
+            "the re-derived flip on the shadow topic",
+            Duration::from_secs(60),
+            || topic_message_count(&topics.shadow) == 1,
+        )
+        .await;
+        let changes = drain_membership_only(&topics.shadow, 1).await;
+        assert_eq!(changes.len(), 1, "exactly one change, not a duplicate");
+        assert_eq!(changes[0].person_id, alice.to_string());
+        assert_eq!(changes[0].cohort_id, 1);
+        assert_eq!(changes[0].status, MembershipStatus::Entered);
+        assert_eq!(changes[0].origin, Some(ChangeOrigin::Seed));
+        assert!(
+            instance.stage2(&register).await.in_cohort,
+            "the bit advances once the re-emission acks",
+        );
+        wait_for(
+            "the seed group's committed offset to reach the produced HWM",
+            Duration::from_secs(30),
+            || seed_group_committed(&groups.seeds, &topics.seeds, seed_partition as i32) == Some(1),
+        )
+        .await;
+
+        shutdown.request_shutdown();
+        instance.join().await;
+    })
+    .await;
+}
+
 /// Partition-targeted controls drain a full 64-partition snapshot, repair a stale membership bit,
 /// and release each seed offset only after that partition's completion marker is acknowledged.
 #[tokio::test]
@@ -930,6 +1156,7 @@ async fn reconcile_snapshot_repairs_stale_state_and_commits_after_markers() {
             seed_catalog(),
             handles,
             2_000,
+            None,
         )
         .await;
         wait_for(
@@ -1207,6 +1434,7 @@ async fn fence_holds_a_fresh_tile_until_live_consumption_passes_its_scan_point()
             seed_catalog(),
             handles,
             fence_margin_ms,
+            None,
         )
         .await;
         wait_for(

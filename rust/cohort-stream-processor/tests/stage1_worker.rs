@@ -2559,6 +2559,58 @@ async fn seed_produce_failure_holds_the_seed_tracker_but_not_the_events_tracker(
     let changes = sink.changes();
     assert_eq!(changes.len(), 1, "only the live flip landed");
     assert_eq!(changes[0].person_id, alice.to_string());
+
+    // The next tenure re-assigns at the stored offset and redelivers the held tile. Its merge is
+    // `Unchanged` and mints no transition, so only the persisted register can say downstream was
+    // never told.
+    let replay_sink = CaptureSink::new();
+    let replay_deps = MergeWorkerDeps::capture();
+    let replay_tracker = Arc::new(OffsetTracker::new());
+    let (tx, rx) = mpsc::channel(16);
+    let rx = MeteredReceiver::unmetered(rx);
+    let worker = Stage1Worker::spawn(
+        PARTITION_ID,
+        rx,
+        test_handle(&store),
+        catalog_of(build_team_filters(vec![(
+            CohortId(1),
+            cohort(vec![behavioral_leaf(7)]),
+        )])),
+        Arc::new(replay_sink.clone()),
+        replay_tracker.clone(),
+        replay_deps.clone(),
+        false,
+    );
+    replay_deps
+        .seed_tracker
+        .mark_dispatched(PARTITION_ID as i32, 8);
+    tx.send(vec![seed_message(bob, utc_today(), 1, 7)])
+        .await
+        .unwrap();
+    drop(tx);
+    worker.join().await.unwrap();
+
+    let changes = replay_sink.changes();
+    assert_eq!(
+        changes.len(),
+        1,
+        "the redelivery re-derived the lost change"
+    );
+    assert_eq!(changes[0].person_id, bob.to_string());
+    assert_eq!(changes[0].status, MembershipStatus::Entered);
+    assert_eq!(
+        replay_deps
+            .seed_tracker
+            .committable_offsets()
+            .get(&(PARTITION_ID as i32)),
+        Some(&8),
+        "the seed offset commits once the re-emission acks",
+    );
+    assert_eq!(
+        replay_deps.live_watermarks.get(PARTITION_ID as i32),
+        None,
+        "a seed-only batch never advances the live watermark",
+    );
 }
 
 /// A held batch must not advance the watermark; the successful redelivery does.

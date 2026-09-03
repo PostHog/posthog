@@ -6,6 +6,23 @@ use serde::{Deserialize, Serialize};
 /// when that was last evaluated. Single-leaf cohorts write this directly from their leaf state;
 /// composable cohorts write it after Boolean composition.
 ///
+/// # What the bit means, per writer
+///
+/// A row exists once the `(cohort, person)` pair is evaluated, so the reconcile scan can enumerate
+/// it, and an explicit `false` is written rather than the row deleted.
+///
+/// The two seed paths ([`handle_seed`](crate::workers::seed_path) and the person-seed apply) hold a
+/// stricter meaning: the bit is **what downstream was last told**. They commit it only after the
+/// membership produce acks, and derive their changes by diffing the leaf's truth against it, so a
+/// produce that fails after stage 1 commits is re-derived on redelivery instead of lost. A row
+/// they have not written yet cannot prove downstream was never told, so a transition minted in the
+/// same apply is emitted regardless.
+///
+/// Every other writer (the live event path, the sweep, the merge apply, reconcile) writes the bit
+/// as **stage-1 truth**, at stage-1 time. Their emissions are transition-derived, so their register
+/// value carries no claim about what downstream received. Read the bit accordingly, and see
+/// `handle_sweep` for why the sweep must not adopt the seed paths' diff.
+///
 /// `last_evaluated_at_ms` is write-only for now (nothing reads it). Writers use the timestamp of the
 /// operation that evaluated membership: event time for live/merge work, the sweep cutoff for
 /// evictions, and application time for seed work.
