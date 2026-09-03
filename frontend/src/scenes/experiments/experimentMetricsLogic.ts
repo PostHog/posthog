@@ -56,25 +56,6 @@ export const RECALCULATION_STATUSES = {
 
 export type RecalculationStatuses = (typeof RECALCULATION_STATUSES)[keyof typeof RECALCULATION_STATUSES]
 
-// Higher rank = stronger recalculation scope. A metric-scoped rerun reuses the window (cache-hits
-// unchanged metrics); everything else advances the window and recomputes all metrics, so it wins a
-// coalesce. Unknown triggers default to the strong end so a rerun never silently under-recomputes.
-const RERUN_TRIGGER_RANK: Partial<Record<ExperimentMetricsRecalculationTriggerEnumApi, number>> = {
-    metric_config_change: 0,
-    experiment_config_change: 1,
-    manual: 1,
-    cold_run: 1,
-    auto_refresh: 1,
-}
-
-export const rerunTriggerRank = (trigger: ExperimentMetricsRecalculationTriggerEnumApi): number =>
-    RERUN_TRIGGER_RANK[trigger] ?? 1
-
-export const strongerRerunTrigger = (
-    a: ExperimentMetricsRecalculationTriggerEnumApi,
-    b: ExperimentMetricsRecalculationTriggerEnumApi
-): ExperimentMetricsRecalculationTriggerEnumApi => (rerunTriggerRank(b) > rerunTriggerRank(a) ? b : a)
-
 /** Transient per-metric retry state written by the calc activity between failed attempts. */
 export interface MetricRetryInfo {
     attempt: number
@@ -358,13 +339,14 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                 setCurrentRecalculation: () => false,
             },
         ],
-        // The single pending rerun requested while a run was active. Coalesces to the stronger scope;
-        // in-memory and per-tab (v1). Fired and cleared by the poll-terminal branch.
         queuedRerun: [
             null as ExperimentMetricsRecalculationTriggerEnumApi | null,
             {
+                /**
+                 * If the state is `experiment_config_change`, it sticks.
+                 */
                 setQueuedRerun: (state, { trigger }) =>
-                    trigger === null || state === null ? trigger : strongerRerunTrigger(state, trigger),
+                    trigger === null ? null : state === 'experiment_config_change' ? state : trigger,
             },
         ],
         primaryMetricsResults: [
@@ -732,12 +714,13 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                     return
                 }
                 /**
-                 * A run is already active: don't create a second one (the backend enforces one active
-                 * run per experiment). Remember the change, coalesced to the stronger scope, and fire it
-                 * from the poll-terminal branch when the current run ends. cold_run is the initial fill and
-                 * never queues.
+                 * If we have a recalculation in flight, and the user has changed the experiment or the metrics configuration,
+                 * we schedule a new recalculation with the corresponding trigger.
                  */
-                if (trigger !== 'cold_run' && values.isRecalculating) {
+                if (
+                    (trigger === 'experiment_config_change' || trigger === 'metric_config_change') &&
+                    values.isRecalculating
+                ) {
                     actions.setQueuedRerun(trigger)
                     return
                 }
@@ -937,10 +920,13 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                     )
                 }
 
+                /**
+                 * The user has changed the experiment or the metrics configuration while a recalculation was in flight.
+                 * We clear the flag an trigger a new recalculation to reflect the changes. Cache resolution is handled by the
+                 * durable execution backend, so we'll try to reuse the cached results.
+                 */
                 const queued = values.queuedRerun
                 if (queued) {
-                    // A config change arrived during this run. Clear the queue first so the fresh run's
-                    // own queuing (if the user keeps editing) starts clean, then fire the coalesced rerun.
                     actions.setQueuedRerun(null)
                     actions.triggerRecalculation(queued)
                 }
