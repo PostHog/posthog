@@ -164,6 +164,7 @@ export function ObservationSearchTab({ scanner }: { scanner: ReplayScanner | nul
         truncated,
         recentQueries,
         suggestedQueries,
+        suggestedQueriesLoading,
     } = useValues(logic)
     const { setQuery, search } = useActions(logic)
     const crossScanner = scanner === null
@@ -225,13 +226,20 @@ export function ObservationSearchTab({ scanner }: { scanner: ReplayScanner | nul
                                 onPick={runQuery}
                             />
                         )}
-                        <QuerySection
-                            title="Suggested searches"
-                            description={suggestionDescription(crossScanner, suggestedQueries.length > 0)}
-                            queries={tryQueries}
-                            dataAttr="vision-search-example"
-                            onPick={runQuery}
-                        />
+                        {suggestedQueriesLoading ? (
+                            // Hold the section rather than flash the fixed examples and swap them out a moment later.
+                            <div className="flex items-center justify-center h-16">
+                                <Spinner />
+                            </div>
+                        ) : (
+                            <QuerySection
+                                title="Suggested searches"
+                                description={suggestionDescription(crossScanner, suggestedQueries.length > 0)}
+                                queries={tryQueries}
+                                dataAttr="vision-search-example"
+                                onPick={runQuery}
+                            />
+                        )}
                     </div>
                 )
             ) : (
