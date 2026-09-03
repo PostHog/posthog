@@ -28,6 +28,7 @@ from posthog.persons_seed import insert_seed_distinct_id, insert_seed_person
 
 from products.notebooks.evals.synthesizer import CHURN_TOKEN, SIGNUP_EVENT, ChurnAccount, build_churn_needle
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 # Realistic props for the planted file events, so a churn query that groups or filters on
 # file properties still sees well-formed rows. Fixed values keep the seed deterministic.
@@ -95,6 +96,14 @@ def _group_properties(account: ChurnAccount, uploads: int) -> dict[str, Any]:
     }
 
 
+# Hedgebox also exposes its uploads as a warehouse table, derived once from the master
+# simulation into a CSV every case team shares. The planted cohort only reaches ClickHouse
+# ``events``, so that table would show an upload history without the churners in it: an
+# agent that queried it would build a sound analysis and still miss the needle. Hide it so
+# every source the agent can reach agrees on who uploaded what.
+_STALE_WAREHOUSE_TABLES = ("uploaded_files",)
+
+
 def seed_case_team(context: CustomPromptSandboxContext) -> dict[str, Any]:
     """Seed nothing; hand the scorers the case's team so they can read the end state.
 
@@ -113,6 +122,11 @@ def _event_properties(event: str, account: ChurnAccount) -> dict[str, Any]:
     props: dict[str, Any] = {"$group_0": account.account_key}
     props.update(_FILE_EVENT_PROPS.get(event, {}))
     return props
+
+
+def _hide_stale_warehouse_tables(team_id: int) -> None:
+    for table in DataWarehouseTable.objects.filter(team_id=team_id, name__in=_STALE_WAREHOUSE_TABLES):
+        table.soft_delete()
 
 
 def seed_churn_signal(context: CustomPromptSandboxContext) -> dict[str, Any]:
@@ -187,6 +201,7 @@ def seed_churn_signal(context: CustomPromptSandboxContext) -> dict[str, Any]:
                 }
             )
     bulk_create_events(events)
+    _hide_stale_warehouse_tables(team.id)
 
     return {
         "team_id": team.id,
