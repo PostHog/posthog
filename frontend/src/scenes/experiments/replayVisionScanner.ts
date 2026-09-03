@@ -1,8 +1,10 @@
-import { NodeKind } from '~/queries/schema/schema-general'
 import type { Experiment } from '~/types'
 
 import type { ReplayScannerApi } from 'products/replay_vision/frontend/generated/api.schemas'
-import { buildExperimentTargeting } from 'products/replay_vision/frontend/replay_scanners/experimentTargeting'
+import {
+    buildExperimentTargeting,
+    experimentScannerQuery,
+} from 'products/replay_vision/frontend/replay_scanners/experimentTargeting'
 import {
     DEFAULT_MODEL,
     DEFAULT_PROVIDER,
@@ -74,10 +76,7 @@ export function experimentScannerBody(experiment: Experiment): ReplayScannerApi 
         model: DEFAULT_MODEL,
         // A null variant watches every variant of the experiment.
         experiment_targeting: buildExperimentTargeting({ experiment, variantKey: null }),
-        query: {
-            kind: NodeKind.RecordingsQuery,
-            filter_test_accounts: experiment.exposure_criteria?.filterTestAccounts ?? false,
-        },
+        query: experimentScannerQuery(experiment),
         // Enabling starts real credit spend, so that stays a human decision on the scanner itself.
         enabled: false,
     })
