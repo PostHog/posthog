@@ -24,6 +24,7 @@ from dataclasses import dataclass
 import urllib3
 import requests
 import digitalocean  # type: ignore
+from urllib3.exceptions import InsecureRequestWarning
 
 DOMAIN = os.getenv("HOBBY_DOMAIN", "posthog.cc")
 FALLBACK_SIZE = "g-8vcpu-32gb"
@@ -259,7 +260,7 @@ runcmd:
             time.sleep(1)
             self.droplet.load()
             ip = self.droplet.ip_address
-        print(f"Public IP found: {ip}")  # type: ignore
+        print(f"Public IP found: {ip}")
         return ip
 
     def create_droplet(self, ssh_enabled=False):
@@ -540,7 +541,7 @@ runcmd:
         headers = {"Authorization": f"Bearer {personal_api_key}"}
         deadline = time.time() + timeout_seconds
         attempt = 0
-        pending_event_names = {event["event"] for event in events}
+        pending_event_names = {str(event["event"]) for event in events}
         while time.time() < deadline:
             attempt += 1
             for event_name in pending_event_names.copy():
@@ -1028,6 +1029,7 @@ runcmd:
 
         Returns (success, failure_details, cloud_init_finished_at).
         """
+        assert self.droplet is not None
         start_time = datetime.datetime.now()
         last_log_fetch = -30
         attempt = 0
@@ -1116,8 +1118,9 @@ runcmd:
 
         Returns (success, failure_details).
         """
+        assert self.droplet is not None
 
-        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+        urllib3.disable_warnings(InsecureRequestWarning)
 
         start_time = datetime.datetime.now()
         deadline = start_time + datetime.timedelta(minutes=timeout_minutes)
@@ -1233,6 +1236,7 @@ runcmd:
 
     def _print_failing_container_diagnostics(self, stopped_containers: list[dict]) -> None:
         """Print diagnostic info for failing containers."""
+        assert self.droplet is not None
         failing_names = []
         for c in stopped_containers:
             container_info = f"{c.get('Service')}: {c.get('State')}"
@@ -1289,6 +1293,7 @@ runcmd:
         if not cloud_init_ok:
             return (False, details)
 
+        assert finished_at is not None
         health_ok, details = self.wait_for_health_check(
             finished_at, health_timeout, retry_interval, stability_period, startup_grace_seconds
         )
@@ -1487,6 +1492,7 @@ runcmd:
 
         # Export to GitHub env
         env_file_name = os.getenv("GITHUB_ENV")
+        assert env_file_name is not None
         with open(env_file_name, "a") as env_file:
             env_file.write(f"HOBBY_DROPLET_ID={droplet_id}\n")
             env_file.write(f"HOBBY_DROPLET_IP={ip_address}\n")
@@ -1541,7 +1547,7 @@ def _previous_smoke_test_state(ctx: PRCommentContext) -> tuple[bool, int]:
     standalone comment while open PRs still carry one.
     """
     headers = {
-        "Authorization": f"token {ctx.gh_token}",
+        "Authorization": f"Bearer {ctx.gh_token}",
         "Accept": "application/vnd.github.v3+json",
     }
     repo = "PostHog/posthog"
@@ -1971,7 +1977,7 @@ def main():
             # Check PR status and activity (requires GH_TOKEN)
             if gh_token:
                 try:
-                    headers = {"Authorization": f"token {gh_token}", "Accept": "application/vnd.github.v3+json"}
+                    headers = {"Authorization": f"Bearer {gh_token}", "Accept": "application/vnd.github.v3+json"}
                     resp = requests.get(
                         f"https://api.github.com/repos/PostHog/posthog/pulls/{pr_number}",
                         headers=headers,
