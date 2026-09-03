@@ -4,13 +4,14 @@ from django.core.management import call_command
 
 from parameterized import parameterized
 
+from posthog.models import Team
 from posthog.models.scoping import team_scope
 
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow_revision import HogFlowRevision
 
 
-def _flow(team, name: str, conversion: dict) -> HogFlow:
+def _flow(team: Team, name: str, conversion: dict) -> HogFlow:
     return HogFlow.objects.create(
         team=team,
         name=name,
