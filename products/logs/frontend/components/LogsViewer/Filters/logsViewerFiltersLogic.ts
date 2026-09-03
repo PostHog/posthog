@@ -192,14 +192,14 @@ export interface logsViewerFiltersLogicActions {
     setPersonId: (personId: string | undefined) => {
         personId: string | undefined
     }
-    setSessionId: (sessionId: string | undefined) => {
-        sessionId: string | undefined
-    }
     setPinnedFilters: (pinnedFilters: UniversalFiltersGroup | undefined) => {
         pinnedFilters: UniversalFiltersGroup | undefined
     }
     setSearchTerm: (searchTerm: LogsQuery['searchTerm']) => {
         searchTerm: string | undefined
+    }
+    setSessionId: (sessionId: string | undefined) => {
+        sessionId: string | undefined
     }
     zoomDateRange: (multiplier: number) => {
         multiplier: number

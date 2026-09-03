@@ -444,11 +444,12 @@ class LogsFilterBuilder:
                         exprs.append(get_lowercase_index_hint(log_filter, team=self.team))
                     exprs.append(property_to_expr(log_filter, team=self.team))
 
-        if self.query.personId:
+        # Scope on the field being present at all, not on it being truthy: a caller that asks for a
+        # person or a session but holds a blank id must match nothing rather than widen to the
+        # whole project.
+        if self.query.personId is not None:
             exprs.append(self._person_scope_expr())
 
-        # Scope on the field being present at all, not on it being truthy: a caller that asks for a
-        # session but holds a blank id must match nothing rather than widen to the whole project.
         if self.query.sessionId is not None:
             exprs.append(self._session_scope_expr())
 
@@ -532,20 +533,60 @@ class LogsFilterBuilder:
 
         return ast.And(exprs=exprs)
 
+    @cached_property
+    def _team_logs_config(self) -> TeamLogsConfig | None:
+        return TeamLogsConfig.objects.filter(team=self.team).first()
+
+    def _attribute_scope_expr(self, attribute_keys: list[str], values: list[str]) -> ast.Expr:
+        # Matches when any of the keys, in either the log attributes or the resource attributes,
+        # holds one of the values. Both maps are scoped because the logs UI resolves a person or a
+        # session from either one (LogAttributes.tsx renders the link regardless of which map the
+        # value came from), so a log the UI labels must also appear when you scope to that label.
+        # The two maps need different key spellings: attributes_map_str holds every attribute value
+        # stringified while attributes_map_float only exists for numeric values, so the `__str`
+        # suffix keeps an all-numeric id off the float map. resource_attributes is a plain string
+        # map on the row with no such split, so its key is matched directly.
+        key_exprs: list[ast.Expr] = []
+        for attribute_key in attribute_keys:
+            key_exprs.append(
+                property_to_expr(
+                    LogPropertyFilter(
+                        key=f"{attribute_key}__str",
+                        operator=PropertyOperator.EXACT,
+                        type=LogPropertyFilterType.LOG_ATTRIBUTE,
+                        value=values,
+                    ),
+                    team=self.team,
+                )
+            )
+            key_exprs.append(
+                property_to_expr(
+                    LogPropertyFilter(
+                        key=attribute_key,
+                        operator=PropertyOperator.EXACT,
+                        type=LogPropertyFilterType.LOG_RESOURCE_ATTRIBUTE,
+                        value=values,
+                    ),
+                    team=self.team,
+                )
+            )
+        return key_exprs[0] if len(key_exprs) == 1 else ast.Or(exprs=key_exprs)
+
     def _person_scope_expr(self) -> ast.Expr:
         # Expand personId server-side: person pages cap how many distinct ids they load
         # (groupArray(101) / list serializer), so a client-built distinct-ids filter would
         # silently drop ids on persons with many of them.
+        person_id = (self.query.personId or "").strip()
+        if not person_id:
+            return ast.Constant(value=False)
         with personhog_caller_tag("persons/logs-query"):
-            person = get_person_by_pk_or_uuid(
-                self.team.pk, str(self.query.personId), distinct_id_limit=MAX_LIMIT_DISTINCT_IDS
-            )
+            person = get_person_by_pk_or_uuid(self.team.pk, person_id, distinct_id_limit=MAX_LIMIT_DISTINCT_IDS)
         distinct_ids = get_distinct_ids_for_subquery(person, self.team)
         if not distinct_ids:
             # Unknown person (or another team's person): match nothing. property_to_expr
             # treats an empty value list as always-true, which would return every log.
             return ast.Constant(value=False)
-        config = TeamLogsConfig.objects.filter(team=self.team).first()
+        config = self._team_logs_config
         configured_keys = (
             config.logs_distinct_id_attribute_keys if config else None
         ) or DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEYS
@@ -554,41 +595,7 @@ class LogsFilterBuilder:
         # belonging to a person appears on their Logs tab even when the team hasn't configured
         # that key. Deduped, configured keys first.
         attribute_keys = list(dict.fromkeys([*configured_keys, *DISTINCT_ID_ATTRIBUTE_KEY_CONVENTIONS]))
-        distinct_id_values = list(distinct_ids)
-        key_exprs: list[ast.Expr] = []
-        for attribute_key in attribute_keys:
-            # Log attribute: force the __str map. attributes_map_str holds every attribute value
-            # (stringified), while attributes_map_float only exists for numeric values — all-numeric
-            # distinct ids must not route there via the usual value-type detection.
-            key_exprs.append(
-                property_to_expr(
-                    LogPropertyFilter(
-                        key=f"{attribute_key}__str",
-                        operator=PropertyOperator.EXACT,
-                        type=LogPropertyFilterType.LOG_ATTRIBUTE,
-                        value=distinct_id_values,
-                    ),
-                    team=self.team,
-                )
-            )
-            # Resource attribute: the logs UI links these keys under resource_attributes too
-            # (LogAttributes.tsx renders the person link regardless of attribute vs
-            # resource_attribute), so scope on both. resource_attributes is a plain string map on
-            # the row — no typed __str/__float split — so match the key directly.
-            key_exprs.append(
-                property_to_expr(
-                    LogPropertyFilter(
-                        key=attribute_key,
-                        operator=PropertyOperator.EXACT,
-                        type=LogPropertyFilterType.LOG_RESOURCE_ATTRIBUTE,
-                        value=distinct_id_values,
-                    ),
-                    team=self.team,
-                )
-            )
-        # A log links to the person when any of these attribute keys — in either the log
-        # attributes or the resource attributes — holds one of their distinct ids.
-        return key_exprs[0] if len(key_exprs) == 1 else ast.Or(exprs=key_exprs)
+        return self._attribute_scope_expr(attribute_keys, list(distinct_ids))
 
     def _session_scope_expr(self) -> ast.Expr:
         # Resolve the key list server-side rather than letting the caller build a filter group.
@@ -600,49 +607,16 @@ class LogsFilterBuilder:
             # property_to_expr treats an empty value as always-true, which would return every log.
             return ast.Constant(value=False)
 
-        config = TeamLogsConfig.objects.filter(team=self.team).first()
+        config = self._team_logs_config
         configured_keys = (
-            config.logs_session_id_attribute_keys if config is not None else DEFAULT_LOGS_SESSION_ID_ATTRIBUTE_KEYS
-        )
+            config.logs_session_id_attribute_keys if config else None
+        ) or DEFAULT_LOGS_SESSION_ID_ATTRIBUTE_KEYS
         # Also scope on the built-in convention keys the logs UI reads a session from
         # (isSessionIdKey in products/logs/frontend/utils.tsx), so a log the UI shows as belonging
         # to a session appears when scoped to it even when the team hasn't configured that key.
         # Deduped, configured keys first.
         attribute_keys = list(dict.fromkeys([*configured_keys, *SESSION_ID_ATTRIBUTE_KEY_CONVENTIONS]))
-
-        key_exprs: list[ast.Expr] = []
-        for attribute_key in attribute_keys:
-            # Log attribute: force the __str map, for the reason _person_scope_expr documents.
-            # attributes_map_float only exists for numeric values, so a session id that happens
-            # to be all digits must not route there via the usual value-type detection.
-            key_exprs.append(
-                property_to_expr(
-                    LogPropertyFilter(
-                        key=f"{attribute_key}__str",
-                        operator=PropertyOperator.EXACT,
-                        type=LogPropertyFilterType.LOG_ATTRIBUTE,
-                        value=[session_id],
-                    ),
-                    team=self.team,
-                )
-            )
-            # Resource attribute: getSessionIdWithKey resolves a session from resource_attributes
-            # too, so scope on both. resource_attributes is a plain string map on the row, with no
-            # typed __str/__float split, so match the key directly.
-            key_exprs.append(
-                property_to_expr(
-                    LogPropertyFilter(
-                        key=attribute_key,
-                        operator=PropertyOperator.EXACT,
-                        type=LogPropertyFilterType.LOG_RESOURCE_ATTRIBUTE,
-                        value=[session_id],
-                    ),
-                    team=self.team,
-                )
-            )
-        # A log belongs to the session when any of these attribute keys, in either the log
-        # attributes or the resource attributes, holds the session id.
-        return key_exprs[0] if len(key_exprs) == 1 else ast.Or(exprs=key_exprs)
+        return self._attribute_scope_expr(attribute_keys, [session_id])
 
     def resource_filter(self, *, existing_filters):
         negative_resource_filter = ast.Constant(value=True)

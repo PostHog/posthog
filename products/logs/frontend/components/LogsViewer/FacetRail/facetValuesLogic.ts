@@ -26,8 +26,8 @@ export interface facetValuesLogicValues {
     facetRefreshCounter: number // logsViewerFiltersLogic
     filters: LogsViewerFilters // logsViewerFiltersLogic
     personId: string | undefined // logsViewerFiltersLogic
-    sessionId: string | undefined // logsViewerFiltersLogic
     queryFilterGroup: UniversalFiltersGroup // logsViewerFiltersLogic
+    sessionId: string | undefined // logsViewerFiltersLogic
     utcDateRange: {
         date_from: string | null | undefined
         date_to: string | null | undefined
@@ -83,6 +83,7 @@ export interface facetValuesLogicMeta {
             filters: LogsViewerFilters,
             queryFilterGroup: UniversalFiltersGroup,
             personId: string | undefined,
+            sessionId: string | undefined,
             utcDateRange: {
                 date_from: string | null | undefined
                 date_to: string | null | undefined

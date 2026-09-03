@@ -33,7 +33,9 @@ const EMPTY_RESPONSE: _LogsGroupByResponseApi = {
 export interface logsGroupByLogicValues {
     groupBys: LogsViewerGroupBy[] // logsViewerConfigLogic
     filters: LogsViewerFilters // logsViewerFiltersLogic
+    personId: string | undefined // logsViewerFiltersLogic
     queryFilterGroup: UniversalFiltersGroup // logsViewerFiltersLogic
+    sessionId: string | undefined // logsViewerFiltersLogic
     utcDateRange: {
         date_from: string | null | undefined
         date_to: string | null | undefined
@@ -139,7 +141,7 @@ export const logsGroupByLogic = kea<logsGroupByLogicType>([
             teamLogic,
             ['currentTeamId'],
             logsViewerFiltersLogic({ id: props.id }),
-            ['filters', 'utcDateRange', 'queryFilterGroup'],
+            ['filters', 'utcDateRange', 'queryFilterGroup', 'personId', 'sessionId'],
             logsViewerConfigLogic({ id: props.id }),
             ['groupBys'],
         ],
@@ -172,6 +174,10 @@ export const logsGroupByLogic = kea<logsGroupByLogicType>([
                             // filters from an embedded viewer, so a scoped viewer can't aggregate
                             // project-wide logs.
                             filterGroup: values.queryFilterGroup as unknown as _LogPropertyFilterApi[],
+                            // Person and session scoping travel as their own fields, not in the
+                            // filter group, so they have to be sent explicitly here too.
+                            personId: values.personId,
+                            sessionId: values.sessionId,
                             groupBys: values.groupBys,
                             orderGroupsBy: values.orderGroupsBy,
                         },

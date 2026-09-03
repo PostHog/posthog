@@ -1189,11 +1189,13 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertGreater(len(response["results"]), 0)
 
 
-class TestLogsPersonIdFilter(ClickhouseTestMixin, APIBaseTest):
-    # `personId` on LogsQuery is expanded server-side to the person's distinct ids. Person
-    # pages cap how many distinct ids they load client-side, so a client-built distinct-id
-    # filter silently misses logs for id-heavy persons — the bug this class guards against.
-    # Tests share one ClickHouse team; each uses unique distinct-id values for isolation.
+class _LogsScopeFilterTestMixin:
+    # Shared fixtures for the two scope-filter classes below. Both insert the same shape of row:
+    # one attribute key per log, in either the log-attribute map or the resource-attribute map.
+    # They differ only in which LogsQuery scope field they then set.
+    team: Team
+    service_name: str
+    default_attribute_key: str
 
     def _insert_logs(self, rows: list[dict]) -> None:
         payload = "\n".join(json.dumps({**row, "team_id": self.team.id}) for row in rows)
@@ -1203,28 +1205,26 @@ class TestLogsPersonIdFilter(ClickhouseTestMixin, APIBaseTest):
             {payload}
         """)
 
-    def _log_row(
-        self, distinct_id_value: str, attribute_key: str = "posthogDistinctId", *, resource: bool = False
-    ) -> dict:
+    def _log_row(self, value: str, attribute_key: str | None = None, *, resource: bool = False) -> dict:
+        attribute_key = attribute_key or self.default_attribute_key
         row: dict = {
             "uuid": str(uuid4()),
             "timestamp": "2026-03-01 10:00:00.000000",
             "observed_timestamp": "2026-03-01 10:00:01.000000",
-            "body": f"log for {distinct_id_value}",
+            "body": f"log for {value}",
             "severity_text": "info",
             "severity_number": 9,
-            "service_name": "person-id-test-svc",
-            "resource_attributes": {"service.name": "person-id-test-svc"},
+            "service_name": self.service_name,
+            "resource_attributes": {"service.name": self.service_name},
             "attributes_map_str": {},
         }
-        # Place the distinct id under a resource attribute or a log attribute.
         if resource:
-            row["resource_attributes"][attribute_key] = distinct_id_value
+            row["resource_attributes"][attribute_key] = value
         else:
-            row["attributes_map_str"][f"{attribute_key}__str"] = distinct_id_value
+            row["attributes_map_str"][f"{attribute_key}__str"] = value
         return row
 
-    def _person_query(self, person_id: str) -> LogsQuery:
+    def _scope_query(self, *, person_id: str | None = None, session_id: str | None = None) -> LogsQuery:
         return LogsQuery(
             kind="LogsQuery",
             dateRange=DateRange(date_from="2026-03-01T00:00:00Z", date_to="2026-03-02T00:00:00Z"),
@@ -1235,10 +1235,21 @@ class TestLogsPersonIdFilter(ClickhouseTestMixin, APIBaseTest):
                 values=[PropertyGroupFilterValue(type=FilterLogicalOperator.AND_, values=[])],
             ),
             personId=person_id,
+            sessionId=session_id,
         )
 
+
+class TestLogsPersonIdFilter(_LogsScopeFilterTestMixin, ClickhouseTestMixin, APIBaseTest):
+    # `personId` on LogsQuery is expanded server-side to the person's distinct ids. Person
+    # pages cap how many distinct ids they load client-side, so a client-built distinct-id
+    # filter silently misses logs for id-heavy persons — the bug this class guards against.
+    # Tests share one ClickHouse team; each uses unique distinct-id values for isolation.
+
+    service_name = "person-id-test-svc"
+    default_attribute_key = "posthogDistinctId"
+
     def _run(self, person_id: str) -> list:
-        return LogsQueryRunner(query=self._person_query(person_id), team=self.team).calculate().results
+        return LogsQueryRunner(query=self._scope_query(person_id=person_id), team=self.team).calculate().results
 
     def test_person_id_expands_to_all_distinct_ids(self):
         person = create_person(team=self.team, distinct_ids=["person-id-test-a1", "person-id-test-a2"])
@@ -1258,13 +1269,18 @@ class TestLogsPersonIdFilter(ClickhouseTestMixin, APIBaseTest):
             ["person-id-test-a1", "person-id-test-a2"],
         )
 
-    @parameterized.expand([("unknown_person",), ("person_from_another_team",)])
+    @parameterized.expand([("unknown_person",), ("person_from_another_team",), ("blank",), ("whitespace",)])
     def test_person_id_without_matching_person_matches_nothing(self, case: str):
         # An empty distinct-id list must never reach property_to_expr: it treats an empty
         # value list as always-true, which would leak every log in the project onto the tab.
+        # A blank personId is the same hazard one step earlier — it never resolves a person.
         self._insert_logs([self._log_row("person-id-test-leak")])
         if case == "unknown_person":
             person_id = str(uuid4())
+        elif case == "blank":
+            person_id = ""
+        elif case == "whitespace":
+            person_id = "   "
         else:
             other_team = Team.objects.create(organization=self.organization)
             person_id = str(create_person(team=other_team, distinct_ids=["person-id-test-leak"]).uuid)
@@ -1336,7 +1352,7 @@ class TestLogsPersonIdFilter(ClickhouseTestMixin, APIBaseTest):
         # All-numeric distinct ids must not route to the float attribute map — only the
         # string map is guaranteed to hold every attribute value.
         person = create_person(team=self.team, distinct_ids=["12345", "67890"])
-        runner = LogsQueryRunner(query=self._person_query(str(person.uuid)), team=self.team)
+        runner = LogsQueryRunner(query=self._scope_query(person_id=str(person.uuid)), team=self.team)
         executor = HogQLQueryExecutor(
             query_type="LogsQuery",
             query=runner.to_query(),
@@ -1387,54 +1403,18 @@ class TestLogsPersonIdFilter(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(facet_response.json()["results"], [{"value": "info", "count": 1}])
 
 
-class TestLogsSessionIdFilter(ClickhouseTestMixin, APIBaseTest):
+class TestLogsSessionIdFilter(_LogsScopeFilterTestMixin, ClickhouseTestMixin, APIBaseTest):
     # `sessionId` on LogsQuery is resolved server-side against every configured and conventional
     # session-id attribute key, in both attribute maps. A client-built filter group cannot express
     # that: the runner reads an inner group as an AND of its leaves, so a group listing every key
     # asks for logs where all of them hold the session id at once, and matches nothing.
     # Tests share one ClickHouse team; each uses unique session-id values for isolation.
 
-    def _insert_logs(self, rows: list[dict]) -> None:
-        payload = "\n".join(json.dumps({**row, "team_id": self.team.id}) for row in rows)
-        sync_execute(f"""
-            INSERT INTO logs
-            FORMAT JSONEachRow
-            {payload}
-        """)
-
-    def _log_row(self, session_id_value: str, attribute_key: str = "sessionId", *, resource: bool = False) -> dict:
-        row: dict = {
-            "uuid": str(uuid4()),
-            "timestamp": "2026-03-01 10:00:00.000000",
-            "observed_timestamp": "2026-03-01 10:00:01.000000",
-            "body": f"log for {session_id_value}",
-            "severity_text": "info",
-            "severity_number": 9,
-            "service_name": "session-id-test-svc",
-            "resource_attributes": {"service.name": "session-id-test-svc"},
-            "attributes_map_str": {},
-        }
-        if resource:
-            row["resource_attributes"][attribute_key] = session_id_value
-        else:
-            row["attributes_map_str"][f"{attribute_key}__str"] = session_id_value
-        return row
-
-    def _session_query(self, session_id: str) -> LogsQuery:
-        return LogsQuery(
-            kind="LogsQuery",
-            dateRange=DateRange(date_from="2026-03-01T00:00:00Z", date_to="2026-03-02T00:00:00Z"),
-            serviceNames=[],
-            severityLevels=[],
-            filterGroup=PropertyGroupFilter(
-                type=FilterLogicalOperator.AND_,
-                values=[PropertyGroupFilterValue(type=FilterLogicalOperator.AND_, values=[])],
-            ),
-            sessionId=session_id,
-        )
+    service_name = "session-id-test-svc"
+    default_attribute_key = "sessionId"
 
     def _run(self, session_id: str) -> list:
-        return LogsQueryRunner(query=self._session_query(session_id), team=self.team).calculate().results
+        return LogsQueryRunner(query=self._scope_query(session_id=session_id), team=self.team).calculate().results
 
     def test_session_id_matches_every_configured_and_convention_key(self):
         # Each log carries the session id under one key only. The keys must be OR'd: an AND across
@@ -1456,15 +1436,7 @@ class TestLogsSessionIdFilter(ClickhouseTestMixin, APIBaseTest):
         results = self._run("session-id-test-all")
 
         self.assertEqual(len(results), 6)
-        self.assertEqual(
-            {
-                value
-                for r in results
-                for key, value in (*r["attributes"].items(), *r["resource_attributes"].items())
-                if key != "service.name"
-            },
-            {"session-id-test-all"},
-        )
+        self.assertEqual({r["body"] for r in results}, {"log for session-id-test-all"})
 
     @parameterized.expand([("attributes", False), ("resource_attributes", True)])
     def test_session_id_respects_configured_attribute_key(self, _name: str, resource: bool):
@@ -1495,9 +1467,11 @@ class TestLogsSessionIdFilter(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(self._run(session_id), [])
 
-    def test_session_id_via_query_sparkline_and_facet_values_apis(self):
-        # The logs endpoints hand-build LogsQuery from request data, so a sessionId omitted from
-        # that whitelist silently un-scopes a session-scoped viewer.
+    def test_session_id_reaches_every_endpoint_the_viewer_calls(self):
+        # Each logs endpoint hand-builds LogsQuery from request data, so a sessionId left out of
+        # one silently un-scopes that half of a session-scoped viewer. Patterns and Group are
+        # modes of the same viewer, so an unscoped one mines the whole project under a heading
+        # the user reads as this session.
         self._insert_logs([self._log_row("session-id-test-api"), self._log_row("session-id-test-api-unrelated")])
         query_params = {
             "dateRange": {"date_from": "2026-03-01T00:00:00Z", "date_to": "2026-03-02T00:00:00Z"},
@@ -1522,3 +1496,18 @@ class TestLogsSessionIdFilter(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(facet_response.status_code, status.HTTP_200_OK)
         self.assertEqual(facet_response.json()["results"], [{"value": "info", "count": 1}])
+
+        # total_count is the rows the miner matched, not the templates it kept, so this asserts
+        # the scope without depending on which single-occurrence bodies survive mining.
+        patterns_response = self.client.post(
+            f"/api/projects/{self.team.id}/logs/patterns", data={"query": query_params}
+        )
+        self.assertEqual(patterns_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(patterns_response.json()["total_count"], 1)
+
+        group_by_response = self.client.post(
+            f"/api/projects/{self.team.id}/logs/group-by",
+            data={"query": {**query_params, "groupBys": [{"key": "service.name", "source": "resource"}]}},
+        )
+        self.assertEqual(group_by_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(group_by_response.json()["total_logs"], 1)
