@@ -27,7 +27,6 @@ pytestmark = [
 def test_create_snowflake_batch_export_with_inline_credentials_is_rejected(
     client: HttpClient, auth_type, credentials, temporal, organization, team, user
 ):
-    """Inline credentials are no longer enough to create a Snowflake export: an Integration is required."""
     client.force_login(user)
     response = create_batch_export(
         client,
