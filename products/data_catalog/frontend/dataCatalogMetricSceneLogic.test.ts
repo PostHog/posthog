@@ -1,6 +1,6 @@
 import { router } from 'kea-router'
 
-import { ApiError } from 'lib/api'
+import { ApiConfig, ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { urls } from 'scenes/urls'
 
@@ -72,6 +72,10 @@ describe('dataCatalogMetricSceneLogic', () => {
         logic = dataCatalogMetricSceneLogic({ name: 'weekly_active_users' })
         logic.mount()
         await expectLogic(logic).toDispatchActions(['loadMetricSuccess'])
+    })
+
+    afterEach(() => {
+        ;(ApiConfig.getCurrentTeamId as jest.Mock).mockReturnValue(1)
     })
 
     it('saving an approved metric edit reflects the proposed status from the response', async () => {
@@ -229,6 +233,24 @@ describe('dataCatalogMetricSceneLogic', () => {
         expect(renamedLogic.values.editingDefinition).toBe(false)
         expect(renamedLogic.values.draftMarkdown).toEqual('')
         renamedLogic.unmount()
+    })
+
+    it('does not restore a handed-off draft into a same-named metric in another project', async () => {
+        logic.actions.setEditingDefinition(true)
+        logic.actions.setDraftMarkdown('1. Count users who paid')
+        logic.actions.renamedExternally('cross_project_metric')
+        await expectLogic(logic).toFinishAllListeners()
+
+        // The rename target's load in project 1 never consumed the draft (it failed or was
+        // interrupted). Opening the same metric name in another project must not restore it.
+        ;(ApiConfig.getCurrentTeamId as jest.Mock).mockReturnValue(2)
+        const otherProjectLogic = dataCatalogMetricSceneLogic({ name: 'cross_project_metric' })
+        otherProjectLogic.mount()
+        await expectLogic(otherProjectLogic).toDispatchActions(['loadMetricSuccess']).toFinishAllListeners()
+
+        expect(otherProjectLogic.values.editingDefinition).toBe(false)
+        expect(otherProjectLogic.values.draftMarkdown).toEqual('')
+        otherProjectLogic.unmount()
     })
 
     it('opens the markdown editor once loaded when arriving with ?edit=definition', async () => {
