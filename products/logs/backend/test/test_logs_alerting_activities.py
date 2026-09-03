@@ -23,7 +23,7 @@ from posthog.errors import QueryErrorCategory
 from posthog.slo.types import SloOperation, SloOutcome
 
 from products.logs.backend.alert_check_query import AlertCheckQuery, BatchedBucketedResult, BucketedCount
-from products.logs.backend.alert_signal_emitter import NotifiedAlert
+from products.logs.backend.alert_signal_emitter import AlertSignalAction, NotifiedAlert
 from products.logs.backend.alert_state_machine import AlertCheckOutcome, AlertState, CheckResult, NotificationAction
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
 from products.logs.backend.temporal.activities import (
@@ -58,6 +58,8 @@ def _evaluate_and_save_one(
     eval_start = time.perf_counter()
     evaluation = _evaluate_single_alert(alert, now, checkpoint=checkpoint)
     dispatched = _dispatch_for_alert(evaluation, now)
+    if dispatched.suppressed_by_quiet_hours:
+        return
     elapsed_ms = int((time.perf_counter() - eval_start) * 1000)
     saved, _failed = _save_cohort_outcomes([dispatched], now)
     if saved:
@@ -155,7 +157,7 @@ class TestNotifiedAlertCollection(APIBaseTest):
 
 class TestEmitAlertSignalsActivity(NonAtomicBaseTest):
     def _notified(
-        self, alert_id: str, action: str, result_count: int | None, consecutive_failures: int
+        self, alert_id: str, action: AlertSignalAction, result_count: int | None, consecutive_failures: int
     ) -> NotifiedAlert:
         return NotifiedAlert(
             alert_id=alert_id,
@@ -609,11 +611,10 @@ class TestRunCohortQueryFallbackEndToEnd(ClickhouseTestMixin, APIBaseTest):
         assert bad_prefetch.query_duration_ms is not None and bad_prefetch.query_duration_ms >= 0
 
     @freeze_time("2026-01-01T10:05:00Z")
-    @patch("products.logs.backend.alert_check_query.HOIST_BATCHED_ALERT_PREDICATES", True)
     def test_attribute_filter_single_alert_cohort_succeeds_end_to_end(self):
         # The shape that broke in production: a size-1, projection-ineligible
         # cohort whose alert filters on a log attribute. Runs the real batched
-        # query via _run_cohort_query with predicate hoisting enabled, so it
+        # query via _run_cohort_query, so it
         # catches wiring drift between the activity call site and
         # BatchedAlertCheckQuery that tests constructing the query class
         # directly cannot.
@@ -795,6 +796,73 @@ class TestEvaluateSingleAlert(APIBaseTest):
 
         alert.refresh_from_db()
         assert alert.next_check_at is not None and alert.next_check_at > now
+
+    @freeze_time("2025-01-01T21:58:00Z")
+    @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
+    @patch("products.alerts.backend.destinations.produce_internal_event")
+    def test_advances_next_check_at_past_quiet_hours(self, _mock_produce, mock_query_cls):
+        _mock_buckets(mock_query_cls, [5])
+        alert = self._make_alert(
+            next_check_at=datetime(2025, 1, 1, 21, 55, tzinfo=UTC),
+            schedule_restriction={"blocked_windows": [{"start": "22:00", "end": "07:00"}]},
+        )
+        now = datetime(2025, 1, 1, 21, 58, tzinfo=UTC)
+
+        _evaluate_and_save_one(alert, now, _make_stats())
+
+        alert.refresh_from_db()
+        assert alert.next_check_at == datetime(2025, 1, 2, 7, 0, tzinfo=UTC)
+
+    @freeze_time("2025-01-01T21:58:00Z")
+    @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
+    @patch("products.alerts.backend.destinations.produce_internal_event")
+    def test_uses_quiet_hours_saved_after_the_alert_loaded(self, _mock_produce, mock_query_cls):
+        _mock_buckets(mock_query_cls, [5])
+        alert = self._make_alert(next_check_at=datetime(2025, 1, 1, 21, 55, tzinfo=UTC))
+        stale_alert = LogsAlertConfiguration.objects.get(id=alert.id)
+        LogsAlertConfiguration.objects.filter(id=alert.id).update(
+            schedule_restriction={"blocked_windows": [{"start": "22:00", "end": "07:00"}]}
+        )
+
+        _evaluate_and_save_one(stale_alert, datetime(2025, 1, 1, 21, 58, tzinfo=UTC), _make_stats())
+
+        alert.refresh_from_db()
+        assert alert.next_check_at == datetime(2025, 1, 2, 7, 0, tzinfo=UTC)
+
+    @freeze_time("2025-01-01T23:00:00Z")
+    @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
+    @patch("products.alerts.backend.destinations.produce_internal_event")
+    def test_suppresses_notification_when_quiet_hours_start_after_evaluation(self, mock_produce, mock_query_cls):
+        _mock_buckets(mock_query_cls, [50])
+        alert = self._make_alert(next_check_at=datetime(2025, 1, 1, 21, 55, tzinfo=UTC))
+        evaluation = _evaluate_single_alert(alert, datetime(2025, 1, 1, 21, 58, tzinfo=UTC))
+        LogsAlertConfiguration.objects.filter(id=alert.id).update(
+            schedule_restriction={"blocked_windows": [{"start": "22:00", "end": "07:00"}]}
+        )
+
+        dispatched = _dispatch_for_alert(evaluation, datetime(2025, 1, 1, 23, 0, tzinfo=UTC))
+
+        assert dispatched.suppressed_by_quiet_hours is True
+        mock_produce.assert_not_called()
+        assert LogsAlertEvent.objects.filter(alert=alert).count() == 0
+        alert.refresh_from_db()
+        assert alert.next_check_at == datetime(2025, 1, 2, 7, 0, tzinfo=UTC)
+
+    @freeze_time("2025-01-02T06:56:00Z")
+    @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
+    @patch("products.alerts.backend.destinations.produce_internal_event")
+    def test_advances_last_quiet_hours_check_to_the_window_end(self, _mock_produce, mock_query_cls):
+        _mock_buckets(mock_query_cls, [5])
+        alert = self._make_alert(
+            next_check_at=datetime(2025, 1, 2, 6, 55, tzinfo=UTC),
+            schedule_restriction={"blocked_windows": [{"start": "22:00", "end": "07:00"}]},
+        )
+        now = datetime(2025, 1, 2, 6, 56, tzinfo=UTC)
+
+        _evaluate_and_save_one(alert, now, _make_stats())
+
+        alert.refresh_from_db()
+        assert alert.next_check_at == datetime(2025, 1, 2, 7, 0, tzinfo=UTC)
 
     @freeze_time("2025-01-01T00:01:00Z")
     @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
@@ -1976,6 +2044,64 @@ class TestCohortManifest(unittest.TestCase):
 
 class TestDiscoverCohortsActivity(NonAtomicBaseTest):
     CLASS_DATA_LEVEL_SETUP = False
+
+    @freeze_time("2026-05-05T23:00:00Z")
+    def test_skips_alert_with_invalid_quiet_hours_and_discovers_healthy_alerts(self):
+        from products.logs.backend.temporal.activities import DiscoverCohortsInput, discover_cohorts_activity
+
+        invalid_alert = LogsAlertConfiguration.objects.create(
+            team=self.team,
+            name="invalid quiet hours",
+            threshold_count=1,
+            threshold_operator="above",
+            window_minutes=5,
+            evaluation_periods=1,
+            filters={"serviceNames": ["invalid"]},
+            enabled=True,
+            next_check_at=datetime(2026, 5, 5, 21, 55, tzinfo=UTC),
+        )
+        LogsAlertConfiguration.objects.filter(id=invalid_alert.id).update(
+            schedule_restriction={"blocked_windows": [{"start": "invalid", "end": "07:00"}]}
+        )
+        healthy_alert = LogsAlertConfiguration.objects.create(
+            team=self.team,
+            name="healthy",
+            threshold_count=1,
+            threshold_operator="above",
+            window_minutes=5,
+            evaluation_periods=1,
+            filters={"serviceNames": ["healthy"]},
+            enabled=True,
+            next_check_at=datetime(2026, 5, 5, 21, 55, tzinfo=UTC),
+        )
+
+        result = asyncio.run(discover_cohorts_activity(DiscoverCohortsInput()))
+
+        discovered_alert_ids = [alert_id for manifest in result.manifests for alert_id in manifest.alert_ids]
+        assert discovered_alert_ids == [str(healthy_alert.id)]
+
+    @freeze_time("2026-05-05T23:00:00Z")
+    def test_reschedules_due_alert_during_quiet_hours_before_evaluation(self):
+        from products.logs.backend.temporal.activities import DiscoverCohortsInput, discover_cohorts_activity
+
+        alert = LogsAlertConfiguration.objects.create(
+            team=self.team,
+            name="quiet",
+            threshold_count=1,
+            threshold_operator="above",
+            window_minutes=5,
+            evaluation_periods=1,
+            filters={"serviceNames": ["quiet"]},
+            enabled=True,
+            next_check_at=datetime(2026, 5, 5, 21, 55, tzinfo=UTC),
+            schedule_restriction={"blocked_windows": [{"start": "22:00", "end": "07:00"}]},
+        )
+
+        result = asyncio.run(discover_cohorts_activity(DiscoverCohortsInput()))
+
+        assert result.manifests == []
+        alert.refresh_from_db()
+        assert alert.next_check_at == datetime(2026, 5, 6, 7, 0, tzinfo=UTC)
 
     @freeze_time("2026-05-05T10:00:00Z")
     def test_returns_manifests_for_due_alerts_only(self):

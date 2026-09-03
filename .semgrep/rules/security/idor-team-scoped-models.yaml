@@ -59,11 +59,13 @@ rules:
                               |AccountChannelSummary
                               |AccountRelationship
                               |AccountRelationshipDefinition
+                              |AccountTrackRuleRun
                               |Action
                               |AgentApplication
                               |AgentArtifact
                               |AgentIdentityCredential
                               |AgentIdentityLinkState
+                              |AgentPeerMessage
                               |AgentRevision
                               |AgentSandboxInstance
                               |AgentSession
@@ -71,6 +73,7 @@ rules:
                               |AgentToolApprovalRequest
                               |AgentTransportBinding
                               |AgentUser
+                              |AIObservabilityChecklistItemState
                               |Alert
                               |AlertConfiguration
                               |Annotation
@@ -87,7 +90,9 @@ rules:
                               |ButtonTile
                               |Canvas
                               |CanvasBuild
+                              |CanvasHomePreference
                               |CanvasSourceVersion
+                              |CanvasState
                               |ChangeRequest
                               |ChannelContextGeneration
                               |ChannelInstructions
@@ -99,6 +104,9 @@ rules:
                               |CohortBackfillRun
                               |CohortBackfillRunCohort
                               |Comment
+                              |ContentAutopilotProposal
+                              |ContentAutopilotRun
+                              |ContentAutopilotSiteProfile
                               |Conversation
                               |ConversationRestoreToken
                               |CoreMemory
@@ -111,6 +119,7 @@ rules:
                               |CustomPropertyValue
                               |DAG
                               |Dashboard
+                              |DashboardSavedView
                               |DashboardTemplate
                               |DashboardWidget
                               |DataColorTheme
@@ -137,6 +146,11 @@ rules:
                               |DeploymentProject
                               |EarlyAccessFeature
                               |EmailMessageMapping
+                              |EmailChannelSetup
+                              |EmailThread
+                              |EmailThreadAccountLink
+                              |EmailThreadMessage
+                              |EmailThreadParticipant
                               |EmailReputationSnapshot
                               |EvaluationContext
                               |Edge
@@ -146,6 +160,9 @@ rules:
                               |EventFilterConfig
                               |EventStream
                               |EventStreamMember
+                              |ErrorTrackingAlert
+                              |ErrorTrackingAlertDestination
+                              |ErrorTrackingAlertThread
                               |ErrorTrackingAssignmentRule
                               |ErrorTrackingBypassRule
                               |ErrorTrackingGroupingRule
@@ -154,6 +171,7 @@ rules:
                               |ErrorTrackingRelease
                               |ErrorTrackingRecommendation
                               |ErrorTrackingSettings
+                              |ErrorTrackingSeverityRule
                               |ErrorTrackingSpikeDetectionConfig
                               |ErrorTrackingSpikeEvent
                               |ErrorTrackingStackFrame
@@ -167,11 +185,23 @@ rules:
                               |ExperimentSavedMetric
                               |ExportedAsset
                               |ExportedRecording
+                              |ExternalDataDestination
                               |ExternalDataJob
                               |ExternalDataSchema
+                              |ExternalDataSchemaDestination
                               |ExternalDataSchemaOOMEvent
                               |ExternalDataSource
+                              |ExternalDataSourceDestination
                               |FeatureFlag
+                              |FeatureRequest
+                              |FeatureRequestAccountLink
+                              |FeatureRequestEvidence
+                              |FeatureRequestHistory
+                              |FeatureRequestProductArea
+                              |FeatureRequestProductAreaLink
+                              |GeneratedWidget
+                              |GeneratedWidgetGenerationJob
+                              |GeneratedWidgetVersion
                               |TeamExperimentsConfig
                               |TeamFeatureFlagDefaultsConfig
                               |TeamMCPGatewayConfig
@@ -212,6 +242,7 @@ rules:
                               |LogsView
                               |Loop
                               |LoopFire
+                              |NotebookWidgetInstance
                               |LoopTrigger
                               |LLMModelConfiguration
                               |LLMPrompt
@@ -256,6 +287,7 @@ rules:
                               |ProductTour
                               |ProjectSecretAPIKey
                               |PropertyAccessControl
+                              |PullRequestAudience
                               |QuarantinedIdentifier
                               |QueryTabState
                               |QuickFilter
@@ -264,6 +296,7 @@ rules:
                               |ReplayObservationLabel
                               |ReplayObservationUsage
                               |ReplayScanner
+                              |ReplayScannerBackfill
                               |ReplayScannerPromptSuggestion
                               |Repo
                               |RepoRoutingRule
@@ -296,6 +329,7 @@ rules:
                               |SignalScoutEmission
                               |SignalScoutNote
                               |SignalScoutStructuredOutput
+                              |SignalScoutSuggestionSet
                               |SignalScratchpad
                               |SignalProjectProfile
                               |SingleSessionSummary
@@ -317,7 +351,10 @@ rules:
                               |TaskAutomation
                               |TaskPresence
                               |TaskRun
+                              |TaskWorkflowDispatch
+                              |TaskSearchDocument
                               |TaskSession
+                              |UserTasksConfig
                               |TaskThreadMessage
                               |TaskThreadMessageMention
                               |Channel
@@ -342,8 +379,8 @@ rules:
                               |UserInterview
                               |UserInterviewTopic
                               |UserRepoPreference
-                              |VisionAction
-                              |VisionActionRun
+                              |VisionAlertConfiguration
+                              |VisionAlertMatch
                               |WarehouseColumnAnnotation
                               |WarehouseColumnStatistics
                               |WebAnalyticsAchievementProgress
@@ -411,11 +448,13 @@ rules:
                         |AccountChannelSummary
                         |AccountRelationship
                         |AccountRelationshipDefinition
+                        |AccountTrackRuleRun
                         |Action
                         |AgentApplication
                         |AgentArtifact
                         |AgentIdentityCredential
                         |AgentIdentityLinkState
+                        |AgentPeerMessage
                         |AgentRevision
                         |AgentSandboxInstance
                         |AgentSession
@@ -423,6 +462,7 @@ rules:
                         |AgentToolApprovalRequest
                         |AgentTransportBinding
                         |AgentUser
+                        |AIObservabilityChecklistItemState
                         |Alert
                         |AlertConfiguration
                         |Annotation
@@ -439,7 +479,9 @@ rules:
                         |ButtonTile
                         |Canvas
                         |CanvasBuild
+                        |CanvasHomePreference
                         |CanvasSourceVersion
+                        |CanvasState
                         |ChangeRequest
                         |ChannelContextGeneration
                         |ChannelInstructions
@@ -451,6 +493,9 @@ rules:
                         |CohortBackfillRun
                         |CohortBackfillRunCohort
                         |Comment
+                        |ContentAutopilotProposal
+                        |ContentAutopilotRun
+                        |ContentAutopilotSiteProfile
                         |Conversation
                         |ConversationRestoreToken
                         |CoreMemory
@@ -463,6 +508,7 @@ rules:
                         |CustomPropertyValue
                         |DAG
                         |Dashboard
+                        |DashboardSavedView
                         |DashboardTemplate
                         |DashboardWidget
                         |DataColorTheme
@@ -489,6 +535,11 @@ rules:
                         |DeploymentProject
                         |EarlyAccessFeature
                         |EmailMessageMapping
+                        |EmailChannelSetup
+                        |EmailThread
+                        |EmailThreadAccountLink
+                        |EmailThreadMessage
+                        |EmailThreadParticipant
                         |EmailReputationSnapshot
                         |EvaluationContext
                         |Edge
@@ -498,6 +549,9 @@ rules:
                         |EventFilterConfig
                         |EventStream
                         |EventStreamMember
+                        |ErrorTrackingAlert
+                        |ErrorTrackingAlertDestination
+                        |ErrorTrackingAlertThread
                         |ErrorTrackingAssignmentRule
                         |ErrorTrackingBypassRule
                         |ErrorTrackingGroupingRule
@@ -506,6 +560,7 @@ rules:
                         |ErrorTrackingRelease
                         |ErrorTrackingRecommendation
                         |ErrorTrackingSettings
+                        |ErrorTrackingSeverityRule
                         |ErrorTrackingSpikeDetectionConfig
                         |ErrorTrackingSpikeEvent
                         |ErrorTrackingStackFrame
@@ -524,6 +579,15 @@ rules:
                         |ExternalDataSchemaOOMEvent
                         |ExternalDataSource
                         |FeatureFlag
+                        |FeatureRequest
+                        |FeatureRequestAccountLink
+                        |FeatureRequestEvidence
+                        |FeatureRequestHistory
+                        |FeatureRequestProductArea
+                        |FeatureRequestProductAreaLink
+                        |GeneratedWidget
+                        |GeneratedWidgetGenerationJob
+                        |GeneratedWidgetVersion
                         |TeamExperimentsConfig
                         |TeamFeatureFlagDefaultsConfig
                         |TeamMCPGatewayConfig
@@ -560,6 +624,7 @@ rules:
                         |Loop
                         |LoopFire
                         |LoopTrigger
+                        |NotebookWidgetInstance
                         |LLMModelConfiguration
                         |LLMPrompt
                         |LLMPromptLabel
@@ -602,6 +667,7 @@ rules:
                         |ProductTour
                         |ProjectSecretAPIKey
                         |PropertyAccessControl
+                        |PullRequestAudience
                         |QuarantinedIdentifier
                         |QueryTabState
                         |QuickFilter
@@ -610,6 +676,7 @@ rules:
                         |ReplayObservationLabel
                         |ReplayObservationUsage
                         |ReplayScanner
+                        |ReplayScannerBackfill
                         |ReplayScannerPromptSuggestion
                         |Repo
                         |RepoRoutingRule
@@ -642,6 +709,7 @@ rules:
                         |SignalScoutEmission
                         |SignalScoutNote
                         |SignalScoutStructuredOutput
+                        |SignalScoutSuggestionSet
                         |SignalScratchpad
                         |SignalProjectProfile
                         |SingleSessionSummary
@@ -663,7 +731,9 @@ rules:
                         |TaskAutomation
                         |TaskPresence
                         |TaskRun
+                        |TaskWorkflowDispatch
                         |TaskSession
+                        |UserTasksConfig
                         |TaskThreadMessage
                         |TaskThreadMessageMention
                         |Channel
@@ -688,8 +758,8 @@ rules:
                         |UserInterview
                         |UserInterviewTopic
                         |UserRepoPreference
-                        |VisionAction
-                        |VisionActionRun
+                        |VisionAlertConfiguration
+                        |VisionAlertMatch
                         |WarehouseColumnAnnotation
                         |WarehouseColumnStatistics
                         |WebAnalyticsAchievementProgress
@@ -785,10 +855,17 @@ rules:
                       metavariable: $MODEL
                       regex: |
                           (?x)(
-                              CIMDVerificationToken
+                              BillingAlertConfiguration
+                              |BillingAlertEvaluationClaim
+                              |BillingAlertEvent
+                              |CIMDVerificationToken
+                              |ContextLayerConfig
+                              |DesktopBetaTermsAcceptance
                               |IdentityProviderConfig
                               |LegalDocument
+                              |ManagedWarehouseSourceLifecycle
                               |OrganizationMembership
+                              |OrganizationMemberNotificationLock
                               |OrganizationDomain
                               |OrganizationIntegration
                               |OrganizationInvite
@@ -853,10 +930,17 @@ rules:
                 metavariable: $MODEL
                 regex: |
                     (?x)(
-                        CIMDVerificationToken
+                        BillingAlertConfiguration
+                        |BillingAlertEvaluationClaim
+                        |BillingAlertEvent
+                        |CIMDVerificationToken
+                        |ContextLayerConfig
+                        |DesktopBetaTermsAcceptance
                         |IdentityProviderConfig
                         |LegalDocument
+                        |ManagedWarehouseSourceLifecycle
                         |OrganizationMembership
+                        |OrganizationMemberNotificationLock
                         |OrganizationDomain
                         |OrganizationIntegration
                         |OrganizationInvite
@@ -956,6 +1040,7 @@ rules:
                           (?x)(
                               CommunitySkillVote
                               |DashboardPrivilege
+                              |GitHubInstallRequest
                               |PersonalAPIKey
                               |ScoreDefinitionVersion
                               |SignalUserAutonomyConfig
@@ -1012,6 +1097,7 @@ rules:
                     (?x)(
                         CommunitySkillVote
                         |DashboardPrivilege
+                        |GitHubInstallRequest
                         |PersonalAPIKey
                         |ScoreDefinitionVersion
                         |SignalUserAutonomyConfig
@@ -1107,6 +1193,7 @@ rules:
                               |PersistedFolder
                               |Reminder
                               |SessionRecordingViewed
+                              |UserFacetSettings
                               |UserHomeSettings
                               |UserProductList
                               |UserScenePersonalisation
@@ -1180,6 +1267,7 @@ rules:
                         |PersistedFolder
                         |Reminder
                         |SessionRecordingViewed
+                        |UserFacetSettings
                         |UserHomeSettings
                         |UserProductList
                         |UserScenePersonalisation

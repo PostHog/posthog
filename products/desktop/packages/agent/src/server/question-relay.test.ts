@@ -2,7 +2,11 @@ import { type SetupServerApi, setupServer } from "msw/node";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { classifyAgentError } from "../adapters/error-classification";
 import type { PostHogAPIClient } from "../posthog-api";
-import { createTestRepo, type TestRepo } from "../test/fixtures/api";
+import {
+  createTaskRun,
+  createTestRepo,
+  type TestRepo,
+} from "../test/fixtures/api";
 import { createPostHogHandlers } from "../test/mocks/msw-handlers";
 import type { Task, TaskRun } from "../types";
 import { AgentServer, UPSTREAM_PROVIDER_FAILURE_MESSAGE } from "./agent-server";
@@ -27,7 +31,10 @@ interface TestableAgentServer {
     payload: Record<string, unknown>,
     messageId?: string,
   ) => Promise<void>;
-  sendInitialTaskMessage: (payload: Record<string, unknown>) => Promise<void>;
+  sendInitialTaskMessage: (
+    payload: Record<string, unknown>,
+    prefetchedRun?: TaskRun | null,
+  ) => Promise<void>;
 }
 
 const TEST_PAYLOAD = {
@@ -38,6 +45,20 @@ const TEST_PAYLOAD = {
   distinct_id: "test-distinct-id",
   mode: "interactive" as const,
 };
+
+function createTask(overrides: Partial<Task> = {}): Task {
+  return {
+    id: "test-task-id",
+    task_number: null,
+    slug: "test-task",
+    title: "t",
+    description: "original task description",
+    created_at: "2026-01-01T00:00:00.000Z",
+    updated_at: "2026-01-01T00:00:00.000Z",
+    origin_product: "tasks",
+    ...overrides,
+  };
+}
 
 const QUESTION_META = {
   codeToolKind: "question",
@@ -762,6 +783,86 @@ describe("Question relay", () => {
       await server.sendInitialTaskMessage(TEST_PAYLOAD);
 
       expect(promptSpy).not.toHaveBeenCalled();
+    });
+
+    it("refreshes stale bootstrap state before choosing the initial prompt", async () => {
+      vi.spyOn(server.posthogAPI, "getTask").mockResolvedValue(createTask());
+      vi.spyOn(server.posthogAPI, "getTaskRun").mockResolvedValue(
+        createTaskRun({
+          id: "test-run-id",
+          task: "test-task-id",
+          state: { prewarmed: true },
+        }),
+      );
+
+      const promptSpy = vi.fn().mockResolvedValue({ stopReason: "end_turn" });
+      server.session = {
+        payload: TEST_PAYLOAD,
+        acpSessionId: "acp-session",
+        clientConnection: { prompt: promptSpy },
+        logWriter: {
+          flushAll: vi.fn().mockResolvedValue(undefined),
+          getFullAgentResponse: vi.fn().mockReturnValue(null),
+          resetTurnMessages: vi.fn(),
+          appendRawLine: vi.fn(),
+          flush: vi.fn().mockResolvedValue(undefined),
+          isRegistered: vi.fn().mockReturnValue(true),
+        },
+      };
+
+      await server.sendInitialTaskMessage(
+        TEST_PAYLOAD,
+        createTaskRun({
+          id: "test-run-id",
+          task: "test-task-id",
+          state: {},
+        }),
+      );
+
+      expect(promptSpy).not.toHaveBeenCalled();
+    });
+
+    it("uses prefetched state when the initial task run refresh times out", async () => {
+      vi.useFakeTimers();
+      try {
+        vi.spyOn(server.posthogAPI, "getTask").mockResolvedValue(createTask());
+        vi.spyOn(server.posthogAPI, "getTaskRun").mockReturnValue(
+          new Promise(() => {}),
+        );
+
+        const promptSpy = vi.fn().mockResolvedValue({ stopReason: "end_turn" });
+        server.session = {
+          payload: TEST_PAYLOAD,
+          acpSessionId: "acp-session",
+          clientConnection: { prompt: promptSpy },
+          logWriter: {
+            flushAll: vi.fn().mockResolvedValue(undefined),
+            getFullAgentResponse: vi.fn().mockReturnValue(null),
+            resetTurnMessages: vi.fn(),
+            appendRawLine: vi.fn(),
+            flush: vi.fn().mockResolvedValue(undefined),
+            isRegistered: vi.fn().mockReturnValue(true),
+          },
+        };
+
+        const sendPromise = server.sendInitialTaskMessage(
+          TEST_PAYLOAD,
+          createTaskRun({
+            id: "test-run-id",
+            task: "test-task-id",
+            state: {},
+          }),
+        );
+        await vi.advanceTimersByTimeAsync(5_000);
+        await sendPromise;
+
+        expect(promptSpy).toHaveBeenCalledWith({
+          sessionId: "acp-session",
+          prompt: [{ type: "text", text: "original task description" }],
+        });
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it("replays a transient upstream termination with a continuation prompt", async () => {

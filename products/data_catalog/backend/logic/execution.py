@@ -9,6 +9,7 @@ included — so opening it reproduces exactly what ran.
 """
 
 import json
+import time
 from copy import deepcopy
 from datetime import timedelta
 from typing import TYPE_CHECKING, Optional
@@ -37,6 +38,7 @@ from posthog.models import Team, User
 from posthog.utils import absolute_uri
 
 from ..facade.enums import HOGQL_DEFINITION_KIND, MARKDOWN_DEFINITION_KIND, NODE_DEFINITION_KINDS
+from ..metrics import metric_run_outcome, metric_run_outcome_for
 from ..models import Metric
 from .analytics import METRIC_RUN_EVENT, METRIC_RUN_FAILED_EVENT, capture_metric_event
 from .drift import compute_drift
@@ -63,72 +65,94 @@ def run_metric(
     query_id: Optional[str] = None,
     request: "Request | None" = None,
 ) -> dict:
-    if not metric.definition:
-        raise MetricHasNoDefinition()
+    with metric_run_outcome(metric.definition_kind) as run:
+        if not metric.definition:
+            run.record("rejected")
+            raise MetricHasNoDefinition()
 
-    is_drifted = compute_drift([metric])[metric.id]
+        is_drifted = compute_drift([metric])[metric.id]
 
-    def capture_run(event: str, **extra: object) -> None:
-        capture_metric_event(
-            event, metric, team=team, user=user, request=request, extra={"is_drifted": is_drifted, **extra}
+        def capture_run(event: str, **extra: object) -> None:
+            capture_metric_event(
+                event, metric, team=team, user=user, request=request, extra={"is_drifted": is_drifted, **extra}
+            )
+
+        if metric.definition_kind == MARKDOWN_DEFINITION_KIND:
+            # Agent-calculated: return the steps to follow instead of executing a query. Still recorded
+            # as a run for attribution.
+            _touch_last_run(team, metric)
+            capture_run(METRIC_RUN_EVENT)
+            return _markdown_envelope(metric, is_drifted)
+
+        try:
+            query = prepare_execution_query(metric.definition, date_from=date_from, date_to=date_to, interval=interval)
+        except ValidationError:
+            run.record("rejected")
+            raise
+
+        execution_mode = (
+            execution_mode_from_refresh(refresh) if refresh else ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
         )
+        started_at = time.monotonic()
+        try:
+            with tags_context(product=Product.DATA_CATALOG, feature=Feature.QUERY):
+                raw = process_query_dict(
+                    team,
+                    query,
+                    execution_mode=execution_mode,
+                    user=user,
+                    query_id=query_id,
+                    # Mirror /query and endpoint execution: API-key runs are subject to the same query
+                    # safeguards (rejected constructs, API-team concurrency limiter) as those paths.
+                    is_query_service=is_api_key_access_method(get_query_tag_value("access_method")),
+                )
+        except (ExposedHogQLError, ExposedCHQueryError) as e:
+            run.record(metric_run_outcome_for(e))
+            capture_run(METRIC_RUN_FAILED_EVENT, reason="definition_error")
+            raise ValidationError(
+                {
+                    "definition": f"This metric could not run: {e} "
+                    "A table or column it references may no longer exist. Check system.information_schema.tables."
+                }
+            )
+        except ConcurrencyLimitExceeded:
+            run.record("concurrency_limited")
+            raise Throttled(detail=_CONCURRENCY_LIMIT_MESSAGE)
+        except ValidationError:
+            run.record("rejected")
+            raise
+        except Exception as e:
+            run.record(metric_run_outcome_for(e))
+            capture_exception(e)
+            raise
+        elapsed_seconds = time.monotonic() - started_at
 
-    if metric.definition_kind == MARKDOWN_DEFINITION_KIND:
-        # Agent-calculated: return the steps to follow instead of executing a query. Still recorded
-        # as a run for attribution.
+        payload = raw.model_dump(mode="json") if isinstance(raw, BaseModel) else raw
+        payload = payload if isinstance(payload, dict) else {}
+        if payload.get("error"):
+            # The engine reports schema-validation failures as an error payload instead of raising; a
+            # run that produced no results must not read as a success.
+            run.record("invalid_query")
+            capture_run(METRIC_RUN_FAILED_EVENT, reason="invalid_query")
+            raise ValidationError(
+                {
+                    "definition": f"This metric could not run: {payload['error']} "
+                    "The definition (or a date/interval override) does not form a valid query."
+                }
+            )
+
+        if _is_async_enqueue(payload):
+            run.record("async_enqueued")
+        else:
+            run.observe_duration(elapsed_seconds)
+
         _touch_last_run(team, metric)
         capture_run(METRIC_RUN_EVENT)
-        return _markdown_envelope(metric, is_drifted)
+        return _envelope(metric, payload, team, query, is_drifted)
 
-    query = prepare_execution_query(metric.definition, date_from=date_from, date_to=date_to, interval=interval)
 
-    execution_mode = (
-        execution_mode_from_refresh(refresh) if refresh else ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
-    )
-    try:
-        with tags_context(product=Product.DATA_CATALOG, feature=Feature.QUERY):
-            raw = process_query_dict(
-                team,
-                query,
-                execution_mode=execution_mode,
-                user=user,
-                query_id=query_id,
-                # Mirror /query and endpoint execution: API-key runs are subject to the same query
-                # safeguards (rejected constructs, API-team concurrency limiter) as those paths.
-                is_query_service=is_api_key_access_method(get_query_tag_value("access_method")),
-            )
-    except (ExposedHogQLError, ExposedCHQueryError) as e:
-        capture_run(METRIC_RUN_FAILED_EVENT, reason="definition_error")
-        raise ValidationError(
-            {
-                "definition": f"This metric could not run: {e} "
-                "A table or column it references may no longer exist. Check system.information_schema.tables."
-            }
-        )
-    except ConcurrencyLimitExceeded:
-        raise Throttled(detail=_CONCURRENCY_LIMIT_MESSAGE)
-    except ValidationError:
-        raise
-    except Exception as e:
-        capture_exception(e)
-        raise
-
-    payload = raw.model_dump(mode="json") if isinstance(raw, BaseModel) else raw
-    payload = payload if isinstance(payload, dict) else {}
-    if payload.get("error"):
-        # The engine reports schema-validation failures as an error payload instead of raising; a
-        # run that produced no results must not read as a success.
-        capture_run(METRIC_RUN_FAILED_EVENT, reason="invalid_query")
-        raise ValidationError(
-            {
-                "definition": f"This metric could not run: {payload['error']} "
-                "The definition (or a date/interval override) does not form a valid query."
-            }
-        )
-
-    _touch_last_run(team, metric)
-    capture_run(METRIC_RUN_EVENT)
-    return _envelope(metric, payload, team, query, is_drifted)
+def _is_async_enqueue(payload: dict) -> bool:
+    return payload.get("results") is None and payload.get("query_status") is not None
 
 
 def prepare_execution_query(

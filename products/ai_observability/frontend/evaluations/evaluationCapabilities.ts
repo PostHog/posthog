@@ -21,7 +21,7 @@ export function evaluationSupportsReports(
     return REPORTABLE_OUTPUT_TYPES_BY_TARGET[evaluation.target]?.has(evaluation.output_type) ?? false
 }
 
-export function evaluationSupportsRunSummary(
+export function evaluationSupportsRunOutcomes(
     evaluation: Pick<EvaluationConfig, 'output_type' | 'target'> | null | undefined
 ): boolean {
     return evaluation?.target === 'generation' && isBooleanEvaluationOutput(evaluation.output_type)

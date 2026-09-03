@@ -1,13 +1,23 @@
-import { WarningCircle } from "@phosphor-icons/react";
+import { Warning } from "@phosphor-icons/react";
 import { formatResetTime } from "@posthog/core/billing/usageDisplay";
+import type { UsageLimitContent } from "@posthog/core/billing/usageLimitContent";
 import { usageLimitContent } from "@posthog/core/billing/usageLimitContent";
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  Button,
+} from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
-import { Button, Dialog, Flex, Text } from "@radix-ui/themes";
 import { useEffect } from "react";
 import { track } from "../../shell/analytics";
 import { openExternalUrl } from "../../shell/openExternal";
 import { getBillingUrl } from "../../utils/urls";
 import { useAuthStateValue } from "../auth/store";
+import { useIsOrgAdmin } from "../auth/useOrgRole";
 import { useUsageLimitStore } from "./usageLimitStore";
 import { useUsage } from "./useUsage";
 
@@ -17,6 +27,7 @@ export function UsageLimitModal() {
   const cause = useUsageLimitStore((s) => s.cause);
   const hide = useUsageLimitStore((s) => s.hide);
   const cloudRegion = useAuthStateValue((state) => state.cloudRegion);
+  const { isAdmin } = useIsOrgAdmin();
   const { usage } = useUsage({ enabled: isOpen });
 
   useEffect(() => {
@@ -32,6 +43,7 @@ export function UsageLimitModal() {
     cause,
     resetLabel: resetAt ? formatResetTime(resetAt) : null,
     subscribed: usage?.code_usage_subscribed,
+    canManageBilling: isAdmin === true,
   });
 
   const handleAction = () => {
@@ -45,40 +57,60 @@ export function UsageLimitModal() {
   };
 
   return (
-    <Dialog.Root open={isOpen}>
-      <Dialog.Content
-        maxWidth="400px"
-        onInteractOutside={(e) => e.preventDefault()}
-        onEscapeKeyDown={hide}
-      >
-        <Flex direction="column" gap="3">
-          <Flex align="center" gap="2">
-            <WarningCircle size={20} weight="bold" color="var(--red-9)" />
-            <Dialog.Title className="mb-0">{content.title}</Dialog.Title>
-          </Flex>
-          <Dialog.Description>
-            <Text color="gray" className="text-sm">
-              {content.description}
-            </Text>
-          </Dialog.Description>
-          <Flex justify="end" gap="3" mt="2">
-            <Button
-              type="button"
-              {...(content.actionLabel
-                ? { variant: "soft" as const, color: "gray" as const }
-                : {})}
-              onClick={hide}
-            >
-              {content.dismissLabel}
-            </Button>
-            {content.actionLabel && (
-              <Button type="button" onClick={handleAction}>
+    <UsageLimitModalContent
+      open={isOpen}
+      content={content}
+      onDismiss={hide}
+      onAction={handleAction}
+    />
+  );
+}
+
+export function UsageLimitModalContent({
+  open,
+  content,
+  onDismiss,
+  onAction,
+}: {
+  open: boolean;
+  content: UsageLimitContent;
+  onDismiss: () => void;
+  onAction: () => void;
+}) {
+  return (
+    <AlertDialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen) onDismiss();
+      }}
+    >
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>
+            <span className="flex items-center gap-2">
+              <Warning size={18} weight="fill" color="var(--orange-9)" />
+              {content.title}
+            </span>
+          </AlertDialogTitle>
+          <AlertDialogDescription>{content.description}</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          {content.actionLabel ? (
+            <>
+              <Button variant="outline" onClick={onDismiss}>
+                {content.dismissLabel}
+              </Button>
+              <Button variant="primary" onClick={onAction}>
                 {content.actionLabel}
               </Button>
-            )}
-          </Flex>
-        </Flex>
-      </Dialog.Content>
-    </Dialog.Root>
+            </>
+          ) : (
+            <Button variant="primary" onClick={onDismiss}>
+              {content.dismissLabel}
+            </Button>
+          )}
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }

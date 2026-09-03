@@ -8,7 +8,7 @@
  */
 import * as zod from 'zod'
 
-export const DashboardTemplatesListParams = /* @__PURE__ */ zod.object({
+export const DashboardTemplatesListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -16,7 +16,7 @@ export const DashboardTemplatesListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const DashboardTemplatesListQueryParams = /* @__PURE__ */ zod.object({
+export const DashboardTemplatesListQueryParams = () => zod.object({
     is_featured: zod
         .boolean()
         .optional()
@@ -45,7 +45,7 @@ export const DashboardTemplatesListQueryParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const DashboardTemplatesRetrieveParams = /* @__PURE__ */ zod.object({
+export const DashboardTemplatesRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this dashboard template.'),
     project_id: zod
         .string()
@@ -54,7 +54,7 @@ export const DashboardTemplatesRetrieveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const DashboardsListParams = /* @__PURE__ */ zod.object({
+export const DashboardsListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -62,7 +62,7 @@ export const DashboardsListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const DashboardsListQueryParams = /* @__PURE__ */ zod.object({
+export const DashboardsListQueryParams = () => zod.object({
     folder: zod
         .string()
         .optional()
@@ -80,7 +80,7 @@ export const DashboardsListQueryParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const DashboardsCreateParams = /* @__PURE__ */ zod.object({
+export const DashboardsCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -88,7 +88,7 @@ export const DashboardsCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const DashboardsCreateQueryParams = /* @__PURE__ */ zod.object({
+export const DashboardsCreateQueryParams = () => zod.object({
     format: zod.enum(['json', 'txt']).optional(),
     include_dashboards: zod
         .boolean()
@@ -102,7 +102,7 @@ export const dashboardsCreateBodyNameMax = 400
 
 export const dashboardsCreateBodyDeleteInsightsDefault = false
 
-export const DashboardsCreateBody = /* @__PURE__ */ zod
+export const DashboardsCreateBody = () => zod
     .object({
         name: zod.string().max(dashboardsCreateBodyNameMax).nullish(),
         description: zod.string().optional(),
@@ -120,6 +120,22 @@ export const DashboardsCreateBody = /* @__PURE__ */ zod
             .array(zod.string())
             .nullish()
             .describe('List of quick filter IDs associated with this dashboard'),
+        grid_spacing: zod
+            .enum(['tight', 'condensed', 'standard', 'relaxed', 'wide'])
+            .describe(
+                '\* `tight` - tight\n\* `condensed` - condensed\n\* `standard` - standard\n\* `relaxed` - relaxed\n\* `wide` - wide'
+            )
+            .optional()
+            .describe(
+                'Named tile density preset. Use tight, condensed, standard, relaxed, or wide.\n\n\* `tight` - tight\n\* `condensed` - condensed\n\* `standard` - standard\n\* `relaxed` - relaxed\n\* `wide` - wide'
+            ),
+        layout_compaction: zod
+            .enum(['vertical', 'horizontal', 'stable'])
+            .describe('\* `vertical` - vertical\n\* `horizontal` - horizontal\n\* `stable` - stable')
+            .optional()
+            .describe(
+                'How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles to the left, and stable preserves positions while moving colliding tiles.\n\n\* `vertical` - vertical\n\* `horizontal` - horizontal\n\* `stable` - stable'
+            ),
         use_template: zod
             .string()
             .optional()
@@ -132,7 +148,7 @@ export const DashboardsCreateBody = /* @__PURE__ */ zod
     })
     .describe('Serializer mixin that handles tags for objects.')
 
-export const DashboardsRetrieveParams = /* @__PURE__ */ zod.object({
+export const DashboardsRetrieveParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this dashboard.'),
     project_id: zod
         .string()
@@ -141,7 +157,7 @@ export const DashboardsRetrieveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const DashboardsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const DashboardsRetrieveQueryParams = () => zod.object({
     filters_override: zod
         .string()
         .optional()
@@ -163,7 +179,7 @@ export const DashboardsRetrieveQueryParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const DashboardsPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const DashboardsPartialUpdateParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this dashboard.'),
     project_id: zod
         .string()
@@ -172,7 +188,7 @@ export const DashboardsPartialUpdateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const DashboardsPartialUpdateQueryParams = /* @__PURE__ */ zod.object({
+export const DashboardsPartialUpdateQueryParams = () => zod.object({
     format: zod.enum(['json', 'txt']).optional(),
     include_dashboards: zod
         .boolean()
@@ -226,9 +242,21 @@ export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneSevenLimitMax
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneSevenOrderByDefault = `latest`
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneSevenWrapLinesDefault = false
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneSevenTimezoneDefault = `UTC`
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneEightLimitDefault = 10
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneEightLimitMax = 25
+
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneEightStatusDefault = `all`
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneEightChannelDefault = `all`
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneEightAssigneesMax = 100
+
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneEightSearchDefault = ``
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneEightSearchMax = 200
+
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneEightSavedViewIdOneMax = 12
+
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneNameMax = 400
 
-export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
+export const DashboardsPartialUpdateBody = () => zod
     .object({
         name: zod.string().max(dashboardsPartialUpdateBodyNameMax).nullish(),
         description: zod.string().optional(),
@@ -264,11 +292,35 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
         breakdown_colors: zod.unknown().optional().describe('Custom color mapping for breakdown values.'),
         data_color_theme_id: zod.number().nullish().describe('ID of the color theme used for chart visualizations.'),
         tags: zod.array(zod.string()).optional(),
-        restriction_level: zod.union([zod.literal(21), zod.literal(37)]).optional(),
+        restriction_level: zod
+            .union([zod.literal(21), zod.literal(37)])
+            .describe(
+                '\* `21` - Everyone in the project can edit\n\* `37` - Only those invited to this dashboard can edit'
+            )
+            .optional()
+            .describe(
+                'Who can edit this dashboard.\n\n\* `21` - Everyone in the project can edit\n\* `37` - Only those invited to this dashboard can edit'
+            ),
         quick_filter_ids: zod
             .array(zod.string())
             .nullish()
             .describe('List of quick filter IDs associated with this dashboard.'),
+        grid_spacing: zod
+            .enum(['tight', 'condensed', 'standard', 'relaxed', 'wide'])
+            .describe(
+                '\* `tight` - tight\n\* `condensed` - condensed\n\* `standard` - standard\n\* `relaxed` - relaxed\n\* `wide` - wide'
+            )
+            .optional()
+            .describe(
+                'Named tile density preset. Use tight, condensed, standard, relaxed, or wide.\n\n\* `tight` - tight\n\* `condensed` - condensed\n\* `standard` - standard\n\* `relaxed` - relaxed\n\* `wide` - wide'
+            ),
+        layout_compaction: zod
+            .enum(['vertical', 'horizontal', 'stable'])
+            .describe('\* `vertical` - vertical\n\* `horizontal` - horizontal\n\* `stable` - stable')
+            .optional()
+            .describe(
+                'How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles to the left, and stable preserves positions while moving colliding tiles.\n\n\* `vertical` - vertical\n\* `horizontal` - horizontal\n\* `stable` - stable'
+            ),
         tiles: zod
             .array(
                 zod.object({
@@ -282,6 +334,7 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
                             widget_type: zod
                                 .enum([
                                     'activity_events_list',
+                                    'conversations_recent_tickets',
                                     'error_tracking_list',
                                     'experiment_results',
                                     'experiments_list',
@@ -290,11 +343,11 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
                                     'survey_results',
                                 ])
                                 .describe(
-                                    '\* `activity_events_list` - activity_events_list\n\* `error_tracking_list` - error_tracking_list\n\* `experiment_results` - experiment_results\n\* `experiments_list` - experiments_list\n\* `logs_list` - logs_list\n\* `session_replay_list` - session_replay_list\n\* `survey_results` - survey_results'
+                                    '\* `activity_events_list` - activity_events_list\n\* `conversations_recent_tickets` - conversations_recent_tickets\n\* `error_tracking_list` - error_tracking_list\n\* `experiment_results` - experiment_results\n\* `experiments_list` - experiments_list\n\* `logs_list` - logs_list\n\* `session_replay_list` - session_replay_list\n\* `survey_results` - survey_results'
                                 )
                                 .optional()
                                 .describe(
-                                    'Widget type identifier (cannot be changed on update).\n\n\* `activity_events_list` - activity_events_list\n\* `error_tracking_list` - error_tracking_list\n\* `experiment_results` - experiment_results\n\* `experiments_list` - experiments_list\n\* `logs_list` - logs_list\n\* `session_replay_list` - session_replay_list\n\* `survey_results` - survey_results'
+                                    'Widget type identifier (cannot be changed on update).\n\n\* `activity_events_list` - activity_events_list\n\* `conversations_recent_tickets` - conversations_recent_tickets\n\* `error_tracking_list` - error_tracking_list\n\* `experiment_results` - experiment_results\n\* `experiments_list` - experiments_list\n\* `logs_list` - logs_list\n\* `session_replay_list` - session_replay_list\n\* `survey_results` - survey_results'
                                 ),
                             config: zod
                                 .union([
@@ -893,6 +946,73 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
                                                 'short_id of a saved logs view to use as the source. When set, the saved view owns the date range, severity, service, and property filters; only orderBy and limit still apply.'
                                             ),
                                     }),
+                                    zod.object({
+                                        limit: zod
+                                            .number()
+                                            .min(1)
+                                            .max(dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneEightLimitMax)
+                                            .default(
+                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneEightLimitDefault
+                                            )
+                                            .describe('Maximum number of tickets to return.'),
+                                        status: zod
+                                            .enum(['new', 'open', 'pending', 'on_hold', 'resolved', 'all'])
+                                            .default(
+                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneEightStatusDefault
+                                            )
+                                            .describe('Ticket status filter.'),
+                                        priorities: zod
+                                            .array(zod.enum(['low', 'medium', 'high', 'critical']))
+                                            .optional()
+                                            .describe(
+                                                'Only show tickets with these priorities. Empty shows all priorities.'
+                                            ),
+                                        channel: zod
+                                            .enum(['widget', 'email', 'slack', 'teams', 'github', 'all'])
+                                            .default(
+                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneEightChannelDefault
+                                            )
+                                            .describe('Ticket channel filter.'),
+                                        assignees: zod
+                                            .array(
+                                                zod.union([
+                                                    zod.enum(['me', 'unassigned']),
+                                                    zod.object({
+                                                        id: zod.union([zod.string(), zod.number()]),
+                                                        type: zod.enum(['user', 'role']),
+                                                    }),
+                                                ])
+                                            )
+                                            .max(
+                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneEightAssigneesMax
+                                            )
+                                            .optional()
+                                            .describe(
+                                                "Only show tickets assigned to these users or roles. 'me' means the requesting user and 'unassigned' means tickets without an assignment. Empty shows all assignees."
+                                            ),
+                                        search: zod
+                                            .string()
+                                            .max(dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneEightSearchMax)
+                                            .default(
+                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneEightSearchDefault
+                                            )
+                                            .describe(
+                                                'Search requester name or email, ticket subject, message text, or ticket number.'
+                                            ),
+                                        savedViewId: zod
+                                            .union([
+                                                zod
+                                                    .string()
+                                                    .max(
+                                                        dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneEightSavedViewIdOneMax
+                                                    ),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe(
+                                                'short_id of a saved Support view to use as the source. When set, the saved view owns the ticket filters; the widget still sorts by most recently updated and applies its limit.'
+                                            ),
+                                    }),
                                 ])
                                 .optional()
                                 .describe("Widget-specific configuration. Shape depends on the tile's widget_type."),
@@ -929,7 +1049,7 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
 /**
  * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
  */
-export const DashboardsDestroyParams = /* @__PURE__ */ zod.object({
+export const DashboardsDestroyParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this dashboard.'),
     project_id: zod
         .string()
@@ -938,14 +1058,14 @@ export const DashboardsDestroyParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const DashboardsDestroyQueryParams = /* @__PURE__ */ zod.object({
+export const DashboardsDestroyQueryParams = () => zod.object({
     format: zod.enum(['json', 'txt']).optional(),
 })
 
 /**
  * Copy an existing dashboard tile to another dashboard (insight, text card, or widget tile).
  */
-export const DashboardsCopyTileCreateParams = /* @__PURE__ */ zod.object({
+export const DashboardsCopyTileCreateParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this dashboard.'),
     project_id: zod
         .string()
@@ -954,11 +1074,11 @@ export const DashboardsCopyTileCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const DashboardsCopyTileCreateQueryParams = /* @__PURE__ */ zod.object({
+export const DashboardsCopyTileCreateQueryParams = () => zod.object({
     format: zod.enum(['json', 'txt']).optional(),
 })
 
-export const DashboardsCopyTileCreateBody = /* @__PURE__ */ zod.object({
+export const DashboardsCopyTileCreateBody = () => zod.object({
     fromDashboardId: zod.number().describe('Dashboard id the tile currently belongs to.'),
     tileId: zod.number().describe('Dashboard tile id to copy.'),
 })
@@ -969,7 +1089,7 @@ export const DashboardsCopyTileCreateBody = /* @__PURE__ */ zod.object({
  * Text tiles render as markdown blocks on the dashboard — useful as section headings, dividers,
  * or annotations between insight tiles to give the dashboard structure.
  */
-export const DashboardsCreateTextTileCreateParams = /* @__PURE__ */ zod.object({
+export const DashboardsCreateTextTileCreateParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this dashboard.'),
     project_id: zod
         .string()
@@ -978,21 +1098,29 @@ export const DashboardsCreateTextTileCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const DashboardsCreateTextTileCreateQueryParams = /* @__PURE__ */ zod.object({
+export const DashboardsCreateTextTileCreateQueryParams = () => zod.object({
     format: zod.enum(['json', 'txt']).optional(),
 })
 
+export const dashboardsCreateTextTileCreateBodyTypeDefault = `text`
 export const dashboardsCreateTextTileCreateBodyBodyMax = 4000
 
 export const dashboardsCreateTextTileCreateBodyColorMax = 400
 
-export const DashboardsCreateTextTileCreateBody = /* @__PURE__ */ zod.object({
+export const DashboardsCreateTextTileCreateBody = () => zod.object({
+    type: zod
+        .enum(['text', 'image'])
+        .describe('\* `text` - text\n\* `image` - image')
+        .default(dashboardsCreateTextTileCreateBodyTypeDefault)
+        .describe(
+            'Tile type. Use image for a body with exactly one Markdown image. Defaults to text.\n\n\* `text` - text\n\* `image` - image'
+        ),
     body: zod
         .string()
         .min(1)
         .max(dashboardsCreateTextTileCreateBodyBodyMax)
         .describe(
-            'Markdown body for the text tile. Supports headings, lists, and inline formatting. Useful as a dashboard section heading, divider, or annotation between insights. Max 4000 characters.'
+            'Markdown body for the dashboard tile. Text tiles support headings, lists, and inline formatting. Image tiles require exactly one Markdown image. Max 4000 characters.'
         ),
     layouts: zod
         .object({
@@ -1033,7 +1161,7 @@ export const DashboardsCreateTextTileCreateBody = /* @__PURE__ */ zod.object({
  * object is preserved — only the dashboard tile is hidden. To delete the entire dashboard,
  * use the dashboard delete endpoint instead.
  */
-export const DashboardsDeleteTileParams = /* @__PURE__ */ zod.object({
+export const DashboardsDeleteTileParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this dashboard.'),
     project_id: zod
         .string()
@@ -1042,15 +1170,15 @@ export const DashboardsDeleteTileParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const DashboardsDeleteTileQueryParams = /* @__PURE__ */ zod.object({
+export const DashboardsDeleteTileQueryParams = () => zod.object({
     format: zod.enum(['json', 'txt']).optional(),
 })
 
-export const DashboardsDeleteTileBody = /* @__PURE__ */ zod.object({
+export const DashboardsDeleteTileBody = () => zod.object({
     tile_id: zod.number().describe('ID of the dashboard tile to delete. Use dashboard-get to look up tile IDs.'),
 })
 
-export const DashboardsMoveTilePartialUpdateParams = /* @__PURE__ */ zod.object({
+export const DashboardsMoveTilePartialUpdateParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this dashboard.'),
     project_id: zod
         .string()
@@ -1059,11 +1187,11 @@ export const DashboardsMoveTilePartialUpdateParams = /* @__PURE__ */ zod.object(
         ),
 })
 
-export const DashboardsMoveTilePartialUpdateQueryParams = /* @__PURE__ */ zod.object({
+export const DashboardsMoveTilePartialUpdateQueryParams = () => zod.object({
     format: zod.enum(['json', 'txt']).optional(),
 })
 
-export const DashboardsMoveTilePartialUpdateBody = /* @__PURE__ */ zod.object({
+export const DashboardsMoveTilePartialUpdateBody = () => zod.object({
     to_dashboard: zod.number().optional().describe('Destination dashboard ID.'),
     tile: zod
         .object({
@@ -1073,7 +1201,7 @@ export const DashboardsMoveTilePartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe('Tile to move, identified by its dashboard tile ID.'),
 })
 
-export const DashboardsReorderTilesCreateParams = /* @__PURE__ */ zod.object({
+export const DashboardsReorderTilesCreateParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this dashboard.'),
     project_id: zod
         .string()
@@ -1082,13 +1210,13 @@ export const DashboardsReorderTilesCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const DashboardsReorderTilesCreateQueryParams = /* @__PURE__ */ zod.object({
+export const DashboardsReorderTilesCreateQueryParams = () => zod.object({
     format: zod.enum(['json', 'txt']).optional(),
 })
 
 export const dashboardsReorderTilesCreateBodyLayoutDefault = `preserve`
 
-export const DashboardsReorderTilesCreateBody = /* @__PURE__ */ zod.object({
+export const DashboardsReorderTilesCreateBody = () => zod.object({
     tile_order: zod
         .array(zod.number())
         .min(1)
@@ -1105,7 +1233,7 @@ export const DashboardsReorderTilesCreateBody = /* @__PURE__ */ zod.object({
 /**
  * Run all insights on a dashboard and return their results.
  */
-export const DashboardsRunInsightsRetrieveParams = /* @__PURE__ */ zod.object({
+export const DashboardsRunInsightsRetrieveParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this dashboard.'),
     project_id: zod
         .string()
@@ -1114,7 +1242,7 @@ export const DashboardsRunInsightsRetrieveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const DashboardsRunInsightsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const DashboardsRunInsightsRetrieveQueryParams = () => zod.object({
     filters_override: zod
         .string()
         .optional()
@@ -1142,7 +1270,7 @@ export const DashboardsRunInsightsRetrieveQueryParams = /* @__PURE__ */ zod.obje
         ),
 })
 
-export const DashboardsRunWidgetsRetrieveParams = /* @__PURE__ */ zod.object({
+export const DashboardsRunWidgetsRetrieveParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this dashboard.'),
     project_id: zod
         .string()
@@ -1151,7 +1279,7 @@ export const DashboardsRunWidgetsRetrieveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const DashboardsRunWidgetsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const DashboardsRunWidgetsRetrieveQueryParams = () => zod.object({
     format: zod.enum(['json', 'txt']).optional(),
     tile_ids: zod.string().describe('Comma-separated dashboard tile IDs to run widgets for.'),
 })
@@ -1159,7 +1287,7 @@ export const DashboardsRunWidgetsRetrieveQueryParams = /* @__PURE__ */ zod.objec
 /**
  * Update the markdown body, layout, or color of an existing text tile on a dashboard.
  */
-export const DashboardsUpdateTextTileCreateParams = /* @__PURE__ */ zod.object({
+export const DashboardsUpdateTextTileCreateParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this dashboard.'),
     project_id: zod
         .string()
@@ -1168,7 +1296,7 @@ export const DashboardsUpdateTextTileCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const DashboardsUpdateTextTileCreateQueryParams = /* @__PURE__ */ zod.object({
+export const DashboardsUpdateTextTileCreateQueryParams = () => zod.object({
     format: zod.enum(['json', 'txt']).optional(),
 })
 
@@ -1176,7 +1304,7 @@ export const dashboardsUpdateTextTileCreateBodyBodyMax = 4000
 
 export const dashboardsUpdateTextTileCreateBodyColorMax = 400
 
-export const DashboardsUpdateTextTileCreateBody = /* @__PURE__ */ zod.object({
+export const DashboardsUpdateTextTileCreateBody = () => zod.object({
     tile_id: zod.number().describe('ID of the dashboard tile to update. Use dashboard-get to look up tile IDs.'),
     body: zod
         .string()
@@ -1217,7 +1345,7 @@ export const DashboardsUpdateTextTileCreateBody = /* @__PURE__ */ zod.object({
 /**
  * Add multiple widget tiles to a dashboard in one atomic request.
  */
-export const DashboardsWidgetsBatchCreateParams = /* @__PURE__ */ zod.object({
+export const DashboardsWidgetsBatchCreateParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this dashboard.'),
     project_id: zod
         .string()
@@ -1226,7 +1354,7 @@ export const DashboardsWidgetsBatchCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const DashboardsWidgetsBatchCreateQueryParams = /* @__PURE__ */ zod.object({
+export const DashboardsWidgetsBatchCreateQueryParams = () => zod.object({
     format: zod.enum(['json', 'txt']).optional(),
 })
 
@@ -1285,9 +1413,23 @@ export const dashboardsWidgetsBatchCreateBodyWidgetsItemSevenConfigOneLimitMax =
 export const dashboardsWidgetsBatchCreateBodyWidgetsItemSevenConfigOneOrderByDefault = `latest`
 export const dashboardsWidgetsBatchCreateBodyWidgetsItemSevenConfigOneWrapLinesDefault = false
 export const dashboardsWidgetsBatchCreateBodyWidgetsItemSevenConfigOneTimezoneDefault = `UTC`
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemEightNameMax = 400
+
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemEightConfigOneLimitDefault = 10
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemEightConfigOneLimitMax = 25
+
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemEightConfigOneStatusDefault = `all`
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemEightConfigOneChannelDefault = `all`
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemEightConfigOneAssigneesMax = 100
+
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemEightConfigOneSearchDefault = ``
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemEightConfigOneSearchMax = 200
+
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemEightConfigOneSavedViewIdOneMax = 12
+
 export const dashboardsWidgetsBatchCreateBodyWidgetsMax = 10
 
-export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
+export const DashboardsWidgetsBatchCreateBody = () => zod
     .object({
         widgets: zod
             .array(
@@ -2267,12 +2409,128 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
                             })
                             .describe('Configuration for the recent logs widget.'),
                     }),
+                    zod.object({
+                        name: zod
+                            .string()
+                            .max(dashboardsWidgetsBatchCreateBodyWidgetsItemEightNameMax)
+                            .nullish()
+                            .describe('Optional custom display name for the widget tile.'),
+                        description: zod
+                            .string()
+                            .optional()
+                            .describe('Optional markdown description shown when show_description is enabled.'),
+                        layouts: zod
+                            .object({
+                                sm: zod
+                                    .object({
+                                        x: zod
+                                            .number()
+                                            .optional()
+                                            .describe('Column position in the dashboard grid (0-indexed).'),
+                                        y: zod
+                                            .number()
+                                            .optional()
+                                            .describe('Row position in the dashboard grid (0-indexed).'),
+                                        w: zod
+                                            .number()
+                                            .optional()
+                                            .describe('Width in grid columns. The desktop grid is 12 columns wide.'),
+                                        h: zod.number().optional().describe('Height in grid rows.'),
+                                    })
+                                    .optional()
+                                    .describe(
+                                        'Layout for the standard (desktop) breakpoint. The grid is 12 columns wide.'
+                                    ),
+                                xs: zod
+                                    .object({
+                                        x: zod
+                                            .number()
+                                            .optional()
+                                            .describe('Column position in the dashboard grid (0-indexed).'),
+                                        y: zod
+                                            .number()
+                                            .optional()
+                                            .describe('Row position in the dashboard grid (0-indexed).'),
+                                        w: zod
+                                            .number()
+                                            .optional()
+                                            .describe('Width in grid columns. The desktop grid is 12 columns wide.'),
+                                        h: zod.number().optional().describe('Height in grid rows.'),
+                                    })
+                                    .optional()
+                                    .describe('Layout for the small (mobile) breakpoint. The grid is 1 column wide.'),
+                            })
+                            .optional()
+                            .describe('Optional react-grid-layout positions keyed by breakpoint (sm, xs).'),
+                        show_description: zod
+                            .boolean()
+                            .optional()
+                            .describe('Whether to show the description on the dashboard tile.'),
+                        widget_type: zod.enum(['conversations_recent_tickets']),
+                        config: zod
+                            .object({
+                                limit: zod
+                                    .number()
+                                    .min(1)
+                                    .max(dashboardsWidgetsBatchCreateBodyWidgetsItemEightConfigOneLimitMax)
+                                    .default(dashboardsWidgetsBatchCreateBodyWidgetsItemEightConfigOneLimitDefault)
+                                    .describe('Maximum number of tickets to return.'),
+                                status: zod
+                                    .enum(['new', 'open', 'pending', 'on_hold', 'resolved', 'all'])
+                                    .default(dashboardsWidgetsBatchCreateBodyWidgetsItemEightConfigOneStatusDefault)
+                                    .describe('Ticket status filter.'),
+                                priorities: zod
+                                    .array(zod.enum(['low', 'medium', 'high', 'critical']))
+                                    .optional()
+                                    .describe('Only show tickets with these priorities. Empty shows all priorities.'),
+                                channel: zod
+                                    .enum(['widget', 'email', 'slack', 'teams', 'github', 'all'])
+                                    .default(dashboardsWidgetsBatchCreateBodyWidgetsItemEightConfigOneChannelDefault)
+                                    .describe('Ticket channel filter.'),
+                                assignees: zod
+                                    .array(
+                                        zod.union([
+                                            zod.enum(['me', 'unassigned']),
+                                            zod.object({
+                                                id: zod.union([zod.string(), zod.number()]),
+                                                type: zod.enum(['user', 'role']),
+                                            }),
+                                        ])
+                                    )
+                                    .max(dashboardsWidgetsBatchCreateBodyWidgetsItemEightConfigOneAssigneesMax)
+                                    .optional()
+                                    .describe(
+                                        "Only show tickets assigned to these users or roles. 'me' means the requesting user and 'unassigned' means tickets without an assignment. Empty shows all assignees."
+                                    ),
+                                search: zod
+                                    .string()
+                                    .max(dashboardsWidgetsBatchCreateBodyWidgetsItemEightConfigOneSearchMax)
+                                    .default(dashboardsWidgetsBatchCreateBodyWidgetsItemEightConfigOneSearchDefault)
+                                    .describe(
+                                        'Search requester name or email, ticket subject, message text, or ticket number.'
+                                    ),
+                                savedViewId: zod
+                                    .union([
+                                        zod
+                                            .string()
+                                            .max(
+                                                dashboardsWidgetsBatchCreateBodyWidgetsItemEightConfigOneSavedViewIdOneMax
+                                            ),
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe(
+                                        'short_id of a saved Support view to use as the source. When set, the saved view owns the ticket filters; the widget still sorts by most recently updated and applies its limit.'
+                                    ),
+                            })
+                            .describe('Configuration for the recent tickets widget.'),
+                    }),
                 ])
             )
             .min(1)
             .max(dashboardsWidgetsBatchCreateBodyWidgetsMax)
             .describe(
-                'Widget tiles to add atomically. Supported widget_type values: activity_events_list, error_tracking_list, experiment_results, experiments_list, logs_list, session_replay_list, survey_results. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).'
+                'Widget tiles to add atomically. Supported widget_type values: activity_events_list, conversations_recent_tickets, error_tracking_list, experiment_results, experiments_list, logs_list, session_replay_list, survey_results. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).'
             ),
     })
     .describe('OpenAPI-only batch-add schema with widget_type-discriminated config shapes for agents.')
@@ -2286,7 +2544,7 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
  * that. All updates succeed or fail together. To add new widgets, use the widgets/batch POST endpoint; to
  * remove one, use delete_tile.
  */
-export const DashboardsUpdateWidgetsBatchParams = /* @__PURE__ */ zod.object({
+export const DashboardsUpdateWidgetsBatchParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this dashboard.'),
     project_id: zod
         .string()
@@ -2295,7 +2553,7 @@ export const DashboardsUpdateWidgetsBatchParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const DashboardsUpdateWidgetsBatchQueryParams = /* @__PURE__ */ zod.object({
+export const DashboardsUpdateWidgetsBatchQueryParams = () => zod.object({
     format: zod.enum(['json', 'txt']).optional(),
 })
 
@@ -2354,9 +2612,23 @@ export const dashboardsUpdateWidgetsBatchBodyWidgetsItemSevenConfigOneLimitMax =
 export const dashboardsUpdateWidgetsBatchBodyWidgetsItemSevenConfigOneOrderByDefault = `latest`
 export const dashboardsUpdateWidgetsBatchBodyWidgetsItemSevenConfigOneWrapLinesDefault = false
 export const dashboardsUpdateWidgetsBatchBodyWidgetsItemSevenConfigOneTimezoneDefault = `UTC`
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemEightNameMax = 400
+
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemEightConfigOneLimitDefault = 10
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemEightConfigOneLimitMax = 25
+
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemEightConfigOneStatusDefault = `all`
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemEightConfigOneChannelDefault = `all`
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemEightConfigOneAssigneesMax = 100
+
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemEightConfigOneSearchDefault = ``
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemEightConfigOneSearchMax = 200
+
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemEightConfigOneSavedViewIdOneMax = 12
+
 export const dashboardsUpdateWidgetsBatchBodyWidgetsMax = 10
 
-export const DashboardsUpdateWidgetsBatchBody = /* @__PURE__ */ zod
+export const DashboardsUpdateWidgetsBatchBody = () => zod
     .object({
         widgets: zod
             .array(
@@ -3049,6 +3321,81 @@ export const DashboardsUpdateWidgetsBatchBody = /* @__PURE__ */ zod
                             .optional()
                             .describe('New configuration for the recent logs widget. Omit to leave unchanged.'),
                     }),
+                    zod.object({
+                        tile_id: zod
+                            .number()
+                            .describe('ID of the widget tile to update. Use dashboard-get to look up widget tile IDs.'),
+                        name: zod
+                            .string()
+                            .max(dashboardsUpdateWidgetsBatchBodyWidgetsItemEightNameMax)
+                            .nullish()
+                            .describe(
+                                'New display name for the widget. Empty string or null clears it; omit to leave unchanged.'
+                            ),
+                        description: zod
+                            .string()
+                            .optional()
+                            .describe('New markdown description for the widget. Omit to leave unchanged.'),
+                        widget_type: zod.enum(['conversations_recent_tickets']),
+                        config: zod
+                            .object({
+                                limit: zod
+                                    .number()
+                                    .min(1)
+                                    .max(dashboardsUpdateWidgetsBatchBodyWidgetsItemEightConfigOneLimitMax)
+                                    .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemEightConfigOneLimitDefault)
+                                    .describe('Maximum number of tickets to return.'),
+                                status: zod
+                                    .enum(['new', 'open', 'pending', 'on_hold', 'resolved', 'all'])
+                                    .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemEightConfigOneStatusDefault)
+                                    .describe('Ticket status filter.'),
+                                priorities: zod
+                                    .array(zod.enum(['low', 'medium', 'high', 'critical']))
+                                    .optional()
+                                    .describe('Only show tickets with these priorities. Empty shows all priorities.'),
+                                channel: zod
+                                    .enum(['widget', 'email', 'slack', 'teams', 'github', 'all'])
+                                    .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemEightConfigOneChannelDefault)
+                                    .describe('Ticket channel filter.'),
+                                assignees: zod
+                                    .array(
+                                        zod.union([
+                                            zod.enum(['me', 'unassigned']),
+                                            zod.object({
+                                                id: zod.union([zod.string(), zod.number()]),
+                                                type: zod.enum(['user', 'role']),
+                                            }),
+                                        ])
+                                    )
+                                    .max(dashboardsUpdateWidgetsBatchBodyWidgetsItemEightConfigOneAssigneesMax)
+                                    .optional()
+                                    .describe(
+                                        "Only show tickets assigned to these users or roles. 'me' means the requesting user and 'unassigned' means tickets without an assignment. Empty shows all assignees."
+                                    ),
+                                search: zod
+                                    .string()
+                                    .max(dashboardsUpdateWidgetsBatchBodyWidgetsItemEightConfigOneSearchMax)
+                                    .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemEightConfigOneSearchDefault)
+                                    .describe(
+                                        'Search requester name or email, ticket subject, message text, or ticket number.'
+                                    ),
+                                savedViewId: zod
+                                    .union([
+                                        zod
+                                            .string()
+                                            .max(
+                                                dashboardsUpdateWidgetsBatchBodyWidgetsItemEightConfigOneSavedViewIdOneMax
+                                            ),
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe(
+                                        'short_id of a saved Support view to use as the source. When set, the saved view owns the ticket filters; the widget still sorts by most recently updated and applies its limit.'
+                                    ),
+                            })
+                            .optional()
+                            .describe('New configuration for the recent tickets widget. Omit to leave unchanged.'),
+                    }),
                 ])
             )
             .min(1)
@@ -3063,7 +3410,7 @@ export const DashboardsUpdateWidgetsBatchBody = /* @__PURE__ */ zod
 /**
  * List registered dashboard widget types and per-type config_schema documentation for agents.
  */
-export const DashboardsWidgetCatalogRetrieveParams = /* @__PURE__ */ zod.object({
+export const DashboardsWidgetCatalogRetrieveParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -3071,6 +3418,6 @@ export const DashboardsWidgetCatalogRetrieveParams = /* @__PURE__ */ zod.object(
         ),
 })
 
-export const DashboardsWidgetCatalogRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const DashboardsWidgetCatalogRetrieveQueryParams = () => zod.object({
     format: zod.enum(['json', 'txt']).optional(),
 })

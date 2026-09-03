@@ -13,31 +13,38 @@ from posthog.hogql import ast
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.hogql_queries.insights.utils.breakdowns import BREAKDOWN_NULL_STRING_LABEL
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
+from posthog.hogql_queries.utils.breakdowns import BREAKDOWN_NULL_STRING_LABEL
 from posthog.utils import relative_date_parse
 
+from products.error_tracking.backend.hogql_queries.access import ErrorTrackingQueryRunnerAccessMixin
 from products.error_tracking.backend.hogql_queries.error_tracking_query_runner_utils import validate_uuid_param
 
 logger = structlog.get_logger(__name__)
 
 
-class ErrorTrackingBreakdownsQueryRunner(AnalyticsQueryRunner[ErrorTrackingBreakdownsQueryResponse]):
+class ErrorTrackingBreakdownsQueryRunner(
+    ErrorTrackingQueryRunnerAccessMixin, AnalyticsQueryRunner[ErrorTrackingBreakdownsQueryResponse]
+):
     query: ErrorTrackingBreakdownsQuery
     cached_response: CachedErrorTrackingBreakdownsQueryResponse
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.query.issueId = validate_uuid_param(self.query.issueId, "issueId")
-        self.date_from = self.parse_relative_date_from(self.query.dateRange.date_from if self.query.dateRange else None)
+        self.date_from = self.parse_relative_date_from(
+            self.query.dateRange.date_from if self.query.dateRange else None, self.team.timezone_info
+        )
         self.date_to = self.parse_relative_date_to(self.query.dateRange.date_to if self.query.dateRange else None)
 
     @classmethod
-    def parse_relative_date_from(cls, date: str | None) -> datetime.datetime:
+    def parse_relative_date_from(cls, date: str | None, timezone_info: ZoneInfo) -> datetime.datetime:
         if date == "all" or date is None:
             return datetime.datetime.now(tz=ZoneInfo("UTC")) - datetime.timedelta(days=7)
 
-        return relative_date_parse(date, now=datetime.datetime.now(tz=ZoneInfo("UTC")), timezone_info=ZoneInfo("UTC"))
+        return relative_date_parse(
+            date, now=datetime.datetime.now(tz=ZoneInfo("UTC")), timezone_info=timezone_info, always_truncate=True
+        )
 
     @classmethod
     def parse_relative_date_to(cls, date: str | None) -> datetime.datetime:
@@ -51,12 +58,32 @@ class ErrorTrackingBreakdownsQueryRunner(AnalyticsQueryRunner[ErrorTrackingBreak
     def to_query(self) -> ast.SelectQuery:
         array_elements: list[ast.Expr] = []
         for prop in self.query.breakdownProperties:
+            property_value: ast.Expr = ast.Field(chain=["properties", prop])
+            if "%" in prop:
+                raw_property_value = ast.Call(
+                    name="JSONExtractRaw",
+                    args=[ast.Field(chain=["properties"]), ast.Constant(value=prop)],
+                )
+                property_value = ast.Call(
+                    name="replaceRegexpAll",
+                    args=[
+                        ast.Call(
+                            name="nullIf",
+                            args=[
+                                ast.Call(name="nullIf", args=[raw_property_value, ast.Constant(value="")]),
+                                ast.Constant(value="null"),
+                            ],
+                        ),
+                        ast.Constant(value='^"|"$'),
+                        ast.Constant(value=""),
+                    ],
+                )
             tuple_elements = [
                 ast.Constant(value=prop),
                 ast.Call(
                     name="ifNull",
                     args=[
-                        ast.Call(name="toString", args=[ast.Field(chain=["properties", prop])]),
+                        ast.Call(name="toString", args=[property_value]),
                         ast.Constant(value=BREAKDOWN_NULL_STRING_LABEL),
                     ],
                 ),
@@ -190,6 +217,9 @@ class ErrorTrackingBreakdownsQueryRunner(AnalyticsQueryRunner[ErrorTrackingBreak
         if self.query.filterTestAccounts:
             for prop in self.team.test_account_filters or []:
                 conditions.append(property_to_expr(prop, self.team))
+
+        if self.query.filterGroup:
+            conditions.append(property_to_expr(self.query.filterGroup, self.team))
 
         return ast.And(exprs=conditions)
 

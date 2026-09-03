@@ -24,6 +24,7 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import {
     CyclotronJobInputsValidation,
     CyclotronJobInputsValidationResult,
@@ -104,9 +105,7 @@ const VALIDATION_RULES = {
             ? 'You must add at least one mapping'
             : undefined,
     INTERNAL_DESTINATION_REQUIRES_FILTERS: (data: HogFunctionConfigurationType) =>
-        data.type === 'internal_destination' && data.filters?.events?.length === 0
-            ? 'You must choose a filter'
-            : undefined,
+        data.type === 'internal_destination' && !data.filters?.events?.length ? 'You must choose a filter' : undefined,
 } as const
 
 const NEW_FUNCTION_TEMPLATE: HogFunctionTemplateType = {
@@ -160,9 +159,11 @@ export function sanitizeInputs(
         let value = input?.value
 
         if (secret) {
-            // If set this means we haven't changed the value
+            // The value was not retyped, so keep the stored secret. Leave value undefined - it is
+            // dropped from the JSON payload, and a placeholder here can be encrypted as the new
+            // secret if the backend does not strip it.
             sanitizedInputs[inputSchema.key] = {
-                value: '********', // Don't send the actual value
+                value: undefined,
                 secret: true,
             }
             return
@@ -187,12 +188,15 @@ export function sanitizeInputs(
 
 export function sanitizeConfiguration(data: HogFunctionConfigurationType): HogFunctionConfigurationType {
     const filters = data.filters ?? {}
-    filters.source = filters.source ?? 'events'
+    filters.source = data.type === 'internal_destination' ? 'internal-events' : (filters.source ?? 'events')
 
     if (filters.source === 'person-updates' || Array.isArray(data?.mappings)) {
         // Ensure we aren't passing in values that aren't supported
         delete filters.actions
         delete filters.events
+    } else if (filters.source === 'internal-events') {
+        delete filters.actions
+        delete filters.data_warehouse
     }
 
     const payload: HogFunctionConfigurationType = {
@@ -1005,7 +1009,17 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                         return null
                     }
 
-                    return await api.hogFunctions.get(props.id)
+                    try {
+                        return await api.hogFunctions.get(props.id)
+                    } catch (e) {
+                        // A missing id, or one from another project reached via a cross-project deep
+                        // link, 404s here. Fall back to null so the scene renders its not-found state
+                        // instead of filing the rejection in error tracking.
+                        if (e instanceof ApiError && e.status === 404) {
+                            return null
+                        }
+                        throw e
+                    }
                 },
 
                 upsertHogFunction: async ({ configuration }) => {
@@ -1972,8 +1986,11 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                             },
                         })
                     } else {
+                        // A nested attr names a path inside a form field (`filters__events`), and the
+                        // form only has a manual-error slot for the field itself — anchoring the
+                        // message at the leaf renders nothing at all.
                         actions.setConfigurationManualErrors({
-                            [maybeValidationError.attr]: maybeValidationError.detail,
+                            [maybeValidationError.attr.split('__')[0]]: maybeValidationError.detail,
                         })
                     }
                 }, 1)
@@ -2058,7 +2075,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 actions.setConfigurationValues({
                     ...config,
                     enabled: values.configuration.enabled,
-                    filters: config.filters ?? values.configuration.filters,
+                    filters: values.configuration.filters ?? config.filters,
                     // NOTE: Technically mapping should also be sanitized against the template mappings but this is a bit of a pain
                     mappings: values.configuration.mappings?.length ? values.configuration.mappings : config.mappings,
                     // Keep some existing things when manually resetting the template

@@ -1,0 +1,72 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: Billing alerts
+feature: billing_alerts
+url_prefix: /organization/billing
+ui_apps: {}
+tools:
+    billing-alert-check-now:
+        operation: billing_alerts_check_now_create
+        enabled: false
+    billing-alert-create:
+        operation: billing_alerts_create
+        enabled: true
+        scopes:
+            - organization:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create billing alert
+        description: >
+            Create a billing-period spend alert in the active organization. The caller must be an organization Admin or
+            Owner. Billing owns the trigger configuration and evaluation; the shared alerting backend handles lifecycle,
+            scheduling, destinations, and delivery. The metric picks the billing-period total to watch: spend (current
+            period total so far) or projected_spend (projected period-end total). The first version supports only the
+            absolute_value threshold rule with threshold_value, in USD. Optional destination_changes can create Slack,
+            Microsoft Teams, or HTTPS webhook destinations atomically with the alert.
+        feature_flag: billing-alerts
+    billing-alert-delete:
+        operation: billing_alerts_destroy
+        enabled: false
+    billing-alert-destination-create:
+        operation: billing_alerts_destinations_create
+        enabled: false
+    billing-alert-destination-delete:
+        operation: billing_alerts_destinations_delete_create
+        enabled: false
+    billing-alert-events-list:
+        operation: billing_alerts_events_list
+        enabled: false
+    billing-alert-get:
+        operation: billing_alerts_retrieve
+        enabled: false
+    billing-alert-replace:
+        operation: billing_alerts_update
+        enabled: false
+    billing-alert-update:
+        operation: billing_alerts_partial_update
+        enabled: true
+        scopes:
+            - organization:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        title: Update billing alert
+        description: >
+            Partially update a billing alert by ID in the active organization. The caller must be an organization Admin
+            or Owner. Change only the supplied trigger fields, alert copy, enabled state, snooze, or cooldown. The
+            metric picks the billing-period total to watch (spend or projected_spend); the first version supports only
+            the absolute_value threshold rule with threshold_value, in USD. Optional destination_changes applies
+            destination creation or complete-group deletion in the same backend transaction as the configuration update.
+            Repeating a request that creates a destination of the same type is rejected, because an alert allows one
+            destination group per type.
+        feature_flag: billing-alerts
+    billing-alerts-list:
+        operation: billing_alerts_list
+        enabled: false

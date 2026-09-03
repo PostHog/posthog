@@ -5,26 +5,36 @@ import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.template.loader import render_to_string
+
 from parameterized import parameterized
+from slack_sdk.errors import SlackApiError
 
 from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
 
 from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery
 from products.exports.backend.temporal.subscriptions.ai_subscription.delivery import (
+    CHART_IMAGE_URL_TTL,
     SLACK_MRKDWN_SECTION_LIMIT,
+    TEAMS_REPORT_BLOCK_COUNT,
+    TEAMS_TEXT_BLOCK_LIMIT,
     _build_ai_slack_message,
     _last_scheduled_report_cutoff,
     _persist_ai_query_plan,
     _split_text_into_chunks,
     build_ai_subscription_report,
+    build_ai_teams_card,
+    build_chart_image_urls,
     render_ai_email_html,
     send_email_ai_subscription_report,
+    send_slack_ai_subscription_report,
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import AiReportResult
 from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import ReportWindow
 from products.exports.backend.temporal.subscriptions.types import AI_REPORT_WINDOW_END_KEY, SubscriptionTriggerType
 
-from ee.tasks.subscriptions.slack_subscriptions import SlackMessageData
+from ee.tasks.subscriptions.slack_subscriptions import SlackMessage
+from ee.tasks.subscriptions.teams_subscriptions import TEAMS_CARD_TEXT_BUDGET
 
 _DELIVERY = "products.exports.backend.temporal.subscriptions.ai_subscription.delivery"
 
@@ -74,6 +84,14 @@ class TestRenderAIEmailHtml:
         html = render_ai_email_html("**bold** and *italic*")
         assert "<strong>bold</strong>" in html
         assert "<em>italic</em>" in html
+
+    def test_chart_title_only_appears_in_the_image_alt_text(self) -> None:
+        html = render_to_string(
+            "email/ai_subscription_report.html",
+            {"title": "Report", "rendered_html": "", "charts": [_CHART]},
+        )
+
+        assert html.count(_CHART["title"]) == 1
 
 
 class TestExternalUrlExfilGuard:
@@ -196,8 +214,114 @@ def _mock_subscription() -> MagicMock:
     return sub
 
 
-def _build_message(markdown: str) -> SlackMessageData:
+def _build_message(markdown: str) -> SlackMessage:
     return _build_ai_slack_message(_mock_subscription(), markdown, delivery_id=_DELIVERY_ID)
+
+
+_CHART = {"title": "signups by day", "image_url": "https://ph.test/img.png"}
+
+
+class TestBuildChartImageUrls:
+    def test_a_chart_gets_a_url_minted_at_the_asset_ttl(self) -> None:
+        with patch(f"{_DELIVERY}.get_delivery_image_url", return_value="https://ph.test/img.png") as mint:
+            urls = build_chart_image_urls([{"export_asset_id": 7, "title": "signups by day"}], team_id=1)
+
+        assert urls == [_CHART]
+        assert mint.call_args.kwargs["expiry_delta"] == CHART_IMAGE_URL_TTL
+
+    @parameterized.expand(
+        [
+            ("expired_asset", [{"export_asset_id": 7, "title": "t"}], None),
+            ("missing_id", [{"title": "no id"}], "https://ph.test/img.png"),
+            ("not_a_dict", ["junk"], "https://ph.test/img.png"),
+            ("not_a_list", "nonsense", "https://ph.test/img.png"),
+            ("none", None, "https://ph.test/img.png"),
+        ]
+    )
+    def test_unusable_entries_yield_nothing(self, _name, charts, minted) -> None:
+        with patch(f"{_DELIVERY}.get_delivery_image_url", return_value=minted):
+            assert build_chart_image_urls(charts, team_id=1) == []
+
+
+class TestChartsOnSlackMessages:
+    def test_charts_follow_the_report_text(self) -> None:
+        message = _build_ai_slack_message(
+            _mock_subscription(), "A short report.", delivery_id=_DELIVERY_ID, charts=[_CHART]
+        )
+
+        assert [block["type"] for block in message.blocks[:3]] == ["section", "section", "image"]
+        assert message.blocks[1]["text"]["text"] == "A short report."
+        assert message.blocks[2]["image_url"] == _CHART["image_url"]
+        assert message.blocks[2]["alt_text"] == "signups by day"
+        assert message.blocks[2]["title"] == {"type": "plain_text", "text": "signups by day"}
+
+    def test_an_untitled_chart_posts_no_title_block(self) -> None:
+        message = _build_ai_slack_message(
+            _mock_subscription(),
+            "A short report.",
+            delivery_id=_DELIVERY_ID,
+            charts=[{"title": "", "image_url": "https://ph.test/img.png"}],
+        )
+
+        assert "title" not in message.blocks[2]
+        assert message.blocks[2]["alt_text"] == "Chart"
+
+    def test_a_chartless_report_posts_no_image_blocks(self) -> None:
+        message = _build_message("A short report.")
+
+        assert all(block["type"] != "image" for block in message.blocks)
+
+    async def test_a_chart_slack_rejects_costs_the_chart_not_the_report(self) -> None:
+        sent: list[list[dict]] = []
+
+        async def _deliver(_integration, _subscription, message_data):
+            sent.append(message_data.blocks)
+            if any(block["type"] == "image" for block in message_data.blocks):
+                raise SlackApiError("bad blocks", response={"error": "invalid_blocks"})
+            return MagicMock()
+
+        with patch(f"{_DELIVERY}.deliver_slack_message_data", side_effect=_deliver):
+            await send_slack_ai_subscription_report(
+                subscription=_mock_subscription(),
+                markdown="A short report.",
+                integration=MagicMock(),
+                delivery_id=_DELIVERY_ID,
+                charts=[_CHART],
+            )
+
+        assert len(sent) == 2
+        assert any(block["type"] == "image" for block in sent[0])
+        assert all(block["type"] != "image" for block in sent[1])
+        assert any("A short report." in block.get("text", {}).get("text", "") for block in sent[1])
+
+    async def test_a_slack_error_that_is_not_about_blocks_still_raises(self) -> None:
+        with patch(
+            f"{_DELIVERY}.deliver_slack_message_data",
+            side_effect=SlackApiError("nope", response={"error": "channel_not_found"}),
+        ):
+            with pytest.raises(SlackApiError):
+                await send_slack_ai_subscription_report(
+                    subscription=_mock_subscription(),
+                    markdown="A short report.",
+                    integration=MagicMock(),
+                    delivery_id=_DELIVERY_ID,
+                    charts=[_CHART],
+                )
+
+    async def test_the_slack_sender_never_touches_the_orm(self) -> None:
+        with (
+            patch(f"{_DELIVERY}.get_delivery_image_url") as mint,
+            patch(f"{_DELIVERY}.deliver_slack_message_data", new_callable=AsyncMock),
+        ):
+            await send_slack_ai_subscription_report(
+                subscription=_mock_subscription(),
+                markdown="A short report.",
+                integration=MagicMock(),
+                delivery_id=_DELIVERY_ID,
+                charts=[_CHART],
+            )
+
+        mint.assert_not_called()
 
 
 class TestBuildAISlackMessage:
@@ -217,6 +341,49 @@ class TestBuildAISlackMessage:
                 assert block["text"]["text"].strip(), "thread section text must be non-empty"
 
 
+class TestBuildAITeamsCard:
+    def _body(self, markdown: str) -> list[dict]:
+        card = build_ai_teams_card(_mock_subscription(), markdown, delivery_id=_DELIVERY_ID)
+        return card["attachments"][0]["content"]["body"]
+
+    def test_long_report_is_split_across_text_blocks(self) -> None:
+        body = self._body("\n\n".join("x" * (TEAMS_TEXT_BLOCK_LIMIT - 50) for _ in range(3)))
+
+        report_blocks = [b for b in body if set(b["text"]) == {"x"}]
+        assert len(report_blocks) == 3
+        assert all(len(b["text"]) <= TEAMS_TEXT_BLOCK_LIMIT for b in report_blocks)
+
+    @pytest.mark.parametrize(
+        "filler",
+        [
+            "x",
+            # Three bytes per character, so a report that fits by character count is far over the
+            # byte count Teams measures the payload in.
+            "詳",
+        ],
+    )
+    def test_report_over_the_card_budget_is_shortened_with_a_link_out(self, filler: str) -> None:
+        body = self._body("\n\n".join(filler * (TEAMS_TEXT_BLOCK_LIMIT - 50) for _ in range(20)))
+
+        assert sum(len(b["text"].encode("utf-8")) for b in body) <= TEAMS_CARD_TEXT_BUDGET
+        assert len([b for b in body if set(b["text"]) == {filler}]) <= TEAMS_REPORT_BLOCK_COUNT
+        assert "This report was shortened to fit." in body[-2]["text"]
+
+    def test_external_links_in_the_report_are_stripped(self) -> None:
+        body = self._body("See [the docs](https://evil.example.com/x) for more.")
+
+        assert "evil.example.com" not in str(body)
+
+    def test_external_links_in_the_subscription_title_are_stripped(self) -> None:
+        subscription = _mock_subscription()
+        subscription.title = "[Open report](https://attacker.example/login)"
+
+        card = build_ai_teams_card(subscription, "A short report.", delivery_id=_DELIVERY_ID)
+        body = card["attachments"][0]["content"]["body"]
+
+        assert body[0]["text"] == "**Open report**"
+
+
 def _mock_integration(scopes: frozenset[str]) -> MagicMock:
     integration = MagicMock()
     integration.kind = "slack"
@@ -226,11 +393,11 @@ def _mock_integration(scopes: frozenset[str]) -> MagicMock:
     return integration
 
 
-def _hint_texts(message: SlackMessageData) -> list[str]:
+def _hint_texts(message: SlackMessage) -> list[str]:
     return [el["text"] for block in message.blocks if block.get("type") == "context" for el in block["elements"]]
 
 
-def _ai_message(*, integration: MagicMock | None = None) -> SlackMessageData:
+def _ai_message(*, integration: MagicMock | None = None) -> SlackMessage:
     return _build_ai_slack_message(
         _mock_subscription(),
         "A short report.",

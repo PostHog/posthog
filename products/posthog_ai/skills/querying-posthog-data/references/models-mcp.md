@@ -68,7 +68,13 @@ And two tools cover what SQL can't express at all: `posthog:mcp-analytics-intent
 | `$mcp_resource_name`              | SDK    | Name of the MCP resource/prompt/tool the event refers to (resource-read and prompt-get events).                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | `$mcp_source`                     | SDK    | Constant identifier for the analytics SDK that emitted the event (e.g. `posthog_mcp_analytics`). Lets you separate SDK-emitted events from other/legacy MCP paths.                                                                                                                                                                                                                                                                                                                                                               |
 
-**Server-stamped extras (PostHog's own server only, not the SDK):** `$mcp_session_id` (transport-level session handle — see "Three identifiers" below), `$mcp_region` (cloud region that handled the request, e.g. `us`/`eu`), `$mcp_mode` (`cli` for single-exec, `tools` for one-tool-per-name), `$mcp_consumer` (upstream surface, e.g. `posthog-code`/`slack`), and the non-`$`-prefixed `mcp_vendor_client` (vendor/client identity from the `x-anthropic-client` header, e.g. `ClaudeCode`/`ClaudeAI` — used to resolve the harness in the bucketing SQL below) and `mcp_runtime` (server runtime, e.g. `hono`).
+**Server-stamped extras (PostHog's own server only, not the SDK):** `$mcp_session_id` (transport-level session handle — see "Three identifiers" below), `$mcp_region` (cloud region that handled the request, e.g. `us`/`eu`), `$mcp_mode` (`cli` for single-exec, `tools` for one-tool-per-name), `$mcp_consumer` (upstream surface, e.g. `posthog-code`/`slack`), and the non-`$`-prefixed legacy `mcp_vendor_client` (older variant of `$mcp_vendor_client`, the `x-anthropic-client` vendor header, e.g. `ClaudeCode`/`ClaudeAI` — still coalesced when resolving the harness for historical rows) and `mcp_runtime` (server runtime, e.g. `hono`), plus `$mcp_auth_method` (which credential the request authenticated with, from the bearer token's prefix: `oauth`, `personal_api_key`, `id_jag`, `none`, `unknown`), plus `$mcp_scope_preset` (which kind of caller minted the token, worked out from its scope set: `scout`, `research`, `implementation`, `sandbox` for any other server-minted run, or `user` for a person's own token; `research` and `implementation` need the scratchpad scopes and do not occur yet).
+
+**Refused requests are a separate event.** A request the PostHog API rejects dies before any session, organization, or project is resolved, so it emits none of the events above — it emits `$mcp_auth_failed` instead, with `$mcp_auth_failure_reason` (`insufficient_scope`, `inactive_oauth_token`, `invalid_api_key`, `unknown`), `$mcp_missing_scope` when the API named a scope, and `$mcp_auth_status` (401/403). Only PostHog's own server emits it, so it is absent for customer-instrumented servers.
+
+It does not set `$mcp_is_error`/`$mcp_error_status`, which mean "a tool call failed against the PostHog API" — so an auth refusal never inflates tool error rates, and the status it did return lives in `$mcp_auth_status` instead.
+
+Two consequences for queries: it has no `$mcp_organization_id`/`$mcp_project_id`, and its `distinct_id` is a hash of the bearer token rather than a user id, so count it with `uniq(distinct_id)` for affected credentials and join to other MCP events by client and time, never by person. A connector looping on authorization shows up here; before this event existed the same outage looked like an absence of traffic.
 
 **Three identifiers, not one.** `$session_id` is the materialised column — `GROUP BY`/join on this one. `$mcp_session_id` is the transport-level handle the MCP SDK observed (MCP `extra.sessionId` or a framework session cookie); it rotates on process restart, reconnect, or framework boundary. `$mcp_conversation_id` is agent-echoed and stable across reconnects — reach for it when a "session" needs to survive a client reconnecting mid-task. In practice `$session_id` and `$mcp_session_id` carry the same value; `$mcp_conversation_id` is the more durable one when they diverge.
 
@@ -144,7 +150,7 @@ A "harness" is the friendly product label for the MCP client that made a call �
 
 **Prefer the typed tool.** For "which harnesses use our MCP, and how reliably?", call the `posthog:query-mcp-harness-breakdown` tool (gated behind the `mcp-analytics` flag). It returns calls / errors / error-rate / sessions per harness and accepts the same `dateRange` / `properties` / `filterTestAccounts` filters as the dashboard, so results match the UI exactly — no hand-written bucketing needed. It also accepts an optional `toolName` to scope the breakdown to one effective tool — but note that scoping **also restricts the result to new-SDK events** (`$mcp_source = 'posthog_mcp_analytics'`), so old-SDK and third-party calls for that tool are excluded and a harness can be undercounted. For a one-tool harness cut across all SDK sources, use `execute-sql`. Anything the typed tools don't express drops to `execute-sql` below.
 
-**Use `execute-sql` for custom cuts** the typed tool doesn't cover (share-of-users, latency percentiles, per-tool, a trends breakdown). Resolution is two steps: resolve a normalized token from the strongest signal available, then bucket it. An event carries only raw signals — the `x-anthropic-client` header (`mcp_vendor_client`) is the only thing separating Anthropic's pooled surfaces (Cowork / Claude.ai / Claude Design); Claude Code's build (cli / sdk / vscode / desktop) rides in the User-Agent; the posthog-node MCP analytics SDK reports its `clientInfo.name` as `$mcp_client_name`, and the hosted server's session-pinned `mcp_session_client_name` covers everyone else; `$mcp_client_user_agent` and `$mcp_oauth_client_name` are last fallbacks. The SQL below mirrors `harness_label_sql` / `HARNESS_TOKEN_SQL` in `mcp_harness.py`; keep them in step until a materialized `$mcp_harness` property exists. (HogQL has no `WITH <expr> AS alias`, so the normalized name `h` is computed in a subquery, not a CTE.)
+**Use `execute-sql` for custom cuts** the typed tool doesn't cover (share-of-users, latency percentiles, per-tool, a trends breakdown). Resolution is two steps: resolve a normalized token from the strongest signal available, then bucket it. An event carries only raw signals, over exactly three properties — the `x-anthropic-client` header (`$mcp_vendor_client`, with the legacy `mcp_vendor_client` coalesced for historical rows) is the only thing separating Anthropic's pooled surfaces (Cowork / Claude.ai / Claude Design); Claude Code's build (cli / sdk / vscode / desktop) rides in the User-Agent (`$mcp_client_user_agent`, also the generic last fallback); and `clientInfo.name` arrives as `$mcp_client_name`. The SQL below mirrors `harness_label_sql` / `HARNESS_TOKEN_SQL` in `mcp_harness.py`; keep them in step until a materialized `$mcp_harness` property exists. (HogQL has no `WITH <expr> AS alias`, so the normalized name `h` is computed in a subquery, not a CTE.)
 
 **Share of users by harness** (answers "what % of my users are on Claude Code"):
 
@@ -205,11 +211,14 @@ FROM (
             distinct_id,
             trim(replaceRegexpAll(lower(
                 coalesce(
+                    -- Vendor header: the SDKs emit $mcp_vendor_client; the unprefixed
+                    -- mcp_vendor_client is the legacy name on historical rows from
+                    -- PostHog's own server. Both spellings of the value occur.
                     multiIf(
-                        lower(toString(properties.mcp_vendor_client)) = 'claudecode', 'claude-code',
-                        lower(toString(properties.mcp_vendor_client)) = 'claudeai', 'claude-ai',
-                        lower(toString(properties.mcp_vendor_client)) = 'cowork', 'cowork',
-                        lower(toString(properties.mcp_vendor_client)) = 'claudedesign', 'claude-design',
+                        lower(coalesce(nullIf(toString(properties.$mcp_vendor_client), ''), nullIf(toString(properties.mcp_vendor_client), ''))) IN ('claudecode', 'claude-code'), 'claude-code',
+                        lower(coalesce(nullIf(toString(properties.$mcp_vendor_client), ''), nullIf(toString(properties.mcp_vendor_client), ''))) IN ('claudeai', 'claude-ai'), 'claude-ai',
+                        lower(coalesce(nullIf(toString(properties.$mcp_vendor_client), ''), nullIf(toString(properties.mcp_vendor_client), ''))) = 'cowork', 'cowork',
+                        lower(coalesce(nullIf(toString(properties.$mcp_vendor_client), ''), nullIf(toString(properties.mcp_vendor_client), ''))) IN ('claudedesign', 'claude-design'), 'claude-design',
                         NULL
                     ),
                     if(lower(extract(toString(properties.$mcp_client_user_agent), '^([^/]+)')) = 'claude-code',
@@ -221,13 +230,11 @@ FROM (
                        trim(concat(extract(toString(properties.$mcp_client_user_agent), '^([^/]+)'), ' ', extract(toString(properties.$mcp_client_user_agent), '[(]([^,)]+)'))),
                        NULL),
                     nullIf(nullIf(toString(properties.$mcp_client_name), ''), 'mcp'),
-                    nullIf(nullIf(toString(properties.mcp_session_client_name), ''), 'mcp'),
                     nullIf(trim(concat(
                         extract(toString(properties.$mcp_client_user_agent), '^([^/]+)'),
                         ' ',
                         extract(toString(properties.$mcp_client_user_agent), '[(]([^,)]+)')
                     )), ''),
-                    nullIf(toString(properties.$mcp_oauth_client_name), ''),
                     ''
                 )
             ), '\\s*\\(via mcp-remote[^)]*\\)\\s*', '')) AS h

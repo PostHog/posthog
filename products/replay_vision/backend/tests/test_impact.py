@@ -21,25 +21,13 @@ from products.replay_vision.backend.tests.helpers import snapshot_for as _snapsh
 
 
 class _ImpactTestCase(APIBaseTest):
-    def setUp(self) -> None:
-        super().setUp()
-        self.flag_patcher = patch(
-            "products.replay_vision.backend.feature_flag.posthoganalytics.feature_enabled",
-            return_value=True,
-        )
-        self.flag_patcher.start()
-
-    def tearDown(self) -> None:
-        self.flag_patcher.stop()
-        super().tearDown()
-
     def _make_scanner(self, scanner_type: ScannerType = ScannerType.MONITOR) -> ReplayScanner:
         return ReplayScanner.objects.create(
             team=self.team,
             name=f"impact-{scanner_type}-{ReplayScanner.objects.count()}",
             scanner_type=scanner_type,
             scanner_config={"prompt": "p"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
         )
 
     def _make_observation(

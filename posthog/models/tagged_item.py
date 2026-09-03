@@ -15,6 +15,8 @@ RELATED_OBJECTS = (
     "ticket",
     "account",
     "endpoint",
+    "replay_scanner",
+    "project",
 )
 
 
@@ -106,6 +108,24 @@ class TaggedItem(ModelActivityMixin, UUIDTModel):
         null=True,
         blank=True,
         related_name="tagged_items",
+    )
+    replay_scanner = models.ForeignKey(
+        "replay_vision.ReplayScanner",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="tagged_items",
+    )
+    project = models.ForeignKey(
+        "posthog.Project",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="tagged_items",
+        # posthog_project is read on nearly every request, so creating this FK's database
+        # constraint inline would lock it. A later migration adds the constraint NOT VALID
+        # and validates it separately.
+        db_constraint=False,
     )
 
     class Meta:

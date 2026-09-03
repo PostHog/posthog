@@ -31,6 +31,22 @@
         box-shadow: 0 0 0 2px color-mix(in oklab, var(--ring) 30%, transparent);
     }
 
+    /*
+     * Press feedback — the button dips 1px under the cursor. Excluded are the
+     * variants/components that own their own press motion: `primary` rests
+     * raised and settles to 0, `toggle` dips 2px, and tabs stay put (a tab
+     * that jumps would drag the whole strip's baseline with it).
+     */
+    .quill-button:not(
+        :disabled,
+        [aria-disabled='true'],
+        .quill-button--variant-primary,
+        .quill-tabs__trigger,
+        .quill-toggle
+    ):active {
+        translate: 0 1px;
+    }
+
     /* Disabled covers both paths: native :disabled (focusableWhenDisabled=false)
        and the focusable aria-disabled="true" path (the default). Loading is
        excluded — it's busy, not unavailable, so it keeps full-strength visuals
@@ -108,8 +124,8 @@
 
     /* Consecutive selected items collapse corners for a seamless stack */
     .quill-button--variant-default:is([aria-selected='true'], [aria-checked='true']):has(
-            + :is([aria-selected='true'], [aria-checked='true'])
-        ) {
+        + :is([aria-selected='true'], [aria-checked='true'])
+    ) {
         border-bottom-right-radius: 0;
         border-bottom-left-radius: 0;
     }
@@ -191,7 +207,11 @@
         background-color: color-mix(in oklab, var(--destructive) 50%, transparent);
     }
 
-    .quill-button--variant-destructive:not(:disabled, [aria-disabled='true']):hover {
+    /* `data-highlighted` is the keyboard equivalent of hover inside a menu —
+       both land on the same brighter fill so navigating by arrow keys reads
+       the same as pointing at the row. */
+    .quill-button--variant-destructive:not(:disabled, [aria-disabled='true']):hover,
+    .quill-button--variant-destructive:not(:disabled, [aria-disabled='true'])[data-highlighted] {
         background-color: var(--destructive);
     }
 

@@ -25,8 +25,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     GoogleSearchConsoleSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.settings import (
+    DEFAULT_SEARCH_TYPE,
     PROPERTY_SCHEMAS,
     SEARCH_ANALYTICS_SCHEMAS,
+    split_schema_name,
 )
 
 logger = structlog.get_logger(__name__)
@@ -319,6 +321,7 @@ def _query_search_analytics(
     start_row: int,
     row_limit: int = ROW_LIMIT,
     data_state: str = DEFAULT_DATA_STATE,
+    search_type: str = DEFAULT_SEARCH_TYPE,
 ) -> list[dict[str, Any]]:
     body = {
         "startDate": start_date,
@@ -327,6 +330,9 @@ def _query_search_analytics(
         "rowLimit": row_limit,
         "startRow": start_row,
         "dataState": data_state,
+        # Sent even for "web". That's Google's own default, so existing web tables are
+        # unaffected, and the request stays explicit about which surface it reads.
+        "type": search_type,
     }
     url = f"{GSC_API_BASE}/sites/{quote(site_url, safe='')}/searchAnalytics/query"
 
@@ -334,17 +340,18 @@ def _query_search_analytics(
         _throttle(site_url)
         try:
             response = session.post(url, json=body)
-        except requests.ConnectionError:
-            # A dropped connection (RemoteDisconnected / connection reset) is raised before any
-            # response, so the quota/5xx handling below never sees it, and the tracked adapter's
-            # retry skips it because searchAnalytics.query is a POST. It's transient, so retry
-            # inline like a 5xx; once the inline budget is spent, let it bubble so Temporal
-            # retries the activity (resuming from the last saved date).
+        except (requests.ConnectionError, requests.Timeout):
+            # A dropped connection (RemoteDisconnected / connection reset) or a read timeout is
+            # raised before any response, so the quota/5xx handling below never sees it, and the
+            # tracked adapter's retry skips it because searchAnalytics.query is a POST. `Timeout`
+            # covers `ReadTimeout`, which isn't a `ConnectionError` subclass. Both are transient,
+            # so retry inline like a 5xx; once the inline budget is spent, let it bubble so
+            # Temporal retries the activity (resuming from the last saved date).
             if attempt == QUOTA_MAX_RETRIES:
                 raise
             wait = QUOTA_BACKOFF_BASE_SECONDS * (2**attempt)
             logger.warning(
-                "GSC request connection error, backing off",
+                "GSC request connection/timeout error, backing off",
                 site_url=site_url,
                 attempt=attempt,
                 wait_seconds=wait,
@@ -369,7 +376,25 @@ def _query_search_analytics(
             continue
 
         if response.ok:
-            return response.json().get("rows", [])
+            try:
+                return response.json().get("rows", [])
+            except requests.exceptions.ChunkedEncodingError:
+                # The body streams via chunked transfer-encoding and can still be cut off
+                # mid-read after a 200 with a good `response` object — a dropped connection
+                # after headers rather than before, so it lands here instead of the
+                # ConnectionError/Timeout handling above. Same transient class; retry inline,
+                # then let Temporal retry the activity once the inline budget is spent.
+                if attempt == QUOTA_MAX_RETRIES:
+                    raise
+                wait = QUOTA_BACKOFF_BASE_SECONDS * (2**attempt)
+                logger.warning(
+                    "GSC response body truncated, backing off",
+                    site_url=site_url,
+                    attempt=attempt,
+                    wait_seconds=wait,
+                )
+                time.sleep(wait)
+                continue
 
         # Surface Google's real reason (e.g. usageLimits/quotaExceeded vs forbidden) —
         # raise_for_status() discards the body where that distinction lives.
@@ -433,7 +458,12 @@ def _as_int(value: Any) -> int:
         return 0
 
 
-def _row_to_dict(row: dict[str, Any], dimensions: list[str], iter_date: dt.date | None = None) -> dict[str, Any]:
+def _row_to_dict(
+    row: dict[str, Any],
+    dimensions: list[str],
+    iter_date: dt.date | None = None,
+    search_type: str = DEFAULT_SEARCH_TYPE,
+) -> dict[str, Any]:
     keys = row["keys"]
     out: dict[str, Any] = {dim: keys[i] if i < len(keys) else None for i, dim in enumerate(dimensions)}
     if "hour" in out:
@@ -456,6 +486,8 @@ def _row_to_dict(row: dict[str, Any], dimensions: list[str], iter_date: dt.date 
     out["impressions"] = int(row.get("impressions", 0))
     out["ctr"] = float(row.get("ctr", 0.0))
     out["position"] = float(row.get("position", 0.0))
+    # Constant per table, but carried on the row so the per-type tables can be unioned.
+    out["search_type"] = search_type
     return out
 
 
@@ -578,10 +610,14 @@ def google_search_console_source(
     if resource_name in PROPERTY_SCHEMAS:
         return _property_source(config, resource_name, team_id)
 
-    if resource_name not in SEARCH_ANALYTICS_SCHEMAS:
+    base_name, search_type = split_schema_name(resource_name)
+    if base_name not in SEARCH_ANALYTICS_SCHEMAS:
         raise ValueError(f"Unknown Google Search Console schema: {resource_name}")
 
-    schema = SEARCH_ANALYTICS_SCHEMAS[resource_name]
+    schema = SEARCH_ANALYTICS_SCHEMAS[base_name]
+    if search_type != DEFAULT_SEARCH_TYPE and schema.get("web_only"):
+        raise ValueError(f"Google Search Console schema {base_name} is only available for web search")
+
     dimensions = schema["dimensions"]
     primary_keys = list(schema["primary_key"])
     data_state = schema.get("data_state", DEFAULT_DATA_STATE)
@@ -631,11 +667,12 @@ def google_search_console_source(
                     dimensions=dimensions,
                     start_row=start_row,
                     data_state=data_state,
+                    search_type=search_type,
                 )
                 if not rows:
                     break
 
-                yield [_row_to_dict(row, dimensions, iter_date=current) for row in rows]
+                yield [_row_to_dict(row, dimensions, iter_date=current, search_type=search_type) for row in rows]
 
                 next_start_row = start_row + len(rows)
                 if len(rows) < ROW_LIMIT:

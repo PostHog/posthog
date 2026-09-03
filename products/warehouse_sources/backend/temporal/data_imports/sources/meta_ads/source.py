@@ -1,3 +1,4 @@
+from datetime import date
 from typing import cast
 
 from posthog.schema import (
@@ -9,6 +10,8 @@ from posthog.schema import (
     SourceFieldInputConfigType,
     SourceFieldOauthAccountSelectConfig,
     SourceFieldOauthConfig,
+    SourceFieldSelectConfig,
+    SourceFieldSelectConfigOption,
     SuggestedTable,
 )
 
@@ -18,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
     MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
     FieldType,
     ResumableSource,
+    VersionDeprecation,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -38,6 +42,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     MetaAdsSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads import (
+    META_ADS_API_VERSION_V25,
+    META_ADS_API_VERSION_V26,
     META_AUTH_ERROR_MESSAGE,
     META_RATE_LIMIT_ERROR_MESSAGE,
     SHRINK_EXHAUSTED_ERROR_MESSAGE,
@@ -80,9 +86,10 @@ def _status_badges(account: dict) -> tuple[str, ...]:
 class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], OAuthMixin):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
-    supported_versions = ("v25.0",)
-    default_version = "v25.0"
+    supported_versions = (META_ADS_API_VERSION_V25, META_ADS_API_VERSION_V26)
+    default_version = META_ADS_API_VERSION_V26
     api_docs_url = "https://developers.facebook.com/docs/graph-api/changelog"
+    deprecated_versions = (VersionDeprecation(version=META_ADS_API_VERSION_V25, sunset_at=date(2028, 7, 29)),)
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -126,6 +133,28 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], O
                 "Meta blocked this request because the connected account is missing a permission "
                 "required to read your ads data. Please reconnect the Meta Ads integration and grant "
                 "all requested permissions."
+            ),
+            # Graph API code 200: "Requires business_management permission to manage the object."
+            # Distinct from the generic re-authorize message above — re-authorizing can never grant
+            # this scope, since the Meta OAuth consent only requests `ads_read` (see
+            # `AD_ACCOUNT_FIELDS` in meta_ads.py). Only the account owner granting
+            # `business_management`, or PostHog dropping the field that needs it, fixes this.
+            "Requires business_management permission": (
+                "Meta rejected part of this request because it needs the business_management "
+                "permission, which this integration does not request and cannot request without "
+                "widening OAuth consent for every customer. Re-authorizing will not fix this — "
+                "contact PostHog support if this table keeps failing."
+            ),
+            # Graph API code 100: the source's "Attribution windows for insights" setting (a
+            # free-text field, see `SourceFieldInputConfig` above) contains a value Meta's
+            # Insights API doesn't recognise. Retrying resends the same invalid parameter, so
+            # only editing the source config fixes it. Matches the message regardless of which
+            # array index Meta reports as invalid.
+            "action_attribution_windows[": (
+                'Meta rejected the "Attribution windows for insights" setting on this source — one '
+                "of the configured values isn't a window Meta supports (e.g. 1d_click, 7d_click, "
+                "28d_click, 1d_view, 7d_view, 28d_view). Fix it in your Meta Ads source settings, "
+                "then run the sync again."
             ),
             # Meta returns this 500 when the requested query is too large for their backend to
             # service. Both pagination paths adapt to it (stats chunks shrink 30 → 7 → 1 day, and
@@ -180,6 +209,7 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], O
             config=config,
             team_id=inputs.team_id,
             resumable_source_manager=resumable_source_manager,
+            api_version=self.resolve_api_version(inputs.api_version),
             should_use_incremental_field=inputs.should_use_incremental_field,
             incremental_field=inputs.incremental_field if inputs.should_use_incremental_field else None,
             incremental_field_type=inputs.incremental_field_type if inputs.should_use_incremental_field else None,
@@ -194,7 +224,17 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], O
             name=SchemaExternalDataSourceType.META_ADS,
             category=DataWarehouseSourceCategory.ADVERTISING,
             featured=True,
-            keywords=["facebook ads", "instagram ads", "facebook", "instagram", "fb"],
+            keywords=[
+                "facebook ads",
+                "instagram ads",
+                "facebook",
+                "instagram",
+                "fb",
+                "meta business",
+                "meta business suite",
+                "business manager",
+                "facebook business",
+            ],
             label="Meta Ads",
             caption="Ensure you have granted PostHog access to your Meta Ads account, learn how to do this in the [documentation](https://posthog.com/docs/cdp/sources/meta-ads).",
             iconPath="/static/services/meta-ads.png",
@@ -221,6 +261,32 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], O
                         required=False,
                         placeholder="90",
                         secret=False,
+                        caption=(
+                            "A stats table that already imported keeps its current start date. A higher "
+                            "value pulls in older data only after you resync that table."
+                        ),
+                    ),
+                    # Attribution settings for insights (spend/conversion) tables. Left unset, Meta
+                    # applies its own default, so existing connections are unaffected. Set them to
+                    # reconcile PostHog's numbers with Ads Manager, which reports on a specific window.
+                    SourceFieldInputConfig(
+                        name="action_attribution_windows",
+                        label="Attribution windows for insights (comma-separated, e.g. 7d_click,1d_view)",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=False,
+                        placeholder="7d_click,1d_view",
+                        secret=False,
+                    ),
+                    SourceFieldSelectConfig(
+                        name="use_unified_attribution_setting",
+                        label="Use Meta's unified attribution setting",
+                        required=False,
+                        defaultValue="",
+                        options=[
+                            SourceFieldSelectConfigOption(label="Use Meta's default", value=""),
+                            SourceFieldSelectConfigOption(label="Yes", value="true"),
+                            SourceFieldSelectConfigOption(label="No", value="false"),
+                        ],
                     ),
                 ],
             ),

@@ -1,8 +1,6 @@
-import './ScannerTriggers.scss'
-
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonCard, LemonInput, LemonSegmentedButton, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonCard, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 
 import { resolveCategoryDropdownVariant, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
@@ -10,11 +8,14 @@ import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
-import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
+import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { getExperimentVariants } from 'scenes/experiments/utils'
 import { DurationFilter } from 'scenes/session-recordings/filters/DurationFilter'
 import {
     convertUniversalFiltersToRecordingsQuery,
@@ -23,6 +24,7 @@ import {
 } from 'scenes/session-recordings/filters/recordingsQueryConversions'
 import { RecordingsUniversalFilterAddFilterPopover } from 'scenes/session-recordings/filters/RecordingsUniversalFiltersEmbed'
 import { defaultRecordingDurationFilter } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
+import { urls } from 'scenes/urls'
 
 import { groupsModel } from '~/models/groupsModel'
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
@@ -31,8 +33,6 @@ import { PropertyFilterType, RecordingUniversalFilters, UniversalFiltersGroup } 
 
 import { clampDurationFilter, durationFilterError, MAX_ACTIVE_LABEL } from '../durationBounds'
 import { replayScannerLogic } from '../replayScannerLogic'
-import { SAMPLING_MODE_OPTIONS, SamplingMode } from '../types'
-import { ScannerQuotaForecast } from './ScannerQuotaForecast'
 
 // Mirrors the recordings list taxonomy, including suggested filters so the search bar surfaces them.
 // Group properties are appended per-project from groupsModel (see scannerFilterTypes below).
@@ -69,6 +69,7 @@ export function groupHasNoFilters(group: UniversalFiltersGroup): boolean {
 function ScannerFilterGroup(): JSX.Element {
     const { filterGroup } = useValues(universalFiltersLogic)
     const { replaceGroupValue, removeGroupValue } = useActions(universalFiltersLogic)
+    const allowEntityNegation = useFeatureFlag('REPLAY_NEGATIVE_EVENT_FILTERS')
 
     return (
         <div className="flex flex-wrap items-center gap-2">
@@ -84,10 +85,64 @@ function ScannerFilterGroup(): JSX.Element {
                         filter={filterOrGroup}
                         onRemove={() => removeGroupValue(index)}
                         onChange={(value) => replaceGroupValue(index, value)}
+                        allowEntityNegation={allowEntityNegation}
                     />
                 )
             )}
         </div>
+    )
+}
+
+// Variant selection for a scanner targeting an experiment. The choice is stored as the scanner's
+// experiment targeting; the backend derives the person-scoped exposure filter from it at scan
+// time, so there is no filter in the card below to hand-edit.
+function ExperimentTargeting({ scannerId }: { scannerId: string }): JSX.Element | null {
+    const { experimentContext } = useValues(replayScannerLogic({ id: scannerId }))
+    const { setExperimentVariant, detachExperimentContext } = useActions(replayScannerLogic({ id: scannerId }))
+
+    if (!experimentContext) {
+        return null
+    }
+    const { experiment, variantKey } = experimentContext
+    // A null value targets every variant; each experiment variant is a single-select option.
+    const variantOptions: { value: string | null; label: string }[] = [
+        { value: null, label: 'All variants' },
+        ...getExperimentVariants(experiment).map((variant) => ({
+            value: variant.key,
+            label: variant.key,
+        })),
+    ]
+
+    return (
+        <LemonCard hoverEffect={false} className="p-3 space-y-3" data-attr="vision-experiment-targeting">
+            <div className="flex items-start justify-between gap-2">
+                <div className="space-y-1">
+                    <LemonLabel>Experiment targeting</LemonLabel>
+                    <div className="text-xs text-muted">
+                        This scanner watches sessions of people exposed to{' '}
+                        <Link to={urls.experiment(experiment.id)}>{experiment.name}</Link>. Pick a variant to narrow it,
+                        or watch every variant. Filters you add yourself are kept.
+                    </div>
+                </div>
+                <LemonButton
+                    size="xsmall"
+                    type="secondary"
+                    onClick={() => detachExperimentContext()}
+                    tooltip="Stop limiting this scanner to people exposed to this experiment. Filters you added yourself are kept."
+                    data-attr="vision-experiment-targeting-detach"
+                >
+                    Remove targeting
+                </LemonButton>
+            </div>
+            <div className="max-w-160">
+                <LemonSelect
+                    value={variantKey}
+                    onChange={(key) => setExperimentVariant(key)}
+                    options={variantOptions}
+                    data-attr="vision-experiment-targeting-variants"
+                />
+            </div>
+        </LemonCard>
     )
 }
 
@@ -111,6 +166,7 @@ export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Eleme
 
     return (
         <div className="space-y-6">
+            <ExperimentTargeting scannerId={scannerId} />
             <LemonField name="query">
                 {({ value, onChange }) => {
                     const query = value as RecordingsQuery | null
@@ -271,73 +327,6 @@ export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Eleme
                     )
                 }}
             </LemonField>
-
-            <LemonField name="sampling_rate">
-                {({ value, onChange }) => {
-                    const ratio = typeof value === 'number' ? value : 0
-                    const samplingPercent = Math.round(ratio * 1000) / 10
-                    return (
-                        <LemonCard hoverEffect={false} className="p-3 space-y-3">
-                            <div className="space-y-1">
-                                <LemonLabel>Sampling</LemonLabel>
-                                <div className="text-xs text-muted">
-                                    Each observation counts against your monthly Vision quota.
-                                </div>
-                            </div>
-                            <div className="flex items-center gap-4">
-                                <div className="flex-1">
-                                    <LemonSlider
-                                        value={samplingPercent}
-                                        onChange={(v) => onChange(v / 100)}
-                                        min={0.1}
-                                        max={100}
-                                        step={0.1}
-                                    />
-                                </div>
-                                <div className="w-24">
-                                    <LemonInput
-                                        type="number"
-                                        value={samplingPercent}
-                                        onChange={(v) => onChange(Math.min(100, Number(v) || 0) / 100)}
-                                        min={0.1}
-                                        max={100}
-                                        step={0.1}
-                                        suffix={<span>%</span>}
-                                        status={samplingPercent < 0.1 ? 'danger' : undefined}
-                                    />
-                                </div>
-                            </div>
-                        </LemonCard>
-                    )
-                }}
-            </LemonField>
-
-            <LemonField name="sampling_mode">
-                {({ value, onChange }) => {
-                    const mode = (value ?? 'comprehensive') as SamplingMode
-                    const option = SAMPLING_MODE_OPTIONS.find((o) => o.value === mode)
-                    return (
-                        <LemonCard hoverEffect={false} className="p-3 space-y-3">
-                            <div className="space-y-1">
-                                <LemonLabel info="Filters which matching recordings this scanner watches, based on how much activity a recording has (interactions, errors, navigation). Narrower options skip low-activity recordings so your budget goes to recordings worth watching.">
-                                    Session coverage
-                                </LemonLabel>
-                            </div>
-                            <div className="space-y-1 @container">
-                                <LemonSegmentedButton
-                                    className="ScannerSessionCoverage"
-                                    value={mode}
-                                    onChange={onChange}
-                                    options={SAMPLING_MODE_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
-                                />
-                                <div className="text-xs text-muted">{option?.description}</div>
-                            </div>
-                        </LemonCard>
-                    )
-                }}
-            </LemonField>
-
-            <ScannerQuotaForecast scannerId={scannerId} />
         </div>
     )
 }

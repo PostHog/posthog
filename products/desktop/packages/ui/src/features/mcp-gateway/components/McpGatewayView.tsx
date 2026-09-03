@@ -13,7 +13,6 @@ import {
 } from "@posthog/ui/features/mcp-gateway/gatewayRoute";
 import { useGatewayConfig } from "@posthog/ui/features/mcp-gateway/hooks/useGatewayConfig";
 import { useGatewayServers } from "@posthog/ui/features/mcp-gateway/hooks/useGatewayServers";
-import { useServiceAccounts } from "@posthog/ui/features/mcp-gateway/hooks/useServiceAccounts";
 import { DotPatternBackground } from "@posthog/ui/primitives/DotPatternBackground";
 import { Box, Flex, ScrollArea } from "@radix-ui/themes";
 import { useQueryClient } from "@tanstack/react-query";
@@ -35,7 +34,6 @@ export function McpGatewayView() {
     useGatewayConfig();
   const canAddServers = isAdmin || allowCustomServers;
   const gateway = useGatewayServers();
-  const serviceAccounts = useServiceAccounts();
 
   // Refresh gateway state when the window regains focus — connections and
   // policies can change from the web app or another teammate meanwhile.
@@ -68,7 +66,6 @@ export function McpGatewayView() {
           <GatewayAddServer
             isAdmin={isAdmin}
             canManageAgentAccess={canManageAgentAccess}
-            accounts={serviceAccounts.accounts}
             onNavigate={setRoute}
           />
         );

@@ -46,6 +46,19 @@ class SourceBatch(UUIDModel):
         help_text="Stores partitioning config, CDC mode, primary keys, schema path, data folder, etc.",
     )
 
+    # The destinations this batch is delivered to, snapshotted when the run started so a
+    # config change mid-run cannot alter where an in-flight batch lands. The batch is done
+    # only once every id here has taken it, which is what keeps destinations in step.
+    # db_default matters: `jobs_db.insert_batch` writes this table with raw SQL that does not
+    # list this column, so without a Postgres-level default that insert would violate NOT NULL.
+    # It also gives CDC batches the right value, since CDC stays warehouse-only for now.
+    destination_ids = models.JSONField(
+        default=list,
+        blank=True,
+        db_default=[],
+        help_text="ExternalDataDestination ids this batch is delivered to. Empty means the PostHog warehouse only.",
+    )
+
     # Denormalized mirror of the latest sourcebatchstatus row, maintained by the
     # dual-write CTEs in jobs_db so hot readers don't re-derive state from the
     # append-only log. sourcebatchstatus remains the source of truth.
@@ -55,6 +68,11 @@ class SourceBatch(UUIDModel):
     latest_attempt = models.SmallIntegerField(default=0, db_default=0)
     # NULL means "never dual-written" — the backfill command's target marker.
     state_changed_at = models.DateTimeField(null=True, blank=True)
+    # Denormalized from the failed status row's error payload ({"superseded": true},
+    # written only by supersede_other_runs). Lets the reconcile sweep judge
+    # candidacy from this table alone instead of a per-batch status lateral,
+    # whose cost melted down under failure storms.
+    superseded = models.BooleanField(default=False, db_default=False)
 
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -66,6 +84,10 @@ class SourceBatch(UUIDModel):
             models.Index(fields=["team_id", "schema_id"], name="sb_team_schema_idx"),
             models.Index(fields=["run_uuid"], name="sb_run_uuid_idx"),
             models.Index(fields=["run_uuid", "batch_index"], name="sb_run_uuid_bi_idx"),
+            # Serves the job-scoped scans (supersede_other_runs on every fresh run's
+            # first batch, lock-takeover activity summary, orphan reconcile counts),
+            # which otherwise seq-scan every retained partition per call.
+            models.Index(fields=["job_id"], name="sb_job_id_idx"),
             models.Index(
                 fields=["team_id", "created_at", "batch_index"],
                 name="sb_claimable_idx",
@@ -80,6 +102,11 @@ class SourceBatch(UUIDModel):
                 fields=["team_id", "schema_id"],
                 name="sb_schema_busy_idx",
                 condition=models.Q(latest_state="executing"),
+            ),
+            models.Index(
+                fields=["state_changed_at"],
+                name="sb_failed_changed_idx",
+                condition=models.Q(latest_state="failed"),
             ),
         ]
 

@@ -170,7 +170,12 @@ class TestExternalAccountListAPI(APIBaseTest):
         self.user.save(update_fields=["first_name", "last_name"])
         colleague = User.objects.create_and_join(self.organization, "aaa@x.com", None)
         ae_definition = self._create_definition("Account executive", is_single_holder=False)
-        account = create_account(team_id=self.team.id, name="Acme", external_id="org-1")
+        account = create_account(
+            team_id=self.team.id,
+            name="Acme",
+            external_id="org-1",
+            churned_at=datetime(2026, 8, 1, 12, 30, tzinfo=UTC),
+        )
         self._assign(account, self.user)
         self._assign(account, self.user, definition=ae_definition)
         self._assign(account, colleague, definition=ae_definition)
@@ -184,6 +189,8 @@ class TestExternalAccountListAPI(APIBaseTest):
         row = data["results"][0]
         self.assertEqual(row["external_id"], "org-1")
         self.assertEqual(row["name"], "Acme")
+        self.assertEqual(row["churned_at"], "2026-08-01T12:30:00Z")
+        self.assertIsNone(row["ignored_at"])
         self.assertEqual(
             row["relationships"],
             {
@@ -228,6 +235,8 @@ class TestExternalAccountListAPI(APIBaseTest):
                 {
                     "external_id": "org-1",
                     "name": "Acme",
+                    "churned_at": None,
+                    "ignored_at": None,
                     "relationships": {},
                 }
             ],
@@ -245,6 +254,29 @@ class TestExternalAccountListAPI(APIBaseTest):
 
         row = response.json()["results"][0]
         self.assertEqual(row["relationships"], {})
+
+    def test_excludes_ignored_accounts_by_default(self):
+        create_account(team_id=self.team.id, name="Tracked", external_id="tracked")
+        create_account(
+            team_id=self.team.id,
+            name="Ignored",
+            external_id="ignored",
+            ignored_at=datetime(2026, 8, 2, 12, 30, tzinfo=UTC),
+        )
+
+        default_response = self._get()
+        included_response = self._get({"include_ignored": "true"})
+
+        self.assertEqual(
+            [row["name"] for row in default_response.json()["results"]],
+            ["Tracked"],
+        )
+        self.assertEqual(
+            {row["name"] for row in included_response.json()["results"]},
+            {"Tracked", "Ignored"},
+        )
+        ignored_row = next(row for row in included_response.json()["results"] if row["name"] == "Ignored")
+        self.assertEqual(ignored_row["ignored_at"], "2026-08-02T12:30:00Z")
 
     def test_excludes_accounts_without_external_id(self):
         no_external = create_account(team_id=self.team.id, name="No external id")

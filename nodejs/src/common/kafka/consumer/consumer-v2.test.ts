@@ -298,7 +298,7 @@ describe('KafkaConsumerV2', () => {
         expect(mockRdKafka.incrementalUnassign).toHaveBeenCalledWith([{ topic: 'test-topic', partition: 0 }])
     })
 
-    it('H2 regression: stale tasks across generations skip storeOffsets and never trigger unassign', async () => {
+    it('H2 regression: a task settling inside the drain stores its offsets, and a sticky reassign arms nothing extra', async () => {
         ;(consumer as any).maxBackgroundTasks = 5
         const eachBatch = jest.fn(() => Promise.resolve({}))
         await startConsuming(eachBatch)
@@ -315,9 +315,11 @@ describe('KafkaConsumerV2', () => {
         slow.resolve()
         await delay(20)
         expect(mockRdKafka.incrementalUnassign).toHaveBeenCalledTimes(1)
-        // The slow task crossed the rebalance generation — its storeOffsets MUST have been
-        // skipped (generation-tag mechanism). Validates the H2 protection directly.
-        expect(mockRdKafka.offsetsStore).not.toHaveBeenCalled()
+        // The task finished inside the drain budget, while the partition was still assigned, so
+        // its offsets are stored (and committed on the unassign below) rather than discarded —
+        // discarding them is what made the next owner replay completed work. A task that misses
+        // the budget is fenced instead: see the "Partition fence" test.
+        expect(mockRdKafka.offsetsStore).toHaveBeenCalledWith([{ offset: 2, partition: 0, topic: 'test-topic' }])
 
         // Snapshot offsetsStore + unassign call counts before the reassign so we can assert
         // nothing further happens once we re-acquire the partition.
@@ -336,17 +338,103 @@ describe('KafkaConsumerV2', () => {
         expect(mockRdKafka.offsetsStore.mock.calls.length).toBe(offsetCallsBeforeReassign)
     })
 
+    it('store order survives an empty batch that lingers in inFlight: a later batch waits for the earlier storing one', async () => {
+        // Empty batches no longer chain, which is what stops them holding a backpressure slot.
+        // But an empty batch still enters inFlight when it carries a backgroundTask, and the CDP
+        // cyclotron worker returns one for an empty poll. Chaining a storing batch on the tail of
+        // inFlight would then let it inherit the empty batch's settle and store ahead of the
+        // earlier storing batch — the exact reordering the chain exists to prevent.
+        ;(consumer as any).maxBackgroundTasks = 10
+        ;(consumer as any).config.callEachBatchWhenEmpty = true
+        const eachBatch = jest.fn(() => Promise.resolve({}))
+        await startConsuming(eachBatch)
+
+        const slowFirst = triggerablePromise()
+        const emptyBatchTask = triggerablePromise()
+
+        await dispatchBatch(eachBatch, [createMessage({ offset: 1, partition: 0 })], slowFirst.promise)
+        await dispatchBatch(eachBatch, [], emptyBatchTask.promise)
+        await dispatchBatch(eachBatch, [createMessage({ offset: 2, partition: 0 })], undefined)
+
+        // The empty batch finishes first. The later batch must still be waiting on the first one.
+        emptyBatchTask.resolve()
+        await delay(20)
+        expect(mockRdKafka.offsetsStore).not.toHaveBeenCalled()
+
+        slowFirst.resolve()
+        await delay(20)
+        expect(mockRdKafka.offsetsStore.mock.calls.map((call) => call[0])).toEqual([
+            [{ topic: 'test-topic', partition: 0, offset: 2 }],
+            [{ topic: 'test-topic', partition: 0, offset: 3 }],
+        ])
+    })
+
+    it('a failed batch blocks a later store even when an empty batch sits between them', async () => {
+        // The store chain is what keeps a later batch from advancing the committed offset past an
+        // earlier batch that failed. An empty poll (callEachBatchWhenEmpty, as the CDP cyclotron
+        // worker sets) still enters inFlight when it carries a backgroundTask, so excluding empty
+        // batches from the chain reopens that gap and offsets advance past failed work.
+        ;(consumer as any).maxBackgroundTasks = 10
+        ;(consumer as any).config.callEachBatchWhenEmpty = true
+        const eachBatch = jest.fn(() => Promise.resolve({}))
+        await startConsuming(eachBatch)
+
+        const failing = triggerablePromise()
+        await dispatchBatch(eachBatch, [], failing.promise)
+        await dispatchBatch(eachBatch, [createMessage({ offset: 7, partition: 0 })], Promise.resolve())
+        await delay(10)
+
+        // The later batch must not have stored yet: the empty batch ahead of it has not settled.
+        expect(mockRdKafka.offsetsStore).not.toHaveBeenCalled()
+
+        failing.reject(new Error('empty batch work failed'))
+        await delay(30)
+
+        // And once that batch fails, the store is abandoned rather than committed.
+        expect(mockRdKafka.offsetsStore).not.toHaveBeenCalled()
+    })
+
+    it('the fence is per partition: a laggard task still stores the partition it kept, never the one it lost', async () => {
+        ;(consumer as any).maxBackgroundTasks = 5
+        ;(consumer as any).drainTimeoutMs = 30 // the task settles after the drain gives up
+        const eachBatch = jest.fn(() => Promise.resolve({}))
+        await startConsuming(eachBatch, [
+            { topic: 'test-topic', partition: 0 },
+            { topic: 'test-topic', partition: 1 },
+        ])
+
+        const slow = triggerablePromise()
+        await dispatchBatch(
+            eachBatch,
+            [createMessage({ offset: 5, partition: 0 }), createMessage({ offset: 9, partition: 1 })],
+            slow.promise
+        )
+
+        // Only partition 0 is revoked; we keep partition 1.
+        fireRevoke([{ topic: 'test-topic', partition: 0 }])
+        await delay(60)
+        expect(mockRdKafka.incrementalUnassign).toHaveBeenCalledWith([{ topic: 'test-topic', partition: 0 }])
+
+        slow.resolve()
+        await delay(20)
+
+        // Partition 1's progress is ours to commit — it never left. Partition 0's is not, because
+        // another member may own it now. A global fence would have dropped both, stalling
+        // partition 1's commit until some later revoke replayed everything since.
+        expect(mockRdKafka.offsetsStore).toHaveBeenCalledTimes(1)
+        expect(mockRdKafka.offsetsStore).toHaveBeenCalledWith([{ topic: 'test-topic', partition: 1, offset: 10 }])
+    })
+
     it('H3 regression: out-of-order task completion — drain awaits ALL settled before unassign', async () => {
         // The v1 H3 race was: drain awaited t.promise (raw), so the late task's storeOffsets
         // could fire AFTER incrementalUnassign. v2 fixes this two ways:
         //   (a) drain awaits the post-storeOffsets `settled` chain, not the raw task; and
-        //   (b) the generation tag in trackTask makes any storeOffsets call during DRAINING
-        //       a no-op (see the "Generation tag" test).
+        //   (b) the epoch bump after the drain fences anything that settles later, so a task
+        //       that missed the budget can't store against a partition we gave up (see the
+        //       "Partition fence" test).
         //
-        // (b) means we can't meaningfully assert offsetsStore-vs-unassign ordering during a
-        // REVOKE — storeOffsets simply never runs in that path. So this test verifies the
-        // (a) property directly: with two tasks resolving out of order, drainAll awaits both
-        // settled callbacks before incrementalUnassign fires. If drain awaited only `raw`,
+        // This test verifies (a) directly: with two tasks resolving out of order, drainAll awaits
+        // both settled callbacks before incrementalUnassign fires. If drain awaited only `raw`,
         // it could fire before the second task settled.
         ;(consumer as any).maxBackgroundTasks = 5
         const eachBatch = jest.fn(() => Promise.resolve({}))
@@ -643,9 +731,9 @@ describe('KafkaConsumerV2', () => {
         expect(mockRdKafka.offsetsStore).toHaveBeenCalledWith([{ topic: 'test-topic', partition: 0, offset: 10 }])
     })
 
-    it('Generation tag: a settle that fires after a generation bump skips storeOffsets', async () => {
+    it('Partition fence: a settle that fires after the partition is given up skips storeOffsets', async () => {
         ;(consumer as any).maxBackgroundTasks = 5
-        ;(consumer as any).drainTimeoutMs = 30 // force drain timeout so generation bump precedes resolve
+        ;(consumer as any).drainTimeoutMs = 30 // force drain timeout so the epoch bump precedes resolve
         const eachBatch = jest.fn(() => Promise.resolve({}))
         await startConsuming(eachBatch)
 
@@ -653,11 +741,11 @@ describe('KafkaConsumerV2', () => {
         await dispatchBatch(eachBatch, [createMessage({ offset: 1, partition: 0 })], slow.promise)
 
         fireRevoke()
-        // Drain times out → loop calls incrementalUnassign → state goes IDLE; generation bumped.
+        // Drain times out → loop calls incrementalUnassign → state goes IDLE; the epoch is bumped.
         await delay(60)
         expect(mockRdKafka.incrementalUnassign).toHaveBeenCalled()
 
-        // Resolve the slow task AFTER generation bump.
+        // Resolve the slow task AFTER the epoch bump.
         slow.resolve()
         await delay(20)
 

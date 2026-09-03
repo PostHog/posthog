@@ -31,12 +31,14 @@ from posthog.models.user import User
 from posthog.models.user_push_token import UserPushToken
 from posthog.tasks.push_notifications import send_user_push
 
-from products.tasks.backend.metrics import PUSH_DISPATCHER_FAILURES_TOTAL
+from products.tasks.backend.metrics import PUSH_DISPATCHER_FAILURES_TOTAL, PUSH_DISPATCHER_OUTCOMES_TOTAL
 from products.tasks.backend.models import Task, TaskPresence
 from products.tasks.backend.redis import get_tasks_cache
 from products.tasks.backend.visibility import task_visibility_q
 
 if TYPE_CHECKING:
+    from uuid import UUID
+
     from products.tasks.backend.models import TaskRun, TaskThreadMessage
 
 logger = structlog.get_logger(__name__)
@@ -48,7 +50,7 @@ FEATURE_FLAG_KEY = "posthog-code-mobile-push"
 # they should only fire once per run lifetime — anything more is a retry.
 # Interactive turn-end can legitimately fire again after the user replies,
 # so a short cooldown is enough to absorb rapid duplicate triggers.
-PushKind = Literal["completed", "failed", "cancelled", "awaiting", "turn_completed", "thread_message"]
+PushKind = Literal["completed", "failed", "cancelled", "awaiting", "turn_completed", "thread_message", "handoff"]
 _COOLDOWN_SECONDS: dict[PushKind, int] = {
     "completed": 600,
     "failed": 600,
@@ -56,6 +58,7 @@ _COOLDOWN_SECONDS: dict[PushKind, int] = {
     "awaiting": 30,
     "turn_completed": 30,
     "thread_message": 600,
+    "handoff": 600,
 }
 
 
@@ -84,6 +87,33 @@ def notify_task_run_awaiting_input(task_run: TaskRun) -> None:
 def notify_task_run_turn_completed(task_run: TaskRun) -> None:
     _project_completed_activity(task_run)
     _enqueue(task_run, kind="turn_completed", body=f'"{_task_title(task_run)}" finished')
+
+
+def notify_task_handoff(task: Task, *, recipient: User, actor: User | None, message_id: UUID) -> None:
+    """Fire a push notification when a task is handed off to ``recipient``.
+
+    The announcement ID separates new handoffs from retries for cooldown purposes.
+    """
+    try:
+        actor_name = ((actor.first_name.strip() or actor.email) if actor else None) or "A colleague"
+        task_title = (task.title or "").strip() or "Untitled task"
+        _enqueue_user(
+            recipient,
+            task=task,
+            kind="handoff",
+            cooldown_subject=f"task_handoff:{message_id}:{recipient.id}",
+            body=f'{actor_name} handed you "{task_title}"',
+            data={"taskId": str(task.id)},
+        )
+    except Exception as exc:
+        PUSH_DISPATCHER_FAILURES_TOTAL.labels(kind="handoff", reason=_failure_reason(exc)).inc()
+        logger.warning(
+            "push_dispatcher.enqueue_failed",
+            task_id=str(task.id),
+            user_id=recipient.id,
+            kind="handoff",
+            exc_info=True,
+        )
 
 
 def notify_task_thread_message(message: TaskThreadMessage, mentioned_user_ids: Collection[int]) -> None:
@@ -209,9 +239,11 @@ def _enqueue_inner(task_run: TaskRun, *, kind: PushKind, body: str) -> None:
 
     user = task_run.task.created_by
     if user is None:
+        PUSH_DISPATCHER_OUTCOMES_TOTAL.labels(kind=kind, outcome="no_recipient").inc()
         return
 
     if not user.teams.filter(id=task_run.team_id).exists():
+        PUSH_DISPATCHER_OUTCOMES_TOTAL.labels(kind=kind, outcome="access_denied").inc()
         logger.debug(
             "push_dispatcher.recipient_lost_access",
             user_id=user.id,
@@ -250,20 +282,29 @@ def _enqueue_user(
         # Failing closed on flag-evaluation errors keeps an outage from
         # silently flipping pushes on for the whole user base.
         logger.warning("push_dispatcher.flag_check_failed", user_id=user.id, exc_info=True)
+        PUSH_DISPATCHER_OUTCOMES_TOTAL.labels(kind=kind, outcome="flag_check_failed").inc()
         return
     if not flag_enabled:
+        PUSH_DISPATCHER_OUTCOMES_TOTAL.labels(kind=kind, outcome="flag_disabled").inc()
         return
 
     cooldown_key = f"push_notification:{cooldown_subject}:{kind}"
     if not get_tasks_cache().add(cooldown_key, True, timeout=_COOLDOWN_SECONDS[kind]):
+        PUSH_DISPATCHER_OUTCOMES_TOTAL.labels(kind=kind, outcome="cooldown_deduped").inc()
         logger.debug("push_dispatcher.cooldown_hit", subject=cooldown_subject, kind=kind)
         return
 
     suppressed = _suppressed_push_token_ids_for_task(user_id=user.id, task_id=task.id)
+    data["notificationKind"] = kind
 
     # on_commit so we never schedule a push for a write that ends up rolling
     # back. Outside an atomic block this fires immediately, which is fine.
-    transaction.on_commit(lambda: send_user_push.delay(user.id, PUSH_TITLE, body, data, suppressed))
+    def dispatch() -> None:
+        outcome = "presence_suppressed" if suppressed else "enqueued"
+        PUSH_DISPATCHER_OUTCOMES_TOTAL.labels(kind=kind, outcome=outcome).inc()
+        send_user_push.delay(user.id, PUSH_TITLE, body, data, suppressed)
+
+    transaction.on_commit(dispatch)
 
 
 def _suppressed_push_token_ids_for_task(*, user_id: int, task_id) -> list[str]:

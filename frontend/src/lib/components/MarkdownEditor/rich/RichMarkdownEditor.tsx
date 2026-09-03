@@ -19,6 +19,10 @@ import { useRichContentEditor } from 'lib/components/RichContentEditor'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 
+export type RichMarkdownEditorTab = 'write' | 'preview' | 'markdown'
+
+const ALL_TABS: RichMarkdownEditorTab[] = ['write', 'preview', 'markdown']
+
 export type RichMarkdownEditorProps = {
     value?: string
     onChange?: (value: string) => void
@@ -32,6 +36,12 @@ export type RichMarkdownEditorProps = {
     renderPreview?: (markdown: string) => JSX.Element
     /** When true, focuses the editor once the ProseMirror view is mounted (default false to avoid stealing focus). */
     autoFocus?: boolean
+    /** Toolbar toggles. Disable image upload when the extension set has no Image node, so uploads can't insert an unsupported node. */
+    controls?: {
+        imageUpload?: boolean
+    }
+    /** Which tabs to show, in order. Defaults to all three. */
+    tabs?: RichMarkdownEditorTab[]
 }
 
 export function RichMarkdownEditor({
@@ -46,8 +56,10 @@ export function RichMarkdownEditor({
     docToMarkdown,
     renderPreview,
     autoFocus = false,
+    controls,
+    tabs = ALL_TABS,
 }: RichMarkdownEditorProps): JSX.Element {
-    const [activeTab, setActiveTab] = useState<'write' | 'preview' | 'markdown'>('write')
+    const [activeTab, setActiveTab] = useState<RichMarkdownEditorTab>('write')
     const [linkUrl, setLinkUrl] = useState('')
     const [showLinkPopover, setShowLinkPopover] = useState(false)
     const dropRef = useRef<HTMLDivElement>(null)
@@ -108,7 +120,7 @@ export function RichMarkdownEditor({
         <LemonTabs
             activeKey={activeTab}
             onChange={(key) => {
-                const nextTab = key as 'write' | 'preview' | 'markdown'
+                const nextTab = key as RichMarkdownEditorTab
                 setActiveTab(nextTab)
 
                 // Keep parent value in sync before showing preview/markdown tabs.
@@ -118,7 +130,7 @@ export function RichMarkdownEditor({
             }}
             tabs={[
                 {
-                    key: 'write',
+                    key: 'write' as const,
                     label: 'Write',
                     content: (
                         <div ref={dropRef} className="RichMarkdownEditor border rounded overflow-hidden">
@@ -155,6 +167,7 @@ export function RichMarkdownEditor({
                                         editor={editor}
                                         alternativeDropTargetRef={dropRef}
                                         emojiPopoverDataAttr="rich-markdown-editor-emoji-popover"
+                                        showImageUpload={controls?.imageUpload ?? true}
                                     />
                                 </div>
                                 <div className="flex shrink-0 items-center border-l border-primary pl-2">
@@ -175,7 +188,7 @@ export function RichMarkdownEditor({
                     ),
                 },
                 {
-                    key: 'preview',
+                    key: 'preview' as const,
                     label: 'Preview',
                     content: currentMarkdown ? (
                         (renderPreview?.(currentMarkdown) ?? <LemonMarkdown>{currentMarkdown}</LemonMarkdown>)
@@ -184,7 +197,7 @@ export function RichMarkdownEditor({
                     ),
                 },
                 {
-                    key: 'markdown',
+                    key: 'markdown' as const,
                     label: 'Markdown',
                     content: currentMarkdown ? (
                         <pre className="RichMarkdownEditor__rawPreview">{currentMarkdown}</pre>
@@ -192,7 +205,7 @@ export function RichMarkdownEditor({
                         <i>Nothing to preview</i>
                     ),
                 },
-            ]}
+            ].filter((tab) => tabs.includes(tab.key))}
         />
     )
 }

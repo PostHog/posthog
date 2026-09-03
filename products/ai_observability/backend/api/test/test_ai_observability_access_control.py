@@ -9,18 +9,12 @@ from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.ai_observability.backend.dataset_service import archive_dataset, create_dataset, create_dataset_item
 from products.ai_observability.backend.models.clustering_job import ClusteringJob
-from products.ai_observability.backend.models.evaluations import Evaluation
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 from products.ai_observability.backend.models.review_queues import ReviewQueue, ReviewQueueItem
 from products.ai_observability.backend.models.trace_reviews import TraceReview
-
-try:
-    from ee.models.rbac.access_control import AccessControl
-except ImportError:
-    pass
-
 
 _DEFAULT_MODEL_CONFIGURATION = {
     "provider": "openai",
@@ -63,16 +57,6 @@ class TestAIObservabilityAccessControl(APIBaseTest):
         self.viewer_user = User.objects.create_and_join(self.organization, "viewer@posthog.com", "testtest")
         self.editor_user = User.objects.create_and_join(self.organization, "editor@posthog.com", "testtest")
         self.no_access_user = User.objects.create_and_join(self.organization, "noaccess@posthog.com", "testtest")
-
-        self.evaluation = Evaluation.objects.create(
-            team=self.team,
-            name="Test Evaluation",
-            evaluation_type="llm_judge",
-            evaluation_config={"prompt": "Test prompt"},
-            output_type="boolean",
-            output_config={},
-            created_by=self.user,
-        )
 
         self.dataset = create_dataset(
             team=self.team,
@@ -170,7 +154,6 @@ class TestAIObservabilityAccessControl(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("evaluations", "evaluation"),
             ("datasets", "dataset"),
             ("llm_analytics/provider_keys", "provider_key"),
         ]
@@ -204,7 +187,6 @@ class TestAIObservabilityAccessControl(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("evaluations", "evaluation"),
             ("datasets", "dataset"),
             ("llm_analytics/provider_keys", "provider_key"),
         ]
@@ -306,24 +288,6 @@ class TestAIObservabilityAccessControl(APIBaseTest):
 
     # -- Viewer cannot create/update/delete --
 
-    def test_viewer_cannot_create_evaluation(self):
-        self._set_access_level(self.viewer_user, access_level="viewer")
-        self.client.force_login(self.viewer_user)
-
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/evaluations/",
-            {
-                "name": "New Evaluation",
-                "evaluation_type": "llm_judge",
-                "model_configuration": _DEFAULT_MODEL_CONFIGURATION,
-                "evaluation_config": {"prompt": "prompt"},
-                "output_type": "boolean",
-                "output_config": {},
-            },
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-
     def test_viewer_cannot_create_dataset(self):
         self._set_access_level(self.viewer_user, access_level="viewer")
         self.client.force_login(self.viewer_user)
@@ -331,17 +295,6 @@ class TestAIObservabilityAccessControl(APIBaseTest):
         response = self.client.post(
             f"/api/environments/{self.team.id}/datasets/",
             {"name": "New Dataset"},
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-
-    def test_viewer_cannot_update_evaluation(self):
-        self._set_access_level(self.viewer_user, access_level="viewer")
-        self.client.force_login(self.viewer_user)
-
-        response = self.client.patch(
-            f"/api/environments/{self.team.id}/evaluations/{self.evaluation.id}/",
-            {"name": "Updated"},
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
@@ -522,24 +475,6 @@ class TestAIObservabilityAccessControl(APIBaseTest):
 
     # -- Editor can create/update/delete --
 
-    def test_editor_can_create_evaluation(self):
-        self._set_access_level(self.editor_user, access_level="editor")
-        self.client.force_login(self.editor_user)
-
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/evaluations/",
-            {
-                "name": "Editor Evaluation",
-                "evaluation_type": "llm_judge",
-                "model_configuration": _DEFAULT_MODEL_CONFIGURATION,
-                "evaluation_config": {"prompt": "prompt"},
-                "output_type": "boolean",
-                "output_config": {},
-            },
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-
     def test_editor_can_create_dataset(self):
         self._set_access_level(self.editor_user, access_level="editor")
         self.client.force_login(self.editor_user)
@@ -708,17 +643,6 @@ class TestAIObservabilityAccessControl(APIBaseTest):
                 access_level="viewer",
             ).exists()
         )
-
-    def test_editor_can_update_evaluation(self):
-        self._set_access_level(self.editor_user, access_level="editor")
-        self.client.force_login(self.editor_user)
-
-        response = self.client.patch(
-            f"/api/environments/{self.team.id}/evaluations/{self.evaluation.id}/",
-            {"name": "Updated by editor"},
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     @parameterized.expand(
         [
@@ -926,7 +850,6 @@ class TestAIObservabilityAccessControl(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("evaluations",),
             ("datasets",),
             ("llm_analytics/provider_keys",),
             ("llm_analytics/review_queues",),
@@ -966,7 +889,6 @@ class TestAIObservabilityAccessControl(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("evaluations", "evaluation"),
             ("datasets", "dataset"),
             ("llm_analytics/provider_keys", "provider_key"),
         ]
@@ -980,7 +902,6 @@ class TestAIObservabilityAccessControl(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("evaluations", "evaluation"),
             ("datasets", "dataset"),
             ("llm_analytics/provider_keys", "provider_key"),
         ]
@@ -1010,8 +931,8 @@ class TestAIObservabilityAccessControl(APIBaseTest):
         clustering_response = self.client.get(f"/api/environments/{self.team.id}/llm_analytics/clustering_jobs/")
         self.assertEqual(clustering_response.status_code, status.HTTP_200_OK)
 
-        evaluations_response = self.client.get(f"/api/environments/{self.team.id}/evaluations/")
-        self.assertEqual(evaluations_response.status_code, status.HTTP_403_FORBIDDEN)
+        datasets_response = self.client.get(f"/api/environments/{self.team.id}/datasets/")
+        self.assertEqual(datasets_response.status_code, status.HTTP_403_FORBIDDEN)
 
     # -- Org admin has full access without explicit permissions --
 

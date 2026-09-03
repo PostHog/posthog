@@ -193,3 +193,8 @@ Report what you did, in this shape:
 - Total simulate calls made, total alerts created.
 
 The user should be able to read this and decide whether to disable any drafts before they go live.
+
+## Related skills
+
+- **`investigating-logs`** — characterize a service's baseline before alerting on it, and investigate firings after
+- **`authoring-error-tracking-alerts`** — alert on exceptions rather than log lines

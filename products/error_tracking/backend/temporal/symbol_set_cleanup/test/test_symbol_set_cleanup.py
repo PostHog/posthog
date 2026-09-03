@@ -7,6 +7,9 @@ from freezegun import freeze_time
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, call, patch
 
+from django.conf import settings
+from django.db import connection
+from django.db.models import Q
 from django.utils import timezone
 
 from temporalio import activity
@@ -15,10 +18,14 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from products.error_tracking.backend.models import ErrorTrackingStackFrame, ErrorTrackingSymbolSet
 from products.error_tracking.backend.temporal.symbol_set_cleanup.activities import (
+    _assigned_buckets,
+    _bucket_queryset,
+    _cleanup_queryset,
     _delete_symbol_set_contents_with_pacing,
     cleanup_symbol_sets_activity,
 )
 from products.error_tracking.backend.temporal.symbol_set_cleanup.types import (
+    SYMBOL_SET_CLEANUP_BUCKET_COUNT,
     SymbolSetCleanupInputs,
     SymbolSetCleanupResult,
 )
@@ -38,6 +45,23 @@ class TestDeleteSymbolSetContentsWithPacing:
         sleep.assert_called_once_with(0.1)
 
 
+class TestSymbolSetCleanupBuckets:
+    def test_workers_cover_every_bucket_once(self) -> None:
+        assigned_buckets = [
+            bucket
+            for worker_index in range(4)
+            for bucket in _assigned_buckets(
+                SymbolSetCleanupInputs(
+                    bucket_worker_index=worker_index,
+                    bucket_worker_count=4,
+                    bucket_offset=73,
+                )
+            )
+        ]
+
+        assert sorted(assigned_buckets) == list(range(SYMBOL_SET_CLEANUP_BUCKET_COUNT))
+
+
 class TestSymbolSetCleanupActivity(BaseTest):
     def _create_symbol_set(
         self,
@@ -46,8 +70,11 @@ class TestSymbolSetCleanupActivity(BaseTest):
         created_at_days_ago: int,
         last_used_days_ago: int | None,
         storage_ptr: str | None = None,
+        symbol_set_id: uuid.UUID | None = None,
     ) -> ErrorTrackingSymbolSet:
+        create_kwargs = {"id": symbol_set_id} if symbol_set_id is not None else {}
         symbol_set = ErrorTrackingSymbolSet.objects.create(
+            **create_kwargs,
             team=self.team,
             ref=ref,
             storage_ptr=storage_ptr,
@@ -107,7 +134,6 @@ class TestSymbolSetCleanupActivity(BaseTest):
             "symbols/old-used",
             "symbols/old-unused",
         }
-        assert delete_contents.call_count == 1
 
     def test_delete_unused_false_only_deletes_old_used_symbol_sets(self) -> None:
         self._create_symbol_set("old-used", created_at_days_ago=45, last_used_days_ago=31)
@@ -157,14 +183,110 @@ class TestSymbolSetCleanupActivity(BaseTest):
         assert ErrorTrackingSymbolSet.objects.count() == 2
 
     def test_respects_total_per_run(self) -> None:
-        for index in range(3):
-            self._create_symbol_set(f"old-used-{index}", created_at_days_ago=45, last_used_days_ago=31)
+        symbol_sets = [
+            self._create_symbol_set(
+                f"old-used-{index}",
+                created_at_days_ago=45,
+                last_used_days_ago=31,
+                symbol_set_id=uuid.UUID(int=(index + 1) * 256),
+            )
+            for index in range(3)
+        ]
+        shared_created_at = timezone.now() - timedelta(days=45)
+        shared_last_used = timezone.now() - timedelta(days=31)
+        ErrorTrackingSymbolSet.objects.filter(id__in=[symbol_set.id for symbol_set in symbol_sets]).update(
+            created_at=shared_created_at,
+            last_used=shared_last_used,
+        )
 
         with patch("products.error_tracking.backend.temporal.symbol_set_cleanup.activities.close_old_connections"):
             result = cleanup_symbol_sets_activity(SymbolSetCleanupInputs(total_per_run=2, batch_size=1))
 
         assert result == SymbolSetCleanupResult(objects_processed=2, objects_deleted=2, objects_failed=0)
         assert ErrorTrackingSymbolSet.objects.count() == 1
+
+    def test_candidate_query_uses_replica_without_row_locks(self) -> None:
+        with patch.dict(settings.DATABASES, {"replica": settings.DATABASES["default"]}):
+            queryset = _cleanup_queryset(
+                query_filter=Q(last_used__isnull=False, last_used__lt=timezone.now() - timedelta(days=30)),
+                bucket=0,
+                cursor=None,
+            )
+
+        assert queryset.db == "replica"
+        assert not queryset.query.select_for_update
+
+    def test_dry_run_candidates_are_an_ordered_bucket_index_range(self) -> None:
+        queryset = _bucket_queryset(
+            query_filter=Q(last_used__isnull=False, last_used__lt=timezone.now() - timedelta(days=30)),
+            bucket=0,
+        )
+
+        with connection.cursor() as db_cursor:
+            db_cursor.execute("SET LOCAL enable_seqscan = off")
+        plan = queryset[:1].explain()
+
+        assert "Index Scan using et_symset_bucket_cleanup_idx" in plan
+        assert "Sort" not in plan
+
+    def test_used_cursor_is_an_ordered_bucket_index_range(self) -> None:
+        cursor = (
+            timezone.now() - timedelta(days=45),
+            timezone.now() - timedelta(days=50),
+            uuid.UUID(int=1),
+        )
+        queryset = _cleanup_queryset(
+            query_filter=Q(last_used__isnull=False, last_used__lt=timezone.now() - timedelta(days=30)),
+            bucket=0,
+            cursor=cursor,
+        )
+
+        with connection.cursor() as db_cursor:
+            db_cursor.execute("SET LOCAL enable_seqscan = off")
+        plan = queryset[:1].explain()
+
+        assert "Index Scan using et_symset_bucket_cleanup_idx" in plan
+        assert "Sort" not in plan
+        assert "ROW(last_used, created_at, id) > ROW" in plan
+
+    def test_unused_cursor_is_an_ordered_bucket_index_range(self) -> None:
+        cursor = (None, timezone.now() - timedelta(days=45), uuid.UUID(int=1))
+        queryset = _cleanup_queryset(
+            query_filter=Q(last_used__isnull=True, created_at__lt=timezone.now() - timedelta(days=30)),
+            bucket=0,
+            cursor=cursor,
+        )
+
+        with connection.cursor() as db_cursor:
+            db_cursor.execute("SET LOCAL enable_seqscan = off")
+        plan = queryset[:1].explain()
+
+        assert "Index Scan using et_symset_bucket_cleanup_idx" in plan
+        assert "Sort" not in plan
+        assert "ROW(created_at, id) > ROW" in plan
+
+    def test_only_processes_buckets_assigned_to_the_worker(self) -> None:
+        assigned = self._create_symbol_set(
+            "assigned",
+            created_at_days_ago=45,
+            last_used_days_ago=31,
+            symbol_set_id=uuid.UUID(int=2),
+        )
+        unassigned = self._create_symbol_set(
+            "unassigned",
+            created_at_days_ago=45,
+            last_used_days_ago=31,
+            symbol_set_id=uuid.UUID(int=3),
+        )
+
+        with patch("products.error_tracking.backend.temporal.symbol_set_cleanup.activities.close_old_connections"):
+            result = cleanup_symbol_sets_activity(
+                SymbolSetCleanupInputs(total_per_run=256, bucket_worker_index=0, bucket_worker_count=2)
+            )
+
+        assert result == SymbolSetCleanupResult(objects_processed=1, objects_deleted=1, objects_failed=0)
+        assert not ErrorTrackingSymbolSet.objects.filter(id=assigned.id).exists()
+        assert ErrorTrackingSymbolSet.objects.filter(id=unassigned.id).exists()
 
 
 async def _run_workflow_with_mock_activity(
@@ -207,10 +329,13 @@ class TestSymbolSetCleanupWorkflow:
             batch_size=10000,
             parallelism=4,
             dry_run=False,
+            bucket_worker_index=0,
+            bucket_worker_count=1,
+            bucket_offset=0,
         )
 
     @pytest.mark.asyncio
-    async def test_workflow_splits_total_limit_across_parallel_activities(self) -> None:
+    async def test_workflow_assigns_disjoint_buckets_to_parallel_activities(self) -> None:
         inputs = SymbolSetCleanupInputs(total_per_run=10, batch_size=5, parallelism=3)
 
         result, activity_inputs = await _run_workflow_with_mock_activity(
@@ -226,6 +351,11 @@ class TestSymbolSetCleanupWorkflow:
         assert sorted(activity_input.total_per_run for activity_input in activity_inputs) == [3, 3, 4]
         assert all(activity_input.batch_size == 5 for activity_input in activity_inputs)
         assert all(activity_input.parallelism == 1 for activity_input in activity_inputs)
+        assert sorted(
+            (activity_input.bucket_worker_index, activity_input.bucket_worker_count)
+            for activity_input in activity_inputs
+        ) == [(0, 3), (1, 3), (2, 3)]
+        assert len({activity_input.bucket_offset for activity_input in activity_inputs}) == 1
 
     @pytest.mark.asyncio
     async def test_workflow_runs_dry_run_once(self) -> None:

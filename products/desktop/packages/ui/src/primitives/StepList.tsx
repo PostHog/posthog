@@ -1,10 +1,13 @@
 import {
+  ArrowSquareOut,
   CheckCircle,
   Circle,
   CircleNotch,
   XCircle,
 } from "@phosphor-icons/react";
-import { Box, Flex, Text } from "@radix-ui/themes";
+import { Button, Text } from "@posthog/quill";
+import { Spin } from "@posthog/ui/primitives/Spinner";
+import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 
 export type StepStatus = "pending" | "in_progress" | "completed" | "failed";
 
@@ -23,7 +26,11 @@ interface StepIconProps {
 export function StepIcon({ status, size = 14 }: StepIconProps) {
   switch (status) {
     case "in_progress":
-      return <CircleNotch size={size} className="animate-spin text-blue-9" />;
+      return (
+        <Spin className="text-blue-9">
+          <CircleNotch size={size} />
+        </Spin>
+      );
     case "completed":
       return <CheckCircle size={size} weight="fill" className="text-green-9" />;
     case "failed":
@@ -31,6 +38,47 @@ export function StepIcon({ status, size = 14 }: StepIconProps) {
     default:
       return <Circle size={size} className="text-gray-8" />;
   }
+}
+
+function parseWebUrl(detail: string): URL | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(detail);
+  } catch {
+    return null;
+  }
+  return parsed.protocol === "https:" || parsed.protocol === "http:"
+    ? parsed
+    : null;
+}
+
+function formatWebUrl(url: URL): string {
+  const path = url.pathname === "/" ? "" : url.pathname.replace(/\/$/, "");
+  return `${url.host}${path}${url.search}`;
+}
+
+function StepDetail({ detail }: { detail: string }) {
+  const url = parseWebUrl(detail);
+
+  if (!url) {
+    return <Text className="truncate text-[13px] text-gray-10">{detail}</Text>;
+  }
+
+  const label = formatWebUrl(url);
+  return (
+    <Button
+      variant="link"
+      size="sm"
+      className="h-auto gap-1 p-0 text-[13px]"
+      onClick={() => openExternalUrl(url.href)}
+      title={url.href}
+      aria-label={`Open ${label}`}
+      data-attr="step-detail-link"
+    >
+      <span className="max-w-xs truncate">{label}</span>
+      <ArrowSquareOut size={12} className="shrink-0" />
+    </Button>
+  );
 }
 
 interface StepRowProps {
@@ -41,19 +89,25 @@ interface StepRowProps {
 function StepRow({ step, size = "2" }: StepRowProps) {
   const sizeClass = size === "1" ? "text-[13px]" : "text-sm";
   return (
-    <Flex direction="column" gap="0">
-      <Flex align="center" gap="2">
+    <div className="flex flex-col">
+      <div className="flex items-center gap-2">
         <StepIcon status={step.status} />
         <Text className={`${sizeClass} text-gray-12`}>{step.label}</Text>
-      </Flex>
+      </div>
       {step.detail && (
-        <Box pl="5">
-          <Text className="text-[13px] text-gray-10">{step.detail}</Text>
-        </Box>
+        <div className="pl-6">
+          <StepDetail detail={step.detail} />
+        </div>
       )}
-    </Flex>
+    </div>
   );
 }
+
+const GAP_CLASSES: Record<"1" | "2" | "3", string> = {
+  "1": "gap-1",
+  "2": "gap-2",
+  "3": "gap-3",
+};
 
 interface StepListProps {
   steps: Step[];
@@ -65,10 +119,10 @@ interface StepListProps {
 
 export function StepList({ steps, size = "2", gap = "1" }: StepListProps) {
   return (
-    <Flex direction="column" gap={gap}>
+    <div className={`flex flex-col ${GAP_CLASSES[gap]}`}>
       {steps.map((step) => (
         <StepRow key={step.key} step={step} size={size} />
       ))}
-    </Flex>
+    </div>
   );
 }

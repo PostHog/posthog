@@ -11,6 +11,11 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags
+from posthog.constants import AvailableFeature
+from posthog.models.organization import OrganizationMembership
+from posthog.models.user import User
+
+from products.access_control.backend.models.access_control import AccessControl
 
 from ...api.evaluation_runs import _evaluation_workflow_prefix
 from ...models.evaluations import Evaluation
@@ -45,6 +50,37 @@ class TestEvaluationRunViewSet(APIBaseTest):
             output_config={},
             enabled=True,
         )
+
+    def test_create_requires_access_to_requested_evaluation(self):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        other_user = User.objects.create_and_join(self.organization, "run-viewer@posthog.com", "testtest")
+        membership = OrganizationMembership.objects.get(user=other_user, organization=self.organization)
+        AccessControl.objects.create(
+            team=self.team, resource="evaluation", access_level="editor", organization_member=membership
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="evaluation",
+            resource_id=str(self.evaluation.id),
+            access_level="none",
+            organization_member=membership,
+        )
+        self.client.force_login(other_user)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluation_runs/",
+            {
+                "evaluation_id": str(self.evaluation.id),
+                "target_event_id": str(uuid.uuid4()),
+                "timestamp": datetime.now().isoformat(),
+            },
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     @patch("products.ai_observability.backend.api.evaluation_runs.query_with_columns")
     @patch("products.ai_observability.backend.api.evaluation_runs.sync_connect")
@@ -199,7 +235,10 @@ class TestEvaluationRunViewSet(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert target in response.json()["error"]
+        body = response.json()
+        assert target in body["detail"]
+        # Callers match on this code, so a rename is a breaking change and should fail here.
+        assert body["code"] == "evaluation_target_mismatch"
 
     def test_create_evaluation_run_missing_params(self):
         """Test creating evaluation run with missing parameters"""
@@ -211,6 +250,9 @@ class TestEvaluationRunViewSet(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+        body = response.json()
+        assert body["attr"] == "target_event_id"
+        assert body["type"] == "validation_error"
 
     def test_create_evaluation_run_different_team(self):
         """Test creating evaluation run for evaluation from different team"""

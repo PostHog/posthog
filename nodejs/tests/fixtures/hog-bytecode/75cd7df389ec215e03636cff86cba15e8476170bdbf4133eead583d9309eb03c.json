@@ -1,0 +1,1 @@
+["_H",1,32,"distinct_id",32,"inputs",1,2,2,"empty",1,40,6,32,"Distinct ID is required",2,"Error",1,49,32,"event",32,"$set",32,"distinct_id",32,"distinct_id",32,"inputs",1,2,32,"properties",32,"$set",32,"set_properties",32,"inputs",1,2,32,"$set_once",32,"set_once_properties",32,"inputs",1,2,42,2,42,3,2,"postHogCapture",1,35]

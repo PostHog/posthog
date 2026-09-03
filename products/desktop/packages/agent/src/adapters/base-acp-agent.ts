@@ -16,7 +16,7 @@ import type {
   WriteTextFileRequest,
   WriteTextFileResponse,
 } from "@agentclientprotocol/sdk";
-import { restrictedModelMeta } from "@posthog/shared";
+import { isAnthropicModelId, restrictedModelMeta } from "@posthog/shared";
 import {
   compareModelsForPicker,
   DEFAULT_GATEWAY_MODEL,
@@ -34,10 +34,9 @@ import {
 } from "../gateway-models";
 import { Logger } from "../utils/logger";
 /**
- * Shared settings manager interface that both Claude's SettingsManager
- * and Codex's CodexSettingsManager implement. BaseAcpAgent only calls
- * dispose() on this; each adapter's Session type narrows it to the
- * concrete implementation.
+ * Shared settings manager interface that Claude's SettingsManager
+ * implements. BaseAcpAgent only calls dispose() on this; each adapter's
+ * Session type narrows it to the concrete implementation.
  */
 export interface BaseSettingsManager {
   dispose(): void;
@@ -76,7 +75,7 @@ export abstract class BaseAcpAgent implements Agent {
   protected abstract interrupt(): Promise<void>;
 
   async cancel(params: CancelNotification): Promise<void> {
-    if (this.sessionId !== params.sessionId) {
+    if (!this.hasSession(params.sessionId)) {
       throw new Error("Session ID mismatch");
     }
     this.session.cancelled = true;
@@ -104,6 +103,8 @@ export abstract class BaseAcpAgent implements Agent {
     }
   }
 
+  /** Adapters may widen this to accept alternate ids for the live session
+   *  (e.g. the Claude adapter's post-/clear SDK session id). */
   hasSession(sessionId: string): boolean {
     return this.sessionId === sessionId;
   }
@@ -112,7 +113,7 @@ export abstract class BaseAcpAgent implements Agent {
     sessionId: string,
     notification: SessionNotification,
   ): void {
-    if (this.sessionId === sessionId) {
+    if (this.hasSession(sessionId)) {
       this.session.notificationHistory.push(notification);
     }
   }
@@ -139,10 +140,15 @@ export abstract class BaseAcpAgent implements Agent {
     throw new Error("Method not implemented.");
   }
 
+  protected usesMachineAuth(): boolean {
+    return false;
+  }
+
   async getModelConfigOptions(
     currentModelOverride?: string,
     gatewayUrl?: string,
     gatewayAuthToken?: string,
+    projectId?: number,
   ): Promise<{
     currentModelId: string;
     options: SessionConfigSelectOption[];
@@ -150,7 +156,9 @@ export abstract class BaseAcpAgent implements Agent {
     // Authenticated so the gateway can mark plan-restricted models —
     // anonymous fetches see everything allowed.
     this.gatewayModels = await fetchGatewayModels(
-      gatewayUrl ? { gatewayUrl, authToken: gatewayAuthToken } : undefined,
+      gatewayUrl
+        ? { gatewayUrl, authToken: gatewayAuthToken, projectId }
+        : undefined,
     );
 
     const adapterModels = this.gatewayModels
@@ -186,6 +194,21 @@ export abstract class BaseAcpAgent implements Agent {
       isDeepseekModelId(modelId);
 
     let currentModelId = currentModelOverride ?? DEFAULT_GATEWAY_MODEL;
+
+    if (
+      this.usesMachineAuth() &&
+      currentModelId !== DEFAULT_GATEWAY_MODEL &&
+      !isAnthropicModelId(currentModelId)
+    ) {
+      this.logger.warn(
+        "Saved model is not available without the gateway; falling back to default",
+        {
+          requestedModel: currentModelId,
+          fallbackModel: DEFAULT_GATEWAY_MODEL,
+        },
+      );
+      currentModelId = DEFAULT_GATEWAY_MODEL;
+    }
 
     if (!options.some((opt) => opt.value === currentModelId)) {
       if (!isClaudeAdapterModelId(currentModelId)) {

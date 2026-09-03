@@ -5,9 +5,12 @@ from rest_framework_dataclasses.serializers import DataclassSerializer
 from products.engineering_analytics.backend.facade.contracts import (
     CostPerMergeBucket,
     CurrentBranchHealth,
+    DeliveryPipeline,
+    DeliveryStageTiming,
     MasterFailureGroup,
     OpenToMergeBucket,
     PassRateBucket,
+    ReadyToMergeBucket,
     RepoOverview,
     RunFailureLogs,
     TimeToGreenBucket,
@@ -168,8 +171,8 @@ class WorkflowHealthBucketSerializer(DataclassSerializer):
             "completed": {"help_text": "Runs that completed in this bucket."},
             "successes": {"help_text": "Completed runs with conclusion 'success' in this bucket."},
             "failures": {
-                "help_text": "Completed runs that failed in this bucket (conclusion 'failure' or 'timed_out'); "
-                "excludes skipped, cancelled, and action_required runs."
+                "help_text": "Completed runs with conclusion 'failure', 'timed_out', 'startup_failure', or 'stale'. "
+                "Skipped, cancelled, neutral, and action_required runs are excluded."
             },
         }
 
@@ -185,8 +188,15 @@ class WorkflowHealthItemSerializer(DataclassSerializer):
         extra_kwargs = {
             "workflow_name": {"help_text": "GitHub Actions workflow name."},
             "run_count": {"help_text": "Total runs started in the window."},
+            "successful_run_count": {"help_text": "Completed runs with conclusion 'success'."},
+            "conclusive_run_count": {
+                "help_text": "Completed runs that succeeded or ended in failure, timeout, startup failure, or staleness. "
+                "This is the success_rate denominator."
+            },
             "success_rate": {
-                "help_text": "Fraction of completed runs that succeeded (0-1). Null if no completed runs.",
+                "help_text": "Fraction of conclusive runs that succeeded (0-1). Failures include failure, timed_out, "
+                "startup_failure, and stale. Skipped, cancelled, neutral, and action_required runs are excluded. "
+                "Null if no run reached a verdict.",
                 "allow_null": True,
             },
             "p50_seconds": {
@@ -201,12 +211,12 @@ class WorkflowHealthItemSerializer(DataclassSerializer):
                 "allow_null": True,
             },
             "last_failure_at": {
-                "help_text": "When the most recent failing run (conclusion 'failure' or 'timed_out') started, or null.",
+                "help_text": "When the most recent decisive failure started, or null.",
                 "allow_null": True,
             },
             "latest_run_failed": {
-                "help_text": "Whether the most recent completed run was a decisive failure (conclusion 'failure' "
-                "or 'timed_out'). Null when no run has completed in the window. Powers the OK/RED status badge.",
+                "help_text": "Whether the most recent completed run ended in failure, timeout, startup failure, or "
+                "staleness. Null when no run has completed in the window. Powers the OK/RED status badge.",
                 "allow_null": True,
             },
             "latest_run_conclusion": {
@@ -231,9 +241,12 @@ class WorkflowHealthItemSerializer(DataclassSerializer):
                 "help_text": "Runs in the window that were a 2nd+ attempt - retry pressure, a flakiness proxy."
             },
             "success_rate_prev": {
-                "help_text": "Success rate over the equal-length window before date_from - the delta baseline. "
-                "Null when that window had no completed runs.",
+                "help_text": "Conclusive-run success rate over the equal-length window before date_from - the "
+                "delta baseline. Null when that window had no conclusive runs.",
                 "allow_null": True,
+            },
+            "percentile_run_count": {
+                "help_text": "Successful runs that did real CI work. This is the p50/p95 sample count."
             },
         }
 
@@ -268,8 +281,10 @@ class TimeToGreenBucketSerializer(DataclassSerializer):
                 "help_text": "Bucket start, aligned to time_to_green_series_granularity (top of hour, midnight, or Monday)."
             },
             "p50_seconds": {
-                "help_text": "Median wall-clock seconds of successful PR-attributed CI runs started in this bucket. "
-                "Null when the bucket had no successful PR run (a gap, not instant CI).",
+                "help_text": "Median wall-clock seconds from a PR push round's first run start until every "
+                "workflow on that head SHA first completed benign, over rounds started in this bucket "
+                "(merge-queue gates and partially-attributed fork rounds excluded). Null when the bucket had "
+                "no fully green round (a gap, not instant CI).",
                 "allow_null": True,
             },
         }
@@ -283,8 +298,9 @@ class PassRateBucketSerializer(DataclassSerializer):
                 "help_text": "Bucket start, aligned to success_rate_series_granularity (top of hour, midnight, or Monday)."
             },
             "success_rate": {
-                "help_text": "Fraction (0-1) of completed runs started in this bucket that succeeded. "
-                "Null when the bucket had no completed run (a gap, not a 0% pass rate).",
+                "help_text": "Fraction (0-1) of conclusive runs started in this bucket that succeeded. "
+                "Skipped, cancelled, neutral, and action_required runs are excluded. Null when the bucket had no "
+                "conclusive run (a gap, not a 0% pass rate).",
                 "allow_null": True,
             },
         }
@@ -305,6 +321,66 @@ class OpenToMergeBucketSerializer(DataclassSerializer):
         }
 
 
+class ReadyToMergeBucketSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = ReadyToMergeBucket
+        extra_kwargs = {
+            "bucket_start": {
+                "help_text": "Bucket start, aligned to ready_to_merge_series_granularity (top of hour, midnight, or Monday)."
+            },
+            "p50_seconds": {
+                "help_text": "Median per-PR ready_to_merge_seconds (merged_at minus the last observed "
+                "ready-for-review transition) over PRs merged in this bucket, bots and drafts excluded. "
+                "Null when nothing merged with an observed value (a gap, never zero).",
+                "allow_null": True,
+            },
+        }
+
+
+class DeliveryStageTimingSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = DeliveryStageTiming
+        extra_kwargs = {
+            "stage": {
+                "help_text": "Which leg this is: 'open_to_gate' (created_at to the PR's first "
+                "merge-queue gate run starting) or 'gate_to_merge' (that gate run to merged_at). "
+                "The post-merge leg is the DORA endpoint's median_merge_to_deploy_seconds."
+            },
+            "median_seconds": {
+                "help_text": "Median seconds for this leg. Null when no PR in the window has both "
+                "of its bounds observed.",
+                "allow_null": True,
+            },
+            "p90_seconds": {
+                "help_text": "90th-percentile seconds for this leg. Null when not observed.",
+                "allow_null": True,
+            },
+            "pr_count": {
+                "help_text": "PRs behind this leg's figures: those with an observed gate run. A PR "
+                "that skipped the merge queue has no gate legs, so read a median against this "
+                "count, not merged_pr_count."
+            },
+        }
+
+
+class DeliveryPipelineSerializer(DataclassSerializer):
+    stages = DeliveryStageTimingSerializer(
+        many=True,
+        help_text="The legs, ordered open to merge. A leg with nothing observed still appears, "
+        "with a zero pr_count and null timings. The leg medians do not sum to a cycle-time "
+        "median: a median of sums is not a sum of medians.",
+    )
+
+    class Meta:
+        dataclass = DeliveryPipeline
+        extra_kwargs = {
+            "merged_pr_count": {
+                "help_text": "PRs merged in the window with bots and drafts excluded. A narrower "
+                "population than RepoOverview.merged_pr_count, which counts all authors."
+            },
+        }
+
+
 class RepoOverviewSerializer(DataclassSerializer):
     cost_series = CostPerMergeBucketSerializer(
         many=True,
@@ -313,21 +389,32 @@ class RepoOverviewSerializer(DataclassSerializer):
     )
     time_to_green_series = TimeToGreenBucketSerializer(
         many=True,
-        help_text="Median time-to-green (p50 successful PR-attributed CI run duration) per bucket across the "
-        "window, oldest first, bucketed by time_to_green_series_granularity. Empty buckets carry null; the "
-        "whole series is empty when include_series=false.",
+        help_text="Median time-to-green (p50 wall clock for a PR push round to settle fully green) per bucket "
+        "across the window, oldest first, bucketed by time_to_green_series_granularity. Empty buckets carry "
+        "null; the whole series is empty when include_series=false.",
     )
     success_rate_series = PassRateBucketSerializer(
         many=True,
-        help_text="CI pass rate (completed runs that succeeded, all branches) per bucket across the window, "
-        "oldest first, bucketed by success_rate_series_granularity. Empty buckets carry null; the whole "
-        "series is empty when include_series=false.",
+        help_text="CI pass rate (conclusive runs that succeeded, all branches) per bucket across the window, "
+        "oldest first, bucketed by success_rate_series_granularity. Skipped, cancelled, neutral, and action_required "
+        "runs are excluded. Empty buckets carry null; the whole series is empty when include_series=false.",
     )
     open_to_merge_series = OpenToMergeBucketSerializer(
         many=True,
         help_text="Median time-to-merge (p50 open_to_merge_seconds, bots/drafts excluded) per bucket across "
         "the window, oldest first, bucketed by open_to_merge_series_granularity. Empty buckets carry null; "
         "the whole series is empty when include_series=false.",
+    )
+    delivery_pipeline = DeliveryPipelineSerializer(
+        help_text="Where a change's wall-clock time goes on the way to production, over PRs merged "
+        "in the window with bots and drafts excluded."
+    )
+    ready_to_merge_series = ReadyToMergeBucketSerializer(
+        many=True,
+        help_text="Median cycle time (p50 per-PR ready_to_merge_seconds, bots/drafts excluded) per bucket "
+        "across the window, oldest first, bucketed by ready_to_merge_series_granularity. Empty buckets carry "
+        "null; the whole series is empty when the issue-events table isn't synced or include_series=false, "
+        "so fall back to open_to_merge_series.",
     )
 
     class Meta:
@@ -338,11 +425,12 @@ class RepoOverviewSerializer(DataclassSerializer):
                 "help_text": "Same count over the equal-length window immediately before date_from — the delta baseline."
             },
             "success_rate": {
-                "help_text": "Fraction of completed runs that succeeded (0-1) in the window. Null if none completed.",
+                "help_text": "Fraction of conclusive runs that succeeded (0-1) in the window. Skipped, cancelled, "
+                "neutral, and action_required runs are excluded. Null if no run reached a verdict.",
                 "allow_null": True,
             },
             "success_rate_prev": {
-                "help_text": "Success rate over the previous window. Null if none completed.",
+                "help_text": "Conclusive-run success rate over the previous window. Null if no run reached a verdict.",
                 "allow_null": True,
             },
             "rerun_cycles": {"help_text": "Runs in the window that were a 2nd+ attempt (attempt > 1)."},
@@ -359,6 +447,17 @@ class RepoOverviewSerializer(DataclassSerializer):
             },
             "median_open_to_merge_seconds_prev": {
                 "help_text": "The same median over the previous window. Null when nothing merged.",
+                "allow_null": True,
+            },
+            "median_ready_to_merge_seconds": {
+                "help_text": "Median per-PR ready_to_merge_seconds (the true cycle time: merged_at minus the "
+                "last observed ready-for-review transition) over PRs merged in the window, bots and drafts "
+                "excluded. Null when the issue-events table isn't synced or no merged PR has an observed "
+                "value; fall back to median_open_to_merge_seconds and label it open-to-merge.",
+                "allow_null": True,
+            },
+            "median_ready_to_merge_seconds_prev": {
+                "help_text": "The same median over the previous window. Null when not observed.",
                 "allow_null": True,
             },
             "billable_minutes": {
@@ -379,6 +478,16 @@ class RepoOverviewSerializer(DataclassSerializer):
                 "help_text": "Estimated cost over the previous window; null when the job-level source isn't synced.",
                 "allow_null": True,
             },
+            "cost_per_merge_usd": {
+                "help_text": "estimated_cost_usd divided by merged_pr_count — the window's CI cost per merged "
+                "PR. Null when the job-level source isn't synced or nothing merged.",
+                "allow_null": True,
+            },
+            "cost_per_merge_usd_prev": {
+                "help_text": "The same ratio over the previous window. Null when the job-level source isn't "
+                "synced or nothing merged.",
+                "allow_null": True,
+            },
             "merge_queue_billable_minutes": {
                 "help_text": "Slice of billable_minutes spent on merge-queue batch branches (trunk-merge/**); "
                 "null when the job-level source isn't synced.",
@@ -387,6 +496,110 @@ class RepoOverviewSerializer(DataclassSerializer):
             "merge_queue_billable_minutes_prev": {
                 "help_text": "Merge-queue billable minutes over the previous window; null when the job-level "
                 "source isn't synced.",
+                "allow_null": True,
+            },
+            "merge_queue_merged_pr_count": {
+                "help_text": "PRs merged in the window with at least one corroborated merge-queue gate run — "
+                "the population behind every merge_queue_* landing stat. All authors, bots included."
+            },
+            "merge_queue_merged_pr_count_prev": {"help_text": "Queue-landed merges over the previous window."},
+            "merge_queue_median_first_gate_to_merge_seconds": {
+                "help_text": "Median seconds from a PR's first observed merge-queue gate run starting to the PR "
+                "merging. Pending time before gate testing starts is not included. Null when no queue-landed "
+                "merges.",
+                "allow_null": True,
+            },
+            "merge_queue_median_first_gate_to_merge_seconds_prev": {
+                "help_text": "The same median over the previous window. Null when no queue-landed merges.",
+                "allow_null": True,
+            },
+            "merge_queue_p90_first_gate_to_merge_seconds": {
+                "help_text": "p90 of the same first-gate-run-to-merge measure — the tail, where queue pain "
+                "concentrates. Null when no queue-landed merges.",
+                "allow_null": True,
+            },
+            "merge_queue_p90_first_gate_to_merge_seconds_prev": {
+                "help_text": "The same p90 over the previous window. Null when no queue-landed merges.",
+                "allow_null": True,
+            },
+            "merge_queue_p95_first_gate_to_merge_seconds": {
+                "help_text": "p95 of the same first-gate-run-to-merge measure. Null when no queue-landed merges.",
+                "allow_null": True,
+            },
+            "merge_queue_p95_first_gate_to_merge_seconds_prev": {
+                "help_text": "The same p95 over the previous window. Null when no queue-landed merges.",
+                "allow_null": True,
+            },
+            "merge_queue_p99_first_gate_to_merge_seconds": {
+                "help_text": "p99 of the same first-gate-run-to-merge measure. Null when no queue-landed merges.",
+                "allow_null": True,
+            },
+            "merge_queue_p99_first_gate_to_merge_seconds_prev": {
+                "help_text": "The same p99 over the previous window. Null when no queue-landed merges.",
+                "allow_null": True,
+            },
+            "merge_queue_avg_attempts_per_merge": {
+                "help_text": "Mean distinct gate attempts (distinct gate branches, flake-bisection branches "
+                "collapsed) per queue-landed merge. Null when no queue-landed merges.",
+                "allow_null": True,
+            },
+            "merge_queue_avg_attempts_per_merge_prev": {
+                "help_text": "The same mean over the previous window. Null when no queue-landed merges.",
+                "allow_null": True,
+            },
+            "merge_queue_multi_attempt_merge_share": {
+                "help_text": "Fraction (0-1) of queue-landed merges that needed more than one gate attempt. "
+                "Null when no queue-landed merges.",
+                "allow_null": True,
+            },
+            "merge_queue_multi_attempt_merge_share_prev": {
+                "help_text": "The same fraction over the previous window. Null when no queue-landed merges.",
+                "allow_null": True,
+            },
+            "merge_queue_failed_gate_merge_share": {
+                "help_text": "Fraction (0-1) of queue-landed merges with at least one failed gate run before "
+                "merging. Derived from CI run conclusions, not the queue's own eviction records. Null when no "
+                "queue-landed merges.",
+                "allow_null": True,
+            },
+            "merge_queue_failed_gate_merge_share_prev": {
+                "help_text": "The same fraction over the previous window. Null when no queue-landed merges.",
+                "allow_null": True,
+            },
+            "merge_queue_trunk_available": {
+                "help_text": "Whether the team's TrunkIo warehouse source has the opt-in merge-queue endpoint "
+                "synced and readable by the requesting user. When false, every "
+                "merge_queue_failed_or_cancelled_* and merge_queue_skip_the_line_* field is null; "
+                "fall back to merge_queue_failed_gate_merge_share."
+            },
+            "merge_queue_failed_or_cancelled_share": {
+                "help_text": "Fraction (0-1) of concluded queue entries (merged, failed, or cancelled) that "
+                "ended failed or cancelled, from the queue's own records. Windowed on each entry's last state "
+                "change. Null when the Trunk source isn't synced or nothing concluded.",
+                "allow_null": True,
+            },
+            "merge_queue_failed_or_cancelled_share_prev": {
+                "help_text": "The same fraction over the previous window. Null when the Trunk source isn't "
+                "synced or nothing concluded.",
+                "allow_null": True,
+            },
+            "merge_queue_skip_the_line_count": {
+                "help_text": "Queue entries flagged skip-the-line (prioritized past the queue order) in the "
+                "window, whatever state they reached. Null when the Trunk source isn't synced.",
+                "allow_null": True,
+            },
+            "merge_queue_skip_the_line_count_prev": {
+                "help_text": "Skip-the-line entries over the previous window. Null when the Trunk source isn't synced.",
+                "allow_null": True,
+            },
+            "median_time_to_green_seconds": {
+                "help_text": "Median wall clock for a PR push round to settle fully green over the window — the "
+                "window-level twin of time_to_green_series, same population and exclusions. Null when no fully "
+                "green rounds.",
+                "allow_null": True,
+            },
+            "median_time_to_green_seconds_prev": {
+                "help_text": "The same median over the previous window. Null when no fully green rounds.",
                 "allow_null": True,
             },
             "jobs_available": {"help_text": "Whether the job-level source is synced (cost and queue figures exist)."},
@@ -402,6 +615,9 @@ class RepoOverviewSerializer(DataclassSerializer):
             },
             "open_to_merge_series_granularity": {
                 "help_text": "Bucket width of the open_to_merge_series trend: 'hour', 'day', or 'week'."
+            },
+            "ready_to_merge_series_granularity": {
+                "help_text": "Bucket width of the ready_to_merge_series trend: 'hour', 'day', or 'week'."
             },
         }
 

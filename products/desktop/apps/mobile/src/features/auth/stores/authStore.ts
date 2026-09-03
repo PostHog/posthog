@@ -127,7 +127,7 @@ export const useAuthStore = create<AuthState>()(
         if (!scopedTeams.includes(projectId) || projectId === current) return;
         set({ projectId });
         // Drop cached data scoped to the previous project so tasks, inbox,
-        // automations, etc. refetch against the newly-selected one.
+        // etc. refetch against the newly-selected one.
         queryClient.clear();
       },
 

@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { LemonButton, LemonSelect, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonSelect, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 import { DefaultTooltip, type Series, TimeSeriesBarChart, type TimeSeriesBarChartConfig } from '@posthog/quill-charts'
 
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
@@ -180,14 +180,15 @@ function SimulationSummary({
     )
 }
 
-function SimulationIncidents({ incidents, threshold }: { incidents: Incident[]; threshold: number }): JSX.Element {
+function SimulationIncidents({
+    incidents,
+    threshold,
+}: {
+    incidents: Incident[]
+    threshold: number
+}): JSX.Element | null {
     if (incidents.length === 0) {
-        return (
-            <div className="text-center py-4 text-secondary text-sm border rounded">
-                No alerts — the alert would not have fired during this period.
-                {threshold > 0 && ' Consider lowering the threshold.'}
-            </div>
-        )
+        return null
     }
 
     return (
@@ -260,12 +261,39 @@ function SimulationResults({ result }: { result: LogsAlertSimulateResponseApi })
     )
 }
 
-export function LogsAlertSimulation(): JSX.Element {
+function SimulationPlaceholder(): JSX.Element {
+    return (
+        <div className="relative h-56 overflow-hidden rounded border border-dashed border-border bg-bg-light">
+            <div aria-hidden className="space-y-4 p-4 opacity-60">
+                <LemonSkeleton className="h-32" />
+                <div className="flex gap-6">
+                    <LemonSkeleton className="h-8 w-16" repeat={3} />
+                </div>
+            </div>
+            <div className="absolute inset-0 flex items-center justify-center bg-bg-light/80 p-4 text-center">
+                <div>
+                    <div className="text-sm font-medium">Select a time range, then run a simulation</div>
+                    <p className="m-0 mt-1 text-xs text-secondary">
+                        Historical log counts and alert outcomes will appear here.
+                    </p>
+                </div>
+            </div>
+        </div>
+    )
+}
+
+export function LogsAlertSimulation({ embedded = false }: { embedded?: boolean }): JSX.Element {
     const { simulationResult, simulationResultLoading, simulationDateFrom } = useValues(logsAlertFormLogic)
     const { simulateAlert, setSimulationDateFrom } = useActions(logsAlertFormLogic)
 
-    return (
-        <div className="space-y-4 p-4">
+    const simulation = (
+        <div className="space-y-4">
+            {embedded ? (
+                <div>
+                    <h4 className="m-0">Preview</h4>
+                    <p className="m-0 text-xs text-secondary">Check how this alert would behave on historical data.</p>
+                </div>
+            ) : null}
             <div className="flex gap-2 items-center">
                 <LemonSelect
                     size="small"
@@ -287,12 +315,17 @@ export function LogsAlertSimulation(): JSX.Element {
 
             {simulationResult && <SimulationResults result={simulationResult} />}
 
-            {!simulationResult && !simulationResultLoading && (
-                <div className="text-center py-8 text-secondary text-sm">
-                    Select a time range and click "Run simulation" to preview how this alert would behave on historical
-                    data.
-                </div>
-            )}
+            {!simulationResult && !simulationResultLoading && <SimulationPlaceholder />}
         </div>
     )
+
+    if (embedded) {
+        return (
+            <LemonCard className="p-4" hoverEffect={false}>
+                {simulation}
+            </LemonCard>
+        )
+    }
+
+    return <div className="p-4">{simulation}</div>
 }

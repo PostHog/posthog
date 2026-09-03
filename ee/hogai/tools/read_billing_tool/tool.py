@@ -9,50 +9,13 @@ from posthog.clickhouse.client import sync_execute
 from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
 
+from ee.billing.billing_types import USAGE_TYPE_OPTIONS
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.tool import MaxSubtool
 from ee.hogai.tool_errors import MaxToolFatalError
 from ee.hogai.utils.types import AssistantState
 
 from .prompts import BILLING_CONTEXT_PROMPT, BILLING_CONTEXT_UNAVAILABLE_PROMPT
-
-# sync with frontend/src/scenes/billing/constants.ts
-# Values are sent to the `billing` repo as `usage_types`; keep in sync with accepted types in `billing/types/usage.py`.
-USAGE_TYPES = [
-    {"label": "Events", "value": "event_count_in_period"},
-    {"label": "Identified events", "value": "enhanced_persons_event_count_in_period"},
-    {"label": "Group analytics", "value": "group_analytics"},
-    {"label": "Recordings", "value": "recording_count_in_period"},
-    {"label": "Mobile recordings", "value": "mobile_recording_count_in_period"},
-    {"label": "Feature flag requests", "value": "billable_feature_flag_requests_count_in_period"},
-    {"label": "Exceptions", "value": "exceptions_captured_in_period"},
-    {"label": "Survey responses", "value": "survey_responses_count_in_period"},
-    {"label": "AI events", "value": "ai_event_count_in_period"},
-    {"label": "Synced rows", "value": "rows_synced_in_period"},
-    {"label": "Free synced rows", "value": "free_historical_rows_synced_in_period"},
-    {"label": "Data pipelines (deprecated)", "value": "data_pipelines"},
-    {"label": "Destinations trigger events", "value": "cdp_billable_invocations_in_period"},
-    {"label": "Rows exported", "value": "rows_exported_in_period"},
-    {"label": "PostHog AI", "value": "ai_credits_used_in_period"},
-    {"label": "Inbox credits", "value": "signals_credits_used_in_period"},
-    {"label": "PostHog Desktop credits", "value": "posthog_code_credits_used_in_period"},
-    {"label": "PostHog Desktop token credits", "value": "posthog_code_token_credits_used_in_period"},
-    {"label": "Sandbox compute credits", "value": "sandbox_compute_credits_used_in_period"},
-    {
-        "label": "Sandbox compute CPU millicore-seconds",
-        "value": "sandbox_compute_cpu_millicore_seconds_in_period",
-    },
-    {
-        "label": "Sandbox compute memory MiB-seconds",
-        "value": "sandbox_compute_memory_mib_seconds_in_period",
-    },
-    {"label": "Replay vision credits", "value": "replay_vision_credits_used_in_period"},
-    {"label": "Workflow emails", "value": "workflow_emails_sent_in_period"},
-    {"label": "Workflow push notifications", "value": "workflow_push_sent_in_period"},
-    {"label": "Workflow destinations", "value": "workflow_billable_invocations_in_period"},
-    {"label": "Logs ingested (MB)", "value": "logs_mb_in_period"},
-    {"label": "Logs 30-day retention (MB)", "value": "logs_retention_30d_mb_in_period"},
-]
 
 
 class ReadBillingTool(MaxSubtool):
@@ -316,9 +279,9 @@ class ReadBillingTool(MaxSubtool):
 
     def _extract_product_type(self, item) -> str:
         """Extract product type from item label or breakdown_value."""
-        valid_usage_types = {usage_type["value"] for usage_type in USAGE_TYPES}
+        valid_usage_types = {usage_type["value"] for usage_type in USAGE_TYPE_OPTIONS}
 
-        # First try breakdown_value format: find the value that matches USAGE_TYPES
+        # First try breakdown_value format: find the value that matches known usage types
         if item.breakdown_value and isinstance(item.breakdown_value, list):
             for value in item.breakdown_value:
                 if str(value) in valid_usage_types:
@@ -333,8 +296,8 @@ class ReadBillingTool(MaxSubtool):
 
     def _get_clean_product_label(self, product_type: str) -> str:
         """Convert product type to a clean label for display."""
-        # Try to find matching label from USAGE_TYPES
-        for usage_type in USAGE_TYPES:
+        # Try to find matching label from known usage types
+        for usage_type in USAGE_TYPE_OPTIONS:
             if usage_type["value"] == product_type:
                 return usage_type["label"]
 

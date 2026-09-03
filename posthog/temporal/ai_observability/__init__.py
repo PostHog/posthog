@@ -112,7 +112,7 @@ EVAL_ACTIVITIES = [
     emit_evaluation_event_activity,
     emit_trace_evaluation_event_activity,
     emit_internal_telemetry_activity,
-    emit_eval_signal_activity,  # kept for in-flight v1 workflows, then remove
+    emit_eval_signal_activity,
 ]
 
 TAGGER_WORKFLOWS = [
@@ -189,5 +189,5 @@ ACTIVITIES = [
     execute_sentiment_eval_activity,
     emit_evaluation_event_activity,
     emit_internal_telemetry_activity,
-    emit_eval_signal_activity,  # kept for in-flight v1 workflows, then remove
+    emit_eval_signal_activity,
 ]

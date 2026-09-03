@@ -1,6 +1,7 @@
 from collections.abc import Callable
 
 from posthog.hogql.printer.postgres_functions import (
+    _handle_case_with_expression,
     _handle_e,
     _handle_empty,
     _handle_ends_with,
@@ -239,6 +240,7 @@ SNOWFLAKE_FUNCTION_HANDLERS: dict[str, Callable[[list[str]], str]] = {
     "subtractQuarters": _make_dateadd_handler("quarter", negate=True),
     "subtractYears": _make_dateadd_handler("year", negate=True),
     # Conditional
+    "_caseWithExpression": _handle_case_with_expression,
     "if": _handle_if,
     "multiIf": _handle_multi_if,
     # Null / empty

@@ -10,9 +10,9 @@ from datetime import timedelta
 from typing import Any, Literal, get_args
 
 from django.db import connection
-from django.db.models import Count, Max, Min, Q, QuerySet
+from django.db.models import Count, Max, Min, Q, QuerySet, TextField
 from django.db.models.fields.json import KeyTextTransform
-from django.db.models.functions import TruncDate
+from django.db.models.functions import Cast, TruncDate
 from django.utils import timezone
 
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
@@ -114,26 +114,37 @@ def _label_day_counts(
     return [{"date": row["day"], "up": row["up"], "down": row["down"]} for row in rows]
 
 
+def _parse_json_object(raw: str | None) -> dict[str, Any]:
+    """Run snapshots are a JSONB field, so a legacy row can hold anything. Non-objects read as empty
+    rather than failing the whole stats request."""
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except ValueError:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
 def _version_markers(queryset: QuerySet[ReplayObservation]) -> list[dict[str, Any]]:
-    """Every prompt version that produced observations, with its first day, full config (from the run
-    snapshot), and rating counts. All-time: charts window it client-side; the configuration overview
-    shows the full history."""
+    """Every scanner version that produced observations, with its first day, the config it ran with, and
+    rating counts. All-time: charts window it client-side. The configuration overview shows the full history.
+    Fields a snapshot doesn't carry come back null, so the history can say "not recorded" instead of
+    implying nothing changed."""
     rows = (
         queryset.annotate(snapshot_version=KeyTextTransform("scanner_version", "scanner_snapshot"))
         .exclude(snapshot_version=None)
         .annotate(
             day=TruncDate("created_at"),
-            snapshot_prompt=KeyTextTransform("prompt", KeyTextTransform("scanner_config", "scanner_snapshot")),
-            # Whole config object as JSON text, not just the prompt key, so tags/scale/etc. version too.
-            snapshot_config=KeyTextTransform("scanner_config", "scanner_snapshot"),
+            # The whole snapshot, not just scanner_config, so every version-tracked field can be diffed.
+            snapshot_json=Cast("scanner_snapshot", output_field=TextField()),
         )
         .order_by()
         .values("snapshot_version")
         .annotate(
             first_day=Min("day"),
-            prompt=Max("snapshot_prompt"),
-            # Every observation of a given version shares the same snapshot config, so Max just picks it out.
-            config_json=Max("snapshot_config"),
+            # The name can change without bumping the version, so Max is a deterministic pick.
+            snapshot=Max("snapshot_json"),
             up=Count("id", filter=Q(label__is_correct=True)),
             down=Count("id", filter=Q(label__is_correct=False)),
             # Only succeeded observations can be rated, so they are the ratable "scanned" total.
@@ -146,16 +157,22 @@ def _version_markers(queryset: QuerySet[ReplayObservation]) -> list[dict[str, An
             version = int(row["snapshot_version"])
         except (TypeError, ValueError):
             continue
-        try:
-            config = json.loads(row["config_json"]) if row["config_json"] else {}
-        except ValueError:
-            config = {}
+        snapshot = _parse_json_object(row["snapshot"])
+        config = snapshot.get("scanner_config")
+        config = config if isinstance(config, dict) else {}
         markers.append(
             {
                 "date": row["first_day"],
                 "version": version,
-                "prompt": row["prompt"] or "",
+                "prompt": config.get("prompt") or "",
                 "scanner_config": config,
+                "scanner_type": snapshot.get("scanner_type"),
+                "model": snapshot.get("model"),
+                "provider": snapshot.get("provider"),
+                "emits_signals": snapshot.get("emits_signals"),
+                "query": snapshot.get("query"),
+                "sampling_rate": snapshot.get("sampling_rate"),
+                "sampling_mode": snapshot.get("sampling_mode"),
                 "up": row["up"],
                 "down": row["down"],
                 "total": row["total"],

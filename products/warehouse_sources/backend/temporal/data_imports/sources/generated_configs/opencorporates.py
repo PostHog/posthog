@@ -6,4 +6,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 
 @config.config
 class OpencorporatesSourceConfig(config.Config):
-    pass
+    api_token: str
+    query: str
+    jurisdiction_code: str | None = None

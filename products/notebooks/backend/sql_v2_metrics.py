@@ -9,6 +9,12 @@ measures end-to-end duration against the run row's ``created_at``
 - its OTLP twin (the PostHog Metrics product),
 - a ``notebook node run completed`` event (product analytics, sliceable per notebook).
 
+Every sink also carries ``delivery``: which transport served the run's rows
+(``direct`` / ``inline`` / ``object_relay`` / ``object_ch_writes`` / ``none`` / ``mixed``).
+The data plane resolves it when it picks a transport, so it reflects what actually
+happened rather than what the flags asked for, which makes a fallback visible instead of
+silently landing in the wrong bucket. This is the dimension a transport A/B splits on.
+
 Runs additionally carry phase timings in the envelope's ``timings`` dict. Kernel runs
 report them from the sandbox (``sandbox/kernel/runner.py``): ``input_wait_s`` (waiting on
 the data plane for referenced frames or the display fetch), ``download_s`` (the presigned
@@ -33,6 +39,14 @@ from posthog.models import Team
 from posthog.otel_metrics import OtelInstrumentFactory
 
 from products.notebooks.backend.models import NotebookNodeRun
+from products.notebooks.backend.sql_v2 import (
+    DELIVERY_DIRECT,
+    DELIVERY_INLINE,
+    DELIVERY_MIXED,
+    DELIVERY_NONE,
+    DELIVERY_OBJECT_CH_WRITES,
+    DELIVERY_OBJECT_RELAY,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -69,12 +83,27 @@ _PHASE_BY_TIMING_KEY = {
 # the run's real wall clock.
 _TIMING_CLOCK_SLACK_SECONDS = 60.0
 
+# The envelope's `delivery` reaches us through the sandbox, where user code can forge it, so
+# only these values may become a label. Anything else collapses to DELIVERY_NONE rather than
+# minting a new time series per forged string. Keep in sync with the DELIVERY_* constants in
+# sql_v2.py when a transport is added.
+DELIVERY_LABEL_VALUES = frozenset(
+    {
+        DELIVERY_DIRECT,
+        DELIVERY_INLINE,
+        DELIVERY_OBJECT_RELAY,
+        DELIVERY_OBJECT_CH_WRITES,
+        DELIVERY_NONE,
+        DELIVERY_MIXED,
+    }
+)
+
 _otel = OtelInstrumentFactory("notebooks")
 
 NODE_RUN_SECONDS = Histogram(
     "posthog_notebooks_node_run_seconds",
     "End-to-end notebook node run duration: run-row creation to its terminal transition.",
-    labelnames=["node_type", "outcome"],
+    labelnames=["node_type", "outcome", "delivery"],
     buckets=[0.5, 1, 2, 5, 10, 30, 60, 120, 300, 600, 1200, 1800, 2700],
 )
 NODE_RUN_PHASE_SECONDS = Histogram(
@@ -97,15 +126,17 @@ def record_node_run_terminal(run: NotebookNodeRun, outcome: str) -> None:
     """
     try:
         duration = max((timezone.now() - run.created_at).total_seconds(), 0.0)
-        NODE_RUN_SECONDS.labels(node_type=run.node_type, outcome=outcome).observe(duration)
-        _otel.record_histogram_twin(NODE_RUN_SECONDS, duration, {"node_type": run.node_type, "outcome": outcome})
+        delivery = _sanitized_delivery(run.envelope)
+        run_labels = {"node_type": run.node_type, "outcome": outcome, "delivery": delivery}
+        NODE_RUN_SECONDS.labels(**run_labels).observe(duration)
+        _otel.record_histogram_twin(NODE_RUN_SECONDS, duration, run_labels)
 
         timings = _sanitized_timings(run.envelope, max_seconds=duration + _TIMING_CLOCK_SLACK_SECONDS)
         for phase, seconds in timings.items():
             NODE_RUN_PHASE_SECONDS.labels(phase=phase, node_type=run.node_type).observe(seconds)
             _otel.record_histogram_twin(NODE_RUN_PHASE_SECONDS, seconds, {"phase": phase, "node_type": run.node_type})
 
-        _capture_completed_event(run, outcome, duration, timings)
+        _capture_completed_event(run, outcome, duration, timings, delivery)
     except Exception:
         logger.exception("notebook_node_run_metrics_failed", run_id=str(run.id), outcome=outcome)
 
@@ -128,17 +159,30 @@ def _sanitized_timings(envelope: Any, max_seconds: float) -> dict[str, float]:
     }
 
 
+def _sanitized_delivery(envelope: Any) -> str:
+    """Resolve the transport that served this run's rows, bounded to the known modes.
+
+    A kernel run that read no ClickHouse-backed frame reports nothing, which is
+    DELIVERY_NONE rather than a missing label: a run with no transport is a real bucket,
+    and it must not be averaged in with the runs a transport comparison is about.
+    """
+    reported = envelope.get("delivery") if isinstance(envelope, dict) else None
+    return reported if reported in DELIVERY_LABEL_VALUES else DELIVERY_NONE
+
+
 def _capture_completed_event(
     run: NotebookNodeRun,
     outcome: str,
     duration: float,
     timings: dict[str, float],
+    delivery: str,
 ) -> None:
     envelope = run.envelope if isinstance(run.envelope, dict) else {}
     properties: dict[str, Any] = {
         "notebook_short_id": run.notebook.short_id,
         "node_type": run.node_type,
         "outcome": outcome,
+        "delivery": delivery,
         "duration_seconds": round(duration, 3),
         "row_count": envelope.get("row_count"),
         "has_error": bool(run.error),

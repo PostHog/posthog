@@ -37,7 +37,9 @@ export function TrendsSlopeChart({ context }: TrendsSlopeChartProps): JSX.Elemen
     // matching labels, so we just map to quill series: resolve the theme colour, drop legend-hidden
     // series, and forward the backend's `incomplete_end` flag (which dashes the connector). A
     // single-bucket range comes back as one point and is dropped — there's no slope to draw.
-    const labels = currentPeriodResult?.labels ?? []
+    // Key the endpoints by ISO days rather than display labels: week and hour labels omit the
+    // year, so on a multi-year range both endpoints can share a label and collapse onto one x.
+    const labels = (currentPeriodResult?.days?.length ? currentPeriodResult.days : currentPeriodResult?.labels) ?? []
     const series = useMemo<Series<SlopeSeriesMeta>[]>(() => {
         return (indexedResults ?? [])
             .filter((result: IndexedTrendResult) => !getTrendsHidden(result) && (result.data?.length ?? 0) >= 2)

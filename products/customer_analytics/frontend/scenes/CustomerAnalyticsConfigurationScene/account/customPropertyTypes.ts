@@ -19,6 +19,7 @@ export interface DisplayTypeOption {
 
 export const DISPLAY_TYPE_OPTIONS: DisplayTypeOption[] = [
     { value: 'text', label: 'Text', isNumeric: false },
+    { value: 'link', label: 'Link', isNumeric: false },
     { value: 'number', label: 'Number', isNumeric: true },
     { value: 'currency', label: 'Currency', isNumeric: true },
     { value: 'percent', label: 'Percent', isNumeric: true },
@@ -132,19 +133,19 @@ export function runOutcomeNote(run: CustomPropertySyncRunApi, entityPlural: stri
     if (run.rows_read === 0) {
         return {
             label: 'no new rows',
-            tooltip: `This sync imported no rows for the table, so there was nothing to map onto ${entityPlural}.`,
+            tooltip: `This run read no warehouse rows, so there was nothing to map onto ${entityPlural}.`,
         }
     }
     if (run.changed === 0) {
         return {
             label: 'no changes',
-            tooltip: `All ${run.rows_read} rows this sync read already hold the values last sent, so nothing needed updating.`,
+            tooltip: `All ${humanFriendlyNumber(run.rows_read)} rows this sync read already hold the values last sent, so nothing needed updating.`,
         }
     }
     if (run.existing === 0) {
         return {
             label: `no matching ${entityPlural}`,
-            tooltip: `${run.changed} rows changed, but none of their key column values matched an existing ${entityPlural === 'people' ? 'person' : 'group'}.`,
+            tooltip: `${humanFriendlyNumber(run.changed)} rows changed, but none of their key column values matched an existing ${entityPlural === 'people' ? 'person' : 'group'}.`,
         }
     }
     return null

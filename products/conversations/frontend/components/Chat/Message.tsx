@@ -18,6 +18,7 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import type { AiReplyFeedbackRating, ChatMessage, MessageDeliveryStatus } from '../../types'
 import { SupportMarkdown, SupportRichContentPreview } from '../Editor'
+import { richContentToHtml } from '../Editor/richContentToHtml'
 import { TeamOnlyBadge } from './TeamOnlyBadge'
 
 export interface MessageProps {
@@ -30,6 +31,8 @@ export interface MessageProps {
     onSubmitAiReplyFeedback?: (rating: AiReplyFeedbackRating, feedbackText?: string) => void
     onEdit?: () => void
     onDelete?: () => void
+    fullEmailLoading?: boolean
+    onViewFullEmail?: () => void
 }
 
 export function Message({
@@ -42,6 +45,8 @@ export function Message({
     onSubmitAiReplyFeedback,
     onEdit,
     onDelete,
+    fullEmailLoading = false,
+    onViewFullEmail,
 }: MessageProps): JSX.Element {
     const isAgent = message.authorType === 'AI'
     const profileType = isAgent ? 'bot' : 'person'
@@ -61,6 +66,12 @@ export function Message({
             return
         }
         onSubmitAiReplyFeedback(rating)
+    }
+
+    function copyMessage(): void {
+        // Generated on demand rather than per render, since only a copy needs it.
+        const html = richContentToHtml(message.richContent as JSONContent | null)
+        void copyToClipboard(message.content, 'Message', { html: html ?? undefined })
     }
 
     function submitBadFeedbackText(): void {
@@ -151,7 +162,7 @@ export function Message({
                                             size="xsmall"
                                             icon={<IconCopy />}
                                             noPadding
-                                            onClick={() => void copyToClipboard(message.content, 'Message')}
+                                            onClick={copyMessage}
                                         />
                                     </Tooltip>
                                 </div>
@@ -172,6 +183,19 @@ export function Message({
                                 <SupportMarkdown className="text-sm" disableImages>
                                     {message.content}
                                 </SupportMarkdown>
+                            )}
+                            {message.hasFullEmailContent && onViewFullEmail && (
+                                <div className="mt-2">
+                                    <LemonButton
+                                        type="tertiary"
+                                        size="xsmall"
+                                        onClick={onViewFullEmail}
+                                        loading={fullEmailLoading}
+                                        data-attr="support-ticket-view-full-email"
+                                    >
+                                        View full email
+                                    </LemonButton>
+                                </div>
                             )}
                         </div>
                         {showAiReplyFeedback && (

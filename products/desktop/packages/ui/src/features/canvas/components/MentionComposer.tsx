@@ -1,7 +1,7 @@
 import { RobotIcon } from "@phosphor-icons/react";
 import { Avatar, AvatarFallback, InputGroup } from "@posthog/quill";
 import type { UserBasic } from "@posthog/shared/domain-types";
-import { getUserInitials } from "@posthog/ui/features/auth/userInitials";
+import { UserAvatar } from "@posthog/ui/features/auth/UserAvatar";
 import {
   type ComposerMentionCandidate,
   contentToDoc,
@@ -268,15 +268,19 @@ export function MentionComposer({
                   index === highlightedIndex ? "bg-[var(--accent-a4)]" : ""
                 }`}
               >
-                <Avatar size="xs" className="shrink-0">
-                  <AvatarFallback>
-                    {candidate.kind === "agent" ? (
+                {candidate.kind === "agent" ? (
+                  <Avatar size="xs" className="shrink-0">
+                    <AvatarFallback>
                       <RobotIcon size={12} />
-                    ) : (
-                      getUserInitials(candidate.member)
-                    )}
-                  </AvatarFallback>
-                </Avatar>
+                    </AvatarFallback>
+                  </Avatar>
+                ) : (
+                  <UserAvatar
+                    user={candidate.member}
+                    size="xs"
+                    className="shrink-0"
+                  />
+                )}
                 <span className="truncate font-medium text-xs">
                   {candidate.kind === "agent"
                     ? "Agent"

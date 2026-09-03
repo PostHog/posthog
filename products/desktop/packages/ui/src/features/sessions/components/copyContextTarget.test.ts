@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   copyFromContextMenu,
   getGithubRefUrlFromEventTarget,
+  getSelectionWithin,
 } from "./copyContextTarget";
 
 function buildDom(): {
@@ -41,6 +42,85 @@ describe("getGithubRefUrlFromEventTarget", () => {
     { name: "a non-element target", pick: () => null, expected: null },
   ])("resolves $expected when the target is $name", ({ pick, expected }) => {
     expect(getGithubRefUrlFromEventTarget(pick(buildDom()))).toBe(expected);
+  });
+});
+
+describe("getSelectionWithin", () => {
+  interface Thread {
+    first: HTMLElement;
+    second: HTMLElement;
+    firstText: Text;
+    secondText: Text;
+  }
+
+  // Built node by node rather than from markup: the indentation between tags
+  // becomes text nodes, which a cross-message range would pick up.
+  function buildThread(): Thread {
+    document.body.innerHTML = "";
+    const thread = document.createElement("div");
+    const first = document.createElement("div");
+    const firstText = document.createTextNode("alpha bravo charlie");
+    const second = document.createElement("div");
+    const secondText = document.createTextNode("delta echo");
+    first.appendChild(firstText);
+    second.appendChild(secondText);
+    thread.append(first, second);
+    document.body.appendChild(thread);
+    window.getSelection()?.removeAllRanges();
+    return { first, second, firstText, secondText };
+  }
+
+  function select(
+    start: Node,
+    startOffset: number,
+    end: Node,
+    endOffset: number,
+  ) {
+    const range = document.createRange();
+    range.setStart(start, startOffset);
+    range.setEnd(end, endOffset);
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+  }
+
+  it.each<{
+    name: string;
+    highlight: (thread: Thread) => void;
+    expected: string | null;
+  }>([
+    {
+      name: "part of the message is highlighted",
+      highlight: ({ firstText }) => select(firstText, 6, firstText, 11),
+      expected: "bravo",
+    },
+    {
+      name: "the highlight runs on into the next message",
+      highlight: ({ firstText, secondText }) =>
+        select(firstText, 12, secondText, 5),
+      expected: "charliedelta",
+    },
+    { name: "nothing is highlighted", highlight: () => {}, expected: null },
+    {
+      name: "only another message is highlighted",
+      highlight: ({ secondText }) => select(secondText, 0, secondText, 5),
+      expected: null,
+    },
+    {
+      name: "the highlight is only whitespace",
+      highlight: ({ firstText }) => select(firstText, 5, firstText, 6),
+      expected: null,
+    },
+  ])("returns $expected when $name", ({ highlight, expected }) => {
+    const thread = buildThread();
+    highlight(thread);
+    expect(getSelectionWithin(thread.first)).toBe(expected);
+  });
+
+  it("returns null without a container to check against", () => {
+    const { firstText } = buildThread();
+    select(firstText, 0, firstText, 5);
+    expect(getSelectionWithin(null)).toBeNull();
   });
 });
 

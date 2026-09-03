@@ -105,7 +105,8 @@ function CheckSummary({ variant, count }: { variant: CheckVariant; count: number
 /**
  * "CI checks" section for a report's implementation PR: the GitHub Actions check runs and legacy
  * commit statuses of the PR's head commit, polled every 15s by `inboxReportDetailLogic` while the
- * detail is open. Read-only — each row links out to the check on GitHub.
+ * detail is open (after repeated failures the poll backs off to a slow retry and the inline error
+ * stays put until one succeeds). Read-only — each row links out to the check on GitHub.
  */
 export function PrChecksSection({ report }: { report: SignalReport }): JSX.Element | null {
     const { prChecks, prChecksLoading, prChecksError } = useValues(

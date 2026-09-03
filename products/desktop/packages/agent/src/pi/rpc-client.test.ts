@@ -8,6 +8,17 @@ import {
   createRuntimeMcpServers,
   createRuntimeMcpStdioServers,
 } from "./rpc-client";
+import type { TaskContext } from "./task-system-prompt";
+
+function taskContext(cwd: string): TaskContext {
+  return {
+    taskId: "task-1",
+    cwd,
+    projectId: 2,
+    apiHost: "https://us.posthog.com",
+    environment: "local",
+  };
+}
 
 describe("createRuntimeMcpServers", () => {
   it("maps agent-server HTTP and SSE servers to Harness configuration", () => {
@@ -39,6 +50,39 @@ describe("createRuntimeMcpServers", () => {
     });
   });
 
+  it("carries a server description so search finds it before it connects", () => {
+    // Lazy servers hold no tool metadata until first use, so pi's `mcp` search matches
+    // them on name and description alone.
+    expect(
+      createRuntimeMcpServers([
+        {
+          name: "Linear",
+          type: "http",
+          url: "https://mcp.example/linear",
+          headers: [],
+          description: "Manage Linear issues, projects, and workflows.",
+        },
+      ]),
+    ).toMatchObject({
+      Linear: {
+        description: "Manage Linear issues, projects, and workflows.",
+      },
+    });
+  });
+
+  it("omits the description key for servers without one", () => {
+    expect(
+      createRuntimeMcpServers([
+        {
+          name: "plain",
+          type: "http",
+          url: "https://mcp.example/mcp",
+          headers: [],
+        },
+      ]).plain,
+    ).not.toHaveProperty("description");
+  });
+
   it("maps local tools to an eager direct stdio server", () => {
     expect(
       createRuntimeMcpStdioServers([
@@ -56,6 +100,7 @@ describe("createRuntimeMcpServers", () => {
         env: { POSTHOG_LOCAL_TOOLS_ENABLED: "finish" },
         transport: "stdio",
         lifecycle: "eager",
+        requestTimeoutMs: 300_000,
         directTools: true,
       },
     });
@@ -65,7 +110,7 @@ describe("createRuntimeMcpServers", () => {
 describe("createPiRpcClient", () => {
   it("does not put provider credentials in the child environment", () => {
     const client = createPiRpcClient({
-      cwd: "/workspace",
+      taskContext: taskContext("/workspace"),
       model: "claude-opus-4-8",
       providerOptions: {
         region: "us",
@@ -88,44 +133,7 @@ describe("createPiRpcClient", () => {
     ).toBeUndefined();
   });
 
-  it("passes repository trust over the private bootstrap pipe", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "pi-project-trust-"));
-    const hostPath = join(directory, "host.mjs");
-    const capturePath = join(directory, "bootstrap.json");
-    await writeFile(
-      hostPath,
-      `
-import { readFileSync, writeFileSync } from "node:fs";
-
-writeFileSync(${JSON.stringify(capturePath)}, readFileSync(3, "utf8"));
-process.stdin.resume();
-`,
-    );
-    const client = createPiRpcClient({
-      cliPath: hostPath,
-      cwd: directory,
-      projectTrusted: true,
-      providerOptions: { apiKey: "proxy-key" },
-    });
-
-    try {
-      await client.start();
-      await vi.waitFor(async () => {
-        await expect(readFile(capturePath, "utf8")).resolves.toBe(
-          JSON.stringify({
-            providerOptions: { apiKey: "proxy-key" },
-            projectTrusted: true,
-            channelMode: false,
-          }),
-        );
-      });
-    } finally {
-      await client.stop();
-      await rm(directory, { recursive: true });
-    }
-  });
-
-  it("passes channel mode privately and enables Electron's Node mode", async () => {
+  it("passes requested extensions privately and enables Electron's Node mode", async () => {
     const directory = await mkdtemp(join(tmpdir(), "pi-electron-node-mode-"));
     const hostPath = join(directory, "host.mjs");
     const capturePath = join(directory, "capture.txt");
@@ -138,7 +146,7 @@ const bootstrap = JSON.parse(readFileSync(3, "utf8"));
 closeSync(3);
 writeFileSync(${JSON.stringify(capturePath)}, JSON.stringify({
   nodeMode: process.env.ELECTRON_RUN_AS_NODE ?? "",
-  channelMode: bootstrap.channelMode,
+  extensions: bootstrap.extensions,
   apiKey: bootstrap.providerOptions.apiKey,
 }));
 process.stdin.resume();
@@ -146,9 +154,9 @@ process.stdin.resume();
     );
     const client = createPiRpcClient({
       cliPath: hostPath,
-      cwd: directory,
+      taskContext: taskContext(directory),
       providerOptions: { apiKey: "proxy-key" },
-      channelMode: true,
+      extensions: ["repository-tools"],
     });
 
     try {
@@ -157,7 +165,7 @@ process.stdin.resume();
         await expect(readFile(capturePath, "utf8")).resolves.toBe(
           JSON.stringify({
             nodeMode: "1",
-            channelMode: true,
+            extensions: ["repository-tools"],
             apiKey: "proxy-key",
           }),
         );
@@ -192,7 +200,7 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     );
     const client = createPiRpcClient({
       cliPath: hostPath,
-      cwd: directory,
+      taskContext: taskContext(directory),
       providerOptions: { apiKey: "proxy-key" },
     });
     const request = new Promise<unknown>((resolve) => client.onEvent(resolve));
@@ -240,7 +248,7 @@ process.stdin.resume();
     );
     const client = createPiRpcClient({
       cliPath: hostPath,
-      cwd: directory,
+      taskContext: taskContext(directory),
       providerOptions: { apiKey: "proxy-key" },
       runtimeMcpServers: {
         posthog: {
@@ -297,7 +305,7 @@ process.on("message", (response) => {
     const requestMcpToolPermission = vi.fn();
     const client = createPiRpcClient({
       cliPath: hostPath,
-      cwd: directory,
+      taskContext: taskContext(directory),
       providerOptions: { apiKey: "proxy-key" },
     });
     client.onMcpToolPermissionRequest((request) => {
@@ -341,7 +349,7 @@ process.on("message", (request) => {
     );
     const client = createPiRpcClient({
       cliPath: hostPath,
-      cwd: directory,
+      taskContext: taskContext(directory),
       providerOptions: { apiKey: "proxy-key" },
     });
 

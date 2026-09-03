@@ -17,7 +17,8 @@ from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefres
 from posthog.models.team.team import Team
 from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 from posthog.models.user import User
-from posthog.rbac.user_access_control import UserAccessControl
+
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 
 def user_can_access_team(user: User, team: Team) -> bool:

@@ -1,11 +1,6 @@
-import {
-  displayConventionalCommitTitle,
-  parseConventionalCommitTitle,
-} from "@posthog/core/inbox/reportPresentation";
-import { ConventionalCommitScopeTag } from "@posthog/ui/features/inbox/components/ConventionalCommitScopeTag";
+import { humanizeReportTitle } from "@posthog/core/inbox/reportPresentation";
 import { DetailBackLink } from "@posthog/ui/features/inbox/components/DetailBackLink";
 import { InboxMetaRow } from "@posthog/ui/features/inbox/components/InboxMetaRow";
-import { Flex, Text } from "@radix-ui/themes";
 import type { ReactNode } from "react";
 
 interface InboxDetailPageHeaderProps {
@@ -14,29 +9,28 @@ interface InboxDetailPageHeaderProps {
   breadcrumb?: ReactNode;
   reportTitle: string | null | undefined;
   fallbackTitle: string;
-  /** Compact badges (priority / status / for-you / actionability). Joins the meta row. */
+  /** The rare badge that still earns pixels (a non-ready status, For you). */
   badges?: ReactNode;
-  /** Inline meta items (timestamp, findings count, source). */
+  /** Inline byline items (source, findings count, timestamp, priority). */
   meta?: ReactNode;
-  /** Action button cluster (dismiss, discuss, primary). */
+  /** Action button cluster (reviewers, discuss, overflow, dismiss). */
   actions?: ReactNode;
 }
 
 /**
- * Compact detail-page header used by all three inbox detail screens.
+ * Compact detail-page header used by all inbox detail screens.
  *
  *   ┌──────────────────────────────────────────────────────────────────────┐
  *   │ ← Back / breadcrumb                                                  │
- *   │ [scope] Title                                                        │
+ *   │ Title                                                                │
  *   │ ───────────────────────────────────────────────────────────────────  │
- *   │ [badges][meta]                              [Dismiss][Discuss][Open] │
+ *   │ byline (source · signals · time · P2)     [avatars][Discuss][⋯][×]  │
  *   └──────────────────────────────────────────────────────────────────────┘
  *
- * Everything secondary lives on the single bottom row – badges (priority,
- * status, for-you) flow into the meta items (timestamp, findings count,
- * source) on the left; action buttons stay right-aligned. This collapses
- * the previous three rows (badges → meta → actions) into one and recovers
- * a lot of vertical space.
+ * The title renders humanized — conventional-commit prefixes are stripped so a
+ * report reads as a brief, not a commit. The bottom row is a muted byline, not
+ * a badge rack: taxonomy (priority, actionability) lives there as plain text
+ * or not at all.
  */
 export function InboxDetailPageHeader({
   backTo,
@@ -48,60 +42,33 @@ export function InboxDetailPageHeader({
   meta,
   actions,
 }: InboxDetailPageHeaderProps) {
-  const conventionalTitle = parseConventionalCommitTitle(reportTitle);
-  const displayTitle = displayConventionalCommitTitle(
-    reportTitle,
-    fallbackTitle,
-  );
+  const displayTitle = humanizeReportTitle(reportTitle, fallbackTitle);
   const hasBottomRow = !!badges || !!meta || !!actions;
 
   return (
-    <Flex
-      direction="column"
-      gap="3"
-      className="shrink-0 border-(--gray-5) border-b px-6 pt-5 pb-4"
-    >
-      <Flex align="center" gap="2" className="text-[12.5px] text-gray-11">
+    // Sticky within the detail page's scroll: the title and action verbs stay
+    // reachable however deep the reader is in the document.
+    <div className="sticky top-0 z-20 flex shrink-0 flex-col gap-3 border-(--gray-5) border-b bg-gray-1 px-6 pt-5 pb-4">
+      <div className="flex items-center gap-2 text-[13.5px] text-gray-11">
         <DetailBackLink to={backTo} label={backLabel} />
         {breadcrumb}
-      </Flex>
+      </div>
 
-      <Flex align="center" gap="2" wrap="wrap" className="min-w-0">
-        {conventionalTitle && (
-          <ConventionalCommitScopeTag
-            type={conventionalTitle.type}
-            scope={conventionalTitle.scope}
-            compact
-          />
-        )}
-        <Text className="min-w-0 font-bold text-[24px] text-gray-12 leading-tight tracking-tight">
-          {displayTitle}
-        </Text>
-      </Flex>
+      <h1 className="min-w-0 font-bold text-[25px] text-gray-12 leading-tight tracking-tight">
+        {displayTitle}
+      </h1>
 
       {hasBottomRow && (
-        <Flex align="center" justify="between" gap="3" wrap="wrap">
-          <Flex
-            align="center"
-            gap="2"
-            wrap="wrap"
-            className="min-w-0 flex-1 text-[12px] text-gray-11"
-          >
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2 text-[13px] text-gray-11">
             {badges}
-            {badges && meta && (
-              <span className="text-(--gray-7)" aria-hidden>
-                ·
-              </span>
-            )}
             {meta && <InboxMetaRow>{meta}</InboxMetaRow>}
-          </Flex>
+          </div>
           {actions && (
-            <Flex align="center" gap="2" className="shrink-0">
-              {actions}
-            </Flex>
+            <div className="flex shrink-0 items-center gap-2">{actions}</div>
           )}
-        </Flex>
+        </div>
       )}
-    </Flex>
+    </div>
   );
 }

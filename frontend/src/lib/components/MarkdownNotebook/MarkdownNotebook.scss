@@ -275,6 +275,16 @@
     margin: 0 auto;
 }
 
+// Takes the canvas's own column, then steps in by the offset the blocks leave for their hover
+// controls, so anything pinned above the canvas lines up with the blocks below it at any width.
+.MarkdownNotebook__canvas-header {
+    width: 100%;
+    max-width: var(--markdown-notebook-canvas-max-width);
+    padding-right: var(--markdown-notebook-gutter-reserve);
+    padding-left: calc(var(--markdown-notebook-gutter-reserve) + var(--markdown-notebook-content-offset));
+    margin: 0 auto;
+}
+
 .MarkdownNotebook--edit .MarkdownNotebook__canvas {
     padding-bottom: 18rem;
 }
@@ -1163,6 +1173,31 @@ h3.MarkdownNotebook__text-block--heading {
     border-left-color: var(--markdown-notebook-table-gutter);
 }
 
+/* A table inside a text group sits on the card that already carries the prose, so it drops the
+   card chrome and keeps only the grid's own outline. The background is left alone because it
+   already matches the card, and overriding it here would also cancel the AI-writing highlight. */
+.MarkdownNotebook__text-group .MarkdownNotebook__table-block {
+    margin: 0.5rem 0;
+    border: 1px solid var(--markdown-notebook-table-divider);
+    border-radius: 0.25rem;
+    box-shadow: none;
+}
+
+.MarkdownNotebook__text-group .MarkdownNotebook__table-block:focus-within {
+    border-color: color-mix(in sRGB, var(--primary) 34%, var(--markdown-notebook-table-divider));
+}
+
+/* A standalone table rounds its right corners only, because its left edge is the card gutter.
+   Inside a group both edges are the grid, so the left corners round too. */
+.MarkdownNotebook__text-group .MarkdownNotebook__table-block th:first-child {
+    border-top-left-radius: calc(0.25rem - 1px);
+}
+
+.MarkdownNotebook__text-group .MarkdownNotebook__table-block tbody tr:last-child td:first-child,
+.MarkdownNotebook__text-group .MarkdownNotebook__table-block table:not(:has(tbody tr)) th:first-child {
+    border-bottom-left-radius: calc(0.25rem - 1px);
+}
+
 .MarkdownNotebook__list-block {
     box-sizing: border-box;
     width: calc(100% - var(--markdown-notebook-content-offset));
@@ -1521,13 +1556,34 @@ h3.MarkdownNotebook__text-block--heading {
 }
 
 .MarkdownNotebook__mermaid-block {
-    // Diagrams render at natural width (see MermaidDiagram's naturalWidth prop), so wide ones
-    // scroll here instead of shrinking to fit. Don't cap the svg width, that would re-shrink them.
-    overflow-x: auto;
+    position: relative;
 
-    // Mermaid measures node label widths against the document font, but the surrounding
-    // code group is monospace; without this reset labels render wider than their boxes and clip.
+    // Mermaid measures labels against this font; inheriting the code group's monospace font clips them.
     font-family: var(--font-sans);
+}
+
+.MarkdownNotebook__mermaid-preview {
+    // Diagrams render at natural width, so wide ones scroll here instead of shrinking to fit.
+    overflow-x: auto;
+}
+
+.MarkdownNotebook__mermaid-actions {
+    position: absolute;
+    top: 0;
+    right: 0;
+    z-index: var(--z-raised);
+    pointer-events: none;
+    user-select: none;
+    opacity: 0;
+    transition: opacity 120ms ease;
+}
+
+.MarkdownNotebook__mermaid-block:hover .MarkdownNotebook__mermaid-actions,
+.MarkdownNotebook__mermaid-block:focus-within .MarkdownNotebook__mermaid-actions,
+.MarkdownNotebook__mermaid-block:has([data-attr='mermaid-error']) .MarkdownNotebook__mermaid-actions,
+.MarkdownNotebook__mermaid-block:has([data-attr='mermaid-error-boundary']) .MarkdownNotebook__mermaid-actions {
+    pointer-events: auto;
+    opacity: 1;
 }
 
 .MarkdownNotebook__divider-block {
@@ -1692,12 +1748,20 @@ h3.MarkdownNotebook__text-block--heading {
     flex: 1 1 0;
     min-width: 0;
     overflow: hidden;
-    font-size: 1rem;
     font-weight: 500;
     line-height: 1.4;
     color: var(--color-text-primary);
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+.MarkdownNotebook__component-toolbar-title-group {
+    display: flex;
+    flex: 1 1 0;
+    gap: 0.375rem;
+    align-items: center;
+    min-width: 0;
+    overflow: hidden;
 }
 
 .MarkdownNotebook__component-toolbar-title--input {
@@ -1756,23 +1820,38 @@ h3.MarkdownNotebook__text-block--heading {
     flex: 0 0 auto;
 }
 
+.MarkdownNotebook__component-panel--filters {
+    background: var(--color-bg-fill-secondary);
+    border-top: 1px solid var(--color-border-secondary);
+    border-bottom: 1px solid var(--color-border-secondary);
+
+    .MarkdownNotebook__component-form,
+    .MarkdownNotebook__component-edit,
+    .MarkdownNotebook__real-node,
+    .MarkdownNotebook__real-node-settings {
+        background: transparent;
+    }
+}
+
+.MarkdownNotebook__component-panel--results {
+    background: var(--color-bg-surface-primary);
+}
+
 .MarkdownNotebook__component-panel + .MarkdownNotebook__component-panel {
     border-top: 0;
 }
 
-.MarkdownNotebook__component-custom-actions {
-    display: flex;
-    gap: 0.5rem;
-    align-items: center;
-    padding: 0.25rem 0.5rem 0.5rem;
-}
-
 .MarkdownNotebook__component-mode-actions,
 .MarkdownNotebook__component-actions,
+.MarkdownNotebook__component-toolbar-controls,
 .MarkdownNotebook__component-edit-footer {
     display: flex;
     gap: 0.5rem;
     align-items: center;
+}
+
+.MarkdownNotebook__component-toolbar-controls {
+    flex: 0 0 auto;
 }
 
 .MarkdownNotebook__component-title {
@@ -2064,7 +2143,8 @@ button.MarkdownNotebook__component-title:focus-visible {
 
 /* With comment threads present and enough room, the canvas reserves a right gutter wide
    enough for the whole thread column, pushing the text content left. */
-.MarkdownNotebook--comments-margin .MarkdownNotebook__canvas {
+.MarkdownNotebook--comments-margin .MarkdownNotebook__canvas,
+.MarkdownNotebook--comments-margin .MarkdownNotebook__canvas-header {
     max-width: calc(
         var(--markdown-notebook-canvas-max-width) + var(--markdown-notebook-comment-gutter) +
             var(--markdown-notebook-gutter-reserve)

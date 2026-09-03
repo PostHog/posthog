@@ -19,12 +19,20 @@ export class KafkaDeadLetterSink implements DeadLetterSink {
         private readonly topic: string
     ) {}
 
-    public async park(image: { ref: string; bytes: Buffer; detail: Record<string, unknown> }): Promise<void> {
+    public async park(image: {
+        ref: string
+        bytes: Buffer
+        headers: Record<string, string>
+        detail: Record<string, unknown>
+    }): Promise<void> {
         await this.producer.produce({
             topic: this.topic,
             key: Buffer.from(image.ref),
             value: image.bytes,
-            headers: Object.fromEntries(Object.entries(image.detail).map(([k, v]) => [k, String(v)])),
+            headers: {
+                ...image.headers,
+                ...Object.fromEntries(Object.entries(image.detail).map(([k, v]) => [k, String(v)])),
+            },
         })
     }
 }

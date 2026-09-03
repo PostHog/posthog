@@ -2,11 +2,22 @@ import { render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({
-  channels: [{ id: "personal-space", name: "me", path: "/me" }],
-  channelsLoading: false,
-  useLoops: vi.fn(() => ({ data: [], isLoading: false, isError: false })),
-}));
+const mocks = vi.hoisted(() => {
+  // Inside the hoisted block, because `vi.hoisted` runs before module scope and
+  // cannot reach a const declared out here.
+  const personalSpace = {
+    id: "personal-space",
+    name: "personal",
+    channelType: "personal",
+    path: "/me",
+  };
+  return {
+    personalSpace,
+    channels: [personalSpace],
+    channelsLoading: false,
+    useLoops: vi.fn(() => ({ data: [], isLoading: false, isError: false })),
+  };
+});
 
 vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
   useChannels: () => ({
@@ -54,9 +65,6 @@ vi.mock("@posthog/ui/features/loops/components/LoopsEmptyState", () => ({
 vi.mock("@posthog/ui/features/loops/components/LoopTemplatesSection", () => ({
   LoopTemplatesSection: () => null,
 }));
-vi.mock("@posthog/ui/features/canvas/hooks/useTaskChannels", () => ({
-  PERSONAL_CHANNEL_NAME: "me",
-}));
 vi.mock("@posthog/ui/features/loops/components/LoopsListView", () => ({
   LoopsListView: ({ headerContent }: { headerContent?: ReactNode }) => (
     <div>
@@ -70,12 +78,12 @@ import { WebsiteChannelLoops } from "./WebsiteChannelLoops";
 
 describe("WebsiteChannelLoops", () => {
   beforeEach(() => {
-    mocks.channels = [{ id: "personal-space", name: "me", path: "/me" }];
+    mocks.channels = [mocks.personalSpace];
     mocks.channelsLoading = false;
     mocks.useLoops.mockClear();
   });
 
-  it("shows the project loops registry in the Personal space", () => {
+  it("shows the project loops registry in the personal space", () => {
     render(<WebsiteChannelLoops channelId="personal-space" />);
 
     expect(screen.getByText("Project loops registry")).toBeInTheDocument();

@@ -35,7 +35,6 @@ import type {
     TeamType,
     UserType,
 } from '../../../types'
-import { onboardingEventUsageLogic } from '../onboardingEventUsageLogic'
 import { arraysEqual, parseProductsParam, stepKeyToTitle } from './onboardingFlowUtils'
 import { appendSharedTrailingSteps, mayBeAppendedLater } from './sharedSteps'
 import { onboardingProviderRegistry } from './stepProviderRegistry'
@@ -100,9 +99,6 @@ export interface onboardingLogicActions {
     openGlobalSetup: () => {
         value: true
     } // globalSetupLogic
-    reportSelfDrivingOnboardingCompleted: (productKey: string) => {
-        productKey: string
-    } // onboardingEventUsageLogic
     openSidePanel: (
         tab: SidePanelTab,
         options?: string | undefined
@@ -110,9 +106,9 @@ export interface onboardingLogicActions {
         options: string | undefined
         tab: SidePanelTab
     } // sidePanelStateLogic
-    recordProductIntentOnboardingComplete: (args_0: { product_type: ProductKey }) => {
-        product_type: ProductKey
-    } // teamLogic
+    recordProductIntentOnboardingComplete: (
+        properties: import('scenes/teamLogic').ProductOnboardingCompleteProperties
+    ) => import('scenes/teamLogic').ProductOnboardingCompleteProperties // teamLogic
     updateCurrentTeam: (payload: Partial<TeamType>) => Partial<TeamType> // teamLogic
     updateCurrentTeamSuccess: (
         currentTeam: TeamPublicType | TeamType,
@@ -126,9 +122,6 @@ export interface onboardingLogicActions {
     }
     completeOnboarding: (options?: { redirectUrlOverride?: string }) => {
         redirectUrlOverride: string | undefined
-    }
-    completeSelfDrivingOnboarding: () => {
-        value: true
     }
     goToNextStep: () => {
         value: true
@@ -260,8 +253,6 @@ export const onboardingLogic = kea<onboardingLogicType>([
             ['openSidePanel'],
             globalSetupLogic,
             ['openGlobalSetup'],
-            onboardingEventUsageLogic,
-            ['reportSelfDrivingOnboardingCompleted'],
         ],
     })),
     actions({
@@ -274,9 +265,6 @@ export const onboardingLogic = kea<onboardingLogicType>([
         completeOnboarding: (options?: { redirectUrlOverride?: string }) => ({
             redirectUrlOverride: options?.redirectUrlOverride,
         }),
-        // Completion for the context-first flow, which has no selected product. Marks onboarding done
-        // (so sceneLogic stops redirecting here) and credits the sources the user turned on.
-        completeSelfDrivingOnboarding: true,
         setSubscribedDuringOnboarding: (subscribedDuringOnboarding: boolean) => ({ subscribedDuringOnboarding }),
         setTeamPropertiesForProduct: (productKey: ProductKey) => ({ productKey }),
         setWaitForBilling: (waitForBilling: boolean) => ({ waitForBilling }),
@@ -828,55 +816,6 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 lemonToast.error("Couldn't save onboarding progress. Please try again.")
             }
         },
-        completeSelfDrivingOnboarding: async () => {
-            // Idempotency guard — Finish can fire twice on a double-click.
-            if (values.isCompleting) {
-                return
-            }
-            actions.setIsCompleting(true)
-            const team = values.currentTeam
-            // The posthog-js install always backs product analytics; credit the extra context sources
-            // the user turned on so their products are marked onboarded (and intents recorded).
-            const products: ProductKey[] = [ProductKey.PRODUCT_ANALYTICS]
-            if (team?.session_recording_opt_in) {
-                products.push(ProductKey.SESSION_REPLAY)
-            }
-            if (team?.autocapture_exceptions_opt_in) {
-                products.push(ProductKey.ERROR_TRACKING)
-            }
-            if (team?.surveys_opt_in) {
-                products.push(ProductKey.SURVEYS)
-            }
-            for (const productKey of products) {
-                // Same `onboarding completed` event name as the legacy flow, stamped `version: 2`
-                // so dashboards can split the flows without a rename (GROW-89).
-                actions.reportSelfDrivingOnboardingCompleted(productKey)
-                actions.recordProductIntentOnboardingComplete({ product_type: productKey })
-            }
-            // Persist both completion signals before navigating. updateCurrentTeam is not optimistic,
-            // so leaving early would race stale state and bounce a not-yet-ingested team back here.
-            const completedMap: Record<string, boolean> = { ...team?.has_completed_onboarding_for }
-            for (const productKey of products) {
-                completedMap[productKey] = true
-            }
-            try {
-                await teamLogic.asyncActions.updateCurrentTeam({
-                    completed_snippet_onboarding: true,
-                    has_completed_onboarding_for: completedMap,
-                })
-                // Always the inbox: it is where the wizard's output lands, so it's the only ending
-                // that continues the flow. `next` is deliberately ignored — the onboarding gate
-                // stamps it with whatever page it bounced the user off (sceneLogic), so honouring
-                // it would send most people back to /home instead.
-                router.actions.push(urls.inbox())
-            } catch {
-                lemonToast.error("Couldn't finish onboarding. Please try again.")
-            } finally {
-                // Always reset: the context flow has no productKey, so the updateCurrentTeam
-                // success/failure listeners below (gated on productKey) never clear it for us.
-                actions.setIsCompleting(false)
-            }
-        },
         skipOnboarding: () => {
             // Quick Start does not auto-open here. The button remains in the scene title
             // bar so users can open it manually. Auto-opening it conflicted with the welcome
@@ -1046,6 +985,12 @@ export const onboardingLogic = kea<onboardingLogicType>([
             return [url, searchParams, undefined, { replace: true }]
         },
         updateCurrentTeamSuccess(val) {
+            // This scene logic stays mounted under the self-driving variant, which owns its own
+            // completion redirect. Only redirect when the legacy flow is the active variant, so the
+            // two flows do not push competing destinations for the same completion PATCH.
+            if (values.onboardingFlowVariant !== 'legacy') {
+                return
+            }
             if (values.productKey && val.payload?.has_completed_onboarding_for?.[values.productKey]) {
                 const redirectUrl = values.onCompleteOnboardingRedirectUrl
                 // Reset the override after consuming it so a subsequent onboarding session

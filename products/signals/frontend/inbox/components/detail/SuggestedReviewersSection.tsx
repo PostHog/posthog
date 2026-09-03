@@ -1,24 +1,18 @@
 import { useActions, useValues } from 'kea'
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 
-import { IconCheck, IconInfo, IconPeople, IconPlus, IconX } from '@posthog/icons'
-import { LemonButton, LemonInput, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { IconInfo, IconPeople, IconPlus, IconX } from '@posthog/icons'
+import { LemonButton, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 
-import { captureInboxReportAction } from '../../inboxAnalytics'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { EnrichedReviewer, SignalReport } from '../../types'
 
 const MAX_VISIBLE_REVIEWERS = 5
 import { DetailSection } from './DetailSection'
-import {
-    AvailableReviewerOption,
-    getReviewerOptionDisplayName,
-    reviewerMatchesOption,
-    reviewersToWriteContent,
-} from './reviewerDisplay'
+import { removeSuggestedReviewer, ReviewerSearchList } from './ReviewerSearchList'
 
 /**
  * Suggested reviewers for the report, read from the `suggested_reviewers` artefact, with add/remove
@@ -27,23 +21,13 @@ import {
  */
 export function SuggestedReviewersSection({ report }: { report: SignalReport }): JSX.Element | null {
     const logic = inboxReportDetailLogic({ reportId: report.id, report })
-    const { displayReviewers, addReviewerOptions, availableReviewersLoading, isUpdatingReviewers, reportArtefacts } =
-        useValues(logic)
-    const { updateReviewers, searchAvailableReviewers } = useActions(logic)
+    const { displayReviewers, isUpdatingReviewers, reportArtefacts } = useValues(logic)
+    const { updateReviewers } = useActions(logic)
 
     const [addOpen, setAddOpen] = useState(false)
-    const [query, setQuery] = useState('')
     const [showAllReviewers, setShowAllReviewers] = useState(false)
 
-    const reviewers = displayReviewers
-    const baseReviewers = reviewers ?? []
-    // Assigned set keyed by user uuid (how `reviewerMatchesOption` matches), so the add-list
-    // membership check is O(1) per option instead of scanning every reviewer per keystroke.
-    const assignedUuids = useMemo(
-        () => new Set(baseReviewers.map((r) => r.user?.uuid).filter(Boolean)),
-        [baseReviewers]
-    )
-    const meUuid = addReviewerOptions[0]?.user_uuid
+    const baseReviewers = displayReviewers ?? []
 
     // Wait for the artefact log to load before rendering, so we don't flash an empty state that then
     // fills in. Once loaded, always render — a report with zero reviewers still shows the "Add" affordance
@@ -52,46 +36,8 @@ export function SuggestedReviewersSection({ report }: { report: SignalReport }):
         return null
     }
 
-    const fireAction = (
-        action: 'add_suggested_reviewer' | 'remove_suggested_reviewer',
-        login?: string | null
-    ): void => {
-        captureInboxReportAction({
-            report,
-            actionType: action,
-            surface: 'detail_pane',
-            extra: { suggested_reviewer_login: login || undefined },
-        })
-    }
-
-    const removeReviewer = (target: EnrichedReviewer): void => {
-        const next = baseReviewers.filter((r) => r !== target)
-        fireAction('remove_suggested_reviewer', target.github_login)
-        updateReviewers(reviewersToWriteContent(next), next)
-    }
-
-    const toggleOption = (option: AvailableReviewerOption): void => {
-        const existing = baseReviewers.find((r) => reviewerMatchesOption(r, option))
-        if (existing) {
-            removeReviewer(existing)
-            return
-        }
-        const optimisticEntry: EnrichedReviewer = {
-            github_login: '',
-            github_name: option.name || null,
-            relevant_commits: [],
-            user: {
-                id: 0,
-                uuid: option.user_uuid,
-                email: option.email,
-                first_name: option.name,
-                last_name: '',
-            },
-        }
-        const next = [...baseReviewers, optimisticEntry]
-        fireAction('add_suggested_reviewer', option.user_uuid)
-        updateReviewers([...reviewersToWriteContent(baseReviewers), { user_uuid: option.user_uuid }], next)
-    }
+    const removeReviewer = (target: EnrichedReviewer): void =>
+        removeSuggestedReviewer({ report, surface: 'detail_pane', target, reviewers: baseReviewers, updateReviewers })
 
     return (
         <DetailSection
@@ -110,69 +56,10 @@ export function SuggestedReviewersSection({ report }: { report: SignalReport }):
                     {isUpdatingReviewers && <Spinner className="size-3" />}
                     <LemonDropdown
                         visible={addOpen}
-                        onClickOutside={() => {
-                            setAddOpen(false)
-                            setQuery('')
-                        }}
+                        onClickOutside={() => setAddOpen(false)}
                         closeOnClickInside={false}
                         placement="bottom-end"
-                        overlay={
-                            <div className="flex flex-col gap-2 w-72 p-1">
-                                <LemonInput
-                                    type="search"
-                                    size="small"
-                                    autoFocus
-                                    placeholder="Search users…"
-                                    value={query}
-                                    onChange={(value) => {
-                                        setQuery(value)
-                                        searchAvailableReviewers(value)
-                                    }}
-                                />
-                                <div className="max-h-72 overflow-y-auto flex flex-col">
-                                    {availableReviewersLoading ? (
-                                        <span className="flex items-center gap-2 px-1 py-2 text-xs text-tertiary">
-                                            <Spinner className="size-3" />
-                                            Searching…
-                                        </span>
-                                    ) : addReviewerOptions.length === 0 ? (
-                                        <span className="px-1 py-2 text-xs text-tertiary">No users found.</span>
-                                    ) : (
-                                        addReviewerOptions.map((option) => {
-                                            const assigned = assignedUuids.has(option.user_uuid)
-                                            const isMe = meUuid === option.user_uuid
-                                            return (
-                                                <button
-                                                    key={option.user_uuid}
-                                                    type="button"
-                                                    disabled={isUpdatingReviewers}
-                                                    className="flex w-full items-start justify-between gap-2 rounded px-1.5 py-1 text-left transition-colors hover:bg-fill-highlight-50 disabled:opacity-60"
-                                                    onClick={() => toggleOption(option)}
-                                                >
-                                                    <div className="flex items-center gap-2 min-w-0">
-                                                        <PersonDisplay
-                                                            person={{
-                                                                properties: {
-                                                                    email: option.email,
-                                                                    name: option.name,
-                                                                },
-                                                            }}
-                                                            displayName={getReviewerOptionDisplayName(option, isMe)}
-                                                            withIcon="xs"
-                                                            noLink
-                                                            noPopover
-                                                        />
-                                                    </div>
-                                                    <span className="flex size-4 shrink-0 items-center justify-center text-primary">
-                                                        {assigned && <IconCheck className="text-sm" />}
-                                                    </span>
-                                                </button>
-                                            )
-                                        })
-                                    )}
-                                </div>
-                            </div>
-                        }
+                        overlay={<ReviewerSearchList report={report} surface="detail_pane" />}
                     >
                         <LemonButton
                             size="xsmall"
@@ -189,7 +76,7 @@ export function SuggestedReviewersSection({ report }: { report: SignalReport }):
             {baseReviewers.length === 0 ? (
                 <span className="text-xs text-tertiary">No reviewers assigned. Use "Add" to suggest one.</span>
             ) : (
-                <div className="flex flex-col gap-1.5">
+                <div className="@container flex flex-col gap-1.5">
                     {(showAllReviewers ? baseReviewers : baseReviewers.slice(0, MAX_VISIBLE_REVIEWERS)).map(
                         (reviewer: EnrichedReviewer) => (
                             <ReviewerRow
@@ -246,7 +133,7 @@ function ReviewerRow({
     )
 
     return (
-        <div className="group grid grid-cols-[minmax(8rem,10rem)_minmax(0,1fr)_auto] items-center gap-2 rounded px-1.5 py-1.5">
+        <div className="group grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded px-1.5 py-1.5 @lg:grid-cols-[minmax(8rem,10rem)_minmax(0,1fr)_auto]">
             {/* no row hover: the row isn't clickable, only the remove button is */}
             <Tooltip
                 title={
@@ -273,7 +160,7 @@ function ReviewerRow({
                     )}
                 </span>
             </Tooltip>
-            <div className="flex flex-col min-w-0 flex-1 gap-0.5">
+            <div className="col-span-2 row-start-2 flex min-w-0 flex-col gap-0.5 [overflow-wrap:anywhere] @lg:col-span-1 @lg:row-start-auto">
                 {reviewer.relevant_commits.length > 0 && (
                     <span className="text-xs text-tertiary">
                         {reviewer.relevant_commits.map((commit, i) => (

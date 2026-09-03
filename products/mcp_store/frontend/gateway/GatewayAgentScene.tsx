@@ -15,8 +15,14 @@ import type { ConnectionStateEnumApi, MCPGatewayServerApi } from '../generated/a
 import { ServerIcon } from '../scene/icons'
 import { GatewayAgentLogicProps, gatewayAgentLogic } from './gatewayAgentLogic'
 import { GatewayRouteGuard } from './GatewayRouteGuard'
-import { DecisionTag } from './gatewayUtils'
-import { agentServerAccessKey } from './mcpGatewayLogic'
+import {
+    AgentGrantScopeControl,
+    DecisionTag,
+    RemoveAllSharesButton,
+    credentialOwnerLabel,
+    sharedByOthersLabel,
+} from './gatewayUtils'
+import { AgentServerShare, agentServerAccessKey } from './mcpGatewayLogic'
 
 export const scene: SceneExport<(typeof gatewayAgentLogic)['props']> = {
     component: GatewayAgentRouteScene,
@@ -51,9 +57,11 @@ export function GatewayAgentScene({
         agentServerAccessLoadingKeys,
         allServers,
         allServersLoading,
+        currentUserId,
         recentCalls,
         recentCallsLoading,
         sharedServers,
+        sharesByServerId,
         unsharedServers,
         visibleRecentCalls,
     } = useValues(gatewayAgentLogic)
@@ -82,6 +90,11 @@ export function GatewayAgentScene({
 
     const paused = account.status === 'paused'
     const statusLoading = accountStatusLoadingIds.has(account.id)
+
+    const yourConnectionState = (serverId: string): ConnectionStateEnumApi | undefined =>
+        account.servers.find(
+            (accountServer) => accountServer.id === serverId && accountServer.shared_by.id === currentUserId
+        )?.connection_state
 
     return (
         <SceneContent>
@@ -140,6 +153,24 @@ export function GatewayAgentScene({
                         {sharedServers.length} of {allServers.length}
                     </LemonTag>
                 </div>
+                <div className="text-sm text-secondary">
+                    You share your own connections. A personal share lets {account.name} use one when it runs for you. A
+                    team share lets it use one for every {account.name} run in this project, including runs nobody
+                    started. Teammates can't use the connection directly, but a team share means agents act through it
+                    on their runs too.
+                </div>
+                {account.agent_key === 'support' && (
+                    <div className="text-sm text-secondary">
+                        Support replies often run without a person behind them. A personal share goes unused on those
+                        runs. A team share covers them.
+                    </div>
+                )}
+                {account.agent_key === 'workflow' && (
+                    <div className="text-sm text-secondary">
+                        Workflow tasks always run without a person behind them, so only team shares are available to
+                        them. A workflow's "Create AI task" step picks among those.
+                    </div>
+                )}
                 <div className="border rounded overflow-hidden divide-y">
                     {allServersLoading && allServers.length === 0 ? (
                         <div className="flex items-center justify-center gap-2 p-4 text-sm text-secondary">
@@ -158,10 +189,8 @@ export function GatewayAgentScene({
                                     accountId={account.id}
                                     accountName={account.name}
                                     shared
-                                    connectionState={
-                                        account.servers.find((accountServer) => accountServer.id === server.id)
-                                            ?.connection_state
-                                    }
+                                    share={sharesByServerId[server.id]}
+                                    connectionState={yourConnectionState(server.id)}
                                     loading={agentServerAccessLoadingKeys.has(
                                         agentServerAccessKey(account.id, server.id)
                                     )}
@@ -181,6 +210,7 @@ export function GatewayAgentScene({
                                     accountId={account.id}
                                     accountName={account.name}
                                     shared={false}
+                                    share={sharesByServerId[server.id]}
                                     loading={agentServerAccessLoadingKeys.has(
                                         agentServerAccessKey(account.id, server.id)
                                     )}
@@ -209,9 +239,18 @@ export function GatewayAgentScene({
                             title: 'MCP server · tool called',
                             key: 'server',
                             render: (_, row) => (
-                                <div className="flex items-baseline gap-2 min-w-0">
-                                    <span className="font-semibold text-xs truncate">{row.server_name}</span>
-                                    <span className="font-mono text-xs text-secondary truncate">{row.tool_name}()</span>
+                                <div className="min-w-0">
+                                    <div className="flex items-baseline gap-2 min-w-0">
+                                        <span className="font-semibold text-xs truncate">{row.server_name}</span>
+                                        <span className="font-mono text-xs text-secondary truncate">
+                                            {row.tool_name}()
+                                        </span>
+                                    </div>
+                                    {row.credential_owner && (
+                                        <div className="text-xs text-secondary">
+                                            {credentialOwnerLabel(row.credential_owner, row.grant_scope)}
+                                        </div>
+                                    )}
                                 </div>
                             ),
                         },
@@ -261,6 +300,7 @@ function ServerAccessRow({
     accountId,
     accountName,
     shared,
+    share,
     connectionState,
     loading,
     onSetAccess,
@@ -270,12 +310,16 @@ function ServerAccessRow({
     accountId: string
     accountName: string
     shared: boolean
+    share?: AgentServerShare
     connectionState?: ConnectionStateEnumApi
     loading: boolean
     onSetAccess: (accountId: string, serverId: string, enabled: boolean) => void
     onOpenServer?: (serverId: string, scope: string) => void
 }): JSX.Element {
-    const connectionDisabledReason = shared ? undefined : agentShareDisabledReason(server)
+    const sharedByYou = Boolean(share?.sharedByYou)
+    const sharedByOthers = share?.sharedByOthers ?? []
+    const attribution = share ? sharedByOthersLabel(share) : null
+    const connectionDisabledReason = sharedByYou ? undefined : agentShareDisabledReason(server)
     const toolLabel = `${server.tool_count} ${server.tool_count === 1 ? 'tool' : 'tools'}`
     const connectionStatus = connectionState ? agentConnectionStatus(connectionState) : null
 
@@ -284,18 +328,20 @@ function ServerAccessRow({
             <ServerIcon iconDomain={server.icon_domain} serverUrl={server.url} size={28} />
             <div className="flex-1 min-w-0">
                 <div className="font-semibold truncate">{server.name}</div>
-                <div className="text-xs text-secondary">
-                    {toolLabel}
-                    {shared ? ' available to this agent' : ''}
+                <div className="text-xs text-secondary truncate">
+                    {sharedByYou ? `${toolLabel} available to this agent` : (attribution ?? toolLabel)}
                 </div>
-                {shared && connectionStatus && connectionState !== 'ready' && (
+                {sharedByYou && connectionStatus && connectionState !== 'ready' && (
                     <div className="text-xs text-warning">{connectionStatus.detail}</div>
                 )}
             </div>
-            {shared && connectionStatus && (
+            {sharedByYou && connectionStatus && (
                 <LemonTag type={connectionState === 'ready' ? 'success' : 'warning'} size="small">
                     {connectionStatus.label}
                 </LemonTag>
+            )}
+            {sharedByYou && share && (
+                <AgentGrantScopeControl accountId={accountId} serverId={server.id} scope={share.yourScope} />
             )}
             {shared && (
                 <LemonButton
@@ -307,11 +353,20 @@ function ServerAccessRow({
                     Tool policies
                 </LemonButton>
             )}
+            {sharedByOthers.length > 0 && (
+                <RemoveAllSharesButton
+                    accountId={accountId}
+                    accountName={accountName}
+                    serverId={server.id}
+                    serverName={server.name}
+                    shareCount={sharedByOthers.length + (sharedByYou ? 1 : 0)}
+                />
+            )}
             <LemonSwitch
-                checked={shared}
+                checked={sharedByYou}
                 loading={loading}
                 disabledReason={connectionDisabledReason}
-                aria-label={`${shared ? 'Revoke' : 'Grant'} ${accountName} access to ${server.name}`}
+                aria-label={`${sharedByYou ? 'Stop sharing' : 'Share'} your ${server.name} connection with ${accountName}`}
                 onChange={(checked) => {
                     if (!loading && (!checked || !connectionDisabledReason)) {
                         onSetAccess(accountId, server.id, checked)

@@ -4,7 +4,7 @@ import * as schedule from 'node-schedule'
 import { Counter } from 'prom-client'
 import express from 'ultimate-express'
 
-import { setupCommonRoutes, setupExpressApp } from '~/common/api/router'
+import { SetupExpressAppOptions, setupCommonRoutes, setupExpressApp } from '~/common/api/router'
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import { isTestEnv } from '~/common/utils/env-utils'
@@ -69,10 +69,14 @@ export class ServerLifecycle {
     private podTerminationTimer?: NodeJS.Timeout
     private processListeners: Map<string, (...args: any[]) => void> = new Map()
 
-    constructor(private config: BaseServerConfig) {
+    constructor(
+        private config: BaseServerConfig,
+        expressAppOptions: Omit<SetupExpressAppOptions, 'internalApiSecret' | 'internalApiSecretFallbacks'> = {}
+    ) {
         this.expressApp = setupExpressApp({
             internalApiSecret: this.config.INTERNAL_API_SECRET,
             internalApiSecretFallbacks: this.config.INTERNAL_API_SECRET_FALLBACKS,
+            ...expressAppOptions,
         })
         this.nodeInstrumentation = new NodeInstrumentation(this.config.INSTRUMENT_THREAD_PERFORMANCE)
         configureEventLoopYield(this.config.EVENT_LOOP_YIELD_THRESHOLD_MS)
@@ -206,6 +210,14 @@ export class ServerLifecycle {
         process.on('unhandledRejection', rejectionHandler)
 
         const exceptionHandler = async (error: Error) => {
+            // Log before stopping. Without this the process exits silently, so a crash loop
+            // shows only a rising restart count and whatever the service logged last.
+            logger.error('🤮', `Uncaught Exception`, { error: String(error), stack: error?.stack })
+
+            captureException(error, {
+                extra: { detected_at: `ServerLifecycle on uncaughtException` },
+            })
+
             await this.stop(getCleanupResources, error)
         }
         this.processListeners.set('uncaughtException', exceptionHandler)

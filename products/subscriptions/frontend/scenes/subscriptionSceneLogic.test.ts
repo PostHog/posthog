@@ -9,9 +9,9 @@ import { initKeaTests } from '~/test/init'
 
 import {
     RecurrenceIntervalEnumApi,
-    ResourceTypeEnumApi,
+    SubscriptionResourceTypeEnumApi,
     SubscriptionsDeliveriesListStatus,
-    TargetTypeEnumApi,
+    SubscriptionTargetEnumApi,
 } from 'products/subscriptions/frontend/generated/api.schemas'
 import type { SubscriptionApi } from 'products/subscriptions/frontend/generated/api.schemas'
 
@@ -28,14 +28,14 @@ const MOCK_USER = {
 
 const MOCK_SUBSCRIPTION: SubscriptionApi = {
     id: 1,
-    resource_type: ResourceTypeEnumApi.Insight,
+    resource_type: SubscriptionResourceTypeEnumApi.Insight,
     insight: 101,
     dashboard: null,
     insight_short_id: 'abc123',
     resource_name: 'North star metric',
     title: 'Weekly rollup',
     dashboard_export_insights: [],
-    target_type: TargetTypeEnumApi.Email,
+    target_type: SubscriptionTargetEnumApi.Email,
     target_value: 'a@b.com',
     frequency: RecurrenceIntervalEnumApi.Weekly,
     interval: 1,
@@ -49,7 +49,7 @@ const MOCK_SUBSCRIPTION: SubscriptionApi = {
 
 const MOCK_AI_SUBSCRIPTION: SubscriptionApi = {
     id: 2,
-    resource_type: ResourceTypeEnumApi.AiPrompt,
+    resource_type: SubscriptionResourceTypeEnumApi.AiPrompt,
     insight: null,
     dashboard: null,
     insight_short_id: null,
@@ -57,7 +57,7 @@ const MOCK_AI_SUBSCRIPTION: SubscriptionApi = {
     prompt: 'Summarize weekly signups and flag any anomalies',
     title: 'Weekly AI digest',
     dashboard_export_insights: [],
-    target_type: TargetTypeEnumApi.Email,
+    target_type: SubscriptionTargetEnumApi.Email,
     target_value: 'a@b.com',
     frequency: RecurrenceIntervalEnumApi.Weekly,
     interval: 1,
@@ -129,6 +129,26 @@ describe('subscriptionSceneLogic', () => {
         logic.unmount()
     })
 
+    it.each([
+        [403, true],
+        [404, false],
+    ])('marks only a %s subscription load failure as access denied', async (status, subscriptionAccessDenied) => {
+        useMocks({
+            get: {
+                [`/api/projects/${MOCK_TEAM_ID}/subscriptions/1/`]: () => [status, { detail: 'Request failed' }],
+            },
+        })
+        initKeaTests()
+        const logic = subscriptionSceneLogic({ id: '1' })
+        logic.mount()
+
+        await expectLogic(logic)
+            .toDispatchActions(['loadSubscriptionFailure'])
+            .toMatchValues({ subscriptionAccessDenied })
+
+        logic.unmount()
+    })
+
     // The failure path matters too: the header button's double-submit guard would stick
     // if deliveringSubscriptionId reset only on success.
     it.each([
@@ -186,7 +206,7 @@ describe('subscriptionSceneLogic', () => {
         logic.mount()
 
         await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.subscription?.resource_type).toEqual(ResourceTypeEnumApi.AiPrompt)
+        expect(logic.values.subscription?.resource_type).toEqual(SubscriptionResourceTypeEnumApi.AiPrompt)
         expect(logic.values.subscription?.prompt).toBeTruthy()
         expect(deliveriesRequestUrls).toHaveLength(1)
         logic.unmount()

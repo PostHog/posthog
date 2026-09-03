@@ -23,7 +23,11 @@ export function ActivityLogSettings(): JSX.Element {
     const effectiveRestriction = user?.is_impersonated ? null : restrictedReason
 
     return (
-        <PayGateMini feature={AvailableFeature.AUDIT_LOGS} overrideShouldShowGate={user?.is_impersonated}>
+        <PayGateMini
+            feature={AvailableFeature.AUDIT_LOGS}
+            featureDetail="activity-log-retention"
+            overrideShouldShowGate={user?.is_impersonated}
+        >
             <div className="flex">
                 <p>
                     <LemonButton to={urls.advancedActivityLogs()} type="primary" disabledReason={effectiveRestriction}>
@@ -49,7 +53,11 @@ export function ActivityLogOrgLevelSettings(): JSX.Element {
     }
 
     return (
-        <PayGateMini feature={AvailableFeature.AUDIT_LOGS} overrideShouldShowGate={user?.is_impersonated}>
+        <PayGateMini
+            feature={AvailableFeature.AUDIT_LOGS}
+            featureDetail="activity-log-retention"
+            overrideShouldShowGate={user?.is_impersonated}
+        >
             <div>
                 <p className="flex items-center gap-1">
                     Include organization-level activity logs in this project.
@@ -91,7 +99,11 @@ export function ActivityLogNotifications(): JSX.Element | null {
     }
 
     return (
-        <PayGateMini feature={AvailableFeature.AUDIT_LOGS} overrideShouldShowGate={user?.is_impersonated}>
+        <PayGateMini
+            feature={AvailableFeature.AUDIT_LOGS}
+            featureDetail="activity-log-retention"
+            overrideShouldShowGate={user?.is_impersonated}
+        >
             <div>
                 <p className="flex items-center gap-1">
                     Create notifications to get notified of activity logs.

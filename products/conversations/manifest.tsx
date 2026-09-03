@@ -9,9 +9,13 @@ export const manifest: ProductManifest = {
     scenes: {
         SupportTickets: {
             name: 'Ticket list',
+            description:
+                'Collect support tickets from an in-app widget, email, or Slack into one inbox, with the product context behind every ticket',
+            iconType: 'conversations',
             import: () => import('./frontend/scenes/tickets/SupportTicketsScene'),
             projectBased: true,
             layout: 'app-container',
+            docsHref: 'https://posthog.com/docs/support',
         },
         SupportTicketDetail: {
             name: 'Ticket detail',
@@ -48,7 +52,8 @@ export const manifest: ProductManifest = {
         supportTickets: (): string => '/support/tickets',
         supportTicketDetail: (ticketId: string | number): string => `/support/tickets/${ticketId}`,
         supportSettings: (): string => '/support/settings',
-        myTickets: (): string => '/my-tickets',
+        myTickets: (ticketId?: string): string =>
+            ticketId ? `/my-tickets?ticket=${encodeURIComponent(ticketId)}` : '/my-tickets',
     },
     fileSystemTypes: {},
     treeItemsNew: [],
@@ -60,7 +65,10 @@ export const manifest: ProductManifest = {
             href: urls.supportTickets(),
             type: 'conversations',
             iconType: 'conversations',
-            iconColor: ['var(--color-product-support-light)'] as FileSystemIconColor,
+            iconColor: [
+                'var(--color-product-support-light)',
+                'var(--color-product-support-dark)',
+            ] as FileSystemIconColor,
             sceneKey: 'SupportTickets',
         },
     ],

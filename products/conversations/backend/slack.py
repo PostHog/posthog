@@ -11,6 +11,7 @@ All three converge to create_or_update_slack_ticket().
 
 import re
 import json
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Literal, NamedTuple
 from urllib.parse import urljoin, urlparse
@@ -21,13 +22,13 @@ from django.db.models import F
 
 import structlog
 import posthoganalytics
-from slack_sdk import WebClient
 
 from posthog.comment.formatting import (
     extract_slack_user_ids,
     slack_to_content_and_rich_content,
     strip_slack_user_mentions,
 )
+from posthog.egress.slack.client import SlackWebClient as WebClient
 from posthog.event_usage import groups, report_team_action
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.slack_identity import resolve_posthog_user_for_slack, resolve_slack_user
@@ -58,6 +59,7 @@ from .support_slack import (
     SUPPORT_SLACK_ALLOWED_HOST_SUFFIXES,
     SUPPORT_SLACK_FILE_READ_SCOPE,
     get_support_slack_bot_token,
+    get_support_slack_workspace_id,
     supporthog_missing_file_scopes,
 )
 
@@ -143,7 +145,12 @@ def get_slack_client(team: Team) -> WebClient:
     """
     bot_token = get_support_slack_bot_token(team)
     if bot_token:
-        return WebClient(token=bot_token)
+        return WebClient(
+            token=bot_token,
+            source="conversations",
+            workspace_id=get_support_slack_workspace_id(team),
+            app_id="support",
+        )
     raise ValueError("Support Slack bot token is not configured")
 
 
@@ -260,15 +267,21 @@ def _is_inline_image(attachment: dict) -> bool:
     return (attachment.get("mimetype") or "").startswith("image/") and not attachment.get("unavailable")
 
 
-def split_slack_attachments(attachments: list[dict]) -> tuple[list[dict], list[dict]]:
-    """Partition extracted attachments into (images, non-image files) by mimetype.
+@dataclass(frozen=True, kw_only=True, slots=True)
+class SplitAttachments:
+    images: list[dict]
+    files: list[dict]
+
+
+def split_slack_attachments(attachments: list[dict]) -> SplitAttachments:
+    """Partition extracted attachments into images and non-image files by mimetype.
 
     Attachments we couldn't re-host go to the file bucket whatever their mimetype:
     they point at Slack, so they can only be rendered as a link, not inlined.
     """
     images = [a for a in attachments if _is_inline_image(a)]
     files = [a for a in attachments if not _is_inline_image(a)]
-    return images, files
+    return SplitAttachments(images=images, files=files)
 
 
 def _rehost_slack_file(f: dict, team: Team, bot_token: str | None) -> dict | None:
@@ -412,7 +425,7 @@ def create_or_update_slack_ticket(
     )
 
     # Extract attachments from Slack files, making them publicly accessible
-    images, file_attachments = split_slack_attachments(extract_slack_files(files, team, client))
+    attachments = split_slack_attachments(extract_slack_files(files, team, client))
 
     # Resolve Slack user info for this message author
     user_info = resolve_slack_user(client, slack_user_id, workspace=slack_team_id or "")
@@ -453,7 +466,7 @@ def create_or_update_slack_ticket(
             Ticket.objects.filter(id=ticket.id, team=team).update(slack_team_id=slack_team_id)
 
         # Allow messages with only attachments (no text)
-        if not cleaned_text and not images and not file_attachments:
+        if not cleaned_text and not attachments.images and not attachments.files:
             logger.warning(
                 "🧵 slack_support_ticket_ingest_empty_after_processing",
                 team_id=team_id,
@@ -463,7 +476,9 @@ def create_or_update_slack_ticket(
             )
             return ticket
 
-        content, rich_content = build_content_with_images(cleaned_text, rich_content, images, file_attachments)
+        content, rich_content = build_content_with_images(
+            cleaned_text, rich_content, attachments.images, attachments.files
+        )
 
         Comment.objects.create(
             team=team,
@@ -480,8 +495,8 @@ def create_or_update_slack_ticket(
                 "slack_author_name": user_info["name"],
                 "slack_author_email": user_info.get("email"),
                 "slack_author_avatar": user_info.get("avatar"),
-                "slack_images": images if images else None,
-                "slack_files": file_attachments if file_attachments else None,
+                "slack_images": attachments.images if attachments.images else None,
+                "slack_files": attachments.files if attachments.files else None,
             },
         )
 
@@ -494,7 +509,7 @@ def create_or_update_slack_ticket(
 
     # New ticket from top-level message
     # Allow messages with only attachments (no text)
-    if not cleaned_text and not images and not file_attachments:
+    if not cleaned_text and not attachments.images and not attachments.files:
         logger.warning(
             "🧵 slack_support_ticket_ingest_empty_after_processing",
             team_id=team_id,
@@ -504,7 +519,7 @@ def create_or_update_slack_ticket(
         )
         return None
 
-    content, rich_content = build_content_with_images(cleaned_text, rich_content, images, file_attachments)
+    content, rich_content = build_content_with_images(cleaned_text, rich_content, attachments.images, attachments.files)
 
     # Serialize concurrent ticket creation for the same Slack thread via Redis lock.
     # Without this, two reaction_added events from different users race through the
@@ -562,8 +577,8 @@ def create_or_update_slack_ticket(
             "slack_author_name": user_info["name"],
             "slack_author_email": user_info.get("email"),
             "slack_author_avatar": user_info.get("avatar"),
-            "slack_images": images if images else None,
-            "slack_files": file_attachments if file_attachments else None,
+            "slack_images": attachments.images if attachments.images else None,
+            "slack_files": attachments.files if attachments.files else None,
         },
     )
 
@@ -1325,7 +1340,7 @@ def _backfill_thread_replies(
         if not reply_text.strip() and not reply_files:
             continue
 
-        images, file_attachments = split_slack_attachments(extract_slack_files(reply_files, team, client))
+        attachments = split_slack_attachments(extract_slack_files(reply_files, team, client))
 
         if reply_user not in user_cache:
             user_cache[reply_user] = resolve_slack_user(client, reply_user, workspace=slack_team_id or "")
@@ -1348,7 +1363,7 @@ def _backfill_thread_replies(
         cleaned_text, rich_content = slack_to_content_and_rich_content(
             reply_text, reply_blocks, user_names=reply_user_names
         )
-        if not cleaned_text and not images and not file_attachments:
+        if not cleaned_text and not attachments.images and not attachments.files:
             continue
 
         if is_team_member:
@@ -1356,7 +1371,9 @@ def _backfill_thread_replies(
         else:
             customer_message_count += 1
 
-        content, rich_content = build_content_with_images(cleaned_text, rich_content, images, file_attachments)
+        content, rich_content = build_content_with_images(
+            cleaned_text, rich_content, attachments.images, attachments.files
+        )
 
         comments_to_create.append(
             Comment(
@@ -1374,8 +1391,8 @@ def _backfill_thread_replies(
                     "slack_author_name": user_info["name"],
                     "slack_author_email": user_info.get("email"),
                     "slack_author_avatar": user_info.get("avatar"),
-                    "slack_images": images if images else None,
-                    "slack_files": file_attachments if file_attachments else None,
+                    "slack_images": attachments.images if attachments.images else None,
+                    "slack_files": attachments.files if attachments.files else None,
                 },
             )
         )

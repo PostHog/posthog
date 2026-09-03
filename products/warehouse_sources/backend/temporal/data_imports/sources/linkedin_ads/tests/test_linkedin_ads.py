@@ -77,7 +77,6 @@ class TestLinkedinAdsHelperFunctions:
     """Test helper functions in linkedin_ads.py."""
 
     def test_extract_type_and_id_from_urn_valid(self):
-        """Test extracting ID and type from valid LinkedIn URN."""
         urn = "urn:li:sponsoredCampaign:12345678"
         result = _extract_type_and_id_from_urn(urn)
 
@@ -98,14 +97,12 @@ class TestLinkedinAdsHelperFunctions:
         assert _extract_type_and_id_from_urn(malformed) is None
 
     def test_convert_date_object_to_date_valid(self):
-        """Test converting LinkedIn date object to Python date."""
         date_obj = {"year": 2024, "month": 3, "day": 15}
         result = _convert_date_object_to_date(date_obj)
 
         assert result == dt.date(2024, 3, 15)
 
     def test_convert_date_object_to_date_invalid(self):
-        """Test converting invalid date object returns None."""
         invalid_cases = [
             {"year": 2024, "month": 3},  # Missing day
             {},  # Empty dict
@@ -117,7 +114,6 @@ class TestLinkedinAdsHelperFunctions:
             assert result is None
 
     def test_convert_timestamp_to_date_valid(self):
-        """Test converting LinkedIn timestamp to date."""
         timestamp_ms = 1709654400000
         last_modified = {"time": timestamp_ms}
         result = _convert_timestamp_to_date(last_modified)
@@ -129,7 +125,6 @@ class TestFlattenLinkedinRecord:
     """Test _flatten_linkedin_record function."""
 
     def test_flatten_date_range(self):
-        """Test flattening dateRange field."""
         record = {
             "dateRange": {"start": {"year": 2024, "month": 1, "day": 1}, "end": {"year": 2024, "month": 1, "day": 31}}
         }
@@ -151,7 +146,6 @@ class TestFlattenLinkedinRecord:
         assert result["date_end"] == dt.date(2024, 1, 31)
 
     def test_flatten_urn_columns(self):
-        """Test flattening URN columns."""
         record = {
             "campaignGroup": "urn:li:sponsoredCampaignGroup:123456789",
             "campaign": "urn:li:sponsoredCampaign:987654321",
@@ -174,7 +168,6 @@ class TestFlattenLinkedinRecord:
         assert result["campaign_id"] == 987654321
 
     def test_flatten_integer_fields(self):
-        """Test conversion of integer fields."""
         schema = _stats_schema(["impressions", "clicks"])
 
         result = _flatten_linkedin_record({"impressions": 1000, "clicks": 50}, schema)
@@ -315,7 +308,6 @@ class TestFlattenLinkedinRecord:
             pa.unify_schemas([null_schema, value_schema])
 
     def test_flatten_change_audit_stamps(self):
-        """Test flattening changeAuditStamps field."""
         record = {"changeAuditStamps": {"created": {"time": 1709654400000}, "lastModified": {"time": 1709740800000}}}
         schema = LinkedinAdsSchema(
             name="test",
@@ -335,7 +327,6 @@ class TestFlattenLinkedinRecord:
         assert str(result["last_modified_time"]) == "2024-03-06"
 
     def test_flatten_pivot_values(self):
-        """Test flattening pivotValues field."""
         record = {"pivotValues": ["urn:li:sponsoredCampaign:555666777", "urn:li:sponsoredAccount:888999000"]}
         schema = LinkedinAdsSchema(
             name="test",
@@ -376,7 +367,6 @@ class TestFlattenLinkedinRecord:
         assert result["targetingCriteria"]["ages"]["min"] == 25
 
     def test_flatten_missing_field_returns_none(self):
-        """Test missing fields return None."""
         record: dict[str, typing.Any] = {}  # Empty record
         schema = LinkedinAdsSchema(
             name="test",
@@ -508,7 +498,6 @@ class TestLinkedinAdsClientFunction:
     """Test linkedin_ads_client function."""
 
     def test_linkedin_ads_client_no_access_token(self, mock_integration_model):
-        """Test client creation with no access token raises error."""
         mock_integration = mock.MagicMock()
         mock_integration.access_token = None
         mock_integration.sensitive_config = {}  # no refresh token → not expired, skips refresh
@@ -680,7 +669,6 @@ class TestLinkedinAdsSource:
     """Test linkedin_ads_source function."""
 
     def test_linkedin_ads_source_with_incremental(self, mock_client_func):
-        """Test linkedin_ads_source with incremental field."""
         mock_client = mock.MagicMock()
         # Analytics endpoints are single-shot: one page, no next_page_token.
         mock_client.get_data_by_resource.return_value = [

@@ -17,8 +17,8 @@ import { FunnelFlowGraph } from './FunnelFlowGraph/FunnelFlowGraph'
 
 export function Funnel(props: ChartParams): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const { funnelsFilter } = useValues(funnelDataLogic(insightProps))
-    const { funnelVizType, layout } = funnelsFilter || {}
+    const { funnelsFilter, funnelVizType } = useValues(funnelDataLogic(insightProps))
+    const { layout } = funnelsFilter || {}
 
     let viz: JSX.Element | null = null
     if (funnelVizType == FunnelVizType.Trends) {
@@ -35,7 +35,7 @@ export function Funnel(props: ChartParams): JSX.Element {
 
     return (
         <div
-            className={`FunnelInsight FunnelInsight--type-${funnelVizType?.toLowerCase()}${
+            className={`FunnelInsight FunnelInsight--type-${funnelVizType.toLowerCase()}${
                 funnelVizType === FunnelVizType.Steps ? '-' + (layout ?? FunnelLayout.vertical) : ''
             }`}
         >

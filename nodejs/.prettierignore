@@ -5,3 +5,4 @@ node_modules/
 coverage/
 .tmp/
 bin/ingestion-boundaries.baseline.json
+tests/fixtures/hog-bytecode/

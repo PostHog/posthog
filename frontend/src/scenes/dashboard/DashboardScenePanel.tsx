@@ -50,6 +50,7 @@ export function DashboardScenePanel(): JSX.Element | null {
         asDashboardTemplate,
         effectiveDashboardVariableOverrides,
         apiUrl,
+        tiles,
     } = useValues(dashboardLogic)
     const { setDashboardMode, updateDashboardTags, togglePinned, setTerraformModalOpen } = useActions(dashboardLogic)
     const { createNotebookFromDashboard } = useActions(notebooksModel)
@@ -115,7 +116,7 @@ export function DashboardScenePanel(): JSX.Element | null {
 
                 {dashboard && canEditDashboard && (
                     <>
-                        {hasDashboardColors && (
+                        {hasDashboardColors && tiles.length > 0 && (
                             <ButtonPrimitive
                                 onClick={() => showInsightColorsModal(dashboard.id)}
                                 menuItem
@@ -133,7 +134,9 @@ export function DashboardScenePanel(): JSX.Element | null {
                             <IconNotebook />
                             Create notebook from dashboard
                         </ButtonPrimitive>
-                        <SceneSubscribeButton dashboardId={dashboard.id} dataAttrKey={RESOURCE_TYPE} />
+                        {tiles.length > 0 && (
+                            <SceneSubscribeButton dashboardId={dashboard.id} dataAttrKey={RESOURCE_TYPE} />
+                        )}
                         <SceneExportDropdownMenu
                             dropdownMenuItems={[
                                 {

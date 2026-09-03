@@ -1,4 +1,5 @@
 import type { TaskMention, UserBasic } from "@posthog/shared/domain-types";
+import { channelDisplayName } from "./channelName";
 
 /**
  * The Activity feed — thread messages that @-mention the current user — as
@@ -28,7 +29,7 @@ export function toMentionActivityItems(
     taskId: mention.task_id,
     taskTitle: mention.task_title || "Untitled task",
     channelId: mention.channel_id ?? null,
-    channelName: mention.channel_name ?? null,
+    channelName: channelDisplayName(mention.channel_name ?? null),
     author: mention.author ?? null,
     content: mention.content,
     createdAt: mention.created_at,

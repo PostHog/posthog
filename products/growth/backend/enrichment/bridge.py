@@ -1,8 +1,8 @@
 """Read the scoring inputs Clay still owns, off the organization group it writes.
 
-Two of the ICP score's inputs have no first-party source yet, so while Clay runs in parallel
-we read its own group properties back and score on them. That keeps `clay-parity-1` scores
-bit-comparable with Clay's on the orgs it also scores.
+The ICP score's revenue input has no first-party source, so while Clay runs in parallel we
+read its own group property back and score on it. That keeps our scores bit-comparable with
+Clay's on the orgs it also scores.
 
 The formula's third Clay-owned input, its GitHub profile lookup, is deliberately NOT read
 here: Clay never projects that column into PostHog at all (verified against live group and
@@ -24,6 +24,7 @@ from django.conf import settings
 from posthog.models.group.util import get_group_by_key
 from posthog.models.group_type_mapping import get_group_types_for_project
 from posthog.models.team import Team
+from posthog.utils import get_instance_region
 
 from products.growth.backend.enrichment.writer import ORGANIZATION_GROUP_TYPE
 
@@ -40,7 +41,6 @@ class ClayBridgeInputs:
     """Clay-owned score inputs for one org. All None when Clay never processed it."""
 
     est_revenue: Optional[float] = None
-    company_type: Optional[str] = None
     # Presence of the company-type key, not its coerced value — Clay fills that column on
     # essentially every row it writes, making raw key-presence a reliable ran/didn't-run signal.
     clay_processed: bool = False
@@ -61,10 +61,6 @@ def _numeric(value: Any) -> Optional[float]:
     return None
 
 
-def _text(value: Any) -> Optional[str]:
-    return value if isinstance(value, str) and value else None
-
-
 def _organization_group_type_index(team: Team) -> int:
     for group_type in get_group_types_for_project(team.project_id):
         if group_type["group_type"] == ORGANIZATION_GROUP_TYPE:
@@ -76,6 +72,10 @@ def _organization_group_type_index(team: Team) -> int:
 
 def read_clay_bridge_inputs(*, organization_id: str) -> ClayBridgeInputs:
     """Fetch the Clay-written score inputs for one org. Raises if the group store can't be read."""
+    # Clay only ever wrote to the US internal project, so outside US there is nothing to read —
+    # skip the lookup entirely instead of querying a project the bridge never touched.
+    if get_instance_region() != "US":
+        return ClayBridgeInputs()
     # The internal project the enrichment group properties are projected onto, and the same one
     # the ProductLed_Outbound consumer reads them back from (ee/billing/dags/productled_outbound_targets.py).
     team = Team.objects.get(id=settings.GROWTH_ENRICHMENT_INTERNAL_TEAM_ID)
@@ -90,6 +90,5 @@ def read_clay_bridge_inputs(*, organization_id: str) -> ClayBridgeInputs:
     properties = group.group_properties or {}
     return ClayBridgeInputs(
         est_revenue=_numeric(properties.get(CLAY_EST_REVENUE_PROPERTY)),
-        company_type=_text(properties.get(CLAY_COMPANY_TYPE_PROPERTY)),
         clay_processed=CLAY_COMPANY_TYPE_PROPERTY in properties,
     )

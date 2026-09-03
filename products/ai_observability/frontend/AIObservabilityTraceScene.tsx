@@ -14,6 +14,7 @@ import {
     IconComment,
     IconCopy,
     IconDownload,
+    IconFilter,
     IconMessage,
     IconPlay,
     IconPlus,
@@ -63,6 +64,7 @@ import { AccessControlLevel, AccessControlResourceType, SidePanelTab } from '~/t
 
 import type { BranchPRMatchApi } from 'products/engineering_analytics/frontend/generated/api.schemas'
 
+import { PersonData, getFilterIdentifier, getTracesUrlWithPersonFilter } from './aiObservabilityColumnRenderers'
 import { EnrichedTraceTreeNode, findNodeForEvent, aiObservabilityTraceDataLogic } from './aiObservabilityTraceDataLogic'
 import { DisplayOption, TraceViewMode, aiObservabilityTraceLogic } from './aiObservabilityTraceLogic'
 import { AttachedFeedbackPills } from './components/AttachedFeedbackPills'
@@ -88,6 +90,7 @@ import { SaveToDatasetButton } from './datasets/SaveToDatasetButton'
 import { FeedbackViewDisplay } from './feedback-view/FeedbackViewDisplay'
 import { generationEvaluationRunsLogic } from './generationEvaluationRunsLogic'
 import { useAIData } from './hooks/useAIData'
+import { TraceStructureNote } from './instrumentationChecklist/TraceStructureNote'
 import { LLMInputOutput } from './LLMInputOutput'
 import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
 import { normalizeMessages } from './messageNormalization'
@@ -120,6 +123,7 @@ import {
     isLLMEvent,
     removeMilliseconds,
     sanitizeTraceUrlSearchParams,
+    selectAiValue,
 } from './utils'
 
 interface TraceQueueContext {
@@ -604,6 +608,34 @@ function Chip({
     )
 }
 
+// Not built on top of Chip: the email needs its own popover click target, separate
+// from the filter button, so the whole tag can't share one tooltip trigger.
+function PersonChip({ person }: { person: PersonData }): JSX.Element {
+    const { push } = useActions(router)
+    const filterIdentifier = getFilterIdentifier(person)
+
+    return (
+        <LemonTag size="small" className="bg-surface-primary">
+            <span className="sr-only">Person</span>
+            <PersonDisplay withIcon="sm" person={person} />
+            {filterIdentifier && (
+                <LemonButton
+                    size="xsmall"
+                    icon={<IconFilter />}
+                    // A string tooltip also becomes the accessible name of this icon-only button
+                    tooltip={`View traces for ${filterIdentifier.value}`}
+                    noPadding
+                    className="ml-0.5"
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        push(getTracesUrlWithPersonFilter(filterIdentifier))
+                    }}
+                />
+            )}
+        </LemonTag>
+    )
+}
+
 function UsageChip({ event }: { event: LLMTraceEvent | LLMTrace }): JSX.Element | null {
     const usage = formatLLMUsage(event)
     return usage ? (
@@ -1072,9 +1104,7 @@ function TraceMetadata({
 
     return (
         <header className="flex gap-1.5 flex-wrap">
-            <Chip title="Person">
-                <PersonDisplay withIcon="sm" person={personData} />
-            </Chip>
+            <PersonChip person={personData} />
             {trace.aiSessionId && (
                 <Chip title="AI Session ID - Click to view session details">
                     <Link to={getSessionUrl(trace.aiSessionId)} subtle>
@@ -1186,7 +1216,7 @@ function TraceSidebar({
                         topLevelTrace={trace}
                         node={{
                             event: trace,
-                            displayTotalCost: trace.totalCost || 0,
+                            displayTotalCost: trace.totalCost ?? null,
                             displayLatency: trace.totalLatency || 0,
                             displayUsage: formatLLMUsage(trace),
                         }}
@@ -1202,6 +1232,7 @@ function TraceSidebar({
                         showBillingInfo={showBillingInfo}
                     />
                 </ul>
+                <TraceStructureNote events={trace.events} />
             </div>
         </aside>
     )
@@ -1244,7 +1275,7 @@ const TreeNode = React.memo(function TraceNode({
     topLevelTrace: LLMTrace
     node:
         | EnrichedTraceTreeNode
-        | { event: LLMTrace; displayTotalCost: number; displayLatency: number; displayUsage: string | null }
+        | { event: LLMTrace; displayTotalCost: number | null; displayLatency: number; displayUsage: string | null }
     isSelected: boolean
     searchQuery?: string
     showBillingInfo?: boolean
@@ -1603,7 +1634,7 @@ const EventContent = React.memo(
                                 <div className="flex flex-col gap-1">
                                     {aggregation && (
                                         <div className="flex flex-row flex-wrap items-center gap-2">
-                                            {aggregation.totalCost > 0 && (
+                                            {aggregation.totalCost !== null && aggregation.totalCost > 0 && (
                                                 <LemonTag type="muted" size="small">
                                                     Total Cost: {formatLLMCost(aggregation.totalCost)}
                                                 </LemonTag>
@@ -1705,14 +1736,21 @@ const EventContent = React.memo(
                                         <>
                                             {isTopLevelTraceWithoutContent ? (
                                                 <InsightEmptyState
-                                                    heading="No top-level trace event"
+                                                    heading="No trace-level input and output captured"
                                                     detail={
                                                         <>
-                                                            This trace doesn't have an associated <code>$ai_trace</code>{' '}
-                                                            event.
+                                                            This trace's content is on the events in the tree. Select an
+                                                            event to view its input and output.
                                                             <br />
-                                                            Click on individual generations in the tree to view their
-                                                            content.
+                                                            To show a conversation here, capture a{' '}
+                                                            <Link
+                                                                to="https://posthog.com/docs/ai-observability/traces"
+                                                                target="_blank"
+                                                            >
+                                                                <code>$ai_trace</code> event
+                                                            </Link>{' '}
+                                                            with <code>$ai_input_state</code> and{' '}
+                                                            <code>$ai_output_state</code> properties.
                                                         </>
                                                     }
                                                 />
@@ -1747,14 +1785,20 @@ const EventContent = React.memo(
                                                                 traceId={trace.id}
                                                                 timestamp={event.createdAt}
                                                                 rawInput={event.properties.$ai_input}
-                                                                rawOutput={
-                                                                    event.properties.$ai_output_choices ??
+                                                                rawOutput={selectAiValue(
+                                                                    event.properties.$ai_output_choices,
                                                                     event.properties.$ai_output
-                                                                }
+                                                                )}
                                                                 tools={event.properties.$ai_tools}
                                                                 errorData={event.properties.$ai_error}
                                                                 httpStatus={event.properties.$ai_http_status}
                                                                 raisedError={event.properties.$ai_is_error}
+                                                                outputTokens={event.properties.$ai_output_tokens}
+                                                                reasoningTokens={event.properties.$ai_reasoning_tokens}
+                                                                textOutputTokens={
+                                                                    event.properties.$ai_text_output_tokens
+                                                                }
+                                                                stopReason={event.properties.$ai_stop_reason}
                                                                 searchQuery={searchQuery}
                                                                 displayOption={displayOption}
                                                                 highlightMessageIndex={highlightMessageIndex}

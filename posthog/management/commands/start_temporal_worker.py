@@ -113,10 +113,6 @@ from posthog.temporal.session_replay.enforce_max_replay_retention import (
     ENFORCE_MAX_REPLAY_RETENTION_ACTIVITIES,
     ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS,
 )
-from posthog.temporal.session_replay.gemini_cleanup_sweep import (
-    GEMINI_CLEANUP_SWEEP_ACTIVITIES,
-    GEMINI_CLEANUP_SWEEP_WORKFLOWS,
-)
 from posthog.temporal.session_replay.rasterize_recording import (
     RASTERIZE_RECORDING_ACTIVITIES,
     RASTERIZE_RECORDING_WORKFLOWS,
@@ -125,15 +121,6 @@ from posthog.temporal.session_replay.replay_count_metrics import (
     REPLAY_COUNT_METRICS_ACTIVITIES,
     REPLAY_COUNT_METRICS_WORKFLOWS,
 )
-from posthog.temporal.session_replay.session_summary import SESSION_SUMMARY_ACTIVITIES, SESSION_SUMMARY_WORKFLOWS
-from posthog.temporal.session_replay.session_summary_group import (
-    SESSION_SUMMARY_GROUP_ACTIVITIES,
-    SESSION_SUMMARY_GROUP_WORKFLOWS,
-)
-from posthog.temporal.session_replay.summarization_sweep import (
-    SUMMARIZATION_SWEEP_ACTIVITIES,
-    SUMMARIZATION_SWEEP_WORKFLOWS,
-)
 from posthog.temporal.session_replay.surfacing_score_export_sweep import (
     SURFACING_SCORE_EXPORT_SWEEP_ACTIVITIES,
     SURFACING_SCORE_EXPORT_SWEEP_WORKFLOWS,
@@ -141,10 +128,6 @@ from posthog.temporal.session_replay.surfacing_score_export_sweep import (
 from posthog.temporal.session_replay.surfacing_scoring_sweep import (
     SURFACING_SCORING_SWEEP_ACTIVITIES,
     SURFACING_SCORING_SWEEP_WORKFLOWS,
-)
-from posthog.temporal.signup_enrichment import (
-    ACTIVITIES as SIGNUP_ENRICHMENT_ACTIVITIES,
-    WORKFLOWS as SIGNUP_ENRICHMENT_WORKFLOWS,
 )
 from posthog.temporal.sync_events_retention import SYNC_EVENTS_RETENTION_ACTIVITIES, SYNC_EVENTS_RETENTION_WORKFLOWS
 from posthog.temporal.sync_person_distinct_ids import (
@@ -172,17 +155,35 @@ from products.batch_exports.backend.temporal import (
     ACTIVITIES as BATCH_EXPORTS_ACTIVITIES,
     WORKFLOWS as BATCH_EXPORTS_WORKFLOWS,
 )
+from products.billing_alerts.backend.temporal import (
+    ACTIVITIES as BILLING_ALERTS_ACTIVITIES,
+    WORKFLOWS as BILLING_ALERTS_WORKFLOWS,
+)
 from products.business_knowledge.backend.temporal import (
     ACTIVITIES as BUSINESS_KNOWLEDGE_ACTIVITIES,
     WORKFLOWS as BUSINESS_KNOWLEDGE_WORKFLOWS,
+)
+from products.canvas.backend.temporal.registry import (
+    ACTIVITIES as CANVAS_BUILD_ACTIVITIES,
+    WORKFLOWS as CANVAS_BUILD_WORKFLOWS,
+)
+from products.context_layer.backend.temporal import (
+    ACTIVITIES as CONTEXT_LAYER_ACTIVITIES,
+    WORKFLOWS as CONTEXT_LAYER_WORKFLOWS,
 )
 from products.conversations.backend.temporal import (
     ACTIVITIES as CONVERSATIONS_ACTIVITIES,
     WORKFLOWS as CONVERSATIONS_WORKFLOWS,
 )
 from products.customer_analytics.backend.facade.temporal import (
+    ACCOUNT_PROPERTY_SYNC_ACTIVITIES,
+    ACCOUNT_PROPERTY_SYNC_WORKFLOWS,
     ACTIVITIES as CUSTOMER_ANALYTICS_ACTIVITIES,
     WORKFLOWS as CUSTOMER_ANALYTICS_WORKFLOWS,
+)
+from products.data_quality.backend.facade.temporal import (
+    ACTIVITIES as DATA_QUALITY_ACTIVITIES,
+    WORKFLOWS as DATA_QUALITY_WORKFLOWS,
 )
 from products.engineering_analytics.backend.facade.temporal import (
     CI_SIGNALS_ACTIVITIES,
@@ -200,14 +201,22 @@ from products.experiments.backend.temporal import (
     ACTIVITIES as EXPERIMENTS_RECALCULATION_ACTIVITIES,
     EXPERIMENT_CANARY_ACTIVITIES,
     EXPERIMENT_CANARY_WORKFLOWS,
+    EXPERIMENT_ENROLLMENT_CENSUS_ACTIVITIES,
+    EXPERIMENT_ENROLLMENT_CENSUS_WORKFLOWS,
     WORKFLOWS as EXPERIMENTS_RECALCULATION_WORKFLOWS,
 )
 from products.exports.backend.temporal.subscriptions import (
     ACTIVITIES as SUBSCRIPTION_ACTIVITIES,
     WORKFLOWS as SUBSCRIPTION_WORKFLOWS,
 )
+from products.growth.backend.temporal import (
+    ACTIVITIES as GROWTH_ACTIVITIES,
+    WORKFLOWS as GROWTH_WORKFLOWS,
+)
 from products.logs.backend.facade.temporal import (
     ACTIVITIES as LOGS_ALERTING_ACTIVITIES,
+    VOLUME_TICK_ACTIVITIES as LOGS_VOLUME_TICK_ACTIVITIES,
+    VOLUME_TICK_WORKFLOWS as LOGS_VOLUME_TICK_WORKFLOWS,
     WORKFLOWS as LOGS_ALERTING_WORKFLOWS,
 )
 from products.logs.backend.temporal.retention_entitlements import (
@@ -295,16 +304,18 @@ _task_queue_specs = [
         DATA_WAREHOUSE_METADATA_WORKFLOWS
         + SEMANTIC_ENRICHMENT_WORKFLOWS
         + PERSON_PROPERTY_SYNC_WORKFLOWS
-        + PERSON_PROPERTY_BACKFILL_WORKFLOWS,
+        + PERSON_PROPERTY_BACKFILL_WORKFLOWS
+        + ACCOUNT_PROPERTY_SYNC_WORKFLOWS,
         DATA_WAREHOUSE_METADATA_ACTIVITIES
         + SEMANTIC_ENRICHMENT_ACTIVITIES
         + PERSON_PROPERTY_SYNC_ACTIVITIES
-        + PERSON_PROPERTY_BACKFILL_ACTIVITIES,
+        + PERSON_PROPERTY_BACKFILL_ACTIVITIES
+        + ACCOUNT_PROPERTY_SYNC_ACTIVITIES,
     ),
     (
         settings.DATA_MODELING_TASK_QUEUE,
-        DATA_MODELING_WORKFLOWS,
-        DATA_MODELING_ACTIVITIES,
+        DATA_MODELING_WORKFLOWS + DATA_QUALITY_WORKFLOWS,
+        DATA_MODELING_ACTIVITIES + DATA_QUALITY_ACTIVITIES,
     ),
     (
         settings.GENERAL_PURPOSE_TASK_QUEUE,
@@ -318,6 +329,7 @@ _task_queue_specs = [
         + SYNC_PERSON_DISTINCT_IDS_WORKFLOWS
         + EXPERIMENTS_WORKFLOWS
         + EXPERIMENT_CANARY_WORKFLOWS
+        + EXPERIMENT_ENROLLMENT_CENSUS_WORKFLOWS
         + CLEANUP_PROPDEFS_WORKFLOWS
         + BACKFILL_GROUP_TYPE_CREATED_AT_WORKFLOWS
         + INGESTION_ACCEPTANCE_TEST_WORKFLOWS
@@ -326,8 +338,9 @@ _task_queue_specs = [
         + JOB_LOGS_WORKFLOWS
         + CI_SIGNALS_WORKFLOWS
         + NOTEBOOKS_WORKFLOWS
-        + SIGNUP_ENRICHMENT_WORKFLOWS
-        + LOGS_RETENTION_ENTITLEMENTS_WORKFLOWS,
+        + GROWTH_WORKFLOWS
+        + LOGS_RETENTION_ENTITLEMENTS_WORKFLOWS
+        + CONTEXT_LAYER_WORKFLOWS,
         PROXY_SERVICE_ACTIVITIES
         + DELETE_PERSONS_ACTIVITIES
         + DELETE_TEAMS_ACTIVITIES
@@ -339,15 +352,17 @@ _task_queue_specs = [
         + SYNC_PERSON_DISTINCT_IDS_ACTIVITIES
         + EXPERIMENTS_ACTIVITIES
         + EXPERIMENT_CANARY_ACTIVITIES
+        + EXPERIMENT_ENROLLMENT_CENSUS_ACTIVITIES
         + CLEANUP_PROPDEFS_ACTIVITIES
         + BACKFILL_GROUP_TYPE_CREATED_AT_ACTIVITIES
         + INGESTION_ACCEPTANCE_TEST_ACTIVITIES
         + WAREHOUSE_SOURCES_QUEUE_PARTITION_ACTIVITIES
         + SYNC_EVENTS_RETENTION_ACTIVITIES
         + JOB_LOGS_ACTIVITIES
+        + CONTEXT_LAYER_ACTIVITIES
         + CI_SIGNALS_ACTIVITIES
         + NOTEBOOKS_ACTIVITIES
-        + SIGNUP_ENRICHMENT_ACTIVITIES
+        + GROWTH_ACTIVITIES
         + LOGS_RETENTION_ENTITLEMENTS_ACTIVITIES,
     ),
     # Dedicated landing zone for signup enrichment. Defaults to the general-purpose queue name (so it
@@ -355,8 +370,15 @@ _task_queue_specs = [
     # worker registers these workflows under the dedicated queue, letting dispatch move there with no code change.
     (
         settings.SIGNUP_ENRICHMENT_TASK_QUEUE,
-        SIGNUP_ENRICHMENT_WORKFLOWS,
-        SIGNUP_ENRICHMENT_ACTIVITIES,
+        GROWTH_WORKFLOWS,
+        GROWTH_ACTIVITIES,
+    ),
+    # Canvas builds. CANVAS_BUILD_TASK_QUEUE defaults to the general-purpose queue name (so it merges
+    # into that fleet until a dedicated worker exists).
+    (
+        settings.CANVAS_BUILD_TASK_QUEUE,
+        CANVAS_BUILD_WORKFLOWS,
+        CANVAS_BUILD_ACTIVITIES,
     ),
     (
         settings.EXPERIMENTS_RECALCULATION_TASK_QUEUE,
@@ -404,8 +426,11 @@ _task_queue_specs = [
     ),
     (
         settings.BILLING_TASK_QUEUE,
-        QUOTA_LIMITING_WORKFLOWS + SALESFORCE_ENRICHMENT_WORKFLOWS + USAGE_REPORTS_WORKFLOWS,
-        QUOTA_LIMITING_ACTIVITIES + SALESFORCE_ENRICHMENT_ACTIVITIES + USAGE_REPORTS_ACTIVITIES,
+        QUOTA_LIMITING_WORKFLOWS + SALESFORCE_ENRICHMENT_WORKFLOWS + USAGE_REPORTS_WORKFLOWS + BILLING_ALERTS_WORKFLOWS,
+        QUOTA_LIMITING_ACTIVITIES
+        + SALESFORCE_ENRICHMENT_ACTIVITIES
+        + USAGE_REPORTS_ACTIVITIES
+        + BILLING_ALERTS_ACTIVITIES,
     ),
     (
         settings.VIDEO_EXPORT_TASK_QUEUE,
@@ -424,26 +449,18 @@ _task_queue_specs = [
     ),
     (
         settings.SESSION_REPLAY_TASK_QUEUE,
-        GEMINI_CLEANUP_SWEEP_WORKFLOWS
-        + COUNT_PLAYLIST_ITEMS_WORKFLOWS
+        COUNT_PLAYLIST_ITEMS_WORKFLOWS
         + DELETE_RECORDINGS_WORKFLOWS
         + ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS
         + RASTERIZE_RECORDING_WORKFLOWS
         + REPLAY_COUNT_METRICS_WORKFLOWS
-        + SESSION_SUMMARY_WORKFLOWS
-        + SESSION_SUMMARY_GROUP_WORKFLOWS
-        + SUMMARIZATION_SWEEP_WORKFLOWS
         + SURFACING_SCORE_EXPORT_SWEEP_WORKFLOWS
         + SURFACING_SCORING_SWEEP_WORKFLOWS,
-        GEMINI_CLEANUP_SWEEP_ACTIVITIES
-        + COUNT_PLAYLIST_ITEMS_ACTIVITIES
+        COUNT_PLAYLIST_ITEMS_ACTIVITIES
         + DELETE_RECORDINGS_ACTIVITIES
         + ENFORCE_MAX_REPLAY_RETENTION_ACTIVITIES
         + RASTERIZE_RECORDING_ACTIVITIES
         + REPLAY_COUNT_METRICS_ACTIVITIES
-        + SESSION_SUMMARY_ACTIVITIES
-        + SESSION_SUMMARY_GROUP_ACTIVITIES
-        + SUMMARIZATION_SWEEP_ACTIVITIES
         + SURFACING_SCORE_EXPORT_SWEEP_ACTIVITIES
         + SURFACING_SCORING_SWEEP_ACTIVITIES,
     ),
@@ -498,6 +515,13 @@ _task_queue_specs = [
         settings.LOGS_ALERTING_TASK_QUEUE,
         LOGS_ALERTING_WORKFLOWS,
         LOGS_ALERTING_ACTIVITIES,
+    ),
+    # Dedicated queue, never merged with alerting: the tick becomes the scan-heavy
+    # rollup writer and must not share pods with the latency-sensitive alert checks.
+    (
+        settings.LOGS_VOLUME_TICK_TASK_QUEUE,
+        LOGS_VOLUME_TICK_WORKFLOWS,
+        LOGS_VOLUME_TICK_ACTIVITIES,
     ),
     (
         settings.STAMPHOG_TASK_QUEUE,

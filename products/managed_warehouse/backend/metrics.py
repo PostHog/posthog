@@ -1,15 +1,23 @@
+import sys
 import time
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 
 import posthoganalytics
 from posthoganalytics.metrics_capture import PostHogMetrics
-from temporalio import workflow
 
 MetricAttributes = Mapping[str, str | int | float | bool]
 
 
 def _should_record() -> bool:
+    # Replay suppression only matters inside a Temporal workflow, and being in one implies
+    # temporalio is already imported. Gating on that keeps the SDK off django.setup()'s import
+    # path, which this module sits on via models.py -> model_observability.
+    if "temporalio" not in sys.modules:
+        return True
+
+    from temporalio import workflow  # noqa: PLC0415 — keeps the Temporal SDK off the django.setup() import path
+
     return not (workflow.in_workflow() and workflow.unsafe.is_replaying())
 
 

@@ -41,16 +41,16 @@ services:
         profiles: [dev_tools]
     maildev:
         profiles: [dev_tools]
+    # Also carries its own profile: a workflow's webhook step needs somewhere to point, and
+    # that shouldn't cost you Kafka UI, Flower and maildev as well.
     webhook-tester:
-        profiles: [dev_tools]
+        profiles: [dev_tools, webhook_tester]
 
     # Session-recording storage (replay).
     seaweedfs:
         profiles: [replay]
 
     # Cloud provider emulators
-    localstack:
-        profiles: [localstack]
     objectstorage-azure:
         profiles: [azure]
 

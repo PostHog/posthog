@@ -1,11 +1,20 @@
 import uuid
+import datetime
 
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.utils import timezone
+
 from parameterized import parameterized
 
-from products.business_knowledge.backend.constants import CHUNK_HARD_MAX_CHARS, MAX_ALWAYS_ON_CONTEXT_CHARS
+from posthog.models.team.team import Team
+
+from products.business_knowledge.backend.constants import (
+    CHUNK_HARD_MAX_CHARS,
+    MAX_ALWAYS_ON_CONTEXT_CHARS,
+    TRIAL_QUIET_PERIOD,
+)
 from products.business_knowledge.backend.logic import (
     QuotaExceededError,
     TextTooLargeError,
@@ -13,11 +22,14 @@ from products.business_knowledge.backend.logic import (
     chunk_text,
     create_text_source,
     get_always_on_context,
+    has_maintained_sources,
+    is_maintained_for_team,
 )
 from products.business_knowledge.backend.models import (
     KnowledgeChunk,
     KnowledgeDocument,
     KnowledgeSource,
+    RefreshInterval,
     SafetyVerdict,
     SourceStatus,
 )
@@ -223,3 +235,112 @@ class TestGetAlwaysOnContext(BaseTest):
         assert total <= MAX_ALWAYS_ON_CONTEXT_CHARS
         # Should have gotten at most 1 chunk (2nd would exceed cap)
         assert len(results) == 1
+
+
+class TestHasMaintainedSources(BaseTest):
+    def _create_source(
+        self,
+        *,
+        status: str = SourceStatus.READY,
+        always_include: bool = False,
+        refresh_interval: str = RefreshInterval.MANUAL,
+        live_chunks: int = 1,
+        tombstoned_chunks: int = 0,
+        safe: bool = True,
+        age: datetime.timedelta = datetime.timedelta(days=1),
+    ) -> KnowledgeSource:
+        source = KnowledgeSource.objects.unscoped().create(
+            team_id=self.team.id,
+            name="test",
+            source_type="text",
+            status=status,
+            always_include=always_include,
+            refresh_interval=refresh_interval,
+        )
+        # An upload or a paste stores the whole text as one document, so the content-volume
+        # signal lives in the chunk count, not the document count — keep every chunk on one
+        # document so a book-length source reads as one document with many chunks.
+        for tombstoned, count in ((False, live_chunks), (True, tombstoned_chunks)):
+            if not count:
+                continue
+            document = KnowledgeDocument.objects.unscoped().create(
+                team_id=self.team.id,
+                source=source,
+                stable_id=str(uuid.uuid4()),
+                title="doc",
+                content="content",
+                content_hash=str(uuid.uuid4()),
+                safety_verdict=SafetyVerdict.SAFE if safe else SafetyVerdict.UNKNOWN,
+                tombstoned_at=timezone.now() if tombstoned else None,
+            )
+            for ordinal in range(count):
+                KnowledgeChunk.objects.unscoped().create(
+                    id=uuid.uuid4(),
+                    team_id=self.team.id,
+                    source=source,
+                    document=document,
+                    ordinal=ordinal,
+                    content="chunk",
+                    char_count=5,
+                )
+        # `updated_at` is auto_now, so the create above stamps it now — reach past save() to age it.
+        KnowledgeSource.objects.unscoped().filter(id=source.id).update(updated_at=timezone.now() - age)
+        return source
+
+    @parameterized.expand(
+        [
+            ("no_sources", [], False),
+            # The shape the predicate exists to catch: a little text pasted in to try the product,
+            # left alone since. Every variation below breaks it in exactly one place and must pass.
+            ("lone_abandoned_trial", [{"age": TRIAL_QUIET_PERIOD * 2}], False),
+            ("lone_source_touched_recently", [{"age": datetime.timedelta(days=1)}], True),
+            ("lone_pinned_source", [{"age": TRIAL_QUIET_PERIOD * 2, "always_include": True}], True),
+            (
+                "lone_auto_refreshing_source",
+                [{"age": TRIAL_QUIET_PERIOD * 2, "refresh_interval": RefreshInterval.DAILY}],
+                True,
+            ),
+            # A book-length handbook is ONE document with many chunks — the case a document count
+            # would misread as a trial and hide from every scout.
+            ("lone_abandoned_handbook", [{"age": TRIAL_QUIET_PERIOD * 2, "live_chunks": 50}], True),
+            (
+                "two_abandoned_sources",
+                [{"age": TRIAL_QUIET_PERIOD * 2}, {"age": TRIAL_QUIET_PERIOD * 2}],
+                True,
+            ),
+            # A crawl that stopped discovering pages tombstones the document, and search skips its
+            # chunks, so they must not lift an abandoned source over the content bar either.
+            (
+                "lone_trial_with_tombstoned_content",
+                [{"age": TRIAL_QUIET_PERIOD * 2, "tombstoned_chunks": 50}],
+                False,
+            ),
+            # Unsafe/unclassified content is invisible to search (`_safe_chunks_qs` filters on
+            # SAFE), so a base of it can't clear the volume bar — otherwise the prompt would
+            # promise a searchable base that returns nothing.
+            (
+                "lone_abandoned_unsafe_content",
+                [{"age": TRIAL_QUIET_PERIOD * 2, "live_chunks": 50, "safe": False}],
+                False,
+            ),
+            ("pending_source_only", [{"status": SourceStatus.PENDING, "live_chunks": 50}], False),
+        ]
+    )
+    def test_classifies_the_team_knowledge_base(self, _name: str, sources: list[dict], expected: bool) -> None:
+        for spec in sources:
+            self._create_source(**spec)
+        assert has_maintained_sources(self.team.id) is expected
+
+    def test_scoped_to_one_team(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        self._create_source(live_chunks=50)
+        assert has_maintained_sources(other_team.id) is False
+
+    @patch("products.business_knowledge.backend.logic.has_feature_flag", return_value=True)
+    def test_child_team_resolves_to_canonical_parent(self, _flag: object) -> None:
+        # A scout can run against a child environment, but knowledge rows are project-scoped under
+        # the canonical parent — the facade must resolve the child before reading them, or a child
+        # run sees an empty base and drops the section despite a maintained one on the parent.
+        self._create_source(live_chunks=50)  # on self.team, the canonical parent
+        child = Team.objects.create(organization=self.organization, parent_team=self.team, name="env")
+        assert is_maintained_for_team(child) is True

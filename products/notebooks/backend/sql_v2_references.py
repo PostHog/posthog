@@ -19,8 +19,8 @@ whatever HogQL refs it also reads — the same input shape Python nodes use.
 """
 
 import re
-from dataclasses import dataclass
-from typing import Any
+from dataclasses import dataclass, field
+from typing import Any, Literal
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -29,7 +29,15 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_prepared_ast
 from posthog.hogql.visitor import TraversingVisitor
 
+from posthog.dataclasses import frozen
+
 from products.notebooks.backend.python_analysis import analyze_python_globals
+from products.notebooks.backend.sql_v2_variables import (
+    NotebookVariable,
+    NotebookVariableValue,
+    substitute_duckdb_variables,
+    substitute_hogql_variables,
+)
 
 # String literals ('' or backslash escapes) and comments, for the routing fallback to blank
 # out before scanning: a frame name mentioned in a literal or comment must not trigger DuckDB
@@ -56,11 +64,30 @@ class SQLV2Ref:
     message, and only surfaces when the query actually reads the name.
     """
 
-    kind: str  # "hogql" | "local"
+    kind: Literal["hogql", "local"]
     node_id: str | None = None
     run_id: str | None = None
     last_run_code: str | None = None
     unavailable_reason: str | None = None
+
+
+@frozen
+class SQLV2RunPlan:
+    """How one node run should execute, once its refs and variables are resolved.
+
+    `node_type` picks the engine and `code` only means anything on that engine, so the two
+    travel together rather than as a pair of bare strings a call site could swap. The
+    dispatch view builds one for the python and raw-connection lanes too, so every lane
+    reaches the run row the same way.
+    """
+
+    node_type: Literal["hogql", "duckdb", "python"]
+    code: str
+    # Frames the kernel must materialize first; always empty on the ClickHouse lane.
+    inputs: list[dict[str, Any]]
+    # DuckDB lane only: values for the `$name` parameters `code` now carries, bound by the
+    # driver rather than written into the SQL. Empty on every other lane.
+    variables: dict[str, NotebookVariableValue] = field(default_factory=dict)
 
 
 class _ReferenceCollector(TraversingVisitor):
@@ -270,19 +297,28 @@ def resolve_python_node_inputs(code: str, refs: dict[str, SQLV2Ref]) -> list[dic
     return inputs
 
 
-def resolve_sql_node_run(code: str, refs: dict[str, SQLV2Ref]) -> tuple[str, str, list[dict[str, Any]]]:
-    """Route a SQL node run to its engine; return (node_type, run_code, inputs).
+def resolve_sql_node_run(
+    code: str, refs: dict[str, SQLV2Ref], variables: list[NotebookVariable] | None = None
+) -> SQLV2RunPlan:
+    """Route a SQL node run to its engine and return the plan for executing it.
 
     The routing rule from the journey walkthroughs (decision 1): a query whose referenced
     inputs are all HogQL definitions pushes to ClickHouse with the refs inlined as CTEs —
-    `("hogql", inlined_code, [])`. A query that references any **local** frame (made by a
-    Python node) cannot run in ClickHouse, so it runs in the sandbox's DuckDB instead —
-    `("duckdb", code_as_written, inputs)`, where inputs materialize the HogQL refs it also
-    reads (Journey 5: the join forces `df2` into the sandbox) and assert the local ones.
+    a `hogql` plan carrying the inlined code and no inputs. A query that references any
+    **local** frame (made by a Python node) cannot run in ClickHouse, so it runs in the
+    sandbox's DuckDB instead — a `duckdb` plan carrying the code as written, whose inputs
+    materialize the HogQL refs it also reads (Journey 5: the join forces `df2` into the
+    sandbox) and assert the local ones.
+
+    Notebook variables are bound per lane, once the lane is known: the ClickHouse query gets
+    AST substitution, while the DuckDB query keeps `$name` parameters for the driver to bind
+    (see sql_v2_variables). Raises NotebookVariableError when the query reads an undeclared
+    `{name}`.
 
     Raises SQLV2ReferenceError for unrunnable refs, and lets the HogQL parser's own error
     surface for a malformed query that doesn't touch any local frame.
     """
+    variables = variables or []
     local_names = {name for name, ref in refs.items() if name and ref.kind == "local"}
     hogql_refs = {name: ref for name, ref in refs.items() if name and ref.kind == "hogql"}
     hogql_codes = {name: None if ref.unavailable_reason else ref.last_run_code for name, ref in hogql_refs.items()}
@@ -306,7 +342,14 @@ def resolve_sql_node_run(code: str, refs: dict[str, SQLV2Ref]) -> tuple[str, str
         referenced_hogql = found - local_names
 
     if not referenced_locals:
-        return "hogql", resolve_sql_v2_references(code, hogql_codes, unavailable), []
+        # Variables bind before inlining: the CTE merge prints its AST, and the printer rejects a
+        # placeholder that is still unresolved by then. An inlined definition never carries one —
+        # it is a previous run's stored code, which was substituted the same way at its own dispatch.
+        return SQLV2RunPlan(
+            node_type="hogql",
+            code=resolve_sql_v2_references(substitute_hogql_variables(code, variables), hogql_codes, unavailable),
+            inputs=[],
+        )
 
     inputs: list[dict[str, Any]] = []
     for name in sorted(referenced_locals | referenced_hogql):
@@ -314,4 +357,5 @@ def resolve_sql_node_run(code: str, refs: dict[str, SQLV2Ref]) -> tuple[str, str
             inputs.append({"name": name, "kind": "local"})
         else:
             inputs.append(_hogql_input(name, hogql_refs[name]))
-    return "duckdb", code, inputs
+    duckdb_code, duckdb_params = substitute_duckdb_variables(code, variables)
+    return SQLV2RunPlan(node_type="duckdb", code=duckdb_code, inputs=inputs, variables=duckdb_params)

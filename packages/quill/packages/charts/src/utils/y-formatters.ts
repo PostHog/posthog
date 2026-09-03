@@ -1,8 +1,8 @@
 import {
     compactNumber,
     formatCurrency,
+    formatDurationMilliseconds,
     humanFriendlyCurrency,
-    humanFriendlyDuration,
     humanFriendlyNumber,
     percentage,
     significantDecimalPlaces,
@@ -40,7 +40,7 @@ function formatNanoseconds(value: number): string {
     if (absoluteValue < 1_000_000) {
         return `${humanFriendlyNumber(value / 1_000)}µs`
     }
-    return humanFriendlyDuration(value / 1_000_000_000, { secondsFixed: 1 })
+    return formatDurationMilliseconds(value / 1_000_000)
 }
 
 export function buildYTickFormatter(config: YFormatterConfig): (value: number) => string {
@@ -53,10 +53,10 @@ export function buildYTickFormatter(config: YFormatterConfig): (value: number) =
         )
         switch (format) {
             case 'duration':
-                formatted = humanFriendlyDuration(value)
+                formatted = formatDurationMilliseconds(value * 1000)
                 break
             case 'duration_ms':
-                formatted = humanFriendlyDuration(value / 1000, { secondsFixed: 1 })
+                formatted = formatDurationMilliseconds(value)
                 break
             case 'duration_ns':
                 formatted = formatNanoseconds(value)

@@ -34,8 +34,8 @@ from products.replay_vision.backend.models.replay_observation import Observation
 from products.replay_vision.backend.models.replay_observation_label import ReplayObservationLabel
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 from products.replay_vision.backend.models.replay_scanner_prompt_suggestion import (
+    PromptSuggestionStatus,
     ReplayScannerPromptSuggestion,
-    SuggestionStatus,
 )
 from products.replay_vision.backend.proposers import get_proposer
 
@@ -184,7 +184,7 @@ def _dismissed_lines(scanner: ReplayScanner) -> list[str]:
     """Rewrites the team explicitly rejected, so the model doesn't re-propose them."""
     dismissed = list(
         ReplayScannerPromptSuggestion.objects.filter(
-            scanner=scanner, team_id=scanner.team_id, status=SuggestionStatus.DISMISSED
+            scanner=scanner, team_id=scanner.team_id, status=PromptSuggestionStatus.DISMISSED
         ).order_by("-created_at")[:_MAX_DISMISSED_EXAMPLES]
     )
     if not dismissed:
@@ -273,7 +273,11 @@ def _generate(
             config=config,
             posthog_distinct_id=distinct_id,
             posthog_trace_id=str(uuid.uuid4()),
-            posthog_properties={"ai_product": "replay_vision", "feature": "suggest_scanner_prompt"},
+            posthog_properties={
+                "ai_product": "replay_vision",
+                "feature": "suggest_scanner_prompt",
+                "team_id": team_id,
+            },
             posthog_groups={"project": str(team_id)},
         )
     except Exception as e:
@@ -404,7 +408,11 @@ def _model_call(
         config=config,
         posthog_distinct_id=distinct_id,
         posthog_trace_id=str(uuid.uuid4()),
-        posthog_properties={"ai_product": "replay_vision", "feature": "suggest_scanner_prompt_agentic"},
+        posthog_properties={
+            "ai_product": "replay_vision",
+            "feature": "suggest_scanner_prompt_agentic",
+            "team_id": team_id,
+        },
         posthog_groups={"project": str(team_id)},
     )
 
@@ -520,7 +528,7 @@ def generate_prompt_suggestion(
     changes = proposer.to_changes(base_config, suggested_config, llm_output)
     # The change list is the source of truth for "did anything meaningful change": dict equality trips on
     # keys a proposer always injects (e.g. a defaulted allow_inconclusive) that the stored config never had.
-    status = SuggestionStatus.NO_CHANGE if not changes else SuggestionStatus.PENDING
+    status = PromptSuggestionStatus.NO_CHANGE if not changes else PromptSuggestionStatus.PENDING
     # Count the full rated set, not the capped briefing slice: the agent can page through every rated
     # session via its tools, and the UI shows these next to chart totals computed over all ratings.
     label_counts = ReplayObservation.objects.filter(
@@ -535,8 +543,8 @@ def generate_prompt_suggestion(
         # Serialize per scanner: a manual generate racing the sweep refresh must not leave two pending rows.
         ReplayScanner.objects.select_for_update().filter(team_id=scanner.team_id, pk=scanner.pk).first()
         ReplayScannerPromptSuggestion.objects.filter(
-            scanner=scanner, team_id=scanner.team_id, status=SuggestionStatus.PENDING
-        ).update(status=SuggestionStatus.SUPERSEDED)
+            scanner=scanner, team_id=scanner.team_id, status=PromptSuggestionStatus.PENDING
+        ).update(status=PromptSuggestionStatus.SUPERSEDED)
         return ReplayScannerPromptSuggestion.objects.create(
             scanner=scanner,
             team_id=scanner.team_id,

@@ -18,6 +18,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog import redis
+from posthog.constants import AvailableFeature
 from posthog.models import Organization, PersonalAPIKey, SessionRecording, SessionRecordingPlaylistItem, Team
 from posthog.models.file_system.file_system import FileSystem
 from posthog.models.user import User
@@ -45,6 +46,10 @@ from posthog.settings import (
     OBJECT_STORAGE_ENDPOINT,
     OBJECT_STORAGE_SECRET_ACCESS_KEY,
 )
+
+from products.access_control.backend.models.access_control import AccessControl
+from products.experiments.backend.models.experiment import Experiment
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 TEST_BUCKET = "test_storage_bucket-ee.TestSessionRecordingPlaylist"
 
@@ -83,7 +88,7 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
 
         return post_response
 
-    def _get_non_synthetic_playlists(self, query_params: str = "", expected_synthetic_count: int = 7) -> list[dict]:
+    def _get_non_synthetic_playlists(self, query_params: str = "", expected_synthetic_count: int = 6) -> list[dict]:
         url = f"/api/projects/{self.team.id}/session_recording_playlists{query_params}"
         response = self.client.get(url)
         assert response.status_code == status.HTTP_200_OK
@@ -124,7 +129,7 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
 
         assert response.status_code == status.HTTP_200_OK
         response_data = response.json()
-        assert response_data["count"] == 9
+        assert response_data["count"] == 8
         assert response_data["next"] is None
         assert response_data["previous"] is None
         assert [x for x in response_data["results"] if not x["is_synthetic"]] == [
@@ -420,6 +425,60 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
         assert SessionRecordingPlaylistViewed.objects.count() == 0
+
+    def _create_denied_experiment_and_viewer(self) -> tuple[Experiment, User]:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        flag = FeatureFlag.objects.create(
+            team=self.team, key="playlist-exposure-flag", created_by=self.user, filters={}
+        )
+        experiment = Experiment.objects.create(
+            team=self.team,
+            name="playlist exposure experiment",
+            feature_flag=flag,
+            created_by=self.user,
+            exposure_criteria={},
+            metrics=[],
+        )
+        AccessControl.objects.create(
+            team=self.team, resource="experiment", resource_id=str(experiment.pk), access_level="none"
+        )
+        return experiment, self._create_user("denied-playlist-viewer@posthog.com")
+
+    def test_rejects_saving_filters_that_reference_an_experiment_the_saver_cannot_view(self) -> None:
+        experiment, denied_user = self._create_denied_experiment_and_viewer()
+        exposure_filters = {"date_from": "-30d", "experiment_exposure": {"experiment_id": experiment.id}}
+        self.client.force_login(denied_user)
+        plain_playlist = self._create_playlist({"type": "filters", "filters": {"date_from": "-30d"}})
+
+        create_response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recording_playlists",
+            data={"name": "exposed sessions", "type": "filters", "filters": exposure_filters},
+        )
+        assert create_response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "experiment you don't have access to" in create_response.json()["detail"]
+
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.id}/session_recording_playlists/{plain_playlist.json()['short_id']}",
+            {"filters": exposure_filters},
+        )
+        assert update_response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "experiment you don't have access to" in update_response.json()["detail"]
+
+    def test_saves_filters_that_reference_an_experiment_the_saver_can_view(self) -> None:
+        # The experiment's creator keeps viewer access despite the team-wide "none", so the
+        # save-time check must let their save through.
+        experiment, _ = self._create_denied_experiment_and_viewer()
+
+        self._create_playlist(
+            {
+                "name": "exposed sessions",
+                "type": "filters",
+                "filters": {"date_from": "-30d", "experiment_exposure": {"experiment_id": experiment.id}},
+            }
+        )
 
     def test_updates_playlist(self):
         create_response = self._create_playlist(
@@ -962,9 +1021,9 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
 
     @parameterized.expand(
         [
-            ["no_filter", "", 7, 2],
+            ["no_filter", "", 6, 2],
             ["custom_only", "?collection_type=custom", 0, 2],
-            ["synthetic_only", "?collection_type=synthetic", 7, 0],
+            ["synthetic_only", "?collection_type=synthetic", 6, 0],
         ]
     )
     def test_filters_playlist_by_collection_type(
@@ -1401,6 +1460,68 @@ class TestSessionRecordingPlaylistPersonalAPIKey(APIBaseTest):
         response = self.client.get(url, headers={"authorization": f"Bearer {personal_api_key}"})
 
         assert response.status_code == expected_status
+
+    @parameterized.expand(
+        [
+            ("create", "", {"name": "new playlist", "type": "collection"}, status.HTTP_201_CREATED),
+            ("add_recording", "/{short_id}/recordings/test_session_id", None, status.HTTP_200_OK),
+            (
+                "bulk_add",
+                "/{short_id}/recordings/bulk_add",
+                {"session_recording_ids": ["test_session_id"]},
+                status.HTTP_200_OK,
+            ),
+            (
+                "bulk_delete",
+                "/{short_id}/recordings/bulk_delete",
+                {"session_recording_ids": ["test_session_id"]},
+                status.HTTP_200_OK,
+            ),
+        ]
+    )
+    def test_personal_api_key_can_access_write_endpoints(
+        self, _name: str, path_suffix: str, data: dict | None, expected_status: int
+    ) -> None:
+        playlist = SessionRecordingPlaylist.objects.create(
+            team=self.team,
+            name="test playlist",
+            created_by=self.user,
+            type=SessionRecordingPlaylist.PlaylistType.COLLECTION,
+        )
+        personal_api_key = self._create_personal_api_key(["session_recording_playlist:write"])
+        url = (
+            f"/api/projects/{self.team.pk}/session_recording_playlists{path_suffix.format(short_id=playlist.short_id)}"
+        )
+
+        response = self.client.post(url, data, headers={"authorization": f"Bearer {personal_api_key}"})
+
+        assert response.status_code == expected_status
+
+    @parameterized.expand(
+        [
+            ("create", "", {"name": "new playlist", "type": "collection"}),
+            ("add_recording", "/{short_id}/recordings/test_session_id", None),
+            ("bulk_add", "/{short_id}/recordings/bulk_add", {"session_recording_ids": ["test_session_id"]}),
+            ("bulk_delete", "/{short_id}/recordings/bulk_delete", {"session_recording_ids": ["test_session_id"]}),
+        ]
+    )
+    def test_personal_api_key_with_read_scope_denied_on_write_endpoints(
+        self, _name: str, path_suffix: str, data: dict | None
+    ) -> None:
+        playlist = SessionRecordingPlaylist.objects.create(
+            team=self.team,
+            name="test playlist",
+            created_by=self.user,
+            type=SessionRecordingPlaylist.PlaylistType.COLLECTION,
+        )
+        personal_api_key = self._create_personal_api_key(["session_recording_playlist:read"])
+        url = (
+            f"/api/projects/{self.team.pk}/session_recording_playlists{path_suffix.format(short_id=playlist.short_id)}"
+        )
+
+        response = self.client.post(url, data, headers={"authorization": f"Bearer {personal_api_key}"})
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     @parameterized.expand(
         [

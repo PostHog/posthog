@@ -46,7 +46,7 @@ function createService(
   const orgListeners: Array<(state: { currentOrgId: string | null }) => void> =
     [];
   const authService = {
-    getState: () => ({ currentOrgId: "org-1" }),
+    getState: () => ({ currentOrgId: "org-1", currentProjectId: 42 }),
     on: (
       _event: string,
       listener: (state: { currentOrgId: string | null }) => void,
@@ -109,6 +109,7 @@ describe("LlmGatewayService.prompt", () => {
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe(`${API_HOST}/gateway/v1/messages`);
     expect(init.method).toBe("POST");
+    expect(init.headers).toMatchObject({ "X-PostHog-Project-Id": "42" });
     const body = JSON.parse(init.body);
     expect(body.model).toBe("claude-default");
     expect(body.system).toBe("be terse");
@@ -351,6 +352,9 @@ describe("LlmGatewayService.fetchUsage", () => {
     expect(usage.product).toBe("code");
     expect(usage.is_pro).toBe(true);
     expect(usage.sustained.used_percent).toBe(10);
+    expect(fetchMock).toHaveBeenCalledWith(`${API_HOST}/gateway/usage`, {
+      headers: { "X-PostHog-Project-Id": "42" },
+    });
   });
 
   it("throws a usage_error LlmGatewayError on non-ok response", async () => {

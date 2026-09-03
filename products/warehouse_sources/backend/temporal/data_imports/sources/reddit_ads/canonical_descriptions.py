@@ -295,4 +295,13 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "os_type": "The device operating system type.",
         },
     },
+    "campaign_keyword_report": {
+        "description": "Daily campaign performance metrics broken down by the keyword the ad was matched on.",
+        "docs_url": "https://ads-api.reddit.com/docs/v3/operations/Generate%20Report",
+        "columns": {
+            **_REPORT_COLUMNS,
+            "campaign_id": "ID of the campaign the metrics are aggregated for.",
+            "keyword": "The targeted keyword the impression was matched on.",
+        },
+    },
 }

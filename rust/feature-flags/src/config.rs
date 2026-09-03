@@ -139,7 +139,7 @@ impl FromStr for TeamIdCollection {
         let s = s.trim();
         if s.eq_ignore_ascii_case("all") || s == "*" {
             Ok(TeamIdCollection::All)
-        } else if s.eq_ignore_ascii_case("none") {
+        } else if s.is_empty() || s.eq_ignore_ascii_case("none") {
             Ok(TeamIdCollection::None)
         } else {
             let mut team_ids = Vec::new();
@@ -646,9 +646,6 @@ pub struct Config {
     #[envconfig(from = "COOKIELESS_DISABLED", default = "false")]
     pub cookieless_disabled: bool,
 
-    #[envconfig(from = "COOKIELESS_FORCE_STATELESS", default = "false")]
-    pub cookieless_force_stateless: bool,
-
     #[envconfig(from = "COOKIELESS_IDENTIFIES_TTL_SECONDS", default = "345600")]
     pub cookieless_identifies_ttl_seconds: u64,
 
@@ -924,6 +921,19 @@ pub struct Config {
     // comfortably within the pod's `terminationGracePeriodSeconds`.
     #[envconfig(from = "FLAGS_BILLING_SHUTDOWN_FLUSH_TIMEOUT_MS", default = "15000")]
     pub billing_shutdown_flush_timeout_ms: u64,
+
+    // Usage-ingestion mirror. Empty address or empty teams disables it, so it
+    // rolls out per team independently of the Redis billing keyspace. These carry
+    // the names every usage producer reads, because each producer is its own
+    // deployment and sets them in its own config.
+    #[envconfig(from = "USAGE_INGESTION_ADDR", default = "")]
+    pub usage_ingestion_addr: String,
+    #[envconfig(from = "USAGE_INGESTION_TLS", default = "false")]
+    pub usage_ingestion_tls: bool,
+    #[envconfig(from = "USAGE_INGESTION_REPORT_TEAMS", default = "")]
+    pub usage_ingestion_teams: TeamIdCollection,
+    #[envconfig(from = "USAGE_INGESTION_TIMEOUT_MS", default = "5000")]
+    pub usage_ingestion_timeout_ms: u64,
 }
 
 /// Thread counts for Tokio (async I/O) and Rayon (CPU-bound parallel evaluation).
@@ -1105,7 +1115,6 @@ impl Config {
             group_type_cache_ttl_seconds: 300,
             group_type_cache_max_entries: 50_000,
             cookieless_disabled: false,
-            cookieless_force_stateless: false,
             cookieless_identifies_ttl_seconds: 345600,
             cookieless_salt_ttl_seconds: 345600,
             cookieless_redis_host: "localhost".to_string(),
@@ -1163,6 +1172,10 @@ impl Config {
             billing_max_pending_entries: 500_000,
             billing_per_flush_batch_size: 200,
             billing_shutdown_flush_timeout_ms: 15_000,
+            usage_ingestion_addr: "".to_string(),
+            usage_ingestion_tls: false,
+            usage_ingestion_teams: TeamIdCollection::None,
+            usage_ingestion_timeout_ms: 5_000,
         }
     }
 
@@ -1224,7 +1237,6 @@ impl Config {
     pub fn get_cookieless_config(&self) -> CookielessConfig {
         CookielessConfig {
             disabled: self.cookieless_disabled,
-            force_stateless_mode: self.cookieless_force_stateless,
             identifies_ttl_seconds: self.cookieless_identifies_ttl_seconds,
             salt_ttl_seconds: self.cookieless_salt_ttl_seconds,
         }
@@ -1393,6 +1405,12 @@ mod tests {
     #[test]
     fn test_team_ids_to_track_none() {
         let team_ids: TeamIdCollection = "none".parse().unwrap();
+        assert_eq!(team_ids, TeamIdCollection::None);
+    }
+
+    #[test]
+    fn test_team_ids_to_track_empty() {
+        let team_ids: TeamIdCollection = "".parse().unwrap();
         assert_eq!(team_ids, TeamIdCollection::None);
     }
 

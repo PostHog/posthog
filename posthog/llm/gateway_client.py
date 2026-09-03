@@ -1,5 +1,6 @@
 import json
 from collections.abc import Mapping
+from dataclasses import field
 from typing import Literal
 from urllib.parse import urlparse
 from uuid import UUID, uuid5
@@ -10,6 +11,8 @@ import httpx
 import structlog
 from anthropic import AsyncAnthropic
 from openai import AsyncOpenAI, OpenAI
+
+from posthog.dataclasses import frozen
 
 logger = structlog.get_logger(__name__)
 
@@ -29,6 +32,7 @@ Product = Literal[
     "slack-twig",
     "customer_archetype_classification",
     "product_analytics",
+    "posthog_ai",
     "subscriptions",
     "signals",
     "review_hog",
@@ -204,8 +208,14 @@ def _gateway_misconfig(url: str, api_key: str) -> str | None:
     return None
 
 
-def resolve_ai_gateway_config() -> tuple[str, str] | None:
-    """Return the validated (url, api_key) for the internal Go ai-gateway, or None.
+@frozen
+class AIGatewayConfig:
+    url: str
+    api_key: str = field(repr=False)
+
+
+def resolve_ai_gateway_config() -> AIGatewayConfig | None:
+    """Return the validated AIGatewayConfig for the internal Go ai-gateway, or None.
 
     None when neither env var is set (the caller uses its normal path), and ALSO when the config
     is half-applied or the URL is malformed: that logs a warning and returns None so the caller
@@ -219,7 +229,7 @@ def resolve_ai_gateway_config() -> tuple[str, str] | None:
     if misconfig:
         logger.warning("ai_gateway_misconfigured_falling_back", reason=misconfig)
         return None
-    return url, api_key
+    return AIGatewayConfig(url=url, api_key=api_key)
 
 
 def _ai_property_headers(**labels: str | None) -> dict[str, str] | None:
@@ -250,6 +260,8 @@ def ai_gateway_headers(
         labels["ai_product"] = ai_product
 
     headers = _ai_property_headers(**labels) or {}
+    if ai_product:
+        headers["X-PostHog-Product"] = ai_product
     if trace_id:
         headers["X-PostHog-Trace-Id"] = trace_id
     if session_id:
@@ -293,12 +305,6 @@ def team_trace_id(team_id: int | None) -> str | None:
     return str(uuid5(_TEAM_TRACE_ID_NAMESPACE, f"team-{team_id}"))
 
 
-def _ai_trace_headers(team_id: int | None) -> dict[str, str]:
-    """``X-PostHog-Trace-Id`` header for a team; empty (not None) so callers can splat it."""
-    trace_id = team_trace_id(team_id)
-    return {"X-PostHog-Trace-Id": trace_id} if trace_id else {}
-
-
 def _anthropic_gateway_base_url(openai_base_url: str) -> str:
     """Drop the OpenAI ``/v1`` suffix so the Anthropic SDK, which appends ``/v1/messages``
     itself, hits the same gateway root the OpenAI route uses. ``resolve_ai_gateway_config``
@@ -323,17 +329,17 @@ def build_openai_client(
 
     ``product`` names the Python-gateway route used in the fallback; the slugless Go gateway
     derives the team from its ``phs_`` bearer and ignores it. ``ai_product`` tags the captured
-    generation in gateway mode (the Python-gateway fallback derives the tag from ``product``).
+    generation through both the typed product header and the legacy property in gateway mode
+    (the Python-gateway fallback derives the tag from ``product``).
     ``distinct_id`` is a Go-gateway header only. Callers must also pass the same value as ``user``
     on every completion request so the Python-gateway fallback preserves end-user attribution.
     trust_env=False keeps the in-cluster call off the egress proxy.
     """
     gateway = resolve_ai_gateway_config()
     if gateway:
-        url, api_key = gateway
         return OpenAI(
-            api_key=api_key,
-            base_url=url,
+            api_key=gateway.api_key,
+            base_url=gateway.url,
             default_headers=ai_gateway_headers(
                 ai_product=ai_product,
                 trace_id=trace_id,
@@ -358,10 +364,9 @@ def build_async_openai_client(
     """Async variant of :func:`build_openai_client`."""
     gateway = resolve_ai_gateway_config()
     if gateway:
-        url, api_key = gateway
         return AsyncOpenAI(
-            api_key=api_key,
-            base_url=url,
+            api_key=gateway.api_key,
+            base_url=gateway.url,
             default_headers=ai_gateway_headers(
                 ai_product=ai_product,
                 trace_id=trace_id,
@@ -385,9 +390,10 @@ def build_async_anthropic_client(
     """Return a raw Anthropic client routed through the internal Go ai-gateway when configured,
     else the Python LLM gateway via :func:`get_async_anthropic_gateway_client`.
 
-    In gateway mode the ``ai_product``, ``ai_stage``, and ``team_id`` labels ride on the
-    ``X-PostHog-Properties`` JSON blob: the Go gateway ignores the ``x-posthog-property-<key>``
-    per-header form the Python gateway reads, so they would be dropped if passed that way.
+    In gateway mode ``ai_product`` rides on both ``X-PostHog-Product`` and the legacy
+    ``X-PostHog-Properties`` JSON blob. The ``ai_stage`` and ``team_id`` labels use only the
+    blob because the Go gateway ignores the ``x-posthog-property-<key>`` per-header form that
+    the Python gateway reads.
     ``team_id`` is the customer team the generation is attributed to (the usage report reads it as
     a property); it does not change the event's owning project, which the gateway derives from the
     ``phs_`` bearer. The Anthropic SDK appends ``/v1/messages``, so the client gets the gateway
@@ -402,22 +408,22 @@ def build_async_anthropic_client(
     """
     gateway = resolve_ai_gateway_config()
     if gateway:
-        url, api_key = gateway
-        default_headers = {
-            **(
-                _ai_property_headers(
-                    ai_product=ai_product,
-                    ai_stage=ai_stage,
-                    team_id=str(team_id) if team_id is not None else None,
-                )
-                or {}
-            ),
-            **_ai_trace_headers(team_id),
+        properties = {
+            key: value
+            for key, value in {
+                "ai_stage": ai_stage,
+                "team_id": str(team_id) if team_id is not None else None,
+            }.items()
+            if value
         }
         return AsyncAnthropic(
-            api_key=api_key,
-            base_url=_anthropic_gateway_base_url(url),
-            default_headers=default_headers or None,
+            api_key=gateway.api_key,
+            base_url=_anthropic_gateway_base_url(gateway.url),
+            default_headers=ai_gateway_headers(
+                ai_product=ai_product,
+                trace_id=team_trace_id(team_id),
+                properties=properties,
+            ),
             http_client=httpx.AsyncClient(trust_env=False),
         )
     return get_async_anthropic_gateway_client(product, team_id=team_id, use_bedrock_fallback=use_bedrock_fallback)

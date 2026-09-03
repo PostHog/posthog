@@ -140,6 +140,7 @@ export interface dataModelingLogicValues {
     reactFlowWrapper: RefObject<HTMLDivElement> | null
     runningNodeIds: Set<string>
     savedViewport: Viewport | null
+    searchLayoutNodes: Node[] | null
     searchMatchedNodeIds: Set<string> | null
     searchTerm: string
     selectedDag: DataModelingDAG | null
@@ -155,6 +156,9 @@ export interface dataModelingLogicActions {
         value: true
     }
     clearFilterTypes: () => {
+        value: true
+    }
+    layoutSearchResults: () => {
         value: true
     }
     loadDags: () => any
@@ -313,6 +317,9 @@ export interface dataModelingLogicActions {
     setSavedViewport: (viewport: Viewport) => {
         viewport: Viewport
     }
+    setSearchLayoutNodes: (nodes: Node[] | null) => {
+        nodes: Node[] | null
+    }
     setSearchTerm: (searchTerm: string) => {
         searchTerm: string
     }
@@ -364,6 +371,7 @@ export interface dataModelingLogicMeta {
         >
         enrichedNodes: (
             nodes: Node[],
+            searchLayoutNodes: Node[] | null,
             runningNodeIds: Set<string>,
             highlightedNodeType: DataModelingNodeType | null,
             latestJobMetadataByNodeId: Record<
@@ -414,7 +422,9 @@ export const dataModelingLogic = kea<dataModelingLogicType>([
         onNodesChange: (nodes: NodeChange<Node>[]) => ({ nodes }),
         setNodes: (nodes: Node[], fitViewAfter?: boolean) => ({ nodes, fitViewAfter }),
         setNodesRaw: (nodes: Node[]) => ({ nodes }),
+        setSearchLayoutNodes: (nodes: Node[] | null) => ({ nodes }),
         setEdges: (edges: Edge[]) => ({ edges }),
+        layoutSearchResults: true,
         setReactFlowInstance: (reactFlowInstance: ReactFlowInstance<Node, Edge>) => ({
             reactFlowInstance,
         }),
@@ -502,6 +512,14 @@ export const dataModelingLogic = kea<dataModelingLogicType>([
             [] as Node[],
             {
                 setNodesRaw: (_, { nodes }) => nodes,
+            },
+        ],
+        searchLayoutNodes: [
+            null as Node[] | null,
+            {
+                setSearchLayoutNodes: (_, { nodes }) => nodes,
+                setDebouncedSearchTerm: () => null,
+                resetGraph: () => null,
             },
         ],
         highlightedNodeType: [
@@ -711,6 +729,7 @@ export const dataModelingLogic = kea<dataModelingLogicType>([
         enrichedNodes: [
             (s) => [
                 s.nodes,
+                s.searchLayoutNodes,
                 s.runningNodeIds,
                 s.highlightedNodeType,
                 s.latestJobMetadataByNodeId,
@@ -718,6 +737,7 @@ export const dataModelingLogic = kea<dataModelingLogicType>([
             ],
             (
                 nodes: Node[],
+                searchLayoutNodes: Node[] | null,
                 runningNodeIds: Set<string>,
                 highlightedNodeType: DataModelingNodeType | null,
                 latestJobMetadataByNodeId: Record<
@@ -729,9 +749,10 @@ export const dataModelingLogic = kea<dataModelingLogicType>([
                 >,
                 searchMatchedNodeIds: Set<string> | null
             ): Node[] => {
+                const layoutNodes = searchLayoutNodes ?? nodes
                 const visibleNodes = searchMatchedNodeIds
-                    ? nodes.filter((node) => searchMatchedNodeIds.has(node.id))
-                    : nodes
+                    ? layoutNodes.filter((node) => searchMatchedNodeIds.has(node.id))
+                    : layoutNodes
                 return visibleNodes.map((node) => {
                     const isRunning = runningNodeIds.has(node.id)
                     const isTypeHighlighted = highlightedNodeType !== null && highlightedNodeType === node.data.type
@@ -1024,10 +1045,27 @@ export const dataModelingLogic = kea<dataModelingLogicType>([
             }
             const formattedNodes = await getFormattedNodes(nodes, values.edges, values.layoutDirection)
             actions.setNodesRaw(formattedNodes)
+            if (values.debouncedSearchTerm.length > 0) {
+                actions.layoutSearchResults()
+            }
             if (fitViewAfter) {
                 values.reactFlowInstance?.fitView({ padding: 0.2, maxZoom: 1 })
             }
             actions.setGraphReady(true)
+        },
+        layoutSearchResults: async (_, breakpoint) => {
+            const matchedNodeIds = values.searchMatchedNodeIds
+            if (matchedNodeIds === null) {
+                actions.setSearchLayoutNodes(null)
+                return
+            }
+            const matchedNodes = values.nodes.filter((node) => matchedNodeIds.has(node.id))
+            const matchedEdges = values.edges.filter(
+                (edge) => matchedNodeIds.has(edge.source) && matchedNodeIds.has(edge.target)
+            )
+            const formattedNodes = await getFormattedNodes(matchedNodes, matchedEdges, values.layoutDirection)
+            await breakpoint()
+            actions.setSearchLayoutNodes(formattedNodes)
         },
         setLayoutDirection: () => {
             if (values.dataModelingNodes.length > 0) {
@@ -1040,6 +1078,9 @@ export const dataModelingLogic = kea<dataModelingLogicType>([
             }
             await breakpoint(150)
             actions.setDebouncedSearchTerm(searchTerm)
+        },
+        setDebouncedSearchTerm: () => {
+            actions.layoutSearchResults()
         },
         runNode: async ({ nodeId, direction }) => {
             const { upstream, downstream } = buildAdjacencyMaps(values.edges)

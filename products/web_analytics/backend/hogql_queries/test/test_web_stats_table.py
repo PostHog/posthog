@@ -10,6 +10,7 @@ from posthog.test.base import (
     _create_event,
     _create_person,
     flush_persons_and_events,
+    skip_clickhouse_query_snapshots,
     snapshot_clickhouse_queries,
 )
 from unittest.mock import patch
@@ -570,6 +571,38 @@ class TestWebStatsTableQueryRunner(
         assert [
             ["/item/<id>/detail/<detail_id>", (3.0, None), (3.0, None), 3 / 4, ""],
             ["/other/123/path", (1.0, None), (1.0, None), 1 / 4, ""],
+        ] == results
+
+    def test_path_cleaning_filters_with_capture_group_backreference(self):
+        s1 = str(uuid7("2023-12-02"))
+        s2 = str(uuid7("2023-12-10"))
+        s3 = str(uuid7("2023-12-11"))
+        s4 = str(uuid7("2023-12-12"))
+
+        self._create_events(
+            [
+                ("p1", [("2023-12-02", s1, "/item/123/detail/456")]),
+                ("p2", [("2023-12-10", s2, "/item/123/detail/789")]),  # same item, different detail
+                ("p3", [("2023-12-11", s3, "/item/999/detail/111")]),
+                ("p4", [("2023-12-12", s4, "/other/1/path")]),  # Should not match
+            ]
+        )
+
+        # The alias reuses capture group 1 with re2 `\1` syntax, keeping the item id and dropping the
+        # detail segment. This is passed straight to ClickHouse `replaceRegexpAll`, so it guards that
+        # the alias is never re-escaped or treated as a literal on its way to the query.
+        results = self._run_web_stats_table_query(
+            "all",
+            "2023-12-15",
+            path_cleaning_filters=[
+                {"regex": "\\/item\\/(\\d+)\\/detail\\/\\d+", "alias": "/item/\\1"},
+            ],
+        ).results
+
+        assert [
+            ["/item/123", (2.0, None), (2.0, None), 2 / 4, ""],
+            ["/item/999", (1.0, None), (1.0, None), 1 / 4, ""],
+            ["/other/1/path", (1.0, None), (1.0, None), 1 / 4, ""],
         ] == results
 
     def test_path_cleaning_filters_applied_in_order(self):
@@ -1213,6 +1246,7 @@ class TestWebStatsTableQueryRunner(
         assert sorted(row[0] for row in results) == expected
 
     @parameterized.expand([("bounce_rate", False), ("bounce_rate_and_avg_time", True)])
+    @skip_clickhouse_query_snapshots
     def test_first_pageview_attribution_rewrites_drill_down_on_paths_tile(self, _name, include_avg_time_on_page):
         # The Paths tile splits user filters across three separate events scans
         # instead of the single `all_properties` clause the Sources tiles use, so
@@ -1221,23 +1255,23 @@ class TestWebStatsTableQueryRunner(
 
         def drilled_down_paths(flag_on):
             with self._patch_first_pageview_flag(enabled=flag_on):
-                return [
-                    row[0]
-                    for row in self._run_web_stats_table_query(
-                        "all",
-                        "2024-06-27",
-                        breakdown_by=WebStatsBreakdown.PAGE,
-                        include_bounce_rate=True,
-                        include_avg_time_on_page=include_avg_time_on_page,
-                        properties=[
-                            SessionPropertyFilter(
-                                key="$channel_type", value="Paid Search", operator=PropertyOperator.EXACT
-                            )
-                        ],
-                    ).results
-                ]
+                return self._run_web_stats_table_query(
+                    "all",
+                    "2024-06-27",
+                    breakdown_by=WebStatsBreakdown.PAGE,
+                    include_bounce_rate=True,
+                    include_avg_time_on_page=include_avg_time_on_page,
+                    properties=[
+                        SessionPropertyFilter(key="$channel_type", value="Paid Search", operator=PropertyOperator.EXACT)
+                    ],
+                ).results
 
-        assert drilled_down_paths(flag_on=True) == ["/landing"]
+        expected = (
+            [["/landing", (1, 0), (1, 0), (0.0, 0.0), (0.0, 0.0), 1.0, ""]]
+            if include_avg_time_on_page
+            else [["/landing", (1, 0), (1, 0), (None, None), 1.0, ""]]
+        )
+        assert drilled_down_paths(flag_on=True) == expected
         assert drilled_down_paths(flag_on=False) == []
 
     def test_first_pageview_attribution_filter_changes_cache_key(self):

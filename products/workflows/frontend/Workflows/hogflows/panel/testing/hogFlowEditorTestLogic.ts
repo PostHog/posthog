@@ -9,7 +9,6 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
-import { uuid } from 'lib/utils/dom'
 import { performWideEventsQueryInTwoPhases } from 'scenes/hog-functions/sampleEventsQuery'
 
 import { groupsModel } from '~/models/groupsModel'
@@ -29,7 +28,9 @@ import {
 import { WorkflowLogicProps, workflowLogic } from '../../../workflowLogic'
 import type { TriggerAction } from '../../../workflowLogic'
 import { hogFlowEditorLogic } from '../../hogFlowEditorLogic'
+import { isSlackMessageTriggerConfig } from '../../registry/triggers/slackTriggerFilters'
 import { HogflowTestResult } from '../../steps/types'
+import { createExampleEvent, createExampleEventForTrigger } from '../../testEventFactory'
 import type { HogFlow } from '../../types'
 
 // Time range constants for event search
@@ -41,51 +42,6 @@ const EXTENDED_SEARCH_RANGE = `-${EXTENDED_SEARCH_DAYS}d`
 export interface HogflowTestInvocation {
     globals: string
     mock_async_functions: boolean
-}
-
-export const createExampleEvent = (
-    teamId?: number,
-    workflowName?: string | null,
-    eventName: string = '$pageview',
-    email: string = 'example@posthog.com'
-): CyclotronJobInvocationGlobals => {
-    const resolvedTeamId = teamId || 1
-    const projectUrl = `${window.location.origin}/project/${resolvedTeamId}`
-    const eventUuid = uuid()
-    const eventTimestamp = dayjs().toISOString()
-    return {
-        event: {
-            uuid: eventUuid,
-            distinct_id: uuid(),
-            timestamp: eventTimestamp,
-            elements_chain: '',
-            url: `${projectUrl}/events/${encodeURIComponent(eventUuid)}/${encodeURIComponent(eventTimestamp)}`,
-            event: eventName,
-            properties: {
-                $current_url: window.location.href.split('#')[0],
-                $browser: 'Chrome',
-                this_is_an_example_event: true,
-            },
-        },
-        person: {
-            id: uuid(),
-            properties: {
-                email,
-            },
-            name: 'Example person',
-            url: `${window.location.origin}/person/${uuid()}`,
-        },
-        groups: {},
-        project: {
-            id: resolvedTeamId,
-            name: 'Default project',
-            url: projectUrl,
-        },
-        source: {
-            name: workflowName ?? 'Unnamed',
-            url: window.location.href.split('#')[0],
-        },
-    }
 }
 
 // HogQL tuple columns appended to the events query so we can resolve each group type's
@@ -377,11 +333,27 @@ export interface hogFlowEditorTestLogicMeta {
                             }
                           | {
                                 filters: {
+                                    events: any[]
+                                    properties?: any[] | undefined
+                                    source: 'internal-events'
+                                }
+                                type: 'internal-event'
+                            }
+                          | {
+                                filters: {
                                     properties?: any[] | undefined
                                 }
                                 key_property?: string | undefined
                                 table_name: string
                                 type: 'data-warehouse-table'
+                            }
+                          | {
+                                filters: {
+                                    properties?: any[] | undefined
+                                }
+                                key_property?: string | undefined
+                                table_name: string
+                                type: 'data-warehouse-view'
                             }
                           | {
                                 inputs: Record<
@@ -493,11 +465,27 @@ export interface hogFlowEditorTestLogicMeta {
                             }
                           | {
                                 filters: {
+                                    events: any[]
+                                    properties?: any[] | undefined
+                                    source: 'internal-events'
+                                }
+                                type: 'internal-event'
+                            }
+                          | {
+                                filters: {
                                     properties?: any[] | undefined
                                 }
                                 key_property?: string | undefined
                                 table_name: string
                                 type: 'data-warehouse-table'
+                            }
+                          | {
+                                filters: {
+                                    properties?: any[] | undefined
+                                }
+                                key_property?: string | undefined
+                                table_name: string
+                                type: 'data-warehouse-view'
                             }
                           | {
                                 inputs: Record<
@@ -840,19 +828,23 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                         const response = await performWideEventsQueryInTwoPhases(query)
 
                         if (!response?.results?.[0]) {
-                            // No matching events found, use standard example event
-                            const exampleGlobals = createExampleEvent(values.workflow.team_id, values.workflow.name)
+                            // No matching events found, use a trigger-appropriate example event
+                            const exampleGlobals = createExampleEventForTrigger(
+                                values.triggerAction?.config,
+                                values.workflow.team_id,
+                                values.workflow.name
+                            )
 
                             if (extendedSearch) {
                                 // Extended search also failed
                                 actions.setSampleGlobalsError(
-                                    `No "${eventName}" events found in the last ${EXTENDED_SEARCH_DAYS} days. Using an example $pageview event instead.`
+                                    `No "${eventName}" events found in the last ${EXTENDED_SEARCH_DAYS} days. Using an example ${exampleGlobals.event.event} event instead.`
                                 )
                                 actions.setCanTryExtendedSearch(false)
                             } else {
                                 // First search failed, allow extended search
                                 actions.setSampleGlobalsError(
-                                    `No "${eventName}" events found in the last ${STANDARD_SEARCH_DAYS} days. Using an example $pageview event instead.`
+                                    `No "${eventName}" events found in the last ${STANDARD_SEARCH_DAYS} days. Using an example ${exampleGlobals.event.event} event instead.`
                                 )
                                 actions.setCanTryExtendedSearch(true)
                             }
@@ -1064,8 +1056,17 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
             actions.loadSampleGlobals()
         } else {
             // Only use example event if we can't load actual events
-            const exampleGlobals = createExampleEvent(values.workflow.team_id, values.workflow.name)
+            const exampleGlobals = createExampleEventForTrigger(
+                values.triggerAction?.config,
+                values.workflow.team_id,
+                values.workflow.name
+            )
             actions.loadSampleGlobalsSuccess(exampleGlobals)
+            if (isSlackMessageTriggerConfig(values.triggerAction?.config)) {
+                actions.setSampleGlobalsError(
+                    "A real Slack message can't be loaded here. This example matches your channel and who-can-start-a-run filters. Edit it to test any other filters, such as message text."
+                )
+            }
         }
     }),
 ])

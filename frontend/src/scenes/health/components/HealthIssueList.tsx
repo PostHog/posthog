@@ -14,7 +14,7 @@ import { HealthIssueCard } from './HealthIssueCard'
 
 export const HealthIssueList = (): JSX.Element => {
     const { issues, healthIssuesLoading, healthIssues } = useValues(healthSceneLogic)
-    const { dismissIssue, undismissIssue, loadHealthIssues } = useActions(healthSceneLogic)
+    const { snoozeIssue, dismissIssue, undismissIssue, loadHealthIssues } = useActions(healthSceneLogic)
 
     if (healthIssuesLoading && !healthIssues) {
         return (
@@ -97,6 +97,7 @@ export const HealthIssueList = (): JSX.Element => {
                                         <CategoryContent
                                             category={category}
                                             issues={categoryIssues}
+                                            onSnooze={snoozeIssue}
                                             onDismiss={dismissIssue}
                                             onUndismiss={undismissIssue}
                                         />
@@ -114,22 +115,30 @@ export const HealthIssueList = (): JSX.Element => {
 function CategoryContent({
     category,
     issues,
+    onSnooze,
     onDismiss,
     onUndismiss,
 }: {
     category: HealthIssueCategory
     issues: HealthIssue[]
+    onSnooze: (id: string, duration: string) => void
     onDismiss: (id: string) => void
     onUndismiss: (id: string) => void
 }): JSX.Element {
     const TableComponent = CATEGORY_DETAIL_CONFIG[category]?.tableComponent
     if (TableComponent) {
-        return <TableComponent issues={issues} onDismiss={onDismiss} onUndismiss={onUndismiss} />
+        return <TableComponent issues={issues} onSnooze={onSnooze} onDismiss={onDismiss} onUndismiss={onUndismiss} />
     }
     return (
         <div className="divide-y divide-border">
             {issues.map((issue) => (
-                <HealthIssueCard key={issue.id} issue={issue} onDismiss={onDismiss} onUndismiss={onUndismiss} />
+                <HealthIssueCard
+                    key={issue.id}
+                    issue={issue}
+                    onSnooze={onSnooze}
+                    onDismiss={onDismiss}
+                    onUndismiss={onUndismiss}
+                />
             ))}
         </div>
     )

@@ -1,14 +1,19 @@
 import { useActions, useValues } from 'kea'
 
 import { IconPeople } from '@posthog/icons'
-import { LemonButton, LemonTag, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 import { BarChart } from '@posthog/quill-charts'
 
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
+import { pluralize } from 'lib/utils/strings'
+import { urls } from 'scenes/urls'
 
+import { creditsToUsd, formatCreditsRange } from '../../utils/credits'
 import { replayScannerLogic } from '../replayScannerLogic'
+import { ReplayScannerTab, replayScannerSceneLogic } from '../replayScannerSceneLogic'
 import { scannerOverviewLogic } from '../scannerOverviewLogic'
+import { scannerSelfDrivingStatsLogic } from '../scannerSelfDrivingStatsLogic'
 import { ScannerType } from '../types'
 import { ScannerInsightsChart } from './ScannerInsightsChart'
 import { ScannerOverviewFilters } from './ScannerOverviewFilters'
@@ -191,6 +196,89 @@ function ImpactOverview({ scannerId }: { scannerId: string }): JSX.Element | nul
     )
 }
 
+// One stage of the self-driving funnel: a big count over a muted label, matching the panel grid density.
+function SelfDrivingStage({ count, label }: { count: number; label: string }): JSX.Element {
+    return (
+        <div className="flex flex-col">
+            <span className="text-lg font-semibold tabular-nums">{count.toLocaleString()}</span>
+            <span className="text-xs text-muted">{label}</span>
+        </div>
+    )
+}
+
+function SelfDrivingOverview({ scannerId }: { scannerId: string }): JSX.Element {
+    const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
+    const { selfDrivingStats, selfDrivingStatsLoading } = useValues(scannerSelfDrivingStatsLogic({ scannerId }))
+
+    // Unresolved data renders as loading, never as the off-state nudge or the empty state.
+    if (!scanner || (selfDrivingStatsLoading && !selfDrivingStats)) {
+        return (
+            <OverviewPanel title="Self-driving">
+                <PanelEmpty loading message="" />
+            </OverviewPanel>
+        )
+    }
+    // Historical signals from before the toggle was turned off still count, so the off-state
+    // nudge only replaces the funnel when there is nothing to show.
+    if (!scanner.emits_signals && (!selfDrivingStats || selfDrivingStats.signals_emitted === 0)) {
+        return (
+            <OverviewPanel title="Self-driving" disabled>
+                <div className="text-muted text-sm">
+                    This scanner doesn't emit signals. Turn on self-driving in the{' '}
+                    <Link to={urls.replayVisionScannerConfigure(scannerId)}>scanner's configuration</Link> to feed its
+                    findings into Signals, where agents investigate and draft pull requests.
+                </div>
+            </OverviewPanel>
+        )
+    }
+    if (!selfDrivingStats || selfDrivingStats.signals_emitted === 0) {
+        return (
+            <OverviewPanel title="Self-driving">
+                <PanelEmpty
+                    loading={selfDrivingStatsLoading}
+                    message={
+                        selfDrivingStats
+                            ? 'No signals emitted yet. Findings flow into Signals as sessions are scanned.'
+                            : "Couldn't load self-driving stats."
+                    }
+                />
+            </OverviewPanel>
+        )
+    }
+    return (
+        <OverviewPanel title="Self-driving" subtitle="all time">
+            {/* Capped so the four stages read as one row on wide screens instead of drifting apart. */}
+            <div className="grid grid-cols-4 gap-4 max-w-3xl" data-attr="vision-self-driving-funnel">
+                <SelfDrivingStage
+                    count={selfDrivingStats.signals_emitted}
+                    label={pluralize(selfDrivingStats.signals_emitted, 'signal emitted', 'signals emitted', false)}
+                />
+                <SelfDrivingStage
+                    count={selfDrivingStats.reports_contributed}
+                    label={pluralize(
+                        selfDrivingStats.reports_contributed,
+                        'report contributed to',
+                        'reports contributed to',
+                        false
+                    )}
+                />
+                <SelfDrivingStage
+                    count={selfDrivingStats.prs_opened}
+                    label={pluralize(selfDrivingStats.prs_opened, 'PR opened', 'PRs opened', false)}
+                />
+                <SelfDrivingStage
+                    count={selfDrivingStats.prs_merged}
+                    label={pluralize(selfDrivingStats.prs_merged, 'PR merged', 'PRs merged', false)}
+                />
+            </div>
+            <div className="text-xs text-muted">
+                A report can combine signals from several scanners and other sources, so these are contributions, not
+                sole causes.
+            </div>
+        </OverviewPanel>
+    )
+}
+
 function MonitorOverview({ scannerId }: { scannerId: string }): JSX.Element {
     const { monitorStats, hasActiveOverviewFilters, overviewStatsApiLoading } = useValues(
         scannerOverviewLogic({ scannerId })
@@ -255,29 +343,32 @@ function ClassifierOverview({ scannerId }: { scannerId: string }): JSX.Element |
     }
     const freeformAllowed = !!scanner.scanner_config.allow_freeform_tags
     const fixedEmpty = hasActiveOverviewFilters
-        ? 'No fixed-vocabulary tags match the current filter.'
-        : 'No fixed-vocabulary tags emitted yet.'
+        ? 'No configured categories match the current filter.'
+        : 'No configured categories emitted yet.'
     const freeformEmpty = hasActiveOverviewFilters
-        ? 'No freeform tags match the current filter.'
-        : 'No freeform tags emitted yet.'
+        ? 'No freeform categories match the current filter.'
+        : 'No freeform categories emitted yet.'
 
     const cohortAction = (tag: string): JSX.Element => (
         <LemonButton
+            type="secondary"
             size="xsmall"
             icon={<IconPeople />}
-            tooltip={`Save users tagged "${tag}" in the last 30 days as a cohort`}
+            tooltip={`Save users in category "${tag}" from the last 30 days as a cohort`}
             onClick={() => saveAffectedCohort(tag)}
             loading={affectedCohortLoading && savingCohortTag === tag}
             disabledReason={
                 affectedCohortLoading && savingCohortTag !== tag ? 'Another cohort is being created' : undefined
             }
             data-attr="vision-save-tag-cohort"
-        />
+        >
+            Save as cohort
+        </LemonButton>
     )
 
     return (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <OverviewPanel title="Top fixed tags" subtitle="from configured vocabulary" fill>
+            <OverviewPanel title="Top configured categories" subtitle="from the categories you defined" fill>
                 <RankedTermList
                     ranked={fixedRanked}
                     loading={overviewStatsApiLoading}
@@ -288,8 +379,8 @@ function ClassifierOverview({ scannerId }: { scannerId: string }): JSX.Element |
             </OverviewPanel>
 
             <OverviewPanel
-                title="Top freeform tags"
-                subtitle={freeformAllowed ? 'outside configured vocabulary' : 'disabled'}
+                title="Top freeform categories"
+                subtitle={freeformAllowed ? 'outside the categories you defined' : 'disabled'}
                 disabled={!freeformAllowed}
                 fill
             >
@@ -303,11 +394,44 @@ function ClassifierOverview({ scannerId }: { scannerId: string }): JSX.Element |
                     />
                 ) : (
                     <div className="text-muted text-sm">
-                        Freeform tags are disabled for this scanner, so the model can only pick from your configured
-                        vocabulary. Enable "Allow freeform tags" in the scanner config to let it propose new ones.
+                        Freeform categories are disabled for this scanner, so the model can only pick from the
+                        categories you defined. Enable "Allow freeform categories" in the scanner config to let it
+                        propose new ones.
                     </div>
                 )}
             </OverviewPanel>
+        </div>
+    )
+}
+
+function CreditLimitOverview({ scannerId }: { scannerId: string }): JSX.Element | null {
+    const { creditLimitStats } = useValues(scannerOverviewLogic({ scannerId }))
+    if (!creditLimitStats) {
+        return null
+    }
+    const { used, limit, usedPct, limitReached } = creditLimitStats
+    return (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="min-w-0">
+                <OverviewPanel
+                    title="Spend against limit"
+                    subtitle={limitReached ? <LemonTag type="danger">Limit reached</LemonTag> : `${usedPct}%`}
+                    fill
+                >
+                    <LemonProgress percent={usedPct} strokeColor={limitReached ? 'var(--danger)' : undefined} />
+                    <div className="text-sm tabular-nums">
+                        {formatCreditsRange(used, limit)} (≈ {creditsToUsd(limit)} per period)
+                    </div>
+                    {limitReached && (
+                        // The tag can appear below 100%: a scanner stops as soon as what's left can't cover a whole
+                        // scan, so the copy has to explain that rather than claim the budget is fully spent.
+                        <div className="text-xs text-muted">
+                            What's left won't cover another scan, so this scanner has stopped until its limit resets at
+                            the start of the next billing period. Sessions skipped while capped are not scanned later.
+                        </div>
+                    )}
+                </OverviewPanel>
+            </div>
         </div>
     )
 }
@@ -398,10 +522,57 @@ function SummarizerOverview({ scannerId }: { scannerId: string }): JSX.Element |
     )
 }
 
+// The interstitial a just-created scanner shows instead of the filters + charts, whose "no matching
+// events" empty state would wrongly suggest the user's setup is broken while the first sweep runs.
+// It also hides the overview's reload buttons, so when the background checks keep failing it has to
+// surface that itself and offer a retry.
+function FirstScanPendingPanel({ scannerId }: { scannerId: string }): JSX.Element {
+    const { setActiveTab } = useActions(replayScannerSceneLogic)
+    const { firstScanCheckFailing, overviewStatsApiLoading } = useValues(scannerOverviewLogic({ scannerId }))
+    const { loadOverviewStats } = useActions(scannerOverviewLogic({ scannerId }))
+    return (
+        <div
+            className="border rounded bg-surface-primary p-6 flex flex-col items-center gap-2 text-center"
+            data-attr="vision-first-scan-pending"
+        >
+            {!firstScanCheckFailing && <Spinner className="text-2xl" />}
+            <div className="font-semibold">First scan in progress</div>
+            <div className="text-muted text-sm max-w-md">
+                {firstScanCheckFailing
+                    ? "We couldn't check for results. We'll keep retrying, or you can retry now."
+                    : 'This scanner picks up new recordings on a schedule. Results usually appear within 15 minutes.'}
+            </div>
+            {firstScanCheckFailing && (
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    loading={overviewStatsApiLoading}
+                    onClick={() => loadOverviewStats()}
+                    data-attr="vision-first-scan-pending-retry"
+                >
+                    Retry
+                </LemonButton>
+            )}
+            <LemonButton
+                type="secondary"
+                size="small"
+                onClick={() => setActiveTab(ReplayScannerTab.OnDemand)}
+                data-attr="vision-first-scan-pending-scan-now"
+            >
+                Scan a recording now
+            </LemonButton>
+        </div>
+    )
+}
+
 export function ScannerOverview({ scannerId }: { scannerId: string }): JSX.Element | null {
     const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
+    const { firstScanPending } = useValues(scannerOverviewLogic({ scannerId }))
     if (!scanner) {
         return null
+    }
+    if (firstScanPending) {
+        return <FirstScanPendingPanel scannerId={scannerId} />
     }
     const scannerType: ScannerType = scanner.scanner_type
     const typeOverview =
@@ -454,6 +625,8 @@ export function ScannerOverview({ scannerId }: { scannerId: string }): JSX.Eleme
         <div className="flex flex-col gap-4">
             <ScannerOverviewFilters scannerId={scannerId} />
             {body}
+            <SelfDrivingOverview scannerId={scannerId} />
+            <CreditLimitOverview scannerId={scannerId} />
         </div>
     )
 }

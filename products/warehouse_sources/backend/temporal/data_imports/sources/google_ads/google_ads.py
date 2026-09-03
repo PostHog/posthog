@@ -48,6 +48,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads
     GoogleAdsResumeConfig,
     GoogleAdsSourceConfigUnion,
     clean_customer_id,
+    parse_start_date,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.schemas import (
     FIELD_ALIASES,
@@ -71,7 +72,15 @@ GOOGLE_ADS_HOST = "googleads.googleapis.com"
 # single small window covers the tail, so this is a no-op for healthy tables. Tune to trade
 # catch-up speed against per-run size.
 GOOGLE_ADS_INCREMENTAL_WINDOW_DAYS = 7
-GOOGLE_ADS_MAX_DATA_WINDOWS_PER_RUN = 5
+
+# Wall time, not a count of windows: a window is anywhere from empty to a full day of rows, so a
+# count has to suit the widest one and then throttles every table to it. Bounds time spent importing
+# new ground rather than the run — see the arming rule in the drain loop.
+GOOGLE_ADS_MAX_DRAIN_SECONDS = 10 * 60
+
+# Lower bound for the "where does this resource's data begin" request. Google serves a date this old
+# and returns nothing from before an account existed, so it needs no per-account tuning.
+_GOOGLE_ADS_EARLIEST_QUERYABLE_DATE = "1970-01-01"
 
 # The Google Ads SDK hardcodes `grpc.max_receive_message_length` to 64 MiB. A single
 # `GoogleAdsService.Search` page can carry up to 10,000 rows, and wide resources routinely
@@ -476,6 +485,36 @@ def get_schemas(config: GoogleAdsSourceConfigUnion, team_id: int, api_version: s
     return table_schemas
 
 
+def _earliest_date_with_data(
+    service: "GoogleAdsSearchService",
+    customer_id: str | None,
+    table: "GoogleAdsTable",
+    incremental_field: str,
+) -> dt.date | None:
+    """Return the first date this resource holds rows for, or None when it holds none.
+
+    How the drain reaches an unbounded range cheaply: it walks fixed windows and each empty one is a
+    request, so starting at the sentinel would spend the run on requests that return nothing. Google
+    sorts and truncates server-side, so this costs one request whatever the account holds. It
+    locates a range rather than choosing one — that is the schema's `history_start`.
+    """
+    query = (
+        f"SELECT {incremental_field} FROM {table.name} "
+        f"WHERE {incremental_field} >= '{_GOOGLE_ADS_EARLIEST_QUERYABLE_DATE}' "
+        f"AND {incremental_field} < '{(dt.date.today() + dt.timedelta(days=1)).isoformat()}'"
+    )
+    if table.extra_where:
+        query += f" AND {table.extra_where}"
+    query += f" ORDER BY {incremental_field} ASC LIMIT 1"
+
+    # Through the wrapper, so a manager account's missing login-customer-id header recovers here the
+    # same way it does for the drain's own queries.
+    for row in _search_with_transient_retry(service, {"customer_id": customer_id, "query": query}):
+        return dt.date.fromisoformat(_traverse_attributes(row, *incremental_field.split(".")))
+
+    return None
+
+
 def _incremental_value_as_date(value: dt.date | dt.datetime | str) -> dt.date:
     """Coerce a stored incremental cursor value to a plain date for window arithmetic.
 
@@ -489,6 +528,54 @@ def _incremental_value_as_date(value: dt.date | dt.datetime | str) -> dt.date:
     return dateutil_parser.parse(value).date()
 
 
+def _resolve_start(
+    requested_start: str | None,
+    history_start: typing.Any,
+    service: "GoogleAdsSearchService",
+    customer_id: str | None,
+    table: "GoogleAdsTable",
+    incremental_field: str,
+) -> tuple[dt.date, str]:
+    """Where a run with no cursor begins, and which of the three answers it came from.
+
+    A stated start date wins over the range the schema recorded: it is the only one of the two
+    anybody chose, and it wins in both directions, so a source can narrow its range as well as widen
+    it. Neither is a first sync versus a re-import question — both land here and read the same
+    answer, which is what stops the two diverging on which button was pressed.
+    """
+    if requested_start:
+        try:
+            requested = parse_start_date(requested_start)
+        except ValueError:
+            # Validation rejects an unreadable value, so reaching here means one stored before that
+            # check existed. Fall through to the recorded range rather than fail the sync -- the
+            # range this source would have had without the field. Truncated in the log because the
+            # field has no length limit of its own and this runs once per schema per run.
+            logger.warning("google_ads.unparseable_start_date", start_date=requested_start[:32])
+        else:
+            # Clamped to the span that can hold rows. Below the account's first day the walk spends
+            # a request per empty week, and since only a window past the cursor counts as progress,
+            # the drain budget cannot end a run that never reaches data. Past today it leaves
+            # `start` beyond the loop's end, so every run imports nothing and reports that as the
+            # answer.
+            earliest = _earliest_date_with_data(service, customer_id, table, incremental_field)
+            today = dt.date.today()
+            resolved = min(max(requested, earliest), today) if earliest is not None else today
+            if resolved != requested:
+                # The range imported is then not the one the source states, so leave a trace.
+                logger.warning(
+                    "google_ads.clamped_start_date", requested=requested.isoformat(), resolved=resolved.isoformat()
+                )
+            return resolved, "stated"
+
+    if history_start is not None:
+        return _incremental_value_as_date(history_start), "recorded"
+
+    # Neither: unbounded, which this drain reaches by asking the account rather than walking to it.
+    # An account holding nothing has no range to walk.
+    return _earliest_date_with_data(service, customer_id, table, incremental_field) or dt.date.today(), "probe"
+
+
 def google_ads_source(
     config: GoogleAdsSourceConfigUnion,
     resource_name: str,
@@ -499,6 +586,9 @@ def google_ads_source(
     db_incremental_field_last_value: typing.Any = None,
     incremental_field: str | None = None,
     incremental_field_type: IncrementalFieldType | None = None,
+    db_incremental_field_last_value_before_lookback: typing.Any = None,
+    history_start: typing.Any = None,
+    requested_start: str | None = None,
 ) -> SourceResponse:
     """A data warehouse Google Ads source.
 
@@ -513,7 +603,17 @@ def google_ads_source(
     name = NamingConvention.normalize_identifier(resource_name)
     table = get_schemas(config, team_id, api_version)[resource_name]
 
-    if table.requires_filter and not should_use_incremental_field:
+    # Report tables always need a date filter, so a full-refresh schema is forced onto the
+    # incremental query path here. Record whether the pipeline itself is incremental first: only an
+    # incremental pipeline persists a cursor between runs, and the bounded windowed drain below is
+    # only sound when it does.
+    pipeline_is_incremental = should_use_incremental_field
+    # Report tables can only ever be windowed by segments.date, so force it here — both when a
+    # full-refresh schema reaches the incremental path, and when a schema flagged incremental
+    # arrives without an incremental field (a config that would otherwise crash the drain below).
+    if table.requires_filter and (
+        not should_use_incremental_field or incremental_field is None or incremental_field_type is None
+    ):
         should_use_incremental_field = True
         incremental_field = "segments.date"
         incremental_field_type = IncrementalFieldType.Date
@@ -558,21 +658,48 @@ def google_ads_source(
         if incremental_field is None or incremental_field_type is None:
             raise ValueError("incremental_field and incremental_field_type can't be None")
 
-        # Bounded windowed drain: only date-partitioned report tables (`requires_filter`) with an
-        # established cursor. A first sync (sentinel value) keeps the open-ended scan below so it
-        # doesn't crawl a window at a time from the 1970 initial value.
-        if (
-            table.requires_filter
-            and incremental_field_type == IncrementalFieldType.Date
-            and db_incremental_field_last_value is not None
-        ):
-            start = _incremental_value_as_date(db_incremental_field_last_value)
+        # Date-partitioned report tables drain in bounded ascending windows rather than one
+        # open-ended scan (see the module constants). A full-refresh pipeline persists no cursor, so
+        # a budgeted drain would restart from the same date every run and the refresh would replace
+        # the table with that one slice; only incremental pipelines, which land a cursor between
+        # runs, take this path.
+        if pipeline_is_incremental and table.requires_filter and incremental_field_type == IncrementalFieldType.Date:
+            if db_incremental_field_last_value is not None:
+                # A stated start date is deliberately not read here: the cursor is where this table
+                # got to, and reading anything older would re-import a range it already holds on
+                # every run. Stating an earlier date therefore takes effect on the next re-import,
+                # which is what the field's caption says.
+                start = _incremental_value_as_date(db_incremental_field_last_value)
+                # The cursor arrives shifted back by the schema's lookback, so the windows up to the
+                # cursor itself re-read rows the table already has. They don't count as progress.
+                cursor_before_lookback = (
+                    _incremental_value_as_date(db_incremental_field_last_value_before_lookback)
+                    if db_incremental_field_last_value_before_lookback is not None
+                    else start
+                )
+            else:
+                start, resolved_from = _resolve_start(
+                    requested_start, history_start, service, customer_id, table, incremental_field
+                )
+                cursor_before_lookback = start
+                logger.info(
+                    "google_ads.history_start_used",
+                    resource=table.name,
+                    start=start.isoformat(),
+                    resolved_from=resolved_from,
+                )
+
             # Exclusive upper bound of today+1 keeps today in range, matching the open-ended scan.
             end = dt.date.today() + dt.timedelta(days=1)
-            windows_with_data = 0
+            landed_new_ground = False
             first_window = True
+            # The load side pulls this generator, so elapsed covers writing each window out too.
+            drain_started = time.monotonic()
 
-            while start < end and windows_with_data < GOOGLE_ADS_MAX_DATA_WINDOWS_PER_RUN:
+            while start < end:
+                if landed_new_ground and time.monotonic() - drain_started >= GOOGLE_ADS_MAX_DRAIN_SECONDS:
+                    break
+
                 window_end = min(start + dt.timedelta(days=GOOGLE_ADS_INCREMENTAL_WINDOW_DAYS), end)
                 window_query = compose_query(f"'{start.isoformat()}'", f"'{window_end.isoformat()}'")
 
@@ -583,10 +710,12 @@ def google_ads_source(
                     had_data = True
                     yield pa_table
 
-                # Empty windows don't count toward the per-run budget and don't stop the loop, so a
-                # gap in the data is crossed within a single run instead of stalling the cursor on it.
-                if had_data:
-                    windows_with_data += 1
+                # Arms the budget on new ground only, so a run that has not moved the cursor cannot
+                # be stopped and left for the next run to repeat. `start`, not `window_end`: the
+                # query is `>= start`, so a window merely ending past the cursor can hold only
+                # overlap rows at or before it.
+                if had_data and start > cursor_before_lookback:
+                    landed_new_ground = True
                 first_window = False
                 start = window_end
 
@@ -595,7 +724,9 @@ def google_ads_source(
             resumable_source_manager.clear_state()
             return
 
-        # First-ever sync (initial sentinel) or a non-date cursor: single open-ended ascending scan.
+        # Everything else runs a single open-ended ascending scan: non-date cursors have no date
+        # windows to walk, and full-refresh report tables must extract the whole range in one run
+        # because nothing persists between runs to continue a partial walk from.
         if db_incremental_field_last_value is None:
             last_value: int | dt.datetime | dt.date | str = incremental_type_to_initial_value(incremental_field_type)
         else:
@@ -643,6 +774,15 @@ _TRANSIENT_GRPC_STATUS_CODES = frozenset(
 # receive limit, not retrying, is what addresses it.
 _RECEIVE_LIMIT_EXHAUSTED_SIGNATURE = "Received message larger than max"
 
+# Google's own token-verification backend occasionally returns a bare ``UNKNOWN`` gRPC status
+# carrying this message when it has a momentary internal hiccup — a genuinely rejected credential
+# instead comes back as ``UNAUTHENTICATED`` / ``PERMISSION_DENIED`` (handled as non-retryable in
+# ``GoogleAdsSource.get_non_retryable_errors``). Reports of this exact message on the Google Ads API
+# support forum have been confirmed by Google as backend-side incidents, not request problems, and a
+# retry after backoff typically succeeds. Matched on this specific message rather than the bare
+# ``UNKNOWN`` status, which covers far too broad a range of unrelated failures to retry blindly.
+_AUTH_BACKEND_UNKNOWN_ERROR_SIGNATURE = "Authentication backend unknown error"
+
 
 def _is_transient_grpc_error(exc: BaseException) -> bool:
     """Return True for a transient gRPC failure Google's guidance says to retry.
@@ -656,6 +796,8 @@ def _is_transient_grpc_error(exc: BaseException) -> bool:
     """
     if isinstance(exc, google_api_exceptions.ServiceUnavailable | google_api_exceptions.InternalServerError):
         return True
+    if isinstance(exc, google_api_exceptions.Unknown):
+        return _AUTH_BACKEND_UNKNOWN_ERROR_SIGNATURE in str(exc)
     candidate: typing.Any = exc.error if isinstance(exc, GoogleAdsException) else exc
     # ``ResourceExhausted`` exposes ``code`` as an HTTP int, not a callable ``StatusCode``, so the
     # gapic-wrapped form is matched by type rather than via the ``code()`` check below.

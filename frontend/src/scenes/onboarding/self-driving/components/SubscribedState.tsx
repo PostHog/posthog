@@ -18,7 +18,7 @@ export function SubscribedState({
             </LemonBanner>
             <p className="text-xs text-muted m-0">Change or cancel any time from billing settings.</p>
             <LemonButton type="primary" status="alt" onClick={onContinue} loading={completing} className="self-end">
-                Go to your inbox
+                Go to the Inbox
             </LemonButton>
         </div>
     )

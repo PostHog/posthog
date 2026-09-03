@@ -125,7 +125,6 @@ class TestActivityTypes:
             "emit_evaluation_event_activity",
             "emit_internal_telemetry_activity",
             "update_key_state_activity",
-            "emit_eval_signal_activity",
         }
         assert EVAL_ACTIVITY_TYPES == expected
 

@@ -11,6 +11,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.models.integration import Integration
 from posthog.models.project import Project
 from posthog.models.remote_config import REMOTE_CONFIG_CACHE_EXPIRY_SORTED_SET, RemoteConfig
 
@@ -132,6 +133,37 @@ class TestRemoteConfig(_RemoteConfigBase):
         self.team.save()
         self.sync_remote_config()
         assert self.remote_config.config["autocaptureExceptions"]
+
+    @parameterized.expand([("firebase", True), ("apns", True), ("slack", False)])
+    def test_only_push_integrations_schedule_a_config_rebuild(self, kind, expects_rebuild):
+        # Configuring push is the moment the payload has to change, and nothing else on the team is
+        # touched when it happens. Guard both directions: without the receiver a project that
+        # configures push keeps serving the old empty appIds, and without the kind check every OAuth
+        # token refresh on an unrelated integration would enqueue a rebuild.
+        with patch("posthog.models.remote_config._update_team_remote_config") as mock_rebuild:
+            with self.captureOnCommitCallbacks(execute=True):
+                integration = Integration.objects.create(team=self.team, kind=kind, config={})
+            assert mock_rebuild.called is expects_rebuild
+
+            mock_rebuild.reset_mock()
+            with self.captureOnCommitCallbacks(execute=True):
+                integration.delete()
+            assert mock_rebuild.called is expects_rebuild
+
+    def test_push_integration_save_that_cannot_change_app_ids_skips_the_rebuild(self):
+        # Integration code saves errors and created_by on their own — apns_integration does three
+        # saves per creation. Without the update_fields guard each one enqueues a rebuild and a CDN
+        # purge for a payload that cannot have changed.
+        integration = Integration.objects.create(team=self.team, kind="apns", config={"bundle_id": "com.example.app"})
+
+        with patch("posthog.models.remote_config._update_team_remote_config") as mock_rebuild:
+            with self.captureOnCommitCallbacks(execute=True):
+                integration.save(update_fields=["errors"])
+            assert not mock_rebuild.called
+
+            with self.captureOnCommitCallbacks(execute=True):
+                integration.save(update_fields=["config"])
+            assert mock_rebuild.called
 
     def test_conversations_disabled_by_default(self):
         self.sync_remote_config()

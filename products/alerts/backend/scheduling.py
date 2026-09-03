@@ -220,9 +220,12 @@ def normalize_schedule_restriction_value(raw: Any) -> dict[str, Any] | None:
         return None
     if not isinstance(raw, dict):
         raise ValueError("schedule_restriction must be an object or null")
+    unknown_keys = set(raw) - {"blocked_windows"}
+    if unknown_keys:
+        raise ValueError("schedule_restriction only supports blocked_windows")
+    if "blocked_windows" not in raw:
+        raise ValueError("schedule_restriction must include blocked_windows")
     windows = raw.get("blocked_windows")
-    if windows is None:
-        return None
     if windows == []:
         return None
     if not isinstance(windows, list):
@@ -351,6 +354,9 @@ def validate_and_normalize_schedule_restriction(raw: Any) -> dict[str, Any] | No
     for idx, w in enumerate(windows_in):
         if not isinstance(w, dict):
             raise ValueError(f"blocked_windows[{idx}] must be an object")
+        unknown_keys = set(w) - {"start", "end"}
+        if unknown_keys:
+            raise ValueError(f"blocked_windows[{idx}] only supports start and end")
         start_s = w.get("start")
         end_s = w.get("end")
         if start_s is None or end_s is None:

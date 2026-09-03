@@ -14,7 +14,6 @@ import {
     IconList,
     IconReceipt,
     IconRefresh,
-    IconRewindPlay,
     IconStack,
     IconSupport,
 } from '@posthog/icons'
@@ -81,7 +80,6 @@ export const INBOX_SORT_OPTIONS: InboxSortOption[] = [
 ]
 
 export const INBOX_SOURCE_OPTIONS: { value: string; label: string; icon: JSX.Element }[] = [
-    { value: 'session_replay', label: 'Session replay', icon: <IconRewindPlay /> },
     { value: 'replay_vision', label: 'Replay vision', icon: <IconEye /> },
     { value: 'error_tracking', label: 'Error tracking', icon: <IconBug /> },
     { value: 'llm_analytics', label: 'AI observability', icon: <IconBrain /> },

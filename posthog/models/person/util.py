@@ -582,17 +582,40 @@ def get_person_uuids_by_distinct_ids(team_id: int, distinct_ids: list[str]) -> l
     Lightweight UUID-only variant — uses field masking to skip fetching
     properties and other heavy fields from personhog.
     """
-    if not distinct_ids:
-        return []
+    uuids, _ = get_person_uuids_and_matched_distinct_ids(team_id, distinct_ids)
+    return uuids
 
-    def personhog_fn() -> list[str]:
+
+def get_person_uuids_and_matched_distinct_ids(team_id: int, distinct_ids: list[str]) -> tuple[list[str], set[str]]:
+    """Return person UUIDs for the given distinct IDs, plus the distinct IDs that resolved.
+
+    The second element lets callers tell "this distinct ID has no person row" apart from
+    "several distinct IDs collapsed onto one person", which a bare UUID list can't express.
+
+    Lightweight UUID-only variant — uses field masking to skip fetching
+    properties and other heavy fields from personhog.
+    """
+    if not distinct_ids:
+        return [], set()
+
+    def personhog_fn() -> tuple[list[str], set[str]]:
         results = _batched_get_persons_by_distinct_ids(
             team_id,
             distinct_ids,
             "get_person_uuids_by_distinct_ids",
+            # Keep every match so the caller sees which distinct IDs resolved; dedupe by person below.
+            deduplicate_by_person=False,
             read_options=_UUID_ONLY_READ_OPTIONS,
         )
-        return [r.person.uuid for r in results]
+        matched: set[str] = set()
+        seen_person_ids: set[int] = set()
+        uuids: list[str] = []
+        for r in results:
+            matched.add(r.distinct_id)
+            if r.person.id not in seen_person_ids:
+                seen_person_ids.add(r.person.id)
+                uuids.append(r.person.uuid)
+        return uuids, matched
 
     return personhog_call(
         "get_person_uuids_by_distinct_ids",

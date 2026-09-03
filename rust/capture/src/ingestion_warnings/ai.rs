@@ -47,9 +47,9 @@ pub fn warning_for_ai_rejection(rejection: &AiRejection) -> Option<WarningType> 
         | AiRejection::DistinctIdEmpty => Some(WarningType::MissingDistinctId),
         AiRejection::EventUuidRequired => Some(WarningType::MissingEventUuid),
         AiRejection::EventUuidInvalid(_) => Some(WarningType::InvalidEventUuid),
-        AiRejection::EventPartTooBig { .. }
-        | AiRejection::EventAndPropertiesTooBig { .. }
-        | AiRejection::SumOfPartsTooBig { .. } => Some(WarningType::MessageSizeTooLarge),
+        AiRejection::EventPartTooBig { .. } | AiRejection::EventAndPropertiesTooBig { .. } => {
+            Some(WarningType::MessageSizeTooLarge)
+        }
 
         // The properties object specifically is missing or unreadable.
         AiRejection::EventMissingProperties
@@ -66,12 +66,7 @@ pub fn warning_for_ai_rejection(rejection: &AiRejection) -> Option<WarningType> 
         | AiRejection::EventPartNotUtf8
         | AiRejection::EventPartNotJson
         | AiRejection::EventNotObject
-        | AiRejection::ConflictingProperties
-        | AiRejection::BlobContentTypeMissing(_)
-        | AiRejection::BlobContentTypeUnsupported { .. }
-        | AiRejection::BlobEmpty(_)
-        | AiRejection::BlobPropertyNested(_)
-        | AiRejection::BlobPropertyDuplicate(_) => Some(WarningType::InvalidAiPayload),
+        | AiRejection::ConflictingProperties => Some(WarningType::InvalidAiPayload),
 
         // The body stream broke mid-read, so the request was truncated or
         // aborted. We can't tell a client that hung up from a proxy or our own
@@ -123,8 +118,8 @@ fn warning_for_ai_failure(
         }
 
         // Everything else reaching here is ours: quota is surfaced through
-        // billing, and blob storage, S3, Kafka, and serialization failures are
-        // not the customer's to fix.
+        // billing, and Kafka and serialization failures are not the customer's
+        // to fix.
         AiFailure::Other(_) => None,
     }
 }
@@ -150,27 +145,11 @@ fn details_for(rejection: &AiRejection) -> Map<String, serde_json::Value> {
                 json!(crate::ai_rejection::ALLOWED_AI_EVENTS),
             );
         }
-        AiRejection::FirstPartNotEvent(field)
-        | AiRejection::UnknownField(field)
-        | AiRejection::BlobContentTypeMissing(field)
-        | AiRejection::BlobEmpty(field)
-        | AiRejection::BlobPropertyNested(field)
-        | AiRejection::BlobPropertyDuplicate(field) => {
+        AiRejection::FirstPartNotEvent(field) | AiRejection::UnknownField(field) => {
             details.insert("part".to_string(), json!(bounded_detail(field)));
-        }
-        AiRejection::BlobContentTypeUnsupported {
-            field,
-            content_type,
-        } => {
-            details.insert("part".to_string(), json!(bounded_detail(field)));
-            details.insert(
-                "contentType".to_string(),
-                json!(bounded_detail(content_type)),
-            );
         }
         AiRejection::EventPartTooBig { size, max }
-        | AiRejection::EventAndPropertiesTooBig { size, max }
-        | AiRejection::SumOfPartsTooBig { size, max } => {
+        | AiRejection::EventAndPropertiesTooBig { size, max } => {
             details.insert("size".to_string(), json!(size));
             details.insert("limit".to_string(), json!(max));
         }
@@ -208,7 +187,7 @@ mod tests {
         Some(WarningType::InvalidEventUuid)
     )]
     #[case::oversize(
-        AiRejection::SumOfPartsTooBig { size: 1, max: 0 },
+        AiRejection::EventAndPropertiesTooBig { size: 1, max: 0 },
         Some(WarningType::MessageSizeTooLarge)
     )]
     #[case::bad_properties(
@@ -219,8 +198,8 @@ mod tests {
     // Truncated or aborted body: fault is ambiguous, so nothing is emitted.
     #[case::truncated_stream(AiRejection::MultipartParseFailed("eof".to_string()), None)]
     #[case::truncated_field(AiRejection::FieldDataUnreadable("eof".to_string()), None)]
-    #[case::bad_blob(
-        AiRejection::BlobEmpty("event.properties.x".to_string()),
+    #[case::blob_style_part(
+        AiRejection::UnknownField("event.properties.x".to_string()),
         Some(WarningType::InvalidAiPayload)
     )]
     fn rejections_map_to_their_warning(
@@ -303,15 +282,14 @@ mod tests {
     }
 
     #[test]
-    fn blob_rejection_names_the_part_but_not_the_error_message() {
+    fn unknown_field_rejection_names_the_part_but_not_the_error_message() {
         let emitter = CollectingEmitter::default();
         emit_ai_failure_warning(
             Some(&emitter),
             &request(),
-            &AiFailure::Rejected(AiRejection::BlobContentTypeUnsupported {
-                field: "event.properties.image".to_string(),
-                content_type: "image/png".to_string(),
-            }),
+            &AiFailure::Rejected(AiRejection::UnknownField(
+                "event.properties.image".to_string(),
+            )),
         );
 
         let emitted = emitter.emitted();
@@ -319,10 +297,6 @@ mod tests {
         assert_eq!(
             emitted[0].extra_details.get("part"),
             Some(&json!("event.properties.image"))
-        );
-        assert_eq!(
-            emitted[0].extra_details.get("contentType"),
-            Some(&json!("image/png"))
         );
         assert!(!emitted[0].extra_details.contains_key("message"));
     }
@@ -333,9 +307,9 @@ mod tests {
         emit_ai_failure_warning(
             Some(&emitter),
             &request(),
-            &AiFailure::Rejected(AiRejection::SumOfPartsTooBig {
-                size: 30_000_000,
-                max: 26_214_400,
+            &AiFailure::Rejected(AiRejection::EventAndPropertiesTooBig {
+                size: 1_000_000,
+                max: 983_040,
             }),
         );
 
@@ -343,12 +317,9 @@ mod tests {
         assert_eq!(emitted[0].warning, WarningType::MessageSizeTooLarge);
         assert_eq!(
             emitted[0].extra_details.get("size"),
-            Some(&json!(30_000_000))
+            Some(&json!(1_000_000))
         );
-        assert_eq!(
-            emitted[0].extra_details.get("limit"),
-            Some(&json!(26_214_400))
-        );
+        assert_eq!(emitted[0].extra_details.get("limit"), Some(&json!(983_040)));
     }
 
     // The gzip decompressor is the one shared helper the handler calls after
@@ -374,8 +345,8 @@ mod tests {
 
     #[rstest]
     #[case::quota(CaptureError::BillingLimit)]
-    #[case::blob_storage(CaptureError::ServiceUnavailable("no s3".to_string()))]
-    #[case::s3_upload(CaptureError::NonRetryableSinkError)]
+    #[case::service_unavailable(CaptureError::ServiceUnavailable("down".to_string()))]
+    #[case::serialization(CaptureError::NonRetryableSinkError)]
     #[case::kafka(CaptureError::RetryableSinkError)]
     #[case::internal(CaptureError::InternalError("boom".to_string()))]
     fn our_failures_never_warn(#[case] err: CaptureError) {

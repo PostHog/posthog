@@ -7,7 +7,6 @@ export {
 
 import type { PermissionMode as SdkPermissionMode } from "@anthropic-ai/claude-agent-sdk";
 import type { CodeExecutionMode } from "../../execution-mode";
-import { isMcpToolReadOnly } from "./mcp/tool-metadata";
 
 export const READ_TOOLS: Set<string> = new Set(["Read", "NotebookRead"]);
 
@@ -82,8 +81,6 @@ export function isToolAllowedForMode(
   if (AUTO_ALLOWED_TOOLS[mode]?.has(toolName) === true) {
     return true;
   }
-  if (isMcpToolReadOnly(toolName)) {
-    return true;
-  }
+  // Never auto-allow MCP tools here: their readOnly annotation is server-supplied and untrusted
   return false;
 }

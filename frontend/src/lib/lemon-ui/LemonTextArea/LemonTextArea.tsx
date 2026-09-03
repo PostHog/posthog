@@ -7,7 +7,7 @@ import { cn } from 'lib/utils/css-classes'
 
 interface LemonTextAreaPropsBase extends Pick<
     React.TextareaHTMLAttributes<HTMLTextAreaElement>,
-    'onFocus' | 'onBlur' | 'maxLength' | 'onKeyDown'
+    'onFocus' | 'onBlur' | 'maxLength' | 'onKeyDown' | 'aria-label'
 > {
     id?: string
     value?: string

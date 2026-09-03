@@ -17,6 +17,7 @@ vi.mock("@/lib/theme", () => ({
     status: { success: "#00aa00", error: "#cc0000" },
   }),
   toRgba: (hex: string, alpha: number) => `${hex}/${alpha}`,
+  MERGED_COLOR: "#8e4ec6",
 }));
 
 vi.mock("@/lib/openExternalUrl", () => ({ openExternalUrl: vi.fn() }));

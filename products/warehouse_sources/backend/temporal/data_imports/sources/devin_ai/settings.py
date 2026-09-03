@@ -5,6 +5,8 @@ from products.warehouse_sources.backend.types import IncrementalField
 
 # Devin (Cognition AI) v3 API. Every org-level list endpoint shares the same shape:
 #   GET https://api.devin.ai/v3/organizations/{org_id}/<resource>
+#   (members uses the v3beta1 org path, /v3beta1/organizations/{org_id}/members/users, with the
+#   identical envelope and auth)
 #   cursor pagination via `first` (<=200) / `after`, response envelope
 #   {"items": [...], "end_cursor": str | None, "has_next_page": bool, "total": int | None}
 # Timestamps (`created_at` / `updated_at`) are integer Unix seconds.
@@ -44,6 +46,18 @@ DEVIN_AI_ENDPOINTS: dict[str, DevinAIEndpointConfig] = {
         name="knowledge_notes",
         path="/v3/organizations/{org_id}/knowledge/notes",
         primary_keys=["note_id"],
+    ),
+    # Org members, carrying user_id + email so the opaque user_id on sessions resolves to a person.
+    # Backed by the v3beta1 org-scoped users listing (needs the org-level `ViewOrgMembership`
+    # permission): the stable alternatives require credentials this source doesn't store (the v2
+    # members endpoint takes only enterprise-admin personal `apk_user_*` keys, and the v3 enterprise
+    # listing needs an enterprise-level service user). Member records carry no created_at, so the
+    # table declares no partition key, and the list is small and slow-changing, so full refresh only.
+    "members": DevinAIEndpointConfig(
+        name="members",
+        path="/v3beta1/organizations/{org_id}/members/users",
+        partition_key=None,
+        primary_keys=["user_id"],
     ),
     # Org secrets expose metadata only (key names, type, audit fields) — never the secret values.
     # Off by default so a user opts in rather than silently syncing secret metadata.

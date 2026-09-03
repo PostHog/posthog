@@ -1,17 +1,17 @@
 import { readPrUrls, type WorkspaceMode } from "@posthog/shared";
 import type { Task, TaskRunStatus } from "@posthog/shared/domain-types";
+import { taskActivityAt } from "../tasks/taskActivity";
 import { getRepositoryInfo } from "./groupTasks";
 import type { TaskData, TaskGroup } from "./sidebarData.types";
 
 export type SortMode = "updated" | "created";
-export type OrganizeMode = "by-project" | "chronological";
-
 export interface FullTask {
   id: string;
   title: string;
   repository?: string | null;
   created_at: string;
   updated_at: string;
+  last_activity_at?: string | null;
   origin_product?: string;
   latest_run?: {
     status?: TaskRunStatus | null;
@@ -27,6 +27,7 @@ export interface SidebarTask {
   repository?: string | null;
   created_at: string;
   updated_at: string;
+  last_activity_at?: string | null;
   origin_product?: string;
   slack_thread_url?: string;
   latest_run?: {
@@ -70,6 +71,7 @@ export function narrowFullTask(task: FullTask | Task): SidebarTask {
     repository: task.repository ?? null,
     created_at: task.created_at,
     updated_at: task.updated_at,
+    last_activity_at: task.last_activity_at ?? null,
     latest_run: task.latest_run
       ? {
           status: task.latest_run.status,
@@ -136,7 +138,7 @@ export function computeSidebarSessionSignature(
   return signature;
 }
 
-export interface TaskWorkspace {
+interface TaskWorkspace {
   folderId?: string | null;
   folderPath?: string | null;
   branchName?: string | null;
@@ -160,17 +162,16 @@ export interface DeriveTaskDataContext {
 }
 
 /**
- * When a task last moved: the backend's `updated_at`, or local activity where
- * that has run ahead of it (the renderer sees a session change before the next
- * poll reports it).
+ * When a task last moved: the activity time the caller passes (the backend's, via
+ * `taskActivityAt`), or local renderer activity where that has run ahead of the next poll.
  */
-export function taskLastActivityAt(
-  updatedAt: string,
+function taskLastActivityAt(
+  activityAt: string,
   timestamp: TaskTimestamp | undefined,
 ): number {
-  const apiUpdatedAt = new Date(updatedAt).getTime();
+  const reportedAt = new Date(activityAt).getTime();
   const localActivity = timestamp?.lastActivityAt;
-  return localActivity ? Math.max(apiUpdatedAt, localActivity) : apiUpdatedAt;
+  return localActivity ? Math.max(reportedAt, localActivity) : reportedAt;
 }
 
 /**
@@ -193,14 +194,34 @@ export function isTaskUnread(
   );
 }
 
+/**
+ * Whether a session is running, and where. Split out because a surface can need
+ * this without the workspace and pin lookups the rest of `TaskData` costs.
+ */
+export function deriveTaskRunState(
+  task: Pick<SidebarTask, "id" | "latest_run">,
+  session: TaskSession | undefined,
+): Pick<
+  TaskData,
+  "id" | "isGenerating" | "taskRunStatus" | "taskRunEnvironment"
+> {
+  return {
+    id: task.id,
+    isGenerating: session?.isPromptPending ?? false,
+    taskRunStatus: session?.cloudStatus ?? task.latest_run?.status ?? undefined,
+    taskRunEnvironment: task.latest_run?.environment ?? undefined,
+  };
+}
+
 export function deriveTaskData(
   task: SidebarTask,
   ctx: DeriveTaskDataContext,
 ): TaskData {
   const { session, workspace, timestamp } = ctx;
-  const lastActivityAt = taskLastActivityAt(task.updated_at, timestamp);
+  const activityAt = taskActivityAt(task);
+  const lastActivityAt = taskLastActivityAt(activityAt, timestamp);
   const createdAt = new Date(task.created_at).getTime();
-  const isUnread = isTaskUnread(task.updated_at, timestamp);
+  const isUnread = isTaskUnread(activityAt, timestamp);
 
   const cloudPrUrl =
     readPrUrls(task.latest_run?.output)[0] ??
@@ -214,19 +235,16 @@ export function deriveTaskData(
     task.slack_thread_url ?? ctx.slackThreadUrlByTaskId.get(task.id);
 
   return {
-    id: task.id,
+    ...deriveTaskRunState(task, session),
     title: task.title,
     createdAt,
     lastActivityAt,
-    isGenerating: session?.isPromptPending ?? false,
     isUnread,
     isPinned: ctx.pinnedIds.has(task.id),
     isSuspended: ctx.suspendedIds.has(task.id),
     needsPermission: (session?.pendingPermissions?.size ?? 0) > 0,
     repository: getRepositoryInfo(task, workspace?.folderPath ?? undefined),
     folderId: workspace?.folderId || undefined,
-    taskRunStatus: session?.cloudStatus ?? task.latest_run?.status ?? undefined,
-    taskRunEnvironment: task.latest_run?.environment ?? undefined,
     runMode: task.latest_run?.mode ?? undefined,
     // The `latest_run` fallback only matters in the `showAllUsers` view: the
     // default view's `filterVisibleTasks` already restricts to tasks with a

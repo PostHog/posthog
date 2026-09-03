@@ -2,6 +2,7 @@
 import configPropertyMetadata from '../generated/widget-config-property-keys.json'
 import {
     activityEventsWidgetConfigSchema,
+    conversationsRecentTicketsWidgetConfigSchema,
     errorTrackingWidgetConfigSchema,
     experimentResultsWidgetConfigSchema,
     experimentsWidgetConfigSchema,
@@ -12,6 +13,7 @@ import {
 } from '../generated/widget-configs.zod'
 
 const WIDGET_CONFIG_SCHEMAS = {
+    conversations_recent_tickets: conversationsRecentTicketsWidgetConfigSchema,
     activity_events_list: activityEventsWidgetConfigSchema,
     error_tracking_list: errorTrackingWidgetConfigSchema,
     session_replay_list: sessionReplayWidgetConfigSchema,

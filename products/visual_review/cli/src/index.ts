@@ -14,6 +14,7 @@ import { resolve } from 'node:path'
 
 import { VisualReviewClient, type Run } from './client.js'
 import { hashImageWithDimensions } from './hasher.js'
+import { log, reportRunOutcome } from './outcome.js'
 import { scanDirectory } from './scanner.js'
 import { readBaselineHashes, readSnapshotsFile } from './snapshots.js'
 
@@ -36,6 +37,7 @@ program
     .option('--token <value>', 'Personal API token (Authorization: Bearer)')
     .option('--cookie <value>', 'Session cookie for authentication')
     .option('--purpose <purpose>', 'Run purpose: review (gating, approvable) or observe (tracking only)', 'review')
+    .option('--tolerate-drift', 'Report snapshot drift on an observe run without failing. Default branch only.')
     .option('--auto-approve', 'Auto-approve all changes and write signed baseline')
     .action(async (options: SubmitOptions) => {
         if (!baselineExists(options.baseline)) {
@@ -131,6 +133,8 @@ run.command('complete')
     .option('--team <id>', 'Team ID (overrides snapshots.yml config)')
     .option('--token <value>', 'Personal API token')
     .option('--cookie <value>', 'Session cookie')
+    .option('--purpose <purpose>', 'Run purpose: review or observe. Must match `run create`.', 'review')
+    .option('--tolerate-drift', 'Report snapshot drift on an observe run without failing. Default branch only.')
     .option('--auto-approve', 'Auto-approve all changes and write signed baseline')
     .action(async (options: RunCompleteOptions) => {
         if (!baselineExists(options.baseline)) {
@@ -142,8 +146,7 @@ run.command('complete')
         } catch (error) {
             console.error('Error:', error)
             // 2, not 1, so callers can tell a failed CLI apart from the exit 1 that
-            // runComplete returns for unresolved visual changes. CI tolerates the latter
-            // on tracking-only runs and must never tolerate this.
+            // runComplete returns for unresolved visual changes on a review run.
             process.exit(2)
         }
     })
@@ -170,6 +173,7 @@ interface SubmitOptions {
     token?: string
     cookie?: string
     purpose?: string
+    tolerateDrift?: boolean
     autoApprove?: boolean
 }
 
@@ -205,15 +209,12 @@ interface RunCompleteOptions {
     team?: string
     token?: string
     cookie?: string
+    purpose?: string
+    tolerateDrift?: boolean
     autoApprove?: boolean
 }
 
 // --- Helpers ---
-
-// Log to stderr so stdout stays clean for machine-readable output (e.g. run IDs)
-function log(message: string): void {
-    process.stderr.write(message + '\n')
-}
 
 function baselineExists(baselinePath: string): boolean {
     const p = resolve(baselinePath)
@@ -432,15 +433,13 @@ async function runComplete(options: RunCompleteOptions): Promise<number> {
         return 0
     }
 
-    const hasUnresolved = (s.unresolved ?? s.changed + s.new + s.removed) > 0
-    if (hasUnresolved) {
-        const reviewUrl = `${api}/project/${team}/visual_review/runs/${runId}`
-        log(`[run:${runId}] Visual changes detected — review at: ${reviewUrl}`)
-        return 1
-    }
-
-    log(`[run:${runId}] No visual changes`)
-    return 0
+    return reportRunOutcome(
+        client,
+        run,
+        `${api}/project/${team}/visual_review/runs/${runId}`,
+        options.purpose ?? 'review',
+        options.tolerateDrift ?? false
+    )
 }
 
 // --- Legacy command implementations ---
@@ -662,13 +661,11 @@ async function runSubmit(options: SubmitOptions): Promise<number> {
         return 0
     }
 
-    const hasUnresolved = (s.unresolved ?? s.changed + s.new + s.removed) > 0
-    if (hasUnresolved) {
-        const reviewUrl = `${api}/project/${team}/visual_review/runs/${runId}`
-        log(`[run:${runId}] Visual changes detected — review at: ${reviewUrl}`)
-        return 1
-    }
-
-    log(`[run:${runId}] No visual changes`)
-    return 0
+    return reportRunOutcome(
+        client,
+        run,
+        `${api}/project/${team}/visual_review/runs/${runId}`,
+        purpose,
+        options.tolerateDrift ?? false
+    )
 }

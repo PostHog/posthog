@@ -8,22 +8,26 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from requests import Request, Response
-from requests.exceptions import ProxyError, RequestException
+from requests.exceptions import HTTPError, ProxyError, RequestException
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailchimp.mailchimp import (
+    MAX_RETRY_ATTEMPTS,
     MailchimpPaginator,
     MailchimpResumeConfig,
+    MailchimpRetryableError,
     _fetch_contacts_for_list,
     _format_incremental_value,
     _get_contacts_iterator,
     _get_endpoint_iterator,
+    _get_with_retry,
     _incremental_query_params,
     extract_data_center,
     mailchimp_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailchimp.settings import MAILCHIMP_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.mailchimp.source import MailchimpSource
 
 
 class TestExtractDataCenter:
@@ -102,6 +106,59 @@ class TestFormatIncrementalValue:
         assert _format_incremental_value("2024-01-15") == "2024-01-15"
 
 
+class TestGetWithRetry:
+    @pytest.mark.parametrize(
+        ("status_code", "expected_error", "expected_call_count"),
+        [
+            # `MAX_RETRY_ATTEMPTS` is baked into the decorator at import time (it wraps a
+            # top-level function, unlike the per-call nested functions other sources use), so
+            # a retryable status is retried the full budget rather than a patched-down count.
+            (429, MailchimpRetryableError, MAX_RETRY_ATTEMPTS),
+            (500, MailchimpRetryableError, MAX_RETRY_ATTEMPTS),
+            (401, HTTPError, 1),
+        ],
+    )
+    def test_errors_are_classified(self, status_code, expected_error, expected_call_count):
+        session = MagicMock()
+        session.get.return_value = _make_http_response({}, status_code=status_code)
+
+        with pytest.raises(expected_error):
+            _get_with_retry(session, "https://us6.api.mailchimp.com/3.0/automations")
+
+        assert session.get.call_count == expected_call_count
+
+    @pytest.mark.parametrize(
+        ("status_code", "reason", "expected_prefix"),
+        [
+            (429, "Too Many Requests", "429 Client Error"),
+            (503, "Service Unavailable", "503 Server Error"),
+        ],
+    )
+    def test_retryable_error_keeps_raise_for_status_wording(self, status_code, reason, expected_prefix):
+        # A failure that outlives the retry budget is classified by message in `import_data_sync`
+        # (via `MailchimpSource.get_retryable_errors`), so the wrapper must reraise the wording
+        # `raise_for_status` produced rather than a phrasing of its own.
+        url = "https://us6.api.mailchimp.com/3.0/automations"
+        response = _make_http_response({}, status_code=status_code)
+        response.reason = reason
+        response.url = url
+        session = MagicMock()
+        session.get.return_value = response
+
+        with pytest.raises(MailchimpRetryableError) as excinfo:
+            _get_with_retry(session, url)
+
+        assert str(excinfo.value).startswith(expected_prefix)
+        assert url in str(excinfo.value)
+
+    def test_success_returns_response_unchanged(self):
+        session = MagicMock()
+        response = _make_http_response({"total_items": 0}, status_code=200)
+        session.get.return_value = response
+
+        assert _get_with_retry(session, "https://us6.api.mailchimp.com/3.0/lists") is response
+
+
 class TestMailchimpPaginator:
     def test_initial_state(self):
         paginator = MailchimpPaginator(page_size=100)
@@ -176,6 +233,7 @@ def _fake_manager(*, can_resume: bool = False, load_state: MailchimpResumeConfig
 
 def _build_response(members: list[dict[str, Any]], total_items: int) -> MagicMock:
     response = MagicMock()
+    response.status_code = 200
     response.json.return_value = {"members": members, "total_items": total_items}
     response.raise_for_status.return_value = None
     return response
@@ -529,6 +587,7 @@ def _routed_session(routes: dict[str, list[dict[str, Any]]]) -> tuple[Any, list[
         seen[path] = seen.get(path, 0) + 1
 
         response = MagicMock()
+        response.status_code = 200
         response.json.return_value = bodies[index]
         response.raise_for_status.return_value = None
         return response
@@ -848,3 +907,34 @@ class TestSourceResponseForNewEndpoints:
 
         assert response.primary_keys == expected_primary_keys
         assert response.partition_keys == expected_partition_keys
+
+
+class TestMailchimpRetryableErrors:
+    @pytest.mark.parametrize(
+        ("name", "observed_error"),
+        [
+            (
+                "429",
+                "429 Client Error: Too Many Requests for url: "
+                "https://us15.api.mailchimp.com/3.0/lists/c825cb5a63/members?count=1000&offset=0",
+            ),
+            ("500", "500 Server Error: Internal Server Error for url: https://us15.api.mailchimp.com/3.0/lists"),
+            ("502", "502 Server Error: Bad Gateway for url: https://us15.api.mailchimp.com/3.0/lists"),
+            ("503", "503 Server Error: Service Unavailable for url: https://us15.api.mailchimp.com/3.0/lists"),
+        ],
+    )
+    def test_transient_errors_are_recognised_as_retryable(self, name: str, observed_error: str) -> None:
+        retryable_errors = MailchimpSource().get_retryable_errors()
+        assert any(key in observed_error for key in retryable_errors), observed_error
+
+    @pytest.mark.parametrize(
+        ("name", "observed_error"),
+        [
+            ("401", "401 Client Error: Unauthorized for url: https://us15.api.mailchimp.com/3.0/lists"),
+            ("403", "403 Client Error: Forbidden for url: https://us15.api.mailchimp.com/3.0/lists"),
+            ("invalid_key_format", "Invalid Mailchimp API key format. Expected format: key-dc"),
+        ],
+    )
+    def test_non_retryable_errors_do_not_match(self, name: str, observed_error: str) -> None:
+        retryable_errors = MailchimpSource().get_retryable_errors()
+        assert not any(key in observed_error for key in retryable_errors), observed_error

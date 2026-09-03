@@ -61,13 +61,21 @@ export function useChannelStarMutations() {
     },
   });
 
-  return {
-    star: (channelId: string) =>
-      setStarredMutation.mutateAsync({ channelId, starred: true }),
-    unstar: (channelId: string) =>
-      setStarredMutation.mutateAsync({ channelId, starred: false }),
-    isUpdating: setStarredMutation.isPending,
-  };
+  // Stable identities: a space row's actions are memoized on `toggleStar`,
+  // which is built from these — fresh closures here would rebuild that list on
+  // every render and write the row's hover-card payload to the card's store
+  // with it.
+  const { mutateAsync } = setStarredMutation;
+  const star = useCallback(
+    (channelId: string) => mutateAsync({ channelId, starred: true }),
+    [mutateAsync],
+  );
+  const unstar = useCallback(
+    (channelId: string) => mutateAsync({ channelId, starred: false }),
+    [mutateAsync],
+  );
+
+  return { star, unstar, isUpdating: setStarredMutation.isPending };
 }
 
 /**

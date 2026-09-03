@@ -20,6 +20,7 @@ from posthog.temporal.salesforce_enrichment.conversations_slack_workflow import 
 )
 
 from ee.billing.salesforce_enrichment.conversations_signals import ConversationsSlackSignals
+from ee.billing.salesforce_enrichment.enrichment import BulkUpdateResult
 from ee.billing.salesforce_enrichment.redis_cache import OrgMappingsCacheMissingError
 
 WORKFLOW_MODULE = "posthog.temporal.salesforce_enrichment.conversations_slack_workflow"
@@ -138,7 +139,7 @@ class TestWorkflowParseInputs(SimpleTestCase):
 class TestEnrichConversationsSlackPageActivity(SimpleTestCase):
     @pytest.mark.asyncio
     @patch(f"{WORKFLOW_MODULE}.Heartbeater")
-    @patch(f"{WORKFLOW_MODULE}.bulk_update_salesforce_accounts", return_value=(2, 0))
+    @patch(f"{WORKFLOW_MODULE}.bulk_update_salesforce_accounts", return_value=BulkUpdateResult(succeeded=2, failed=0))
     @patch(f"{WORKFLOW_MODULE}.get_salesforce_client")
     @patch(f"{WORKFLOW_MODULE}.aggregate_conversations_slack_signals_for_orgs")
     @patch(f"{WORKFLOW_MODULE}.get_org_mappings_page", new_callable=AsyncMock)
@@ -208,7 +209,7 @@ class TestEnrichConversationsSlackPageActivity(SimpleTestCase):
 
     @pytest.mark.asyncio
     @patch(f"{WORKFLOW_MODULE}.Heartbeater")
-    @patch(f"{WORKFLOW_MODULE}.bulk_update_salesforce_accounts", return_value=(1, 1))
+    @patch(f"{WORKFLOW_MODULE}.bulk_update_salesforce_accounts", return_value=BulkUpdateResult(succeeded=1, failed=1))
     @patch(f"{WORKFLOW_MODULE}.get_salesforce_client")
     @patch(f"{WORKFLOW_MODULE}.aggregate_conversations_slack_signals_for_orgs")
     @patch(f"{WORKFLOW_MODULE}.get_org_mappings_page", new_callable=AsyncMock)

@@ -5,8 +5,8 @@ from typing import TYPE_CHECKING, Any, Optional, cast
 from django.db import models
 from django.db.models import Prefetch, Q, QuerySet, prefetch_related_objects
 
-from drf_spectacular.utils import extend_schema
-from rest_framework import response, serializers, status, viewsets
+from drf_spectacular.utils import OpenApiParameter, OpenApiTypes, extend_schema
+from rest_framework import pagination, response, serializers, status, viewsets
 from rest_framework.viewsets import GenericViewSet
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -15,7 +15,8 @@ from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Tag, TaggedItem
 from posthog.models.activity_logging.activity_log import Change, Detail, LogActivityEntry, bulk_log_activity
 from posthog.models.tag import tagify
-from posthog.rbac.user_access_control import access_level_satisfied_for_resource
+
+from products.access_control.backend.facade.user_access_control import access_level_satisfied_for_resource
 
 if TYPE_CHECKING:
     from posthog.models.user import User
@@ -186,6 +187,12 @@ class TaggedItemSerializerMixin(serializers.Serializer):
 BULK_UPDATE_TAGS_MAX_IDS = 500
 
 
+class BulkUpdateTagsAction(models.TextChoices):
+    ADD = "add", "add"
+    REMOVE = "remove", "remove"
+    SET = "set", "set"
+
+
 class BulkUpdateTagsRequestSerializer(serializers.Serializer):
     ids = serializers.ListField(
         child=serializers.IntegerField(),
@@ -194,7 +201,7 @@ class BulkUpdateTagsRequestSerializer(serializers.Serializer):
         help_text="List of object IDs to update tags on.",
     )
     action = serializers.ChoiceField(
-        choices=["add", "remove", "set"],
+        choices=BulkUpdateTagsAction.choices,
         help_text="'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.",
     )
     tags = serializers.ListField(
@@ -397,7 +404,25 @@ class TaggedItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     serializer_class = TaggedItemSerializer
     queryset = Tag.objects.none()
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter("search", OpenApiTypes.STR, required=False),
+            OpenApiParameter("limit", OpenApiTypes.INT, required=False),
+            OpenApiParameter("offset", OpenApiTypes.INT, required=False),
+        ]
+    )
     def list(self, request, *args, **kwargs) -> response.Response:
-        return response.Response(
-            Tag.objects.filter(team=self.team).values_list("name", flat=True).distinct().order_by("name")
-        )
+        tags = Tag.objects.filter(team=self.team).values_list("name", flat=True).distinct().order_by("name")
+        search = request.query_params.get("search")
+
+        if search is None:
+            return response.Response(tags)
+
+        if search:
+            tags = tags.filter(name__icontains=search)
+
+        paginator = pagination.LimitOffsetPagination()
+        paginator.default_limit = 100
+        paginator.max_limit = 100
+        page = paginator.paginate_queryset(tags, request, view=self)
+        return paginator.get_paginated_response(page)

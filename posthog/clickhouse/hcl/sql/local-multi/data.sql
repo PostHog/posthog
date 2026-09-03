@@ -77,6 +77,34 @@ CREATE TABLE posthog.channel_definition (
   type_if_paid Nullable(String),
   type_if_organic Nullable(String)
 ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/noshard/posthog.channel_definition', '{replica}-{shard}') ORDER BY (domain, kind) SETTINGS index_granularity = 8192;
+CREATE TABLE posthog.clickhouse_cleanup_deleted_persons (
+  run_id String,
+  team_id Int64,
+  person_id UUID,
+  max_version UInt64,
+  created_at DateTime64(6, 'UTC') DEFAULT now64()
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.clickhouse_cleanup_deleted_persons', '{replica}-{shard}', created_at) ORDER BY (run_id, team_id, person_id) PARTITION BY run_id TTL created_at + toIntervalDay(14) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
+CREATE TABLE posthog.clickhouse_cleanup_orphaned_distinct_ids (
+  run_id String,
+  team_id Int64,
+  distinct_id String,
+  person_id UUID,
+  own_tombstone UInt8,
+  max_version Int64,
+  created_at DateTime64(6, 'UTC') DEFAULT now64()
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.clickhouse_cleanup_orphaned_distinct_ids', '{replica}-{shard}', created_at) ORDER BY (run_id, team_id, distinct_id) PARTITION BY run_id TTL created_at + toIntervalDay(14) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
+CREATE TABLE posthog.clickhouse_cleanup_revived_distinct_ids (
+  run_id String,
+  team_id Int64,
+  distinct_id String,
+  created_at DateTime64(6, 'UTC') DEFAULT now64()
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.clickhouse_cleanup_revived_distinct_ids', '{replica}-{shard}', created_at) ORDER BY (run_id, team_id, distinct_id) PARTITION BY run_id TTL created_at + toIntervalDay(14) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
+CREATE TABLE posthog.clickhouse_cleanup_revived_persons (
+  run_id String,
+  team_id Int64,
+  person_id UUID,
+  created_at DateTime64(6, 'UTC') DEFAULT now64()
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.clickhouse_cleanup_revived_persons', '{replica}-{shard}', created_at) ORDER BY (run_id, team_id, person_id) PARTITION BY run_id TTL created_at + toIntervalDay(14) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.cohort_membership (
   team_id Int64,
   cohort_id Int64,
@@ -190,6 +218,7 @@ CREATE TABLE posthog.error_tracking_fingerprint_issue_state (
   issue_name Nullable(String),
   issue_description Nullable(String),
   issue_status String,
+  issue_severity Nullable(String),
   assigned_user_id Nullable(Int64),
   assigned_role_id Nullable(UUID),
   first_seen DateTime64(3, 'UTC'),
@@ -895,6 +924,21 @@ CREATE TABLE posthog.sharded_app_metrics2 (
   _offset UInt64,
   _partition UInt64
 ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/{shard}/posthog.sharded_app_metrics2', '{replica}') ORDER BY (team_id, app_source, app_source_id, instance_id, toStartOfHour(timestamp), metric_kind, metric_name) PARTITION BY toYYYYMM(timestamp) TTL toDate(timestamp) + toIntervalDay(90) SETTINGS index_granularity = 8192;
+CREATE TABLE posthog.sharded_billing_usage_records (
+  schema_version UInt8,
+  record_id String,
+  producer_id LowCardinality(String),
+  team_id Int64,
+  organization_id UUID,
+  usage_key LowCardinality(String),
+  unit LowCardinality(String),
+  quantity Int64,
+  timestamp DateTime64(6, 'UTC'),
+  inserted_at DateTime64(6, 'UTC'),
+  _timestamp DateTime,
+  _offset UInt64,
+  _partition UInt64
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.sharded_billing_usage_records', '{replica}', inserted_at) ORDER BY (team_id, toDate(timestamp), producer_id, usage_key, record_id) PARTITION BY toYYYYMM(timestamp) SETTINGS index_granularity = 8192;
 CREATE TABLE posthog.sharded_distinct_id_usage (
   team_id Int64,
   distinct_id String,
@@ -983,6 +1027,7 @@ CREATE TABLE posthog.sharded_events (
   INDEX bloom_filter_$ai_experiment_id `mat_$ai_experiment_id` TYPE bloom_filter GRANULARITY 1,
   INDEX minmax_$ai_experiment_id `mat_$ai_experiment_id` TYPE minmax GRANULARITY 1,
   INDEX minmax_$session_id_uuid `$session_id_uuid` TYPE minmax GRANULARITY 1,
+  INDEX bloom_filter_$session_id nullIf(nullIf(`$session_id`, ''), 'null') TYPE bloom_filter GRANULARITY 1,
   INDEX minmax_$group_0 `$group_0` TYPE minmax GRANULARITY 1,
   INDEX minmax_$group_1 `$group_1` TYPE minmax GRANULARITY 1,
   INDEX minmax_$group_2 `$group_2` TYPE minmax GRANULARITY 1,
@@ -1155,7 +1200,7 @@ CREATE TABLE posthog.sharded_events_recent (
   _timestamp DateTime,
   _offset UInt64,
   inserted_at DateTime64(6, 'UTC') DEFAULT now64()
-) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.sharded_events_recent', '{replica}', _timestamp) ORDER BY (team_id, toStartOfHour(inserted_at), event, cityHash64(distinct_id), cityHash64(uuid)) PARTITION BY toStartOfDay(inserted_at) TTL toDateTime(inserted_at) + toIntervalDay(7) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.sharded_events_recent', '{replica}', _timestamp) ORDER BY (team_id, toStartOfHour(inserted_at), event, cityHash64(distinct_id), cityHash64(uuid)) PARTITION BY toStartOfDay(inserted_at) TTL toDate(inserted_at) + toIntervalDay(9) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.sharded_experiment_exposures_preaggregated (
   team_id Int64,
   job_id UUID,
@@ -1170,41 +1215,35 @@ CREATE TABLE posthog.sharded_experiment_exposures_preaggregated (
   expires_at Date DEFAULT today() + toIntervalDay(7)
 ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.experiment_exposures_preaggregated', '{replica}', computed_at) ORDER BY (team_id, job_id, entity_id, breakdown_value) PARTITION BY toYYYYMMDD(expires_at) TTL expires_at SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.sharded_flag_evaluations (
-  team_id Int64,
   uuid UUID,
+  event LowCardinality(String),
+  properties String,
   timestamp DateTime64(6, 'UTC'),
-  inserted_at DateTime64(6, 'UTC') DEFAULT timestamp,
+  team_id Int64,
   distinct_id String,
-  session_id String,
-  device_id String,
-  flag_key String,
-  response LowCardinality(String),
-  flag_id UInt64,
-  flag_version UInt32,
-  reason LowCardinality(String),
-  request_id String,
-  evaluated_at DateTime64(6, 'UTC') DEFAULT timestamp,
-  error String,
-  locally_evaluated Bool,
-  lib LowCardinality(String),
-  lib_version LowCardinality(String),
-  is_server Bool,
-  os LowCardinality(String),
-  os_version LowCardinality(String),
-  app_version LowCardinality(String),
-  current_url String,
-  pathname String,
-  country_code LowCardinality(String),
-  subdivision_1_code LowCardinality(String),
-  group_0 String,
-  group_1 String,
-  group_2 String,
-  group_3 String,
-  group_4 String,
+  created_at DateTime64(6, 'UTC'),
+  person_id UUID,
+  person_properties String,
+  group0_properties String,
+  group1_properties String,
+  group2_properties String,
+  group3_properties String,
+  group4_properties String,
+  inserted_at DateTime64(6, 'UTC') DEFAULT timestamp,
+  $group_0 String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$group_0'), '^"|"$', '') COMMENT 'column_materializer::$group_0',
+  $group_1 String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$group_1'), '^"|"$', '') COMMENT 'column_materializer::$group_1',
+  $group_2 String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$group_2'), '^"|"$', '') COMMENT 'column_materializer::$group_2',
+  $group_3 String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$group_3'), '^"|"$', '') COMMENT 'column_materializer::$group_3',
+  $group_4 String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$group_4'), '^"|"$', '') COMMENT 'column_materializer::$group_4',
+  flag_key String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag'), '^"|"$', '') COMMENT 'column_materializer::properties::$feature_flag',
+  response LowCardinality(String) DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_response'), '^"|"$', '') COMMENT 'column_materializer::properties::$feature_flag_response',
+  session_id String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$session_id'), '^"|"$', '') COMMENT 'column_materializer::properties::$session_id',
+  request_id String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_request_id'), '^"|"$', '') COMMENT 'column_materializer::properties::$feature_flag_request_id',
   _timestamp DateTime,
   _offset UInt64,
   _partition UInt64,
   INDEX distinct_id_idx distinct_id TYPE bloom_filter(0.01) GRANULARITY 1,
+  INDEX person_id_idx person_id TYPE bloom_filter(0.01) GRANULARITY 1,
   INDEX session_id_idx session_id TYPE bloom_filter(0.01) GRANULARITY 1,
   INDEX request_id_idx request_id TYPE bloom_filter(0.01) GRANULARITY 1,
   INDEX inserted_at_idx inserted_at TYPE minmax GRANULARITY 1
@@ -2292,12 +2331,12 @@ CREATE TABLE posthog.writable_session_replay_events (
   snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
   snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
   _timestamp SimpleAggregateFunction(max, DateTime),
+  retention_period_days SimpleAggregateFunction(max, Nullable(Int64)),
   is_deleted SimpleAggregateFunction(max, UInt8) DEFAULT 0,
   ai_tags_fixed SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
   ai_tags_freeform SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
   ai_highlighted SimpleAggregateFunction(max, UInt8) DEFAULT 0,
-  surfacing_score SimpleAggregateFunction(max, Nullable(Float32)),
-  retention_period_days SimpleAggregateFunction(max, Nullable(Int64))
+  surfacing_score SimpleAggregateFunction(max, Nullable(Float32))
 ) ENGINE = Distributed('posthog', 'posthog', 'sharded_session_replay_events', sipHash64(distinct_id));
 CREATE TABLE posthog.writable_sessions (
   session_id String,
@@ -2894,6 +2933,21 @@ CREATE TABLE posthog.app_metrics2 (
   _offset UInt64,
   _partition UInt64
 ) ENGINE = Distributed('posthog', 'posthog', 'sharded_app_metrics2', rand());
+CREATE TABLE posthog.billing_usage_records (
+  schema_version UInt8,
+  record_id String,
+  producer_id LowCardinality(String),
+  team_id Int64,
+  organization_id UUID,
+  usage_key LowCardinality(String),
+  unit LowCardinality(String),
+  quantity Int64,
+  timestamp DateTime64(6, 'UTC'),
+  inserted_at DateTime64(6, 'UTC'),
+  _timestamp DateTime,
+  _offset UInt64,
+  _partition UInt64
+) ENGINE = Distributed('posthog', 'posthog', 'sharded_billing_usage_records', cityHash64(team_id));
 CREATE TABLE posthog.distinct_id_usage (
   team_id Int64,
   distinct_id String,
@@ -3120,37 +3174,30 @@ CREATE TABLE posthog.experiment_exposures_preaggregated (
   expires_at Date DEFAULT today() + toIntervalDay(7)
 ) ENGINE = Distributed('posthog', 'posthog', 'sharded_experiment_exposures_preaggregated', cityHash64(entity_id));
 CREATE TABLE posthog.flag_evaluations (
-  team_id Int64,
   uuid UUID,
+  event LowCardinality(String),
+  properties String,
   timestamp DateTime64(6, 'UTC'),
-  inserted_at DateTime64(6, 'UTC') DEFAULT timestamp,
+  team_id Int64,
   distinct_id String,
-  session_id String,
-  device_id String,
-  flag_key String,
-  response LowCardinality(String),
-  flag_id UInt64,
-  flag_version UInt32,
-  reason LowCardinality(String),
-  request_id String,
-  evaluated_at DateTime64(6, 'UTC') DEFAULT timestamp,
-  error String,
-  locally_evaluated Bool,
-  lib LowCardinality(String),
-  lib_version LowCardinality(String),
-  is_server Bool,
-  os LowCardinality(String),
-  os_version LowCardinality(String),
-  app_version LowCardinality(String),
-  current_url String,
-  pathname String,
-  country_code LowCardinality(String),
-  subdivision_1_code LowCardinality(String),
-  group_0 String,
-  group_1 String,
-  group_2 String,
-  group_3 String,
-  group_4 String,
+  created_at DateTime64(6, 'UTC'),
+  person_id UUID,
+  person_properties String,
+  group0_properties String,
+  group1_properties String,
+  group2_properties String,
+  group3_properties String,
+  group4_properties String,
+  inserted_at DateTime64(6, 'UTC') DEFAULT timestamp,
+  $group_0 String COMMENT 'column_materializer::$group_0',
+  $group_1 String COMMENT 'column_materializer::$group_1',
+  $group_2 String COMMENT 'column_materializer::$group_2',
+  $group_3 String COMMENT 'column_materializer::$group_3',
+  $group_4 String COMMENT 'column_materializer::$group_4',
+  flag_key String COMMENT 'column_materializer::properties::$feature_flag',
+  response LowCardinality(String) COMMENT 'column_materializer::properties::$feature_flag_response',
+  session_id String COMMENT 'column_materializer::properties::$session_id',
+  request_id String COMMENT 'column_materializer::properties::$feature_flag_request_id',
   _timestamp DateTime,
   _offset UInt64,
   _partition UInt64

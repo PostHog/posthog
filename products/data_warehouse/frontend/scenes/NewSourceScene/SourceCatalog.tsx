@@ -6,6 +6,7 @@ import { LemonButton, LemonInput, LemonModal, LemonTag, LemonTextArea, Link } fr
 
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+import { urls } from 'scenes/urls'
 
 import { ExternalDataSourceType } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
@@ -172,27 +173,36 @@ export function SourceCatalog({ allowedSources }: SourceCatalogProps): JSX.Eleme
                     autoFocus
                 />
 
-                {filteredItems.length === 0 &&
-                    (hasCrossCategoryMatches ? (
+                {filteredItems.length === 0 && (
+                    <div className="flex flex-col gap-1">
+                        {hasCrossCategoryMatches ? (
+                            <div className="text-muted text-sm">
+                                No sources match "{search.trim()}" in {selectedCategory}.{' '}
+                                <Link onClick={() => setSelectedCategory('all')}>Search all categories</Link> or request
+                                one below.
+                            </div>
+                        ) : (
+                            <div className="text-muted text-sm">
+                                No sources match.{' '}
+                                <Link
+                                    onClick={() => {
+                                        setSearch('')
+                                        setSelectedCategory('all')
+                                    }}
+                                >
+                                    Clear filters
+                                </Link>{' '}
+                                or request one below.
+                            </div>
+                        )}
+                        {/* Sources bring data into PostHog; users after an export (e.g. searching
+                            "webhook") land here by mistake, so point them at destinations. */}
                         <div className="text-muted text-sm">
-                            No sources match "{search.trim()}" in {selectedCategory}.{' '}
-                            <Link onClick={() => setSelectedCategory('all')}>Search all categories</Link> or request one
-                            below.
+                            Trying to send data out to another tool?{' '}
+                            <Link to={urls.destinations()}>Set up a destination</Link>.
                         </div>
-                    ) : (
-                        <div className="text-muted text-sm">
-                            No sources match.{' '}
-                            <Link
-                                onClick={() => {
-                                    setSearch('')
-                                    setSelectedCategory('all')
-                                }}
-                            >
-                                Clear filters
-                            </Link>{' '}
-                            or request one below.
-                        </div>
-                    ))}
+                    </div>
+                )}
 
                 <div className="grid grid-cols-[repeat(auto-fill,minmax(15rem,1fr))] gap-3">
                     {filteredItems.map((item) => (

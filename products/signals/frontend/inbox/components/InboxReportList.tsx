@@ -1,74 +1,118 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { ComponentType, JSX, useEffect, useRef } from 'react'
+import { ComponentType, JSX, useCallback, useEffect, useRef } from 'react'
+
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { captureInboxReportsImpressed, captureInboxViewed } from '../inboxAnalytics'
 import { inboxSceneLogic } from '../inboxSceneLogic'
 import { inboxFiltersLogic } from '../logics/inboxFiltersLogic'
-import { reportListLogic, ReportListLogicProps } from '../logics/reportListLogic'
-import { InboxFlatListTabKey, SignalReport } from '../types'
-import { DismissalReasonValue } from '../utils/dismissalReasons'
+import { legacyTabListLogicProps, reportListLogic } from '../logics/reportListLogic'
+import { INBOX_LEGACY_TAB_SECTION, InboxFlatListTabKey, InboxReportSectionKey, SignalReport } from '../types'
+import { DismissalFeedback } from '../utils/dismissalReasons'
 import { CardSkeleton } from './cards/CardSkeleton'
 import { InboxBulkSelectionBar } from './shell/InboxBulkSelectionBar'
 import { InboxSearchFilterBar } from './shell/InboxSearchFilterBar'
 
 export interface InboxReportCardProps {
     report: SignalReport
-    tabKey: InboxFlatListTabKey
-    onArchive: (reason: DismissalReasonValue, note: string) => void
+    sectionKey: InboxReportSectionKey
+    onDismiss: (dismissal: DismissalFeedback) => void
     /** Restore a suppressed report back to the inbox. Only wired on the Archived tab. */
     onRestore?: () => void
     /** Rendered as an attached row inside a shared bordered container (vs. a freestanding card). */
     attached?: boolean
 }
 
-interface InboxReportListProps extends ReportListLogicProps {
+interface InboxReportListProps {
+    tabKey: InboxFlatListTabKey
     Card: ComponentType<InboxReportCardProps>
-    emptyState: { icon: JSX.Element; title: string; description: string; extra?: JSX.Element }
+    emptyState:
+        | { content: JSX.Element }
+        | { icon: JSX.Element; title: string; description: string; extra?: JSX.Element }
 }
 
 /**
- * Shared body for the three flat report-list tabs (Pull requests / Reports /
- * Not actionable). Each is the same primitive – only the `listParams` filter and
+ * Shared body for the flat report-list tabs shown with the redesign flag off (Pull requests /
+ * Reports / Not actionable / Archive). Each is the same primitive – only the server filter and
  * the empty-state copy differ. Binds the keyed `reportListLogic`, loads the first
  * page lazily on mount, shows a skeleton while a known-non-empty tab loads, and
  * appends pages via an IntersectionObserver sentinel.
  */
 export function InboxReportList(props: InboxReportListProps): JSX.Element {
     return (
-        <BindLogic logic={reportListLogic} props={{ tabKey: props.tabKey, listParams: props.listParams }}>
+        <BindLogic logic={reportListLogic} props={legacyTabListLogicProps(props.tabKey)}>
             <InboxReportListInner {...props} />
         </BindLogic>
     )
 }
 
 function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps): JSX.Element {
-    const { reports, count, totalCount, hasMore, reportsResponseLoading, isLoaded, loadedQueryKey, loadedContext } =
-        useValues(reportListLogic)
-    const { ensureLoaded, loadMore, archiveReport, restoreReport, refresh } = useActions(reportListLogic)
+    const {
+        reports,
+        count,
+        totalCount,
+        hasMore,
+        reportsResponseLoading,
+        isLoaded,
+        reportsLoadFailed,
+        pageLoadFailed,
+        loadedQueryKey,
+        loadedContext,
+    } = useValues(reportListLogic)
+    const { ensureLoaded, loadMore, dismissReport, restoreReport, refresh } = useActions(reportListLogic)
     const { hasActiveFilters, sourceProductFilter, priorityFilter, scope } = useValues(inboxFiltersLogic)
     // The list stays mounted (hidden) while a report/scout detail is open, so gate the view event on
     // the list actually being the visible surface — otherwise a deep-link to a report fires a phantom
     // `Inbox viewed` and then suppresses the real one when the user navigates back to the list.
     const { selectedReportId, selectedScoutSkillName, isScratchpadOpen, isFindingsOpen } = useValues(inboxSceneLogic)
     const listVisible = !selectedReportId && !selectedScoutSkillName && !isScratchpadOpen && !isFindingsOpen
-    const sentinelRef = useRef<HTMLDivElement>(null)
 
-    // Fire `Inbox viewed` once per tab mount, the first time its list settles while visible.
+    // The Pull requests / Reports badge counts go on every `Inbox viewed`, whatever tab is open: the
+    // active tab's `total_count` alone says nothing about a user who lands on Pull requests and has
+    // 200 reports waiting. These share the tab bar's keyed instances, so no extra requests.
+    const { count: pullsTabCount, countLoading: pullsTabCountLoading } = useValues(
+        reportListLogic(legacyTabListLogicProps('pulls'))
+    )
+    const { count: reportsTabCount, countLoading: reportsTabCountLoading } = useValues(
+        reportListLogic(legacyTabListLogicProps('reports'))
+    )
+    // A badge count is settled once its request is no longer in flight: loaded, refreshed, or failed
+    // (count stays null). Waiting on the loading flags rather than non-null values means a scope or
+    // filter refresh in progress doesn't fire the event with the previous query's counts.
+    const badgeCountsSettled = !pullsTabCountLoading && !reportsTabCountLoading
+
+    // Fire `Inbox viewed` once per tab mount, the first time its list and the badge counts settle
+    // while visible.
     const viewedFiredRef = useRef(false)
     useEffect(() => {
-        if (listVisible && isLoaded && count !== null && !viewedFiredRef.current) {
+        if (listVisible && isLoaded && count !== null && badgeCountsSettled && !viewedFiredRef.current) {
             viewedFiredRef.current = true
             captureInboxViewed({
                 tab: tabKey,
                 reports,
                 totalCount: count,
+                pullsTabCount,
+                reportsTabCount,
                 hasActiveFilters,
                 sourceProductFilter,
                 priorityFilter,
                 scope,
             })
         }
-    }, [listVisible, isLoaded, count, reports, tabKey, hasActiveFilters, sourceProductFilter, priorityFilter, scope])
+    }, [
+        listVisible,
+        isLoaded,
+        count,
+        badgeCountsSettled,
+        pullsTabCount,
+        reportsTabCount,
+        reports,
+        tabKey,
+        hasActiveFilters,
+        sourceProductFilter,
+        priorityFilter,
+        scope,
+    ])
 
     // Impression log for ranking-model training: record each report the first time it appears in
     // the visible list (initial page, pagination, refresh), with its rank at that moment. Deduped
@@ -109,8 +153,8 @@ function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps
         })
     }, [listVisible, isLoaded, totalCount, reports, tabKey, loadedQueryKey, loadedContext])
 
-    // Read fresh state at intersection time via refs so the observer is created once and not
-    // rebuilt twice per page fetch (`hasMore`/`reportsResponseLoading` both flip during a load).
+    // Read fresh state at intersection time via refs so the observer isn't rebuilt twice per page
+    // fetch (`hasMore`/`reportsResponseLoading` both flip during a load).
     const hasMoreRef = useRef(hasMore)
     hasMoreRef.current = hasMore
     const loadingRef = useRef(reportsResponseLoading)
@@ -120,26 +164,37 @@ function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps
         ensureLoaded()
     }, [ensureLoaded])
 
-    useEffect(() => {
-        const el = sentinelRef.current
-        if (!el) {
-            return
-        }
-        const observer = new IntersectionObserver(
-            (entries) => {
-                if (entries[0]?.isIntersecting && hasMoreRef.current && !loadingRef.current) {
-                    loadMore()
-                }
-            },
-            // Generous prefetch margin so the next page lands well before the user reaches the bottom.
-            { rootMargin: '1500px' }
-        )
-        observer.observe(el)
-        return () => observer.disconnect()
-    }, [loadMore])
+    // A callback ref, not an effect over `sentinelRef`: the sentinel only enters the DOM once the
+    // first page has landed and `hasMore` is true, which is after a mount-only effect has already
+    // run and found nothing to observe. Attaching as the node mounts is what keeps paging alive.
+    const observerRef = useRef<IntersectionObserver | null>(null)
+    const sentinelRef = useCallback(
+        (el: HTMLDivElement | null) => {
+            observerRef.current?.disconnect()
+            observerRef.current = null
+            if (!el) {
+                return
+            }
+            const observer = new IntersectionObserver(
+                (entries) => {
+                    if (entries[0]?.isIntersecting && hasMoreRef.current && !loadingRef.current) {
+                        loadMore()
+                    }
+                },
+                // Generous prefetch margin so the next page lands well before the user reaches the bottom.
+                { rootMargin: '1500px' }
+            )
+            observer.observe(el)
+            observerRef.current = observer
+        },
+        [loadMore]
+    )
+    useEffect(() => () => observerRef.current?.disconnect(), [])
 
-    // Skeleton while a tab we know is non-empty loads its first page.
-    const showSkeleton = !isLoaded && (reportsResponseLoading || (count ?? 0) > 0)
+    // Skeleton while a tab we know is non-empty loads its first page. A settled failed load leaves
+    // `reportsResponse` null, so without the `reportsLoadFailed` guard a non-zero badge count would
+    // hold the skeleton up forever instead of surfacing the error below.
+    const showSkeleton = !isLoaded && !reportsLoadFailed && (reportsResponseLoading || (count ?? 0) > 0)
 
     return (
         <div className="@container mx-auto max-w-4xl flex flex-col gap-4 px-6 py-4">
@@ -148,15 +203,31 @@ function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps
 
             {showSkeleton ? (
                 <CardSkeleton count={Math.min(count ?? 4, 6)} variant="cards" dashed={tabKey !== 'pulls'} />
-            ) : reports.length === 0 ? (
-                <div className="mx-auto max-w-md flex flex-col items-center text-center py-12 gap-2">
-                    <div className="flex items-center justify-center h-12 w-12 rounded-full bg-fill-primary text-secondary mb-1">
-                        {emptyState.icon}
-                    </div>
-                    <h3 className="text-base font-semibold m-0">{emptyState.title}</h3>
-                    <p className="text-sm text-tertiary m-0">{emptyState.description}</p>
-                    {emptyState.extra}
+            ) : reportsLoadFailed && reports.length === 0 ? (
+                <div className="flex flex-col items-start gap-2 px-1 py-2">
+                    <p className="m-0 text-sm text-tertiary">Couldn't load these reports.</p>
+                    <LemonButton
+                        size="small"
+                        type="secondary"
+                        onClick={() => (isLoaded ? refresh() : ensureLoaded())}
+                        data-attr="inbox-report-list-retry"
+                    >
+                        Retry
+                    </LemonButton>
                 </div>
+            ) : reports.length === 0 ? (
+                'content' in emptyState ? (
+                    emptyState.content
+                ) : (
+                    <div className="mx-auto max-w-md flex flex-col items-center text-center py-12 gap-2">
+                        <div className="flex items-center justify-center h-12 w-12 rounded-full bg-fill-primary text-secondary mb-1">
+                            {emptyState.icon}
+                        </div>
+                        <h3 className="text-base font-semibold m-0">{emptyState.title}</h3>
+                        <p className="text-sm text-tertiary m-0">{emptyState.description}</p>
+                        {emptyState.extra}
+                    </div>
+                )
             ) : (
                 <>
                     {/* Each report is its own freestanding card, separated by a small gap. */}
@@ -165,14 +236,29 @@ function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps
                             <Card
                                 key={report.id}
                                 report={report}
-                                tabKey={tabKey}
-                                onArchive={(reason, note) => archiveReport(report.id, reason, note)}
-                                onRestore={() => restoreReport(report.id)}
+                                sectionKey={INBOX_LEGACY_TAB_SECTION[tabKey]}
+                                onDismiss={(dismissal) => dismissReport(report.id, dismissal)}
+                                onRestore={() => restoreReport(report.id, 'list_row')}
                             />
                         ))}
                         {/* Skeleton cards continue the list while the next page loads – sleeker than a spinner. */}
                         {isLoaded && reportsResponseLoading && (
                             <CardSkeleton count={2} variant="cards" dashed={tabKey !== 'pulls'} />
+                        )}
+                        {/* A failed next page keeps the loaded rows and the sentinel may sit inside the
+                            viewport without re-firing, so offer an explicit way to fetch it again. */}
+                        {isLoaded && !reportsResponseLoading && pageLoadFailed && (
+                            <div className="flex items-center gap-2 px-1 py-2">
+                                <p className="m-0 text-sm text-tertiary">Couldn't load more reports.</p>
+                                <LemonButton
+                                    size="xsmall"
+                                    type="secondary"
+                                    onClick={() => loadMore()}
+                                    data-attr="inbox-report-list-retry-page"
+                                >
+                                    Retry
+                                </LemonButton>
+                            </div>
                         )}
                     </div>
                     {hasMore && <div ref={sentinelRef} className="h-1" aria-hidden />}

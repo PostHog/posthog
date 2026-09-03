@@ -1,4 +1,4 @@
-import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
+import { humanFriendlyLargeNumber, humanFriendlyNumber } from 'lib/utils/numbers'
 
 export interface ActivitySummaryInput {
     totalCalls: number
@@ -28,14 +28,15 @@ export function buildActivitySummary(input: ActivitySummaryInput): string {
 
     const parts = [`${humanFriendlyLargeNumber(totalCalls)} tool calls`]
     if (distinctClients > 0) {
-        parts.push(`from ${distinctClients} client${distinctClients === 1 ? '' : 's'}`)
+        parts.push(`from ${humanFriendlyNumber(distinctClients)} client${distinctClients === 1 ? '' : 's'}`)
     }
     let summary = `${parts.join(' ')} so far`
     if (topTool) {
         summary += ` — ${topTool} is the favorite`
     }
     if (errorCalls > 0) {
-        summary += `${topTool ? ',' : ' —'} ${errorCalls} failure${errorCalls === 1 ? '' : 's'} worth a look`
+        const failures = `${humanFriendlyNumber(errorCalls)} failure${errorCalls === 1 ? '' : 's'}`
+        summary += `${topTool ? ',' : ' —'} ${failures} worth a look`
     }
     return summary
 }

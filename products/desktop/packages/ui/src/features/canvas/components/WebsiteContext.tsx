@@ -3,7 +3,10 @@ import {
   GitBranchIcon,
   SparkleIcon,
 } from "@phosphor-icons/react";
-import { FolderInstructionsConflictError } from "@posthog/api-client/posthog-client";
+import {
+  ContextWikiUnavailableError,
+  FolderInstructionsConflictError,
+} from "@posthog/api-client/posthog-client";
 import { buildContextSaveProps } from "@posthog/core/canvas/canvasAnalytics";
 import {
   Empty,
@@ -21,7 +24,6 @@ import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import { ChannelHeader } from "@posthog/ui/features/canvas/components/ChannelHeader";
 import { CreateChannelModal } from "@posthog/ui/features/canvas/components/CreateChannelModal";
 import { channelPageIcon } from "@posthog/ui/features/canvas/components/channelPages";
-import { RepositoriesField } from "@posthog/ui/features/canvas/components/RepositoriesField";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import {
@@ -33,16 +35,22 @@ import {
   useTaskChannels,
   useUpdateTaskChannelRepositories,
 } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
+import { ContextWikiPagePane } from "@posthog/ui/features/context-wiki/components/ContextWikiPagePane";
+import { useChannelContextWikiPage } from "@posthog/ui/features/context-wiki/hooks/useContextWiki";
 import { MarkdownRenderer } from "@posthog/ui/features/editor/components/MarkdownRenderer";
+import { useContextLayerFlag } from "@posthog/ui/features/feature-flags/useContextLayerFlag";
+import { RepositoriesField } from "@posthog/ui/features/integrations/components/RepositoriesField";
 import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
 import {
   PageHeader,
+  PageHeaderActions,
   PageHeaderChip,
   PageHeaderDescription,
   PageHeaderHeading,
   PageHeaderTitle,
   PageHeaderTitleRow,
 } from "@posthog/ui/primitives/PageHeader";
+import { navigateToSpacesContext } from "@posthog/ui/router/navigationBridge";
 import { track } from "@posthog/ui/shell/analytics";
 import {
   Box,
@@ -60,8 +68,6 @@ import { useEffect, useMemo, useState } from "react";
 
 type Mode = "rendered" | "edit";
 
-// Initial markdown shown when a channel has no instructions yet — gives both
-// humans and agents a structural starting point instead of a blank screen.
 const CHANNEL_EMPTY_TEMPLATE =
   "# Channel context\n\nDescribe what lives here.\n";
 const SPACE_EMPTY_TEMPLATE = "# Space context\n\nDescribe what lives here.\n";
@@ -71,11 +77,108 @@ interface WebsiteContextProps {
 }
 
 export function WebsiteContext({ channelId }: WebsiteContextProps) {
+  const contextLayerEnabled = useContextLayerFlag();
+  const wikiPage = useChannelContextWikiPage(channelId, contextLayerEnabled);
+
+  if (contextLayerEnabled && wikiPage.isLoading) {
+    return (
+      <Flex align="center" justify="center" className="h-full">
+        <Spinner size="2" />
+      </Flex>
+    );
+  }
+
+  if (contextLayerEnabled && wikiPage.data) {
+    return (
+      <WikiWebsiteContext channelId={channelId} path={wikiPage.data.path} />
+    );
+  }
+
+  if (contextLayerEnabled && wikiPage.error) {
+    const unavailable = wikiPage.error instanceof ContextWikiUnavailableError;
+    return (
+      <Empty>
+        <EmptyHeader>
+          <EmptyMedia variant="icon">
+            <FileTextIcon size={28} />
+          </EmptyMedia>
+          <EmptyTitle>
+            {unavailable
+              ? "Context wiki unavailable"
+              : "Could not load context"}
+          </EmptyTitle>
+          <EmptyDescription>{wikiPage.error.message}</EmptyDescription>
+        </EmptyHeader>
+        {!unavailable ? (
+          <EmptyContent>
+            <QuillButton variant="outline" onClick={() => wikiPage.refetch()}>
+              Try again
+            </QuillButton>
+          </EmptyContent>
+        ) : null}
+      </Empty>
+    );
+  }
+
+  return <LegacyWebsiteContext channelId={channelId} />;
+}
+
+function WikiWebsiteContext({
+  channelId,
+  path,
+}: {
+  channelId: string;
+  path: string;
+}) {
+  const spacesLayout = useChannelsLayout();
+  const { channels: taskChannels } = useTaskChannels();
+  const taskChannel = taskChannels.find((channel) => channel.id === channelId);
+  const headerContent = useMemo(
+    () => <ChannelHeader channelId={channelId} page="context" />,
+    [channelId],
+  );
+  useSetHeaderContent(headerContent);
+
+  return (
+    <div className="flex h-full flex-col overflow-hidden">
+      {spacesLayout ? (
+        <PageHeader>
+          <PageHeaderHeading>
+            <PageHeaderTitleRow>
+              <PageHeaderTitle>Context</PageHeaderTitle>
+              <PageHeaderChip icon={channelPageIcon("context", { size: 12 })}>
+                {path}
+              </PageHeaderChip>
+            </PageHeaderTitleRow>
+            <PageHeaderDescription>
+              Agents working in this space can find this page in the shared
+              context wiki.
+            </PageHeaderDescription>
+          </PageHeaderHeading>
+          <PageHeaderActions>
+            <QuillButton
+              variant="outline"
+              size="sm"
+              onClick={() => navigateToSpacesContext(path)}
+            >
+              Open in context wiki
+            </QuillButton>
+          </PageHeaderActions>
+        </PageHeader>
+      ) : null}
+      {spacesLayout && taskChannel ? (
+        <SpaceRepositories channel={taskChannel} />
+      ) : null}
+      <ContextWikiPagePane key={path} path={path} />
+    </div>
+  );
+}
+
+function LegacyWebsiteContext({ channelId }: WebsiteContextProps) {
   const spacesLayout = useChannelsLayout();
   const emptyTemplate = spacesLayout
     ? SPACE_EMPTY_TEMPLATE
     : CHANNEL_EMPTY_TEMPLATE;
-  // Channel name for the empty-state copy (the header reads its own).
   const { channels } = useChannels();
   const channelName =
     channels.find((c) => c.id === channelId)?.name ??
@@ -88,8 +191,6 @@ export function WebsiteContext({ channelId }: WebsiteContextProps) {
     isLoading: isLoadingLatest,
     isFetching: isFetchingLatest,
     error: latestError,
-    // Poll while empty so an agent's CONTEXT.md publish (mid plan-session, via
-    // the MCP) replaces the empty state without a manual reload.
   } = useFolderInstructions(channelId, { pollWhileEmpty: true });
 
   const { data: versions = [], isLoading: isLoadingVersions } =
@@ -104,9 +205,6 @@ export function WebsiteContext({ channelId }: WebsiteContextProps) {
 
   const hasInstructions = (latest?.content ?? "").trim().length > 0;
 
-  // Seed the editor draft from the latest content the first time we land on
-  // edit mode (or whenever latest changes while we're not actively editing).
-  // We don't blow away an in-flight edit just because the cache refetched.
   useEffect(() => {
     if (hasDraft) return;
     setDraft(latest?.content ?? "");
@@ -122,8 +220,6 @@ export function WebsiteContext({ channelId }: WebsiteContextProps) {
     try {
       await publish({
         content: draft,
-        // base_version=0 signals "no prior version" to the optimistic
-        // concurrency check; otherwise we send the version we started from.
         baseVersion: latest?.version ?? 0,
       });
       track(
@@ -137,23 +233,15 @@ export function WebsiteContext({ channelId }: WebsiteContextProps) {
         ANALYTICS_EVENTS.CONTEXT_ACTION,
         buildContextSaveProps({ channelId, hasInstructions, success: false }),
       );
-      // Errors surface through `publishError` below; nothing to do here.
     }
   };
 
   const isConflict = publishError instanceof FolderInstructionsConflictError;
 
-  // Allow inspecting an older version read-only. When `null`, we're showing
-  // either the latest (rendered/edit) or the empty state. Versions are keyed
-  // by their number — the version's identity on the channel.
   const [selectedVersionNumber, setSelectedVersionNumber] = useState<
     number | null
   >(null);
 
-  // Picking a past version forces rendered mode and shows that version's
-  // metadata; we don't currently fetch the historical content body, so the
-  // viewer falls back to "Open latest in editor" when there is no body.
-  // (Backend exposes content only via the `latest` endpoint today.)
   const selectedVersion = useMemo(() => {
     if (selectedVersionNumber == null) return null;
     return versions.find((v) => v.version === selectedVersionNumber) ?? null;
@@ -179,10 +267,6 @@ export function WebsiteContext({ channelId }: WebsiteContextProps) {
     );
   }
 
-  // Treat `null` (404: never published), `undefined` (query disabled), AND a
-  // row with whitespace-only content as "no instructions" so we render the
-  // empty state — otherwise MarkdownRenderer paints an invisible empty block
-  // and the page looks blank.
   const renderedContent = latest?.content ?? "";
 
   return (
@@ -322,8 +406,6 @@ export function WebsiteContext({ channelId }: WebsiteContextProps) {
       ) : null}
 
       {!selectedVersion && mode === "edit" ? (
-        // The editor sits outside the scroll area so it grows with the window
-        // instead of scrolling the page around a fixed-height box.
         <Box p="4" className="flex min-h-0 flex-1">
           <TextArea
             value={draft}
@@ -446,10 +528,6 @@ function EmptyState({
   );
 }
 
-// Opens the describe-and-plan dialog for this (already-existing) context, which
-// launches a plan-mode session that investigates PostHog + the repo and publishes
-// CONTEXT.md via the MCP once the user approves the plan. Same flow as creating a
-// context from scratch, minus the name field.
 function GenerateWithAgent({
   channelId,
   channelName,
@@ -478,8 +556,6 @@ function GenerateWithAgent({
   );
 }
 
-// `created_at` is an ISO timestamp; we render it as a short local string for
-// the version dropdown. Falls back to the raw string if Date parsing fails.
 function formatTimestamp(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;

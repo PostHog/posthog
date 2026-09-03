@@ -8,8 +8,9 @@ on:
     pull_request:
         # Draft PRs skip E2E entirely — the broad path filter below matches nearly
         # every code PR, and a full stack boot per draft push is the
-        # remaining big per-PR cost. The ready-for-review full run is the merge
-        # gate; use workflow_dispatch to force a run on a draft.
+        # remaining big per-PR cost. Ready PRs run the specs the diff can affect
+        # (see select-specs); the merge queue's trunk-merge/** run is the full suite
+        # that gates master. Use workflow_dispatch to force a run on a draft.
         types: [opened, synchronize, reopened, ready_for_review]
     workflow_dispatch:
         inputs:
@@ -92,6 +93,7 @@ jobs:
             oldest_supported: ${{ steps.read-versions.outputs.oldest_supported }}
             schema_cache_key: ${{ steps.schema-key.outputs.key }}
             schema_migrations_key: ${{ steps.schema-key.outputs.migrations_key }}
+            schema_prefix_key: ${{ steps.schema-key.outputs.prefix_key }}
         steps:
             # fetch-depth=1000 + blob:none mirrors ci-backend / ci-dagster so HEAD^2
             # (PR branch tip) is reachable for the merge-base step below without the
@@ -119,7 +121,7 @@ jobs:
               id: app-token
               if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
+                  client-id: ${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
 
             - uses: ./.github/actions/paths-filter
@@ -310,6 +312,16 @@ jobs:
                       echo "key=posthog-schema-master-${MERGE_BASE}" >> $GITHUB_OUTPUT
                       REF="$MERGE_BASE"
                   fi
+                  # Last-resort restore prefix: matches the newest saved dump of any
+                  # migration set, for the window where both exact keys miss. Gated on
+                  # checkout age (a day) because a re-run of an old run keeps its original
+                  # commit: a stale checkout can lack migrations the newest dump records,
+                  # and the migrate top-ups only apply forward, so they cannot repair a
+                  # dump that is newer than the code.
+                  HEAD_AGE_SECONDS=$(( $(date +%s) - $(git show -s --format=%ct HEAD) ))
+                  if [ "$HEAD_AGE_SECONDS" -lt 86400 ]; then
+                      echo "prefix_key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-" >> $GITHUB_OUTPUT
+                  fi
                   # Shared migration-set key: mirrors the save-side computation in
                   # ci-backend.yml (same inputs, hash, and prefix) so it hits whenever
                   # the ref's migration files match a saved master schema — far more
@@ -334,17 +346,18 @@ jobs:
     select-specs:
         name: Select affected E2E specs
         needs: [changes]
-        # Narrow the suite only on incremental `synchronize` pushes to a ready
-        # (non-draft) internal PR. Every other trigger — opened, reopened,
-        # ready_for_review, workflow_dispatch, and push to master — skips
-        # this job, leaving empty outputs so the playwright job runs the FULL suite.
-        # The merge gate (ready_for_review run) and the post-merge master run always
-        # run everything, so a selection miss is caught there. Fail-open is FULL,
-        # never skip: over-selection would silently drop coverage.
+        # Narrow the suite on any event of a ready (non-draft) internal PR: opened,
+        # reopened, synchronize, and ready_for_review all diff the same head against
+        # the same base, so they all select the same specs. workflow_dispatch and
+        # push to master skip this job, leaving empty outputs so the playwright job
+        # runs the FULL suite.
+        # `draft != true` also keeps the merge queue on the full suite: its
+        # trunk-merge/** PRs open as drafts, and that run is the gate for master, so
+        # a selection miss is caught there. The post-merge master run is full too.
+        # Fail-open is FULL, never skip: over-selection would silently drop coverage.
         if: |
             needs.changes.outputs.shouldRun == 'true'
             && github.event_name == 'pull_request'
-            && github.event.action == 'synchronize'
             && github.event.pull_request.draft != true
             && github.event.pull_request.head.repo.full_name == github.repository
         runs-on: ubuntu-latest
@@ -561,7 +574,7 @@ jobs:
               continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  client-id: ${{ vars.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
                   skip-token-revoke: true
 
@@ -643,8 +656,10 @@ jobs:
               # This is not cached, because the current HEAD version of hogql-parser must be built if it has
               # changed (requirements.txt has the already-published version)
               run: |
-                  sudo apt-get install unzip cmake curl uuid pkg-config
-                  curl --fail --location https://www.antlr.org/download/antlr4-cpp-runtime-4.13.1-source.zip --output antlr4-source.zip || curl --fail --location https://raw.githubusercontent.com/antlr/website-antlr4/gh-pages/download/antlr4-cpp-runtime-4.13.1-source.zip --output antlr4-source.zip
+                  # Short budget: the `||` mirror is the real fallback for a host that is down.
+                  fetch=(curl --fail --location --retry 3 --retry-all-errors --retry-max-time 30 --connect-timeout 10)
+                  "${fetch[@]}" https://www.antlr.org/download/antlr4-cpp-runtime-4.13.1-source.zip --output antlr4-source.zip \
+                      || "${fetch[@]}" https://raw.githubusercontent.com/antlr/website-antlr4/gh-pages/download/antlr4-cpp-runtime-4.13.1-source.zip --output antlr4-source.zip
                   # Check that the downloaded archive is the expected runtime - a security measure
                   anltr_known_md5sum="c875c148991aacd043f733827644a76f"
                   antlr_found_ms5sum="$(md5sum antlr4-source.zip | cut -d' ' -f1)"
@@ -685,6 +700,7 @@ jobs:
                   key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
 
             - name: Log in to Docker Hub
+              continue-on-error: true
               if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
@@ -725,11 +741,13 @@ jobs:
                   pnpm --filter=@posthog/frontend build:products
                   pnpm --filter=@posthog/frontend build
 
-            - name: Collect static files
+            - name: Collect static files without compression
               # The image-bitmap-data-url-worker-*.js.map files are already mirrored
               # into frontend/dist/ by copyRRWebWorkerFiles() in frontend/build.mjs
               # (see common/esbuilder/utils.mjs), which runs as part of the
               # `pnpm --filter=@posthog/frontend build` step above. No extra cp needed.
+              env:
+                  STATIC_PRECOMPRESS: '0'
               run: python manage.py collectstatic --noinput
             - name: Create test database
               shell: bash
@@ -766,7 +784,10 @@ jobs:
               # PRs and master pushes alike. Both keys are produced by ci-backend on
               # master push. Prefer the shared migration-set key (stable while master's
               # migration files are unchanged); fall back to the exact merge-base SHA key
-              # (PRs only). Cache miss falls through to a full migrate below.
+              # (PRs only), then to the newest dump of any migration set — right after a
+              # migration lands on master both exact keys miss until ci-backend re-dumps,
+              # and the migrate step below tops a slightly stale dump up in seconds.
+              # Cache miss falls through to a full migrate below.
               if: (github.event_name == 'pull_request' || github.event_name == 'push') && (needs.changes.outputs.schema_migrations_key != '' || needs.changes.outputs.schema_cache_key != '')
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               id: schema-cache
@@ -775,6 +796,7 @@ jobs:
                   key: ${{ needs.changes.outputs.schema_migrations_key || needs.changes.outputs.schema_cache_key }}
                   restore-keys: |
                       ${{ needs.changes.outputs.schema_cache_key }}
+                      ${{ needs.changes.outputs.schema_prefix_key }}
 
             - name: Prime posthog_e2e_test from cached schema
               # Schema dump is from master's `posthog` db but schemas are db-name agnostic.
@@ -863,9 +885,9 @@ jobs:
                   # ingestion-error-tracking: error tracking ingestion (ingestion-errortracking mode)
                   # ingestion-logs: logs ingestion (ingestion-logs mode)
                   # ingestion-traces: traces ingestion (ingestion-traces mode)
-                  # capture-ai: AI event capture (/i/v0/ai/batch/, CAPTURE_MODE=events)
-                  # ingestion-ai: AI event ingestion incl. multimodal blob offload (INGESTION_PIPELINE=ai)
-                  COMPOSE_FILE=docker-compose.dev.yml COMPOSE_PROFILES=capture,ingestion bin/ci-wait-for-docker launch plugins ingestion-general ingestion-sessionreplay recording-api ingestion-error-tracking ingestion-logs ingestion-traces capture-ai ingestion-ai
+                  # capture-ai: AI event capture (/i/v0/ai/batch/, CAPTURE_MODE=ai); ingestion-general's
+                  # combined-mode AI consumer ingests the lane incl. multimodal blob offload
+                  COMPOSE_FILE=docker-compose.dev.yml COMPOSE_PROFILES=capture,ingestion bin/ci-wait-for-docker launch plugins ingestion-general ingestion-sessionreplay recording-api ingestion-error-tracking ingestion-logs ingestion-traces capture-ai
 
             # Install Playwright browsers while we wait for PostHog to be ready
             - name: Install Playwright browsers
@@ -883,7 +905,7 @@ jobs:
               env:
                   COMPOSE_FILE: docker-compose.dev.yml
                   COMPOSE_PROFILES: capture,ingestion
-              run: bin/ci-wait-for-docker wait plugins ingestion-general ingestion-sessionreplay recording-api ingestion-error-tracking ingestion-logs ingestion-traces capture-ai ingestion-ai
+              run: bin/ci-wait-for-docker wait plugins ingestion-general ingestion-sessionreplay recording-api ingestion-error-tracking ingestion-logs ingestion-traces capture-ai
 
             - name: Clean snapshot directory
               run: find playwright/__snapshots__ -name '*.png' -delete 2>/dev/null || true
@@ -1005,7 +1027,6 @@ jobs:
                   docker logs posthog-ingestion-logs-1 > playwright/test-results/docker-ingestion-logs.log 2>&1 || echo "No ingestion-logs container" > playwright/test-results/docker-ingestion-logs.log
                   docker logs posthog-ingestion-traces-1 > playwright/test-results/docker-ingestion-traces.log 2>&1 || echo "No ingestion-traces container" > playwright/test-results/docker-ingestion-traces.log
                   docker logs posthog-capture-ai-1 > playwright/test-results/docker-capture-ai.log 2>&1 || echo "No capture-ai container" > playwright/test-results/docker-capture-ai.log
-                  docker logs posthog-ingestion-ai-1 > playwright/test-results/docker-ingestion-ai.log 2>&1 || echo "No ingestion-ai container" > playwright/test-results/docker-ingestion-ai.log
 
             - name: Archive test artifacts
               if: always()
@@ -1039,6 +1060,9 @@ jobs:
             # skips, so nothing uploads and no known flakes are quarantined. TRUNK_QUARANTINE_ENABLED
             # splits the two — it defaults off, so set it to 'true' to let the verdict step below mask
             # known flakes; otherwise any real failure reds the job (quarantining needs upload on too).
+            # Inlined rather than ./.github/actions/trunk-quarantine-gate, and so without its retry:
+            # this job checks out the PR head ref, which cannot resolve a local action that only
+            # exists on master until the branch rebases.
             - name: Quarantine gate
               id: quarantine_gate
               continue-on-error: true
@@ -1067,6 +1091,14 @@ jobs:
                   CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
               run: |
                   BRANCH="${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.number) || 'master' }}"
+                  # Cloudflare Pages rejects any single file over 25 MiB, which fails the whole
+                  # deploy and leaves triagers with no report on a red run. Trace zips and videos
+                  # can cross that, so drop them from the copy we publish; the full attachments
+                  # stay in the uploaded playwright-test-results artifact. Prune at 24 MiB for margin.
+                  # Guarded and non-fatal so a missing/partial report dir still reaches the deploy.
+                  if [ -d playwright/playwright-report ]; then
+                      find playwright/playwright-report -type f -size +24M -printf 'Pruning oversized report file (%s bytes): %p\n' -delete || true
+                  fi
                   npx --yes wrangler@3 pages deploy playwright/playwright-report \
                     --project-name=playwright-report \
                     --branch="$BRANCH" \
@@ -1151,8 +1183,8 @@ jobs:
             # fallback-rate insights live. Emitted whenever the heavy job actually ran, so
             # full runs (this event's `mode=full`, `selection_eligible=false`) provide the
             # test-time baseline that selective runs are measured against. `selection_eligible`
-            # is true only on synchronize pushes where select-specs ran — the fallback-rate
-            # denominator. Telemetry never reds CI (continue-on-error).
+            # is true on the ready internal-PR events where select-specs ran — the
+            # fallback-rate denominator. Telemetry never reds CI (continue-on-error).
             - name: Capture spec selection to DevEx PostHog
               if: github.run_attempt == '1' && (needs.playwright.result == 'success' || needs.playwright.result == 'failure')
               continue-on-error: true
@@ -1213,7 +1245,7 @@ jobs:
               continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  client-id: ${{ vars.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
                   skip-token-revoke: true
 

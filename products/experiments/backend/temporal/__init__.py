@@ -4,6 +4,10 @@ from products.experiments.backend.temporal.canary_activities import (
     sample_experiment_canary_targets,
 )
 from products.experiments.backend.temporal.canary_workflow import ExperimentPrecomputeCanaryWorkflow
+from products.experiments.backend.temporal.enrollment_census_activities import run_experiment_enrollment_census
+from products.experiments.backend.temporal.enrollment_census_workflow import (
+    ExperimentPrecomputeEnrollmentCensusWorkflow,
+)
 from products.experiments.backend.temporal.recalculation_activities import (
     calculate_experiment_metric_for_recalculation,
     discover_experiment_metrics,
@@ -19,28 +23,40 @@ EXPERIMENT_CANARY_ACTIVITIES = [
     run_experiment_metric_canary,
     report_experiment_canary_results,
 ]
+EXPERIMENT_ENROLLMENT_CENSUS_WORKFLOWS = [
+    ExperimentPrecomputeEnrollmentCensusWorkflow,
+]
+EXPERIMENT_ENROLLMENT_CENSUS_ACTIVITIES = [
+    run_experiment_enrollment_census,
+]
 
 WORKFLOWS = [
     ExperimentMetricsRecalculationWorkflow,
     *EXPERIMENT_CANARY_WORKFLOWS,
+    *EXPERIMENT_ENROLLMENT_CENSUS_WORKFLOWS,
 ]
 ACTIVITIES = [
     discover_experiment_metrics,
     calculate_experiment_metric_for_recalculation,
     update_recalculation_progress,
     *EXPERIMENT_CANARY_ACTIVITIES,
+    *EXPERIMENT_ENROLLMENT_CENSUS_ACTIVITIES,
 ]
 
 __all__ = [
     "ACTIVITIES",
     "EXPERIMENT_CANARY_ACTIVITIES",
     "EXPERIMENT_CANARY_WORKFLOWS",
+    "EXPERIMENT_ENROLLMENT_CENSUS_ACTIVITIES",
+    "EXPERIMENT_ENROLLMENT_CENSUS_WORKFLOWS",
     "WORKFLOWS",
     "ExperimentMetricsRecalculationWorkflow",
     "ExperimentPrecomputeCanaryWorkflow",
+    "ExperimentPrecomputeEnrollmentCensusWorkflow",
     "calculate_experiment_metric_for_recalculation",
     "discover_experiment_metrics",
     "report_experiment_canary_results",
+    "run_experiment_enrollment_census",
     "run_experiment_metric_canary",
     "sample_experiment_canary_targets",
     "update_recalculation_progress",

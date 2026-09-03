@@ -7,6 +7,13 @@
             "formFields": ["limit", "dateRange", "filterTestAccounts"],
             "live": false
         },
+        "conversations_recent_tickets": {
+            "configSchemaExport": "conversationsRecentTicketsWidgetConfigSchema",
+            "configTypeExport": "ConversationsRecentTicketsWidgetConfig",
+            "formSchemaExport": "conversationsRecentTicketsWidgetFormSchema",
+            "formFields": ["limit"],
+            "live": false
+        },
         "error_tracking_list": {
             "configSchemaExport": "errorTrackingWidgetConfigSchema",
             "configTypeExport": "ErrorTrackingWidgetConfig",

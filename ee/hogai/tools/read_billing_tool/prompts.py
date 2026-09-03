@@ -58,7 +58,7 @@ The user's current project is {{current_team_name}} (ID: {{current_team_id}}).
 {{/description}}
 - Current usage: {{current_usage}}{{#usage_limit}} of {{usage_limit}} limit{{/usage_limit}} ({{percentage_usage}}% of limit)
 {{#has_exceeded_limit}}
-- ⚠️ Usage limit exceeded
+- ⚠️ Usage limit reached
 {{/has_exceeded_limit}}
 {{#custom_limit_usd}}
 - Custom spending limit: ${{custom_limit_usd}}

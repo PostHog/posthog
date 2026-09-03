@@ -380,15 +380,10 @@ def connect_signal_handlers() -> None:
     post_save.connect(_reproject_on_membership_save, sender=OrganizationMembership)
     post_delete.connect(_reproject_on_membership_delete, sender=OrganizationMembership)
 
-    # Project access controls live in ee, which isn't installed in FOSS. Connect
-    # only when available; the projection's RBAC check default-allows there anyway.
-    try:
-        from ee.models.rbac.access_control import AccessControl
-        from ee.models.rbac.role import RoleMembership
+    from products.access_control.backend.models.access_control import AccessControl
+    from products.access_control.backend.models.role import RoleMembership
 
-        post_save.connect(_reproject_on_access_control_change, sender=AccessControl)
-        post_delete.connect(_reproject_on_access_control_change, sender=AccessControl)
-        post_save.connect(_reproject_on_role_membership_change, sender=RoleMembership)
-        post_delete.connect(_reproject_on_role_membership_change, sender=RoleMembership)
-    except ImportError:
-        pass
+    post_save.connect(_reproject_on_access_control_change, sender=AccessControl)
+    post_delete.connect(_reproject_on_access_control_change, sender=AccessControl)
+    post_save.connect(_reproject_on_role_membership_change, sender=RoleMembership)
+    post_delete.connect(_reproject_on_role_membership_change, sender=RoleMembership)

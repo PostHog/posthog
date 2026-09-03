@@ -41,10 +41,12 @@ import { ActivityScope } from '~/types'
 import { promptActivityDescriber } from 'products/ai_observability/frontend/prompts/promptActivityDescriber'
 import { promptLabelActivityDescriber } from 'products/ai_observability/frontend/prompts/promptLabelActivityDescriber'
 import { alertConfigurationActivityDescriber } from 'products/alerts/frontend/components/activityDescriptions'
+import { canvasActivityDescriber } from 'products/canvas/frontend/activityDescriber'
 import { ticketActivityDescriber } from 'products/conversations/frontend/activityDescriber'
 import { externalDataSourceActivityDescriber } from 'products/data_warehouse/frontend/shared/components/activityDescriptions'
 import { endpointActivityDescriber } from 'products/endpoints/frontend/activityDescriber'
 import { signalScoutConfigActivityDescriber } from 'products/signals/frontend/activityDescriber'
+import { stamphogRepoConfigActivityDescriber } from 'products/stamphog/frontend/activityDescriber'
 import { workflowActivityDescriber } from 'products/workflows/frontend/Workflows/misc/workflowActivityDescriber'
 
 export const describerFor = (logItem?: ActivityLogItem): Describer | undefined => {
@@ -61,6 +63,8 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
             return batchImportActivityDescriber
         case ActivityScope.BILLING:
             return billingActivityDescriber
+        case ActivityScope.CANVAS:
+            return canvasActivityDescriber
         case ActivityScope.EXPORTED_ASSET:
             return exportedAssetActivityDescriber
         case ActivityScope.DASHBOARD:
@@ -135,6 +139,8 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
             return promptActivityDescriber
         case ActivityScope.LLM_PROMPT_LABEL:
             return promptLabelActivityDescriber
+        case ActivityScope.STAMPHOG_REPO_CONFIG:
+            return stamphogRepoConfigActivityDescriber
         default:
             return defaultDescriber
     }

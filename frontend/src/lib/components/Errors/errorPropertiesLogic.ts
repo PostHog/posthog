@@ -13,6 +13,7 @@ import {
     getAdditionalProperties,
     getExceptionAttributes,
     getExceptionList,
+    getExceptionRelease,
     getFingerprintRecords,
     getRecordingStatus,
     getSessionId,
@@ -87,6 +88,7 @@ export interface errorPropertiesLogicMeta {
         uuid: (id: string) => string
         framesStoredCrashFirst: (properties: Record<string, any>, arg: string | undefined) => boolean
         release: (
+            properties: Record<string, any>,
             frames: ErrorTrackingStackFrame[],
             stackFrameRecords: KeyedStackFrameRecords
         ) => ErrorTrackingRelease | null | undefined
@@ -175,8 +177,19 @@ export const errorPropertiesLogic = kea<errorPropertiesLogicType>([
                 isStoredCrashFirst(properties?.['$lib'] as string | undefined, timestamp),
         ],
         release: [
-            (s) => [s.frames, s.stackFrameRecords],
-            (frames: ErrorTrackingStackFrame[], stackFrameRecords: KeyedStackFrameRecords) => {
+            (s) => [s.properties, s.frames, s.stackFrameRecords],
+            (
+                properties: ErrorEventProperties,
+                frames: ErrorTrackingStackFrame[],
+                stackFrameRecords: KeyedStackFrameRecords
+            ) => {
+                const eventRelease = properties ? getExceptionRelease(properties) : undefined
+                if (eventRelease) {
+                    return eventRelease
+                }
+
+                // Fall back to frame releases for exception events captured before Cymbal started
+                // writing the singular event-level release property.
                 if (!frames.length || Object.keys(stackFrameRecords).length === 0) {
                     return undefined
                 }

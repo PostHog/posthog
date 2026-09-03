@@ -48,9 +48,55 @@ function copyAssets() {
   const distDir = resolve(import.meta.dirname, "dist");
   const templatesDir = resolve(distDir, "templates");
   const claudeCliDir = resolve(distDir, "claude-cli");
+  const productEngineerResourcesSource = resolve(
+    import.meta.dirname,
+    "../harness/dist/extensions/product-engineer",
+  );
+  const productEngineerResourcesTarget = resolve(
+    distDir,
+    "pi/product-engineer",
+  );
+  const bundledAgentsSource = resolve(
+    import.meta.dirname,
+    "../harness/dist/extensions/orchestration/bundled-agents",
+  );
+  const bundledAgentsTarget = resolve(distDir, "pi/bundled-agents");
+  const orchestrationSkillsSource = resolve(
+    import.meta.dirname,
+    "../harness/dist/extensions/orchestration/skills",
+  );
+  const orchestrationSkillsTarget = resolve(distDir, "pi/skills");
+  const enricherGrammarsSource = resolve(
+    import.meta.dirname,
+    "../enricher/grammars",
+  );
+  const enricherGrammarsTarget = resolve(distDir, "grammars");
 
   mkdirSync(templatesDir, { recursive: true });
   mkdirSync(claudeCliDir, { recursive: true });
+  if (!existsSync(productEngineerResourcesSource)) {
+    throw new Error(
+      `Missing product engineer resources at ${productEngineerResourcesSource}`,
+    );
+  }
+  if (!existsSync(bundledAgentsSource)) {
+    throw new Error(`Missing bundled agents at ${bundledAgentsSource}`);
+  }
+  if (!existsSync(orchestrationSkillsSource)) {
+    throw new Error(
+      `Missing orchestration skills at ${orchestrationSkillsSource}`,
+    );
+  }
+  cpSync(productEngineerResourcesSource, productEngineerResourcesTarget, {
+    recursive: true,
+  });
+  cpSync(bundledAgentsSource, bundledAgentsTarget, { recursive: true });
+  cpSync(orchestrationSkillsSource, orchestrationSkillsTarget, {
+    recursive: true,
+  });
+  cpSync(enricherGrammarsSource, enricherGrammarsTarget, {
+    recursive: true,
+  });
 
   const srcTemplatesDir = resolve(import.meta.dirname, "src/templates");
   if (existsSync(srcTemplatesDir)) {
@@ -77,6 +123,9 @@ function copyAssets() {
     JSON.stringify({ type: "module" }, null, 2),
   );
 }
+
+const nodeEsmBanner =
+  'import { createRequire as __createRequire } from "node:module"; import { fileURLToPath as __fileURLToPath } from "node:url"; import { dirname as __pathDirname } from "node:path"; const require = __createRequire(import.meta.url); const __filename = __fileURLToPath(import.meta.url); const __dirname = __pathDirname(__filename);';
 
 const sharedOptions = {
   sourcemap: true,
@@ -125,12 +174,12 @@ export default defineConfig([
       "src/acp-extensions.ts",
       "src/agent.ts",
       "src/gateway-models.ts",
-      "src/handoff-checkpoint.ts",
       "src/posthog-api.ts",
       "src/posthog-products.ts",
       "src/pr-url-detector.ts",
       "src/pi/rpc-client.ts",
       "src/pi/runtime.ts",
+      "src/pi/task-system-prompt.ts",
       "src/pi/types.ts",
       "src/pi/conversation/translatePiConversation.ts",
       "src/resume.ts",
@@ -144,6 +193,9 @@ export default defineConfig([
       "src/adapters/claude/session/models.ts",
       "src/adapters/codex-app-server/models.ts",
       "src/adapters/codex-app-server/local-tools-mcp-server.ts",
+      "src/adapters/codex-app-server/subscription-login.ts",
+      "src/adapters/claude/subscription-login.ts",
+      "src/adapters/claude/machine-auth.ts",
       "src/adapters/claude/mcp/tool-metadata.ts",
       "src/adapters/reasoning-effort.ts",
       "src/execution-mode.ts",
@@ -158,9 +210,7 @@ export default defineConfig([
     // dynamic `require(...)` calls throw in ESM output unless a real require
     // exists. Entries spawned directly by node (local-tools-mcp-server.js)
     // crash at import time without this shim.
-    banner: {
-      js: 'import { createRequire as __createRequire } from "node:module"; const require = __createRequire(import.meta.url);',
-    },
+    banner: { js: nodeEsmBanner },
     ...sharedOptions,
     onSuccess: async () => {
       copyAssets();
@@ -187,9 +237,7 @@ export default defineConfig([
     format: ["esm"],
     dts: false,
     clean: false,
-    banner: {
-      js: 'import { createRequire as __createRequire } from "node:module"; const require = __createRequire(import.meta.url);',
-    },
+    banner: { js: nodeEsmBanner },
     ...sharedOptions,
     noExternal: [/^(?!node:)/],
     external: [...builtinModules, ...builtinModules.map((m) => `node:${m}`)],

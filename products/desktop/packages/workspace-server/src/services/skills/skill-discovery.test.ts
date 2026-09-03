@@ -140,6 +140,25 @@ describe("listSkillFiles", () => {
     expect(files.map((f) => f.path)).toEqual(["SKILL.md"]);
   });
 
+  it("excludes ignored directories but keeps dot-files", async () => {
+    const skillsDir = path.join(root, "skills");
+    await createSkill(skillsDir, "alpha");
+    const skillPath = path.join(skillsDir, "alpha");
+    await mkdir(path.join(skillPath, "references"), { recursive: true });
+    await mkdir(path.join(skillPath, ".venv", "lib"), { recursive: true });
+    await writeFile(path.join(skillPath, ".gitignore"), "junk");
+    await writeFile(path.join(skillPath, "references", "x.md"), "x");
+    await writeFile(path.join(skillPath, ".venv", "lib", "mod.py"), "m");
+
+    const files = await listSkillFiles(skillPath, 500);
+
+    expect(files.map((f) => f.path)).toEqual([
+      "SKILL.md",
+      ".gitignore",
+      "references/x.md",
+    ]);
+  });
+
   it("stops at the file cap", async () => {
     const skillsDir = path.join(root, "skills");
     await createSkill(skillsDir, "alpha");

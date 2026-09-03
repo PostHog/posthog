@@ -2,7 +2,7 @@ import './DataGrid.scss'
 import 'react-data-grid/lib/styles.css'
 
 import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { useCallback, useMemo, useRef, useState } from 'react'
 import DataGrid, { DataGridProps, RenderHeaderCellProps, SortColumn } from 'react-data-grid'
 
@@ -35,6 +35,7 @@ import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { InsightErrorState, StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { HogQLBoldNumber } from 'scenes/insights/views/BoldNumber/BoldNumber'
 import { urls } from 'scenes/urls'
 
@@ -45,7 +46,9 @@ import { LoadPreviewText } from '~/queries/nodes/DataNode/LoadNext'
 import { QueryExecutionDetails } from '~/queries/nodes/DataNode/QueryExecutionDetails'
 import { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
 import { PieChart } from '~/queries/nodes/DataVisualization/Components/Charts/PieChart'
+import { SqlBoxPlot } from '~/queries/nodes/DataVisualization/Components/Charts/SqlBoxPlot'
 import { SqlChart } from '~/queries/nodes/DataVisualization/Components/Charts/SqlChart'
+import { SqlScatterGraph } from '~/queries/nodes/DataVisualization/Components/Charts/SqlScatterGraph'
 import { TwoDimensionalHeatmap } from '~/queries/nodes/DataVisualization/Components/Heatmap/TwoDimensionalHeatmap'
 import { seriesBreakdownLogic } from '~/queries/nodes/DataVisualization/Components/seriesBreakdownLogic'
 import { SideBar } from '~/queries/nodes/DataVisualization/Components/SideBar'
@@ -79,6 +82,7 @@ import {
     copyTableToMarkdown,
 } from '../../../queries/nodes/DataTable/clipboardUtils'
 import { FixErrorButton } from './components/FixErrorButton'
+import { QueryIndexUsageBar } from './output-pane-tabs/QueryIndexUsageBar'
 import { OutputTab, outputPaneLogic } from './outputPaneLogic'
 import { sqlEditorLogic } from './sqlEditorLogic'
 import { trimRedundantTail } from './syncWarnings'
@@ -586,7 +590,8 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
     const { activeTab } = useValues(outputPaneLogic)
     const { setActiveTab } = useActions(outputPaneLogic)
 
-    const { sourceQuery, exportContext, insightLoading, hasQueryInput, isEmbeddedMode } = useValues(sqlEditorLogic)
+    const { sourceQuery, exportContext, insightLoading, hasQueryInput, isEmbeddedMode, metadata, metadataLoading } =
+        useValues(sqlEditorLogic)
     const { setSourceQuery } = useActions(sqlEditorLogic)
     const { isDarkModeOn } = useValues(themeLogic)
     const {
@@ -891,6 +896,7 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
 
     return (
         <div className="OutputPane flex flex-col w-full flex-1 min-h-0 bg-white dark:bg-black">
+            <QueryIndexUsageBar predicates={metadata?.index_usage ?? []} refreshing={metadataLoading} />
             {outputContent}
             <div className="flex justify-between px-2 border-t">
                 <div>{response && !responseError ? <LoadPreviewText localResponse={response} /> : <></>}</div>
@@ -920,6 +926,7 @@ function InternalDataTableVisualization(
         responseLoading,
         xData,
         yData,
+        columns,
         chartSettings,
         dashboardId,
         dataVisualizationProps,
@@ -928,6 +935,9 @@ function InternalDataTableVisualization(
 
     const { seriesBreakdownData } = useValues(seriesBreakdownLogic({ key: dataVisualizationProps.key }))
     const { goalLines } = useValues(displayLogic)
+    const { editingInsight } = useValues(sqlEditorLogic)
+
+    const isDateXAxis = xData?.column.type.name === 'DATE' || xData?.column.type.name === 'DATETIME'
 
     let component: JSX.Element | null = null
 
@@ -957,16 +967,20 @@ function InternalDataTableVisualization(
         const _xData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.xData : xData
         const _yData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.seriesData : yData
         component = (
-            <SqlChart
-                className="p-2"
-                xData={_xData}
-                yData={_yData}
-                visualizationType={effectiveVisualizationType}
-                chartSettings={chartSettings}
-                dashboardId={dashboardId}
-                goalLines={goalLines}
-                presetChartHeight={presetChartHeight}
-            />
+            <BindLogic logic={insightLogic} props={{ dashboardItemId: editingInsight?.short_id, doNotLoad: true }}>
+                <SqlChart
+                    className="p-2"
+                    xData={_xData}
+                    yData={_yData}
+                    visualizationType={effectiveVisualizationType}
+                    chartSettings={chartSettings}
+                    dashboardId={dashboardId}
+                    goalLines={goalLines}
+                    insightNumericId={editingInsight?.id || 'new'}
+                    showAnnotations={isDateXAxis && chartSettings.showAnnotations === true}
+                    presetChartHeight={presetChartHeight}
+                />
+            </BindLogic>
         )
     } else if (effectiveVisualizationType === ChartDisplayType.ActionsPie) {
         const _xData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.xData : xData
@@ -979,6 +993,28 @@ function InternalDataTableVisualization(
                 yData={_yData}
                 chartSettings={chartSettings}
                 presetChartHeight={presetChartHeight}
+            />
+        )
+    } else if (effectiveVisualizationType === ChartDisplayType.ScatterPlot) {
+        component = (
+            <SqlScatterGraph
+                className="p-2"
+                xData={xData}
+                yData={yData}
+                chartSettings={chartSettings}
+                presetChartHeight={presetChartHeight}
+            />
+        )
+    } else if (effectiveVisualizationType === ChartDisplayType.BoxPlot) {
+        const rows = ('results' in response ? response.results : 'result' in response ? response.result : []) ?? []
+        component = (
+            <SqlBoxPlot
+                rows={Array.isArray(rows) ? rows : []}
+                columns={columns}
+                chartSettings={chartSettings}
+                analyticsKey={dataVisualizationProps.key}
+                presetChartHeight={presetChartHeight}
+                className="p-2"
             />
         )
     } else if (effectiveVisualizationType === ChartDisplayType.TwoDimensionalHeatmap) {
@@ -1123,6 +1159,10 @@ const Content = ({
     showVisualizationSettings,
     isEmbeddedMode,
 }: any): JSX.Element | null => {
+    const { selectedDirectSource } = useValues(sqlEditorLogic)
+    // dataNodeLogic's timer resets on every loadData dispatch, so a rerun issued while a
+    // query is still in flight restarts the count (a local isLoading-keyed timer wouldn't).
+    const { loadingTimeSeconds } = useValues(dataNodeLogic)
     const [sortColumns, setSortColumns] = useState<SortColumn[]>([])
 
     const sortedRows = useMemo(() => {
@@ -1217,6 +1257,15 @@ const Content = ({
                     pollResponse={pollResponse}
                     setProgress={setProgress}
                     progress={progress}
+                    suggestion={
+                        // Only worth saying once the query is demonstrably slow.
+                        selectedDirectSource?.source_type === 'Motherduck' && loadingTimeSeconds >= 60 ? (
+                            <p className="text-xs m-0 text-center">
+                                This query runs live on your MotherDuck database. Speed depends on its capacity and
+                                current load.
+                            </p>
+                        ) : undefined
+                    }
                 />
             </div>
         )

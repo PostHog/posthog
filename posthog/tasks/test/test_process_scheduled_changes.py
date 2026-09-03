@@ -809,8 +809,9 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
         # Verify the flag was updated correctly
         updated_flag = FeatureFlag.objects.get(key="test-variant-flag")
 
-        # Check that variants were cleared
-        self.assertEqual(updated_flag.filters["multivariate"]["variants"], [])
+        # Clearing variants stores the canonical boolean shape (multivariate: null), not
+        # the invalid {"variants": []} the filters serializer rejects (#50084).
+        self.assertIsNone(updated_flag.filters["multivariate"])
         self.assertEqual(updated_flag.filters["payloads"], {})
 
     def test_schedule_feature_flag_update_variants_with_mismatched_payload_keys_fails(self) -> None:
@@ -995,9 +996,11 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
         # This should not raise any exception (empty variants should be allowed)
         feature_flag.scheduled_changes_dispatcher(empty_payload, self.user)
 
-        # Verify the flag was updated correctly with empty variants
+        # Verify clearing variants stored the canonical boolean shape (multivariate: null)
+        # and dropped the now-orphaned payloads
         feature_flag.refresh_from_db()
-        self.assertEqual(feature_flag.filters["multivariate"]["variants"], [])
+        self.assertIsNone(feature_flag.filters["multivariate"])
+        self.assertEqual(feature_flag.filters["payloads"], {})
 
     def test_scheduled_changes_dispatcher_validates_payload_keys_match_variants(self) -> None:
         """Test that scheduled_changes_dispatcher validates that payload keys match variant keys"""

@@ -78,11 +78,15 @@ export async function enrichFileForAgent(
     const enriched = await parsed.enrichFromApi({
       apiKey,
       host: deps.apiConfig.apiUrl,
+      publicHost: deps.apiConfig.publicApiUrl,
       projectId: deps.apiConfig.projectId,
       timeoutMs: 5_000,
     });
 
-    const annotated = enriched.toInlineComments();
+    const annotated = enriched.toInlineComments({
+      includeEventDescriptions: false,
+      includeExperimentNames: false,
+    });
     if (annotated === content) {
       deps.logger?.debug("File enrichment produced no changes", {
         filePath,

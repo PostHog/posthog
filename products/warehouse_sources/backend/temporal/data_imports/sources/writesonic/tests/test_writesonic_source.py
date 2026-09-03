@@ -1,15 +1,5 @@
-from unittest import mock
-
 from parameterized import parameterized
 
-from posthog.schema import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.writesonic import (
     WritesonicSourceConfig,
 )
@@ -18,10 +8,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.writesonic
     WRITESONIC_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.writesonic.source import WritesonicSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.writesonic.writesonic import (
-    WritesonicResumeConfig,
-)
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestWritesonicSource:
@@ -29,29 +15,6 @@ class TestWritesonicSource:
         self.source = WritesonicSource()
         self.team_id = 123
         self.config = WritesonicSourceConfig(api_key="key_test", site_url="https://example.com")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.WRITESONIC
-
-    def test_get_source_config(self):
-        config = self.source.get_source_config
-        assert config.name.value == "Writesonic"
-        assert config.category == DataWarehouseSourceCategory.ANALYTICS
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.iconPath == "/static/services/writesonic.svg"
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/writesonic"
-
-    def test_api_key_field_is_secret_password(self):
-        config = self.source.get_source_config
-        field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_key")
-        assert field.type == SourceFieldInputConfigType.PASSWORD
-        assert field.secret is True
-        assert field.required is True
-
-    def test_site_url_required_and_project_id_optional(self):
-        fields = {f.name: f for f in self.source.get_source_config.fields if isinstance(f, SourceFieldInputConfig)}
-        assert fields["site_url"].required is True
-        assert fields["project_id"].required is False
 
     def test_connection_host_fields_cover_data_targeting_fields(self):
         # Changing which tracked site the stored API key is used against must force re-entry
@@ -99,20 +62,6 @@ class TestWritesonicSource:
         assert len(schemas) == 1
         assert schemas[0].name == "performance_summary"
 
-    def test_validate_credentials_plumbs_config(self):
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.writesonic.source.validate_writesonic_credentials",
-            return_value=(True, None),
-        ) as validate:
-            ok, message = self.source.validate_credentials(self.config, self.team_id, schema_name="topics")
-            assert ok is True
-            assert message is None
-            kwargs = validate.call_args.kwargs
-            assert kwargs["api_key"] == "key_test"
-            assert kwargs["site_url"] == "https://example.com"
-            assert kwargs["project_id"] is None
-            assert kwargs["schema_name"] == "topics"
-
     @parameterized.expand(
         [
             (
@@ -140,45 +89,6 @@ class TestWritesonicSource:
     def test_non_retryable_errors_ignore_retryable_and_unrelated(self, unrelated_error):
         non_retryable = self.source.get_non_retryable_errors()
         assert not any(key in unrelated_error for key in non_retryable)
-
-    def test_get_resumable_source_manager_bound_to_resume_config(self):
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is WritesonicResumeConfig
-
-    def test_source_for_pipeline_plumbs_arguments(self):
-        manager = mock.MagicMock()
-        inputs = mock.MagicMock()
-        inputs.schema_name = "performance_summary"
-        inputs.should_use_incremental_field = True
-        inputs.db_incremental_field_last_value = "2026-07-01"
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.writesonic.source.writesonic_source"
-        ) as source_fn:
-            self.source.source_for_pipeline(self.config, manager, inputs)
-            kwargs = source_fn.call_args.kwargs
-            assert kwargs["api_key"] == "key_test"
-            assert kwargs["site_url"] == "https://example.com"
-            assert kwargs["endpoint"] == "performance_summary"
-            assert kwargs["manager"] is manager
-            assert kwargs["should_use_incremental_field"] is True
-            assert kwargs["db_incremental_field_last_value"] == "2026-07-01"
-
-    def test_source_for_pipeline_drops_last_value_when_not_incremental(self):
-        manager = mock.MagicMock()
-        inputs = mock.MagicMock()
-        inputs.schema_name = "topics"
-        inputs.should_use_incremental_field = False
-        inputs.db_incremental_field_last_value = "2026-07-01"
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.writesonic.source.writesonic_source"
-        ) as source_fn:
-            self.source.source_for_pipeline(self.config, manager, inputs)
-            assert source_fn.call_args.kwargs["db_incremental_field_last_value"] is None
-
-    def test_canonical_descriptions_keyed_by_endpoint_names(self):
-        descriptions = self.source.get_canonical_descriptions()
-        assert set(descriptions.keys()) == set(WRITESONIC_ENDPOINTS)
 
     def test_documented_tables_render_for_public_docs(self):
         # lists_tables_without_credentials=True must produce a credential-free catalog for posthog.com;

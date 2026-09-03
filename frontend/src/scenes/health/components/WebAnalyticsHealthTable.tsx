@@ -4,7 +4,7 @@ import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { urls } from 'scenes/urls'
 
 import type { HealthIssue } from '../types'
-import { dismissActionColumn, severityColumn } from './healthTableColumns'
+import { issueActionsColumn, severityColumn } from './healthTableColumns'
 
 interface CheckMeta {
     title: string
@@ -58,10 +58,12 @@ const CHECK_META: Record<string, CheckMeta> = {
 
 export function WebAnalyticsHealthTable({
     issues,
+    onSnooze,
     onDismiss,
     onUndismiss,
 }: {
     issues: HealthIssue[]
+    onSnooze: (id: string, duration: string) => void
     onDismiss: (id: string) => void
     onUndismiss: (id: string) => void
 }): JSX.Element {
@@ -94,7 +96,7 @@ export function WebAnalyticsHealthTable({
             },
         },
         severityColumn(),
-        dismissActionColumn(onDismiss, onUndismiss),
+        issueActionsColumn(onSnooze, onDismiss, onUndismiss),
     ]
 
     return <LemonTable dataSource={issues} columns={columns} embedded size="small" rowClassName="group" />

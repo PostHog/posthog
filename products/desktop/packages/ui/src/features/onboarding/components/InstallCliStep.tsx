@@ -267,7 +267,7 @@ export function InstallCliStep({ onNext, onBack }: InstallCliStepProps) {
           <Flex
             direction="column"
             gap="5"
-            className="m-auto w-full max-w-[560px]"
+            className="m-auto w-full max-w-[480px]"
           >
             <Flex direction="column" gap="5" className="w-full">
               <motion.div

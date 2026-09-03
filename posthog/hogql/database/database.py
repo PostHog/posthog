@@ -14,12 +14,15 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Literal, Optional, Union, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from django.conf import settings
+
 import structlog
 from opentelemetry import trace
 from pydantic import BaseModel, ConfigDict
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.data_catalog_metrics import record_catalog_read, record_catalog_read_failure
 from posthog.hogql.database.direct_sql_table import DirectSQLTable
 from posthog.hogql.database.lazy_join_tags import (
     DATA_WAREHOUSE,
@@ -62,6 +65,7 @@ from posthog.hogql.database.postgres_utils import add_postgres_foreign_key_lazy_
 from posthog.hogql.database.s3_table import S3Table
 from posthog.hogql.database.schema.ai_events import AiEventsTable
 from posthog.hogql.database.schema.app_metrics2 import AppMetrics2Table
+from posthog.hogql.database.schema.billing_usage_records import BillingUsageRecordsTable
 from posthog.hogql.database.schema.channel_type import create_initial_channel_type, create_initial_domain_type
 from posthog.hogql.database.schema.cohort_membership import CohortMembershipTable
 from posthog.hogql.database.schema.cohort_people import CohortPeople, RawCohortPeople
@@ -79,6 +83,7 @@ from posthog.hogql.database.schema.error_tracking_issue_fingerprint_overrides im
     ErrorTrackingIssueFingerprintOverridesTable,
     RawErrorTrackingIssueFingerprintOverridesTable,
 )
+from posthog.hogql.database.schema.error_tracking_recent_issue_state import ErrorTrackingRecentIssueStateTable
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.exchange_rate import ExchangeRateTable
 from posthog.hogql.database.schema.experiment_exposures_preaggregated import ExperimentExposuresPreaggregatedTable
@@ -91,14 +96,19 @@ from posthog.hogql.database.schema.heatmaps import HeatmapsTable
 from posthog.hogql.database.schema.hog_invocation_results import HogInvocationResultsTable
 from posthog.hogql.database.schema.information_schema import (
     direct_connection_information_schema_node,
-    disable_data_catalog,
+    disable_data_quality,
 )
 from posthog.hogql.database.schema.log_entries import (
     BatchExportLogEntriesTable,
     LogEntriesTable,
     ReplayConsoleLogsLogEntriesTable,
 )
-from posthog.hogql.database.schema.logs import LogAttributesTable, LogsKafkaMetricsTable, LogsTable
+from posthog.hogql.database.schema.logs import (
+    LogAttributesTable,
+    LogsKafkaMetricsTable,
+    LogsTable,
+    LogsVolumeBucketsTable,
+)
 from posthog.hogql.database.schema.marketing_conversions_preaggregated import MarketingConversionsPreaggregatedTable
 from posthog.hogql.database.schema.marketing_costs_preaggregated import MarketingCostsPreaggregatedTable
 from posthog.hogql.database.schema.marketing_costs_precomputed import MarketingCostsPrecomputedTable
@@ -143,6 +153,7 @@ from posthog.hogql.database.schema.web_stats_preaggregated import WebStatsPreagg
 from posthog.hogql.database.schema.web_vitals_paths_preaggregated import WebVitalsPathsPreaggregatedTable
 from posthog.hogql.database.utils import get_join_field_chain, qualify_join_key_expr
 from posthog.hogql.database.warehouse_join_resolvers import data_warehouse_resolver_params
+from posthog.hogql.editor_assist_metrics import HOGQL_DATABASE_BUILD_DURATION_SECONDS, HOGQL_DATABASE_BUILD_TOTAL
 from posthog.hogql.errors import QueryError, ResolutionError, TableAccessDeniedError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr
@@ -154,6 +165,8 @@ from posthog.schema_enums import DatabaseSerializedFieldType, PersonsOnEventsMod
 from posthog.scopes import APIScopeObject
 from posthog.synthetic_user import SyntheticUser
 from posthog.week_start_day import WeekStartDay
+
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceAccessMethod
 
 # The Django ORM / products models below are imported lazily inside the functions that build a
 # Database (Database._fetch_sources / _build_from_sources / serialize and their helpers) so this
@@ -176,9 +189,9 @@ if TYPE_CHECKING:
 
     from posthog.models import User
     from posthog.models.team.team import Team
-    from posthog.rbac.user_access_control import UserAccessControl
     from posthog.shared_link_user import SharedLinkUser
 
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
     from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
     from products.data_tools.backend.models.expression import DataWarehouseExpression
     from products.data_tools.backend.models.join import DataWarehouseJoin
@@ -206,7 +219,7 @@ class SerializedField:
     description: str | None = None
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class HogQLDatabaseSources:
     """All I/O Database._build_from_sources needs, fetched up front by Database._fetch_sources so the
     build phase runs without any queries."""
@@ -217,7 +230,8 @@ class HogQLDatabaseSources:
     modifiers: HogQLQueryModifiers
     is_managed_viewset_enabled: bool
     is_hogql_warehouse_access_control_enabled: bool
-    is_data_catalog_enabled: bool
+    is_data_quality_enabled: bool
+    is_billing_usage_records_enabled: bool
     # Userless internal contexts that must resolve every warehouse table/view; skips access control
     bypass_warehouse_access_control: bool
     direct_connection_metadata: dict[str, Any] | None
@@ -403,6 +417,7 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
                 children={
                     **clone_root_tables(),
                     # Add new tables here
+                    "logs_volume_buckets": TableNode(name="logs_volume_buckets", table=LogsVolumeBucketsTable()),
                     "ai_events": TableNode(name="ai_events", table=AiEventsTable()),
                     "trace_spans": TableNode(name="trace_spans", table=TraceSpansTable()),
                     "trace_attributes": TableNode(name="trace_attributes", table=TraceAttributesTable()),
@@ -412,6 +427,7 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
                     "hog_invocation_results": TableNode(
                         name="hog_invocation_results", table=HogInvocationResultsTable()
                     ),
+                    "billing_usage_records": TableNode(name="billing_usage_records", table=BillingUsageRecordsTable()),
                     "metrics": TableNode(name="metrics", table=MetricsTable()),
                     "metric_samples": TableNode(name="metric_samples", table=MetricSamplesTable()),
                     "metric_series": TableNode(name="metric_series", table=MetricSeriesTable()),
@@ -420,6 +436,11 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
                     "error_tracking_fingerprint_issue_state": TableNode(
                         name="error_tracking_fingerprint_issue_state",
                         table=ErrorTrackingFingerprintIssueStateTable(),
+                    ),
+                    "error_tracking_recent_issue_state": TableNode(
+                        name="error_tracking_recent_issue_state",
+                        table=ErrorTrackingRecentIssueStateTable(),
+                        hidden=True,
                     ),
                     "web_overview_preaggregated": TableNode(
                         name="web_overview_preaggregated", table=WebOverviewPreaggregatedTable()
@@ -466,8 +487,8 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
 
 
 @cache
-def _system_table_access_scopes() -> Mapping[str, APIScopeObject]:
-    """Table name -> access scope for the access-controlled Postgres system tables.
+def _scoped_system_tables() -> Mapping[str, PostgresTable]:
+    """Table name -> the access-controlled Postgres system table itself.
 
     Cached for the process lifetime — this result directly gates table visibility in access-control
     decisions, so every entry here MUST remain process-static. Do NOT make a system table's
@@ -478,7 +499,7 @@ def _system_table_access_scopes() -> Mapping[str, APIScopeObject]:
     """
     return MappingProxyType(
         {
-            name: table_node.table.access_scope
+            name: table_node.table
             for name, table_node in SystemTables().children.items()
             if isinstance(table_node.table, PostgresTable) and table_node.table.access_scope is not None
         }
@@ -489,7 +510,7 @@ def _system_table_access_scopes() -> Mapping[str, APIScopeObject]:
 def _system_table_required_features() -> Mapping[str, str]:
     """Table name -> required AvailableFeature for system tables behind a billing entitlement.
 
-    Same process-static invariant as _system_table_access_scopes: the entitlement a table *requires*
+    Same process-static invariant as _scoped_system_tables: the entitlement a table *requires*
     is a static property of the table. What varies per organization is whether that entitlement is
     *available*, which is resolved uncached in _unentitled_system_tables. Returned read-only so a
     caller can't mutate the shared cached mapping.
@@ -532,10 +553,14 @@ def _compute_system_table_access_decision(
     Pass user_access_control when it's already preloaded to reuse the instance and avoid an extra query."""
     # Lazy imports keep the Django ORM off this module's import path.
     from posthog.models.organization import OrganizationMembership  # noqa: PLC0415
-    from posthog.rbac.user_access_control import NO_ACCESS_LEVEL, UserAccessControl  # noqa: PLC0415
     from posthog.shared_link_user import SharedLinkUser  # noqa: PLC0415
 
-    scoped_tables = _system_table_access_scopes()
+    from products.access_control.backend.facade.user_access_control import (  # noqa: PLC0415
+        NO_ACCESS_LEVEL,
+        UserAccessControl,
+    )
+
+    scoped_tables = _scoped_system_tables()
     # Applies to every principal below, admins included - an entitlement the organization does not
     # have cannot be granted by a role.
     unentitled = _unentitled_system_tables(team)
@@ -544,7 +569,7 @@ def _compute_system_table_access_decision(
     if user is None or isinstance(user, SyntheticUser | SharedLinkUser):
         readable_scopes = user.readable_system_table_access_scopes() if user is not None else set()
         return None, unentitled | {
-            name for name, access_scope in scoped_tables.items() if access_scope not in readable_scopes
+            name for name, table in scoped_tables.items() if table.access_scope not in readable_scopes
         }
 
     user_access_control = user_access_control or UserAccessControl(user=user, team=team)
@@ -553,11 +578,21 @@ def _compute_system_table_access_decision(
     if org_membership and org_membership.level >= OrganizationMembership.Level.ADMIN:
         return user_access_control, unentitled
 
+    # Resources the user holds object-level grants on despite having no resource-level access. REST
+    # serves those routes and narrows the rows to the grants; the printer guard does the same, so the
+    # table stays queryable here instead of disappearing (see build_access_control_guard).
+    allowlisted_scopes = user_access_control.allowlisted_resource_ids_by_scope
+
     denied: set[str] = set(unentitled)
-    for name, access_scope in scoped_tables.items():
-        access_level = user_access_control.access_level_for_resource(access_scope)
-        if access_level and access_level != NO_ACCESS_LEVEL:
+    for name, table in scoped_tables.items():
+        access_scope = cast(APIScopeObject, table.access_scope)
+        access = user_access_control.access_level_for_resource(access_scope)
+        if access and access.access_level != NO_ACCESS_LEVEL:
             continue  # User has access, keep it
+        # Keep the table only when the guard can actually narrow its rows to the grant, so a table
+        # whose ids don't key those grants (resource_level_access_only) still fails closed.
+        if access_scope in allowlisted_scopes and table.access_control_id is not None:
+            continue
         denied.add(name)
 
     return user_access_control, denied
@@ -579,6 +614,27 @@ class Database(BaseModel):
     # Warnings about data warehouse tables (failed/paused/billing-limited/stale syncs),
     # keyed by HogQL DataWarehouseTable.table_id (str(Django table UUID)).
     _data_warehouse_sync_warnings: dict[str, list[DataWarehouseSyncWarning]] = {}
+
+    # Deferred Postgres foreign-key wiring. On teams with many warehouse tables, wiring foreign-key
+    # lazy joins for every table dominates database construction, yet a query that touches no
+    # warehouse table never needs them. The work is stashed here and built the first time a
+    # warehouse table is accessed (see get_table / _ensure_foreign_keys_built).
+    _deferred_foreign_key_tables: list[Any] = []
+    _foreign_keys_built: bool = True
+    # Thread ident of the thread currently running the build pass, for recursion detection. A
+    # database can be shared by several query threads (e.g. trends series), so the guard must
+    # distinguish same-thread re-entry from a concurrent thread that has to wait.
+    _foreign_keys_building_thread: Optional[int] = None
+    # Per-instance so unrelated databases built concurrently in one process never contend; nothing
+    # copies or pickles a Database, so the lock is safe to hold as instance state.
+    _foreign_keys_build_lock: Any = None
+    # Lowercased, because Snowflake nodes resolve case-insensitively and a query may name a table with
+    # casing that differs from the canonical catalog name.
+    _foreign_key_trigger_names: Optional[set[str]] = None
+    # ids of the ExpressionField objects saved expressions added at build time. The deferred build
+    # lets a foreign key replace only these (see _ensure_foreign_keys_built), never the id/timestamp
+    # mappings event modifiers write, which the eager path preserved.
+    _deferred_overridable_expression_field_ids: set[int] = set()
 
     _timezone: str | None
     _week_start_day: WeekStartDay | None
@@ -604,6 +660,12 @@ class Database(BaseModel):
         self._direct_connection_metadata = None
         self._direct_access_warehouse_table_names = set()
         self._data_warehouse_sync_warnings = {}
+        self._deferred_foreign_key_tables = []
+        self._foreign_keys_built = True
+        self._foreign_keys_building_thread = None
+        self._foreign_keys_build_lock = threading.Lock()
+        self._foreign_key_trigger_names = None
+        self._deferred_overridable_expression_field_ids = set()
         self._serialization_errors: dict[str, str] = {}  # table_key -> error_message
         self.user_access_control: Optional[UserAccessControl] = None
 
@@ -641,7 +703,7 @@ class Database(BaseModel):
 
     def get_table(self, table_name: str | list[str]) -> Table:
         try:
-            return cast(Table, self.get_table_node(table_name).get())
+            table = cast(Table, self.get_table_node(table_name).get())
         except ResolutionError as e:
             if isinstance(table_name, list):
                 table_name = ".".join(table_name)
@@ -650,6 +712,60 @@ class Database(BaseModel):
             suggestions = self._suggest_table_names(table_name)
             suffix = f" Did you mean: {', '.join(suggestions)}?" if suggestions else ""
             raise QueryError(f"Unknown table `{table_name}`.{suffix}") from e
+
+        # First access to any warehouse table wires the deferred foreign-key joins for the whole graph.
+        if not self._foreign_keys_built and self._should_build_foreign_keys_for(table_name):
+            self._ensure_foreign_keys_built()
+
+        return table
+
+    def _should_build_foreign_keys_for(self, table_name: str | list[str]) -> bool:
+        trigger_names = self._foreign_key_trigger_names
+        if not trigger_names:
+            return False
+        name = ".".join(str(part) for part in table_name) if isinstance(table_name, list) else table_name
+        # Fold case so a Snowflake reference that resolved through the case-insensitive fallback still
+        # arms the build. Over-triggering only costs the build we deferred; under-triggering would drop
+        # foreign-key fields the eager path had.
+        return name.lower() in trigger_names
+
+    def _ensure_foreign_keys_built(self) -> None:
+        """Wire the deferred Postgres foreign-key lazy joins, at most once.
+
+        The full graph is built in a single pass (not just the accessed table) so reverse joins and
+        field precedence match the eager path exactly. Resolving a foreign-key target re-enters
+        get_table, so `_foreign_keys_building_thread` guards that recursion rather than the built
+        flag — the work stays pending until the pass finishes, so a mid-pass failure doesn't leave a
+        half-wired graph behind. Callers that swallow resolution errors retry on their next access
+        instead. A database can be shared by concurrent query threads, so a thread that isn't the
+        builder blocks on the lock and observes the finished graph rather than a half-wired one.
+        Saved expressions were applied at build time (before this runs), so foreign keys are allowed
+        to replace a colliding saved-expression field — preserving the eager "saved expressions never
+        shadow a join field" invariant. Only fields saved expressions created are overridable; the
+        id/timestamp mappings event modifiers write stay put, as they did in the eager order.
+        """
+        if self._foreign_keys_built or self._foreign_keys_building_thread == threading.get_ident():
+            return
+        with self._foreign_keys_build_lock:
+            # Re-check under the lock: another thread may have finished the build while this one
+            # waited. mypy's flow analysis cannot see cross-thread mutation.
+            if self._foreign_keys_built:
+                return  # type: ignore[unreachable]
+            self._foreign_keys_building_thread = threading.get_ident()
+            try:
+                with tracer.start_as_current_span("warehouse_foreign_keys"):
+                    for hogql_table, warehouse_table_model in self._deferred_foreign_key_tables:
+                        add_postgres_foreign_key_lazy_joins(
+                            hogql_table=hogql_table,
+                            warehouse_table=warehouse_table_model,
+                            database=self,
+                            schemas=_get_active_external_data_schemas(warehouse_table_model),
+                            overridable_expression_field_ids=self._deferred_overridable_expression_field_ids,
+                        )
+            finally:
+                self._foreign_keys_building_thread = None
+            self._foreign_keys_built = True
+            self._deferred_foreign_key_tables = []
 
     def _suggest_table_names(self, name: str, *, limit: int = 3) -> list[str]:
         """Return up to `limit` close matches for a mistyped table name.
@@ -662,6 +778,11 @@ class Database(BaseModel):
         `get_all_table_names()` — the latter verifies each warehouse entry by
         calling `get_table()`, which would recurse back into this helper when
         a warehouse table fails to resolve.
+
+        A qualified name states which schema the author meant, so candidates
+        outside it are dropped no matter how well the leaf scores. When no such
+        schema exists, the schema itself is the likely typo, so the closest
+        known schema is searched instead.
         """
         import difflib
 
@@ -677,6 +798,14 @@ class Database(BaseModel):
         # catalog without being available on the source we actually queried.
         lowered = name.casefold()
         candidates = {c for c in candidates if c.casefold() != lowered}
+        prefix, dot, _ = name.rpartition(".")
+        if dot:
+            schema = prefix.casefold()
+            if not any(c.casefold().startswith(f"{schema}.") for c in candidates):
+                known = sorted({c.rpartition(".")[0].casefold() for c in candidates if "." in c})
+                nearest = difflib.get_close_matches(schema, known, n=1, cutoff=0.89)
+                schema = nearest[0] if nearest else schema
+            candidates = {c for c in candidates if c.casefold().startswith(f"{schema}.")}
         if not candidates:
             return []
         return difflib.get_close_matches(name, sorted(candidates), n=limit, cutoff=0.7)
@@ -905,9 +1034,8 @@ class Database(BaseModel):
         context: HogQLContext,
         include_only: set[str] | None = None,
         include_hidden_posthog_tables: bool = False,
+        include_fields: bool = True,
     ) -> dict[str, DatabaseSchemaTable]:
-        from django.db.models import Prefetch  # noqa: PLC0415
-
         from posthog.schema import (  # noqa: PLC0415
             DatabaseSchemaDataWarehouseTable,
             DatabaseSchemaEndpointTable,
@@ -924,8 +1052,8 @@ class Database(BaseModel):
         from products.revenue_analytics.backend.views import RevenueAnalyticsBaseView  # noqa: PLC0415
         from products.warehouse_sources.backend.facade.models import (  # noqa: PLC0415
             DataWarehouseTable,
-            ExternalDataJob,
             ExternalDataSource,
+            latest_completed_job_prefetch,
         )
 
         tables: dict[str, DatabaseSchemaTable] = {}
@@ -945,13 +1073,15 @@ class Database(BaseModel):
             if include_only and table_name not in include_only:
                 continue
 
-            field_input: dict[str, Any] = {}
-            table = self.get_table(table_name)
-            if isinstance(table, Table):
-                field_input = _schema_field_input(table)
+            fields_dict: dict[str, DatabaseSchemaField] = {}
+            if include_fields:
+                field_input: dict[str, Any] = {}
+                table = self.get_table(table_name)
+                if isinstance(table, Table):
+                    field_input = _schema_field_input(table)
 
-            fields = serialize_fields(field_input, context, table_name.split("."), table_type="posthog")
-            fields_dict = {field.name: field for field in fields}
+                fields = serialize_fields(field_input, context, table_name.split("."), table_type="posthog")
+                fields_dict = {field.name: field for field in fields}
             tables[table_name] = DatabaseSchemaPostHogTable(fields=fields_dict, id=table_name, name=table_name)
 
         # System tables
@@ -960,29 +1090,31 @@ class Database(BaseModel):
             if include_only and table_key not in include_only:
                 continue
 
-            system_field_input: dict[str, Any] = {}
-            table = self.get_table(table_key)
-            if isinstance(table, Table):
-                system_field_input = _schema_field_input(table)
+            fields_dict = {}
+            if include_fields:
+                system_field_input: dict[str, Any] = {}
+                table = self.get_table(table_key)
+                if isinstance(table, Table):
+                    system_field_input = _schema_field_input(table)
 
-            fields = serialize_fields(system_field_input, context, table_key.split("."), table_type="posthog")
-            fields_dict = {field.name: field for field in fields}
+                fields = serialize_fields(system_field_input, context, table_key.split("."), table_type="posthog")
+                fields_dict = {field.name: field for field in fields}
             tables[table_key] = DatabaseSchemaSystemTable(fields=fields_dict, id=table_key, name=table_key)
 
         # Data Warehouse Tables and Views - Fetch all related data in one go
         warehouse_table_names = self.get_warehouse_table_names()
         views = [] if self._is_direct_query() else self.get_view_names()
 
+        direct_query_source_ids = [self._connection_id] if self._is_direct_query() and self._connection_id else None
         warehouse_tables_query = (
             DataWarehouseTable.raw_objects.select_related("credential", "external_data_source")
             .prefetch_related(
-                Prefetch(
+                latest_completed_job_prefetch(
+                    context.team_id,
                     "external_data_source__jobs",
-                    queryset=ExternalDataJob.objects.filter(status="Completed", team_id=context.team_id).order_by(
-                        "-created_at"
-                    )[:1],
                     to_attr="latest_completed_job",
-                ),
+                    source_ids=direct_query_source_ids,
+                )
             )
             # `queryable()` drops soft-deleted tables and orphans of a soft-deleted source, so an
             # orphan can't shadow the live table sharing its name in the SQL editor catalog.
@@ -1058,15 +1190,17 @@ class Database(BaseModel):
                     continue
 
                 try:
-                    field_input = {}
-                    table = self.get_table(table_key)
-                    if isinstance(table, Table):
-                        field_input = table.fields
+                    fields_dict = {}
+                    if include_fields:
+                        field_input = {}
+                        table = self.get_table(table_key)
+                        if isinstance(table, Table):
+                            field_input = table.fields
 
-                    fields = serialize_fields(
-                        field_input, context, table_key.split("."), warehouse_table.columns, table_type="external"
-                    )
-                    fields_dict = {field.name: field for field in fields}
+                        fields = serialize_fields(
+                            field_input, context, table_key.split("."), warehouse_table.columns, table_type="external"
+                        )
+                        fields_dict = {field.name: field for field in fields}
 
                     # The table is also queryable by its raw underscore name, which is registered
                     # separately from the dotted `table_key`. Surface it so search matches either form.
@@ -1109,7 +1243,7 @@ class Database(BaseModel):
             )
             if (
                 dual_source is not None
-                and dual_source.access_method != ExternalDataSource.AccessMethod.DIRECT
+                and dual_source.access_method != ExternalDataSourceAccessMethod.DIRECT
                 and is_direct_capable(dual_source)
             ):
                 latest_completed_job = (
@@ -1139,9 +1273,12 @@ class Database(BaseModel):
                         # Not built for this connection (unusable columns, or access-denied).
                         continue
 
-                    fields = serialize_fields(table.fields, context, table_key.split("."), table_type="external")
+                    dual_fields_dict: dict[str, DatabaseSchemaField] = {}
+                    if include_fields:
+                        fields = serialize_fields(table.fields, context, table_key.split("."), table_type="external")
+                        dual_fields_dict = {field.name: field for field in fields}
                     tables[table_key] = DatabaseSchemaDataWarehouseTable(
-                        fields={field.name: field for field in fields},
+                        fields=dual_fields_dict,
                         id=str(schema_row.id),
                         name=table_key,
                         schema=DatabaseSchemaSchema(
@@ -1176,8 +1313,10 @@ class Database(BaseModel):
             except QueryError:
                 continue
 
-            fields = serialize_fields(view.fields, context, view_name.split("."), table_type="external")
-            fields_dict = {field.name: field for field in fields}
+            fields_dict = {}
+            if include_fields:
+                fields = serialize_fields(view.fields, context, view_name.split("."), table_type="external")
+                fields_dict = {field.name: field for field in fields}
 
             if isinstance(view, RevenueAnalyticsBaseView):
                 tables[view_name] = DatabaseSchemaManagedViewTable(
@@ -1236,23 +1375,67 @@ class Database(BaseModel):
         connection_id: str | None = None,
         bypass_warehouse_access_control: bool = False,
         build_postgres_foreign_keys: bool = True,
+        trigger: str = "direct",
     ) -> Database:
         if timings is None:
             timings = HogQLTimings()
 
-        sources = Database._fetch_sources(
-            team_id,
+        HOGQL_DATABASE_BUILD_TOTAL.labels(trigger=trigger).inc()
+        with HOGQL_DATABASE_BUILD_DURATION_SECONDS.labels(phase="fetch_sources").time():
+            sources = Database._fetch_sources(
+                team_id,
+                team=team,
+                user=user,
+                user_access_control=user_access_control,
+                modifiers=modifiers,
+                timings=timings,
+                connection_id=connection_id,
+                bypass_warehouse_access_control=bypass_warehouse_access_control,
+            )
+        with HOGQL_DATABASE_BUILD_DURATION_SECONDS.labels(phase="build_from_sources").time():
+            return Database._build_from_sources(
+                sources, timings=timings, build_postgres_foreign_keys=build_postgres_foreign_keys
+            )
+
+    @staticmethod
+    def create_for_posthog_tables(
+        team: Team, *, modifiers: HogQLQueryModifiers | None = None, timings: HogQLTimings | None = None
+    ) -> Database:
+        """PostHog's built-in tables only, wired for the team's modifiers, with no Postgres I/O.
+
+        For internal queries that touch only built-in tables. It has no warehouse tables, views, or
+        joins, no group-type tables, and no per-user access control, so it must never serve
+        user-written HogQL. Every access-controlled or entitlement-gated system table is removed up
+        front, so a query that names one fails with TableAccessDeniedError instead of reading rows
+        unchecked. create_for runs a dozen Postgres queries and feature-flag checks that such a
+        query never uses; on teams with many warehouse tables that costs more than the query."""
+        if timings is None:
+            timings = HogQLTimings()
+        with timings.measure("modifiers"):
+            modifiers = create_default_modifiers_for_team(team, modifiers)
+        sources = HogQLDatabaseSources(
             team=team,
-            user=user,
-            user_access_control=user_access_control,
+            user=None,
+            connection_id=None,
             modifiers=modifiers,
-            timings=timings,
-            connection_id=connection_id,
-            bypass_warehouse_access_control=bypass_warehouse_access_control,
+            is_managed_viewset_enabled=False,
+            is_hogql_warehouse_access_control_enabled=False,
+            is_data_quality_enabled=False,
+            is_billing_usage_records_enabled=False,
+            bypass_warehouse_access_control=False,
+            direct_connection_metadata=None,
+            user_access_control=None,
+            denied_system_table_names=set(_scoped_system_tables()) | set(_system_table_required_features()),
+            group_types=[],
+            saved_queries=[],
+            endpoint_saved_queries=[],
+            revenue_views=[],
+            warehouse_tables=[],
+            data_warehouse_joins=[],
+            data_warehouse_expressions=[],
+            event_modifier_saved_queries={},
         )
-        return Database._build_from_sources(
-            sources, timings=timings, build_postgres_foreign_keys=build_postgres_foreign_keys
-        )
+        return Database._build_from_sources(sources, timings=timings)
 
     @staticmethod
     def _fetch_sources(
@@ -1285,6 +1468,7 @@ class Database(BaseModel):
             DataWarehouseTable,
             ExternalDataSource,
         )
+        from products.warehouse_sources.backend.facade.types import ManagedWarehouseSQLMode  # noqa: PLC0415
 
         with timings.measure("team", emit_span=True):
             if team_id is None and team is None:
@@ -1325,16 +1509,17 @@ class Database(BaseModel):
                 send_feature_flag_events=False,
             )
 
-            # Function-local + facade-only: keeps the data_catalog product off the django.setup() path.
-            from products.data_catalog.backend.facade.flags import is_data_catalog_enabled  # noqa: PLC0415
+            # Function-local + facade-only: keeps the products off the django.setup() path.
+            from products.data_quality.backend.facade.flags import is_data_quality_checks_enabled  # noqa: PLC0415
 
-            data_catalog_enabled = is_data_catalog_enabled(team)
+            data_quality_enabled = is_data_quality_checks_enabled(team)
 
         with timings.measure("database", emit_span=True):
             # Function-local: keeps the direct-SQL driver imports off the django.setup() path.
             from posthog.hogql.direct_sql.capability import is_direct_capable  # noqa: PLC0415
 
             direct_connection_metadata: dict[str, Any] | None = None
+            is_managed_warehouse_connection = False
             # Dual-mode: a synced source queried live builds virtual tables from schema metadata.
             virtual_source: ExternalDataSource | None = None
             if connection_id is not None:
@@ -1350,12 +1535,19 @@ class Database(BaseModel):
                     .first()
                 )
                 if direct_source is not None and (
-                    direct_source.access_method == ExternalDataSource.AccessMethod.DIRECT
+                    direct_source.access_method == ExternalDataSourceAccessMethod.DIRECT
                     or is_direct_capable(direct_source)
                 ):
+                    if direct_source.has_managed_warehouse_prefix:
+                        managed_warehouse_sql_mode = direct_source.managed_warehouse_sql_mode
+                        if managed_warehouse_sql_mode == ManagedWarehouseSQLMode.UNAVAILABLE:
+                            raise QueryError(
+                                "This managed warehouse connection isn't available. Select another connection and try again."
+                            )
+                        is_managed_warehouse_connection = managed_warehouse_sql_mode == ManagedWarehouseSQLMode.BUILT_IN
                     direct_connection_metadata = direct_source.connection_metadata
                     # A capable non-DIRECT (synced) source drives the dual-mode virtual-table path.
-                    if direct_source.access_method != ExternalDataSource.AccessMethod.DIRECT:
+                    if direct_source.access_method != ExternalDataSourceAccessMethod.DIRECT:
                         virtual_source = direct_source
                         # Dual-mode live queries run under warehouse table-level access control. The
                         # introspected `available_functions` (scalar passthrough, e.g. query_to_xml) and
@@ -1403,6 +1595,7 @@ class Database(BaseModel):
 
         with timings.measure("data_warehouse_saved_query", emit_span=True):
             saved_queries: list[DataWarehouseSavedQuery] = []
+            all_saved_queries: list[DataWarehouseSavedQuery] = []
             # Direct-connection queries do not expose saved queries.
             if not is_direct_query:
                 with timings.measure("select"):
@@ -1414,9 +1607,12 @@ class Database(BaseModel):
                         .select_related("table", "managed_viewset", "created_by")
                         # credential attached in bulk below, not joined per row
                     )
-                    if not is_managed_viewset_enabled:
-                        queryset = queryset.filter(managed_viewset__isnull=True)
-                    saved_queries = list(queryset)
+                    all_saved_queries = list(queryset)
+                    saved_queries = (
+                        all_saved_queries
+                        if is_managed_viewset_enabled
+                        else [sq for sq in all_saved_queries if sq.managed_viewset_id is None]
+                    )
 
         with timings.measure("endpoint_saved_query", emit_span=True):
             endpoint_saved_queries: list[DataWarehouseSavedQuery] = []
@@ -1450,7 +1646,7 @@ class Database(BaseModel):
         # Exclude that private storage table so the view owns access control, even after a rename.
         backing_table_ids = {
             sq.table_id
-            for sq in (*saved_queries, *endpoint_saved_queries)
+            for sq in (*all_saved_queries, *endpoint_saved_queries)
             if sq.table_id is not None and sq.table is not None and sq.folder_path in sq.table.url_pattern
         }
 
@@ -1491,7 +1687,7 @@ class Database(BaseModel):
                         tables_query = tables_query.filter(external_data_source_id=connection_id)
                     else:
                         tables_query = tables_query.exclude(
-                            external_data_source__access_method=ExternalDataSource.AccessMethod.DIRECT
+                            external_data_source__access_method=ExternalDataSourceAccessMethod.DIRECT
                         )
 
                     warehouse_tables = list(tables_query)
@@ -1564,12 +1760,16 @@ class Database(BaseModel):
             modifiers=modifiers,
             is_managed_viewset_enabled=is_managed_viewset_enabled,
             is_hogql_warehouse_access_control_enabled=is_hogql_warehouse_access_control_enabled,
-            is_data_catalog_enabled=data_catalog_enabled,
+            is_data_quality_enabled=data_quality_enabled,
+            is_billing_usage_records_enabled="*" in settings.BILLING_USAGE_RECORDS_HOGQL_ORGANIZATION_IDS
+            or team.organization_id in settings.BILLING_USAGE_RECORDS_HOGQL_ORGANIZATION_IDS,
+            # Managed warehouse is a built-in project datastore and has no warehouse-object ACL surface.
             # Principals that skip warehouse access control by design:
             # - synthetic users (project-wide service tokens, bypass object-level RBAC)
             # - shared-link users (publishing is the explicit access grant).
             # System tables stay gated for both.
             bypass_warehouse_access_control=bypass_warehouse_access_control
+            or is_managed_warehouse_connection
             or isinstance(user, SyntheticUser | SharedLinkUser),
             direct_connection_metadata=direct_connection_metadata,
             user_access_control=user_access_control,
@@ -1602,10 +1802,7 @@ class Database(BaseModel):
         # Lazy imports keep the Django ORM / products models off this module's import path.
         from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery  # noqa: PLC0415
         from products.data_warehouse.backend.facade.hogql import get_warehouse_sync_warnings  # noqa: PLC0415
-        from products.warehouse_sources.backend.facade.models import (  # noqa: PLC0415
-            DataWarehouseTable,
-            ExternalDataSource,
-        )
+        from products.warehouse_sources.backend.facade.models import DataWarehouseTable  # noqa: PLC0415
         from products.warehouse_sources.backend.facade.types import ExternalDataSourceType  # noqa: PLC0415
 
         team = sources.team
@@ -1625,7 +1822,7 @@ class Database(BaseModel):
 
         with timings.measure("filter_system_tables_for_user", emit_span=True):
             database._apply_system_table_access(sources.user_access_control, sources.denied_system_table_names)
-            if not sources.is_data_catalog_enabled:
+            if not sources.is_data_quality_enabled:
                 system_node = database.tables.children.get("system")
                 info_schema = (
                     system_node.children.get("information_schema")
@@ -1633,7 +1830,11 @@ class Database(BaseModel):
                     else None
                 )
                 if info_schema is not None and hasattr(info_schema, "children"):
-                    disable_data_catalog(info_schema)
+                    disable_data_quality(info_schema)
+            if not sources.is_billing_usage_records_enabled:
+                posthog_node = database.tables.children.get("posthog")
+                if posthog_node is not None:
+                    posthog_node.children.pop("billing_usage_records", None)
 
         with timings.measure("modifiers", emit_span=True):
             if not database._is_direct_query():
@@ -1818,7 +2019,7 @@ class Database(BaseModel):
                     if (
                         not database._is_direct_query()
                         and table.external_data_source
-                        and table.external_data_source.access_method == ExternalDataSource.AccessMethod.DIRECT
+                        and table.external_data_source.access_method == ExternalDataSourceAccessMethod.DIRECT
                     ):
                         continue
 
@@ -1860,7 +2061,7 @@ class Database(BaseModel):
                                     if database._is_direct_query()
                                     and table.external_data_source
                                     and table.external_data_source.access_method
-                                    == ExternalDataSource.AccessMethod.DIRECT
+                                    == ExternalDataSourceAccessMethod.DIRECT
                                     else "ignore"
                                 )
 
@@ -1882,7 +2083,7 @@ class Database(BaseModel):
                                 joined_table_chain = ".".join(table_chain)
                                 table_for_key.name = joined_table_chain
                                 warehouse_tables_dot_notation_mapping[joined_table_chain] = table.name
-                                if table.external_data_source.access_method == ExternalDataSource.AccessMethod.DIRECT:
+                                if table.external_data_source.access_method == ExternalDataSourceAccessMethod.DIRECT:
                                     database._direct_access_warehouse_table_names.add(joined_table_chain)
                                 if index == 0:
                                     primary_table = table_for_key
@@ -2087,14 +2288,10 @@ class Database(BaseModel):
         database._add_views(views)
 
         if build_postgres_foreign_keys:
-            with timings.measure("warehouse_foreign_keys", emit_span=True):
-                for hogql_table, warehouse_table_model in warehouse_tables_to_process:
-                    add_postgres_foreign_key_lazy_joins(
-                        hogql_table=hogql_table,
-                        warehouse_table=warehouse_table_model,
-                        database=database,
-                        schemas=_get_active_external_data_schemas(warehouse_table_model),
-                    )
+            # Stash the work now; _ensure_foreign_keys_built wires it on first warehouse-table access.
+            # Arming (below, after apply_schema_scope) is deliberately deferred so build-time
+            # get_table calls — e.g. saved expressions — don't trigger the build prematurely.
+            database._deferred_foreign_key_tables = warehouse_tables_to_process
 
         with timings.measure("data_warehouse_joins", emit_span=True):
             for join in sources.data_warehouse_joins:
@@ -2223,26 +2420,42 @@ class Database(BaseModel):
                     # off chance duplicates exist.
                     if saved_expression.field_name in expression_table.fields:
                         continue
-                    expression_table.fields[saved_expression.field_name] = ExpressionField(
+                    saved_expression_field = ExpressionField(
                         name=saved_expression.field_name,
                         expr=parse_expr(saved_expression.expression),
                         isolate_scope=True,
                     )
+                    expression_table.fields[saved_expression.field_name] = saved_expression_field
+                    # A deferred foreign key may replace this saved-expression field (eager order wired
+                    # foreign keys first); track it so only these fields, not event-modifier mappings, are
+                    # overridable when the deferred build runs.
+                    database._deferred_overridable_expression_field_ids.add(id(saved_expression_field))
                 except Exception as e:
                     capture_exception(e)
 
         database.apply_schema_scope()
 
+        # Arm the deferred foreign-key build only once the schema scope is final, so the trigger set
+        # reflects the tables that actually survive pruning. Until now _foreign_keys_built stayed
+        # True, keeping build-time get_table calls from wiring foreign keys eagerly.
+        if build_postgres_foreign_keys and database._deferred_foreign_key_tables:
+            trigger_names = (
+                set(database._warehouse_table_names)
+                | set(database._warehouse_self_managed_table_names)
+                | set(database._direct_access_warehouse_table_names)
+                | _foreign_key_join_entry_points(database, sources.data_warehouse_joins)
+            )
+            database._foreign_key_trigger_names = {name.lower() for name in trigger_names}
+            database._foreign_keys_built = False
+
         return database
 
 
 def get_data_warehouse_table_name(source: ExternalDataSource | None, table_name: str):
-    from products.warehouse_sources.backend.facade.models import ExternalDataSource  # noqa: PLC0415
-
     if source is None:
         return table_name
 
-    if source.access_method == ExternalDataSource.AccessMethod.DIRECT:
+    if source.access_method == ExternalDataSourceAccessMethod.DIRECT:
         return table_name
 
     source_type = source.source_type.lower()
@@ -2261,7 +2474,6 @@ def _use_person_properties_from_events(database: Database) -> None:
 
 def _use_person_id_from_person_overrides(database: Database) -> None:
     table = database.get_table("events")
-    table.fields["event_person_id"] = UUIDDatabaseField(name="person_id")
     table.fields["override"] = LazyJoin(
         from_field=["distinct_id"],
         join_table=database.get_table("person_distinct_id_overrides"),
@@ -2289,6 +2501,7 @@ def _error_tracking_event_exprs() -> dict[str, ast.Expr]:
         "issue_name": parse_expr("fingerprint_issue_state.issue_name", start=None),
         "issue_description": parse_expr("fingerprint_issue_state.issue_description", start=None),
         "issue_status": parse_expr("fingerprint_issue_state.issue_status", start=None),
+        "issue_severity": parse_expr("fingerprint_issue_state.issue_severity", start=None),
         "issue_assigned_user_id": parse_expr("fingerprint_issue_state.assigned_user_id", start=None),
         "issue_assigned_role_id": parse_expr("fingerprint_issue_state.assigned_role_id", start=None),
         "issue_first_seen": parse_expr("fingerprint_issue_state.first_seen", start=None),
@@ -2317,6 +2530,7 @@ def _add_error_tracking_fields(database: Database) -> None:
     table.fields["issue_name"] = ExpressionField(name="issue_name", expr=exprs["issue_name"])
     table.fields["issue_description"] = ExpressionField(name="issue_description", expr=exprs["issue_description"])
     table.fields["issue_status"] = ExpressionField(name="issue_status", expr=exprs["issue_status"])
+    table.fields["issue_severity"] = ExpressionField(name="issue_severity", expr=exprs["issue_severity"], hidden=True)
     table.fields["issue_assigned_user_id"] = ExpressionField(
         name="issue_assigned_user_id", expr=exprs["issue_assigned_user_id"]
     )
@@ -2554,6 +2768,31 @@ def _get_active_external_data_schemas(warehouse_table: DataWarehouseTable) -> li
     return list(ExternalDataSchema.objects.filter(_not_deleted_q(), table_id=warehouse_table.id))
 
 
+def _foreign_key_join_entry_points(database: Database, joins: Sequence[DataWarehouseJoin]) -> set[str]:
+    """Extra table names that must arm the deferred foreign-key build.
+
+    A data warehouse join holds its joining table as a `Table` object, so resolving
+    `persons.orders.customer` reaches `orders` without ever calling `get_table` on it. Arming on the
+    join's source table keeps the foreign-key fields behind such a join present.
+    """
+    deferred_tables = {id(hogql_table) for hogql_table, _ in database._deferred_foreign_key_tables}
+    entry_points: set[str] = set()
+    for join in joins:
+        if not database.has_table(join.joining_table_name):
+            continue
+        try:
+            joining_table = database.get_table(join.joining_table_name)
+        except QueryError:
+            continue
+        if id(joining_table) not in deferred_tables:
+            continue
+        entry_points.add(join.source_table_name)
+        # A join from `persons` is mirrored onto `events` and the person virtual table.
+        if join.source_table_name == "persons":
+            entry_points.add("events")
+    return entry_points
+
+
 def _strip_external_source_prefix(source: ExternalDataSource, table_name: str) -> str:
     source_type = source.source_type.lower()
     raw_prefix = (source.prefix or "").lower()
@@ -2577,10 +2816,8 @@ def _strip_external_source_prefix(source: ExternalDataSource, table_name: str) -
 
 
 def _get_warehouse_table_keys(warehouse_table: DataWarehouseTable, *, direct_query: bool) -> list[str]:
-    from products.warehouse_sources.backend.facade.models import ExternalDataSource  # noqa: PLC0415
-
     source = warehouse_table.external_data_source
-    if source is not None and source.access_method == ExternalDataSource.AccessMethod.DIRECT and direct_query:
+    if source is not None and source.access_method == ExternalDataSourceAccessMethod.DIRECT and direct_query:
         return [warehouse_table.name]
 
     return [get_data_warehouse_table_name(source, warehouse_table.name)]
@@ -2591,10 +2828,8 @@ def _should_include_connection_table(
     *,
     connection_id: str,
 ) -> bool:
-    from products.warehouse_sources.backend.facade.models import ExternalDataSource  # noqa: PLC0415
-
     source = warehouse_table.external_data_source
-    if source is None or source.access_method != ExternalDataSource.AccessMethod.DIRECT:
+    if source is None or source.access_method != ExternalDataSourceAccessMethod.DIRECT:
         return False
 
     if str(warehouse_table.external_data_source_id) != connection_id:
@@ -2629,10 +2864,10 @@ def _settled_catalog_certifications(
     """Settled (certified/deprecated) catalog marks for the team as `(by_table_id, by_saved_query_id)`.
 
     One bulk query keyed by target id — `(team, name)` is not unique on `DataWarehouseTable`, so a
-    name-keyed lookup could let one table's mark clobber another's. Gated on the product flag and on
-    data_catalog read access like `information_schema`, and fail-soft: certification must never break
-    schema serialization. Contexts without a `team` object (e.g. the AI schema path) skip the flag
-    evaluation and get no marks rather than paying a Team fetch.
+    name-keyed lookup could let one table's mark clobber another's. Gated on data_catalog read access
+    like `information_schema`, and fail-soft: certification must never break schema serialization.
+    Contexts without a `team` object (e.g. the AI schema path) get no marks rather than paying a
+    Team fetch.
     """
     from posthog.schema import DatabaseSchemaTableCertification  # noqa: PLC0415
 
@@ -2643,12 +2878,12 @@ def _settled_catalog_certifications(
 
     try:
         from products.data_catalog.backend.facade.enums import CertificationStatus  # noqa: PLC0415
-        from products.data_catalog.backend.facade.flags import is_data_catalog_enabled  # noqa: PLC0415
         from products.data_catalog.backend.facade.models import TableCertification  # noqa: PLC0415
 
-        if team is None or team_id is None or not is_data_catalog_enabled(team) or not _can_read_catalog(context):
+        if team is None or team_id is None or not _can_read_catalog(context):
             return {}, {}
 
+        record_catalog_read("schema_serialization")
         by_table_id: dict[str, DatabaseSchemaTableCertification] = {}
         by_saved_query_id: dict[str, DatabaseSchemaTableCertification] = {}
         certifications = (
@@ -2672,6 +2907,7 @@ def _settled_catalog_certifications(
                 by_saved_query_id[str(certification.saved_query_id)] = serialized
         return by_table_id, by_saved_query_id
     except Exception:
+        record_catalog_read_failure("schema_serialization")
         logger.exception("serialize_database: failed to load catalog certifications", team_id=team_id)
         return {}, {}
 

@@ -126,6 +126,111 @@ where
     timeout: Duration,
 }
 
+/// A transactional producer that is connected but not yet initialized:
+/// the client exists with its connections and metadata warm, and no
+/// broker-side transactional state has been touched. `init_transactions`
+/// is the fencing action — it bumps the transactional id's epoch and
+/// cuts off every previous owner — so it belongs to the moment authority
+/// is taken, not to construction. Splitting the phases lets a caller pay
+/// the connection cost ahead of that moment.
+pub struct ConnectedTransactionalProducer<C = DefaultClientContext>
+where
+    C: ClientContext + 'static,
+{
+    inner: FutureProducer<C>,
+}
+
+impl ConnectedTransactionalProducer<DefaultClientContext> {
+    /// Create the client and ping the brokers, bounded by `timeout`,
+    /// without initializing transactions — a producer whose open
+    /// transactions the broker abandons after `broker_txn_timeout`,
+    /// rather than after librdkafka's default minute.
+    ///
+    /// The broker bound is a different quantity from `timeout`, which
+    /// bounds how long *this process* waits on a blocking call. It
+    /// matters to everyone else: until an abandoned transaction expires,
+    /// the partition's last-stable-offset does not advance and every
+    /// `read_committed` consumer stalls behind it. Only a caller that
+    /// also controls `message.timeout.ms` can set it, because librdkafka
+    /// requires `message.timeout.ms <= transaction.timeout.ms` and
+    /// refuses to build the producer at all otherwise.
+    pub fn connect_bounded(
+        config: &KafkaConfig,
+        transactional_id: &str,
+        timeout: Duration,
+        broker_txn_timeout: Duration,
+    ) -> Result<Self, KafkaError> {
+        let inner = connect(
+            config,
+            transactional_id,
+            timeout,
+            Some(broker_txn_timeout),
+            DefaultClientContext,
+        )?;
+        Ok(ConnectedTransactionalProducer { inner })
+    }
+}
+
+impl<C: ClientContext> ConnectedTransactionalProducer<C> {
+    /// Claim the transactional id: one `init_transactions` round trip,
+    /// which fences every previous owner of the id.
+    pub fn init(
+        self,
+        timeout: Duration,
+    ) -> Result<TransactionalProducer<C>, (KafkaError, ConnectedTransactionalProducer<C>)> {
+        match self.inner.init_transactions(timeout) {
+            Ok(()) => Ok(TransactionalProducer {
+                inner: self.inner,
+                timeout,
+            }),
+            // Hand the connection back with the error: a timed-out init
+            // does not invalidate the client, and the caller decides
+            // whether to retry on it or discard it.
+            Err(e) => Err((e, self)),
+        }
+    }
+}
+
+/// Create the client and ping the brokers: everything construction does
+/// short of `init_transactions`.
+fn connect<C: ClientContext>(
+    config: &KafkaConfig,
+    transactional_id: &str,
+    timeout: Duration,
+    broker_txn_timeout: Option<Duration>,
+    context: C,
+) -> Result<FutureProducer<C>, KafkaError> {
+    let client_config = transactional_client_config(config, transactional_id, broker_txn_timeout)?;
+
+    debug!("rdkafka configuration: {:?}", client_config);
+    let api: FutureProducer<C> = client_config.create_with_context(context)?;
+
+    // "Ping" the Kafka brokers by requesting metadata. On the
+    // broker-bounded (partition-acquisition) path the ping is bounded
+    // by the caller's timeout — an unbounded stall there holds a warm
+    // slot and delays a handoff. Everywhere else the historical fixed
+    // bound is kept, so services that never opted into broker bounds
+    // keep their startup behavior.
+    let ping_timeout = if broker_txn_timeout.is_some() {
+        timeout
+    } else {
+        UNBOUNDED_PING_TIMEOUT
+    };
+    match api.client().fetch_metadata(None, ping_timeout) {
+        Ok(metadata) => {
+            info!(
+                "Successfully connected to Kafka brokers. Found {} topics.",
+                metadata.topics().len()
+            );
+        }
+        Err(error) => {
+            error!("Failed to fetch metadata from Kafka brokers: {:?}", error);
+            return Err(error);
+        }
+    }
+    Ok(api)
+}
+
 impl TransactionalProducer<DefaultClientContext> {
     // Create a transactional producer, with a default context
     pub fn from_config(
@@ -134,36 +239,6 @@ impl TransactionalProducer<DefaultClientContext> {
         timeout: Duration,
     ) -> Result<Self, KafkaError> {
         Self::with_context(config, transactional_id, timeout, DefaultClientContext)
-    }
-
-    /// A producer whose open transactions the broker abandons after
-    /// `broker_txn_timeout`, rather than after librdkafka's default
-    /// minute.
-    ///
-    /// This is a different quantity from `timeout`, which bounds how long
-    /// *this process* waits on a blocking transactional call. The broker
-    /// bound matters to everyone else: until an abandoned transaction
-    /// expires, the partition's last-stable-offset does not advance and
-    /// every `read_committed` consumer stalls behind it.
-    ///
-    /// Only a caller that also controls `message.timeout.ms` can set it,
-    /// because librdkafka requires `message.timeout.ms <=
-    /// transaction.timeout.ms` and refuses to build the producer at all
-    /// otherwise — which is why this is opt-in rather than derived from
-    /// the operation timeout.
-    pub fn from_config_bounded(
-        config: &KafkaConfig,
-        transactional_id: &str,
-        timeout: Duration,
-        broker_txn_timeout: Duration,
-    ) -> Result<Self, KafkaError> {
-        Self::build(
-            config,
-            transactional_id,
-            timeout,
-            Some(broker_txn_timeout),
-            DefaultClientContext,
-        )
     }
 }
 
@@ -184,38 +259,14 @@ impl<C: ClientContext> TransactionalProducer<C> {
         broker_txn_timeout: Option<Duration>,
         context: C,
     ) -> Result<Self, KafkaError> {
-        let client_config =
-            transactional_client_config(config, transactional_id, broker_txn_timeout)?;
-
-        debug!("rdkafka configuration: {:?}", client_config);
-        let api: FutureProducer<C> = client_config.create_with_context(context)?;
-
-        // "Ping" the Kafka brokers by requesting metadata. On the
-        // broker-bounded (partition-acquisition) path the ping is bounded
-        // by the caller's timeout — an unbounded stall there holds a warm
-        // slot and delays a handoff. Everywhere else the historical fixed
-        // bound is kept, so services that never opted into broker bounds
-        // keep their startup behavior.
-        let ping_timeout = if broker_txn_timeout.is_some() {
-            timeout
-        } else {
-            UNBOUNDED_PING_TIMEOUT
-        };
-        match api.client().fetch_metadata(None, ping_timeout) {
-            Ok(metadata) => {
-                info!(
-                    "Successfully connected to Kafka brokers. Found {} topics.",
-                    metadata.topics().len()
-                );
-            }
-            Err(error) => {
-                error!("Failed to fetch metadata from Kafka brokers: {:?}", error);
-                return Err(error);
-            }
-        }
-
+        let api = connect(
+            config,
+            transactional_id,
+            timeout,
+            broker_txn_timeout,
+            context,
+        )?;
         api.init_transactions(timeout)?;
-
         Ok(TransactionalProducer {
             inner: api,
             timeout,
@@ -367,7 +418,7 @@ mod tests {
             kafka_message_timeout_ms: 20_000,
             ..KafkaConfig::default()
         };
-        let Err(err) = TransactionalProducer::from_config_bounded(
+        let Err(err) = ConnectedTransactionalProducer::connect_bounded(
             &config,
             "test-txn-id",
             Duration::from_secs(10),

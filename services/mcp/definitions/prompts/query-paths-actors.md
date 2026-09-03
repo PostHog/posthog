@@ -16,14 +16,19 @@ Two modes:
 Selectors:
 
 - `includeRecordings`: defaults to `true`. Set to `false` to skip fetching matched session recordings (faster if recordings are not needed).
+- `limit`: how many persons to return in one page. Defaults to 100, and anything above 1000 is clamped to 1000.
+- `offset`: how many persons to skip before the returned page. Defaults to 0.
 
 Response:
 
-Each returned row contains `distinct_id`, `name`, `email`, and `event_count` (number of matching events for that actor). When `includeRecordings` is `true` (the default), a `recordings` column is also returned with PostHog replay URLs. Results are limited to the top 100 actors ordered by event count.
+Each returned row contains `distinct_id`, `name`, `email`, and `event_count` (number of matching events for that actor), ordered by event count. When `includeRecordings` is `true` (the default), a `recordings` column is also returned with PostHog replay URLs.
+
+The response also reports `limit`, `offset`, and `hasMore`. When `hasMore` is `true` there are more people on the path — call again with `offset` raised by `limit` to read the next page, and repeat until `hasMore` is `false`.
 
 Guidance:
 
 - Keep the `source` paths query minimal — only include the filters needed to define the same population the user is asking about.
 - The path keys come straight from a `query-paths` result row's `source` / `target`; do not hand-construct them.
 - `pathReplacements` and `showFullUrls` are not exposed — they don't change which actors are returned (`showFullUrls` is display-only; `pathReplacements` is covered by `localPathCleaningFilters`).
-- For large result sets, narrow the source (start/end point, date range, filters) rather than expecting more rows.
+- To read every person, page with `offset` rather than raising `limit` past 1000, and keep `source` identical across pages so rows don't repeat or go missing.
+- When you only need a sample, one page is enough — narrow the source (start/end point, date range, filters) instead of paging through everyone.

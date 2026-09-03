@@ -32,7 +32,10 @@ import pendulum  # noqa F401
 import sqlparse
 from clickhouse_pool import ChPool
 from clickhouse_pool.pool import TooManyConnections
-from rest_framework.test import APITestCase as DRFTestCase
+from rest_framework.test import (
+    APITestCase as DRFTestCase,
+    APITransactionTestCase,
+)
 from syrupy.extensions.amber import AmberSnapshotExtension
 
 from posthog.hogql import (
@@ -49,6 +52,7 @@ from posthog.clickhouse.adhoc_events_deletion import (
     ADHOC_EVENTS_DELETION_TABLE_SQL,
     DROP_ADHOC_EVENTS_DELETION_TABLE_SQL,
 )
+from posthog.clickhouse.cleanup_snapshots import CLEANUP_SNAPSHOT_TABLE_SQL, DROP_CLEANUP_SNAPSHOT_TABLE_SQL
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import get_client_from_pool
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
@@ -80,7 +84,7 @@ from posthog.clickhouse.query_log_archive import (
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.helpers.two_factor_session import code_based_verification_token_generator
 from posthog.hogql_queries.ai.ai_table_resolver import AI_EVENT_NAMES as _AI_EVENT_TYPES
-from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 from posthog.models import Organization, Team, User
 from posthog.models.ai_events.sql import TRUNCATE_AI_EVENTS_TABLE_SQL
 from posthog.models.channel_type.sql import (
@@ -122,6 +126,13 @@ from posthog.models.exchange_rate.sql import (
     EXCHANGE_RATE_DATA_BACKFILL_SQL,
     EXCHANGE_RATE_DICTIONARY_SQL,
     EXCHANGE_RATE_TABLE_SQL,
+)
+from posthog.models.flag_evaluations.sql import (
+    DISTRIBUTED_FLAG_EVALUATIONS_TABLE_SQL,
+    DROP_FLAG_EVALUATIONS_PROXY_TABLES_SQL,
+    DROP_FLAG_EVALUATIONS_TABLE_SQL,
+    FLAG_EVALUATIONS_TABLE_SQL,
+    WRITABLE_FLAG_EVALUATIONS_TABLE_SQL,
 )
 from posthog.models.group.sql import TRUNCATE_GROUPS_TABLE_SQL
 from posthog.models.instance_setting import get_instance_setting
@@ -229,7 +240,7 @@ from products.event_definitions.backend.models.property_definition import (
     DROP_PROPERTY_DEFINITIONS_TABLE_SQL,
     PROPERTY_DEFINITIONS_TABLE_SQL,
 )
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 # Make sure freezegun ignores our utils class that times functions, and heavy optional
 # deps (e.g. transformers) that can break when freezegun walks sys.modules.
@@ -703,7 +714,7 @@ class PostHogTestCase(SimpleTestCase):
         if get_instance_setting("PERSON_ON_EVENTS_ENABLED"):
             from posthog.models.team import util
 
-            util.can_enable_actor_on_events = True  # ty: ignore[invalid-assignment]
+            util.can_enable_actor_on_events = True
 
         if not self.CLASS_DATA_LEVEL_SETUP:
             _setup_test_data(self)
@@ -1111,6 +1122,39 @@ class APIBaseTest(PostHogTestCase, ErrorResponsesMixin, DRFTestCase):
             yield
 
 
+class NonAtomicAPIBaseTest(PostHogTestCase, ErrorResponsesMixin, APITransactionTestCase):
+    """Like APIBaseTest, but on TransactionTestCase (via DRF's APITransactionTestCase) rather
+    than TestCase - for endpoints that hand work to real worker threads which must see this
+    test's own DB writes. TestCase wraps each test in an outer, never-committed transaction that
+    only the test's own connection can see; a worker thread opens its own connection and a fresh
+    query on it finds no such row at all, not a stale one. See NonAtomicBaseTest for the same
+    trade-off outside DRF, and its docstring's link for background.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.setUpTestData()
+
+    def setUp(self):
+        super().setUp()
+
+        cache.clear()
+        TEST_clear_instance_license_cache()
+        rate_limit.is_rate_limit_enabled.cache_clear()
+        rate_limit.get_team_allow_list.cache_clear()
+
+        if self.CONFIG_AUTO_LOGIN and self.user:
+            self.client.force_login(self.user)
+
+    def _fixture_teardown(self):
+        for db_name in cast(Any, self)._databases_names(include_mirrors=False):
+            try:
+                _selective_flush(db_name, reset_sequences=True)
+            except Exception:
+                logger.exception("Selective flush of %r failed; falling back to the stock flush command", db_name)
+                call_command("flush", verbosity=0, interactive=False, database=db_name, allow_cascade=True)
+
+
 def stripResponse(response, remove=("action", "label", "persons_urls", "filter")):
     if len(response):
         for attr in remove:
@@ -1416,6 +1460,21 @@ def _format_sql_for_snapshot(query: str) -> str:
     return formatted
 
 
+class NewEventsSchemaSnapshotExtension(AmberSnapshotExtension):
+    """Amber extension that writes new-events-schema snapshots to `<test_file>.new_events_schema.ambr`.
+
+    These snapshots only get written when CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA is on
+    (the label-gated CI legs). Kept in the shared `.ambr` file, a legacy-schema
+    `--snapshot-update` run deletes them as unused: syrupy resolves both
+    `test_x[new_events_schema]` and `test_x` to the same owning test, so a run of the
+    other schema mode claims the name but never writes it. A snapshot file whose name
+    matches no test file is skipped by syrupy's unused-snapshot pass entirely, which
+    keeps each schema mode's snapshots safe from the other mode's update runs.
+    """
+
+    _file_extension = "new_events_schema.ambr"
+
+
 @pytest.mark.usefixtures("unittest_snapshot")
 class QueryMatchingTest:
     snapshot: Any
@@ -1434,7 +1493,7 @@ class QueryMatchingTest:
         snapshot_index = getattr(self, "_new_events_schema_snapshot_index", 0)
         self._new_events_schema_snapshot_index = snapshot_index + 1
         snapshot_name = "new_events_schema" if snapshot_index == 0 else f"new_events_schema.{snapshot_index}"
-        return self.snapshot(name=snapshot_name)
+        return self.snapshot(name=snapshot_name, extension_class=NewEventsSchemaSnapshotExtension)
 
     # :NOTE: Update snapshots by passing --snapshot-update to bin/tests
     def assertQueryMatchesSnapshot(self, query, params=None, replace_all_numbers=False):
@@ -1943,7 +2002,7 @@ if settings.TEST:
         _clickhouse_pool_checkouts += 1
         return _original_chpool_get_client(self, *args, **kwargs)
 
-    ChPool.get_client = _counting_chpool_get_client
+    ChPool.get_client = _counting_chpool_get_client  # ty: ignore[invalid-assignment]
 
 
 def reset_clickhouse_database() -> None:
@@ -1972,6 +2031,7 @@ def reset_clickhouse_database() -> None:
             DROP_EXCHANGE_RATE_DICTIONARY_SQL(),
             DROP_WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_SQL(),
             DROP_ADHOC_EVENTS_DELETION_TABLE_SQL(),
+            *[drop_sql() for drop_sql in DROP_CLEANUP_SNAPSHOT_TABLE_SQL],
         ]
     )
     run_clickhouse_statement_in_parallel(
@@ -2021,6 +2081,8 @@ def reset_clickhouse_database() -> None:
             TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL,
             TRUNCATE_CUSTOM_METRICS_COUNTER_EVENTS_TABLE,
             TRUNCATE_AI_EVENTS_TABLE_SQL(),
+            DROP_FLAG_EVALUATIONS_TABLE_SQL(),
+            *DROP_FLAG_EVALUATIONS_PROXY_TABLES_SQL(),
         ]
     )
     run_clickhouse_statement_in_parallel(
@@ -2028,6 +2090,9 @@ def reset_clickhouse_database() -> None:
             CHANNEL_DEFINITION_TABLE_SQL(),
             EXCHANGE_RATE_TABLE_SQL(),
             *clickhouse_events_data_table_sqls(),
+            FLAG_EVALUATIONS_TABLE_SQL(),
+            WRITABLE_FLAG_EVALUATIONS_TABLE_SQL(),
+            DISTRIBUTED_FLAG_EVALUATIONS_TABLE_SQL(),
             PERSONS_TABLE_SQL(),
             PROPERTY_DEFINITIONS_TABLE_SQL(),
             RAW_SESSIONS_TABLE_SQL(),
@@ -2089,6 +2154,7 @@ def reset_clickhouse_database() -> None:
             SESSIONS_TABLE_MV_SQL(),
             SESSIONS_VIEW_SQL(),
             ADHOC_EVENTS_DELETION_TABLE_SQL(),
+            *[table_sql() for table_sql in CLEANUP_SNAPSHOT_TABLE_SQL],
             CUSTOM_METRICS_VIEW(include_counters=True),
             WEB_PRE_AGGREGATED_TEAM_SELECTION_DATA_SQL(),
             COHORT_MEMBERSHIP_MV_SQL(),
@@ -2127,6 +2193,11 @@ class ClickhouseDestroyTablesMixin(BaseTest):
         reset_clickhouse_database_if_dirty()
 
 
+def skip_clickhouse_query_snapshots(fn: Callable) -> Callable:
+    cast(Any, fn)._skip_clickhouse_query_snapshots = True
+    return fn
+
+
 def snapshot_clickhouse_queries(fn_or_class):
     """
     Captures and snapshots SELECT queries from test using `syrupy` library.
@@ -2137,12 +2208,16 @@ def snapshot_clickhouse_queries(fn_or_class):
     Update snapshots via --snapshot-update.
     """
 
+    if getattr(fn_or_class, "_skip_clickhouse_query_snapshots", False):
+        return fn_or_class
+
     # check if fn_or_class is a class
     if inspect.isclass(fn_or_class):
         # wrap every class method that starts with test_ with this decorator
         for attr in dir(fn_or_class):
-            if callable(getattr(fn_or_class, attr)) and attr.startswith("test_"):
-                setattr(fn_or_class, attr, snapshot_clickhouse_queries(getattr(fn_or_class, attr)))
+            method = getattr(fn_or_class, attr)
+            if callable(method) and attr.startswith("test_"):
+                setattr(fn_or_class, attr, snapshot_clickhouse_queries(method))
         return fn_or_class
 
     @wraps(fn_or_class)

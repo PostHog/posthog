@@ -18,6 +18,7 @@ import {
 import {
     AsyncOutput,
     EventOutput,
+    FlagEvaluationsOutput,
     PersonDistinctIdsOutput,
     PersonMergeEventsOutput,
     PersonsOutput,
@@ -25,6 +26,7 @@ import {
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { PersonRepository } from '~/common/persons/repositories/person-repository'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
+import { UsageIngestionConfig, createEventUsageBatchFactory } from '~/common/usage-ingestion'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import {
     EventIngestionRestrictionManager,
@@ -56,6 +58,10 @@ import {
     FeatureFlagCalledDedupService,
     createFeatureFlagCalledDedupService,
 } from './common/feature-flag-called-dedup/feature-flag-called-dedup-service'
+import {
+    FlagEvaluationsService,
+    createFlagEvaluationsService,
+} from './common/flag-evaluations/flag-evaluations-service'
 import { MainLaneOverflowRedirect } from './common/overflow-redirect/main-lane-overflow-redirect'
 import { OverflowLaneOverflowRedirect } from './common/overflow-redirect/overflow-lane-overflow-redirect'
 import { OverflowRedirectService } from './common/overflow-redirect/overflow-redirect-service'
@@ -64,10 +70,15 @@ import { createAnalyticsOverflowStrategies } from './common/overflow-redirect/ov
 import { IngestionConsumerConfig, IngestionOutputsConfig } from './config'
 
 export type IngestionConsumerFullConfig = IngestionConsumerConfig &
+    UsageIngestionConfig &
     Pick<CommonConfig, 'KAFKA_CLIENT_RACK'> &
     // The general server builds the consumer from a config that includes IngestionOutputsConfig; the
-    // merge-events gate reads the topic, so surface it here rather than relying on the runtime shape.
-    Pick<IngestionOutputsConfig, 'INGESTION_OUTPUT_PERSON_MERGE_EVENTS_TOPIC'>
+    // merge-events gate and the flag-evaluations fork read their topics, so surface them here rather
+    // than relying on the runtime shape.
+    Pick<
+        IngestionOutputsConfig,
+        'INGESTION_OUTPUT_PERSON_MERGE_EVENTS_TOPIC' | 'INGESTION_OUTPUT_FLAG_EVALUATIONS_TOPIC'
+    >
 
 export interface IngestionConsumerDeps {
     postgres: PostgresRouter
@@ -76,6 +87,7 @@ export interface IngestionConsumerDeps {
     featureFlagCalledDedupRedisPool?: RedisPool
     outputs: IngestionOutputs<
         | EventOutput
+        | FlagEvaluationsOutput
         | IngestionWarningsOutput
         | DlqOutput
         | OverflowOutput
@@ -120,6 +132,7 @@ export class IngestionConsumer {
     private overflowRedirectService?: OverflowRedirectService
     private overflowLaneTTLRefreshService?: OverflowRedirectService
     private featureFlagCalledDedupService?: FeatureFlagCalledDedupService
+    private flagEvaluationsService?: FlagEvaluationsService
     private tokenDistinctIdsToDrop: string[] = []
     private tokenDistinctIdsToSkipPersons: string[] = []
     private tokenDistinctIdsToForceOverflow: string[] = []
@@ -214,6 +227,8 @@ export class IngestionConsumer {
             this.config
         )
 
+        this.flagEvaluationsService = createFlagEvaluationsService(this.config)
+
         this.hogTransformer = deps.hogTransformer
 
         this.personsStore = new BatchWritingPersonsStore(this.deps.personRepository, this.deps.outputs, {
@@ -280,6 +295,9 @@ export class IngestionConsumer {
             preservePartitionLocality: this.config.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY,
             personsPrefetchEnabled: this.config.PERSONS_PREFETCH_ENABLED,
             groupsPrefetchEnabled: this.config.GROUPS_PREFETCH_ENABLED,
+            teamsPrefetchEnabled: this.config.TEAMS_PREFETCH_ENABLED,
+            eventSchemasPrefetchEnabled: this.config.EVENT_SCHEMAS_PREFETCH_ENABLED,
+            hogFunctionsPrefetchEnabled: this.config.HOG_FUNCTIONS_PREFETCH_ENABLED,
             outputs,
             perDistinctIdOptions: {
                 SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: this.config.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP,
@@ -291,14 +309,14 @@ export class IngestionConsumer {
                 PERSON_MERGE_EVENTS_TEAM_ALLOWLIST: this.config.PERSON_MERGE_EVENTS_TEAM_ALLOWLIST,
                 PERSON_MERGE_FOLD_ENABLED: this.config.PERSON_MERGE_FOLD_ENABLED,
                 PERSON_MERGE_FOLD_TEAM_ALLOWLIST: this.config.PERSON_MERGE_FOLD_TEAM_ALLOWLIST,
-                PERSON_MERGE_ALWAYS_V1_TEAM_ALLOWLIST: this.config.PERSON_MERGE_ALWAYS_V1_TEAM_ALLOWLIST,
-                PERSONLESS_WRITES_DISABLED_TEAMS: this.config.PERSONLESS_WRITES_DISABLED_TEAMS,
+                PERSON_MERGE_TOMBSTONE_TEAM_ALLOWLIST: this.config.PERSON_MERGE_TOMBSTONE_TEAM_ALLOWLIST,
                 PERSON_JSONB_SIZE_ESTIMATE_ENABLE: this.config.PERSON_JSONB_SIZE_ESTIMATE_ENABLE,
                 PERSON_PROPERTIES_UPDATE_ALL: this.config.PERSON_PROPERTIES_UPDATE_ALL,
                 FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: this.config.FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS,
                 EXPERIMENT_EXPOSURE_DUPLICATION_TEAMS: this.config.EXPERIMENT_EXPOSURE_DUPLICATION_TEAMS,
             },
             concurrentBatches: this.config.INGESTION_WORKER_CONCURRENT_BATCHES,
+            createEventUsageBatch: createEventUsageBatchFactory(this.config, 'events'),
         }
         const joinedPipelineDeps: JoinedIngestionPipelineDeps = {
             personsStore: this.personsStore,
@@ -311,6 +329,7 @@ export class IngestionConsumer {
             overflowRedirectService: this.overflowRedirectService,
             overflowLaneTTLRefreshService: this.overflowLaneTTLRefreshService,
             featureFlagCalledDedupService: this.featureFlagCalledDedupService,
+            flagEvaluationsService: this.flagEvaluationsService,
             teamManager: this.deps.teamManager,
             cookielessManager: this.deps.cookielessManager,
             groupTypeManager: this.deps.groupTypeManager,
@@ -445,7 +464,7 @@ export class IngestionConsumer {
             createOkContext({ message }, { message, debugContext: createKafkaDebugContext(message) })
         )
 
-        const feedResult = await this.joinedPipeline.feed(batch)
+        const feedResult = await this.joinedPipeline.feed(batch, {})
         if (!feedResult.ok) {
             throw new Error(`Pipeline rejected batch: ${feedResult.reason}`)
         }

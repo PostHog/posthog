@@ -89,7 +89,7 @@ authorization via a loopback callback, token exchange, and silent refresh on rec
   "clientId": "pre-registered-id",
   "clientSecret": "…",
   "redirectUrl": "http://127.0.0.1:19876/callback",
-  "clientName": "Code by PostHog"
+  "clientName": "Desktop by PostHog"
 }
 ```
 

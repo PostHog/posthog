@@ -9,8 +9,9 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import type { Experiment } from '~/types'
 
-import { NEW_EXPERIMENT } from '../constants'
-import { experimentsLogic } from '../experimentsLogic'
+import { NEW_EXPERIMENT } from 'products/experiments/frontend/constants'
+
+import { experimentsLogic } from '../../../../../products/experiments/frontend/scenes/experimentsLogic'
 import { variantsPanelLogic } from './variantsPanelLogic'
 
 describe('variantsPanelLogic', () => {

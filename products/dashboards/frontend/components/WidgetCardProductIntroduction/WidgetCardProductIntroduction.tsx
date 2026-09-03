@@ -12,6 +12,7 @@ type WidgetCardProductIntroductionProps = Omit<
 > & {
     /** Hog above copy at all tile widths (disables responsive side-by-side layout). */
     stacked?: boolean
+    introductionClassName?: string
 }
 
 /**
@@ -23,6 +24,7 @@ export function WidgetCardProductIntroduction({
     className,
     contentClassName,
     stacked,
+    introductionClassName,
     ...props
 }: WidgetCardProductIntroductionProps): JSX.Element | null {
     const isStacked = stacked ?? className?.includes('WidgetCardProductIntroduction--stacked')
@@ -37,6 +39,7 @@ export function WidgetCardProductIntroduction({
         >
             <ProductIntroduction
                 {...props}
+                className={introductionClassName}
                 contentClassName={cn('max-w-none', contentClassName)}
                 hogLayout={isStacked ? 'vertical' : 'responsive'}
             />

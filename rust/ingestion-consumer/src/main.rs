@@ -25,8 +25,8 @@ use ingestion_consumer::discovery::{
     DiscoveryMode, EndpointSliceDiscovery, StaticDiscovery, WorkerDiscovery,
 };
 use ingestion_consumer::dispatcher::Dispatcher;
+use ingestion_consumer::grpc_transport::{GrpcPort, GrpcTransport};
 use ingestion_consumer::routing::RoutingStrategy;
-use ingestion_consumer::transport::HttpTransport;
 use ingestion_consumer::worker_registry::{WorkerId, WorkerRegistry, WorkerRegistryConfig};
 
 common_alloc::used!();
@@ -83,6 +83,16 @@ async fn async_main(config: Config) -> Result<()> {
     tracing_subscriber::registry().with(log_layer).init();
 
     info!("Starting ingestion consumer");
+
+    // Keep the returned agents alive for the duration of the program.
+    // Fails gracefully - logs error but doesn't prevent service from starting.
+    let _profiling_agents = match config.continuous_profiling.start_agent() {
+        Ok(agents) => agents,
+        Err(e) => {
+            error!("Failed to start continuous profiling agent: {e:#}");
+            None
+        }
+    };
 
     // Lifecycle manager handles signals, health, and shutdown coordination
     let mut manager = Manager::builder("ingestion-consumer")
@@ -224,24 +234,17 @@ async fn async_main(config: Config) -> Result<()> {
     }
     let dispatcher = Arc::new(dispatcher);
 
-    let api_secret = if config.internal_api_secret.is_empty() {
-        None
+    let grpc_port = if config.ingestion_worker_grpc_port_offset > 0 {
+        GrpcPort::OffsetFromHttp(config.ingestion_worker_grpc_port_offset)
     } else {
-        Some(config.internal_api_secret.clone())
+        GrpcPort::Fixed(config.ingestion_worker_grpc_port)
     };
-    // Transport semaphores are created lazily per worker, so it starts empty.
-    let mut transport = HttpTransport::new(
-        Duration::from_millis(config.http_timeout_ms),
-        config.max_retries,
-        api_secret,
-        &[],
+    let mut transport = GrpcTransport::new(
+        grpc_port,
         config.ingestion_worker_concurrent_batches,
-        config.transport_compression_enabled,
+        Duration::from_millis(config.ingestion_worker_stream_ack_timeout_ms),
     );
     transport.set_max_body_bytes(config.transport_max_body_bytes);
-    if let Some(recorder) = &debug_recorder {
-        transport.set_debug_recorder(Arc::clone(recorder));
-    }
     let transport = Arc::new(transport);
 
     // Select the worker discovery provider and start it (static applies the

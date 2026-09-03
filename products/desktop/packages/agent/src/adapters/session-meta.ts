@@ -1,3 +1,5 @@
+import type { BedrockGatewayVariant } from "@posthog/shared";
+
 /** Minimal shape needed to resolve the effective task id from session meta. */
 interface TaskIdSource {
   taskId?: string;
@@ -34,4 +36,21 @@ export function resolveSpokenNarration(
   meta: SpokenNarrationSource | undefined,
 ): boolean {
   return meta?.spokenNarration === true;
+}
+
+/** Minimal shape needed to resolve the Bedrock gateway variant from meta. */
+interface BedrockGatewayVariantSource {
+  bedrockGatewayVariant?: BedrockGatewayVariant;
+}
+
+/**
+ * The desktop is the only client that evaluates the `bedrock-llm-gateway` flag,
+ * so every other caller (headless cloud runs, sandboxes) leaves this unset and
+ * keeps whatever provider the gateway defaults to. Shared by the Claude and
+ * Codex adapters.
+ */
+export function resolveBedrockGatewayVariant(
+  meta: BedrockGatewayVariantSource | undefined,
+): BedrockGatewayVariant | undefined {
+  return meta?.bedrockGatewayVariant;
 }

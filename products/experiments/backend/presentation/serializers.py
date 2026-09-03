@@ -29,8 +29,8 @@ from posthog.api.documentation import FeatureFlagFiltersSchemaSerializer
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
 from posthog.models.team.team import Team
-from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
+from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
 from products.ai_observability.backend.models.llm_prompt import LLMPrompt
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.facade.contracts import CreateExperimentInput
@@ -39,7 +39,7 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import reso
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
 from products.experiments.backend.llm_metric_templates import TEMPLATE_NAMES
 from products.experiments.backend.metric_events import MetricSourceRole
-from products.experiments.backend.metric_utils import refresh_action_names_in_metric
+from products.experiments.backend.metric_utils import apply_metric_date_range, refresh_action_names_in_metric
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentHoldout,
@@ -50,6 +50,7 @@ from products.experiments.backend.running_time_calculator import METRIC_TYPE_CHO
 from products.experiments.backend.session_buckets import MAX_BUCKET_SCAN_DAYS, MAX_SESSION_BUCKET_LIMIT, SessionBucket
 from products.experiments.backend.session_context import MAX_SESSION_CONTEXT_BATCH
 from products.experiments.backend.session_event_deltas import (
+    MAX_CARD_HIGHLIGHTS,
     MAX_CARD_RECORDINGS,
     MAX_DELTA_SCAN_DAYS,
     MAX_FALLBACK_DELTA_SCAN_DAYS,
@@ -550,10 +551,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
                     metrics_list[i] = refreshed_metric
                     metric = refreshed_metric
 
-                if metric.get("count_query", {}).get("dateRange"):
-                    metric["count_query"]["dateRange"] = new_date_range
-                if metric.get("funnels_query", {}).get("dateRange"):
-                    metric["funnels_query"]["dateRange"] = new_date_range
+                apply_metric_date_range(metric, new_date_range)
 
         # Update date ranges in saved metrics
         # Note: Action name refresh is handled by ExperimentToSavedMetricSerializer.to_representation
@@ -562,10 +560,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             span.set_attribute("saved_metric_count", len(saved_metrics))
             for saved_metric in saved_metrics:
                 if saved_metric.get("query"):
-                    if saved_metric["query"].get("count_query", {}).get("dateRange"):
-                        saved_metric["query"]["count_query"]["dateRange"] = new_date_range
-                    if saved_metric["query"].get("funnels_query", {}).get("dateRange"):
-                        saved_metric["query"]["funnels_query"]["dateRange"] = new_date_range
+                    apply_metric_date_range(saved_metric["query"], new_date_range)
 
                     # Add fingerprint to saved metric returned from API
                     # so that frontend knows what timeseries records to query
@@ -1881,6 +1876,21 @@ class ExperimentSessionEventDeltaRequestSerializer(serializers.Serializer):
     variant at once."""
 
 
+class ExperimentWatchHighlightSerializer(serializers.Serializer):
+    """One recording a card names first, and the phrase that says why."""
+
+    session_id = serializers.CharField(help_text="The recording to open. Always one of the card's own session_ids.")
+    reason = serializers.CharField(
+        help_text=(
+            "Everything this recording carries that earned it the place, ready to render as-is, for example "
+            "'6 rage clicks, 6 errors' or '1 error, did this 4 times'. Every signal the session shows is "
+            "listed, so the phrase is the whole picture rather than the single strongest part of it. Friction "
+            "counts cover the whole session; 'did this N times' counts the card's own event. Not a comparison "
+            "and not a reason the card exists."
+        )
+    )
+
+
 class ExperimentWatchCardSerializer(serializers.Serializer):
     """One group of recordings worth opening, and the sentence that justifies it.
 
@@ -1894,9 +1904,12 @@ class ExperimentWatchCardSerializer(serializers.Serializer):
         choices=[kind.value for kind in WatchCardKind],
         help_text=(
             "What the card is: 'behavior' for an event this variant did clearly more than the other variants "
-            "together, 'friction' for the same finding on an error or rage signal, 'metric' for a shortcut to "
-            "recordings around one of the experiment's own metric events. Metric cards claim nothing about how "
-            "the metric moved: that is the experiment results' answer."
+            "together, 'friction' for the same finding on an error or rage signal, 'variant_only' for an event "
+            "no other variant fired at all, and 'metric' for a shortcut to recordings around one of the "
+            "experiment's own metric events. A 'variant_only' card shows the variant rendering its own change "
+            "rather than a behavior difference, so present it as confirmation the change is live and never as a "
+            "finding. Metric cards claim nothing about how the metric moved: that is the experiment results' "
+            "answer."
         ),
     )
     event = serializers.CharField(help_text="The event behind the card.")
@@ -1916,18 +1929,36 @@ class ExperimentWatchCardSerializer(serializers.Serializer):
     )
     metric_name = serializers.CharField(
         allow_null=True,
-        help_text="The metric whose event this card shortcuts to. Null outside metric cards.",
+        help_text=(
+            "The metric this card's event belongs to, on a comparison card as well as on a shortcut card. When "
+            "set, the experiment's results measure this event over the whole run window with the statistics "
+            "that go with a result, so say the card points there and never present the card as a second answer "
+            "about that metric. Null when no metric counts the event."
+        ),
     )
     recording_count = serializers.IntegerField(
         help_text=(
-            f"How many recordings the card carries, at most {MAX_CARD_RECORDINGS}. Every card is backed by "
-            "recordings that actually exist: a finding whose sessions were never recorded is dropped rather "
-            "than promised."
+            f"How many recordings the card carries, at most max_card_recordings ({MAX_CARD_RECORDINGS}). Every "
+            "card is backed by recordings that actually exist: a finding whose sessions were never recorded is "
+            "dropped rather than promised. A count sitting on the ceiling means at least that many, so say 'at "
+            "least' and never compare two such counts: how often the event happened is the experiment's results, "
+            "and this only counts what replay kept."
         )
     )
     session_ids = serializers.ListField(
         child=serializers.CharField(),
         help_text="The recordings themselves, most recent first, ready to hand to the recordings list as-is.",
+    )
+    highlights = ExperimentWatchHighlightSerializer(
+        many=True,
+        help_text=(
+            f"Which of the card's recordings to open first, at most {MAX_CARD_HIGHLIGHTS}, ranked by how much "
+            "each one carries: recordings showing several kinds of signal at once come before recordings "
+            "showing more of a single kind. Offer these before the full list: the recordings list orders "
+            "by its own sort, so session_ids order never reaches the viewer, and twenty recordings that share "
+            "an event are otherwise indistinguishable in it. Empty when no recording the viewer can open "
+            "carries a signal, which is worth saying rather than hiding."
+        ),
     )
 
 
@@ -1962,10 +1993,11 @@ class ExperimentSessionEventDeltaResponseSerializer(serializers.Serializer):
     cards = ExperimentWatchCardSerializer(
         many=True,
         help_text=(
-            "The shelf, strongest comparison first, then metric shortcuts. Events the variants can't be told "
-            "apart on get no card at all rather than a weak one, so an empty shelf means no difference was big "
-            "enough to be sure of, not that nothing was measured. The experiment's own metric events never "
-            "appear as comparisons: see metric_events."
+            "The shelf, strongest comparison first, then the variant's own rendering, then metric shortcuts. "
+            "Events the variants can't be told apart on get no card at all rather than a weak one, so an empty "
+            "shelf means no difference was big enough to be sure of, not that nothing was measured. Group by "
+            "kind before presenting: a 'variant_only' card outranks every real difference by construction, and "
+            "reading the shelf in order would report it as the headline."
         ),
     )
     arms = ExperimentWatchArmSerializer(
@@ -1988,10 +2020,10 @@ class ExperimentSessionEventDeltaResponseSerializer(serializers.Serializer):
     metric_events = serializers.ListField(
         child=serializers.CharField(),
         help_text=(
-            "The experiment's own metric events, which never enter the behavior comparison. They are the events "
-            "it was built to move, so they would top the ranking on nearly every experiment, and the "
-            "experiment's results already say what happened to them with the statistics that go with a result. "
-            "They can appear as 'metric' shortcut cards, which claim nothing."
+            "The events the experiment's own metrics count. A card on one of these carries metric_name and must "
+            "be read as pointing at the experiment's results, which measure the same event over the whole run "
+            "window with the statistics that go with a result. Cards state no magnitude for exactly this "
+            "reason, so never turn one into a claim about how the metric moved."
         ),
     )
     date_from = serializers.DateTimeField(
@@ -2039,6 +2071,18 @@ class ExperimentSessionEventDeltaResponseSerializer(serializers.Serializer):
         help_text=(
             "How many exposed people a variant needs before it can be compared at all. Below it a variant's "
             "cards would be noise whatever the evidence bar allows."
+        )
+    )
+    max_card_recordings = serializers.IntegerField(
+        help_text=(
+            "The most recordings one card can carry. A card whose recording_count equals this hit the ceiling, "
+            "so report it as 'at least this many' rather than as a count."
+        )
+    )
+    dropped_duplicate_cards = serializers.IntegerField(
+        help_text=(
+            "How many cards were removed because their recordings were already another card's on the same "
+            "shelf. Nothing was lost: the recordings are all reachable through the cards that stayed."
         )
     )
     too_early = serializers.BooleanField(

@@ -12,6 +12,7 @@ from posthog.hogql import (
 from posthog.hogql.errors import SyntaxError as HogQLSyntaxError
 from posthog.hogql.parser import (
     HogQLParserShadowMismatch,
+    ResolvedParserBackends,
     _resolve_parser_mode,
     parse_expr,
     parse_select,
@@ -24,18 +25,18 @@ class TestParserMode(BaseTest):
         [
             # No mode + no explicit backend in TEST → rust-py primary, no shadow
             # (prod's default shadow pair is asserted separately below).
-            (None, None, ("rust-py", None)),
+            (None, None, ResolvedParserBackends(primary="rust-py")),
             # No mode + explicit backend → honour the explicit backend, no shadow.
-            (None, "cpp-json", ("cpp-json", None)),
-            (None, "rust-json", ("rust-json", None)),
-            (None, "rust-py", ("rust-py", None)),
-            (ParserMode.CPP_ONLY, None, ("cpp-json", None)),
-            (ParserMode.RUST_ONLY, None, ("rust-json", None)),
-            (ParserMode.CPP_WITH_RUST_SHADOW, None, ("cpp-json", "rust-json")),
-            (ParserMode.CPP_WITH_RUST_PY_SHADOW, None, ("cpp-json", "rust-py")),
-            (ParserMode.RUST_WITH_CPP_SHADOW, None, ("rust-json", "cpp-json")),
-            (ParserMode.RUST_PY_ONLY, None, ("rust-py", None)),
-            (ParserMode.RUST_PY_WITH_CPP_SHADOW, None, ("rust-py", "cpp-json")),
+            (None, "cpp-json", ResolvedParserBackends(primary="cpp-json")),
+            (None, "rust-json", ResolvedParserBackends(primary="rust-json")),
+            (None, "rust-py", ResolvedParserBackends(primary="rust-py")),
+            (ParserMode.CPP_ONLY, None, ResolvedParserBackends(primary="cpp-json")),
+            (ParserMode.RUST_ONLY, None, ResolvedParserBackends(primary="rust-json")),
+            (ParserMode.CPP_WITH_RUST_SHADOW, None, ResolvedParserBackends(primary="cpp-json", shadow="rust-json")),
+            (ParserMode.CPP_WITH_RUST_PY_SHADOW, None, ResolvedParserBackends(primary="cpp-json", shadow="rust-py")),
+            (ParserMode.RUST_WITH_CPP_SHADOW, None, ResolvedParserBackends(primary="rust-json", shadow="cpp-json")),
+            (ParserMode.RUST_PY_ONLY, None, ResolvedParserBackends(primary="rust-py")),
+            (ParserMode.RUST_PY_WITH_CPP_SHADOW, None, ResolvedParserBackends(primary="rust-py", shadow="cpp-json")),
         ]
     )
     def test_resolve_parser_mode(self, mode, backend, expected):
@@ -44,11 +45,13 @@ class TestParserMode(BaseTest):
     def test_resolve_parser_mode_default_shadows_in_prod(self):
         with patch("posthog.hogql.parser.settings") as mock_settings:
             mock_settings.TEST = False
-            self.assertEqual(_resolve_parser_mode(None, None), ("rust-py", "cpp-json"))
+            self.assertEqual(
+                _resolve_parser_mode(None, None), ResolvedParserBackends(primary="rust-py", shadow="cpp-json")
+            )
 
     def test_resolve_parser_mode_drops_shadow_when_rust_unavailable(self):
         with patch("posthog.hogql.parser._RUST_PARSER_AVAILABLE", False):
-            self.assertEqual(_resolve_parser_mode(None, None), ("cpp-json", None))
+            self.assertEqual(_resolve_parser_mode(None, None), ResolvedParserBackends(primary="cpp-json"))
 
     def test_resolve_parser_mode_rejects_both_mode_and_backend(self):
         with self.assertRaises(ValueError):

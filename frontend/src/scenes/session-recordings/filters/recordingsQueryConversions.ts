@@ -159,6 +159,7 @@ export function convertUniversalFiltersToRecordingsQuery(universalFilters: Recor
         operand: deriveOperand(universalFilters.filter_group),
         limit: universalFilters.limit,
         session_ids: universalFilters.session_ids,
+        experiment_exposure: universalFilters.experiment_exposure,
     }
 }
 
@@ -192,5 +193,8 @@ export function recordingsQueryToUniversalFilters(
             type: (query?.operand as FilterLogicalOperator) ?? FilterLogicalOperator.And,
             values: [{ type: FilterLogicalOperator.And, values }],
         },
+        // Not editable in the universal-filters UI, but a stored scanner query can carry it;
+        // dropping it on the round-trip would silently widen the scanner to every recording.
+        experiment_exposure: query?.experiment_exposure,
     }
 }

@@ -1,15 +1,14 @@
 import { readFile, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
-import type { PostHogAPIClient } from "../../../posthog-api";
 import { createSandboxPosthogClient } from "../../../signed-commit-artefacts";
 import type { TaskRunArtifact } from "../../../types";
 import { defineLocalTool, type LocalToolResult } from "../registry";
-
-const MAX_ARTIFACT_UPLOAD_BYTES = 30 * 1024 * 1024;
-// The inline fallback base64-encodes the file into a JSON body, so it is held to a lower
-// ceiling than a direct-to-storage POST to stay under the API's request size limit.
-const MAX_INLINE_UPLOAD_BYTES = 10 * 1024 * 1024;
+import {
+  type ArtifactUpload,
+  MAX_ARTIFACT_UPLOAD_BYTES,
+  uploadRunArtifact,
+} from "./artifact-upload";
 
 export const uploadArtifactTool = defineLocalTool({
   name: "upload_artifact",
@@ -72,38 +71,22 @@ export const uploadArtifactTool = defineLocalTool({
         );
       }
 
-      const upload = {
+      const upload: ArtifactUpload = {
         name: args.name ?? path.basename(artifactPath),
         contentType: args.contentType ?? "application/octet-stream",
         content: await readFile(artifactPath),
+        type: "output",
+        source: "agent_output",
       };
-
-      let downloadUrl: string | undefined;
-      try {
-        downloadUrl = await uploadDirect(
-          client,
-          ctx.taskId,
-          ctx.taskRunId,
-          upload,
-        );
-      } catch (error) {
-        // A direct upload needs the agent to reach object storage itself, which fails in
-        // any environment where the sandbox can reach the PostHog API but not the storage
-        // host (a split network, or an egress allowlist that omits the bucket). The inline
-        // upload goes through the API instead, so retry there before surfacing a failure.
-        if (upload.content.byteLength > MAX_INLINE_UPLOAD_BYTES) {
-          throw error;
-        }
-        downloadUrl = await uploadInline(
-          client,
-          ctx.taskId,
-          ctx.taskRunId,
-          upload,
-        );
-      }
+      const entry = await uploadRunArtifact(
+        client,
+        ctx.taskId,
+        ctx.taskRunId,
+        upload,
+      );
 
       const { name } = upload;
-      const referenceUrl = getArtifactReferenceUrl(downloadUrl);
+      const referenceUrl = getArtifactReferenceUrl(readDownloadUrl(entry));
       const linkText = referenceUrl
         ? ` Reference it as a markdown link: [${escapeMarkdownLinkLabel(name)}](<${referenceUrl}>)`
         : "";
@@ -123,101 +106,6 @@ export const uploadArtifactTool = defineLocalTool({
     }
   },
 });
-
-interface ArtifactUpload {
-  name: string;
-  contentType: string;
-  content: Buffer;
-}
-
-/** Reserve a storage key, POST the bytes straight to object storage, then attach them. */
-async function uploadDirect(
-  client: PostHogAPIClient,
-  taskId: string,
-  taskRunId: string,
-  { name, contentType, content }: ArtifactUpload,
-): Promise<string | undefined> {
-  const [prepared] = await client.prepareTaskArtifactUploads(
-    taskId,
-    taskRunId,
-    [
-      {
-        name,
-        type: "output",
-        source: "agent_output",
-        size: content.byteLength,
-        content_type: contentType,
-      },
-    ],
-  );
-  if (!prepared) {
-    throw new Error("PostHog did not prepare the artifact upload.");
-  }
-
-  const form = new FormData();
-  for (const [key, value] of Object.entries(prepared.presigned_post.fields)) {
-    form.append(key, value);
-  }
-  form.append(
-    "file",
-    new Blob([new Uint8Array(content)], { type: contentType }),
-    name,
-  );
-  const response = await fetch(prepared.presigned_post.url, {
-    method: "POST",
-    body: form,
-  });
-  if (!response.ok) {
-    throw new Error(`Artifact storage upload failed (${response.status}).`);
-  }
-
-  const finalized = await client.finalizeTaskArtifactUploads(
-    taskId,
-    taskRunId,
-    [
-      {
-        id: prepared.id,
-        name,
-        type: "output",
-        source: "agent_output",
-        storage_path: prepared.storage_path,
-        content_type: contentType,
-      },
-    ],
-  );
-  const entry = finalized.find(
-    (artifact) => artifact.storage_path === prepared.storage_path,
-  );
-  if (!entry) {
-    throw new Error("PostHog did not confirm the artifact upload.");
-  }
-  return readDownloadUrl(entry);
-}
-
-/** Send the bytes through the PostHog API and let the backend write them to storage. */
-async function uploadInline(
-  client: PostHogAPIClient,
-  taskId: string,
-  taskRunId: string,
-  { name, contentType, content }: ArtifactUpload,
-): Promise<string | undefined> {
-  const manifest = await client.uploadTaskArtifacts(taskId, taskRunId, [
-    {
-      name,
-      type: "output",
-      source: "agent_output",
-      content: content.toString("base64"),
-      content_encoding: "base64",
-      content_type: contentType,
-    },
-  ]);
-  // The endpoint returns the run's whole manifest with the new entry appended last.
-  const entry = manifest.at(-1);
-  if (!entry) {
-    throw new Error("PostHog did not confirm the artifact upload.");
-  }
-  return readDownloadUrl(entry);
-}
 
 // Read the download URL defensively: the field rides in on TaskRunArtifact once the
 // api-client is regenerated against the updated OpenAPI spec, and older backends simply

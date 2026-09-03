@@ -6,13 +6,25 @@ on:
     pull_request:
         # Draft PRs run build + unit tests only; the integration tests (which boot
         # the full PostHog backend and trigger on any non-pytest Python change) run
-        # when the PR is marked ready for review; that full run is the merge gate.
+        # when the PR is marked ready for review. The merge queue's trunk-merge/**
+        # run is the gate.
         # The `no-ci` label silences this workflow on a draft entirely (prototypes).
         # No labeled/unlabeled triggers here, so it takes effect from the next push.
         types: [opened, synchronize, reopened, ready_for_review]
+    schedule:
+        # Where master's coverage for the build, unit and integration tests comes from.
+        # The merge queue's trunk-merge/** run gates every commit before it lands, so
+        # the push lane does not repeat them.
+        # Offset from the other hourly CI crons so the runs do not all fire at once.
+        - cron: '53 * * * *'
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    # The hourly lane gets its own group, so it queues behind itself rather than
+    # behind master pushes. Sharing the ref group would let a slow hourly run hold
+    # the group while pushes pile up pending, and GitHub keeps only the newest
+    # pending run per group — so the older push, and its per-commit checks, would
+    # be dropped.
+    group: ${{ github.workflow }}-${{ github.event_name == 'schedule' && 'scheduled' || github.head_ref || github.ref }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
@@ -30,7 +42,8 @@ jobs:
         timeout-minutes: 5
         # A draft PR labeled `no-ci` skips this workflow entirely (prototypes):
         # every other job needs this one, and the gates treat skipped as success.
-        # ready_for_review re-runs everything, so the merge gate is unaffected.
+        # The merge queue's trunk-merge/** run is the gate, so skipping a draft
+        # never weakens what protects master.
         if: >-
             github.event_name != 'pull_request'
             || github.event.pull_request.draft != true
@@ -41,6 +54,9 @@ jobs:
             mcp: ${{ steps.filter.outputs.mcp || 'true' }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: .github/actions/paths-filter
+                  sparse-checkout-cone-mode: false
 
             # MCP integration tests boot the full PostHog backend (Django web server,
             # Celery worker, migrations, demo data), so the filter stays broad: any
@@ -49,11 +65,15 @@ jobs:
               id: app-token
               if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
+                  client-id: ${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
             - uses: ./.github/actions/paths-filter
               id: filter
-              if: github.event_name != 'push' # Run all tests on master push
+              # Skipped on master push and on the hourly schedule: every output then
+              # defaults to true. See "The hourly master lane" in
+              # .agents/skills/authoring-ci-workflows/SKILL.md for why a cron cannot
+              # diff, and what breaks if this guard is dropped.
+              if: github.event_name != 'push' && github.event_name != 'schedule'
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   filters: |
@@ -61,6 +81,8 @@ jobs:
                         # MCP service and per-product tool/UI-app configs
                         - 'services/mcp/**'
                         - 'products/*/mcp/**'
+                        # Bundled into the MCP server (parser recipe tools)
+                        - 'packages/llm-normalizer/**'
                         # MCP integration tests exercise the full PostHog backend
                         - 'posthog/**/*.py'
                         - 'ee/**/*.py'
@@ -95,6 +117,7 @@ jobs:
                         - 'posthog/user_scripts/latest_user_defined_function.xml'
                         # Composite actions used by the workflow
                         - '.github/actions/commit-snapshots/**'
+                        - '.github/actions/setup-protoc/**'
                         # hogli db setup (db:restore-test-db). Scoped to the
                         # modules that command actually imports — framework,
                         # manifest, boot modules, db_schema — so unrelated hogli
@@ -136,7 +159,8 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 10
         needs: changes
-        if: needs.changes.outputs.mcp == 'true'
+        # Not on master push — master coverage comes from the hourly run (see `schedule`).
+        if: needs.changes.outputs.mcp == 'true' && github.event_name != 'push'
 
         steps:
             - name: Checkout code
@@ -148,7 +172,7 @@ jobs:
               continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  client-id: ${{ vars.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
                   skip-token-revoke: true
 
@@ -217,7 +241,8 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 10
         needs: changes
-        if: needs.changes.outputs.mcp == 'true'
+        # Not on master push — master coverage comes from the hourly run (see `schedule`).
+        if: needs.changes.outputs.mcp == 'true' && github.event_name != 'push'
         steps:
             - name: Checkout code
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -228,7 +253,7 @@ jobs:
               continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  client-id: ${{ vars.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
                   skip-token-revoke: true
 
@@ -300,8 +325,11 @@ jobs:
         # Skipped on drafts: these boot the full PostHog backend and trigger on any
         # non-pytest Python change, so they're the expensive half of this workflow.
         # Build and unit tests still run on drafts; the `MCP Tests Pass` aggregator
-        # treats skipped as success, and the ready-for-review run is the merge gate.
-        if: needs.changes.outputs.mcp == 'true' && (github.event.pull_request.draft != true || startsWith(github.head_ref, 'trunk-merge/'))
+        # treats skipped as success, and the merge queue's trunk-merge/** run is the gate.
+        # Not on master push either — see the hourly `schedule` trigger.
+        if: >-
+            needs.changes.outputs.mcp == 'true' && github.event_name != 'push'
+            && (github.event.pull_request.draft != true || startsWith(github.head_ref, 'trunk-merge/'))
         env:
             DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
             DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -324,7 +352,7 @@ jobs:
             DISABLE_SECURE_SSL_REDIRECT: 'True'
             CLICKHOUSE_LOGS_CLUSTER_SECURE: 'False'
             CELERY_METRICS_PORT: 8999
-            POSTHOG_FEATURE_FLAGS_FORCE_ENABLED: 'logs-alerting,dashboard-widgets,product-business-knowledge'
+            POSTHOG_FEATURE_FLAGS_FORCE_ENABLED: 'logs-alerting,dashboard-widgets,product-business-knowledge,billing-alerts'
             # Required for the feature_flags test_evaluation endpoint, which authenticates
             # historical-flag override requests to the Rust flags service. Any non-empty
             # value is fine for CI — the Rust service in the test stack accepts it.
@@ -364,7 +392,7 @@ jobs:
               continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  client-id: ${{ vars.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
                   skip-token-revoke: true
 
@@ -412,6 +440,9 @@ jobs:
                   toolchain: 1.91.1
                   components: cargo
 
+            - name: Install protoc
+              uses: ./.github/actions/setup-protoc
+
             - name: Cache Rust dependencies
               uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
               with:
@@ -421,6 +452,11 @@ jobs:
 
             - name: Install sqlx-cli
               uses: ./.github/actions/setup-sqlx-cli
+
+            # feature-flags depends on usage-ingestion-proto, whose build script
+            # compiles .proto files and needs protoc on PATH.
+            - name: Install protoc
+              uses: ./.github/actions/setup-protoc
 
             - name: Build Rust flags service
               working-directory: rust
@@ -436,6 +472,7 @@ jobs:
               run: ./bin/download-mmdb
 
             - name: Log in to Docker Hub
+              continue-on-error: true
               if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
@@ -491,6 +528,16 @@ jobs:
                       exit 0
                   fi
                   echo "key=posthog-schema-master-${MERGE_BASE}" >> $GITHUB_OUTPUT
+                  # Last-resort restore prefix: matches the newest saved dump of any
+                  # migration set, for the window where both exact keys miss. Gated on
+                  # checkout age (a day) because a re-run of an old run keeps its original
+                  # commit: a stale checkout can lack migrations the newest dump records,
+                  # and the migrate top-ups only apply forward, so they cannot repair a
+                  # dump that is newer than the code.
+                  HEAD_AGE_SECONDS=$(( $(date +%s) - $(git show -s --format=%ct HEAD) ))
+                  if [ "$HEAD_AGE_SECONDS" -lt 86400 ]; then
+                      echo "prefix_key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-" >> $GITHUB_OUTPUT
+                  fi
                   # Shared migration-set key. Must match ci-backend.yml's save-side computation byte for byte or it never hits.
                   MIG_FILES=$(git ls-tree -r --format='%(objectname) %(path)' "$MERGE_BASE" \
                       | grep -E '/migrations/[^/]+\.py$|^[0-9a-f]+ uv\.lock$' \
@@ -511,10 +558,15 @@ jobs:
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: schema.sql.gz
-                  # Prefer the shared content key; fall back to the exact merge-base SHA key.
+                  # Prefer the shared content key; fall back to the exact merge-base SHA key,
+                  # then to the newest dump of any migration set. Right after a migration
+                  # lands on master both exact keys miss until ci-backend re-dumps; the
+                  # migrate step below tops a slightly stale dump up in seconds instead of
+                  # replaying the full history.
                   key: ${{ steps.schema-key.outputs.migrations_key || steps.schema-key.outputs.key }}
                   restore-keys: |
                       ${{ steps.schema-key.outputs.key }}
+                      ${{ steps.schema-key.outputs.prefix_key }}
 
             - name: Prime posthog from cached schema
               # No-op on cache miss; manage.py migrate below falls back to a full migrate.
@@ -671,7 +723,7 @@ jobs:
 
             # Best-effort Trunk upload (continue-on-error); the "Fail on test failure" step below is
             # the verdict, so a Trunk outage can't red a passing job. Internal PRs only (needs the
-            # secret); cli-version pinned, not 'latest' (skips the release redirect).
+            # secret).
             # TRUNK_UPLOAD_ENABLED is the master kill-switch: when it is not 'true' this gate
             # skips, so nothing uploads and no known flakes are quarantined. TRUNK_QUARANTINE_ENABLED
             # splits the two — it defaults off, so set it to 'true' to let the verdict step below mask
@@ -680,12 +732,9 @@ jobs:
               id: quarantine_gate
               continue-on-error: true
               if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true' }}
-              uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
+              uses: ./.github/actions/trunk-quarantine-gate
               with:
                   junit-paths: services/mcp/junit-integration.xml
-                  org-slug: posthog-inc
-                  cli-version: '0.13.7'
-                  quarantine: true
                   previous-step-outcome: ${{ steps.run-integration-tests.outcome }}
                   token: ${{ secrets.TRUNK_API_TOKEN }}
 

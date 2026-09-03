@@ -101,11 +101,11 @@ export const SidePanelMax: Story = {
 }
 
 export const SidePanelActivity: Story = {
-    // The tab needs the audit logs entitlement, which the feature flags below don't grant
+    // The tab needs the audit logs entitlement, which the feature flag below doesn't grant
     args: { panel: SidePanelTab.Activity, availableFeatures: [AvailableFeature.AUDIT_LOGS] },
     parameters: {
         pageUrl: objectScenePageUrl,
-        featureFlags: [FEATURE_FLAGS.CDP_ACTIVITY_LOG_NOTIFICATIONS, FEATURE_FLAGS.AUDIT_LOGS_ACCESS],
+        featureFlags: [FEATURE_FLAGS.AUDIT_LOGS_ACCESS],
     },
 }
 

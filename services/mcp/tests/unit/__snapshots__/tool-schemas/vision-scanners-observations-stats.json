@@ -1,0 +1,62 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "backfill_id": {
+            "description": "Only observations dispatched by this backfill.",
+            "type": "string"
+        },
+        "date_from": {
+            "description": "Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`; values without an explicit offset are interpreted in the project's timezone.",
+            "type": "string"
+        },
+        "date_to": {
+            "description": "Only observations created at or before this time. Accepts ISO 8601 or a relative date like `-1d`; date-only values include the whole day, interpreted in the project's timezone.",
+            "type": "string"
+        },
+        "labeled": {
+            "description": "When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.",
+            "type": "string"
+        },
+        "max_score": {
+            "description": "Filter scorer observations to those scoring at or below this value. Rows with no numeric score (other scanner types, failed or in-flight runs) are excluded.",
+            "type": "number"
+        },
+        "min_score": {
+            "description": "Filter scorer observations to those scoring at or above this value. Rows with no numeric score (other scanner types, failed or in-flight runs) are excluded.",
+            "type": "number"
+        },
+        "recent_days": {
+            "description": "Window size in days for the coverage `recent_sessions` count. Clamped to [1, 365]. Defaults to 14 when omitted.",
+            "type": "number"
+        },
+        "recording_subject": {
+            "description": "Filter to observations whose person email contains this value (case-insensitive).",
+            "type": "string"
+        },
+        "scanner_id": {
+            "type": "string"
+        },
+        "session_id": {
+            "description": "Filter to observations of one or more session recordings. Accepts a comma-separated list.",
+            "type": "string"
+        },
+        "status": {
+            "description": "Filter by observation status. Accepts a comma-separated list.",
+            "type": "string"
+        },
+        "tags": {
+            "description": "Filter classifier observations whose fixed or freeform tags include any of the given values (comma-separated). Matches if the tag appears in either `tags` or `tags_freeform`.",
+            "type": "string"
+        },
+        "triggered_by": {
+            "description": "Filter by trigger source (schedule, on_demand, retry, or backfill). Accepts a comma-separated list.",
+            "type": "string"
+        },
+        "verdict": {
+            "description": "Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).",
+            "type": "string"
+        }
+    },
+    "required": ["scanner_id"],
+    "type": "object"
+}

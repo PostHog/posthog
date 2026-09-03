@@ -4,6 +4,7 @@ import {
   type AgentSession,
   resolveBypassRevertMode,
   sessionSupportsNativeSteer,
+  sessionSupportsSideQuestion,
 } from "./sessions";
 
 function modeOption(
@@ -113,5 +114,48 @@ describe("sessionSupportsNativeSteer", () => {
     ],
   ])("%s", (_label, session, expected) => {
     expect(sessionSupportsNativeSteer(session)).toBe(expected);
+  });
+});
+
+describe("sessionSupportsSideQuestion", () => {
+  type Case = Pick<AgentSession, "isCloud" | "sideQuestion" | "adapter">;
+
+  it.each<[string, Case, boolean]>([
+    [
+      "claude advertises the capability",
+      { isCloud: false, sideQuestion: true, adapter: "claude" },
+      true,
+    ],
+    // Fallback: pre-capability start paths leave sideQuestion unset; local
+    // claude is assumed capable, matching the steer fallback.
+    [
+      "claude with no capability (fallback)",
+      { isCloud: false, sideQuestion: undefined, adapter: "claude" },
+      true,
+    ],
+    [
+      "codex with no capability (no fallback)",
+      { isCloud: false, sideQuestion: undefined, adapter: "codex" },
+      false,
+    ],
+    [
+      "claude explicitly without the capability",
+      { isCloud: false, sideQuestion: false, adapter: "claude" },
+      false,
+    ],
+    // Cloud runs never negotiate the capability, so the adapter decides: the
+    // sandbox runs the same agent build and forks its own transcript.
+    [
+      "cloud claude with no capability",
+      { isCloud: true, sideQuestion: undefined, adapter: "claude" },
+      true,
+    ],
+    [
+      "cloud codex with no capability",
+      { isCloud: true, sideQuestion: undefined, adapter: "codex" },
+      false,
+    ],
+  ])("%s", (_label, session, expected) => {
+    expect(sessionSupportsSideQuestion(session)).toBe(expected);
   });
 });

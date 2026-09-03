@@ -1,6 +1,10 @@
-import { Counter, Histogram } from 'prom-client'
+import { Counter, Gauge, Histogram } from 'prom-client'
 
+import { type ImageTransportRejectionReason } from './image-transport'
 import { ScrubWaitReason } from './scrub-client'
+
+export type ImageScrubSkipReason = ImageTransportRejectionReason | 'sidecar_rejected'
+export type ImageScrubSource = 'inline' | 'url'
 
 export class ImageScrubConsumerMetrics {
     private static readonly scrubbed = new Counter({
@@ -9,7 +13,8 @@ export class ImageScrubConsumerMetrics {
     })
     private static readonly skipped = new Counter({
         name: 'ml_mirror_image_scrub_consumer_skipped_total',
-        help: 'Images skipped because the sidecar rejected them as undecodable (resolve to nothing)',
+        help: 'Images permanently skipped by bounded reason. sidecar_rejected is split by the sidecar outcome metrics',
+        labelNames: ['reason'],
     })
     private static readonly deduped = new Counter({
         name: 'ml_mirror_image_scrub_consumer_deduped_total',
@@ -45,6 +50,12 @@ export class ImageScrubConsumerMetrics {
     private static readonly shardBytes = new Counter({
         name: 'ml_mirror_image_scrub_consumer_shard_bytes_total',
         help: 'Scrubbed image bytes written into shards',
+    })
+    private static readonly captureToS3 = new Histogram({
+        name: 'ml_mirror_image_scrub_consumer_capture_to_s3_seconds',
+        help: 'Wall time from the source replay Kafka timestamp to a successful S3 write, by image source',
+        labelNames: ['source'],
+        buckets: [0.5, 1, 2, 5, 10, 30, 60, 120, 300, 600, 1800, 3600, 10800, 21600, 43200, 86400, 259200, 604800],
     })
     /**
      * The saturation signal, and the one to alert on.
@@ -90,6 +101,15 @@ export class ImageScrubConsumerMetrics {
         name: 'ml_mirror_image_scrub_consumer_batch_duration_seconds',
         help: 'Wall time per poll batch. Read against Kafka max.poll.interval.ms (300s): batches approaching it get the pod evicted mid-batch, and the partition is redone by whoever picks it up',
         buckets: [1, 5, 15, 30, 60, 120, 240, 300, 600],
+    })
+    private static activeBatchStartedAtMs: number | undefined
+    private static readonly activeBatchElapsed = new Gauge({
+        name: 'ml_mirror_image_scrub_consumer_active_batch_elapsed_seconds',
+        help: 'Elapsed wall time of the active non-empty poll batch, or zero between batches. This exposes a stuck batch before Kafka max.poll.interval.ms revokes it',
+        collect() {
+            const startedAtMs = ImageScrubConsumerMetrics.activeBatchStartedAtMs
+            this.set(startedAtMs === undefined ? 0 : Math.max(0, performance.now() - startedAtMs) / 1000)
+        },
     })
     /**
      * Images parked on the dead-letter topic because the sidecar could not process them.
@@ -147,8 +167,8 @@ export class ImageScrubConsumerMetrics {
     public static incScrubbed(): void {
         this.scrubbed.inc()
     }
-    public static incSkipped(): void {
-        this.skipped.inc()
+    public static incSkipped(reason: ImageScrubSkipReason): void {
+        this.skipped.labels(reason).inc()
     }
     public static incScrubWait(reason: ScrubWaitReason): void {
         this.scrubWaits.labels(reason).inc()
@@ -162,7 +182,13 @@ export class ImageScrubConsumerMetrics {
         }
         this.batchDuration.observe(durationSeconds)
     }
-    public static incDeadLettered(reason: string): void {
+    public static startBatch(nowMs = performance.now()): void {
+        this.activeBatchStartedAtMs = nowMs
+    }
+    public static finishBatch(): void {
+        this.activeBatchStartedAtMs = undefined
+    }
+    public static incDeadLettered(reason: ScrubWaitReason): void {
         this.deadLettered.labels(reason).inc()
     }
     public static incDeadLetterFailed(): void {
@@ -190,5 +216,11 @@ export class ImageScrubConsumerMetrics {
         this.shardsWritten.inc()
         this.shardImages.inc(images)
         this.shardBytes.inc(bytes)
+    }
+    public static observeCaptureToS3(source: ImageScrubSource, capturedAtMs: number, storedAtMs: number): void {
+        if (!Number.isSafeInteger(capturedAtMs) || capturedAtMs <= 0 || !Number.isFinite(storedAtMs)) {
+            return
+        }
+        this.captureToS3.labels(source).observe(Math.max(0, storedAtMs - capturedAtMs) / 1000)
     }
 }

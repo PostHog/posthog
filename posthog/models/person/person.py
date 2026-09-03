@@ -449,22 +449,6 @@ class PersonDistinctId(models.Model):
         constraints = [models.UniqueConstraint(fields=["team", "distinct_id"], name="unique distinct_id for team")]
 
 
-class PersonlessDistinctId(models.Model):
-    id = models.BigAutoField(primary_key=True)
-    # DO_NOTHING + db_constraint=False: Team deletion handled manually, may be cross-database
-    team = models.ForeignKey("Team", on_delete=models.DO_NOTHING, db_index=False, db_constraint=False)
-    distinct_id = models.CharField(max_length=400)
-    is_merged = models.BooleanField(default=False)
-    created_at = models.DateTimeField(auto_now_add=True, blank=True)
-
-    class Meta:
-        # migrations managed via rust/persons_migrations
-        managed = False
-        constraints = [
-            models.UniqueConstraint(fields=["team", "distinct_id"], name="unique personless distinct_id for team")
-        ]
-
-
 class PersonOverrideMapping(models.Model):
     # XXX: NOT USED, see https://github.com/PostHog/posthog/pull/23616
 

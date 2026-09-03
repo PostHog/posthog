@@ -1,6 +1,10 @@
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.plausible.settings import (
+    EVENT_SCOPED_METRICS,
+    SESSION_SCOPED_METRICS,
+)
 
 _DOCS_URL = "https://plausible.io/docs/stats-api"
 
@@ -14,6 +18,18 @@ _STANDARD_METRIC_COLUMNS = {
     "visit_duration": "Average visit duration in seconds.",
     "events": "Number of events (pageviews plus custom events).",
 }
+
+# Entry/exit page breakdowns are session-scoped, so they carry no event-scoped metric columns.
+_SESSION_METRIC_COLUMNS = {
+    name: description for name, description in _STANDARD_METRIC_COLUMNS.items() if name not in EVENT_SCOPED_METRICS
+}
+
+# The page breakdown is event-scoped (it carries `event:hostname`), so it drops the session metrics.
+_EVENT_METRIC_COLUMNS = {
+    name: description for name, description in _STANDARD_METRIC_COLUMNS.items() if name not in SESSION_SCOPED_METRICS
+}
+
+_HOSTNAME_DESCRIPTION = "The hostname the page was served on, so paths on different subdomains stay distinct."
 
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "timeseries": {
@@ -57,19 +73,31 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "columns": {**_STANDARD_METRIC_COLUMNS, "utm_content": "Value of the utm_content query parameter."},
     },
     "pages": {
-        "description": "Daily traffic metrics broken down by page path.",
+        "description": "Daily traffic metrics broken down by page path and hostname.",
         "docs_url": _DOCS_URL,
-        "columns": {**_STANDARD_METRIC_COLUMNS, "page": "The page path of the pageview."},
+        "columns": {
+            **_EVENT_METRIC_COLUMNS,
+            "page": "The page path of the pageview.",
+            "hostname": _HOSTNAME_DESCRIPTION,
+        },
     },
     "entry_pages": {
-        "description": "Daily traffic metrics broken down by the first page of each visit.",
+        "description": "Daily traffic metrics broken down by the first page of each visit and its hostname.",
         "docs_url": _DOCS_URL,
-        "columns": {**_STANDARD_METRIC_COLUMNS, "entry_page": "The first page path visited in a session."},
+        "columns": {
+            **_SESSION_METRIC_COLUMNS,
+            "entry_page": "The first page path visited in a session.",
+            "entry_page_hostname": _HOSTNAME_DESCRIPTION,
+        },
     },
     "exit_pages": {
-        "description": "Daily traffic metrics broken down by the last page of each visit.",
+        "description": "Daily traffic metrics broken down by the last page of each visit and its hostname.",
         "docs_url": _DOCS_URL,
-        "columns": {**_STANDARD_METRIC_COLUMNS, "exit_page": "The last page path visited in a session."},
+        "columns": {
+            **_SESSION_METRIC_COLUMNS,
+            "exit_page": "The last page path visited in a session.",
+            "exit_page_hostname": _HOSTNAME_DESCRIPTION,
+        },
     },
     "countries": {
         "description": "Daily traffic metrics broken down by visitor country.",

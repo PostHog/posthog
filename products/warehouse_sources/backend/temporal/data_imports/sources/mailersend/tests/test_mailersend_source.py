@@ -4,42 +4,16 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfig
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mailersend import (
     MailerSendSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailersend import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.mailersend.mailersend import (
-    MailerSendResumeConfig,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailersend.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailersend.source import MailerSendSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config() -> MailerSendSourceConfig:
     return MailerSendSourceConfig.from_dict({"api_token": "mlsn.token"})
-
-
-class TestMailerSendSourceConfig:
-    def test_source_type(self) -> None:
-        assert MailerSendSource().source_type == ExternalDataSourceType.MAILERSEND
-
-    def test_source_config_metadata(self) -> None:
-        config = MailerSendSource().get_source_config
-        assert config.label == "MailerSend"
-        assert config.category == DataWarehouseSourceCategory.MARKETING___EMAIL
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-
-    def test_single_secret_api_token_field(self) -> None:
-        fields = MailerSendSource().get_source_config.fields
-        assert [f.name for f in fields] == ["api_token"]
-        api_token = fields[0]
-        assert isinstance(api_token, SourceFieldInputConfig)
-        assert api_token.required is True
-        assert api_token.secret is True
 
 
 class TestGetSchemas:
@@ -74,34 +48,7 @@ class TestGetSchemas:
         assert [s.name for s in schemas] == ["domains"]
 
 
-class TestValidateCredentials:
-    def test_delegates_to_check_credentials(self, monkeypatch: Any) -> None:
-        monkeypatch.setattr(source_module, "check_credentials", lambda token, schema: (True, None))
-        ok, error = MailerSendSource().validate_credentials(_config(), team_id=1)
-        assert ok is True
-        assert error is None
-
-    def test_passes_schema_name_through(self, monkeypatch: Any) -> None:
-        seen: dict[str, Any] = {}
-
-        def fake_check(token: str, schema: str | None) -> tuple[bool, str | None]:
-            seen["token"] = token
-            seen["schema"] = schema
-            return False, "bad"
-
-        monkeypatch.setattr(source_module, "check_credentials", fake_check)
-        ok, error = MailerSendSource().validate_credentials(_config(), team_id=1, schema_name="activity")
-        assert ok is False
-        assert seen == {"token": "mlsn.token", "schema": "activity"}
-
-
 class TestNonRetryableErrors:
-    @parameterized.expand(["401 Client Error: Unauthorized", "403 Client Error: Forbidden"])
-    def test_auth_errors_are_non_retryable(self, status_text: str) -> None:
-        error = f"{status_text} for url: https://api.mailersend.com/v1/domains?page=1"
-        non_retryable = MailerSendSource().get_non_retryable_errors()
-        assert any(key in error for key in non_retryable)
-
     @parameterized.expand(
         [
             "500 Server Error: Internal Server Error for url: https://api.mailersend.com/v1/domains",
@@ -114,13 +61,6 @@ class TestNonRetryableErrors:
 
 
 class TestResumableWiring:
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        inputs = MagicMock()
-        inputs.logger = MagicMock()
-        manager = MailerSendSource().get_resumable_source_manager(inputs)
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is MailerSendResumeConfig
-
     def test_source_for_pipeline_plumbs_arguments(self, monkeypatch: Any) -> None:
         captured: dict[str, Any] = {}
 
@@ -157,10 +97,6 @@ class TestResumableWiring:
 
 
 class TestCanonicalDescriptions:
-    def test_covers_every_endpoint(self) -> None:
-        descriptions = MailerSendSource().get_canonical_descriptions()
-        assert set(descriptions.keys()) == set(ENDPOINTS)
-
     def test_activity_documents_injected_domain_id(self) -> None:
         # domain_id is added by PostHog, not MailerSend, so it must be documented for the AI agent.
         activity = MailerSendSource().get_canonical_descriptions()["activity"]

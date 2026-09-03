@@ -13,6 +13,8 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 from urllib3.connectionpool import HTTPConnectionPool, HTTPSConnectionPool
 from urllib3.util.retry import Retry
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.appdynamics.settings import (
     APPDYNAMICS_ENDPOINTS,
     APPLICATIONS_PATH,
@@ -64,15 +66,15 @@ class AppdynamicsResumeConfig:
     window_start: int | None = None
 
 
-@dataclasses.dataclass
+@frozen
 class AppdynamicsAuth:
     """Resolved credentials for a single sync. Exactly one auth style is populated."""
 
     account_name: str
     api_client_name: Optional[str] = None
-    api_client_secret: Optional[str] = None
+    api_client_secret: Optional[str] = dataclasses.field(default=None, repr=False)
     username: Optional[str] = None
-    password: Optional[str] = None
+    password: Optional[str] = dataclasses.field(default=None, repr=False)
 
     @property
     def uses_oauth(self) -> bool:

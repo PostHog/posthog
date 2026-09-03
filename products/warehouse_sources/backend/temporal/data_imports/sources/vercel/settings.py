@@ -48,6 +48,14 @@ class VercelEndpointConfig:
     cursor_from_field: Optional[str] = None
     # Static query params this endpoint needs on every request, merged over the shared ones.
     extra_params: dict[str, str] = field(default_factory=dict)
+    # Fan-out: this endpoint is a child fetched once per row of `fan_out_parent`. `path` carries a
+    # `{fan_out_path_param}` placeholder filled from each parent row's `fan_out_parent_field`. Fan-out
+    # endpoints are full refresh only (Vercel documents no server-side time filter on them) and
+    # non-resumable: a re-run re-fans over every parent and the pipeline's full-refresh replace
+    # rewrites the table. None means this is a flat top-level list handled by the paginating transport.
+    fan_out_parent: Optional[str] = None
+    fan_out_path_param: Optional[str] = None
+    fan_out_parent_field: str = "uid"
 
 
 # Charges get restated after they first post (usage finalization, plus adjustments, credits, and tax
@@ -147,6 +155,23 @@ VERCEL_ENDPOINTS: dict[str, VercelEndpointConfig] = {
         path="/v4/aliases",
         response_data_key="aliases",
         primary_key="uid",
+    ),
+    # First fan-out endpoint in this source: one GET /v2/deployments/{deploymentId}/check-runs per
+    # deployment already synced by the `deployments` table. Check runs are the structured pass/fail
+    # gates (build checks, CI integrations) that ran against a deployment, each with its own status,
+    # so they answer *which* gate failed where the deployment's own `state` only says *that* it did.
+    # The response is {"runs": [...]} with no pagination envelope and no documented server-side time
+    # filter, so it's full refresh. Every run row already carries `deploymentId`, so no parent field
+    # is injected. `createdAt`/`updatedAt` are Unix ms, so this stays unpartitioned like `events` and
+    # `deployments` (the datetime partitioner reads a raw int as seconds and raises on a ms value).
+    "check_runs": VercelEndpointConfig(
+        name="check_runs",
+        path="/v2/deployments/{deploymentId}/check-runs",
+        response_data_key="runs",
+        primary_key="id",
+        fan_out_parent="deployments",
+        fan_out_path_param="deploymentId",
+        fan_out_parent_field="uid",
     ),
     # Team billing usage & cost, in the FOCUS v1.3 open cost-and-usage standard. Streamed as JSONL
     # over a `from`/`to` window at 1-day granularity. FOCUS records carry no natural id, so the

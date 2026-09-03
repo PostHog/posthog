@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterator
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import httpx
 import pytest
@@ -15,6 +15,7 @@ from llm_gateway.services.quota_resolver import (
     QuotaResolver,
     QuotaResourceStatus,
     _billing_key,
+    _generation_key,
     _redis_key,
     resolve_quota_status,
 )
@@ -495,15 +496,32 @@ class TestQuotaResolver:
     @pytest.mark.asyncio
     async def test_uses_cached_result_and_skips_http(self) -> None:
         redis = AsyncMock()
-        redis.get = AsyncMock(return_value=json.dumps({"limited": True}).encode())
+        redis.get = AsyncMock(side_effect=[b"7", json.dumps({"limited": True}).encode()])
         http_client = _make_http_client(_make_response(200))
         resolver = QuotaResolver(redis=redis, http_client=http_client)
 
         status = await resolver.get_resource_status("ai_credits", team_id=42, auth_header="Bearer phx_test")
 
         assert status == QuotaResourceStatus(limited=True)
-        redis.get.assert_awaited_once_with(_redis_key("ai_credits", 42, "Bearer phx_test"))
+        assert redis.get.await_args_list == [
+            call(_generation_key(42)),
+            call(_redis_key("ai_credits", 42, "Bearer phx_test", "7")),
+        ]
         http_client.get.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_generation_change_bypasses_cached_result(self) -> None:
+        redis = _FakeRedis()
+        http_client = _make_http_client(_make_response(200, {"limited": {"ai_credits": {"limited": True}}}))
+        resolver = QuotaResolver(redis=redis, http_client=http_client)  # type: ignore[arg-type]
+
+        first = await resolver.get_resource_status("ai_credits", team_id=42, auth_header="Bearer phx_test")
+        redis.store[_generation_key(42)] = b"1"
+        second = await resolver.get_resource_status("ai_credits", team_id=42, auth_header="Bearer phx_test")
+
+        assert first.limited is True
+        assert second.limited is True
+        assert http_client.get.await_count == 2
 
     @pytest.mark.asyncio
     async def test_writes_cache_on_miss(self) -> None:

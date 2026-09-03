@@ -3,11 +3,24 @@ import { expectLogic } from 'kea-test-utils'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { FilterLogicalOperator } from '~/types'
+
+import {
+    SERVICE_NAME_FILTER,
+    SEVERITY_LEVEL_FILTER,
+    facetSelection,
+} from 'products/logs/frontend/components/LogsViewer/FacetRail/facetFilters'
 
 import { logsSceneLogic } from './logsSceneLogic'
 
 describe('logsSceneLogic', () => {
     let logic: ReturnType<typeof logsSceneLogic.build>
+
+    // The two legacy params fold into filterGroup, which is where the selection lives.
+    const selectedLevels = (): string[] =>
+        facetSelection(logic.values.filters.filterGroup, SEVERITY_LEVEL_FILTER).included
+    const selectedServices = (): string[] =>
+        facetSelection(logic.values.filters.filterGroup, SERVICE_NAME_FILTER).included
 
     beforeEach(async () => {
         useMocks({
@@ -37,7 +50,7 @@ describe('logsSceneLogic', () => {
                 router.actions.push('/logs', { severityLevels: urlValue })
             }).toFinishAllListeners()
 
-            expect(logic.values.filters.severityLevels).toEqual(expected)
+            expect(selectedLevels()).toEqual(expected)
         })
 
         it.each([
@@ -48,7 +61,46 @@ describe('logsSceneLogic', () => {
                 router.actions.push('/logs', { serviceNames: urlValue })
             }).toFinishAllListeners()
 
-            expect(logic.values.filters.serviceNames).toEqual(expected)
+            expect(selectedServices()).toEqual(expected)
+        })
+
+        it.each<[string, string]>([
+            ['severityLevels', '["error"]'],
+            ['serviceNames', '["api"]'],
+        ])('drops the %s param once it has been applied', async (param, urlValue) => {
+            await expectLogic(logic, () => {
+                router.actions.push('/logs', { [param]: urlValue })
+            }).toFinishAllListeners()
+
+            // Left in place, the param is read again on every later URL change and folds its
+            // selection back in, contradicting whatever the rail did to it since.
+            expect(router.values.searchParams[param]).toBeUndefined()
+            expect(router.values.searchParams.filterGroup).not.toBeUndefined()
+        })
+
+        it.each<[string, string, string[], string[]]>([
+            [
+                'a group that already selects the facet wins over the param',
+                '["error"]',
+                ['error', 'warn'],
+                ['error', 'warn'],
+            ],
+            ['a group silent about the facet lets the param through', '["error"]', [], ['error']],
+        ])('%s', async (_, param, groupLevels, expected) => {
+            const values = groupLevels.length
+                ? [{ key: 'severity_level', type: 'log', operator: 'exact', value: groupLevels }]
+                : []
+            await expectLogic(logic, () => {
+                router.actions.push('/logs', {
+                    severityLevels: param,
+                    filterGroup: JSON.stringify({
+                        type: FilterLogicalOperator.And,
+                        values: [{ type: FilterLogicalOperator.And, values }],
+                    }),
+                })
+            }).toFinishAllListeners()
+
+            expect(selectedLevels()).toEqual(expected)
         })
 
         it('filters out malformed JSON as invalid severity level', async () => {
@@ -57,7 +109,7 @@ describe('logsSceneLogic', () => {
             }).toFinishAllListeners()
 
             // parseTagsFilter falls back to comma-separated parsing, then validation filters invalid levels
-            expect(logic.values.filters.severityLevels).toEqual([])
+            expect(selectedLevels()).toEqual([])
         })
 
         it('filters out non-array JSON as invalid severity level', async () => {
@@ -66,7 +118,7 @@ describe('logsSceneLogic', () => {
             }).toFinishAllListeners()
 
             // parseTagsFilter falls back to comma-separated parsing, then validation filters invalid levels
-            expect(logic.values.filters.severityLevels).toEqual([])
+            expect(selectedLevels()).toEqual([])
         })
 
         it('handles comma-separated values via parseTagsFilter', async () => {
@@ -74,7 +126,7 @@ describe('logsSceneLogic', () => {
                 router.actions.push('/logs', { severityLevels: 'error,warn,info' })
             }).toFinishAllListeners()
 
-            expect(logic.values.filters.severityLevels).toEqual(['error', 'warn', 'info'])
+            expect(selectedLevels()).toEqual(['error', 'warn', 'info'])
         })
 
         it.each([
@@ -113,7 +165,7 @@ describe('logsSceneLogic', () => {
                 router.actions.push('/logs', { severityLevels: urlValue })
             }).toFinishAllListeners()
 
-            expect(logic.values.filters.severityLevels).toEqual(expected)
+            expect(selectedLevels()).toEqual(expected)
         })
 
         it('parses a stringified filterGroup from the URL (e.g. a cross-product session link)', async () => {

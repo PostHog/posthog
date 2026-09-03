@@ -6,6 +6,7 @@ import {
 import { Theme } from "@radix-ui/themes";
 import { configure, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { cloneElement } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { ReasoningLevelSelector } from "./ReasoningLevelSelector";
 
@@ -18,6 +19,75 @@ vi.mock("@posthog/ui/utils/browser", () => ({ openUrlInBrowser }));
 vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
   useFeatureFlag: () => true,
 }));
+
+const useAdapterSubscription = vi.hoisted(() => vi.fn());
+const applyModelAccess = vi.hoisted(() => vi.fn());
+vi.mock(
+  "@posthog/ui/features/settings/adapterSubscription",
+  async (importOriginal) => {
+    const actual =
+      await importOriginal<
+        typeof import("@posthog/ui/features/settings/adapterSubscription")
+      >();
+    return {
+      ...actual,
+      useAdapterSubscription,
+      // The real one writes the settings store and resolves the analytics
+      // service, which no test container provides; the click path only needs
+      // the menu to keep rendering.
+      applyModelAccess,
+    };
+  },
+);
+
+// Base UI tooltips never open under jsdom's zero layout, so render their
+// content unconditionally and assert on it directly (see TaskHeaderActions
+// tests for the same trick). Triggers keep honoring their `render` prop —
+// children are merged into the rendered element, as real Base UI does.
+vi.mock("@posthog/quill", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@posthog/quill")>();
+  const passthrough = ({ children }: { children: React.ReactNode }) => children;
+  const renderPassthrough = ({
+    children,
+    render,
+  }: {
+    children?: React.ReactNode;
+    render?: React.ReactElement;
+  }) =>
+    render && children
+      ? cloneElement(render, undefined, children)
+      : (render ?? children);
+  return {
+    ...actual,
+    TooltipProvider: passthrough,
+    Tooltip: passthrough,
+    TooltipTrigger: renderPassthrough,
+    TooltipContent: passthrough,
+  };
+});
+
+function subscriptionState(
+  overrides?: Partial<{
+    flagEnabled: boolean;
+    subscriptionOn: boolean;
+    loggedIn: boolean;
+  }>,
+) {
+  const state = {
+    flagEnabled: true,
+    subscriptionOn: true,
+    loggedIn: true,
+    status: { loginState: "logged-in" as const },
+    loginState: "logged-in" as const,
+    needsConnection: false,
+    setSubscriptionOn: () => {},
+    ...overrides,
+  };
+  // Mirror the real hook: the connection is only "needed" once the
+  // subscription is picked while logged out.
+  state.needsConnection = state.subscriptionOn && !state.loggedIn;
+  return state;
+}
 
 const ultracodeDocsUrl = "https://code.claude.com/docs/en/workflows";
 
@@ -65,6 +135,61 @@ function claudeModelOption(
   } as unknown as SessionConfigOption;
 }
 
+function mixedModelOption(currentValue = "claude-opus-5"): SessionConfigOption {
+  return {
+    type: "select",
+    id: "model",
+    name: "Model",
+    category: "model",
+    currentValue,
+    options: [
+      { name: "Claude Opus 5", value: "claude-opus-5" },
+      { name: "GLM 5.2", value: "@cf/zai-org/glm-5.2" },
+    ],
+  } as unknown as SessionConfigOption;
+}
+
+function groupedModelOption(
+  currentValue = "claude-sonnet-5",
+): SessionConfigOption {
+  return {
+    type: "select",
+    id: "model",
+    name: "Model",
+    category: "model",
+    currentValue,
+    options: [
+      {
+        group: "anthropic",
+        name: "Anthropic",
+        options: [
+          {
+            name: "Claude Sonnet 5",
+            value: "claude-sonnet-5",
+            _meta: { "posthog.code/modelHarness": "claude" },
+          },
+          {
+            name: "Claude Opus 5",
+            value: "claude-opus-5",
+            _meta: { "posthog.code/modelHarness": "claude" },
+          },
+        ],
+      },
+      {
+        group: "openai",
+        name: "OpenAI",
+        options: [
+          {
+            name: "GPT-5.6 Sol",
+            value: "gpt-5.6-sol",
+            _meta: { "posthog.code/modelHarness": "codex" },
+          },
+        ],
+      },
+    ],
+  } as unknown as SessionConfigOption;
+}
+
 function effortlessModelOption(): SessionConfigOption {
   return {
     type: "select",
@@ -106,8 +231,11 @@ function fastOption(currentValue = "off"): SessionConfigOption {
   } as unknown as SessionConfigOption;
 }
 
-async function openAdvanced(user: ReturnType<typeof userEvent.setup>) {
-  await user.click(screen.getByRole("button", { name: "Reasoning: High" }));
+async function openAdvanced(
+  user: ReturnType<typeof userEvent.setup>,
+  triggerName: string | RegExp = "Reasoning: High",
+) {
+  await user.click(screen.getByRole("button", { name: triggerName }));
   await user.click(await screen.findByRole("button", { name: "Advanced" }));
 }
 
@@ -161,7 +289,7 @@ describe("ReasoningLevelSelector", () => {
     expect(screen.queryByRole("menuitemradio")).not.toBeInTheDocument();
   });
 
-  it("emits the raw value via onChange once the advanced menu closes", async () => {
+  it("changes reasoning without closing the advanced menu", async () => {
     const onChange = vi.fn();
     const user = userEvent.setup({ pointerEventsCheck: 0 });
     render(
@@ -178,9 +306,11 @@ describe("ReasoningLevelSelector", () => {
     const lowItem = await screen.findByRole("menuitemradio", { name: "Low" });
     fireEvent.click(lowItem);
 
-    await pollUntil(() => onChange.mock.calls.length > 0);
     expect(onChange).toHaveBeenCalledWith("low");
     expect(onChange).toHaveBeenCalledTimes(1);
+    expect(
+      screen.getByRole("menuitem", { name: /^Reasoning/ }),
+    ).toBeInTheDocument();
   });
 
   it("marks the adapter default level with a Default badge", async () => {
@@ -341,6 +471,73 @@ describe("ReasoningLevelSelector", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("keeps the Back row when a model change moves off the preset ladder", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    const { rerender } = render(
+      <Theme>
+        <ReasoningLevelSelector
+          thoughtOption={thoughtOption({ currentValue: "xhigh" })}
+          modelOption={claudeModelOption("claude-opus-5")}
+          adapter="claude"
+        />
+      </Theme>,
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: /Model and reasoning/ }),
+    );
+    await user.click(await screen.findByRole("button", { name: "Advanced" }));
+    expect(
+      await screen.findByRole("button", { name: "Back" }),
+    ).toBeInTheDocument();
+
+    rerender(
+      <Theme>
+        <ReasoningLevelSelector
+          thoughtOption={thoughtOption({ currentValue: "xhigh" })}
+          modelOption={claudeModelOption("claude-sonnet-5")}
+          adapter="claude"
+        />
+      </Theme>,
+    );
+
+    expect(screen.getByRole("button", { name: "Back" })).toBeInTheDocument();
+  });
+
+  it("does not grow a Back row when a model change lands on the ladder", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    const { rerender } = render(
+      <Theme>
+        <ReasoningLevelSelector
+          thoughtOption={thoughtOption({ currentValue: "low" })}
+          modelOption={claudeModelOption("claude-opus-5")}
+          adapter="claude"
+        />
+      </Theme>,
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: /Model and reasoning/ }),
+    );
+    expect(
+      await screen.findByRole("menuitem", { name: /^Model/ }),
+    ).toBeInTheDocument();
+
+    rerender(
+      <Theme>
+        <ReasoningLevelSelector
+          thoughtOption={thoughtOption({ currentValue: "medium" })}
+          modelOption={claudeModelOption("claude-opus-5")}
+          adapter="claude"
+        />
+      </Theme>,
+    );
+
+    expect(
+      screen.queryByRole("button", { name: "Back" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("switches to Pi from the harness submenu", async () => {
     const onHarnessChange = vi.fn();
     const user = userEvent.setup({ pointerEventsCheck: 0 });
@@ -363,9 +560,11 @@ describe("ReasoningLevelSelector", () => {
     await openSub(user, /^Harness/);
     fireEvent.click(await screen.findByRole("menuitemradio", { name: "Pi" }));
 
-    await pollUntil(() => onHarnessChange.mock.calls.length > 0);
     expect(onHarnessChange).toHaveBeenCalledWith("pi");
     expect(onHarnessChange).toHaveBeenCalledTimes(1);
+    expect(
+      screen.getByRole("menuitem", { name: /^Harness/ }),
+    ).toBeInTheDocument();
   });
 
   it("changes the model from its advanced submenu", async () => {
@@ -391,9 +590,51 @@ describe("ReasoningLevelSelector", () => {
       await screen.findByRole("menuitemradio", { name: "Claude Opus 5" }),
     );
 
-    await pollUntil(() => onModelChange.mock.calls.length > 0);
     expect(onModelChange).toHaveBeenCalledWith("claude-opus-5");
     expect(onModelChange).toHaveBeenCalledTimes(1);
+    expect(
+      screen.getByRole("menuitem", { name: /^Model/ }),
+    ).toBeInTheDocument();
+  });
+
+  it("switches the harness when picking a model the current harness cannot run", async () => {
+    const onModelChange = vi.fn();
+    const onHarnessModelChange = vi.fn();
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    render(
+      <Theme>
+        <ReasoningLevelSelector
+          thoughtOption={thoughtOption()}
+          modelOption={groupedModelOption("claude-sonnet-5")}
+          adapter="claude"
+          onAdapterChange={() => {}}
+          onModelChange={onModelChange}
+          onHarnessModelChange={onHarnessModelChange}
+        />
+      </Theme>,
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: /Model and reasoning/ }),
+    );
+    await user.click(await screen.findByRole("button", { name: "Advanced" }));
+    // The Harness row stays as the visible, overridable result of the pick.
+    expect(
+      screen.getByRole("menuitem", { name: /^Harness/ }),
+    ).toBeInTheDocument();
+    await openSub(user, /^Model/);
+    fireEvent.click(
+      await screen.findByRole("menuitemradio", { name: "GPT-5.6 Sol" }),
+    );
+
+    expect(onHarnessModelChange).toHaveBeenCalledWith("codex", "gpt-5.6-sol");
+    expect(onModelChange).not.toHaveBeenCalled();
+
+    fireEvent.click(
+      await screen.findByRole("menuitemradio", { name: "Claude Opus 5" }),
+    );
+    expect(onModelChange).toHaveBeenCalledWith("claude-opus-5");
+    expect(onHarnessModelChange).toHaveBeenCalledTimes(1);
   });
 
   it("moves the model and effort together on a ladder notch that changes both", async () => {
@@ -543,9 +784,186 @@ describe("ReasoningLevelSelector", () => {
       </Theme>,
     );
 
-    expect(screen.getByRole("button", { name: /Loading/ })).toHaveAttribute(
-      "aria-disabled",
-      "true",
-    );
+    expect(screen.getByRole("button", { name: /Loading/ })).toBeInTheDocument();
   });
+
+  it("keeps an open menu mounted while a harness switch reloads the config", async () => {
+    render(
+      <Theme>
+        <ReasoningLevelSelector
+          isLoading
+          adapter="claude"
+          onHarnessChange={() => {}}
+          includePiHarness
+          menuOpen
+          onMenuOpenChange={() => {}}
+        />
+      </Theme>,
+    );
+
+    expect(
+      await screen.findByRole("menuitem", { name: /Harness/ }),
+    ).toBeInTheDocument();
+  });
+
+  it("blocks a model the Claude plan cannot run and names the reason", async () => {
+    const onModelChange = vi.fn();
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    render(
+      <Theme>
+        <ReasoningLevelSelector
+          thoughtOption={thoughtOption()}
+          modelOption={mixedModelOption()}
+          adapter="claude"
+          modelAccess="own-subscription"
+          onModelChange={onModelChange}
+        />
+      </Theme>,
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: /^Model and reasoning/ }),
+    );
+    await openSub(user, /^Model/);
+    const gatewayOnly = await screen.findByRole("menuitemradio", {
+      name: /GLM 5\.2/,
+    });
+
+    fireEvent.click(gatewayOnly);
+    expect(onModelChange).not.toHaveBeenCalled();
+  }, 20000);
+
+  it("lets every model through on PostHog credits", async () => {
+    const onModelChange = vi.fn();
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    render(
+      <Theme>
+        <ReasoningLevelSelector
+          thoughtOption={thoughtOption()}
+          modelOption={mixedModelOption()}
+          adapter="claude"
+          modelAccess="posthog-gateway"
+          onModelChange={onModelChange}
+        />
+      </Theme>,
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: /^Model and reasoning/ }),
+    );
+    await openSub(user, /^Model/);
+    fireEvent.click(
+      await screen.findByRole("menuitemradio", { name: /GLM 5\.2/ }),
+    );
+
+    expect(onModelChange).toHaveBeenCalledWith("@cf/zai-org/glm-5.2");
+  }, 20000);
+
+  it.each([
+    ["claude", "Anthropic", "Anthropic"],
+    ["codex", "OpenAI", "OpenAI"],
+  ] as const)(
+    "disables the %s billing option for cloud tasks and names the reason",
+    async (adapter, planLabel, reasonPrefix) => {
+      useAdapterSubscription.mockReturnValue(subscriptionState());
+      const user = userEvent.setup({ pointerEventsCheck: 0 });
+      render(
+        <Theme>
+          <ReasoningLevelSelector
+            thoughtOption={thoughtOption()}
+            adapter={adapter}
+            showBillingMenu
+            workspaceMode="cloud"
+          />
+        </Theme>,
+      );
+
+      await openAdvanced(user);
+      await openSub(user, /^Billing/);
+      const planItem = screen.getByRole("menuitemradio", {
+        name: planLabel,
+      });
+      expect(planItem).toHaveAttribute("aria-disabled", "true");
+
+      await expect(
+        screen.findByText(new RegExp(`^${reasonPrefix} billing only works`)),
+      ).resolves.toBeInTheDocument();
+    },
+    20000,
+  );
+
+  it("keeps the billing option selectable for local tasks", async () => {
+    useAdapterSubscription.mockReturnValue(subscriptionState());
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    render(
+      <Theme>
+        <ReasoningLevelSelector
+          thoughtOption={thoughtOption()}
+          adapter="claude"
+          showBillingMenu
+          workspaceMode="local"
+        />
+      </Theme>,
+    );
+
+    await openAdvanced(user);
+    await openSub(user, /^Billing/);
+    expect(
+      screen.getByRole("menuitemradio", { name: "Anthropic" }),
+    ).not.toHaveAttribute("aria-disabled", "true");
+    // Logged in, so the login note stays hidden.
+    expect(screen.queryByText(/Log in to Claude Code/)).not.toBeInTheDocument();
+  }, 20000);
+
+  it("shows the login note only when the logged-out billing pick needs it", async () => {
+    // Persisted billing is PostHog, account is logged out: no login prompt.
+    useAdapterSubscription.mockReturnValue(
+      subscriptionState({ subscriptionOn: false, loggedIn: false }),
+    );
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    const { unmount } = render(
+      <Theme>
+        <ReasoningLevelSelector
+          thoughtOption={thoughtOption()}
+          adapter="claude"
+          showBillingMenu
+          workspaceMode="local"
+        />
+      </Theme>,
+    );
+
+    await openAdvanced(user);
+    await openSub(user, /^Billing/);
+    expect(screen.queryByText(/Log in to Claude Code/)).not.toBeInTheDocument();
+    unmount();
+
+    // Billing picked while logged out: the quiet login note appears.
+    useAdapterSubscription.mockReturnValue(
+      subscriptionState({ subscriptionOn: true, loggedIn: false }),
+    );
+    render(
+      <Theme>
+        <ReasoningLevelSelector
+          thoughtOption={thoughtOption()}
+          adapter="claude"
+          showBillingMenu
+          workspaceMode="local"
+        />
+      </Theme>,
+    );
+
+    await openAdvanced(user);
+    await openSub(user, /^Billing/);
+    expect(
+      await screen.findByRole("button", { name: "Log in to Claude Code" }),
+    ).toBeInTheDocument();
+    // One sentence, no separate "Log in" row: the link carries the whole note.
+    expect(
+      screen.getByText(
+        (_, element) =>
+          element?.textContent ===
+          "Log in to Claude Code to use Anthropic billing.",
+      ),
+    ).toBeInTheDocument();
+  }, 20000);
 });

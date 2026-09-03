@@ -1,6 +1,6 @@
-"""Per-run workload self-reporting for warehouse sync activities.
+"""Per-run workload self-reporting for warehouse sync and repartition activities.
 
-Each import activity periodically writes what it is doing — phase, current in-memory buffer, process
+Each reporting activity periodically writes what it is doing — phase, current in-memory buffer, process
 RSS, and the peaks of both — to the warehouse Redis, keyed by run. The value outlives the worker, so
 when a worker dies silently the retry can read the dead attempt's last report, and the reports of
 everything else that was running on the same pod, and attach them to the `dwh_pod_heartbeat_timeout`
@@ -241,7 +241,13 @@ class WorkloadReporter:
                 "host": self._host,
                 "attempt": self._attempt,
                 "phase": "finished" if final else self._phase,
-                "buffer_bytes": self._buffer_bytes,
+                # A run that reached teardown released its buffer while unwinding, so the last
+                # value the hooks saw is stale — a rewrite that raised mid-flush still reports the
+                # batch it was writing. Zero it for the same reason the phase becomes "finished":
+                # this run holds nothing now. `peak_buffer_bytes` keeps the real high-water mark,
+                # which is what blame is judged on. A run that died with its pod never writes a
+                # final sample at all, so this cannot erase a death's own last words.
+                "buffer_bytes": 0 if final else self._buffer_bytes,
                 "peak_buffer_bytes": self._peak_buffer_bytes,
                 "rss_bytes": rss_bytes,
                 "peak_rss_bytes": self._peak_rss_bytes or None,
@@ -357,7 +363,9 @@ def read_workload_reports(host: str) -> list[dict[str, Any]]:
         return []
 
 
-def enrich_death_event_properties(properties: dict[str, Any], *, run_id: str, host: str | None) -> None:
+def enrich_death_event_properties(
+    properties: dict[str, Any], *, run_id: str, host: str | None, death_ts: float | None = None
+) -> None:
     """Fold workload self-reports into a `dwh_pod_heartbeat_timeout` event's properties, in place.
 
     `self_*` describes the dead attempt's own last report. `co_tenant_*` is **aggregates only** —
@@ -367,6 +375,14 @@ def enrich_death_event_properties(properties: dict[str, Any], *, run_id: str, ho
     question the aggregates must still answer is "was anything on this pod holding more than us",
     which only needs the maximum. Absent reports (rollout, expired keys, Redis down) add nothing —
     the event stays exactly as it was before this existed.
+
+    `death_ts` (the dead run's last heartbeat, same pod clock as the reports) additionally yields
+    `co_tenant_correlated_max_peak_buffer_bytes`: the max peak over only the co-tenants whose report
+    is time-correlated with the death. The raw max spans keys retained for up to the TTL, so a
+    neighbour that crashed an hour ago — or one still running whose report has refreshed since —
+    could carry a historical peak into blame for a death it had nothing to do with. A report within
+    the correlation bound of the death is either the co-tenant that died alongside us (its sampler
+    stopped when we did) or one sampled moments around the death; anything else is history.
     """
     try:
         reports = read_workload_reports(host) if host else []
@@ -388,6 +404,7 @@ def enrich_death_event_properties(properties: dict[str, Any], *, run_id: str, ho
                     "self_rss_bytes": own.get("rss_bytes"),
                     "self_peak_rss_bytes": own.get("peak_rss_bytes"),
                     "self_report_age_seconds": round(time.time() - own["ts"], 1) if own.get("ts") is not None else None,
+                    "self_report_ts": own.get("ts"),
                 }
             )
         co_tenants = [report for report in reports if report.get("run_id") != run_id]
@@ -402,7 +419,17 @@ def enrich_death_event_properties(properties: dict[str, Any], *, run_id: str, ho
                     "co_tenant_sum_buffer_bytes": sum(currents),
                     "co_tenant_merge_count": sum(1 for phase in phases if phase == "merge"),
                     "co_tenant_extract_count": sum(1 for phase in phases if phase == "extract"),
+                    "co_tenant_repartition_count": sum(1 for phase in phases if phase == "repartition"),
                 }
             )
+            if death_ts is not None:
+                bound = 2.0 * workload_report_interval_seconds()
+                correlated = [
+                    int(report.get("peak_buffer_bytes") or 0)
+                    for report in co_tenants
+                    if report.get("ts") is not None and abs(float(report["ts"]) - death_ts) <= bound
+                ]
+                if correlated:
+                    properties["co_tenant_correlated_max_peak_buffer_bytes"] = max(correlated)
     except Exception:
         LOGGER.debug("workload_report_enrich_failed", run_id=run_id, exc_info=True)

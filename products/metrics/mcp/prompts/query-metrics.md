@@ -11,6 +11,7 @@ All parameters are nested inside a `query` object. Two request forms:
 2. **Pick the aggregation by metric type:**
    - `sum` counters (usually `_total`): use `rate` (per-second) or `increase` — both are counter-reset safe and temporality-aware. Do NOT use `sum`/`avg` on cumulative counters; absolute counter values are meaningless.
    - `gauge`: `avg` (typical), `p95`, `sum`.
+   - Every aggregation combines across series, never across raw samples, so a result never scales with the scrape rate: `sum`/`avg`/`p95` reduce each series to its latest value in the bucket and combine those, and `count` is the number of series that reported.
    - `histogram`: `histogram_quantile` with `quantile` (e.g. 0.95). All selected series must share one bucket layout — narrow with `filters` if you get a bounds-mismatch error.
 3. **Narrow with filters.** `filters: [{key, op, value, scope?}]`, ANDed. Ops: `eq`, `neq`, `regex`, `not_regex` (RE2). Leave `scope` at its default `auto` unless you know whether the attribute is per-target (`resource`) or per-datapoint (`attribute`). Negative ops also match rows lacking the key, like Prometheus negative matchers.
 4. **Split with groupBy.** `groupBy: [{key}]` returns one series per label value (capped at the 100 largest). The service name is always available — `service_name` and `service.name` both resolve to it in metrics (logs only accept the dotted `service.name`); discover other keys from a sample query's labels or ask the user.
@@ -24,4 +25,4 @@ All parameters are nested inside a `query` object. Two request forms:
 4. Use `formula` for normalized comparisons, e.g. error ratio `errors / requests` instead of raw error counts.
 5. Correlate the onset window across signals: query logs (`query-logs`, filtered to the same `service.name` and time window, severity error) and traces (APM span tools, same service/window) to find the cause and its blast radius.
 
-CRITICAL: be minimalist — only include filters/settings essential to the question. Time ranges: `dateFrom` is required, ISO 8601; `dateTo` defaults to now.
+CRITICAL: be minimalist — only include filters/settings essential to the question. Time ranges: `dateFrom` is required, ISO 8601; `dateTo` defaults to now. `dateFrom` snaps down to its bucket boundary, so the first point can be labelled up to one interval earlier than requested but always covers a whole bucket.

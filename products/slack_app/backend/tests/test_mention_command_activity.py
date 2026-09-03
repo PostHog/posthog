@@ -10,6 +10,8 @@ from posthog.models.user import User
 from posthog.temporal.ai.slack_app.activities.rules import handle_posthog_code_slack_mention_command_activity
 from posthog.temporal.ai.slack_app.types import PostHogCodeSlackMentionCommandWorkflowInputs
 
+from products.slack_app.backend.services.commands import MENTION_HELP_REDIRECT
+
 
 class TestMentionCommandActivity:
     @pytest.fixture(autouse=True)
@@ -38,15 +40,15 @@ class TestMentionCommandActivity:
 
     @parameterized.expand(
         [
-            # A slash command outside a thread carries neither ts nor thread_ts; the
-            # reply anchors to the channel root and speaks the ``/posthog`` surface.
-            ("slash_outside_thread", "/posthog", {}, ""),
+            # A slash command outside a thread carries neither ts nor thread_ts, so the reply
+            # anchors to the channel root.
+            ("slash_outside_thread", "/posthog", {}, "", "*Available commands:*"),
             # A top-level mention carries only its own ts (no thread_ts). The reply
             # must anchor to the channel root, not that ts — a thread-anchored reply
             # is invisible to a user who isn't already viewing the thread.
-            ("mention_top_level", "@PostHog", {"ts": "111.1"}, ""),
+            ("mention_top_level", "@PostHog", {"ts": "111.1"}, "", MENTION_HELP_REDIRECT),
             # A mention inside a real thread carries thread_ts; the reply threads there.
-            ("mention_in_thread", "@PostHog", {"ts": "222.2", "thread_ts": "111.1"}, "111.1"),
+            ("mention_in_thread", "@PostHog", {"ts": "222.2", "thread_ts": "111.1"}, "111.1", MENTION_HELP_REDIRECT),
         ]
     )
     @patch("products.slack_app.backend.services.slack_user_info.get_slack_user_info")
@@ -57,6 +59,7 @@ class TestMentionCommandActivity:
         command_prefix: str,
         event_extra: dict[str, str],
         expected_thread_ts: str,
+        expected_text: str,
         mock_slack_cls,
         mock_info,
     ) -> None:
@@ -68,6 +71,9 @@ class TestMentionCommandActivity:
         )
 
         assert result.status == "done"
-        client.chat_postMessage.assert_called_once()
-        assert client.chat_postMessage.call_args.kwargs["thread_ts"] == expected_thread_ts
-        assert command_prefix in client.chat_postMessage.call_args.kwargs["text"]
+        # Both surfaces answer only the caller, so nothing lands in the channel.
+        assert client.chat_postMessage.call_count == 0
+        client.chat_postEphemeral.assert_called_once()
+        # A channel-root reply carries no anchor at all rather than an empty one.
+        assert client.chat_postEphemeral.call_args.kwargs.get("thread_ts", "") == expected_thread_ts
+        assert expected_text in client.chat_postEphemeral.call_args.kwargs["text"]

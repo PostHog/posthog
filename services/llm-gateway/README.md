@@ -60,6 +60,16 @@ python manage.py setup_local_api_key --add-scopes llm_gateway:read
 `--add-scopes` merges into existing scopes without removing any.
 `--scopes` replaces all scopes on the key.
 
+## Database access
+
+The gateway connects to the PostHog Postgres as a least-privilege role whose SELECT
+grants are a per-table allowlist maintained in posthog-cloud-infra. The tables the
+gateway reads are declared in `src/llm_gateway/db/required_tables.py`, and
+`tests/test_required_tables.py` binds that declaration to the SQL in the package.
+`/_readiness` verifies the connected role holds every declared grant on every probe,
+so a revoked grant unreadies serving pods as well as new rollouts. To add a table
+read, land the grant in every environment first, then declare the table.
+
 ## User attribution
 
 When using an OAuth Access Token, the user who's token it is is the user used for analytics and rate limiting.
@@ -205,7 +215,13 @@ Use your runtime's standard AWS authentication mechanism (e.g. IAM role, IRSA, E
 The gateway exposes models consistently across Anthropic Messages, chat/completions, and Responses while choosing their inference provider internally in `src/llm_gateway/inference_routing.py`.
 
 - **GLM 5.2** (`@cf/zai-org/glm-5.2`) can run on Cloudflare Workers AI, Modal, or Baseten.
-- **DeepSeek V4 Flash** (`deepseek-ai/deepseek-v4-flash-0731`) runs only on Baseten and is available to ReviewHog and PostHog Code (client-gated by the `posthog-code-deepseek-model` flag).
+- **GLM 5.3** (`zai-org/glm-5.3`) runs only on Baseten and is available to ReviewHog and PostHog Desktop behind its own `posthog-code-glm-53-model` flag.
+  Deliberately not `tasks-glm-baseten-inference`: that one only moves GLM 5.2 traffic onto Baseten, so sharing it would grant 5.3 by proxy the moment 5.2 routing changed.
+  GLM 5.3 has no open weights released yet, so the flag is not created: the access gate fails closed, keeping the model blocked server-side and hidden in every picker.
+  Do not create the flag until Baseten lists the model and the deployment slug, context window, and contract rate in `model_cost_overrides.py` / `model_registry.py` are confirmed against `inference.baseten.co/v1/models`: the rate is pinned, so a wrong placeholder bills at the wrong price with no automatic correction.
+- **GLM 5.3 Flash** (`zai-org/glm-5.3-flash`) runs only on Baseten and is available to ReviewHog and PostHog Desktop behind its own `posthog-code-glm-53-flash-model` flag.
+  Contract rate and 1M context window come from the Baseten listing and are pinned in `model_cost_overrides.py` / `model_registry.py`.
+- **DeepSeek V4 Flash** (`deepseek-ai/deepseek-v4-flash-0731`) runs only on Baseten and is available to ReviewHog and PostHog Desktop (client-gated by the `posthog-code-deepseek-model` flag).
 
 Provider configuration:
 
@@ -213,7 +229,7 @@ Provider configuration:
 - **Modal** (an OpenAI-compatible vLLM endpoint) — configure `LLM_GATEWAY_MODAL_API_BASE`, `LLM_GATEWAY_MODAL_KEY`, and `LLM_GATEWAY_MODAL_SECRET` (a [Modal proxy-token](https://modal.com/docs/guide/endpoints) pair, sent as `Modal-Key`/`Modal-Secret` headers).
 - **Baseten** (an OpenAI-compatible endpoint) - configure `LLM_GATEWAY_BASETEN_API_BASE` and `LLM_GATEWAY_BASETEN_API_KEY`.
 
-The `tasks-glm-baseten-inference` feature flag routes matching users to Baseten when its API key is configured. The flag is evaluated server-side, and caller-forwarded flag headers cannot select Baseten. Cloudflare or Modal must remain configured as the fallback for users who do not match the flag or when evaluation is unavailable.
+The `tasks-glm-baseten-inference` feature flag routes matching users' GLM 5.2 traffic to Baseten when its API key is configured. The flag is evaluated server-side, and caller-forwarded flag headers cannot select Baseten. Cloudflare or Modal must remain configured as the fallback for users who do not match the flag or when evaluation is unavailable.
 
 Two knobs opt traffic into Modal (OR semantics, both default off):
 
@@ -235,21 +251,31 @@ Defined in `src/llm_gateway/products/config.py`:
 
 OAuth access is permitted only for products with an explicit `allowed_application_ids` allowlist. All other products are API-key-only by default.
 
-| Product              | Auth            | Models                     | Notes                           |
-| -------------------- | --------------- | -------------------------- | ------------------------------- |
-| `llm_gateway`        | API key only    | All                        | Default when no product in path |
-| `ci`                 | API key only    | All                        | CI / e2e test runs              |
-| `posthog_code`       | OAuth only      | Restricted set             | Desktop coding agent            |
-| `background_agents`  | OAuth only      | Restricted set             | Cloud background agents         |
-| `onboarding`         | OAuth only      | claude-sonnet-5            | Unbilled setup wizard cloud run |
-| `wizard`             | API key + OAuth | All                        | Max AI assistant                |
-| `django`             | API key only    | All                        | Server-side Django calls        |
-| `growth`             | API key only    | All                        | Growth team                     |
-| `llma_translation`   | API key only    | gpt-4.1-mini               | AI observability translation    |
-| `llma_summarization` | API key only    | gpt-4.1-nano, gpt-4.1-mini | AI observability summarization  |
-| `llma_eval_summary`  | API key only    | gpt-5-mini                 | AI observability eval summary   |
+| Product              | Auth            | Models                                             | Notes                           |
+| -------------------- | --------------- | -------------------------------------------------- | ------------------------------- |
+| `llm_gateway`        | API key only    | All                                                | Default when no product in path |
+| `ci`                 | API key only    | All                                                | CI / e2e test runs              |
+| `posthog_code`       | OAuth only      | Restricted set                                     | Desktop coding agent            |
+| `background_agents`  | OAuth only      | Restricted set                                     | Cloud background agents         |
+| `onboarding`         | OAuth only      | claude-sonnet-5                                    | Unbilled setup wizard cloud run |
+| `wizard`             | API key + OAuth | All                                                | Max AI assistant                |
+| `django`             | API key only    | All                                                | Server-side Django calls        |
+| `growth`             | API key only    | All                                                | Growth team                     |
+| `llma_translation`   | API key only    | gpt-4.1-mini                                       | AI observability translation    |
+| `llma_summarization` | API key only    | gpt-4.1-nano, gpt-4.1-mini, gpt-5-nano, gpt-5-mini | AI observability summarization  |
+| `llma_eval_summary`  | API key only    | gpt-5-mini                                         | AI observability eval summary   |
 
 Aliases: `twig`, `array` resolve to `posthog_code`; `slack-twig` resolves to `slack-posthog-code`.
+
+`posthog_code` additionally requires a project-scoped PostHog Desktop decision. The OAuth application allowlist only proves that the Desktop app issued the token. It does not grant Desktop access.
+
+After OAuth validates the selected project, the gateway asks Django at `GET /api/projects/{project_id}/desktop/access/`. Django applies `posthog-desktop-access-override` before Startup-program and prepaid-credit restrictions. The gateway preserves `code_access_required` as its error code and forwards `startup_plan` or `prepaid_credits` when Django provides a reason. Server-minted credentials carrying `internal_run:read` bypass the human gate because their run already passed Django's trusted task path.
+
+The check fails closed. Django transport errors, 404, 429, 5xx responses, and malformed payloads return `503 desktop_access_unavailable` and are not cached. Django 401 and 403 credential rejections return a generic `403 code_access_required` without a funding reason and cache for 30 seconds per credential and project to limit repeated rejected lookups. Deploy the Django project endpoint everywhere before deploying this gateway contract; old gateway instances continue using the compatibility endpoint during that rollout. The Gateway allows six seconds for Django because Django can spend up to five seconds resolving a Billing cache miss. Grants cache for 60 seconds and business denials for 30 seconds. Cache keys include the user, validated team, and a non-reversible credential fingerprint. Desktop access checks use a separate outbound connection pool, capped at 10 connections per Gateway instance, so failures cannot exhaust the pool used by other policy resolvers. `LLM_GATEWAY_DESKTOP_ACCESS_GATE_ENABLED=false` disables the gateway gate.
+
+`signals` is authorized for its own OAuth application, so a Signals run's token cannot be spent as `posthog_code` or `background_agents` by declaring a different product in the path.
+Its US, EU, and dev application ids are pinned in `products/config.py` alongside every other first-party app.
+The PostHog Code application ids are no longer accepted for `signals`, so a region whose runs still mint under the Code app rejects every Signals OAuth run at the gateway.
 
 ### Adding a new product
 
@@ -299,6 +325,25 @@ Per-user cost caps using a burst + sustained pattern. Configured in `DEFAULT_USE
 Products without an explicit entry fall back to the **default: $100/24h burst, $1000/30d sustained**.
 
 User-level limits only apply when an `end_user_id` is present (OAuth token holder, or `user` param in the request body).
+
+### Per-run limits
+
+A sandbox agent run can spend a whole window's budget in one conversation, because the person driving it decides when it ends.
+`DEFAULT_SANDBOX_TASK_COST_LIMITS` caps the total spend of a single run, keyed on the task the token was minted for (`posthog_oauthaccesstoken.sandbox_task_id`), not on anything the caller sends:
+
+```python
+"my_budget": ProductCostLimit(limit_usd=50.0, window_seconds=604800)  # $50 per run
+```
+
+Opt-in — a budget with no entry has no per-run ceiling, and a token with no task binding is never metered here.
+
+### Budget keys
+
+The three limits above are usually keyed by product, but a product that serves both our own scheduled work and a button a customer can press needs two budgets rather than one.
+`resolve_cost_key` picks the budget from the token's scopes, which are minted server-side, instead of from the product in the URL, which the caller chooses.
+
+Today that splits `signals`: a run started from the Inbox carries `interactive_run:read` and meters against `signals_interactive`, while the scheduled pipeline keeps `signals`.
+`signals_interactive` is a budget name only — it is not in `PRODUCTS`, so no caller can request it.
 
 ## Error handling
 

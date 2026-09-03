@@ -8,6 +8,8 @@ import {
 
 export type ScopeType = 'default' | 'role' | 'member'
 
+/** Why a subject falls back to the level they do, as the settings UI phrases it. Derived from the
+ * entry's inherited_access provenance by inheritedReasonOf(). */
 export type InheritedReason = 'project_default' | 'role_override' | 'organization_admin' | null
 
 export type AccessControlRoleEntry = AccessControlRolesResponse['results'][number]
@@ -33,9 +35,9 @@ export type AccessControlFilters = {
 export type FormAccessLevel = AccessControlLevel | null // null means "no override"
 
 export type EntryData = {
-    project: Pick<EffectiveAccessControlEntry, 'access_level' | 'effective_access_level' | 'inherited_access_level'>
+    project: Pick<EffectiveAccessControlEntry, 'access_level' | 'effective_access_level' | 'inherited_access'>
     resources: Record<
         string,
-        Pick<EffectiveAccessControlEntry, 'access_level' | 'effective_access_level' | 'inherited_access_level'>
+        Pick<EffectiveAccessControlEntry, 'access_level' | 'effective_access_level' | 'inherited_access'>
     >
 }

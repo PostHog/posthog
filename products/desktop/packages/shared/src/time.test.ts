@@ -4,6 +4,7 @@ import {
   formatDaySeparatorLabel,
   formatRelativeTimeLong,
   formatRelativeTimeShort,
+  formatShortDayLabel,
   getLocalDayDiff,
   getLocalDayKey,
   getRelativeDateGroup,
@@ -158,5 +159,24 @@ describe("formatDaySeparatorLabel", () => {
 
   it("labels a future timestamp as today rather than counting backwards", () => {
     expect(formatDaySeparatorLabel(new Date(2026, 5, 16), now)).toBe("Today");
+  });
+});
+
+describe("formatShortDayLabel", () => {
+  const now = new Date(2026, 5, 15, 12);
+
+  it.each([
+    ["today", new Date(2026, 5, 15, 9), "Today"],
+    ["yesterday", new Date(2026, 5, 14, 9), "Yesterday"],
+    // Inside the week the weekday alone places it, with no date to read.
+    ["earlier this week", new Date(2026, 5, 11), "Thursday"],
+    // Past the week the weekday stops narrowing it down, so it takes a date.
+    ["last month", new Date(2026, 4, 20), "May 20"],
+    ["last year", new Date(2025, 11, 3), "Dec 3, 2025"],
+    // A tomorrow — a clock skew, or a session filed in another timezone — is
+    // still today's news rather than a day of its own.
+    ["a future day", new Date(2026, 5, 16), "Today"],
+  ])("labels %s", (_case, date: Date, expected) => {
+    expect(formatShortDayLabel(date, now)).toBe(expected);
   });
 });

@@ -55,7 +55,7 @@ class StreamChunk:
         return f"data: {json.dumps({'type': self.type, **self.data})}\n\n"
 
 
-@dataclass
+@dataclass(frozen=False)
 class AnalyticsContext:
     """Context for PostHog analytics tracking"""
 
@@ -64,3 +64,4 @@ class AnalyticsContext:
     properties: dict[str, Any] | None = None
     groups: dict[str, Any] | None = None
     capture: bool = True
+    privacy_mode: bool = False

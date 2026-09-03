@@ -71,7 +71,7 @@ export function ScratchpadView() {
         className="border-(--gray-5) border-b px-6 pt-5 pb-5"
       >
         <Link
-          to="/code/agents/scouts"
+          to="/agents/scouts"
           className="flex w-fit items-center gap-1 text-[12px] text-gray-10 no-underline hover:text-gray-12"
         >
           <ArrowLeftIcon size={12} />

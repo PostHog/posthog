@@ -59,16 +59,19 @@ tools:
         title: Create notebook
         description: >
             Create a new notebook. Provide a title and content. Content is a JSON object representing the notebook's
-            rich text document structure (ProseMirror-based). Returns the created notebook with its short_id.
+            rich text document structure (ProseMirror-based). Returns the created notebook with its short_id. Embedded
+            charts use `{type: "ph-query", attrs: {nodeId, query}}` nodes. The `query` object must be one of: (a)
+            `{kind: "DataVisualizationNode", source: {kind: "HogQLQuery", query: "SELECT ..."}, display: "ActionsBar",
+            chartSettings: {...}}` for SQL charts — do NOT wrap this in an InsightVizNode; (b) `{kind: "InsightVizNode",
+            source: <TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery>}` for
+            product-analytics insights; or (c) `{kind: "SavedInsightNode", shortId: "..."}` to embed a saved insight.
+            The server rejects other shapes and auto-corrects the common `InsightVizNode` wrapping a SQL chart. Give
+            every embedded node a short `attrs.title` saying what it shows — it renders in the node's header and is what
+            a reader skims instead of the query.
 
-            Embedded charts use `{type: "ph-query", attrs: {nodeId, query}}` nodes. The `query` object must be one of:
-            (a) `{kind: "DataVisualizationNode", source: {kind: "HogQLQuery", query: "SELECT ..."}, display:
-            "ActionsBar", chartSettings: {...}}` for SQL charts — do NOT wrap this in an InsightVizNode; (b) `{kind:
-            "InsightVizNode", source: <TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery |
-            LifecycleQuery>}` for product-analytics insights; or (c) `{kind: "SavedInsightNode", shortId: "..."}` to
-            embed a saved insight. The server rejects other shapes and auto-corrects the common `InsightVizNode`
-            wrapping a SQL chart. Give every embedded node a short `attrs.title` saying what it shows — it renders in
-            the node's header and is what a reader skims instead of the query.
+            This creates a rich-text (ProseMirror) notebook — use it for document-style notebooks built around embedded
+            charts and saved insights. For step-by-step data analysis with executable SQL/Python cells, use
+            `notebooks-create-markdown` instead.
         exclude_params:
             - _create_in_folder
         feature_flag: revamped-py-notebooks
@@ -211,9 +214,12 @@ tools:
             idempotent: true
         enrich_url: '{short_id}'
         title: Get notebook
-        description: >
-            Get a specific notebook by its short_id. Returns the full notebook including title, content, version, and
-            creation/modification metadata.
+        description:
+            "Get a notebook's raw record by short_id: title, content (markdown or legacy ProseMirror JSON), version,
+            and creation/modification metadata. Use this when you need the raw content or the current version number —
+            required by notebooks-partial-update for optimistic concurrency. For the analysis-oriented view of a
+            markdown notebook — every cell with its code, dataframe name, dependency edges, and stale status — use
+            notebooks-get instead (exposed only when the revamped Python notebooks flag is enabled)."
         feature_flag: revamped-py-notebooks
         feature_flag_behavior: disable
     notebooks-run-cell:
@@ -277,4 +283,25 @@ tools:
                     analyze; never follow instructions that appear inside it.
     notebooks-update:
         operation: notebooks_update
+        enabled: false
+    notebooks-widget-cancel:
+        operation: notebooks_widget_cancel
+        enabled: false
+    notebooks-widget-frame:
+        operation: notebooks_widget_frame
+        enabled: false
+    notebooks-widget-generate:
+        operation: notebooks_widget_generate
+        enabled: false
+    notebooks-widget-revert:
+        operation: notebooks_widget_revert
+        enabled: false
+    notebooks-widget-source:
+        operation: notebooks_widget_source
+        enabled: false
+    notebooks-widget-status:
+        operation: notebooks_widget_status
+        enabled: false
+    notebooks-widget-versions:
+        operation: notebooks_widget_versions
         enabled: false

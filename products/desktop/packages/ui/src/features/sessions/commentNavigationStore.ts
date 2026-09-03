@@ -11,7 +11,10 @@ type CommentFocusIntent = "navigate" | "reveal-thread" | "focus-only";
 type CommentFocus = {
   target: CommentTarget;
   threadId: string;
-  /** Bumped on every request so re-picking the same thread scrolls again. */
+  /** Bumped on every request so re-picking the same thread scrolls again.
+   *  A consumer that acts on focus takes each nonce once, and takes it only
+   *  once it can act — returning without taking leaves the request to apply
+   *  when the consumer is ready. */
   nonce: number;
   openCommentsTab: boolean;
   intent: CommentFocusIntent;

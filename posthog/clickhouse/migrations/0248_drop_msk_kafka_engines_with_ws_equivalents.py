@@ -1,6 +1,6 @@
-from posthog import settings
 from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
+from posthog.run_mode import run_mode
 
 # Drop MSK Kafka engine tables and their materialized views for every topic that
 # already has a WarpStream (`_ws`) consumer in place. Each pair listed here was
@@ -30,7 +30,7 @@ from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
 
 operations = (
     []
-    if settings.CLOUD_DEPLOYMENT not in ("US", "EU", "DEV")
+    if not run_mode().is_deployed_cloud
     else [
         # log_entries (INGESTION_SMALL — `_v3` is the live MSK consumer)
         run_sql_with_exceptions(

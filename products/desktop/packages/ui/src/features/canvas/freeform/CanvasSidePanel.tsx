@@ -18,6 +18,7 @@ import { useCanvasChatPanelStore } from "@posthog/ui/features/canvas/stores/canv
 import type { EditorHandle } from "@posthog/ui/features/message-editor/types";
 import { EmbeddedSessionView } from "@posthog/ui/features/sessions/components/EmbeddedSessionView";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
+import { Spin } from "@posthog/ui/primitives/Spinner";
 import { useQuery } from "@tanstack/react-query";
 import { type Ref, useEffect, useRef } from "react";
 
@@ -28,6 +29,7 @@ import { type Ref, useEffect, useRef } from "react";
 export function CanvasSidePanel({
   effectiveTaskId,
   commentTaskId,
+  interactive,
   onMinimize,
   dashboardId,
   channelId,
@@ -43,6 +45,9 @@ export function CanvasSidePanel({
 }: {
   effectiveTaskId: string | null;
   commentTaskId: string | null;
+  /** Whether the canvas is being edited. The composer is an edit affordance, so
+   * view mode falls back to the conversation that last built the canvas. */
+  interactive?: boolean;
   onMinimize: () => void;
   dashboardId: string;
   channelId: string;
@@ -62,6 +67,9 @@ export function CanvasSidePanel({
   const tab = useCanvasChatPanelStore((state) => state.tab);
   const setTab = useCanvasChatPanelStore((state) => state.setTab);
   const previousTaskId = useRef(effectiveTaskId);
+  // With no run in flight, edit mode gets the composer for the next change,
+  // while view mode gets the chat of the run that produced this canvas.
+  const chatTaskId = effectiveTaskId ?? (interactive ? null : commentTaskId);
 
   useEffect(() => {
     if (effectiveTaskId && effectiveTaskId !== previousTaskId.current) {
@@ -117,8 +125,8 @@ export function CanvasSidePanel({
             commentVersionLabel={commentVersionLabel}
             onCommentOpen={onCommentOpen}
           />
-        ) : effectiveTaskId ? (
-          <CanvasChatLoader taskId={effectiveTaskId} />
+        ) : chatTaskId ? (
+          <CanvasChatLoader taskId={chatTaskId} />
         ) : (
           <div className="flex h-full min-h-0 flex-col gap-3 p-3">
             <FreeformGenerateBar
@@ -158,7 +166,9 @@ function CanvasChatLoader({ taskId }: { taskId: string }) {
   if (!task) {
     return (
       <div className="flex h-full items-center justify-center">
-        <SpinnerGapIcon size={18} className="animate-spin text-gray-9" />
+        <Spin className="text-gray-9">
+          <SpinnerGapIcon size={18} />
+        </Spin>
       </div>
     );
   }
@@ -186,7 +196,9 @@ function CanvasCommentsLoader({
   if (!task) {
     return (
       <div className="flex h-full items-center justify-center">
-        <SpinnerGapIcon size={18} className="animate-spin text-gray-9" />
+        <Spin className="text-gray-9">
+          <SpinnerGapIcon size={18} />
+        </Spin>
       </div>
     );
   }

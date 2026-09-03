@@ -22,8 +22,9 @@ import { userLogic } from 'scenes/userLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 
-import { MCPToolApprovalStateEnumApi, ResolvedToolPolicyApi } from '../generated/api.schemas'
+import { MCPAuthTypeEnumApi, MCPToolApprovalStateEnumApi, ResolvedToolPolicyApi } from '../generated/api.schemas'
 import { ServerIcon } from '../scene/icons'
+import { GatewayConnectionModal } from './GatewayConnectionModal'
 import { isPolicyStateAllowedByCeiling } from './gatewayPolicyUtils'
 import { GatewayRouteGuard } from './GatewayRouteGuard'
 import { GatewayAccessSection } from './GatewayServerAccess'
@@ -33,10 +34,9 @@ import { GatewayServersLoadError } from './GatewayServersHome'
 import { POLICY_OPTIONS, PolicySummary } from './gatewayUtils'
 import { mcpGatewayLogic } from './mcpGatewayLogic'
 
-const TOOL_POLICY_BACKGROUND_CLASSES: Record<MCPToolApprovalStateEnumApi, string> = {
-    approved: 'bg-success-highlight',
-    needs_approval: 'bg-warning-highlight',
-    do_not_use: 'bg-danger-highlight',
+const AUTH_TYPE_LABELS: Record<MCPAuthTypeEnumApi, string> = {
+    api_key: 'API key',
+    oauth: 'OAuth',
 }
 
 export const scene: SceneExport<(typeof gatewayServerLogic)['props']> = {
@@ -70,11 +70,11 @@ export function GatewayServerScene({
     const goBack = onBack ?? (() => router.actions.push(urls.mcpGateway()))
 
     if (!server && serverLoading) {
-        return <SceneContent>Loading…</SceneContent>
+        return <SceneContent className="mx-auto w-full max-w-[1200px]">Loading…</SceneContent>
     }
     if (!server && serversLoadFailed) {
         return (
-            <SceneContent>
+            <SceneContent className="mx-auto w-full max-w-[1200px]">
                 <LemonButton size="small" type="tertiary" icon={<IconArrowLeft />} onClick={goBack}>
                     Back to servers
                 </LemonButton>
@@ -83,7 +83,7 @@ export function GatewayServerScene({
         )
     }
     if (!server) {
-        return <SceneContent>Server not found.</SceneContent>
+        return <SceneContent className="mx-auto w-full max-w-[1200px]">Server not found.</SceneContent>
     }
 
     const connection = server.your_connection
@@ -120,7 +120,9 @@ export function GatewayServerScene({
     }
 
     return (
-        <SceneContent>
+        <SceneContent className="mx-auto w-full max-w-[1200px]">
+            <GatewayConnectionModal />
+
             <LemonButton size="small" type="tertiary" icon={<IconArrowLeft />} onClick={goBack}>
                 Back to servers
             </LemonButton>
@@ -136,9 +138,16 @@ export function GatewayServerScene({
                     </div>
                     {server.description && <div className="text-secondary mt-1">{server.description}</div>}
                     <div className="flex items-center gap-3 mt-2 text-xs text-secondary">
-                        {server.created_by && (
-                            <span>Added by {server.created_by.first_name || server.created_by.email}</span>
-                        )}
+                        <span className="min-w-0 truncate">
+                            {[
+                                server.created_by &&
+                                    `Added by ${server.created_by.first_name || server.created_by.email}`,
+                                server.template_auth_type && AUTH_TYPE_LABELS[server.template_auth_type],
+                                server.url,
+                            ]
+                                .filter(Boolean)
+                                .join(' · ')}
+                        </span>
                         {server.docs_url && (
                             <LemonButton
                                 size="xsmall"
@@ -391,7 +400,7 @@ function ToolPoliciesSection(): JSX.Element {
                     No tools match “{toolSearch}”.
                 </div>
             ) : (
-                <div className="border rounded divide-y overflow-hidden">
+                <div className="border rounded divide-y overflow-hidden bg-surface-primary">
                     {displayedToolPolicies.map((policy) => (
                         <ToolPolicyRow key={policy.tool_name} policy={policy} />
                     ))}
@@ -477,7 +486,7 @@ function ToolPolicyRow({ policy }: { policy: ResolvedToolPolicyApi }): JSX.Eleme
         )
 
     return (
-        <div className={`flex items-start gap-2 transition-colors ${TOOL_POLICY_BACKGROUND_CLASSES[displayedState]}`}>
+        <div className="flex items-start gap-2">
             <div className="min-w-0 flex-1">
                 <LemonCollapse
                     embedded

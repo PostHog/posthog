@@ -19,7 +19,7 @@ import type { ReactNode } from "react";
 export interface TabView {
   id: string;
   label: string;
-  /** Optional leading icon (template-derived). */
+  /** Optional leading icon (template-derived, or a session's status dot). */
   icon?: ReactNode;
   /** Channel the tab belongs to; shown `#`-prefixed atop the hover. Null = no
    * channel (a blank tab). */
@@ -42,8 +42,9 @@ export interface TabStripProps {
   activeTabId: string | null;
   onSelect: (tabId: string) => void;
   onClose: (tabId: string) => void;
-  /** When omitted, the trailing new-tab button is hidden (e.g. on read-only
-   * cloud runs, where opening a tab makes no sense). */
+  /** When omitted, the trailing new-tab button is hidden. The app always passes
+   * it: `+` opens the space index, which has nothing to do with what the
+   * current tab is showing. */
   onNewTab?: () => void;
   onTogglePin: (tabId: string) => void;
   onCloseOthers: (tabId: string) => void;
@@ -229,7 +230,14 @@ function SortableTabPill({
     <ContextMenu>
       <Tooltip>
         <TooltipTrigger render={<ContextMenuTrigger render={pill} />} />
-        <TooltipContent side="bottom">
+        {/* `flex-col items-start`: TooltipContent is a centred ROW by default,
+            which laid the two lines side by side and wrapped both. They stack,
+            and each stays on one line — a tooltip that exists to show a
+            truncated name must not truncate it again by wrapping. */}
+        <TooltipContent
+          side="bottom"
+          className="flex-col items-start gap-0 whitespace-nowrap"
+        >
           {/* Channel context first (always `#`-prefixed); the channel-home tab
               reads `#channel / home`. Then the page name, unless it would just
               repeat the channel-home name already shown above. */}

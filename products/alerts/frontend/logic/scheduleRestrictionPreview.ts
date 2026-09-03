@@ -52,7 +52,7 @@ export function isLocalMinuteBlocked(minute: number, windows: ParsedWindow[]): b
 export function estimateCheckSlotsNext24h(
     blockedWindows: BlockedWindow[] | null | undefined,
     teamTimezone: string,
-    cadenceMinutes: 15 | 60
+    cadenceMinutes: number
 ): number {
     const totalSlots = (24 * 60) / cadenceMinutes
     if (!blockedWindows?.length) {

@@ -2,7 +2,7 @@ from typing import TYPE_CHECKING
 
 from posthog.schema import AgentMode
 
-from products.experiments.backend.max_tools import CreateExperimentTool, ExperimentSummaryTool, SessionReplaySummaryTool
+from products.experiments.backend.max_tools import CreateExperimentTool, ExperimentSummaryTool
 from products.feature_flags.backend.max_tools import CreateFeatureFlagTool
 
 from ee.hogai.chat_agent.executables import ChatAgentPlanExecutable, ChatAgentPlanToolsExecutable
@@ -77,7 +77,7 @@ class FlagsAgentToolkit(AgentToolkit):
 
     @property
     def tools(self) -> list[type["MaxTool"]]:
-        tools: list[type[MaxTool]] = [CreateFeatureFlagTool, CreateExperimentTool, SessionReplaySummaryTool]
+        tools: list[type[MaxTool]] = [CreateFeatureFlagTool, CreateExperimentTool]
         if has_experiment_summary_tool_feature_flag(self._team, self._user):
             tools.append(ExperimentSummaryTool)
         return tools
@@ -104,13 +104,12 @@ class ReadOnlyFlagsAgentToolkit(AgentToolkit):
 
     @property
     def tools(self) -> list[type["MaxTool"]]:
-        tools: list[type[MaxTool]] = [SessionReplaySummaryTool]
         if has_experiment_summary_tool_feature_flag(self._team, self._user):
-            tools.append(ExperimentSummaryTool)
-        return tools
+            return [ExperimentSummaryTool]
+        return []
 
 
-READ_ONLY_FLAGS_MODE_DESCRIPTION = "Specialized mode for analyzing feature flags and experiments. This mode allows you to analyze experiment results and session replay patterns across experiment variants with statistical summaries."
+READ_ONLY_FLAGS_MODE_DESCRIPTION = "Specialized mode for analyzing feature flags and experiments. This mode allows you to analyze experiment results with statistical summaries."
 
 chat_agent_plan_flags_agent = AgentModeDefinition(
     mode=AgentMode.FLAGS,

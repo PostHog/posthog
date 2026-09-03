@@ -14,6 +14,7 @@ pub mod config;
 pub mod fingerprinting;
 pub mod issue_resolution;
 pub mod normalization;
+pub mod redis_heal;
 pub mod router;
 pub mod rules;
 pub mod server;

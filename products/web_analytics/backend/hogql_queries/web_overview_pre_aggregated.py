@@ -6,6 +6,7 @@ from posthog.hogql.property import property_to_expr
 
 from products.web_analytics.backend.hogql_queries.pre_aggregated.properties import WEB_OVERVIEW_SUPPORTED_PROPERTIES
 from products.web_analytics.backend.hogql_queries.pre_aggregated.query_builder import (
+    PeriodFilters,
     WebAnalyticsPreAggregatedQueryBuilder,
 )
 
@@ -18,10 +19,10 @@ class WebOverviewPreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder
         super().__init__(runner, supported_props_filters=WEB_OVERVIEW_SUPPORTED_PROPERTIES)
 
     def get_query(self) -> ast.SelectQuery:
-        previous_period_filter, current_period_filter = self.get_date_ranges()
+        period_filters = self.get_date_ranges()
 
         if self.runner.query.conversionGoal:
-            return self._get_conversion_query(current_period_filter, previous_period_filter)
+            return self._get_conversion_query(period_filters=period_filters)
 
         table_name = self.bounces_table
 
@@ -49,23 +50,23 @@ class WebOverviewPreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder
         """,
             placeholders={
                 "table_name": ast.Field(chain=[table_name]),
-                "unique_persons_current": self._uniq_merge_if("persons_uniq_state", current_period_filter),
-                "unique_persons_previous": self._uniq_merge_if("persons_uniq_state", previous_period_filter),
-                "pageviews_current": self._sum_merge_if("pageviews_count_state", current_period_filter),
-                "pageviews_previous": self._sum_merge_if("pageviews_count_state", previous_period_filter),
-                "unique_sessions_current": self._uniq_merge_if("sessions_uniq_state", current_period_filter),
-                "unique_sessions_previous": self._uniq_merge_if("sessions_uniq_state", previous_period_filter),
+                "unique_persons_current": self._uniq_merge_if("persons_uniq_state", period_filters.current_period),
+                "unique_persons_previous": self._uniq_merge_if("persons_uniq_state", period_filters.previous_period),
+                "pageviews_current": self._sum_merge_if("pageviews_count_state", period_filters.current_period),
+                "pageviews_previous": self._sum_merge_if("pageviews_count_state", period_filters.previous_period),
+                "unique_sessions_current": self._uniq_merge_if("sessions_uniq_state", period_filters.current_period),
+                "unique_sessions_previous": self._uniq_merge_if("sessions_uniq_state", period_filters.previous_period),
                 "avg_session_duration_current": self._safe_avg_sessions(
-                    "total_session_duration_state", "total_session_count_state", current_period_filter
+                    "total_session_duration_state", "total_session_count_state", period_filters.current_period
                 ),
                 "avg_session_duration_previous": self._safe_avg_sessions(
-                    "total_session_duration_state", "total_session_count_state", previous_period_filter
+                    "total_session_duration_state", "total_session_count_state", period_filters.previous_period
                 ),
                 "bounce_rate_current": self._safe_avg_sessions(
-                    "bounces_count_state", "sessions_uniq_state", current_period_filter
+                    "bounces_count_state", "sessions_uniq_state", period_filters.current_period
                 ),
                 "bounce_rate_previous": self._safe_avg_sessions(
-                    "bounces_count_state", "sessions_uniq_state", previous_period_filter
+                    "bounces_count_state", "sessions_uniq_state", period_filters.previous_period
                 ),
             },
         )
@@ -78,9 +79,7 @@ class WebOverviewPreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder
 
         return query
 
-    def _get_conversion_query(
-        self, current_period_filter: ast.Expr, previous_period_filter: ast.Expr
-    ) -> ast.SelectQuery:
+    def _get_conversion_query(self, *, period_filters: PeriodFilters) -> ast.SelectQuery:
         """Build query for conversion goals using hybrid approach: pre-agg for visitors, raw events for conversions"""
         # Build subquery for conversions from raw events
         conversion_subquery = self._build_overview_conversion_subquery()
@@ -95,8 +94,8 @@ class WebOverviewPreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder
             """,
             placeholders={
                 "table_name": ast.Field(chain=[self.bounces_table]),
-                "unique_persons_current": self._uniq_merge_if("persons_uniq_state", current_period_filter),
-                "unique_persons_previous": self._uniq_merge_if("persons_uniq_state", previous_period_filter),
+                "unique_persons_current": self._uniq_merge_if("persons_uniq_state", period_filters.current_period),
+                "unique_persons_previous": self._uniq_merge_if("persons_uniq_state", period_filters.previous_period),
             },
         )
 

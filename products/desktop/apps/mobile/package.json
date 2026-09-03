@@ -9,6 +9,7 @@
     "ios": "expo run:ios",
     "ios:device": "expo run:ios --device",
     "web": "expo start --web",
+    "typecheck": "node ../../scripts/check-mobile-types.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "prebuild": "expo prebuild",
@@ -29,13 +30,6 @@
         "react-native-worklets"
       ]
     },
-    "doctor": {
-      "reactNativeDirectoryCheck": {
-        "exclude": [
-          "posthog-react-native-session-replay"
-        ]
-      }
-    },
     "install": {
       "exclude": [
         "react",
@@ -51,6 +45,7 @@
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@posthog/api-client": "workspace:*",
     "@posthog/core": "workspace:*",
+    "@posthog/react-native-plugin": "^2.5.1",
     "@posthog/shared": "workspace:*",
     "@react-native-async-storage/async-storage": "^2.2.0",
     "@react-native-community/netinfo": "^12.0.1",
@@ -86,8 +81,7 @@
     "highlight.js": "^11.11.1",
     "nativewind": "^4.2.1",
     "phosphor-react-native": "^3.0.2",
-    "posthog-react-native": "^4.18.0",
-    "posthog-react-native-session-replay": "^1.6.0",
+    "posthog-react-native": "^4.66.3",
     "react": "catalog:",
     "react-dom": "catalog:",
     "react-native": "0.86.0",

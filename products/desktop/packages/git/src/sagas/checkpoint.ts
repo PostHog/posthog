@@ -14,11 +14,11 @@ const UNMERGED_INDEX_ERROR =
 const GIT_BUSY_ERROR =
   "Cannot capture checkpoint while git operation is in progress";
 const CHECKPOINT_AUTHOR = {
-  name: "PostHog Code",
+  name: "PostHog Desktop",
   email: "posthog-code@local",
 };
 
-export interface CheckpointState {
+interface CheckpointState {
   checkpointId: string;
   commit: string;
   head: string | null;

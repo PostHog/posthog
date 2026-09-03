@@ -10,15 +10,14 @@ import { QuotaImminentBanner } from '../../components/QuotaImminentBanner'
 import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
 import { creditsToUsd, formatCreditCount } from '../../utils/credits'
 import {
-    QUOTA_STATUS_STYLES,
-    type QuotaStatus,
-    daysUntilCapReached,
-    hasCreditLimit,
-    projectQuota,
-    splitProjectedPct,
-} from '../../utils/quotaProjection'
+    QUOTA_BACKFILL_CLASS,
+    QUOTA_OTHER_SCANNERS_CLASS,
+    QUOTA_STATUS_CLASS,
+    buildQuotaMeter,
+} from '../../utils/quotaContributions'
+import { QUOTA_STATUS_STYLES, type QuotaStatus, daysUntilCapReached } from '../../utils/quotaProjection'
 import { replayScannerLogic } from '../replayScannerLogic'
-import { QUOTA_METER_FREE_CLASS, QuotaMeterBar, QuotaMeterLegendItem, quotaMeterWidths } from './QuotaMeterBar'
+import { QuotaMeter } from './QuotaMeterBar'
 import { QuotaStatusLine } from './QuotaStatusLine'
 
 interface Props {
@@ -45,36 +44,57 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
     // The estimate already applies the quality filter and sampling rate backend-side.
     const projectedObservations = scannerEstimate?.estimated_observations_per_month ?? null
     const projectedCredits = scannerEstimate?.estimated_credits_per_month ?? null
-    const hasCap = hasCreditLimit(quota)
     const used = quota?.credits_used ?? 0
     const cap = quota?.credit_limit ?? 0
 
     // `other_enabled_scanners_monthly_credits` comes from the same estimate response as `projectedCredits`, so the
     // two are a consistent snapshot. Subtracting this scanner's stored estimate from the live fleet sum instead would
     // race the estimate-refresh cadence and double-count the scanner right after creating it.
-    const fleetMonthly = quota?.projected_monthly_credits ?? 0
     const othersMonthly = scannerEstimate?.other_enabled_scanners_monthly_credits ?? 0
-    // projectQuota wants a delta off the stored fleet total, so compute the new fleet total (others + this) and pass the difference.
-    const newFleetMonthly = projectedCredits !== null ? othersMonthly + projectedCredits : fleetMonthly
-    const projection = projectQuota(quota, newFleetMonthly - fleetMonthly)
-    const { status, percentLabel, resetsOn, usedPct, usedFreePct, projectedPct } = projection
+    const backfillCredits = scannerEstimate?.active_backfill_credits ?? 0
 
-    const effectiveStatus: QuotaStatus = projectedCredits === null ? 'safe' : status
+    // The proposed scanner replaces its own stored estimate, so this lists the fleet explicitly rather than
+    // adjusting the org total. Backfills stay a one-off; only the two scanner figures are rates.
+    const model = buildQuotaMeter(quota, [
+        {
+            key: 'backfills',
+            label: 'Backfills',
+            credits: backfillCredits,
+            kind: 'one-off',
+            barClass: QUOTA_BACKFILL_CLASS,
+        },
+        {
+            key: 'others',
+            label: 'Projected (other scanners)',
+            credits: othersMonthly,
+            kind: 'monthly-rate',
+            barClass: QUOTA_OTHER_SCANNERS_CLASS,
+        },
+        {
+            key: 'this-scanner',
+            label: 'Projected (this scanner)',
+            credits: projectedCredits ?? 0,
+            kind: 'monthly-rate',
+            // The model resolves this to the card's status colour, which depends on the projection it is part of.
+            barClass: QUOTA_STATUS_CLASS,
+            striped: true,
+        },
+    ])
+    const { projection, periodEndPct, hasCap } = model
+    const { resetsOn } = projection
+    const newFleetMonthly = othersMonthly + (projectedCredits ?? 0)
+
+    // Nothing proposed yet, so the forecast isn't a verdict on this scanner.
+    const effectiveStatus: QuotaStatus = projectedCredits === null ? 'safe' : model.status
     const styles = QUOTA_STATUS_STYLES[effectiveStatus]
 
     // No estimate means the projection isn't about the scanner being edited.
     const imminentDays = projectedCredits !== null ? daysUntilCapReached(projection) : null
 
-    const { thisScannerPct, othersPct } = splitProjectedPct(projectedPct, projectedCredits ?? 0, othersMonthly)
-    const [freeWidth, billedWidth, othersWidth, thisWidth] = quotaMeterWidths(usedPct, usedFreePct, [
-        othersPct,
-        thisScannerPct,
-    ])
-
     const breakdown = (
         <div className="text-xs space-y-0.5">
             <div>
-                Spent this period: <strong>{formatCreditCount(used)}</strong>
+                Spent this billing period: <strong>{formatCreditCount(used)}</strong>
             </div>
             <div>
                 Projected from this scanner: <strong>~{formatCreditCount(projectedCredits ?? 0)}/month</strong>
@@ -82,6 +102,11 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
             <div>
                 Projected from other scanners: <strong>~{formatCreditCount(othersMonthly)}/month</strong>
             </div>
+            {backfillCredits > 0 && (
+                <div>
+                    Committed by active backfills: <strong>{formatCreditCount(backfillCredits)}</strong>
+                </div>
+            )}
             {hasCap && (
                 <div>
                     Monthly limit: <strong>{formatCreditCount(cap)}</strong>
@@ -103,7 +128,7 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
                 {hasCap && projectedCredits !== null && (
                     <Tooltip title={breakdown}>
                         <span className={`text-xs tabular-nums ${styles.text}`}>
-                            {percentLabel}%{' '}
+                            {periodEndPct}%{' '}
                             <span className="text-muted font-normal">by {resetsOn ?? 'period end'}</span>
                         </span>
                     </Tooltip>
@@ -158,33 +183,16 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
             {hasCap && projectedCredits !== null && (
                 <>
                     <Tooltip title={breakdown}>
-                        <QuotaMeterBar
-                            usedPct={usedPct}
-                            usedFreePct={usedFreePct}
-                            projected={[
-                                { pct: othersPct, barClass: 'bg-accent' },
-                                { pct: thisScannerPct, barClass: styles.bar, striped: true },
-                            ]}
-                            valueNow={percentLabel}
-                            label={`Projected ${percentLabel}% of the monthly spend limit by ${
-                                resetsOn ?? 'period end'
-                            }`}
-                        />
+                        <div>
+                            <QuotaMeter
+                                model={model}
+                                label={`Projected ${periodEndPct}% of the monthly spend limit by ${
+                                    resetsOn ?? 'period end'
+                                }`}
+                                limitLabel={`Spend limit · ${formatCreditCount(cap)}`}
+                            />
+                        </div>
                     </Tooltip>
-                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
-                        <QuotaMeterLegendItem barClass={QUOTA_METER_FREE_CLASS} width={freeWidth}>
-                            Free
-                        </QuotaMeterLegendItem>
-                        <QuotaMeterLegendItem width={billedWidth}>
-                            {freeWidth > 0 ? 'Billed' : 'Spent'}
-                        </QuotaMeterLegendItem>
-                        <QuotaMeterLegendItem barClass="bg-accent" width={othersWidth}>
-                            Projected (other scanners)
-                        </QuotaMeterLegendItem>
-                        <QuotaMeterLegendItem barClass={styles.bar} striped width={thisWidth}>
-                            Projected (this scanner)
-                        </QuotaMeterLegendItem>
-                    </div>
                 </>
             )}
 

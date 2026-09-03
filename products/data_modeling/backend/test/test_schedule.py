@@ -1,6 +1,6 @@
 import uuid
 from collections import Counter
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from posthog.test.base import BaseTest
@@ -490,6 +490,9 @@ class TestGetV2ScheduledDagIds:
         connect.assert_not_called()
 
 
+EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
+
+
 class TestAnchoredSpec:
     # anchored specs fire at t ≡ anchor (mod interval), t in minutes from Monday 00:00 UTC
     @pytest.mark.parametrize(
@@ -529,16 +532,22 @@ class TestAnchoredSpec:
         assert [(r.start, r.end) for r in calendar.hour] == [(2, 2)]
         assert [(r.start, r.end) for r in calendar.minute] == [(0, 0)]
 
-    def test_monthly_anchor_pins_time_but_keeps_hashed_day(self):
-        entity_id = uuid.uuid4()
-        spec = build_schedule_spec(entity_id, timedelta(days=30), anchor_minutes=150)
-        calendar = spec.calendars[0]
-        assert [(r.start, r.end) for r in calendar.hour] == [(2, 2)]
-        assert [(r.start, r.end) for r in calendar.minute] == [(30, 30)]
-        day = calendar.day_of_month[0].start
-        assert 1 <= day <= 28
-        again = build_schedule_spec(entity_id, timedelta(days=30), anchor_minutes=150)
-        assert again.calendars[0].day_of_month == calendar.day_of_month
+    def test_monthly_anchor_fires_on_the_source_30_day_grid(self):
+        # a 30-day warehouse source syncs on days where days_since_epoch % 30 == 0, so an
+        # anchored monthly tier has to land on that grid to read the sync it was pinned for
+        spec = build_schedule_spec(uuid.uuid4(), timedelta(days=30), anchor_minutes=150)
+        every, offset = spec.intervals[0].every, spec.intervals[0].offset
+        assert every == timedelta(days=30)
+        assert offset is not None  # a missing offset would drop the pin back to grid midnight
+        fires = [EPOCH + offset + n * every for n in range(6)]
+        assert {(fire - EPOCH).days % 30 for fire in fires} == {0}
+        assert {(fire.hour, fire.minute) for fire in fires} == {(2, 30)}
+
+    def test_monthly_ignores_the_anchors_day_component(self):
+        # a 30-day cycle has no fixed weekday, so Tuesday 02:30 can only mean 02:30
+        tuesday = build_schedule_spec(uuid.uuid4(), timedelta(days=30), anchor_minutes=1590)
+        time_only = build_schedule_spec(uuid.uuid4(), timedelta(days=30), anchor_minutes=150)
+        assert tuesday.intervals == time_only.intervals
 
     @pytest.mark.parametrize(
         "interval",

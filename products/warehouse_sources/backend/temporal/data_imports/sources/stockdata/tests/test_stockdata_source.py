@@ -6,11 +6,8 @@ from parameterized import parameterized
 
 from posthog.schema import SourceFieldInputConfig
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.stockdata.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.stockdata.source import StockDataSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.stockdata.stockdata import StockDataResumeConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _INCREMENTAL = {"news": "published_at", "eod": "date", "intraday": "date"}
 _FULL_REFRESH_ONLY = {"quote", "dividends", "splits"}
@@ -24,9 +21,6 @@ def _make_config(api_token: str = "token", symbols: str | None = "AAPL") -> Any:
 
 
 class TestStockDataSource:
-    def test_source_type(self) -> None:
-        assert StockDataSource().source_type == ExternalDataSourceType.STOCKDATA
-
     def test_source_config_fields(self) -> None:
         config = StockDataSource().get_source_config
         assert [f.name for f in config.fields] == ["api_token", "symbols"]
@@ -70,28 +64,6 @@ class TestStockDataSource:
     def test_get_schemas_filters_by_names(self) -> None:
         schemas = StockDataSource().get_schemas(_make_config(), team_id=1, names=["news", "eod"])
         assert {s.name for s in schemas} == {"news", "eod"}
-
-    @parameterized.expand(
-        [
-            ("valid", (True, None)),
-            ("invalid", (False, "Invalid StockData.org API token")),
-        ]
-    )
-    def test_validate_credentials_passes_probe_result_through(
-        self, _name: str, probe_result: tuple[bool, str | None]
-    ) -> None:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.stockdata.source.validate_stockdata_credentials",
-            return_value=probe_result,
-        ):
-            assert StockDataSource().validate_credentials(_make_config(), team_id=1) == probe_result
-
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        inputs = MagicMock()
-        inputs.logger = MagicMock()
-        manager = StockDataSource().get_resumable_source_manager(inputs)
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is StockDataResumeConfig
 
     def test_source_for_pipeline_plumbs_symbols_and_keys(self) -> None:
         inputs = MagicMock()

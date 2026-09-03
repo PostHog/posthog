@@ -1,5 +1,11 @@
 # Dockerfile for the base sandbox image.
 
+FROM golang:1.23 AS agent-shadow-builder
+
+WORKDIR /src
+COPY products/desktop/packages/agent-shadow/ ./
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /agent-shadow .
+
 FROM ubuntu:24.04
 
 # Set environment variables to prevent interactive prompts
@@ -40,6 +46,8 @@ RUN apt-get update && \
     redis-tools \
     # System libraries often needed by Python packages
     libssl-dev \
+    libcurl4-gnutls-dev \
+    libexpat1-dev \
     libffi-dev \
     libbz2-dev \
     libreadline-dev \
@@ -49,11 +57,26 @@ RUN apt-get update && \
     tk-dev \
     libxml2-dev \
     libxmlsec1-dev \
+    zlib1g-dev \
     # Other useful tools
     ca-certificates \
     gnupg \
     sudo \
     && rm -rf /var/lib/apt/lists/*
+
+ARG GIT_VERSION=2.49.1
+ARG GIT_SHA256=310831de967f1c8c5e8ff55f92807dea89f83dc3d3d2a5d16c209bd01a31def1
+RUN set -eux; \
+    curl -fsSL -o /tmp/git.tar.xz \
+      "https://www.kernel.org/pub/software/scm/git/git-${GIT_VERSION}.tar.xz"; \
+    echo "${GIT_SHA256}  /tmp/git.tar.xz" | sha256sum -c -; \
+    mkdir /tmp/git; \
+    tar -xf /tmp/git.tar.xz -C /tmp/git --strip-components=1; \
+    make -C /tmp/git prefix=/usr NO_GETTEXT=YesPlease NO_TCLTK=YesPlease -j"$(nproc)" all; \
+    make -C /tmp/git prefix=/usr NO_GETTEXT=YesPlease NO_TCLTK=YesPlease install; \
+    rm -rf /tmp/git /tmp/git.tar.xz; \
+    git --version; \
+    git help -a | grep -q '[[:space:]]backfill'
 
 # Install Node.js 24.x
 RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - && \
@@ -75,7 +98,7 @@ RUN UV_TOOL_BIN_DIR=/usr/local/bin uv tool install "ruff==${RUFF_VERSION}" && \
     ty --version
 
 # Install GitHub CLI without adding another apt repository refresh.
-ARG GH_CLI_VERSION=2.93.0
+ARG GH_CLI_VERSION=2.97.0
 RUN set -eux; \
     arch="$(dpkg --print-architecture)"; \
     curl -fsSL -o /tmp/gh.deb \
@@ -162,6 +185,9 @@ RUN chmod +x /opt/posthog/bin/git
 # non-interactive `bash -c`; the agent's interactive shell needs this shim).
 COPY products/tasks/backend/sandbox/images/gh-guard.sh /opt/posthog/bin/gh
 RUN chmod +x /opt/posthog/bin/gh
+COPY products/tasks/backend/sandbox/images/cpu_billing_sampler.py /usr/local/bin/posthog-cpu-billing-sampler
+RUN chmod +x /usr/local/bin/posthog-cpu-billing-sampler
+COPY --from=agent-shadow-builder /agent-shadow /usr/local/bin/agent-shadow
 ENV PATH="/opt/posthog/bin:${PATH}"
 
 # This is required for the Claude Code SDK to allow --dangerously-skip-permissions as the root user

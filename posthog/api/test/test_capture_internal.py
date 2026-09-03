@@ -120,16 +120,14 @@ class TestNormalizeOptionsAndProperties(SimpleTestCase):
             "options": {"cookieless_mode": True, "disable_skew_correction": True, "product_tour_id": "tour-1"},
             "properties": {"some_prop": "val"},
         }
-        options, sid, wid, props = _normalize_options_and_properties(
-            ev, process_person_profile=True, event_source="test"
-        )
-        assert options["cookieless_mode"] is True
-        assert options["disable_skew_correction"] is True
-        assert options["product_tour_id"] == "tour-1"
-        assert "process_person_profile" not in options
-        assert sid is None
-        assert wid is None
-        assert props == {"some_prop": "val"}
+        parts = _normalize_options_and_properties(ev, process_person_profile=True, event_source="test")
+        assert parts.options["cookieless_mode"] is True
+        assert parts.options["disable_skew_correction"] is True
+        assert parts.options["product_tour_id"] == "tour-1"
+        assert "process_person_profile" not in parts.options
+        assert parts.session_id is None
+        assert parts.window_id is None
+        assert parts.properties == {"some_prop": "val"}
 
     def test_legacy_properties_lifted_and_stripped(self) -> None:
         ev: dict[str, Any] = {
@@ -143,29 +141,27 @@ class TestNormalizeOptionsAndProperties(SimpleTestCase):
                 "keep_me": 42,
             },
         }
-        options, sid, wid, props = _normalize_options_and_properties(
-            ev, process_person_profile=True, event_source="test"
-        )
-        assert options["cookieless_mode"] is True
-        assert options["disable_skew_correction"] is True
-        assert options["product_tour_id"] == "tour-2"
-        assert sid == "sess-1"
-        assert wid == "win-1"
-        assert "$cookieless_mode" not in props
-        assert "$ignore_sent_at" not in props
-        assert "$product_tour_id" not in props
-        assert "$process_person_profile" not in props
-        assert "$session_id" not in props
-        assert "$window_id" not in props
-        assert props["keep_me"] == 42
+        parts = _normalize_options_and_properties(ev, process_person_profile=True, event_source="test")
+        assert parts.options["cookieless_mode"] is True
+        assert parts.options["disable_skew_correction"] is True
+        assert parts.options["product_tour_id"] == "tour-2"
+        assert parts.session_id == "sess-1"
+        assert parts.window_id == "win-1"
+        assert "$cookieless_mode" not in parts.properties
+        assert "$ignore_sent_at" not in parts.properties
+        assert "$product_tour_id" not in parts.properties
+        assert "$process_person_profile" not in parts.properties
+        assert "$session_id" not in parts.properties
+        assert "$window_id" not in parts.properties
+        assert parts.properties["keep_me"] == 42
 
     def test_legacy_alias_disable_skew_adjustment_stripped(self) -> None:
         ev: dict[str, Any] = {
             "properties": {"disable_skew_adjustment": True, "other": 1},
         }
-        options, _, _, props = _normalize_options_and_properties(ev, process_person_profile=True, event_source="test")
-        assert options["disable_skew_correction"] is True
-        assert "disable_skew_adjustment" not in props
+        parts = _normalize_options_and_properties(ev, process_person_profile=True, event_source="test")
+        assert parts.options["disable_skew_correction"] is True
+        assert "disable_skew_adjustment" not in parts.properties
 
     def test_explicit_wins_over_legacy_on_conflict(self) -> None:
         ev: dict[str, Any] = {
@@ -173,11 +169,11 @@ class TestNormalizeOptionsAndProperties(SimpleTestCase):
             "session_id": "explicit-sess",
             "properties": {"$cookieless_mode": True, "$session_id": "legacy-sess"},
         }
-        options, sid, _, props = _normalize_options_and_properties(ev, process_person_profile=True, event_source="test")
-        assert options["cookieless_mode"] is False
-        assert sid == "explicit-sess"
-        assert "$cookieless_mode" not in props
-        assert "$session_id" not in props
+        parts = _normalize_options_and_properties(ev, process_person_profile=True, event_source="test")
+        assert parts.options["cookieless_mode"] is False
+        assert parts.session_id == "explicit-sess"
+        assert "$cookieless_mode" not in parts.properties
+        assert "$session_id" not in parts.properties
 
     def test_unknown_option_key_raises(self) -> None:
         ev: dict[str, Any] = {"options": {"bogus_key": True}, "properties": {}}
@@ -187,23 +183,21 @@ class TestNormalizeOptionsAndProperties(SimpleTestCase):
 
     def test_process_person_profile_false_forces_option(self) -> None:
         ev: dict[str, Any] = {"properties": {}}
-        options, _, _, _ = _normalize_options_and_properties(ev, process_person_profile=False, event_source="test")
-        assert options["process_person_profile"] is False
+        parts = _normalize_options_and_properties(ev, process_person_profile=False, event_source="test")
+        assert parts.options["process_person_profile"] is False
 
     def test_process_person_profile_true_leaves_unset(self) -> None:
         ev: dict[str, Any] = {"properties": {}}
-        options, _, _, _ = _normalize_options_and_properties(ev, process_person_profile=True, event_source="test")
-        assert "process_person_profile" not in options
+        parts = _normalize_options_and_properties(ev, process_person_profile=True, event_source="test")
+        assert "process_person_profile" not in parts.options
 
     def test_no_options_when_all_empty_and_ppp_true(self) -> None:
         ev: dict[str, Any] = {"properties": {"keep": 1}}
-        options, sid, wid, props = _normalize_options_and_properties(
-            ev, process_person_profile=True, event_source="test"
-        )
-        assert options == {}
-        assert sid is None
-        assert wid is None
-        assert props == {"keep": 1}
+        parts = _normalize_options_and_properties(ev, process_person_profile=True, event_source="test")
+        assert parts.options == {}
+        assert parts.session_id is None
+        assert parts.window_id is None
+        assert parts.properties == {"keep": 1}
 
     def test_caller_input_not_mutated(self) -> None:
         original_props = {"$session_id": "s1", "keep": 1}
@@ -234,9 +228,9 @@ class TestNormalizeOptionsAndProperties(SimpleTestCase):
             "properties": {},
         }
         before = CAPTURE_V1_OPTION_CONFLICT.labels(event_source="ppp_test", field="process_person_profile")._value.get()
-        options, _, _, _ = _normalize_options_and_properties(ev, process_person_profile=False, event_source="ppp_test")
+        parts = _normalize_options_and_properties(ev, process_person_profile=False, event_source="ppp_test")
         after = CAPTURE_V1_OPTION_CONFLICT.labels(event_source="ppp_test", field="process_person_profile")._value.get()
-        assert options["process_person_profile"] is False
+        assert parts.options["process_person_profile"] is False
         assert after == before + 1
 
 

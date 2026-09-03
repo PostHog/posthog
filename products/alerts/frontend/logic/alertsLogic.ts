@@ -39,6 +39,7 @@ export interface alertsLogicValues {
     }
     alertsResponseLoading: boolean
     alertsSortedByState: AlertType[]
+    deletedAlertIds: Set<string>
     deletingAlertIds: Set<string>
     filters: AlertsFilters
     isFiltering: boolean
@@ -87,6 +88,9 @@ export interface alertsLogicActions {
             results: AlertType[]
         }
         payload?: any
+    }
+    removeAlertFromList: (alertId: string) => {
+        alertId: string
     }
     setAlertDeleting: (
         alertId: string,
@@ -137,6 +141,7 @@ export const alertsLogic = kea<alertsLogicType>([
         setAlertToggling: (alertId: string, isToggling: boolean) => ({ alertId, isToggling }),
         deleteAlert: (alert: AlertType) => ({ alert }),
         setAlertDeleting: (alertId: string, isDeleting: boolean) => ({ alertId, isDeleting }),
+        removeAlertFromList: (alertId: string) => ({ alertId }),
         toggleAlertEnabled: (alert: AlertType) => ({ alert }),
         updateAlertInList: (alert: AlertType) => ({ alert }),
     }),
@@ -149,6 +154,13 @@ export const alertsLogic = kea<alertsLogicType>([
                     ...state,
                     results: state.results.map((currentAlert) => (currentAlert.id === alert.id ? alert : currentAlert)),
                 }),
+                removeAlertFromList: (state, { alertId }) => {
+                    const results = state.results.filter((alert) => alert.id !== alertId)
+                    if (results.length === state.results.length) {
+                        return state
+                    }
+                    return { results, count: Math.max(0, state.count - 1) }
+                },
             },
         ],
         page: [
@@ -169,6 +181,12 @@ export const alertsLogic = kea<alertsLogicType>([
                     }
                     return nextState
                 },
+            },
+        ],
+        deletedAlertIds: [
+            new Set<string>(),
+            {
+                removeAlertFromList: (state, { alertId }) => new Set(state).add(alertId),
             },
         ],
         togglingAlertIds: [
@@ -210,7 +228,14 @@ export const alertsLogic = kea<alertsLogicType>([
                         ...(search ? { search } : {}),
                         ...(values.filters.createdBy !== 'All users' ? { created_by: values.filters.createdBy } : {}),
                     })
-                    return { results: response.results, count: response.count ?? response.results.length }
+                    const results = response.results.filter((alert) => !values.deletedAlertIds.has(alert.id))
+                    return {
+                        results,
+                        count: Math.max(
+                            0,
+                            (response.count ?? response.results.length) - (response.results.length - results.length)
+                        ),
+                    }
                 },
             },
         ],
@@ -284,6 +309,7 @@ export const alertsLogic = kea<alertsLogicType>([
             actions.setAlertDeleting(alert.id, true)
             try {
                 await api.alerts.delete(alert.id)
+                actions.removeAlertFromList(alert.id)
                 actions.loadAlerts()
                 lemonToast.success(`${alert.name || 'Unnamed alert'} has been deleted`)
             } catch {

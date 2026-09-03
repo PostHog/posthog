@@ -50,16 +50,20 @@ describe('buildInsertCommands', () => {
         expect(insightLabels).toEqual(['Trend', 'Funnel', 'Retention', 'Paths', 'Stickiness', 'Lifecycle'])
     })
 
-    it('renders Products as the last category, merging caller-supplied product commands', () => {
+    it('renders Products last, sorting caller-supplied product commands in by label', () => {
         // Grouping is first-occurrence order, so a command inserted in the wrong array
         // silently pulls the Products group up the menu.
-        const { commands } = build([{ key: 'product-flag', label: 'Feature flag', category: 'Products', run: noop }])
+        const { commands } = build([
+            { key: 'product-survey', label: 'Survey', category: 'Products', run: noop },
+            { key: 'product-flag', label: 'Feature flag', category: 'Products', run: noop },
+        ])
         const categories = Object.keys(groupInsertCommandsByCategory(commands))
 
         expect(categories[categories.length - 1]).toEqual('Products')
         expect(groupInsertCommandsByCategory(commands)['Products'].map((command) => command.label)).toEqual([
-            'Session recordings',
             'Feature flag',
+            'Session recordings',
+            'Survey',
         ])
     })
 })

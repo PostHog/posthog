@@ -323,6 +323,17 @@ function rectsOverlap(a: Rect, b: Rect, gap: number): boolean {
     return a.left < b.right + gap && a.right + gap > b.left && a.top < b.bottom + gap && a.bottom + gap > b.top
 }
 
+/** Whether a candidate's anchor sits inside the plot area along the value axis. A bounded or pinned
+ *  `valueDomain` truncates the drawn line or bar, but a label is DOM-positioned straight off the
+ *  scale, so without this an out-of-range point still prints its number over the title and legend.
+ *  Inclusive at both edges, so a value sitting exactly on the bound keeps its label. */
+function withinPlotArea(c: Candidate, dimensions: ChartDimensions, isHorizontal: boolean): boolean {
+    if (isHorizontal) {
+        return c.x >= dimensions.plotLeft && c.x <= dimensions.plotLeft + dimensions.plotWidth
+    }
+    return c.y >= dimensions.plotTop && c.y <= dimensions.plotTop + dimensions.plotHeight
+}
+
 function fitsWithinWrapper(c: Candidate, above: boolean, dimensions: ChartDimensions, isHorizontal: boolean): boolean {
     if (isHorizontal) {
         const left = above ? c.x : c.x - c.width
@@ -467,7 +478,7 @@ export function ValueLabels({
                         isHorizontal,
                         mode,
                         isPercent,
-                    }),
+                    }).filter((c) => withinPlotArea(c, dimensions, isHorizontal)),
                     dimensions,
                     isHorizontal
                 ),

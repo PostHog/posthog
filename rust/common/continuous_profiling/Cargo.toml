@@ -8,7 +8,6 @@ workspace = true
 
 [dependencies]
 envconfig = { workspace = true }
-pyroscope = "0.5"
-pyroscope_pprofrs = "0.2"
+pyroscope = { version = "2", features = ["backend-pprof-rs", "backend-jemalloc"] }
 thiserror = { workspace = true }
 tracing = { workspace = true }

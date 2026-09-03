@@ -4,11 +4,12 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import React, { useState } from 'react'
 
+import * as heartPng from '@posthog/brand/hoggies/png/heart'
 import { IconCheck, IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
-import { HeartHog } from 'lib/components/hedgehogs'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -52,6 +53,8 @@ type PlanCardProps = {
     highlight?: boolean
     hogPosition?: 'top-right' | 'top-left'
 }
+
+const HedgehogHeart = pngHoggie(heartPng)
 
 // Retention differs per product: analytics is measured in years, session replay in months. Billing
 // supplies the unit ('year(s)' | 'month(s)' | 'day(s)'), so format from it rather than assuming years.
@@ -130,7 +133,7 @@ export const PlanCard: React.FC<PlanCardProps> = ({ planData, product, highlight
     return (
         <div className="relative" onMouseEnter={() => setIsHovering(true)} onMouseLeave={() => setIsHovering(false)}>
             {!cardDisabled && (
-                <HeartHog
+                <HedgehogHeart
                     width="100"
                     height="100"
                     className={clsx(

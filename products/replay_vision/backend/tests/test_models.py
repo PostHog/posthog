@@ -1,8 +1,9 @@
 from datetime import timedelta
 
-from posthog.test.base import BaseTest
+from posthog.test.base import APIBaseTest, BaseTest
 
-from django.db import IntegrityError
+from django.core.exceptions import ValidationError
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -19,7 +20,7 @@ def _make_scanner(team, **overrides) -> ReplayScanner:
         "name": "my-scanner",
         "scanner_type": ScannerType.MONITOR,
         "scanner_config": {"prompt": "test"},
-        "model": ScannerModel.GEMINI_3_6_FLASH,
+        "model": ScannerModel.GEMINI_3_7_FLASH,
     }
     defaults.update(overrides)
     return ReplayScanner.objects.create(**defaults)
@@ -52,7 +53,7 @@ class TestReplayScanner(BaseTest):
             name="shared",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "test"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
         )
 
     def test_str_includes_name_and_type(self) -> None:
@@ -136,12 +137,19 @@ class TestReplayScanner(BaseTest):
     def test_reenabling_resets_sweep_watermark(self, _label: str, update_fields: list[str] | None) -> None:
         # Without the reset, a re-enabled scanner backfills every session since it was disabled.
         stale = timezone.now() - timedelta(days=21)
-        scanner = self._create_scanner(enabled=False, last_swept_at=stale, last_seen_session_id="sess-tie")
+        scanner = self._create_scanner(
+            enabled=False,
+            last_swept_at=stale,
+            last_seen_session_id="sess-tie",
+            deep_swept_through=stale,
+        )
         scanner.enabled = True
         scanner.save(update_fields=update_fields)
         scanner.refresh_from_db()
         self.assertGreater(scanner.last_swept_at, timezone.now() - timedelta(hours=1))
         self.assertEqual(scanner.last_seen_session_id, "")
+        # The deep pass sweeps from here to last_swept_at, so a stale value would cover the whole gap.
+        self.assertEqual(scanner.deep_swept_through, scanner.last_swept_at)
 
     @parameterized.expand(
         [
@@ -153,7 +161,11 @@ class TestReplayScanner(BaseTest):
     def test_watermark_is_kept_unless_reenabled(self, label: str, enabled_before: bool, enabled_after: bool) -> None:
         stale = timezone.now() - timedelta(days=21)
         scanner = self._create_scanner(
-            name=label, enabled=enabled_before, last_swept_at=stale, last_seen_session_id="sess-tie"
+            name=label,
+            enabled=enabled_before,
+            last_swept_at=stale,
+            last_seen_session_id="sess-tie",
+            deep_swept_through=stale,
         )
         scanner.enabled = enabled_after
         scanner.description = "touched"
@@ -161,6 +173,24 @@ class TestReplayScanner(BaseTest):
         scanner.refresh_from_db()
         self.assertEqual(scanner.last_swept_at, stale)
         self.assertEqual(scanner.last_seen_session_id, "sess-tie")
+        self.assertEqual(scanner.deep_swept_through, stale)
+
+    def test_full_save_does_not_clobber_sweep_owned_columns(self) -> None:
+        # A concurrent sweep stamps these via targeted updates; a full save from a stale
+        # in-memory instance (any API PATCH) must not write them back to their old values.
+        scanner = self._create_scanner()
+        watermark = timezone.now() - timedelta(days=3)
+        stamp = timezone.now() - timedelta(days=10)
+        ReplayScanner.objects.filter(pk=scanner.pk).update(
+            last_swept_at=watermark, last_seen_session_id="sess-tie", limit_notified_period_start=stamp
+        )
+        scanner.name = "renamed during a sweep"
+        scanner.save()
+        scanner.refresh_from_db()
+        self.assertEqual(scanner.name, "renamed during a sweep")
+        self.assertEqual(scanner.last_swept_at, watermark)
+        self.assertEqual(scanner.last_seen_session_id, "sess-tie")
+        self.assertEqual(scanner.limit_notified_period_start, stamp)
 
 
 class TestReplayObservation(BaseTest):
@@ -198,7 +228,7 @@ class TestReplayObservation(BaseTest):
             name="other-scanner",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "test"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
         )
         self._create_observation(scanner_a, session_id="shared-session")
         self._create_observation(scanner_b, session_id="shared-session")
@@ -265,7 +295,7 @@ class TestReplayObservation(BaseTest):
             name="doomed",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "test"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
         )
         self._create_observation(scanner, session_id="doomed-session")
         scanner_id = scanner.id
@@ -298,3 +328,81 @@ class TestReplayObservation(BaseTest):
         scanner.save()
         obs.refresh_from_db()
         self.assertEqual(obs.scanner_snapshot["scanner_config"], {"prompt": "original"})
+
+
+class TestScannerCreditLimit(APIBaseTest):
+    def _scanner(self, **kwargs: object) -> ReplayScanner:
+        return ReplayScanner.objects.create(
+            team=self.team,
+            name=f"limit-scanner-{ReplayScanner.objects.count()}",
+            scanner_type=ScannerType.MONITOR,
+            scanner_config={"prompt": "p"},
+            model=ScannerModel.GEMINI_3_7_FLASH,
+            **kwargs,
+        )
+
+    def test_defaults_to_none(self) -> None:
+        assert self._scanner().credit_limit is None
+
+    @parameterized.expand([("zero", 0), ("negative", -5)])
+    def test_full_clean_rejects_non_positive(self, _name: str, limit: int) -> None:
+        scanner = ReplayScanner(
+            team=self.team,
+            name="limit-validator-scanner",
+            scanner_type=ScannerType.MONITOR,
+            scanner_config={"prompt": "p"},
+            model=ScannerModel.GEMINI_3_7_FLASH,
+            credit_limit=limit,
+        )
+        with self.assertRaises(ValidationError) as ctx:
+            scanner.full_clean()
+        assert "credit_limit" in ctx.exception.message_dict
+
+    @parameterized.expand([("zero", 0), ("negative", -5)])
+    def test_database_rejects_non_positive_limit(self, _name: str, limit: int) -> None:
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                ReplayScanner.objects.filter(pk=self._scanner().pk).update(credit_limit=limit)
+
+    def test_database_accepts_null_limit_on_update(self) -> None:
+        scanner = self._scanner(credit_limit=10)
+        ReplayScanner.objects.filter(pk=scanner.pk).update(credit_limit=None)
+        scanner.refresh_from_db()
+        assert scanner.credit_limit is None
+
+    def test_changing_the_limit_does_not_bump_scanner_version_or_stale_the_estimate(self) -> None:
+        scanner = self._scanner()
+        ReplayScanner.objects.filter(pk=scanner.pk).update(
+            estimated_monthly_observations=100, estimated_at=timezone.now()
+        )
+        scanner.refresh_from_db()
+        version_before, estimated_at_before = scanner.scanner_version, scanner.estimated_at
+
+        scanner.credit_limit = 500
+        scanner.save()
+        scanner.refresh_from_db()
+
+        assert scanner.scanner_version == version_before
+        assert scanner.estimated_at == estimated_at_before
+
+
+class TestTargetedRecordingsQuery(BaseTest):
+    def test_no_targeting_clears_a_stale_exposure_filter_in_the_query(self) -> None:
+        # A query saved before the write-guard (or after targeting was removed) can still carry an
+        # experiment_exposure that nothing access-checks. Since the sweep runs the derived query as the
+        # creator, an untouched blob would run an unauthorized exposure filter — so it must be cleared.
+        scanner = _make_scanner(
+            self.team,
+            query={"kind": "RecordingsQuery", "experiment_exposure": {"experiment_id": 999}},
+            experiment_targeting=None,
+        )
+        assert scanner.targeted_recordings_query().experiment_exposure is None
+
+    def test_targeting_sets_the_exposure_filter(self) -> None:
+        scanner = _make_scanner(
+            self.team, query={"kind": "RecordingsQuery"}, experiment_targeting={"experiment_id": 42, "variant": "test"}
+        )
+        exposure = scanner.targeted_recordings_query().experiment_exposure
+        assert exposure is not None
+        assert exposure.experiment_id == 42
+        assert exposure.variant == "test"

@@ -2,6 +2,11 @@ import '@testing-library/jest-dom'
 
 import { cleanup, render } from '@testing-library/react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
+import { initKeaTests } from '~/test/init'
+
 import { SignalReport, SignalReportStatus } from '../../types'
 import { ReportCard } from './ReportCard'
 
@@ -29,7 +34,33 @@ function makeReport(overrides: Partial<SignalReport> = {}): SignalReport {
 }
 
 describe('ReportCard', () => {
+    beforeEach(() => {
+        initKeaTests()
+        featureFlagLogic.mount()
+    })
     afterEach(cleanup)
+
+    // The redesign makes the linked row the only way in and leaves the status / actionability chips
+    // to the section headers; the legacy list keeps Dismiss, the Review button, and the chips.
+    it.each([[true], [false]])(
+        'with the redesign flag %p shows Review and Dismiss and chips only on the legacy list',
+        (redesign) => {
+            const legacyChrome = !redesign
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_REDESIGN], {
+                [FEATURE_FLAGS.INBOX_REDESIGN]: redesign,
+            })
+            const report = makeReport({
+                status: SignalReportStatus.CANDIDATE,
+                actionability: 'immediately_actionable',
+            })
+            const { queryByText } = render(<ReportCard report={report} />)
+            expect(queryByText('Review') !== null).toBe(legacyChrome)
+            expect(queryByText('View report')).toBeNull()
+            expect(queryByText('Dismiss') !== null).toBe(legacyChrome)
+            expect(queryByText('Queued') !== null).toBe(legacyChrome)
+            expect(queryByText('Actionable') !== null).toBe(legacyChrome)
+        }
+    )
 
     it('links the card to the report detail by default', () => {
         const { container } = render(<ReportCard report={makeReport()} />)

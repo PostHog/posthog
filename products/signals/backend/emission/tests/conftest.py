@@ -18,6 +18,10 @@ MOCK_GITHUB_ISSUE_RECORD: dict = {
     "updated_at": "2025-06-11T09:15:00Z",
     "comments": 3,
     "locked": False,
+    "author_association": "CONTRIBUTOR",
+    # The warehouse stores GitHub's nested user object as a JSON string. Trimmed to the key the
+    # emitter reads plus ones it must leave behind.
+    "user": '{"login": "octocat", "id": 583231, "type": "User", "avatar_url": "https://example.com/a.png"}',
 }
 
 

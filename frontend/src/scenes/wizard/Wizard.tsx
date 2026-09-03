@@ -1,9 +1,9 @@
 import { useActions, useValues } from 'kea'
 
+import * as heartPng from '@posthog/brand/hoggies/png/heart'
 import * as shockedPng from '@posthog/brand/hoggies/png/shocked'
 
 import { pngHoggie } from 'lib/brand/hoggies'
-import { HeartHog } from 'lib/components/hedgehogs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
@@ -12,6 +12,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { wizardLogic } from './wizardLogic'
 
 const HedgehogShocked = pngHoggie(shockedPng)
+const HedgehogHeart = pngHoggie(heartPng)
 
 export const scene: SceneExport = {
     component: Wizard,
@@ -71,7 +72,7 @@ export function Wizard(): JSX.Element {
                     <>
                         <h1 className="text-3xl font-bold">Success!</h1>
                         <div className="max-w-60 mb-12">
-                            <HeartHog className="w-48 h-48" />
+                            <HedgehogHeart className="w-48 h-48" />
                         </div>
                         <p className="text-lg">You're all set! You can return to the PostHog setup wizard.</p>
                     </>

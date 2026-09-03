@@ -18,9 +18,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.factorial.
 # path segment. Each label is a stable release; newer versions add or drop response fields (which the
 # auto-inferred schema turns into columns) but keep the `/resources/<group>/<resource>` paths and the
 # `{"meta": ..., "data": [...]}` envelope our reads depend on. Ordered oldest → newest.
+#
+# `2026-07-01` serializes every resource id as an opaque string instead of an integer (ids outgrew the
+# safe 64-bit range). Our reads tolerate that: the primary key stays the `id` column (type-agnostic,
+# auto-inferred) and pagination already forwards the opaque `meta.end_cursor`, never the raw record id.
 FACTORIAL_HOST = "https://api.factorialhr.com"
 API_VERSION_2025_04_01 = "2025-04-01"
 API_VERSION_2026_04_01 = "2026-04-01"
+API_VERSION_2026_07_01 = "2026-07-01"
 
 
 def base_url(api_version: str) -> str:

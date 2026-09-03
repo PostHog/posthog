@@ -99,7 +99,7 @@ class TestSlackAttachments(SimpleTestCase):
         response.is_redirect = False
         response.status_code = 200
         response.headers = {"Content-Type": "text/html; charset=utf-8"}
-        with patch("posthog.temporal.ai.slack_app.attachments.requests.get", return_value=response):
+        with patch("posthog.temporal.ai.slack_app.attachments.slack_request", return_value=response):
             prepared = prepare_slack_file_artifacts([_slack_file()], "xoxb-token")
 
         assert prepared.artifacts == []

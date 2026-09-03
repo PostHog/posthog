@@ -59,6 +59,7 @@ MEMBER_TAGS: dict[str, str] = {
     "RevenueAnalyticsPropertyFilter": "revenue_analytics",
     "AccountCustomPropertyFilter": "account_custom_property",
     "WorkflowVariablePropertyFilter": "workflow_variable",
+    "BehavioralPropertyFilter": "behavioral",
 }
 
 # How many union sites each rewrite must hit. A mismatch means the schema changed

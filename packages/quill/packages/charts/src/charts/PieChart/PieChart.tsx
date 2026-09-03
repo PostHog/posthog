@@ -20,6 +20,7 @@ import { computePieLayout } from './computePieLayout'
 import type { PieLayout } from './computePieLayout'
 import { PieTooltip } from './PieTooltip'
 import { SliceLabels } from './SliceLabels'
+import type { SliceValueDisplay } from './SliceLabels'
 
 export interface PieChartConfig<Meta = unknown> {
     /** 0 = pie (default), 0.5 = donut. Clamped to [0, 0.95]. */
@@ -28,6 +29,10 @@ export interface PieChartConfig<Meta = unknown> {
     showValueOnSlice?: boolean
     /** Show the breakdown label above the slice. Default false. */
     showLabelOnSlice?: boolean
+    /** What the on-slice numeric line contains. Defaults to `'percent'` when `isPercent` is set,
+     *  else `'value'`. `'both'` renders `value (percent)` on one line. Gated by
+     *  `showValueOnSlice`, which stays the on/off switch for that line. */
+    sliceValueDisplay?: SliceValueDisplay
     /** Render slice values as percentages of total. Drives both axes-label-style formatting
      *  and the on-slice / tooltip formatting. */
     isPercent?: boolean
@@ -145,6 +150,7 @@ function PieChartInner<Meta = unknown>({
         innerRadiusRatio = 0,
         showValueOnSlice = true,
         showLabelOnSlice = false,
+        sliceValueDisplay,
         isPercent = false,
         hoverGrowth = DEFAULT_HOVER_GROWTH,
         hoverAnimationMs = DEFAULT_HOVER_ANIMATION_MS,
@@ -260,6 +266,7 @@ function PieChartInner<Meta = unknown>({
                     valueFormatter={valueFormatter}
                     showValueOnSlice={showValueOnSlice}
                     showLabelOnSlice={showLabelOnSlice}
+                    sliceValueDisplay={sliceValueDisplay}
                     minSlicePercentForLabel={minSlicePercentForLabel}
                     labelRadiusRatio={labelRadiusRatio}
                     isPercent={isPercent}

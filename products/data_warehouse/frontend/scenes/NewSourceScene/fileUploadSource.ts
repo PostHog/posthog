@@ -29,6 +29,17 @@ export const FILE_UPLOAD_FORMATS: { format: FileUploadFormat; label: string; key
     { format: 'parquet', label: 'Parquet file', keywords: ['parquet', 'pqt', 'columnar', 'upload'] },
 ]
 
+/**
+ * Identifier for one format's catalog tile, e.g. `FileUpload-csv`.
+ *
+ * The catalog tile and the analytics events both key off this, so a pick and the table it produced
+ * join on one value. There is no external data source row to join against instead — an upload
+ * becomes a self-managed table — so this string is the only link between the two halves.
+ */
+export function fileUploadSourceType(format: FileUploadFormat): string {
+    return `${FILE_UPLOAD_SOURCE_NAME}-${format}`
+}
+
 export function fileUploadSourceUrl(format: FileUploadFormat): string {
     const url = urls.dataWarehouseSourceNew(FILE_UPLOAD_SOURCE_NAME)
     return `${url}${url.includes('?') ? '&' : '?'}format=${format}`

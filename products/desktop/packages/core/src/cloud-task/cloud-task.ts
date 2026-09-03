@@ -3,6 +3,7 @@ import {
   ANALYTICS_SERVICE,
   type IAnalytics,
 } from "@posthog/platform/analytics";
+import { TRANSCRIPT_TAIL_WINDOW } from "@posthog/shared";
 import { inject, injectable, optional, preDestroy } from "inversify";
 import { CloudTaskEngine } from "./cloud-task-engine";
 import {
@@ -25,7 +26,14 @@ export class CloudTaskService extends CloudTaskEngine {
     @optional()
     mcpRelayExecutor: McpRelayExecutor | null = null,
   ) {
-    super({ auth, analytics, logger, mcpRelayExecutor });
+    // The desktop renderer pages older history in from `windowStart`.
+    super({
+      auth,
+      analytics,
+      logger,
+      mcpRelayExecutor,
+      transcriptTailWindow: TRANSCRIPT_TAIL_WINDOW,
+    });
   }
 
   @preDestroy()

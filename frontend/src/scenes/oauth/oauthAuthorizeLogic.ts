@@ -855,6 +855,14 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                     if (row.key === '*') {
                         return row.value === 'write' ? ['*'] : wildcardReadScopes(oauthApplication)
                     }
+                    // Write grants read too, but clients diff the granted `scope` against what they
+                    // asked for, so a missing `:read` reads as a partial grant. Spell both out when
+                    // the client asked for both, and only then: granting a half it never requested
+                    // is the same mismatch in the other direction.
+                    if (row.value === 'write') {
+                        const readScope = `${row.key}:read`
+                        return scopes.includes(readScope) ? [readScope, `${row.key}:write`] : [`${row.key}:write`]
+                    }
                     return [`${row.key}:${row.value}`]
                 })
                 // Also grant the required strings verbatim: collapsing read+write pairs above

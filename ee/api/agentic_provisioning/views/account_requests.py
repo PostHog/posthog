@@ -22,8 +22,9 @@ from ee.api.agentic_provisioning.analytics import capture_provisioning_event
 from ee.api.agentic_provisioning.authentication import CLIENT_NOT_REGISTERED_MESSAGE, ProvisioningAuthentication
 from ee.api.agentic_provisioning.constants import CODE_CHALLENGE_RE
 from ee.api.agentic_provisioning.exceptions import ProvisioningError
+from ee.api.agentic_provisioning.ratelimits import Budget, rate_limited
 from ee.api.agentic_provisioning.serializers import AccountRequestSerializer
-from ee.api.agentic_provisioning.throttling import CIMDRegistrationThrottle, enforce_partner_rate_limit
+from ee.api.agentic_provisioning.throttling import CIMDRegistrationThrottle
 from ee.api.agentic_provisioning.views.base import ProvisioningAPIView
 
 
@@ -34,6 +35,14 @@ class AccountRequestsView(ProvisioningAPIView):
     # region proxy and the request-id echo both need the parsed body alongside the partner.
     authenticates_in_handler = True
 
+    # charge="manual": the partner is only known mid-handler, and a partner refused
+    # the capability outright must keep its budget. The tier grid puts this at
+    # 10/20/50/100 per hour.
+    @rate_limited(
+        "account_requests",
+        budget=Budget(burst=5, per_hour=10),
+        charge="manual",
+    )
     def post(self, request: Request) -> Response:
         # --- Identify partner ---
         auth = ProvisioningAuthentication()
@@ -68,7 +77,7 @@ class AccountRequestsView(ProvisioningAPIView):
             capture_provisioning_event("account_request", "error", error_code="account_creation_disabled")
             raise ProvisioningError("forbidden", "Account creation is not enabled for this partner", status=403)
 
-        enforce_partner_rate_limit(partner, "account_requests")
+        self.charge_rate_limit(request, partner)
 
         # PKCE: capture code_challenge for later verification
         code_challenge = data["code_challenge"]

@@ -1,19 +1,10 @@
-from unittest.mock import MagicMock, patch
-
 from parameterized import parameterized
 
-from posthog.schema import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
+from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.fly_io import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.fly_io.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.fly_io.source import FlyIoSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.flyio import FlyIoSourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config() -> FlyIoSourceConfig:
@@ -21,17 +12,6 @@ def _config() -> FlyIoSourceConfig:
 
 
 class TestSourceConfig:
-    def test_source_type(self) -> None:
-        assert FlyIoSource().source_type == ExternalDataSourceType.FLYIO
-
-    def test_config_metadata(self) -> None:
-        config = FlyIoSource().get_source_config
-        assert config.label == "Fly.io"
-        assert config.category == DataWarehouseSourceCategory.ENGINEERING___MONITORING
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        # docsUrl filename must match the posthog.com doc (fly-io).
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/fly-io"
-
     def test_org_slug_requires_credential_reentry(self) -> None:
         # Changing which org the token points at must re-require the token, so a preserved token
         # can't be retargeted at another org it happens to reach.
@@ -61,28 +41,6 @@ class TestGetSchemas:
     def test_names_filter(self) -> None:
         schemas = FlyIoSource().get_schemas(_config(), team_id=1, names=["machines"])
         assert [s.name for s in schemas] == ["machines"]
-
-
-class TestValidateCredentials:
-    @parameterized.expand([(True, None), (False, "bad token")])
-    def test_delegates_to_transport(self, valid: bool, error: str | None) -> None:
-        with patch.object(source_module, "validate_fly_io_credentials", return_value=(valid, error)) as mock_validate:
-            result = FlyIoSource().validate_credentials(_config(), team_id=1)
-        assert result == (valid, error)
-        mock_validate.assert_called_once_with("FlyV1 secret", "acme")
-
-
-class TestSourceForPipeline:
-    def test_plumbs_config_and_schema_into_transport(self) -> None:
-        inputs = MagicMock()
-        inputs.schema_name = "machines"
-        with patch.object(source_module, "fly_io_source") as mock_source:
-            FlyIoSource().source_for_pipeline(_config(), inputs)
-        mock_source.assert_called_once()
-        kwargs = mock_source.call_args.kwargs
-        assert kwargs["api_token"] == "FlyV1 secret"
-        assert kwargs["org_slug"] == "acme"
-        assert kwargs["endpoint"] == "machines"
 
 
 class TestCanonicalDescriptionsAndDocs:

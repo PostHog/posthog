@@ -18,14 +18,15 @@
 //   - min / merged PR: the same bill divided by the week's merged-PR count (bots
 //     included — the merge population that triggered the spend).
 //   - est. Depot $: the product's tier-laddered estimate of that spend.
-//   - open→merge median: bots/drafts excluded upstream; coarse by design (draft +
-//     ready-for-review fused).
+//   - ready→merge median: time from ready-for-review to merge, bots/drafts excluded
+//     upstream. Falls back to the coarse open→merge median (draft + ready fused, and
+//     labelled as such) when the draft/ready transitions aren't synced.
 //   - re-run cycles: runs with run_attempt > 1 — the waste driver behind minutes.
 //
 // Data caveat: the runs/jobs warehouse tables are webhook-fed and do not backfill
 // a missed window, so a webhook outage undercounts the count-based rows (minutes,
 // $, re-runs) and the WoW delta absorbs the hole. The PR-snapshot rows (merge
-// count, open→merge median) are robust to gaps.
+// count, cycle-time median) are robust to gaps.
 
 const HOST = (process.env.POSTHOG_HOST || 'https://us.posthog.com').replace(/\/$/, '')
 const PROJECT_ID = process.env.POSTHOG_PROJECT_ID || ''
@@ -174,12 +175,18 @@ function tableRows(overview) {
         fmtInt
     )
     add('est. Depot $', overview.estimated_cost_usd, overview.estimated_cost_usd_prev, fmtUsd)
-    add(
-        'open→merge median',
-        overview.median_open_to_merge_seconds,
-        overview.median_open_to_merge_seconds_prev,
-        fmtLongDuration
-    )
+    // Cycle time reads ready→merge, which excludes time spent as a draft. Both windows have to carry
+    // it to compare like with like, so a repo without the issue-events sync (or a week that straddles
+    // its first sync) falls back to the coarse open→merge median, labelled as what it is.
+    const [cycleMetric, cycleCur, cyclePrev] =
+        overview.median_ready_to_merge_seconds != null && overview.median_ready_to_merge_seconds_prev != null
+            ? [
+                  'ready→merge median',
+                  overview.median_ready_to_merge_seconds,
+                  overview.median_ready_to_merge_seconds_prev,
+              ]
+            : ['open→merge median', overview.median_open_to_merge_seconds, overview.median_open_to_merge_seconds_prev]
+    add(cycleMetric, cycleCur, cyclePrev, fmtLongDuration)
     add('re-run cycles', overview.rerun_cycles, overview.rerun_cycles_prev, fmtInt)
     return rows
 }

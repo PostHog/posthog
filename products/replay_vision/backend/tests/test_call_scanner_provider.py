@@ -1,6 +1,7 @@
 from typing import Any, cast
 
 import pytest
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 from google.genai.errors import APIError
@@ -8,6 +9,7 @@ from pydantic import BaseModel
 
 from products.replay_vision.backend.temporal.activities.call_scanner_provider import (
     _maybe_create_video_cache,
+    _run_mission,
     _run_mission_attempts,
     _run_pass,
     _run_steps,
@@ -75,7 +77,53 @@ async def _run(client: _FakeClient, steps: list[MissionStep], dispatch: Any = la
         dispatch=dispatch,
         team_id=1,
         metric_labels=_LABELS,
+        trace_id="trace-1",
     )
+
+
+@pytest.mark.asyncio
+async def test_scanner_generations_include_team_attribution() -> None:
+    scanner = MagicMock()
+    scanner.mission_steps.return_value = []
+    snapshot = MagicMock()
+    snapshot.scanner_type.value = "monitor"
+    snapshot.model = "gemini-3-flash-preview"
+    snapshot.provider = "gemini"
+
+    with (
+        patch(
+            "products.replay_vision.backend.temporal.activities.call_scanner_provider.genai.AsyncClient"
+        ) as client_cls,
+        patch("products.replay_vision.backend.temporal.activities.call_scanner_provider.GoogleGenAIClient"),
+        patch(
+            "products.replay_vision.backend.temporal.activities.call_scanner_provider._maybe_create_video_cache",
+            new=AsyncMock(return_value=None),
+        ),
+        patch(
+            "products.replay_vision.backend.temporal.activities.call_scanner_provider._run_mission_attempts",
+            new=AsyncMock(return_value={}),
+        ),
+        patch(
+            "products.replay_vision.backend.temporal.activities.call_scanner_provider.build_events_index",
+            return_value={},
+        ),
+    ):
+        await _run_mission(
+            scanner=scanner,
+            snapshot=snapshot,
+            video_part=_VIDEO,
+            preamble_text="PRE",
+            team_id=42,
+            llm_inputs=MagicMock(),
+            trace_id="trace-1",
+        )
+
+    assert client_cls.call_args.kwargs["posthog_properties"] == {
+        "ai_product": "replay_vision",
+        "feature": "scanner",
+        "scanner_type": "monitor",
+        "team_id": 42,
+    }
 
 
 @pytest.mark.asyncio
@@ -134,6 +182,28 @@ async def test_tool_budget_exhaustion_forces_a_final_tool_free_answer() -> None:
     assert len(client.models.calls) == 8  # 7 tool turns + 1 forced answer
     assert client.models.calls[0]["config"].tools is not None  # tool offered during the loop
     assert client.models.calls[-1]["config"].tools is None  # tools removed on the forced turn
+
+
+@pytest.mark.asyncio
+async def test_cached_tool_budget_exhaustion_forces_an_inline_tool_free_answer() -> None:
+    # With the video cached, the forced final turn can't reuse the cache (Gemini rejects tools/tool_config alongside
+    # cached_content). It must run inline with no tool and the video + preamble re-supplied — otherwise every
+    # budget-exhausting cached scan hits a hard 400 and produces no observation.
+    steps = [MissionStep(name="core", instruction="c", response_model=_Core)]
+    responses = [_Resp(function_call=_fc("get_events_around", {"rec_t": 5})) for _ in range(7)]
+    responses.append(_Resp(text='{"verdict":"yes"}'))
+    client = _FakeClient(responses)
+    out = await _run(client, steps, dispatch=lambda fc: {"events": []}, cache_name="caches/abc")
+    assert out["core"].verdict == "yes"
+
+    cached_turn, forced_turn = client.models.calls[0], client.models.calls[-1]
+    assert cached_turn["config"].cached_content == "caches/abc"  # normal turns still use the cache
+    assert cached_turn["contents"][0] != _VIDEO  # video lives in the cache, not inline
+
+    assert forced_turn["config"].cached_content is None  # forced turn drops the cache...
+    assert forced_turn["config"].tools is None and forced_turn["config"].tool_config is None  # ...and offers no tool
+    assert forced_turn["contents"][0] == _VIDEO  # video + preamble re-supplied inline so context isn't lost
+    assert forced_turn["contents"][1].text == "PRE"
 
 
 @pytest.mark.asyncio
@@ -328,12 +398,25 @@ class TestStepConfig:
         assert config.tools is not None
         assert config.cached_content is None
         assert config.response_json_schema is not None
+        assert config.thinking_config is not None and config.thinking_config.include_thoughts is True
 
     def test_cached_path_references_the_cache_and_omits_tools(self) -> None:
         config = _step_config(MissionStep(name="core", instruction="c", response_model=_Core), cache_name="caches/abc")
         # Tools live in the cache; re-declaring them in the config alongside cached_content is rejected by Gemini.
         assert config.tools is None
         assert config.cached_content == "caches/abc"
+        assert config.response_json_schema is not None
+
+    @pytest.mark.parametrize("cache_name", [None, "caches/abc"])
+    def test_forced_turn_never_references_the_cache_or_sets_tool_config(self, cache_name: str | None) -> None:
+        # Gemini rejects a request that sets tools, tool_config, or system_instruction alongside cached_content with
+        # a hard 400. The forced final turn must run inline with the tool simply absent, even on a cached run.
+        config = _step_config(
+            MissionStep(name="core", instruction="c", response_model=_Core), cache_name=cache_name, allow_tools=False
+        )
+        assert config.tools is None
+        assert config.tool_config is None
+        assert config.cached_content is None
         assert config.response_json_schema is not None
 
 

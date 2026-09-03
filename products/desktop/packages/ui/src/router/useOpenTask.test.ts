@@ -1,14 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const navigateToChannelNewTask = vi.fn();
-const navigateToWebsiteNew = vi.fn();
-const navigateToCode = vi.fn();
+const navigateToNewTask = vi.fn();
 
 vi.mock("./navigationBridge", () => ({
   navigateToChannelNewTask: (...args: unknown[]) =>
     navigateToChannelNewTask(...args),
-  navigateToWebsiteNew: () => navigateToWebsiteNew(),
-  navigateToCode: () => navigateToCode(),
+  navigateToNewTask: () => navigateToNewTask(),
   navigateToChannelTask: vi.fn(),
   navigateToTaskDetail: vi.fn(),
   navigateToFolderSettings: vi.fn(),
@@ -38,15 +36,9 @@ describe("openTaskInput channel scoping", () => {
 
   // Without the channels layout nothing sets a current channel, so creates must
   // land where they always did rather than being pulled into a channel.
-  it("routes to Code when no channel is current", () => {
+  it("opens the unscoped new task when no channel is current", () => {
     openTaskInput();
-    expect(navigateToCode).toHaveBeenCalledTimes(1);
-    expect(navigateToChannelNewTask).not.toHaveBeenCalled();
-  });
-
-  it("still honours an explicit website space when no channel is current", () => {
-    openTaskInput({ space: "website" });
-    expect(navigateToWebsiteNew).toHaveBeenCalledTimes(1);
+    expect(navigateToNewTask).toHaveBeenCalledTimes(1);
     expect(navigateToChannelNewTask).not.toHaveBeenCalled();
   });
 
@@ -54,7 +46,7 @@ describe("openTaskInput channel scoping", () => {
     useCurrentChannelStore.setState({ currentChannelId: "chan-1" });
     openTaskInput();
     expect(navigateToChannelNewTask).toHaveBeenCalledWith("chan-1");
-    expect(navigateToCode).not.toHaveBeenCalled();
+    expect(navigateToNewTask).not.toHaveBeenCalled();
   });
 
   it("carries prefill into the channel route", () => {
@@ -71,22 +63,22 @@ describe("openTaskInput channel scoping", () => {
     expect(navigateToChannelNewTask).toHaveBeenCalledWith("chan-9");
   });
 
-  // useArchiveTask and friends pass space: "code" deliberately; a scoped
-  // channel silently hijacking that is how a create lands in the wrong place.
-  it("honours an explicit Code space even while a channel is scoped", () => {
+  // useArchiveTask and friends pass `unscoped` deliberately; a scoped channel
+  // silently hijacking that is how a create lands in the wrong place.
+  it("files nowhere when the caller asks, even while a channel is scoped", () => {
     useCurrentChannelStore.setState({ currentChannelId: "chan-1" });
-    openTaskInput({ space: "code" });
-    expect(navigateToCode).toHaveBeenCalledTimes(1);
+    openTaskInput({ unscoped: true });
+    expect(navigateToNewTask).toHaveBeenCalledTimes(1);
     expect(navigateToChannelNewTask).not.toHaveBeenCalled();
   });
 
   // The auth side effects call resetCurrentChannel() before openTaskInput() so
   // a project switch can't file the next task into the old project's channel.
-  it("routes to Code again once the channel is reset", () => {
+  it("opens the unscoped new task again once the channel is reset", () => {
     useCurrentChannelStore.setState({ currentChannelId: "chan-1" });
     resetCurrentChannel();
     openTaskInput();
-    expect(navigateToCode).toHaveBeenCalledTimes(1);
+    expect(navigateToNewTask).toHaveBeenCalledTimes(1);
     expect(navigateToChannelNewTask).not.toHaveBeenCalled();
   });
 

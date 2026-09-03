@@ -2,45 +2,25 @@ import datetime as dt
 from typing import Annotated, Any, TypedDict
 from uuid import UUID
 
-from pydantic import BaseModel, Field, ValidationError, model_validator
-from temporalio.exceptions import ApplicationError
+from pydantic import BaseModel, Field, model_validator
 
 from products.replay_vision.backend.models.replay_observation import ObservationTrigger
 from products.replay_vision.backend.models.replay_scanner import ScannerType
-from products.replay_vision.backend.temporal.constants import MAX_SESSION_ID_LENGTH
+from products.replay_vision.backend.session_limits import MAX_SESSION_ID_LENGTH
 from products.replay_vision.backend.temporal.scanners.base import SignalFinding
 from products.replay_vision.backend.temporal.scanners.classifier import ClassifierOutput
 from products.replay_vision.backend.temporal.scanners.monitor import MonitorOutput
 from products.replay_vision.backend.temporal.scanners.scorer import ScorerOutput
 from products.replay_vision.backend.temporal.scanners.summarizer import SummarizerOutput
+from products.replay_vision.backend.temporal.snapshots import (
+    BackfillScannerSnapshot as BackfillScannerSnapshot,
+    ScannerSnapshot as ScannerSnapshot,
+)
 
 AnyScannerOutput = Annotated[
     ClassifierOutput | MonitorOutput | ScorerOutput | SummarizerOutput,
     Field(discriminator="scanner_type"),
 ]
-
-
-class ScannerSnapshot(BaseModel, frozen=True):
-    """Frozen view of a `ReplayScanner` at observation-create time, persisted into `ReplayObservation.scanner_snapshot`."""
-
-    name: str
-    scanner_type: ScannerType
-    scanner_version: int = Field(ge=1)
-    # Plain strings, not live enums: retiring a ScannerModel/ScannerProvider member must not break old-row loads.
-    model: str
-    provider: str
-    emits_signals: bool
-    scanner_config: dict[str, Any]
-
-    @classmethod
-    def load_for(cls, observation_id: UUID, raw: dict[str, Any] | None) -> "ScannerSnapshot":
-        """Validate a persisted `scanner_snapshot` blob, raising a non-retryable error tagged with the observation id."""
-        try:
-            return cls.model_validate(raw or {})
-        except ValidationError as exc:
-            raise ApplicationError(
-                f"ReplayObservation {observation_id} has malformed scanner_snapshot: {exc}", non_retryable=True
-            ) from exc
 
 
 class ScannerResult(BaseModel, frozen=True):
@@ -58,6 +38,8 @@ class ApplyScannerInputs(BaseModel, frozen=True):
     team_id: int
     triggered_by: ObservationTrigger
     triggered_by_user_id: int | None = None
+    # Set only for backfill-triggered applies; routes observation creation to the backfill's frozen snapshot.
+    backfill_id: UUID | None = None
 
 
 class CreateObservationInputs(BaseModel, frozen=True):
@@ -67,6 +49,7 @@ class CreateObservationInputs(BaseModel, frozen=True):
     triggered_by: ObservationTrigger
     triggered_by_user_id: int | None
     workflow_id: str
+    backfill_id: UUID | None = None
 
 
 class CreateObservationOutput(BaseModel, frozen=True):

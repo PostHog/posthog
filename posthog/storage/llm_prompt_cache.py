@@ -140,29 +140,27 @@ def _load_prompt_cache(cache_key: KeyType) -> dict[str, Any] | HyperCacheStoreMi
     if parsed_key is None:
         return HyperCacheStoreMissing()
 
-    team_id, prompt_name, version, label_name = parsed_key
-
     try:
-        if label_name is not None:
-            labeled_prompt = _get_labeled_prompt_from_db(team_id, prompt_name, label_name)
+        if parsed_key.label is not None:
+            labeled_prompt = _get_labeled_prompt_from_db(parsed_key.team_id, parsed_key.prompt_name, parsed_key.label)
             if labeled_prompt is None:
                 return HyperCacheStoreMissing()
-            return _serialize_labeled_prompt(labeled_prompt, label_name)
+            return _serialize_labeled_prompt(labeled_prompt, parsed_key.label)
 
-        if version is None:
-            prompt = _get_latest_prompt_from_db(team_id, prompt_name)
+        if parsed_key.version is None:
+            prompt = _get_latest_prompt_from_db(parsed_key.team_id, parsed_key.prompt_name)
             if prompt is None:
                 return HyperCacheStoreMissing()
             return serialize_prompt(prompt, include_internal=True)
 
-        prompt = _get_prompt_version_from_db(team_id, prompt_name, version)
+        prompt = _get_prompt_version_from_db(parsed_key.team_id, parsed_key.prompt_name, parsed_key.version)
         if prompt is None:
             return HyperCacheStoreMissing()
 
         return serialize_prompt_version(prompt, include_internal=True)
     except _TRANSIENT_DB_ERRORS as err:
-        _record_prompt_db_unavailable(err, prompt_name)
-        raise PromptCacheDatabaseUnavailable(f"Prompt database unavailable loading {prompt_name}") from err
+        _record_prompt_db_unavailable(err, parsed_key.prompt_name)
+        raise PromptCacheDatabaseUnavailable(f"Prompt database unavailable loading {parsed_key.prompt_name}") from err
 
 
 llm_prompts_hypercache = HyperCache(

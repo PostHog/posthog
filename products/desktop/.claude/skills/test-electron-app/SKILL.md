@@ -1,6 +1,6 @@
 ---
 name: test-electron-app
-description: Drive the real running PostHog Electron app (live tRPC, workspace-server, real data) over CDP with agent-browser. Connect to the running app on port 9222, snapshot the accessibility tree to verify changes, click/type/navigate, and screenshot the actual desktop app only when explicitly asked. Use when asked to test, verify, dogfood, screenshot or interact with the running app. For regression specs use the Playwright E2E suite.
+description: Drive the real running PostHog Electron app (live tRPC, workspace-server, real data) over CDP with agent-browser. Connect to the running app on port 9222, test desktop changes against a local Django stack, snapshot the accessibility tree, inspect network requests, and screenshot only when explicitly asked. Use when asked to test, verify, dogfood, screenshot, interact with the running app, or run a live backend-to-desktop E2E check. For regression specs use the Playwright E2E suite.
 allowed-tools: Bash(agent-browser:*), Bash(npx agent-browser:*), Bash(pnpm app:cdp*)
 ---
 
@@ -18,6 +18,9 @@ whatever profile is signed into `~/.posthog-code`. Pick the right surface:
 | --- | --- |
 | Verify or screenshot a change in the **real** app, live data | this skill (agent-browser + CDP :9222) |
 | **Regression** coverage in CI | Playwright E2E (`apps/code/tests/e2e/`) |
+
+For a live backend-to-desktop test, read
+[`references/local-django-stack.md`](references/local-django-stack.md) before starting services.
 
 ## Prerequisites
 
@@ -156,6 +159,16 @@ agent-browser find testid new-task-button click
 agent-browser find role button click --name "New task"
 agent-browser find text "Settings" click
 ```
+
+For API-backed UI, inspect the request as well as the rendered state:
+
+```bash
+agent-browser network requests
+```
+
+A successful status code is not enough. Confirm required response fields and then
+re-snapshot the component that consumes them. Repeat the request and interaction once
+before reporting a pass or failure.
 
 ## Screenshots
 

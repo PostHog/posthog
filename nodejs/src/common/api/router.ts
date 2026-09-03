@@ -26,6 +26,9 @@ export function initializePrometheusLabels(
 }
 
 export interface SetupExpressAppOptions {
+    // Path prefixes exempt from the shared-secret middleware. Used by servers that own auth on those
+    // paths themselves, such as recording-api verifying a team-scoped JWT across the whole prefix.
+    internalApiAuthExcludedPathPrefixes?: string[]
     internalApiSecret?: string
     // Comma-separated previous secrets still accepted for verification during rotation.
     internalApiSecretFallbacks?: string
@@ -63,6 +66,7 @@ export function setupExpressApp(options: SetupExpressAppOptions = {}): express.A
                 .split(',')
                 .map((s) => s.trim())
                 .filter(Boolean),
+            excludedPathPrefixes: options.internalApiAuthExcludedPathPrefixes,
         })
     )
 

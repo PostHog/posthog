@@ -1,5 +1,6 @@
 import type { PiRemoteRpcClient } from "@posthog/agent/pi/remote-rpc-client";
 import type { AuthService } from "@posthog/core/auth/auth";
+import type { AgentSessionNotifier } from "@posthog/core/notification/agentSessionNotifications";
 import type { TaskService } from "@posthog/core/task-detail/taskService";
 import type {
   AgentConversationEvent,
@@ -7,6 +8,7 @@ import type {
 } from "@posthog/shared";
 import { describe, expect, it, vi } from "vitest";
 import {
+  type PiConversationEventContext,
   PiOperationError,
   type PiSession,
   PiSessionController,
@@ -19,11 +21,12 @@ function createController(
     openTask: vi.fn(async () => ({ success: true })),
   } as unknown as TaskService,
   authService?: AuthService,
+  notifier?: AgentSessionNotifier,
 ): PiSessionController {
   const provider: PiSessionProvider = {
     get: vi.fn(async () => session),
   };
-  return new PiSessionController(provider, taskService, authService);
+  return new PiSessionController(provider, taskService, authService, notifier);
 }
 
 function createSession(): PiSession {
@@ -90,7 +93,16 @@ describe("PiSessionController", () => {
       return () => {};
     });
     session.respondMcpToolPermission = vi.fn(async () => {});
-    const controller = createController(session);
+    const notifier = { notify: vi.fn() };
+    const controller = createController(
+      session,
+      undefined,
+      undefined,
+      notifier,
+    );
+    controller.setNotificationContext("task-1", {
+      taskTitle: "Fix notifications",
+    });
     await controller.ensureConnected("task-1");
     const first = {
       requestId: "call-1",
@@ -102,12 +114,19 @@ describe("PiSessionController", () => {
     const second = { ...first, requestId: "call-2" };
 
     onRequest?.(first);
+    onRequest?.(first);
     onRequest?.(second);
 
     expect(
       controller.store.getState().sessions["task-1"]?.mcpToolPermissionRequests
         .size,
     ).toBe(2);
+    expect(notifier.notify).toHaveBeenCalledTimes(2);
+    expect(notifier.notify).toHaveBeenCalledWith({
+      kind: "needs_input",
+      taskId: "task-1",
+      taskTitle: "Fix notifications",
+    });
     await controller.respondMcpToolPermission("task-1", first, "reject");
     expect(
       controller.store
@@ -182,109 +201,6 @@ describe("PiSessionController", () => {
     );
     expect(client.getConversation).not.toHaveBeenCalled();
   });
-
-  it("loads repository trust and reconnects after changing it", async () => {
-    let trusted = false;
-    const session = createSession();
-    session.getProjectTrust = vi.fn(async () => ({
-      trusted,
-      hasProjectResources: true,
-    }));
-    session.setProjectTrusted = vi.fn(async (nextTrusted) => {
-      trusted = nextTrusted;
-    });
-    const controller = createController(session);
-
-    await controller.connect("task-1");
-    expect(controller.store.getState().sessions["task-1"].projectTrust).toEqual(
-      {
-        trusted: false,
-        hasProjectResources: true,
-      },
-    );
-    controller.store.setState((state) => ({
-      sessions: {
-        ...state.sessions,
-        "task-1": {
-          ...state.sessions["task-1"],
-          queue: { steering: ["queued"], followUp: [] },
-        },
-      },
-    }));
-
-    await controller.setProjectTrusted("task-1", true);
-
-    expect(session.setProjectTrusted).toHaveBeenCalledWith(true);
-    expect(session.client.prompt).toHaveBeenCalledWith("queued");
-    expect(controller.store.getState().sessions["task-1"].projectTrust).toEqual(
-      {
-        trusted: true,
-        hasProjectResources: true,
-      },
-    );
-  });
-
-  it("shares an in-flight repository trust change and rejects an opposite toggle", async () => {
-    let finishTransition: (() => void) | undefined;
-    const session = createSession();
-    session.setProjectTrusted = vi.fn(
-      () =>
-        new Promise<void>((resolve) => {
-          finishTransition = resolve;
-        }),
-    );
-    const controller = createController(session);
-    await controller.connect("task-1");
-
-    const first = controller.setProjectTrusted("task-1", true);
-    const duplicate = controller.setProjectTrusted("task-1", true);
-    await expect(controller.setProjectTrusted("task-1", false)).rejects.toThrow(
-      "already in progress",
-    );
-    expect(session.setProjectTrusted).toHaveBeenCalledOnce();
-
-    finishTransition?.();
-    await expect(Promise.all([first, duplicate])).resolves.toEqual([
-      undefined,
-      undefined,
-    ]);
-  });
-
-  it.each([
-    { streaming: true, bashRunning: false },
-    { streaming: false, bashRunning: true },
-  ])(
-    "rejects repository trust changes while Pi is busy",
-    async ({ streaming, bashRunning }) => {
-      const session = createSession();
-      session.setProjectTrusted = vi.fn(async () => {});
-      const controller = createController(session);
-      await controller.connect("task-1");
-      const current = controller.store.getState().sessions["task-1"];
-      const status = current.status;
-      if (!status) {
-        throw new Error("Expected connected Pi status");
-      }
-      controller.store.setState((state) => ({
-        sessions: {
-          ...state.sessions,
-          "task-1": {
-            ...state.sessions["task-1"],
-            status: {
-              ...status,
-              isStreaming: streaming,
-            },
-            isBashRunning: bashRunning,
-          },
-        },
-      }));
-
-      await expect(
-        controller.setProjectTrusted("task-1", true),
-      ).rejects.toBeInstanceOf(PiOperationError);
-      expect(session.setProjectTrusted).not.toHaveBeenCalled();
-    },
-  );
 
   it("uploads cloud follow-up attachments before sending the native message", async () => {
     const session = createSession();
@@ -372,6 +288,34 @@ describe("PiSessionController", () => {
     expect(controller.store.getState().sessions["task-1"].authRestoring).toBe(
       false,
     );
+  });
+
+  it("disconnects retained sessions when authentication ends", async () => {
+    let onAuthStateChange: (
+      state: ReturnType<AuthService["getState"]>,
+    ) => void = () => {};
+    const authService = {
+      getState: vi.fn(() => ({ status: "authenticated" })),
+      on: vi.fn((_event, handler) => {
+        onAuthStateChange = handler;
+      }),
+      off: vi.fn(),
+    } as unknown as AuthService;
+    const unsubscribe = vi.fn();
+    const session = createSession();
+    vi.mocked(session.onConversationEvent).mockReturnValue(unsubscribe);
+    const controller = createController(session, undefined, authService);
+
+    await controller.connect("task-1");
+    await controller.submit("task-1", "keep running", false, "steer");
+    controller.release("task-1");
+    expect(unsubscribe).not.toHaveBeenCalled();
+
+    onAuthStateChange({ status: "anonymous" } as ReturnType<
+      AuthService["getState"]
+    >);
+
+    expect(unsubscribe).toHaveBeenCalledOnce();
   });
 
   it("cancels auth-held submissions on disconnect and preserves the prompt", async () => {
@@ -632,6 +576,165 @@ describe("PiSessionController", () => {
     expect(controller.store.getState().sessions["task-1"].status).toMatchObject(
       { isStreaming: false },
     );
+  });
+
+  it("notifies when a live completion arrives before history hydration", async () => {
+    let onEvent: (
+      event: AgentConversationEvent,
+      context?: PiConversationEventContext,
+    ) => void = () => {};
+    let resolveConversation: (events: AgentConversationEvent[]) => void =
+      () => {};
+    const conversation = new Promise<AgentConversationEvent[]>((resolve) => {
+      resolveConversation = resolve;
+    });
+    const session = createSession();
+    vi.mocked(session.getConversation).mockReturnValue(conversation);
+    vi.mocked(session.onConversationEvent).mockImplementation((handler) => {
+      onEvent = handler;
+      return () => {};
+    });
+    const notifier = { notify: vi.fn() };
+    const controller = createController(
+      session,
+      undefined,
+      undefined,
+      notifier,
+    );
+    controller.setNotificationContext("task-1", {
+      taskTitle: "Fix notifications",
+    });
+
+    const connection = controller.connect("task-1");
+    await vi.waitFor(() => {
+      expect(session.onConversationEvent).toHaveBeenCalledOnce();
+    });
+    onEvent(
+      { type: "turn_completed", timestamp: 52, stopReason: "stop" },
+      { isLive: true },
+    );
+
+    expect(notifier.notify).toHaveBeenCalledWith({
+      kind: "turn_completed",
+      taskId: "task-1",
+      taskTitle: "Fix notifications",
+      stopReason: "end_turn",
+      durationMs: undefined,
+      isTaskAuthor: undefined,
+    });
+
+    resolveConversation([]);
+    await connection;
+  });
+
+  it("notifies once for a live completed turn without replaying historical completions", async () => {
+    let onEvent: (
+      event: AgentConversationEvent,
+      context?: PiConversationEventContext,
+    ) => void = () => {};
+    const session = createSession();
+    vi.mocked(session.onConversationEvent).mockImplementation((handler) => {
+      onEvent = handler;
+      return () => {};
+    });
+    const notifier = { notify: vi.fn() };
+    const controller = createController(
+      session,
+      undefined,
+      undefined,
+      notifier,
+    );
+    controller.setNotificationContext("task-1", {
+      taskTitle: "Fix notifications",
+      isTaskAuthor: true,
+    });
+    await controller.connect("task-1");
+
+    onEvent(
+      {
+        type: "user_message",
+        id: "historical-user",
+        timestamp: 1,
+        content: [{ type: "text", text: "old turn" }],
+      },
+      { isLive: false },
+    );
+    onEvent(
+      { type: "turn_completed", timestamp: 2, stopReason: "stop" },
+      { isLive: false },
+    );
+    expect(notifier.notify).not.toHaveBeenCalled();
+
+    onEvent(
+      {
+        type: "user_message",
+        id: "live-user",
+        timestamp: 10,
+        content: [{ type: "text", text: "new turn" }],
+      },
+      { isLive: true },
+    );
+    onEvent(
+      { type: "turn_completed", timestamp: 52, stopReason: "stop" },
+      { isLive: true },
+    );
+    onEvent(
+      { type: "turn_completed", timestamp: 53, stopReason: "stop" },
+      { isLive: true },
+    );
+
+    expect(notifier.notify).toHaveBeenCalledOnce();
+    expect(notifier.notify).toHaveBeenCalledWith({
+      kind: "turn_completed",
+      taskId: "task-1",
+      taskTitle: "Fix notifications",
+      stopReason: "end_turn",
+      durationMs: 42,
+      isTaskAuthor: true,
+    });
+  });
+
+  it("keeps a backgrounded Pi turn subscribed until it completes", async () => {
+    let onEvent: (event: AgentConversationEvent) => void = () => {};
+    const unsubscribe = vi.fn();
+    const session = createSession();
+    vi.mocked(session.onConversationEvent).mockImplementation((handler) => {
+      onEvent = handler;
+      return unsubscribe;
+    });
+    const controller = createController(session);
+
+    await controller.connect("task-1");
+    await controller.submit("task-1", "continue", false, "steer");
+    controller.release("task-1");
+
+    expect(unsubscribe).not.toHaveBeenCalled();
+
+    onEvent({ type: "turn_completed", timestamp: Date.now() });
+
+    expect(unsubscribe).toHaveBeenCalledOnce();
+  });
+
+  it("releases a session that finishes connecting after its view unmounts", async () => {
+    let resolveHealth: () => void = () => {};
+    const health = new Promise<void>((resolve) => {
+      resolveHealth = resolve;
+    });
+    const unsubscribe = vi.fn();
+    const session = createSession();
+    vi.mocked(session.health).mockImplementation(async () => {
+      await health;
+      return { state: "idle" };
+    });
+    vi.mocked(session.onConversationEvent).mockReturnValue(unsubscribe);
+    const controller = createController(session);
+
+    const readiness = controller.ensureConnected("task-1");
+    controller.release("task-1");
+    resolveHealth();
+    await readiness;
+
+    expect(unsubscribe).toHaveBeenCalledOnce();
   });
 
   it("restores a native queue after retry replaces the runtime", async () => {
@@ -996,45 +1099,51 @@ describe("PiSessionController", () => {
     );
   });
 
-  it("resumes and retries a message when the prior sandbox is gone", async () => {
-    const staleSession = {
-      ...createSession(),
-      taskRunId: "run-1",
-      sendUserMessage: vi.fn(async () => {
-        throw new Error("No active sandbox for this task run");
-      }),
-    };
-    const resumedSession = {
-      ...createSession(),
-      sendUserMessage: vi.fn(async () => {}),
-    };
-    const provider = {
-      get: vi
-        .fn()
-        .mockResolvedValueOnce(staleSession)
-        .mockResolvedValue(resumedSession),
-    } as PiSessionProvider;
-    const resumeCloudPiRun = vi.fn(async () => ({ id: "run-2" }));
-    const taskService = {
-      prepareCloudPiMessage: vi.fn(async () => ({
-        content: "continue",
-        artifactIds: [],
-      })),
-      resumeCloudPiRun,
-    } as unknown as TaskService;
-    const controller = new PiSessionController(provider, taskService);
+  it.each([
+    ["the prior sandbox is gone", "No active sandbox for this task run"],
+    ["the prior workflow has ended", "Task run workflow has ended"],
+  ])(
+    "resumes and retries a message when %s",
+    async (_condition, errorMessage) => {
+      const staleSession = {
+        ...createSession(),
+        taskRunId: "run-1",
+        sendUserMessage: vi.fn(async () => {
+          throw new Error(errorMessage);
+        }),
+      };
+      const resumedSession = {
+        ...createSession(),
+        sendUserMessage: vi.fn(async () => {}),
+      };
+      const provider = {
+        get: vi
+          .fn()
+          .mockResolvedValueOnce(staleSession)
+          .mockResolvedValue(resumedSession),
+      } as PiSessionProvider;
+      const resumeCloudPiRun = vi.fn(async () => ({ id: "run-2" }));
+      const taskService = {
+        prepareCloudPiMessage: vi.fn(async () => ({
+          content: "continue",
+          artifactIds: [],
+        })),
+        resumeCloudPiRun,
+      } as unknown as TaskService;
+      const controller = new PiSessionController(provider, taskService);
 
-    await controller.connect("task-1");
-    await controller.submit("task-1", "continue", false, "steer");
+      await controller.connect("task-1");
+      await controller.submit("task-1", "continue", false, "steer");
 
-    expect(resumeCloudPiRun).toHaveBeenCalledWith("task-1", "run-1");
-    expect(resumedSession.sendUserMessage).toHaveBeenCalledWith(
-      "prompt",
-      "continue",
-      [],
-      expect.any(String),
-    );
-  });
+      expect(resumeCloudPiRun).toHaveBeenCalledWith("task-1", "run-1");
+      expect(resumedSession.sendUserMessage).toHaveBeenCalledWith(
+        "prompt",
+        "continue",
+        [],
+        expect.any(String),
+      );
+    },
+  );
 
   it("keeps a connected transcript usable when a command fails", async () => {
     const initialEvent: AgentConversationEvent = {
@@ -1062,6 +1171,7 @@ describe("PiSessionController", () => {
         scope: "operation",
         title: "Failed to send message",
         message: "temporary command failure",
+        recoveryPrompt: "retry me",
       },
     });
   });

@@ -177,7 +177,7 @@ class _PostgreSQLClientInputsProtocol(typing.Protocol):
     def tls(self) -> TLS: ...
 
 
-@dataclasses.dataclass(kw_only=True)
+@dataclasses.dataclass(frozen=False, kw_only=True)
 class PostgresInsertInputs(BatchExportInsertInputs):
     """Inputs for Postgres."""
 
@@ -187,7 +187,7 @@ class PostgresInsertInputs(BatchExportInsertInputs):
     host: str | None = None
     port: int | None = None
     user: str | None = None
-    password: str | None = None
+    password: str | None = dataclasses.field(default=None, repr=False)
     has_self_signed_cert: bool | None = None
     integration_id: int | None = None
 
@@ -805,6 +805,7 @@ def _get_table_fields(
             ("ip", "VARCHAR(200)"),
             ("site_url", "VARCHAR(200)"),
             ("timestamp", "TIMESTAMP WITH TIME ZONE"),
+            ("person_properties", "JSONB"),
         ]
     else:
         return get_postgres_fields_from_record_schema(

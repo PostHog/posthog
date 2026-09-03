@@ -1,8 +1,10 @@
 import asyncio
 import contextlib
-from collections.abc import AsyncIterator, Collection, Iterable
+from collections.abc import AsyncIterator, Callable, Collection, Iterable
+from dataclasses import replace
 from io import BytesIO
 from typing import Any, cast
+from uuid import uuid4
 
 import pytest
 import unittest.mock
@@ -16,27 +18,35 @@ import pyarrow.parquet as pq
 
 from posthog.hogql.resolver import ResolverFactory
 
+from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
+from posthog.temporal.common.clickhouse import ClickHouseError
 from posthog.temporal.data_modeling.activities import (
     CreateDataModelingJobInputs,
     FailMaterializationInputs,
     MaterializeViewInputs,
     PrepareQueryableTableInputs,
+    QualityBlockMaterializationInputs,
     SucceedMaterializationInputs,
     create_data_modeling_job_activity,
     fail_materialization_activity,
     materialize_view_activity,
     prepare_queryable_table_activity,
+    quality_block_materialization_activity,
     succeed_materialization_activity,
 )
 from posthog.temporal.data_modeling.activities.materialize_view import (
     LOGGER,
+    EmptyHogQLResponseColumnsError,
     InvalidNodeTypeException,
-    _get_aws_storage_options,
+    get_aws_storage_options,
     get_s3_client,
     hogql_table,
 )
+from posthog.temporal.data_modeling.activities.notify_materialization_failure import _SavedQueryViewers
 
+from products.customer_analytics.backend.facade.temporal import stage_warehouse_account_property_files_activity
+from products.customer_analytics.backend.facade.temporal_contracts import StageAccountPropertySyncInput
 from products.data_modeling.backend.facade.api import compute_enrichment_hash
 from products.data_modeling.backend.facade.modeling import bounded_resolver_factory_for_view
 from products.data_modeling.backend.facade.models import (
@@ -48,14 +58,31 @@ from products.data_modeling.backend.facade.models import (
     NodeType,
 )
 from products.data_warehouse.backend.facade.api import CreateTableResult
+from products.notifications.backend.facade.api import NotificationType, TargetType
+from products.warehouse_sources.backend.facade.hooks import (
+    AccountPropertySourceProjection,
+    PersonPropertySourceProjection,
+    saved_query_binding,
+)
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
+from products.warehouse_sources.backend.facade.temporal import (
+    account_property_job_staged_prefix,
+    person_property_job_staged_prefix,
+)
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
 
-async def _make_job(ateam, saved_query, status, *, engine=DataModelingJobEngine.CLICKHOUSE, error=None):
+async def _make_job(
+    ateam, saved_query, status, *, engine=DataModelingJobEngine.CLICKHOUSE, error=None, parent_workflow_id=None
+):
     return await database_sync_to_async(DataModelingJob.objects.create)(
-        team=ateam, saved_query=saved_query, status=status, engine=engine, error=error
+        team=ateam,
+        saved_query=saved_query,
+        status=status,
+        engine=engine,
+        error=error,
+        parent_workflow_id=parent_workflow_id,
     )
 
 
@@ -161,6 +188,183 @@ class TestFailMaterializationActivity:
 
         await database_sync_to_async(anode.refresh_from_db)()
         assert is_node_suspended(anode, DataModelingJobEngine.CLICKHOUSE) is True
+
+    @pytest.mark.parametrize(
+        "previous_status,expect_notification",
+        [
+            (None, True),
+            (DataModelingJob.Status.COMPLETED, True),
+            (DataModelingJob.Status.FAILED, False),
+        ],
+    )
+    async def test_notifies_only_on_first_failure_of_streak(
+        self, activity_environment, ateam, anode, asaved_query, adag, previous_status, expect_notification
+    ):
+        if previous_status is not None:
+            error = "boom" if previous_status == DataModelingJob.Status.FAILED else None
+            await _make_job(ateam, asaved_query, previous_status, error=error)
+        current_job = await _make_job(ateam, asaved_query, DataModelingJob.Status.RUNNING)
+
+        inputs = FailMaterializationInputs(
+            team_id=ateam.pk,
+            node_id=str(anode.id),
+            dag_id=str(adag.id),
+            job_id=str(current_job.id),
+            error="Some non-timeout error",
+        )
+        with unittest.mock.patch(
+            "posthog.temporal.data_modeling.activities.notify_materialization_failure.create_notification"
+        ) as mock_create:
+            await activity_environment.run(fail_materialization_activity, inputs)
+
+        if expect_notification:
+            mock_create.assert_called_once()
+            data = mock_create.call_args.args[0]
+            assert data.notification_type == NotificationType.MATERIALIZATION_FAILURE
+            assert data.target_id == str(ateam.pk)
+            assert data.resource_id == str(asaved_query.id)
+        else:
+            mock_create.assert_not_called()
+
+    @pytest.mark.parametrize("intervening_status", [DataModelingJob.Status.CANCELLED, DataModelingJob.Status.RUNNING])
+    async def test_an_inconclusive_run_does_not_restart_the_streak(
+        self, activity_environment, ateam, anode, asaved_query, adag, intervening_status
+    ):
+        await _make_job(ateam, asaved_query, DataModelingJob.Status.FAILED, error="boom")
+        await _make_job(ateam, asaved_query, intervening_status)
+        current_job = await _make_job(ateam, asaved_query, DataModelingJob.Status.RUNNING)
+
+        inputs = FailMaterializationInputs(
+            team_id=ateam.pk,
+            node_id=str(anode.id),
+            dag_id=str(adag.id),
+            job_id=str(current_job.id),
+            error="Some non-timeout error",
+        )
+        with unittest.mock.patch(
+            "posthog.temporal.data_modeling.activities.notify_materialization_failure.create_notification"
+        ) as mock_create:
+            await activity_environment.run(fail_materialization_activity, inputs)
+
+        mock_create.assert_not_called()
+
+    async def test_notifies_when_recovery_raises(self, activity_environment, ateam, anode, asaved_query, adag):
+        current_job = await _make_job(ateam, asaved_query, DataModelingJob.Status.RUNNING)
+
+        inputs = FailMaterializationInputs(
+            team_id=ateam.pk,
+            node_id=str(anode.id),
+            dag_id=str(adag.id),
+            job_id=str(current_job.id),
+            error="Some non-timeout error",
+        )
+        with (
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.fail_materialization.maybe_suspend_node_for_engine",
+                side_effect=Exception("suspension blew up"),
+            ),
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.notify_materialization_failure.create_notification"
+            ) as mock_create,
+        ):
+            await activity_environment.run(fail_materialization_activity, inputs)
+
+        mock_create.assert_called_once()
+
+    async def test_does_not_notify_when_cancelled(self, activity_environment, ateam, anode, asaved_query, adag):
+        current_job = await _make_job(ateam, asaved_query, DataModelingJob.Status.RUNNING)
+
+        inputs = FailMaterializationInputs(
+            team_id=ateam.pk,
+            node_id=str(anode.id),
+            dag_id=str(adag.id),
+            job_id=str(current_job.id),
+            error="Workflow was cancelled",
+            cancelled=True,
+        )
+        with unittest.mock.patch(
+            "posthog.temporal.data_modeling.activities.notify_materialization_failure.create_notification"
+        ) as mock_create:
+            await activity_environment.run(fail_materialization_activity, inputs)
+
+        mock_create.assert_not_called()
+
+    async def test_notification_resolver_drops_members_denied_on_the_view(
+        self, activity_environment, ateam, anode, asaved_query, adag, aorganization
+    ):
+        # These tests share a database, so the emails have to be unique per run.
+        allowed = await database_sync_to_async(User.objects.create_and_join)(
+            aorganization, f"allowed-{uuid4()}@posthog.com", None
+        )
+        denied = await database_sync_to_async(User.objects.create_and_join)(
+            aorganization, f"denied-{uuid4()}@posthog.com", None
+        )
+
+        class FakeAccess:
+            def __init__(self, user, team):
+                self._user = user
+
+            is_organization_admin = False
+
+            def check_access_level_for_object(self, obj, required_level):
+                return self._user.id == allowed.id
+
+        with unittest.mock.patch(
+            "posthog.temporal.data_modeling.activities.notify_materialization_failure.UserAccessControl", FakeAccess
+        ):
+            resolved = await database_sync_to_async(_SavedQueryViewers(asaved_query).resolve)(
+                TargetType.TEAM, str(ateam.pk), ateam.pk
+            )
+
+        assert allowed.id in resolved
+        assert denied.id not in resolved
+
+    async def test_a_child_of_a_dag_run_leaves_the_in_app_notification_to_its_parent(
+        self, activity_environment, ateam, anode, asaved_query, adag
+    ):
+        current_job = await _make_job(
+            ateam, asaved_query, DataModelingJob.Status.RUNNING, parent_workflow_id="execute-dag-workflow"
+        )
+        inputs = FailMaterializationInputs(
+            team_id=ateam.pk,
+            node_id=str(anode.id),
+            dag_id=str(adag.id),
+            job_id=str(current_job.id),
+            error="boom",
+        )
+
+        with (
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.notify_materialization_failure.create_notification"
+            ) as mock_create,
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.notify_materialization_failure.send_matview_failure_immediate_email"
+            ) as mock_email,
+        ):
+            await activity_environment.run(fail_materialization_activity, inputs)
+
+        mock_create.assert_not_called()
+        mock_email.delay.assert_called_once()
+
+    async def test_notification_carries_the_per_view_resolver(
+        self, activity_environment, ateam, anode, asaved_query, adag
+    ):
+        current_job = await _make_job(ateam, asaved_query, DataModelingJob.Status.RUNNING)
+        inputs = FailMaterializationInputs(
+            team_id=ateam.pk,
+            node_id=str(anode.id),
+            dag_id=str(adag.id),
+            job_id=str(current_job.id),
+            error="boom",
+        )
+
+        with unittest.mock.patch(
+            "posthog.temporal.data_modeling.activities.notify_materialization_failure.create_notification"
+        ) as mock_create:
+            await activity_environment.run(fail_materialization_activity, inputs)
+
+        resolver = mock_create.call_args.args[0].resolver
+        assert isinstance(resolver, _SavedQueryViewers)
 
     async def test_timeout_does_not_pause_schedule_with_fewer_than_5_previous_jobs(
         self, activity_environment, ateam, anode, asaved_query, adag
@@ -331,6 +535,33 @@ class TestFailMaterializationActivity:
             await database_sync_to_async(job.delete)()
 
 
+class TestQualityBlockMaterializationActivity:
+    async def test_a_blocked_publish_fails_the_node_and_job_but_starts_no_recovery(
+        self, activity_environment, ateam, anode, asaved_query, adag
+    ):
+        job = await _make_job(ateam, asaved_query, DataModelingJob.Status.RUNNING)
+        inputs = QualityBlockMaterializationInputs(
+            team_id=ateam.pk,
+            node_id=str(anode.id),
+            dag_id=str(adag.id),
+            job_id=str(job.id),
+            blocking_failures=2,
+        )
+
+        await activity_environment.run(quality_block_materialization_activity, inputs)
+
+        await database_sync_to_async(anode.refresh_from_db)()
+        await database_sync_to_async(job.refresh_from_db)()
+        system_props = anode.properties.get("system", {})
+        assert system_props["last_run_status"] == DataModelingJobStatus.FAILED
+        assert "2 data quality checks failed" in system_props["last_run_error"]
+        assert job.status == DataModelingJob.Status.FAILED
+        assert "2 data quality checks failed" in job.error
+        assert "suspended" not in system_props
+
+        await database_sync_to_async(job.delete)()
+
+
 class TestShouldPauseScheduleForTimeout:
     async def test_returns_false_when_fewer_than_5_previous_jobs(self, ateam, asaved_query):
         from posthog.temporal.data_modeling.activities.fail_materialization import should_pause_schedule_for_timeout
@@ -354,7 +585,7 @@ class TestShouldPauseScheduleForTimeout:
         )
 
         should_pause, count = await database_sync_to_async(should_pause_schedule_for_timeout)(
-            asaved_query.id, current_job.id
+            asaved_query.id, current_job
         )
         assert should_pause is False
         assert count == 3
@@ -385,7 +616,7 @@ class TestShouldPauseScheduleForTimeout:
         )
 
         should_pause, count = await database_sync_to_async(should_pause_schedule_for_timeout)(
-            asaved_query.id, current_job.id
+            asaved_query.id, current_job
         )
         assert should_pause is True
         assert count == 5
@@ -425,7 +656,7 @@ class TestShouldPauseScheduleForTimeout:
         )
 
         should_pause, count = await database_sync_to_async(should_pause_schedule_for_timeout)(
-            asaved_query.id, current_job.id
+            asaved_query.id, current_job
         )
         assert should_pause is True
         assert count == 5
@@ -451,7 +682,7 @@ class TestShouldPauseScheduleForTimeout:
         jobs.append(current_job)
 
         should_pause, count = await database_sync_to_async(should_pause_schedule_for_timeout)(
-            asaved_query.id, current_job.id
+            asaved_query.id, current_job
         )
         assert should_pause is True
         assert count == 5
@@ -462,7 +693,8 @@ class TestShouldPauseScheduleForTimeout:
 
 
 class TestNodeSuspension:
-    async def test_suspends_for_engine_after_consecutive_failures(self, ateam, anode, asaved_query, adag):
+    @pytest.mark.parametrize("enforced", [True, False])
+    async def test_suspends_for_engine_after_consecutive_failures(self, ateam, anode, asaved_query, adag, enforced):
         from posthog.temporal.data_modeling.activities.utils import (
             CONSECUTIVE_FAILURES_TO_SUSPEND,
             is_node_suspended,
@@ -476,6 +708,155 @@ class TestNodeSuspension:
         job = await _make_job(ateam, asaved_query, DataModelingJob.Status.FAILED, error="boom")
         jobs.append(job)
 
+        with unittest.mock.patch(
+            "posthog.temporal.data_modeling.activities.utils.is_suspension_enforced", return_value=enforced
+        ):
+            suspended = await maybe_suspend_node_for_engine(
+                node_id=str(anode.id),
+                team_id=ateam.pk,
+                dag_id=str(adag.id),
+                saved_query_id=asaved_query.id,
+                engine=DataModelingJobEngine.CLICKHOUSE,
+                reason="boom",
+                job_id=str(job.id),
+            )
+
+        assert suspended is True
+        await database_sync_to_async(anode.refresh_from_db)()
+        assert is_node_suspended(anode, DataModelingJobEngine.CLICKHOUSE) is True
+        assert is_node_suspended(anode, DataModelingJobEngine.DUCKGRES) is False
+        await database_sync_to_async(job.refresh_from_db)()
+        assert ("has been suspended" in job.error) is enforced
+
+        # DataModelingJob.team is SET_NULL, so it survives the ateam fixture's team teardown.
+        for j in jobs:
+            await database_sync_to_async(j.delete)()
+
+    @pytest.mark.parametrize(
+        "aborted_error",
+        [
+            "Code: 202. DB::Exception: Too many simultaneous queries",
+            "Cannot connect to host ch-offline.example.com:8443",
+            "Abandoned: the materialization workflow is no longer running",
+            "QueueEmpty: Application error",
+            "Preempted: a new DAG run started before this job completed",
+            "Not published: 2 data quality checks failed. The previous version keeps serving until the checks pass.",
+        ],
+    )
+    async def test_externally_aborted_failures_do_not_suspend(self, ateam, anode, asaved_query, adag, aborted_error):
+        from posthog.temporal.data_modeling.activities.utils import (
+            CONSECUTIVE_FAILURES_TO_SUSPEND,
+            is_node_suspended,
+            maybe_suspend_node_for_engine,
+        )
+
+        jobs = [
+            await _make_job(ateam, asaved_query, DataModelingJob.Status.FAILED, error=aborted_error)
+            for _ in range(CONSECUTIVE_FAILURES_TO_SUSPEND)
+        ]
+
+        suspended = await maybe_suspend_node_for_engine(
+            node_id=str(anode.id),
+            team_id=ateam.pk,
+            dag_id=str(adag.id),
+            saved_query_id=asaved_query.id,
+            engine=DataModelingJobEngine.CLICKHOUSE,
+            reason=aborted_error,
+            job_id=str(jobs[-1].id),
+        )
+
+        assert suspended is False
+        await database_sync_to_async(anode.refresh_from_db)()
+        assert is_node_suspended(anode, DataModelingJobEngine.CLICKHOUSE) is False
+
+        # DataModelingJob.team is SET_NULL, so it survives the ateam fixture's team teardown.
+        for job in jobs:
+            await database_sync_to_async(job.delete)()
+
+    @pytest.mark.parametrize("identifier", ["Preempted", "QueueEmpty"])
+    async def test_suspends_when_a_customer_identifier_spells_an_abort_marker(
+        self, ateam, anode, asaved_query, adag, identifier
+    ):
+        from posthog.temporal.data_modeling.activities.utils import (
+            CONSECUTIVE_FAILURES_TO_SUSPEND,
+            is_node_suspended,
+            maybe_suspend_node_for_engine,
+        )
+
+        error = f"Code: 47. DB::Exception: Missing columns: '{identifier}' while processing query"
+        jobs = [
+            await _make_job(ateam, asaved_query, DataModelingJob.Status.FAILED, error=error)
+            for _ in range(CONSECUTIVE_FAILURES_TO_SUSPEND)
+        ]
+
+        suspended = await maybe_suspend_node_for_engine(
+            node_id=str(anode.id),
+            team_id=ateam.pk,
+            dag_id=str(adag.id),
+            saved_query_id=asaved_query.id,
+            engine=DataModelingJobEngine.CLICKHOUSE,
+            reason=error,
+            job_id=str(jobs[-1].id),
+        )
+
+        assert suspended is True
+        await database_sync_to_async(anode.refresh_from_db)()
+        assert is_node_suspended(anode, DataModelingJobEngine.CLICKHOUSE) is True
+
+        # DataModelingJob.team is SET_NULL, so it survives the ateam fixture's team teardown.
+        for job in jobs:
+            await database_sync_to_async(job.delete)()
+
+    @pytest.mark.parametrize(
+        "memory_error",
+        [
+            "ClickHouseMemoryLimitExceededError: Code: 241. DB::Exception: Memory limit (for query) exceeded",
+            "ClickHouseMemoryLimitExceededError: Code: 241. DB::Exception: (total) memory limit exceeded",
+            "ClickHouseMemoryLimitExceededError: Code: 241. DB::Exception: Query memory limit exceeded",
+        ],
+    )
+    async def test_suspends_when_the_query_exhausts_memory(self, ateam, anode, asaved_query, adag, memory_error):
+        from posthog.temporal.data_modeling.activities.utils import (
+            CONSECUTIVE_FAILURES_TO_SUSPEND,
+            is_node_suspended,
+            maybe_suspend_node_for_engine,
+        )
+
+        jobs = [
+            await _make_job(ateam, asaved_query, DataModelingJob.Status.FAILED, error=memory_error)
+            for _ in range(CONSECUTIVE_FAILURES_TO_SUSPEND)
+        ]
+
+        suspended = await maybe_suspend_node_for_engine(
+            node_id=str(anode.id),
+            team_id=ateam.pk,
+            dag_id=str(adag.id),
+            saved_query_id=asaved_query.id,
+            engine=DataModelingJobEngine.CLICKHOUSE,
+            reason=memory_error,
+            job_id=str(jobs[-1].id),
+        )
+
+        assert suspended is True
+        await database_sync_to_async(anode.refresh_from_db)()
+        assert is_node_suspended(anode, DataModelingJobEngine.CLICKHOUSE) is True
+
+        # DataModelingJob.team is SET_NULL, so it survives the ateam fixture's team teardown.
+        for job in jobs:
+            await database_sync_to_async(job.delete)()
+
+    async def test_infrastructure_failure_breaks_a_customer_streak(self, ateam, anode, asaved_query, adag):
+        from posthog.temporal.data_modeling.activities.utils import is_node_suspended, maybe_suspend_node_for_engine
+
+        jobs = [await _make_job(ateam, asaved_query, DataModelingJob.Status.FAILED, error="boom") for _ in range(4)]
+        jobs.append(
+            await _make_job(
+                ateam, asaved_query, DataModelingJob.Status.FAILED, error="Code: 202. Too many simultaneous queries"
+            )
+        )
+        job = await _make_job(ateam, asaved_query, DataModelingJob.Status.FAILED, error="boom")
+        jobs.append(job)
+
         suspended = await maybe_suspend_node_for_engine(
             node_id=str(anode.id),
             team_id=ateam.pk,
@@ -486,12 +867,9 @@ class TestNodeSuspension:
             job_id=str(job.id),
         )
 
-        assert suspended is True
+        assert suspended is False
         await database_sync_to_async(anode.refresh_from_db)()
-        assert is_node_suspended(anode, DataModelingJobEngine.CLICKHOUSE) is True
-        assert is_node_suspended(anode, DataModelingJobEngine.DUCKGRES) is False
-        await database_sync_to_async(job.refresh_from_db)()
-        assert "has been suspended" in job.error
+        assert is_node_suspended(anode, DataModelingJobEngine.CLICKHOUSE) is False
 
         # DataModelingJob.team is SET_NULL, so it survives the ateam fixture's team teardown.
         for j in jobs:
@@ -596,7 +974,7 @@ class TestNodeSuspension:
     async def test_does_not_resuspend_on_failures_from_before_a_resume(self, ateam, anode, asaved_query, adag):
         from posthog.temporal.data_modeling.activities.utils import is_node_suspended, maybe_suspend_node_for_engine
 
-        from products.data_modeling.backend.logic.node_suspension import resume_nodes
+        from products.data_modeling.backend.facade.api import resume_nodes
 
         jobs = [await _make_job(ateam, asaved_query, DataModelingJob.Status.FAILED, error="boom") for _ in range(5)]
         first_job = await _make_job(ateam, asaved_query, DataModelingJob.Status.FAILED, error="boom")
@@ -828,6 +1206,55 @@ class TestPrepareQueryableTableActivity:
             )
         await database_sync_to_async(warehouse_table.delete)()
 
+    async def test_passes_refresh_file_uris_that_re_reads_the_delta_table(
+        self, activity_environment, ateam, asaved_query, ajob
+    ):
+        # Regression: this call site used to omit refresh_file_uris, so a source file a concurrent
+        # compact/vacuum pass deleted mid-copy raised FileNotFoundError straight through instead of
+        # retrying with a fresh listing (see prepare_s3_files_for_querying's vanished-file handling).
+        inputs = PrepareQueryableTableInputs(
+            team_id=ateam.pk,
+            job_id=str(ajob.id),
+            saved_query_id=str(asaved_query.id),
+            table_uri="s3://test-bucket/test_table",
+            file_uris=["s3://test-bucket/test_file.parquet"],
+            row_count=100,
+        )
+        warehouse_table = await database_sync_to_async(DataWarehouseTable.objects.create)(
+            team=ateam,
+            name="test_warehouse_table",
+            format="Delta",
+        )
+        refreshed_file_uris = ["s3://test-bucket/test_table/compacted.parquet"]
+        mock_delta_table = unittest.mock.MagicMock()
+        mock_delta_table.file_uris.return_value = refreshed_file_uris
+        with (
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.prepare_queryable_table.prepare_s3_files_for_querying"
+            ) as mock_prepare,
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.prepare_queryable_table.create_table_from_saved_query"
+            ) as mock_create_table,
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.prepare_queryable_table.get_aws_storage_options",
+                return_value={},
+            ),
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.prepare_queryable_table.deltalake.DeltaTable",
+                return_value=mock_delta_table,
+            ) as mock_delta_table_cls,
+        ):
+            mock_prepare.return_value = "test-bucket/queryable_folder"
+            mock_create_table.return_value = CreateTableResult(
+                table=warehouse_table, storage_delta_mib=None, total_storage_mib=None
+            )
+            await activity_environment.run(prepare_queryable_table_activity, inputs)
+
+            refresh_file_uris = mock_prepare.call_args.kwargs["refresh_file_uris"]
+            assert await refresh_file_uris() == refreshed_file_uris
+            mock_delta_table_cls.assert_called_once_with(inputs.table_uri, storage_options={})
+        await database_sync_to_async(warehouse_table.delete)()
+
     async def test_updates_saved_query_with_table_reference(self, activity_environment, ateam, asaved_query, ajob):
         inputs = PrepareQueryableTableInputs(
             team_id=ateam.pk,
@@ -1047,7 +1474,7 @@ class TestMaterializeViewActivity:
             result = await activity_environment.run(materialize_view_activity, inputs)
 
             assert result.row_count == 6
-            delta_table = deltalake.DeltaTable(result.table_uri, storage_options=_get_aws_storage_options())
+            delta_table = deltalake.DeltaTable(result.table_uri, storage_options=get_aws_storage_options())
             materialized = delta_table.to_pyarrow_table()
             assert materialized.column_names == camel_case_names
             assert materialized.num_rows == 6
@@ -1102,7 +1529,7 @@ class TestMaterializeViewActivity:
             result = await activity_environment.run(materialize_view_activity, inputs)
 
             assert result.row_count == 6
-            delta_table = deltalake.DeltaTable(result.table_uri, storage_options=_get_aws_storage_options())
+            delta_table = deltalake.DeltaTable(result.table_uri, storage_options=get_aws_storage_options())
             materialized = delta_table.to_pyarrow_table()
             assert materialized.column_names == camel_case_names
             assert materialized.num_rows == 6
@@ -1152,7 +1579,7 @@ class TestMaterializeViewActivity:
             assert len(result.file_uris) == 1
             assert result.file_uris[0].endswith(".parquet")
             # delta log carries the schema so deltaLake() reads in get_columns succeed
-            delta_table = deltalake.DeltaTable(result.table_uri, storage_options=_get_aws_storage_options())
+            delta_table = deltalake.DeltaTable(result.table_uri, storage_options=get_aws_storage_options())
             pyarrow_table = delta_table.to_pyarrow_table()
             assert pyarrow_table.num_rows == 0
             assert set(pyarrow_table.column_names) == {"id", "name"}
@@ -1214,17 +1641,42 @@ class _EmptyArrowClient:
         self.schema = schema
         self.arrow_query_calls = 0
         self.schema_query_calls = 0
+        self.describe_settings: dict[str, str] | None = None
+        self.describe_query: str | None = None
+        self.describe_calls: list[tuple[str, dict[str, str] | None]] = []
+        self.reject_describe_with_settings = False
+        self.arrow_query: str | None = None
 
-    async def astream_query_as_arrow(self, query, *data, query_parameters=None, query_id=None, on_schema=None):
+    async def astream_query_as_arrow(
+        self,
+        query: str,
+        *data: Any,
+        query_parameters: dict[str, Any] | None = None,
+        query_id: str | None = None,
+        on_schema: Callable[[pa.Schema], None] | None = None,
+    ) -> AsyncIterator[pa.RecordBatch]:
         self.arrow_query_calls += 1
+        self.arrow_query = query
         if on_schema is not None:
             on_schema(self.schema)
         return
         yield  # type: ignore[unreachable]  # makes this an async generator that yields no batches
 
     @contextlib.asynccontextmanager
-    async def apost_query(self, query, *data, query_parameters=None, query_id=None):
+    async def apost_query(
+        self,
+        query: str,
+        *data: Any,
+        query_parameters: dict[str, Any] | None = None,
+        query_id: str | None = None,
+        settings: dict[str, str] | None = None,
+    ) -> AsyncIterator[Any]:
         if query.startswith("DESCRIBE TABLE"):
+            self.describe_calls.append((query, settings))
+            if self.reject_describe_with_settings and settings is not None:
+                raise ClickHouseError("Code: 8. DB::Exception: Cannot find column in source stream", query=query)
+            self.describe_settings = settings
+            self.describe_query = query
             body = self.describe_body
         else:
             self.schema_query_calls += 1
@@ -1242,6 +1694,45 @@ class _EmptyArrowClient:
                 return self.body
 
         yield _Response(body)
+
+
+class TestHogqlTableModifiers:
+    @pytest.mark.parametrize(
+        "query,team_modifiers,expected_sql",
+        [
+            ("SELECT $is_bounce FROM sessions LIMIT 1", {"bounceRateDurationSeconds": 123}, "123"),
+            (
+                "SELECT properties.plan FROM events LIMIT 1",
+                {"propertyGroupsMode": "optimized"},
+                "properties_group_custom",
+            ),
+        ],
+    )
+    async def test_compiles_the_view_with_the_team_default_modifiers(
+        self, ateam: Team, query: str, team_modifiers: dict[str, Any], expected_sql: str
+    ) -> None:
+        ateam.modifiers = team_modifiers
+        await database_sync_to_async(ateam.save)()
+        captured_sql: str | None = None
+
+        async def fake_astream_query_as_arrow(
+            _client: Any, query: str, *args: Any, **kwargs: Any
+        ) -> AsyncIterator[pa.RecordBatch]:
+            nonlocal captured_sql
+            captured_sql = query
+            return
+            yield  # type: ignore[unreachable]  # makes this an async generator that yields no batches
+
+        with (
+            unittest.mock.patch(
+                "posthog.temporal.common.clickhouse.ClickHouseClient.astream_query_as_arrow",
+                fake_astream_query_as_arrow,
+            ),
+            contextlib.suppress(EmptyHogQLResponseColumnsError),
+        ):
+            _ = [batch async for batch in hogql_table(query, ateam, LOGGER.bind())]
+
+        assert captured_sql is not None and expected_sql in captured_sql
 
 
 class TestHogqlTableEmptyResults:
@@ -1263,6 +1754,57 @@ class TestHogqlTableEmptyResults:
         assert client.schema_query_calls == 0
 
 
+class TestHogqlTableDescribeSettings:
+    @pytest.mark.parametrize(
+        "operator,global_function",
+        [("IN", "globalIn("), ("NOT IN", "globalNotIn(")],
+    )
+    async def test_describe_probe_drops_global_subqueries(
+        self, ateam: Team, operator: str, global_function: str
+    ) -> None:
+        client = _EmptyArrowClient(pa.schema([pa.field("distinct_id", pa.string())]))
+        client.describe_body = b"distinct_id\tString\n"
+        query = (
+            f"SELECT distinct_id FROM events WHERE distinct_id {operator} "
+            "(SELECT distinct_id FROM events WHERE event = 'x')"
+        )
+
+        @contextlib.asynccontextmanager
+        async def fake_get_client(**kwargs: Any) -> AsyncIterator[_EmptyArrowClient]:
+            yield client
+
+        with unittest.mock.patch(
+            "posthog.temporal.data_modeling.activities.materialize_view.get_clickhouse_client", fake_get_client
+        ):
+            _ = [batch async for batch in hogql_table(query, ateam, LOGGER.bind())]
+
+        assert client.describe_settings == {"distributed_product_mode": "allow", "prefer_global_in_and_join": "0"}
+        assert client.describe_query is not None and global_function not in client.describe_query
+        assert client.arrow_query is not None and global_function in client.arrow_query
+
+    async def test_describe_probe_falls_back_to_the_untouched_query(self, ateam: Team) -> None:
+        client = _EmptyArrowClient(pa.schema([pa.field("distinct_id", pa.string())]))
+        client.describe_body = b"distinct_id\tString\n"
+        client.reject_describe_with_settings = True
+        query = "SELECT distinct_id FROM events WHERE distinct_id IN (SELECT distinct_id FROM events WHERE event = 'x')"
+
+        @contextlib.asynccontextmanager
+        async def fake_get_client(**kwargs: Any) -> AsyncIterator[_EmptyArrowClient]:
+            yield client
+
+        with unittest.mock.patch(
+            "posthog.temporal.data_modeling.activities.materialize_view.get_clickhouse_client", fake_get_client
+        ):
+            batches = [batch async for batch in hogql_table(query, ateam, LOGGER.bind())]
+
+        assert [settings for _, settings in client.describe_calls] == [
+            {"distributed_product_mode": "allow", "prefer_global_in_and_join": "0"},
+            None,
+        ]
+        assert "globalIn(" in client.describe_calls[1][0]
+        assert batches[0][1] == [("distinct_id", "String")]
+
+
 class _SlowDescribeClient(_EmptyArrowClient):
     describe_body = b"ts\tDateTime\n"
 
@@ -1271,9 +1813,18 @@ class _SlowDescribeClient(_EmptyArrowClient):
         self.describe_seconds = describe_seconds
 
     @contextlib.asynccontextmanager
-    async def apost_query(self, query, *data, query_parameters=None, query_id=None):
+    async def apost_query(
+        self,
+        query: str,
+        *data: Any,
+        query_parameters: dict[str, Any] | None = None,
+        query_id: str | None = None,
+        settings: dict[str, str] | None = None,
+    ) -> AsyncIterator[Any]:
         await asyncio.sleep(self.describe_seconds)
-        async with super().apost_query(query, *data, query_parameters=query_parameters, query_id=query_id) as response:
+        async with super().apost_query(
+            query, *data, query_parameters=query_parameters, query_id=query_id, settings=settings
+        ) as response:
             yield response
 
 
@@ -1306,3 +1857,169 @@ class TestHogqlTableResolutionDeadline:
             batches = [batch async for batch in hogql_table("SELECT now() AS ts", ateam, LOGGER.bind())]
 
         assert [name for name, _ in batches[0][1]] == ["ts"]
+
+
+class TestMaterializeViewStagesPersonPropertyRows:
+    """A view feeding a warehouse property stages its projected rows as it writes, so the post-run sync
+    reads only this run's rows instead of the whole table."""
+
+    @staticmethod
+    def _hogql_table(*args, **kwargs):
+        del args, kwargs
+        data = cast(
+            Collection[pa.Array],
+            [pa.array(["a", "b"], type=pa.string()), pa.array(["pro", "free"], type=pa.string())],
+        )
+        batch = pa.RecordBatch.from_arrays(data, names=["distinct_id", "plan"])
+
+        async def async_generator():
+            yield batch, [("distinct_id", "String"), ("plan", "String")]
+
+        return async_generator()
+
+    @contextlib.contextmanager
+    def _env(self, bucket_name, projection):
+        with (
+            override_settings(
+                BUCKET_URL=f"s3://{bucket_name}",
+                DATAWAREHOUSE_BUCKET=bucket_name,
+                DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+                DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+                DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
+                USE_LOCAL_SETUP=True,
+            ),
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.materialize_view.hogql_table", self._hogql_table
+            ),
+            unittest.mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports."
+                "pipelines.core.person_property_row_sink.person_property_projection_for",
+                return_value=projection,
+            ),
+        ):
+            yield
+
+    async def test_stages_projected_columns_and_flags_the_run(
+        self, activity_environment, ateam, anode, asaved_query, ajob, adag, bucket_name, minio_client
+    ):
+        projection = [PersonPropertySourceProjection(key_column="distinct_id", columns=frozenset({"distinct_id"}))]
+        inputs = MaterializeViewInputs(
+            team_id=ateam.pk, dag_id=str(adag.id), node_id=str(anode.id), job_id=str(ajob.id)
+        )
+        with self._env(bucket_name, projection):
+            result = await activity_environment.run(materialize_view_activity, inputs)
+            # Resolved inside the overridden settings, so it names the same bucket the sink wrote to.
+            prefix = person_property_job_staged_prefix(ateam.pk, saved_query_binding(asaved_query.id), str(ajob.id))
+
+        # The workflow gates the person-property child on this field.
+        assert result.person_property_sync_enabled is True
+
+        listing = await minio_client.list_objects_v2(Bucket=bucket_name, Prefix=prefix.removeprefix(f"{bucket_name}/"))
+        keys = [obj["Key"] for obj in listing.get("Contents", [])]
+        assert len(keys) == 1, f"expected one staged chunk under {prefix}, got {keys}"
+
+        staged = await minio_client.get_object(Bucket=bucket_name, Key=keys[0])
+        table = pq.read_table(BytesIO(await staged["Body"].read()))
+        # Only the projected columns leave the pipeline — "plan" isn't mapped by this projection.
+        assert table.column_names == ["distinct_id"]
+        assert table.column("distinct_id").to_pylist() == ["a", "b"]
+
+    async def test_unmapped_view_stages_nothing_and_leaves_the_flag_off(
+        self, activity_environment, ateam, anode, ajob, adag, bucket_name, minio_client
+    ):
+        # The gate is what keeps an unmapped view (the vast majority) from paying for staging at all.
+        inputs = MaterializeViewInputs(
+            team_id=ateam.pk, dag_id=str(adag.id), node_id=str(anode.id), job_id=str(ajob.id)
+        )
+        with self._env(bucket_name, None):
+            result = await activity_environment.run(materialize_view_activity, inputs)
+
+        assert result.person_property_sync_enabled is False
+        listing = await minio_client.list_objects_v2(Bucket=bucket_name, Prefix="person_property_sync/")
+        assert listing.get("Contents", []) == []
+
+
+class TestMaterializeViewStagesAccountPropertyRows:
+    @staticmethod
+    def _hogql_table(*args, **kwargs):
+        del args, kwargs
+        data = cast(
+            Collection[pa.Array],
+            [pa.array(["org-1", "org-2"], type=pa.string()), pa.array([100.0, 200.0], type=pa.float64())],
+        )
+        batch = pa.RecordBatch.from_arrays(data, names=["organization_id", "mrr"])
+
+        async def async_generator():
+            yield batch, [("organization_id", "String"), ("mrr", "Float64")]
+
+        return async_generator()
+
+    async def test_exposes_account_delta_snapshot_without_staging_inside_materialization(
+        self, activity_environment, ateam, anode, asaved_query, ajob, adag, bucket_name, minio_client
+    ) -> None:
+        projection = [
+            AccountPropertySourceProjection(
+                key_column="organization_id",
+                columns=frozenset({"organization_id", "mrr"}),
+            )
+        ]
+        inputs = MaterializeViewInputs(
+            team_id=ateam.pk,
+            dag_id=str(adag.id),
+            node_id=str(anode.id),
+            job_id=str(ajob.id),
+        )
+        with (
+            override_settings(
+                BUCKET_URL=f"s3://{bucket_name}",
+                DATAWAREHOUSE_BUCKET=bucket_name,
+                DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+                DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+                DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
+                USE_LOCAL_SETUP=True,
+            ),
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.materialize_view.hogql_table",
+                self._hogql_table,
+            ),
+            unittest.mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports."
+                "pipelines.core.account_property_row_sink.account_property_projection_for",
+                return_value=projection,
+            ),
+        ):
+            result = await activity_environment.run(materialize_view_activity, inputs)
+            prefix = account_property_job_staged_prefix(
+                ateam.pk,
+                saved_query_binding(asaved_query.id),
+                str(ajob.id),
+            )
+            listing_before_staging = await minio_client.list_objects_v2(
+                Bucket=bucket_name,
+                Prefix=prefix.removeprefix(f"{bucket_name}/"),
+            )
+            assert result.delta_version is not None
+            activity_environment.info = replace(activity_environment.info, workflow_run_id=str(uuid4()))
+            staged = await activity_environment.run(
+                stage_warehouse_account_property_files_activity,
+                StageAccountPropertySyncInput(
+                    team_id=ateam.pk,
+                    saved_query_id=str(asaved_query.id),
+                    job_id=str(ajob.id),
+                    table_uri=result.table_uri,
+                    delta_version=result.delta_version,
+                ),
+            )
+            listing_after_staging = await minio_client.list_objects_v2(
+                Bucket=bucket_name,
+                Prefix=prefix.removeprefix(f"{bucket_name}/"),
+            )
+
+        assert result.account_property_sync_enabled is True
+        assert listing_before_staging.get("Contents", []) == []
+        assert staged is True
+        keys = [obj["Key"] for obj in listing_after_staging.get("Contents", [])]
+        assert len(keys) == 1
+        staged_object = await minio_client.get_object(Bucket=bucket_name, Key=keys[0])
+        table = pq.read_table(BytesIO(await staged_object["Body"].read()))
+        assert table.column_names == ["mrr", "organization_id"]

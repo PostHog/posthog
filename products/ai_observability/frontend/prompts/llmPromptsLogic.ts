@@ -45,10 +45,8 @@ export interface llmPromptsLogicValues {
     pagination: PaginationManual
     promptCountLabel: string
     prompts: CountedPaginatedResponse<LLMPrompt>
-    promptsLoaded: boolean
     promptsLoading: boolean
     rawFilters: Partial<PromptFilters> | null
-    shouldShowEmptyState: boolean
     sorting: Sorting | null
 }
 
@@ -104,12 +102,6 @@ export interface llmPromptsLogicMeta {
         sorting: (filters: PromptFilters) => Sorting | null
         pagination: (filters: PromptFilters, count: number) => PaginationManual
         promptCountLabel: (filters: PromptFilters, count: number) => string
-        shouldShowEmptyState: (
-            count: number,
-            promptsLoaded: boolean,
-            promptsLoading: boolean,
-            filters: PromptFilters
-        ) => boolean
     }
 }
 
@@ -145,12 +137,6 @@ export const llmPromptsLogic = kea<llmPromptsLogicType>([
                         ...filters,
                         ...('page' in filters ? {} : { page: 1 }),
                     }),
-            },
-        ],
-        promptsLoaded: [
-            false as boolean,
-            {
-                loadPromptsSuccess: () => true,
             },
         ],
     }),
@@ -229,12 +215,6 @@ export const llmPromptsLogic = kea<llmPromptsLogicType>([
 
                 return count === 0 ? '0 prompts' : `${start}-${end} of ${count} prompt${count === 1 ? '' : 's'}`
             },
-        ],
-
-        shouldShowEmptyState: [
-            (s) => [s.count, s.promptsLoaded, s.promptsLoading, s.filters],
-            (count: number, promptsLoaded: boolean, promptsLoading: boolean, filters: PromptFilters): boolean =>
-                promptsLoaded && !promptsLoading && count === 0 && !filters.search && !filters.created_by_id,
         ],
     }),
 

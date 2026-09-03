@@ -15,6 +15,12 @@ const PROMPTS = [
         src: 'products/posthog_ai/skills/querying-posthog-data/references/guidelines.md',
         dest: 'shared/guidelines.md',
     },
+    {
+        // Parser recipe DSL reference served by `llma-parser-recipe-reference`;
+        // the Python MaxTool reads the same file, keeping one source of truth.
+        src: 'products/ai_observability/backend/prompts/parser_recipe_examples.yaml',
+        dest: 'shared/parser_recipe_examples.yaml',
+    },
 ]
 
 export function copyInstructions(): void {

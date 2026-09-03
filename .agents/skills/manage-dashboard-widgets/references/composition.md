@@ -89,6 +89,8 @@ Render order inside `WidgetCard` (matches `InsightCard`):
 
 Date range display is derived in `WidgetCardHeader` from `config.dateRange` + resolved catalog `headerMeta` (via `dateFilterToText`). Product type chip text comes from `getDashboardWidgetGroupLabel(groupId)`.
 
+When a saved view or product collection replaces the date range, add a `TopHeading` slot in `widgets/registry.tsx`. The slot renders `CardTopHeadingRow` with the group label and resolved saved-view name. Reuse the product's project-scoped saved-view cache. Load it only when a persisted saved-view ID needs a label. Add the slot to the widget Storybook wrapper and test the resolved heading.
+
 ## Loading ownership
 
 The widget `Component` receives `loading` from scene logic and must early-return with `WidgetLoadingState`. The shell (`DashboardWidgetItem` → composed `WidgetCardBody`) does not show skeletons for widget body content.

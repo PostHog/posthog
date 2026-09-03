@@ -234,6 +234,13 @@ class TestRailway:
         non_retryable = RailwaySource().get_non_retryable_errors()
         assert any(key in str(exc_info.value) for key in non_retryable)
 
+    def test_problem_processing_request_error_is_retryable(self):
+        # Railway returns this generic message as HTTP 200 + a GraphQL error for what their own
+        # support forum confirms is usually a transient backend hiccup — it must retry like the
+        # 429/5xx statuses below, not abort the sync on the first occurrence.
+        with pytest.raises(RailwayRetryableError):
+            railway._raise_for_graphql_errors({"errors": [{"message": "Problem processing request"}]})
+
     @parameterized.expand([(429,), (500,), (503,)])
     def test_retryable_status_codes(self, status_code):
         session = mock.MagicMock()

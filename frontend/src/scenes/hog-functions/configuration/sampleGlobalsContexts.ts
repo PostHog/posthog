@@ -30,6 +30,7 @@ export const SAMPLE_GLOBALS_CONTEXTS: Partial<Record<HogFunctionConfigurationCon
             name: issue.name ?? 'Unnamed issue',
             description: 'PostHog test alert',
             status: issue.status,
+            severity: issue.severity,
             fingerprint: fingerprintRecord.fingerprint,
         }
         if (issue.assignee) {

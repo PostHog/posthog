@@ -1,4 +1,5 @@
 import {
+    MAX_CATEGORY_LABEL_WIDTH,
     type TooltipContext,
     type TrendLineConfig,
     type ValueLabelContext,
@@ -718,6 +719,29 @@ describe('sqlLineGraphAdapter', () => {
             expect(config.legend).toEqual({ show: expected, position: 'top', interactive: true })
         })
 
+        it.each([
+            ['defaults to the top', undefined, 'top'],
+            ['follows legendPosition', 'bottom', 'bottom'],
+        ] as const)('%s for the legend position', (_name, legendPosition, expected) => {
+            const config = buildLineChartConfig({
+                xData: dateXData,
+                chartSettings: { showLegend: true, legendPosition },
+                timezone: 'UTC',
+            })
+            expect(config.legend?.position).toBe(expected)
+        })
+
+        it('forwards legendRenderItem, which carries the row right-click menu', () => {
+            const legendRenderItem = jest.fn()
+            const config = buildLineChartConfig({
+                xData: dateXData,
+                chartSettings: { showLegend: true },
+                timezone: 'UTC',
+                legendRenderItem,
+            })
+            expect(config.legend?.renderItem).toBe(legendRenderItem)
+        })
+
         it('wires goalLines through schemaGoalLinesToConfigs', () => {
             const goalLines: GoalLine[] = [{ label: 'Target', value: 100 }]
             const config = buildLineChartConfig({ xData: dateXData, chartSettings: {}, timezone: 'UTC', goalLines })
@@ -798,6 +822,7 @@ describe('sqlLineGraphAdapter', () => {
             })
 
             expect(config.xAxis?.tickLabelRotation).toBe(expected)
+            expect(config.maxCategoryLabelWidth).toBe(MAX_CATEGORY_LABEL_WIDTH)
         })
 
         it('forces a linear y-axis scale for percent-stacked bars', () => {

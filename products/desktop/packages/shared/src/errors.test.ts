@@ -8,6 +8,7 @@ import {
   isNotAuthenticatedError,
   isRateLimitError,
   isTransientUpstreamError,
+  isTurnEndedWithoutResponseError,
   NotAuthenticatedError,
   serializeError,
 } from "./errors";
@@ -104,6 +105,11 @@ describe("classifyGatewayLimitError", () => {
       "model_gate",
     ],
     [
+      "Rate limit exceeded: Your team has reached its PostHog Desktop usage limit for this billing period. See https://app.posthog.com/organization/billing for your usage and limits.",
+      "org_limit",
+    ],
+    [
+      // Pre-rename wording still sent by older gateway deployments.
       "Rate limit exceeded: Your team has reached its PostHog Code usage limit for this billing period. See https://app.posthog.com/organization/billing for your usage and limits.",
       "org_limit",
     ],
@@ -119,6 +125,7 @@ describe("classifyGatewayLimitError", () => {
       "org_limit",
     ],
     ["Rate limit exceeded: User sustained rate limit exceeded", "org_limit"],
+    ["Cloud usage limit reached", "org_limit"],
   ])("classifies %j as %s", (message, expected) => {
     expect(classifyGatewayLimitError(message)).toBe(expected);
   });
@@ -145,8 +152,15 @@ describe("classifyGatewayLimitError", () => {
 describe("classifyPromptFailure", () => {
   it.each([
     ["Rate limit exceeded", undefined, "usage_limit", false],
+    ["Cloud usage limit reached", undefined, "usage_limit", false],
     ["API Error: 529 overloaded", undefined, "transient", true],
     ["boom", "upstream_timeout", "transient", true],
+    [
+      "[ede_diagnostic] result_type=user last_content_type=n/a stop_reason=null",
+      "turn_ended_without_response",
+      "transient",
+      true,
+    ],
     ["Authentication required", undefined, "authentication", true],
     ["process exited", undefined, "fatal_session", true],
     ["invalid model", undefined, "unknown", false],
@@ -184,6 +198,7 @@ describe("isFatalSessionError", () => {
     "Internal error: API Error: terminated",
     "Internal error: API Error: Connection error",
     "Internal error: API Error: 529 overloaded_error",
+    "Internal error: API Error: Content block is not a thinking block",
   ])("does not treat the transient upstream failure %j as fatal", (message) => {
     expect(isFatalSessionError(message)).toBe(false);
   });
@@ -193,6 +208,14 @@ describe("isFatalSessionError", () => {
       isFatalSessionError(
         "internal error",
         "API Error: the operation timed out",
+      ),
+    ).toBe(false);
+  });
+
+  it("does not treat a no-response diagnostic as fatal", () => {
+    expect(
+      isFatalSessionError(
+        "Internal error: [ede_diagnostic] result_type=user last_content_type=n/a stop_reason=null",
       ),
     ).toBe(false);
   });
@@ -219,6 +242,8 @@ describe("isTransientUpstreamError", () => {
     "Internal error: API Error: Connection closed mid-response. The response above may be incomplete.",
     "The socket connection was closed unexpectedly.",
     "socket connection closed",
+    "Internal error: API Error: Content block not found",
+    "Internal error: API Error: Content block is not a thinking block",
   ])("recognises %j", (message) => {
     expect(isTransientUpstreamError(message)).toBe(true);
   });
@@ -230,6 +255,13 @@ describe("isTransientUpstreamError", () => {
         "API Error: the operation timed out",
       ),
     ).toBe(true);
+  });
+
+  it("recognises a no-response diagnostic separately", () => {
+    const message =
+      "Internal error: [ede_diagnostic] result_type=user last_content_type=n/a stop_reason=null";
+    expect(isTransientUpstreamError(message)).toBe(false);
+    expect(isTurnEndedWithoutResponseError(message)).toBe(true);
   });
 
   it.each([

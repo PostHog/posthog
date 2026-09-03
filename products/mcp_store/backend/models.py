@@ -8,47 +8,72 @@ from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 
-AUTH_TYPE_CHOICES = [
-    ("api_key", "API Key"),
-    ("oauth", "OAuth"),
-]
 
-APPROVAL_STATES = [
-    ("approved", "Approved"),
-    ("needs_approval", "Needs approval"),
-    ("do_not_use", "Do not use"),
-]
+class MCPAuthType(models.TextChoices):
+    API_KEY = "api_key", "API Key"
+    OAUTH = "oauth", "OAuth"
+
+
+AUTH_TYPE_CHOICES = MCPAuthType.choices
+
+
+class MCPToolApprovalState(models.TextChoices):
+    APPROVED = "approved", "Approved"
+    NEEDS_APPROVAL = "needs_approval", "Needs approval"
+    DO_NOT_USE = "do_not_use", "Do not use"
+
+
+APPROVAL_STATES = MCPToolApprovalState.choices
+
 
 # Catalog categories used by the marketplace UI to group templates. Pinned to a
 # finite choice list so the frontend can render predictable filter chips. New
 # rows default to "dev" until they're reclassified in the admin.
-CATEGORY_CHOICES = [
-    ("business", "Business Operations"),
-    ("data", "Data & Analytics"),
-    ("design", "Design & Content"),
-    ("dev", "Developer Tools & APIs"),
-    ("infra", "Infrastructure"),
-    ("productivity", "Productivity & Collaboration"),
-]
+class MCPServerCategory(models.TextChoices):
+    BUSINESS = "business", "Business Operations"
+    DATA = "data", "Data & Analytics"
+    DESIGN = "design", "Design & Content"
+    DEV = "dev", "Developer Tools & APIs"
+    INFRA = "infra", "Infrastructure"
+    PRODUCTIVITY = "productivity", "Productivity & Collaboration"
+
+
+CATEGORY_CHOICES = MCPServerCategory.choices
 
 SCOPE_CHOICES = [
     ("personal", "Personal"),
     ("shared", "Shared"),
 ]
 
-SERVICE_ACCOUNT_STATUS_CHOICES = [
-    ("active", "Active"),
-    ("paused", "Paused"),
+# How far an agent grant reaches. "personal" applies only to runs whose
+# credential owner is the granting member; "team" lets any of the team's agent
+# runs borrow that member's credential, including runs with no owner at all
+# (autonomous support replies, scout runs). It never lets another human
+# use the credential.
+AGENT_GRANT_SCOPE_CHOICES = [
+    ("personal", "Personal"),
+    ("team", "Team"),
 ]
+
+
+class MCPServiceAccountStatus(models.TextChoices):
+    ACTIVE = "active", "Active"
+    PAUSED = "paused", "Paused"
+
+
+SERVICE_ACCOUNT_STATUS_CHOICES = MCPServiceAccountStatus.choices
+
 
 # Team-level policy baselines. They derive a default per-tool state for tools
 # that have no explicit policy row (see policy.member_preset_team_state).
-POLICY_PRESET_CHOICES = [
-    ("allow", "Allow all"),
-    ("user", "Member decides"),
-    ("ask", "Ask for destructive"),
-    ("block", "Block destructive"),
-]
+class MCPPolicyPreset(models.TextChoices):
+    ALLOW = "allow", "Allow all"
+    USER = "user", "Member decides"
+    ASK = "ask", "Ask for destructive"
+    BLOCK = "block", "Block destructive"
+
+
+POLICY_PRESET_CHOICES = MCPPolicyPreset.choices
 
 POLICY_SCOPE_TYPE_CHOICES = [
     ("team", "Team default"),
@@ -67,14 +92,17 @@ ORG_RULE_EFFECT_CHOICES = [
     ("do_not_use", "Block"),
 ]
 
+
 # How the gateway decided a proxied tool call. "pending" is an agent call that
 # hit a needs_approval tool and was rejected awaiting a human.
-AUDIT_DECISION_CHOICES = [
-    ("auto", "Auto-approved"),
-    ("approved", "Approved"),
-    ("pending", "Awaiting approval"),
-    ("blocked", "Blocked"),
-]
+class MCPAuditDecision(models.TextChoices):
+    AUTO = "auto", "Auto-approved"
+    APPROVED = "approved", "Approved"
+    PENDING = "pending", "Awaiting approval"
+    BLOCKED = "blocked", "Blocked"
+
+
+AUDIT_DECISION_CHOICES = MCPAuditDecision.choices
 
 
 class SensitiveConfig(TypedDict, total=False):
@@ -167,6 +195,9 @@ class MCPServerInstallation(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     description = models.TextField(blank=True, default="")
     auth_type = models.CharField(max_length=20, choices=AUTH_TYPE_CHOICES, default="oauth")
     is_enabled = models.BooleanField(default=True)
+    # Deprecated: "shared" let teammates borrow one member's credential, which is being
+    # removed in favor of per-member connections plus agent grants. The column drop is a
+    # follow-up.
     # db_default keeps a real Postgres DEFAULT so inserts from code predating
     # this column (old pods during a rolling deploy) don't hit the NOT NULL.
     scope = models.CharField(max_length=20, choices=SCOPE_CHOICES, default="personal", db_default="personal")
@@ -297,6 +328,11 @@ class MCPGatewayServer(TeamScopedRootMixin, UUIDModel):
     template = models.ForeignKey(
         MCPServerTemplate, on_delete=models.SET_NULL, related_name="gateway_servers", null=True, blank=True
     )
+    # How members authenticate to a custom server, copied from the credential
+    # that registered the row. Later connections follow it instead of asking
+    # each member to guess. Templates carry their own auth_type. Blank on rows
+    # that predate the column; members then choose.
+    auth_type = models.CharField(max_length=20, choices=AUTH_TYPE_CHOICES, blank=True, default="", db_default="")
     created_by = models.ForeignKey(
         "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
     )
@@ -382,11 +418,31 @@ class MCPServiceAccount(TeamScopedRootMixin, UUIDModel):
 
 
 class MCPServiceAccountServerAccess(TeamScopedRootMixin, UUIDModel):
-    """Grant row: this agent may call this gateway server using one credential."""
+    """Grant row: this agent may call this gateway server using one person's
+    credential, and only while acting on behalf of that person."""
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
     service_account = models.ForeignKey(MCPServiceAccount, on_delete=models.CASCADE, related_name="server_access")
     gateway_server = models.ForeignKey(MCPGatewayServer, on_delete=models.CASCADE, related_name="agent_access")
+    # The person the grant belongs to. An agent run mounts a grant only when
+    # this user is the run's credential owner, so one member's connection never
+    # backs another member's agent run.
+    #
+    # Nullable only for the rolling deploy: pods running the previous release
+    # write grants without this column, so a NOT NULL constraint would make
+    # their inserts fail mid-deploy. Every read path filters on an explicit user
+    # id or excludes user__isnull=True, so a transient null row resolves
+    # nowhere. NOT NULL is deferred to a follow-up once no deployed code writes
+    # grants without a user.
+    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+", db_constraint=False, null=True)
+    # Who the grant reaches (see AGENT_GRANT_SCOPE_CHOICES). Deliberately not part of any
+    # uniqueness constraint: several members may each team-share the same (agent, server),
+    # and every one of those credentials mounts side by side for a run that has none of its
+    # own. db_default keeps a real Postgres DEFAULT so grant inserts from pods running the
+    # previous release don't hit the NOT NULL mid-deploy.
+    scope = models.CharField(
+        max_length=20, choices=AGENT_GRANT_SCOPE_CHOICES, default="personal", db_default="personal"
+    )
     # Null preserves the grant when its exact credential is deleted, so the UI
     # can surface that the agent needs a new connection.
     installation = models.ForeignKey(
@@ -411,7 +467,10 @@ class MCPServiceAccountServerAccess(TeamScopedRootMixin, UUIDModel):
     class Meta:
         db_table = "mcp_store_mcpserviceaccountserveraccess"
         constraints = [
-            models.UniqueConstraint(fields=["service_account", "gateway_server"], name="uniq_agent_server_access"),
+            models.UniqueConstraint(
+                fields=["service_account", "gateway_server", "user"],
+                name="uniq_agent_server_access_per_user",
+            ),
         ]
 
 
@@ -487,6 +546,26 @@ class MCPAuditEvent(TeamScopedRootMixin, UUIDModel):
         MCPServiceAccount, on_delete=models.SET_NULL, null=True, blank=True, related_name="audit_events"
     )
     actor_label = models.CharField(max_length=254, blank=True, default="")
+    # Whose credential an agent call rode, and under which grant scope. Without these,
+    # a team-scoped grant makes "which member's connection did this agent use"
+    # unanswerable after the fact. Both stay empty for member calls.
+    # db_index=False: nothing filters the trail by credential owner, and building an
+    # index on an existing audit table would lock it for the length of the build.
+    # DO_NOTHING with db_constraint=False because the alternatives both cost more than
+    # the dangling id does: SET_NULL would make every user deletion (SCIM
+    # deprovisioning included) seq-scan and rewrite this whole unindexed table, and it
+    # would erase the attribution the column exists to preserve. Read paths render a
+    # deleted owner as absent, and actor_label keeps the denormalized identity.
+    credential_owner = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.DO_NOTHING,
+        null=True,
+        blank=True,
+        related_name="+",
+        db_constraint=False,
+        db_index=False,
+    )
+    grant_scope = models.CharField(max_length=20, blank=True, default="", db_default="")
     server_name = models.CharField(max_length=200, blank=True, default="")
     tool_name = models.CharField(max_length=200, blank=True, default="")
     decision = models.CharField(max_length=20, choices=AUDIT_DECISION_CHOICES)

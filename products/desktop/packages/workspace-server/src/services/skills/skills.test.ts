@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -363,6 +363,31 @@ describe("installTeamSkill", () => {
     expect(guide).toBe("guide");
   });
 
+  it("drops ignored paths from the payload instead of installing them", async () => {
+    const service = makeService();
+    const { path: target } = await service.installTeamSkill({
+      ...input,
+      name: "junk-team-skill",
+      files: [
+        { path: "references/guide.md", content: "guide" },
+        { path: "node_modules/pkg/i.js", content: "junk" },
+        { path: ".venv/lib/mod.py", content: "junk" },
+        { path: "SKILL.md", content: "HIJACKED" },
+        { path: "skill.md", content: "HIJACKED" },
+      ],
+    });
+
+    expect(existsSync(path.join(target, "references/guide.md"))).toBe(true);
+    expect(existsSync(path.join(target, "node_modules"))).toBe(false);
+    expect(existsSync(path.join(target, ".venv"))).toBe(false);
+    // On a case-insensitive filesystem "skill.md" would clobber the manifest
+    // content; on a case-sensitive one it would land as a separate file.
+    expect(readdirSync(target)).not.toContain("skill.md");
+    const manifest = await service.readSkillFile(target, "SKILL.md");
+    expect(manifest).toContain("From the team");
+    expect(manifest).not.toContain("HIJACKED");
+  });
+
   it("writes disable-model-invocation back into the frontmatter", async () => {
     const service = makeService();
     const { path: target } = await service.installTeamSkill({
@@ -700,6 +725,30 @@ describe("write-path guard", () => {
     await expect(
       makeService().saveSkillFile(skillPath, "../beta.md", "x"),
     ).rejects.toThrow("path outside skill directory");
+  });
+
+  it("rejects a path containing a backslash instead of writing it verbatim", async () => {
+    const skillPath = await createSkill(repoSkillsDir, "alpha");
+
+    // A local write must not create a filename the cloud sandbox's "\" to
+    // "/" extraction normalization would silently reinterpret as nested.
+    await expect(
+      makeService().saveSkillFile(skillPath, "references\\guide.md", "x"),
+    ).rejects.toThrow("cannot contain a backslash");
+  });
+
+  it("rejects write destinations the file tree would not show", async () => {
+    const skillPath = await createSkill(repoSkillsDir, "alpha");
+    const service = makeService();
+
+    await expect(
+      service.saveSkillFile(skillPath, ".venv/notes.md", "x"),
+    ).rejects.toThrow("excluded from skills");
+
+    await service.saveSkillFile(skillPath, "references/guide.md", "guide");
+    await expect(
+      service.renameSkillFile(skillPath, "references/guide.md", ".cache/g.md"),
+    ).rejects.toThrow("excluded from skills");
   });
 });
 

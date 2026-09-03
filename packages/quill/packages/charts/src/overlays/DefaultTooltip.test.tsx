@@ -266,5 +266,16 @@ describe('DefaultTooltip', () => {
             expect(closest).toHaveLength(1)
             expect(closest[0].querySelector('[data-attr="hog-chart-tooltip-series"]')?.textContent).toBe('Beta')
         })
+
+        it('marks the hovered series row before using the cursor position', () => {
+            const withYPixel: TooltipContext['seriesData'] = [
+                { ...TWO_SERIES[0], yPixel: 0 },
+                { ...TWO_SERIES[1], yPixel: 300 },
+            ]
+            renderTooltip({}, withYPixel, { hoveredSeriesKey: 'b', hoverPosition: { x: 0, y: 0 } })
+            const closest = document.querySelectorAll<HTMLElement>('[data-closest="true"]')
+            expect(closest).toHaveLength(1)
+            expect(closest[0].querySelector('[data-attr="hog-chart-tooltip-series"]')?.textContent).toBe('Beta')
+        })
     })
 })

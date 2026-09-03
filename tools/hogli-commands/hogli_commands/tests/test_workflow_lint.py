@@ -776,6 +776,45 @@ class TestSemgrepServicesCoverageCheck:
         [issue] = SemgrepServicesCoverageCheck(repo_root=repo_root).run(_read_all(workflows_dir)).issues
         assert "services/worker/" in issue.message
 
+    def test_reads_composite_action_with_args(self, tmp_path: Path) -> None:
+        # The real jobs pass scan targets through the semgrep-ci composite
+        # action's `args` input, as `--include /services/<name>` with no
+        # trailing slash — those must count as coverage. Excluded services and
+        # prefix matches must not: `--exclude /services/api-v2` is not
+        # coverage of api-v2, and `/services/api` does not cover it either.
+        repo_root = tmp_path
+        for service in ("api", "api-v2"):
+            (repo_root / "services" / service).mkdir(parents=True)
+        workflows_dir = repo_root / ".github" / "workflows"
+        workflows_dir.mkdir(parents=True)
+        _write(
+            workflows_dir,
+            "ci-security.yaml",
+            """
+            name: Security
+            on: [pull_request]
+            jobs:
+              semgrep-python:
+                runs-on: ubuntu-latest
+                timeout-minutes: 5
+                steps:
+                  - uses: ./.github/actions/semgrep-ci
+                    with:
+                      image: semgrep/semgrep:1.0.0
+                      args: >-
+                        --config p/python
+                        --include /services/api
+                        --exclude /services/api-v2
+              semgrep-js:
+                runs-on: ubuntu-latest
+                timeout-minutes: 5
+                steps:
+                  - run: echo ok
+            """,
+        )
+        [issue] = SemgrepServicesCoverageCheck(repo_root=repo_root).run(_read_all(workflows_dir)).issues
+        assert "services/api-v2/" in issue.message
+
 
 # ---------------------------------------------------------------------------
 # CheckoutFullDepthCheck

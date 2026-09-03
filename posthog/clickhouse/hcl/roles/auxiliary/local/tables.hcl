@@ -18,6 +18,9 @@ database "posthog" {
     column "issue_status" {
       type = "String"
     }
+    column "issue_severity" {
+      type = "Nullable(String)"
+    }
     column "assigned_user_id" {
       type = "Nullable(Int64)"
     }
@@ -61,6 +64,9 @@ database "posthog" {
     }
     column "issue_status" {
       type = "String"
+    }
+    column "issue_severity" {
+      type = "Nullable(String)"
     }
     column "assigned_user_id" {
       type = "Nullable(Int64)"

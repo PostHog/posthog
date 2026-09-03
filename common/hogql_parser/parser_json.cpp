@@ -2269,57 +2269,29 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     size_t columns_size = column_expr_ctx.size();
     vector<Json> columns = visitAsVectorOfJSON(column_expr_ctx);
 
+    if (!ctx->elseExpr) {
+      Json null_default = Json::object();
+      null_default["node"] = "Constant";
+      null_default["value"] = nullptr;
+      columns.push_back(std::move(null_default));
+      columns_size++;
+    }
+
     Json json = Json::object();
     json["node"] = "Call";
     if (!is_internal) addPositionInfo(json, ctx);
 
     if (ctx->caseExpr) {
-      // CASE expr WHEN ... THEN ... ELSE ... END
-      // Transform to: transform(expr, [conditions], [results], else_result)
-      json["name"] = "transform";
-
-      Json args = Json::array();
-
-      // arg_0: the case expression
-      args.pushBack(columns[0]);
-
-      // arg_1: Array of conditions (odd indices from 1 to columns_size-2)
-      Json conditions_array = Json::object();
-      conditions_array["node"] = "Array";
-      Json conditions_exprs = Json::array();
-      for (size_t index = 1; index < columns_size - 1; index++) {
-        if ((index - 1) % 2 == 0) {
-          conditions_exprs.pushBack(columns[index]);
-        }
-      }
-      conditions_array["exprs"] = std::move(conditions_exprs);
-      args.pushBack(std::move(conditions_array));
-
-      // arg_2: Array of results (even indices from 1 to columns_size-2)
-      Json results_array = Json::object();
-      results_array["node"] = "Array";
-      Json results_exprs = Json::array();
-      for (size_t index = 1; index < columns_size - 1; index++) {
-        if ((index - 1) % 2 == 1) {
-          results_exprs.pushBack(columns[index]);
-        }
-      }
-      results_array["exprs"] = std::move(results_exprs);
-      args.pushBack(std::move(results_array));
-
-      // arg_3: else result (last element)
-      args.pushBack(columns[columns_size - 1]);
-
-      json["args"] = args;
+      json["name"] = "_caseWithExpression";
     } else {
-      // CASE WHEN ... THEN ... ELSE ... END
       json["name"] = columns_size == 3 ? "if" : "multiIf";
-      Json args = Json::array();
-      for (const auto& col : columns) {
-        args.pushBack(col);
-      }
-      json["args"] = std::move(args);
     }
+
+    Json args = Json::array();
+    for (auto& column : columns) {
+      args.pushBack(std::move(column));
+    }
+    json["args"] = std::move(args);
 
     return json;
   }

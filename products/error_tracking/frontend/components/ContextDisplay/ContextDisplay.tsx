@@ -1,102 +1,43 @@
-import { useActions, useValues } from 'kea'
+import { useActions } from 'kea'
 import { match } from 'ts-pattern'
 
 import { Spinner } from '@posthog/lemon-ui'
 
-import { ExceptionAttributes } from 'lib/components/Errors/types'
-import { concatValues } from 'lib/components/Errors/utils'
-import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
-import { identifierToHuman } from 'lib/utils/strings'
-
-import {
-    AnyPropertyFilter,
-    FilterLogicalOperator,
-    PropertyFilterType,
-    PropertyOperator,
-    UniversalFiltersGroup,
-} from '~/types'
-
-import { ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY } from '../../scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
-import { issueFiltersLogic } from '../IssueFilters/issueFiltersLogic'
-import { PropertiesTable } from '../PropertiesTable'
+import { BUILT_IN_ERROR_TRACKING_PROPERTIES } from '../builtInProperties'
+import { ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY, issueFiltersLogic } from '../IssueFilters/issueFiltersLogic'
+import { ExceptionPropertiesTable } from './ExceptionPropertiesTable'
 
 export type ContextDisplayProps = {
     loading: boolean
-    exceptionAttributes: ExceptionAttributes | null
+    properties?: Record<string, unknown>
     additionalProperties: Record<string, unknown>
+    propertyNameFilter?: string
 }
 
 export function ContextDisplay({
     loading,
-    exceptionAttributes,
+    properties,
     additionalProperties,
+    propertyNameFilter = '',
 }: ContextDisplayProps): JSX.Element {
-    const { filterGroup } = useValues(issueFiltersLogic({ logicKey: ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY }))
-    const { setFilterGroup } = useActions(issueFiltersLogic({ logicKey: ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY }))
+    const { addPropertyFilter } = useActions(issueFiltersLogic({ logicKey: ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY }))
     const onFilterValue = (key: string, value: string | number | boolean): void => {
-        const firstValue = filterGroup.values[0]
-        const firstGroup: UniversalFiltersGroup = isUniversalGroupFilterLike(firstValue)
-            ? firstValue
-            : {
-                  type: FilterLogicalOperator.And,
-                  values: firstValue ? [firstValue] : [],
-              }
-        const newFilter: AnyPropertyFilter = {
-            key,
-            type: PropertyFilterType.Event,
-            operator: PropertyOperator.Exact,
-            value: [value],
-        }
-        setFilterGroup({
-            type: FilterLogicalOperator.And,
-            values: [
-                {
-                    ...firstGroup,
-                    values: [...firstGroup.values, newFilter],
-                },
-                ...filterGroup.values.slice(1),
-            ],
-        })
+        addPropertyFilter(key, value)
     }
     const additionalEntries = Object.entries(additionalProperties)
         .sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey, undefined, { sensitivity: 'base' }))
         .map(([key, value]) => ({
-            key: identifierToHuman(key, 'title'),
+            key,
             value,
             filterKey: key,
         }))
-    const exceptionEntries = exceptionAttributes
-        ? [
-              { key: 'Level', value: exceptionAttributes.level, filterKey: '$level' },
-              { key: 'Synthetic', value: exceptionAttributes.synthetic },
-              {
-                  key: 'Library',
-                  value: concatValues(exceptionAttributes, 'lib', 'libVersion'),
-                  filterKey: '$lib',
-                  filterValue: exceptionAttributes.lib,
-              },
-              { key: 'Handled', value: exceptionAttributes.handled },
-              {
-                  key: 'Browser',
-                  value: concatValues(exceptionAttributes, 'browser', 'browserVersion'),
-                  filterKey: '$browser',
-                  filterValue: exceptionAttributes.browser,
-              },
-              {
-                  key: 'App',
-                  value: concatValues(exceptionAttributes, 'appNamespace', 'appVersion'),
-                  filterKey: '$app_namespace',
-                  filterValue: exceptionAttributes.appNamespace,
-              },
-              {
-                  key: 'OS',
-                  value: concatValues(exceptionAttributes, 'os', 'osVersion'),
-                  filterKey: '$os',
-                  filterValue: exceptionAttributes.os,
-              },
-              { key: 'URL', value: exceptionAttributes.url, filterKey: '$current_url' },
-          ]
-        : []
+    const builtInEntries = BUILT_IN_ERROR_TRACKING_PROPERTIES.map(({ property, title, versionProperty }) => ({
+        key: title,
+        value: getBuiltInPropertyValue(properties, property, versionProperty),
+        filterKey: property,
+        filterValue: properties?.[property],
+    }))
+    const normalizedPropertyNameFilter = propertyNameFilter.trim().toLocaleLowerCase()
 
     return (
         <>
@@ -107,12 +48,54 @@ export function ContextDisplay({
                     </div>
                 ))
                 .with(false, () => (
-                    <PropertiesTable
-                        entries={[...exceptionEntries, ...additionalEntries]}
+                    <ExceptionPropertiesTable
+                        sections={[
+                            {
+                                id: 'built-in-exception-properties',
+                                title: 'Built-in properties',
+                                entries: filterEntriesByPropertyName(builtInEntries, normalizedPropertyNameFilter),
+                            },
+                            {
+                                id: 'custom-exception-properties',
+                                title: 'Custom properties',
+                                entries: filterEntriesByPropertyName(additionalEntries, normalizedPropertyNameFilter),
+                            },
+                        ]}
+                        emptyMessage={normalizedPropertyNameFilter ? 'No matching properties' : 'No properties'}
                         onFilterValue={onFilterValue}
                     />
                 ))
                 .exhaustive()}
         </>
     )
+}
+
+function filterEntriesByPropertyName<T extends { key: string; filterKey?: string }>(
+    entries: T[],
+    normalizedPropertyNameFilter: string
+): T[] {
+    if (!normalizedPropertyNameFilter) {
+        return entries
+    }
+
+    return entries.filter((entry) =>
+        [entry.key, entry.filterKey]
+            .filter((value): value is string => typeof value === 'string')
+            .some((value) => value.toLocaleLowerCase().includes(normalizedPropertyNameFilter))
+    )
+}
+
+function getBuiltInPropertyValue(
+    properties: Record<string, unknown> | undefined,
+    property: string,
+    versionProperty: string | undefined
+): unknown {
+    const value = properties?.[property]
+    if (!versionProperty) {
+        return value
+    }
+
+    const version = properties?.[versionProperty]
+    const parts = [value, version].filter((part) => part !== undefined && part !== null && part !== '')
+    return parts.length > 0 ? parts.join(' ') : undefined
 }

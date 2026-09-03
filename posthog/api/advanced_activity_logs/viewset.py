@@ -27,17 +27,18 @@ from posthog.models.activity_logging.activity_log import (
     ActivityScope,
     apply_activity_visibility_restrictions,
 )
+from posthog.models.activity_logging.retention import get_activity_log_lookback_restriction
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.user import User
 from posthog.permissions import PremiumFeaturePermission
 from posthog.tasks import exporter
 
 from products.exports.backend.models.exported_asset import ExportedAsset
+from products.exports.backend.source_authentication import get_export_source_authentication
 
 from .field_discovery import AdvancedActivityLogFieldDiscovery
 from .filters import AdvancedActivityLogFilterManager, validate_detail_filters
 from .ocsf import ActivityLogOCSFSerializer
-from .utils import get_activity_log_lookback_restriction
 
 ACTIVITY_LOG_ORDERING_DESCENDING = "-created_at"
 ACTIVITY_LOG_ORDERING_ASCENDING = "created_at"
@@ -98,6 +99,31 @@ def restrict_loop_activity_for_org(queryset: QuerySet[ActivityLog], organization
     if not hidden_ids:
         return queryset
     return queryset.exclude(Q(scope="Loop") & Q(item_id__in=hidden_ids))
+
+
+def restrict_canvas_activity(queryset: QuerySet[ActivityLog], team_id: int, user) -> QuerySet[ActivityLog]:
+    """Keep Canvas metadata hidden by channel visibility or source policy out of the feed.
+
+    Restrict `Canvas`-scoped rows to canvases this user may access through `CanvasViewSet`.
+    Lazy import keeps the canvas product off this module's path.
+    """
+    from products.canvas.backend import activity_visibility as canvas_activity  # noqa: PLC0415
+
+    visible_ids = canvas_activity.visible_canvas_ids(team_id, user)
+    return queryset.exclude(Q(scope="Canvas") & ~Q(item_id__in=visible_ids))
+
+
+def restrict_canvas_activity_for_org(queryset: QuerySet[ActivityLog], organization_id, user) -> QuerySet[ActivityLog]:
+    """Org-wide equivalent of `restrict_canvas_activity`. The org route has no single
+    `team_id`, so deny canvases hidden by channel visibility or source policy across the
+    org. Canvases are soft-deleted, so their visibility stays computable without a snapshot.
+    """
+    from products.canvas.backend import activity_visibility as canvas_activity  # noqa: PLC0415
+
+    hidden_ids = canvas_activity.hidden_canvas_ids_for_org(organization_id, user)
+    if not hidden_ids:
+        return queryset
+    return queryset.exclude(Q(scope="Canvas") & Q(item_id__in=hidden_ids))
 
 
 def apply_organization_scoped_filter(
@@ -312,6 +338,7 @@ class ActivityLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins
 
         queryset = apply_activity_visibility_restrictions(queryset, self.request.user)
         queryset = restrict_loop_activity(queryset, self.team_id, self.request.user)
+        queryset = restrict_canvas_activity(queryset, self.team_id, self.request.user)
 
         return queryset
 
@@ -597,6 +624,7 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
 
         queryset = apply_activity_visibility_restrictions(queryset, self.request.user)
         queryset = restrict_loop_activity(queryset, self.team_id, self.request.user)
+        queryset = restrict_canvas_activity(queryset, self.team_id, self.request.user)
 
         return queryset.order_by(*activity_log_ordering(self.request))
 
@@ -647,7 +675,7 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         available_filters = self.field_discovery.get_available_filters(queryset)
         return Response(available_filters)
 
-    @action(detail=False, methods=["POST"])
+    @action(detail=False, methods=["POST"], required_scopes=["activity_log:read"])
     def export(self, request, **kwargs):
         export_format = request.data.get("format", "csv")
 
@@ -679,6 +707,12 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         try:
             serializable_filters = self._make_filters_serializable(filters_serializer.validated_data)
             filename = self._generate_export_filename(serializable_filters, export_format)
+            source_authentication = get_export_source_authentication(request.successful_authenticator)
+            if source_authentication is None:
+                return Response(
+                    {"error": "Exports from API endpoints do not support this authentication method."},
+                    status=400,
+                )
 
             exported_asset = ExportedAsset.objects.create(
                 team=self.team,
@@ -690,6 +724,7 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
                     "filename": filename,
                 },
                 created_by=request.user,
+                **source_authentication,
             )
 
             exporter.export_asset.delay(exported_asset.id)
@@ -761,6 +796,7 @@ class OrganizationAdvancedActivityLogsViewSet(AdvancedActivityLogsViewSet):
         queryset = apply_activity_visibility_restrictions(queryset, self.request.user)
         # Org route: no single team_id (this endpoint is org-nested), so use the org-wide variant.
         queryset = restrict_loop_activity_for_org(queryset, self.organization.id, self.request.user)
+        queryset = restrict_canvas_activity_for_org(queryset, self.organization.id, self.request.user)
 
         return queryset.order_by(*activity_log_ordering(self.request))
 

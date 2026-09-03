@@ -1,17 +1,9 @@
-import type {
-  SessionConfigOption,
-  SessionConfigSelectGroup,
-} from "@agentclientprotocol/sdk";
-import {
-  ArrowCounterClockwise,
-  Lightning,
-  Spinner,
-} from "@phosphor-icons/react";
+import type { SessionConfigOption } from "@agentclientprotocol/sdk";
+import { ArrowCounterClockwise, Lightning } from "@phosphor-icons/react";
 import {
   getCapabilityLadder,
   getReasoningEffortOptions,
 } from "@posthog/agent/adapters/reasoning-effort";
-import { compareModelsForPicker } from "@posthog/agent/gateway-models";
 import {
   Button,
   DropdownMenu,
@@ -25,25 +17,32 @@ import {
   DropdownMenuTrigger,
 } from "@posthog/quill";
 import {
+  adapterForModelId,
   FAST_MODE_FLAG,
+  isAnthropicModelId,
   isDefaultSelectOption,
   isRestrictedModelOption,
+  type ModelAccess,
   selectOptionDocsUrl,
+  selectOptionHarness,
 } from "@posthog/shared";
 import {
   EFFORT_LEVEL_LABELS,
   FAST_MODE_DOCS_URLS,
 } from "@posthog/shared/domain-types";
-import { gateRestrictedModelPick } from "@posthog/ui/features/billing/modelGate";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import {
   type AgentHarness,
   HarnessSubmenu,
 } from "@posthog/ui/features/sessions/components/HarnessSubmenu";
-import { ModelRadioItem } from "@posthog/ui/features/sessions/components/ModelRadioItem";
+import { ModelSelectList } from "@posthog/ui/features/sessions/components/ModelSelectList";
+import { SubscriptionSubmenu } from "@posthog/ui/features/sessions/components/SubscriptionSubmenu";
+import type { WorkspaceModeForAccess } from "@posthog/ui/features/settings/adapterSubscription";
 import type { AgentAdapter } from "@posthog/ui/features/settings/settingsStore";
+import { AnimatedHeight } from "@posthog/ui/primitives/AnimatedHeight";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { AnimatePresence, motion } from "framer-motion";
-import { Fragment, useLayoutEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { flattenSelectOptions } from "../sessionStore";
 import { useRetainedConfigOption } from "../useRetainedConfigOption";
 import {
@@ -66,37 +65,21 @@ interface ReasoningLevelSelectorProps {
   onModelChange?: (value: string) => void;
   onAdapterChange?: (adapter: AgentAdapter) => void;
   onHarnessChange?: (harness: AgentHarness) => void;
+  /**
+   * Called instead of onModelChange when the picked model runs on a
+   * different harness, so the caller can switch harness and keep the pick.
+   */
+  onHarnessModelChange?: (harness: AgentAdapter, model: string) => void;
   includePiHarness?: boolean;
   onConfigOptionChange?: (configId: string, value: string) => void;
+  menuOpen?: boolean;
+  onMenuOpenChange?: (open: boolean) => void;
   disabled?: boolean;
   isLoading?: boolean;
-}
-
-/** Tweens the menu's height between the slider and advanced views so the
- * popup morphs instead of snapping when the content swaps. */
-function AnimatedHeight({ children }: { children: React.ReactNode }) {
-  const contentRef = useRef<HTMLDivElement>(null);
-  const [height, setHeight] = useState<number | "auto">("auto");
-
-  useLayoutEffect(() => {
-    const node = contentRef.current;
-    if (!node || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(() => setHeight(node.offsetHeight));
-    observer.observe(node);
-    setHeight(node.offsetHeight);
-    return () => observer.disconnect();
-  }, []);
-
-  return (
-    <motion.div
-      initial={false}
-      animate={{ height }}
-      transition={{ duration: 0.18, ease: [0.3, 0.9, 0.3, 1] }}
-      className="overflow-hidden"
-    >
-      <div ref={contentRef}>{children}</div>
-    </motion.div>
-  );
+  modelAccess?: ModelAccess;
+  showBillingMenu?: boolean;
+  /** Workspace mode of the task being composed; cloud disables plan billing. */
+  workspaceMode?: WorkspaceModeForAccess;
 }
 
 function toDropdownOptions(
@@ -126,13 +109,25 @@ export function ReasoningLevelSelector({
   onModelChange,
   onAdapterChange,
   onHarnessChange,
+  onHarnessModelChange,
   includePiHarness,
   onConfigOptionChange,
+  menuOpen,
+  onMenuOpenChange,
   disabled,
   isLoading,
+  modelAccess,
+  showBillingMenu,
+  workspaceMode,
 }: ReasoningLevelSelectorProps) {
-  const [open, setOpen] = useState(false);
+  const [internalMenuOpen, setInternalMenuOpen] = useState(false);
+  const open = menuOpen ?? internalMenuOpen;
+  const setOpen = onMenuOpenChange ?? setInternalMenuOpen;
   const [advanced, setAdvanced] = useState(false);
+  // Frozen when the Advanced view is entered: deriving it live from the
+  // ladder makes the Back row flash in and out as model picks move on and
+  // off a notch while the menu is open.
+  const [showBack, setShowBack] = useState(false);
   const pendingChangeRef = useRef<(() => void) | null>(null);
   const displayThought = useRetainedConfigOption(thoughtOption);
   const displayModel = useRetainedConfigOption(modelOption);
@@ -151,13 +146,71 @@ export function ReasoningLevelSelector({
   const modelSelect =
     displayModel?.type === "select" ? displayModel : undefined;
 
+  const onOwnSubscription =
+    adapter === "claude" && modelAccess === "own-subscription";
+  const unavailableReason = (modelId: string): string | undefined =>
+    onOwnSubscription && !isAnthropicModelId(modelId)
+      ? "Anthropic billing cannot run this model. Change billing to PostHog to use it."
+      : undefined;
+
+  const handleHarnessSelect = (harness: AgentHarness) => {
+    if (harness === adapter) {
+      return;
+    }
+
+    if (harness === "pi") {
+      onHarnessChange?.(harness);
+      return;
+    }
+
+    if (onHarnessChange) {
+      onHarnessChange(harness);
+      return;
+    }
+
+    onAdapterChange?.(harness);
+  };
+
+  // The row stays visible even with model-first wiring: a model pick
+  // auto-selects its harness, and the row shows the result and allows a
+  // manual override (Pi can run models from both groups).
+  const showHarnessSubmenu =
+    !!adapter && !!(onAdapterChange || onHarnessChange);
+
   if (!hasEffort && !modelSelect) {
     if (isLoading) {
+      // Keep the dropdown mounted while a harness switch reloads the config:
+      // unmounting it here closes a menu the user is mid-interaction with.
       return (
-        <Button type="button" variant="default" size="sm" disabled>
-          <Spinner size={12} className="animate-spin" />
-          Loading...
-        </Button>
+        <DropdownMenu open={open} onOpenChange={setOpen}>
+          <DropdownMenuTrigger
+            render={
+              <Button type="button" variant="default" size="sm">
+                <Spinner size={12} />
+                Loading...
+              </Button>
+            }
+          />
+          <DropdownMenuContent
+            align="start"
+            side="top"
+            sideOffset={6}
+            className="min-w-[230px]"
+          >
+            <DropdownMenuItem disabled>
+              <Spinner size={12} />
+              Loading models...
+            </DropdownMenuItem>
+            {showHarnessSubmenu && adapter && (
+              <HarnessSubmenu
+                value={adapter}
+                includePi={includePiHarness && !!onHarnessChange}
+                closeOnChange={false}
+                onChange={handleHarnessSelect}
+              />
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
       );
     }
     return null;
@@ -174,12 +227,6 @@ export function ReasoningLevelSelector({
   const modelEntries = modelSelect
     ? flattenSelectOptions(modelSelect.options)
     : [];
-  const modelGroups =
-    modelSelect &&
-    modelSelect.options.length > 0 &&
-    "group" in modelSelect.options[0]
-      ? (modelSelect.options as SessionConfigSelectGroup[])
-      : [];
   const currentModel =
     typeof modelSelect?.currentValue === "string"
       ? modelSelect.currentValue
@@ -204,6 +251,7 @@ export function ReasoningLevelSelector({
             (candidate) => candidate.value === notch.model,
           );
           if (!entry || isRestrictedModelOption(entry._meta)) return [];
+          if (unavailableReason(notch.model)) return [];
           const efforts = getReasoningEffortOptions(adapter, notch.model) ?? [];
           if (!efforts.some((option) => option.value === notch.effort)) {
             return [];
@@ -331,12 +379,16 @@ export function ReasoningLevelSelector({
       onOpenChange={(nextOpen) => {
         // Only on the closed-to-open transition: submenu opens re-fire this
         // with true and must not yank the view back.
-        if (nextOpen && !open) setAdvanced(!onNotch);
+        if (nextOpen && !open) {
+          setAdvanced(!onNotch);
+          setShowBack(false);
+        }
         setOpen(nextOpen);
       }}
       onOpenChangeComplete={(isOpen) => {
         if (!isOpen) {
           setAdvanced(false);
+          setShowBack(false);
           if (pendingChangeRef.current !== null) {
             pendingChangeRef.current();
             pendingChangeRef.current = null;
@@ -397,32 +449,7 @@ export function ReasoningLevelSelector({
                 exit={{ opacity: 0, y: -8 }}
                 transition={{ duration: 0.12, ease: "easeOut" }}
               >
-                {onNotch && <BackRow onClick={() => setAdvanced(false)} />}
-                {adapter && (onAdapterChange || onHarnessChange) && (
-                  <HarnessSubmenu
-                    value={adapter}
-                    includePi={includePiHarness && !!onHarnessChange}
-                    onChange={(harness) => {
-                      if (harness === adapter) {
-                        return;
-                      }
-
-                      selectAndClose(() => {
-                        if (harness === "pi") {
-                          onHarnessChange?.(harness);
-                          return;
-                        }
-
-                        if (onHarnessChange) {
-                          onHarnessChange(harness);
-                          return;
-                        }
-
-                        onAdapterChange?.(harness);
-                      });
-                    }}
-                  />
-                )}
+                {showBack && <BackRow onClick={() => setAdvanced(false)} />}
                 {modelSelect && (
                   <DropdownMenuSub>
                     <DropdownMenuSubTrigger>
@@ -432,47 +459,45 @@ export function ReasoningLevelSelector({
                       </span>
                     </DropdownMenuSubTrigger>
                     <DropdownMenuSubContent>
-                      <DropdownMenuRadioGroup
-                        value={currentModel ?? ""}
-                        onValueChange={(value) => {
-                          // A plan-restricted model opens the upgrade gate
-                          // instead of becoming the selection.
-                          if (gateRestrictedModelPick(modelEntries, value)) {
-                            setOpen(false);
-                            return;
+                      <ModelSelectList
+                        options={modelSelect.options}
+                        currentValue={currentModel}
+                        onGated={() => setOpen(false)}
+                        unavailableReason={unavailableReason}
+                        onSelect={(value) => {
+                          // A model the current harness cannot run switches
+                          // the harness and keeps the pick.
+                          if (adapter && onHarnessModelChange) {
+                            const entry = modelEntries.find(
+                              (candidate) => candidate.value === value,
+                            );
+                            const harness =
+                              selectOptionHarness(entry?._meta) ??
+                              adapterForModelId(value);
+                            if (harness !== adapter) {
+                              onHarnessModelChange(harness, value);
+                              return;
+                            }
                           }
-                          selectAndClose(() => changeModel(value));
+                          changeModel(value);
                         }}
-                      >
-                        {modelGroups.length > 0
-                          ? modelGroups.map((group, index) => (
-                              <Fragment key={group.group}>
-                                {index > 0 && <DropdownMenuSeparator />}
-                                {group.options
-                                  .toSorted((a, b) =>
-                                    compareModelsForPicker(a.value, b.value),
-                                  )
-                                  .map((model) => (
-                                    <ModelRadioItem
-                                      key={model.value}
-                                      model={model}
-                                    />
-                                  ))}
-                              </Fragment>
-                            ))
-                          : modelEntries
-                              .toSorted((a, b) =>
-                                compareModelsForPicker(a.value, b.value),
-                              )
-                              .map((model) => (
-                                <ModelRadioItem
-                                  key={model.value}
-                                  model={model}
-                                />
-                              ))}
-                      </DropdownMenuRadioGroup>
+                      />
                     </DropdownMenuSubContent>
                   </DropdownMenuSub>
+                )}
+                {showHarnessSubmenu && adapter && (
+                  <HarnessSubmenu
+                    value={adapter}
+                    includePi={includePiHarness && !!onHarnessChange}
+                    closeOnChange={false}
+                    onChange={handleHarnessSelect}
+                  />
+                )}
+                {showBillingMenu && adapter && (
+                  <SubscriptionSubmenu
+                    adapter={adapter}
+                    workspaceMode={workspaceMode}
+                  />
                 )}
                 {hasEffort && (
                   <DropdownMenuSub>
@@ -485,12 +510,14 @@ export function ReasoningLevelSelector({
                     <DropdownMenuSubContent>
                       <DropdownMenuRadioGroup
                         value={currentEffort ?? ""}
-                        onValueChange={(value) =>
-                          selectAndClose(() => onChange?.(value))
-                        }
+                        onValueChange={(value) => onChange?.(value)}
                       >
                         {effortOptions.map((option) => (
-                          <LevelItem key={option.value} option={option} />
+                          <LevelItem
+                            key={option.value}
+                            option={option}
+                            closeOnClick={false}
+                          />
                         ))}
                       </DropdownMenuRadioGroup>
                     </DropdownMenuSubContent>
@@ -508,13 +535,15 @@ export function ReasoningLevelSelector({
                       <DropdownMenuRadioGroup
                         value={row.value}
                         onValueChange={(value) =>
-                          selectAndClose(() =>
-                            onConfigOptionChange?.(row.id, value),
-                          )
+                          onConfigOptionChange?.(row.id, value)
                         }
                       >
                         {row.options.map((option) => (
-                          <LevelItem key={option.value} option={option} />
+                          <LevelItem
+                            key={option.value}
+                            option={option}
+                            closeOnClick={false}
+                          />
                         ))}
                       </DropdownMenuRadioGroup>
                     </DropdownMenuSubContent>
@@ -538,7 +567,10 @@ export function ReasoningLevelSelector({
                   stops={stops}
                   currentKey={currentStopKey}
                   onSelect={handleStopSelect}
-                  onAdvanced={() => setAdvanced(true)}
+                  onAdvanced={() => {
+                    setShowBack(true);
+                    setAdvanced(true);
+                  }}
                   fastToggle={fastToggle}
                 />
               </motion.div>

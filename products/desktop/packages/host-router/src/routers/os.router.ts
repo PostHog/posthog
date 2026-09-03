@@ -9,6 +9,7 @@ import {
   checkWriteAccessInput,
   claudePermissionsOutput,
   downscaleImageFileInput,
+  hostInfoOutput,
   openExternalInput,
   readFileAsDataUrlInput,
   saveClipboardFileInput,
@@ -18,6 +19,7 @@ import {
   selectAttachmentsInput,
   selectAttachmentsOutput,
   selectFilesOutput,
+  setWorktreeLocationInput,
   showMessageBoxInput,
   userAgentInstructionsOutput,
 } from "@posthog/workspace-server/services/os/schemas";
@@ -84,9 +86,21 @@ export const osRouter = router({
     ctx.container.get<OsService>(OS_SERVICE).getAppVersion(),
   ),
 
+  getHostInfo: publicProcedure
+    .output(hostInfoOutput)
+    .query(({ ctx }) => ctx.container.get<OsService>(OS_SERVICE).getHostInfo()),
+
   getWorktreeLocation: publicProcedure.query(({ ctx }) =>
     ctx.container.get<OsService>(OS_SERVICE).getWorktreeLocation(),
   ),
+
+  setWorktreeLocation: publicProcedure
+    .input(setWorktreeLocationInput)
+    .mutation(({ ctx, input }) =>
+      ctx.container
+        .get<OsService>(OS_SERVICE)
+        .setWorktreeLocation(input.location),
+    ),
 
   readFileAsDataUrl: publicProcedure
     .input(readFileAsDataUrlInput)

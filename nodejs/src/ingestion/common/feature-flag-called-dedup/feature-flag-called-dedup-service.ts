@@ -4,8 +4,9 @@ import { Redis } from 'ioredis'
 import { timeoutGuard } from '~/common/utils/db/utils'
 import { parseTeamsList } from '~/common/utils/env-utils'
 import { logger } from '~/common/utils/logger'
+import { buildTeamGate } from '~/ingestion/common/team-gate'
 import { IngestionConsumerConfig, IngestionLane, REALTIME_INGESTION_LANES } from '~/ingestion/config'
-import { RedisPool } from '~/types'
+import { RedisPool, ValueMatcher } from '~/types'
 
 import { featureFlagCalledDedupRedisLatency, featureFlagCalledDedupRedisOpsTotal } from './metrics'
 
@@ -48,8 +49,7 @@ export function parseFeatureFlagCalledDedupConfig(
     }
     const excluded = parseTeamsList(excludedTeams)
     if (excluded === '*') {
-        // An operator reaching for '*' as an exclude-everyone switch means "off";
-        // the escape hatch on a data-dropping feature must not fail toward dropping.
+        // The escape hatch on a data-dropping feature must not fail toward dropping.
         logger.warn('INGESTION_FEATURE_FLAG_CALLED_DEDUP_EXCLUDED_TEAMS is "*", disabling dedup')
         parsedMode = 'disabled'
     }
@@ -207,14 +207,12 @@ export function createFeatureFlagCalledDedupService(
 export class RedisFeatureFlagCalledDedupService implements FeatureFlagCalledDedupService {
     private redisPool: RedisPool
     private config: FeatureFlagCalledDedupConfig
-    private teams: Set<number> | '*'
-    private excludedTeams: Set<number>
+    private isEnabled: ValueMatcher<number>
 
     constructor(options: RedisFeatureFlagCalledDedupServiceOptions) {
         this.redisPool = options.redisPool
         this.config = options.config
-        this.teams = options.config.teams === '*' ? '*' : new Set(options.config.teams)
-        this.excludedTeams = new Set(options.config.excludedTeams)
+        this.isEnabled = buildTeamGate(options.config.teams, options.config.excludedTeams)
     }
 
     get mode(): FeatureFlagCalledDedupMode {
@@ -222,10 +220,7 @@ export class RedisFeatureFlagCalledDedupService implements FeatureFlagCalledDedu
     }
 
     isEnabledForTeam(teamId: number): boolean {
-        if (this.excludedTeams.has(teamId)) {
-            return false
-        }
-        return this.teams === '*' || this.teams.has(teamId)
+        return this.isEnabled(teamId)
     }
 
     async claimKeys(claims: FeatureFlagCalledDedupClaim[]): Promise<boolean[]> {

@@ -12,6 +12,8 @@ import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/se
 
 import { ExporterFormat } from '~/types'
 
+import { MIN_CLIP_DURATION_SECONDS, clipDurationOptions, clipWindowSeconds } from './clipRange'
+
 interface ClipTimes {
     current: string
     startClip: string
@@ -25,24 +27,10 @@ function calculateClipTimes(currentTimeMs: number | null, sessionDurationMs: num
 
     const current = colonDelimitedDuration(startTimeSeconds, fixedUnits)
 
-    // Calculate ideal start/end centered around current time
-    let idealStart = startTimeSeconds - clipDuration / 2
-    let idealEnd = startTimeSeconds + clipDuration / 2
+    const window = clipWindowSeconds(startTimeSeconds, endTimeSeconds, clipDuration)
 
-    // Adjust if we hit the beginning boundary
-    if (idealStart < 0) {
-        idealStart = 0
-        idealEnd = Math.min(clipDuration, endTimeSeconds)
-    }
-
-    // Adjust if we hit the end boundary
-    if (idealEnd > endTimeSeconds) {
-        idealEnd = endTimeSeconds
-        idealStart = Math.max(0, endTimeSeconds - clipDuration)
-    }
-
-    const startClip = colonDelimitedDuration(idealStart, fixedUnits)
-    const endClip = colonDelimitedDuration(idealEnd, fixedUnits)
+    const startClip = colonDelimitedDuration(window.startSeconds, fixedUnits)
+    const endClip = colonDelimitedDuration(window.endSeconds, fixedUnits)
 
     return { current, startClip, endClip }
 }
@@ -51,8 +39,13 @@ export function ClipOverlay(): JSX.Element | null {
     const { currentPlayerTime, sessionPlayerData, showingClipParams, sessionRecordingId } =
         useValues(sessionRecordingPlayerLogic)
     const { getClip, setShowingClipParams } = useActions(sessionRecordingPlayerLogic)
-    const [duration, setDuration] = useState(5)
+    const [duration, setDuration] = useState(MIN_CLIP_DURATION_SECONDS)
     const [format, setFormat] = useState(ExporterFormat.MP4)
+
+    const durationOptions = useMemo(
+        () => clipDurationOptions(sessionPlayerData.durationMs),
+        [sessionPlayerData.durationMs]
+    )
 
     const { current, startClip, endClip } = calculateClipTimes(
         currentPlayerTime,
@@ -99,15 +92,11 @@ export function ClipOverlay(): JSX.Element | null {
             </div>
 
             <div className="space-y-1">
-                <label className="block text-sm font-medium text-default">Duration (seconds)</label>
+                <label className="block text-sm font-medium text-default">Duration</label>
                 <LemonSegmentedSelect
                     fullWidth
                     size="xsmall"
-                    options={[
-                        { value: 5, label: '5', 'data-attr': 'replay-clip-duration-5' },
-                        { value: 10, label: '10', 'data-attr': 'replay-clip-duration-10' },
-                        { value: 15, label: '15', 'data-attr': 'replay-clip-duration-15' },
-                    ]}
+                    options={durationOptions}
                     value={duration}
                     onChange={(value) => setDuration(value)}
                 />
@@ -121,7 +110,9 @@ export function ClipOverlay(): JSX.Element | null {
                 type="primary"
                 className="mt-3 mx-auto"
                 disabledReason={
-                    !duration || duration < 5 || duration > 15 ? 'Duration must be between 5 and 15 seconds' : undefined
+                    durationOptions.some((option) => option.value === duration)
+                        ? undefined
+                        : 'Pick one of the durations above'
                 }
                 data-attr="replay-clip-create"
             >
@@ -168,7 +159,7 @@ function ClipRecording_({ current, className }: { current: string; className?: s
 export function ClipRecording({ className }: { className?: string }): JSX.Element {
     const { currentPlayerTime, sessionPlayerData } = useValues(sessionRecordingPlayerLogic)
 
-    const { current } = calculateClipTimes(currentPlayerTime, sessionPlayerData.durationMs, 5)
+    const { current } = calculateClipTimes(currentPlayerTime, sessionPlayerData.durationMs, MIN_CLIP_DURATION_SECONDS)
 
     return <ClipRecording_ current={current} className={className} />
 }

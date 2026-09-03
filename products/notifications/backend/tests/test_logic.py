@@ -51,6 +51,50 @@ class TestCreateNotification(BaseTest):
 
     @patch("products.notifications.backend.logic.posthoganalytics.feature_enabled", return_value=True)
     @patch("products.notifications.backend.logic._publish_to_kafka")
+    def test_create_notification_deduplicates_idempotency_key(self, mock_publish, mock_ff):
+        data = NotificationData(
+            team_id=self.team.id,
+            notification_type=NotificationType.COMMENT_MENTION,
+            title="Test notification",
+            body="Test body",
+            target_type=TargetType.USER,
+            target_id=str(self.user.id),
+            idempotency_key="test-notification",
+        )
+
+        with self.captureOnCommitCallbacks(execute=True):
+            first = create_notification(data)
+        with self.captureOnCommitCallbacks(execute=True):
+            second = create_notification(data)
+
+        assert first is not None
+        assert second is not None
+        assert second.id == first.id
+        assert NotificationEvent.objects.count() == 1
+        mock_publish.assert_called_once()
+
+    @patch("products.notifications.backend.logic.posthoganalytics.feature_enabled", return_value=True)
+    @patch("products.notifications.backend.logic._publish_to_kafka")
+    def test_create_notification_scopes_idempotency_key_to_team(self, mock_publish, mock_ff):
+        second_team = Team.objects.create(organization=self.organization, name="Second team")
+
+        for team in (self.team, second_team):
+            create_notification(
+                NotificationData(
+                    team_id=team.id,
+                    notification_type=NotificationType.COMMENT_MENTION,
+                    title="Test notification",
+                    body="Test body",
+                    target_type=TargetType.USER,
+                    target_id=str(self.user.id),
+                    idempotency_key="shared-key",
+                )
+            )
+
+        assert NotificationEvent.objects.filter(idempotency_key="shared-key").count() == 2
+
+    @patch("products.notifications.backend.logic.posthoganalytics.feature_enabled", return_value=True)
+    @patch("products.notifications.backend.logic._publish_to_kafka")
     def test_create_notification_for_organization(self, mock_publish, mock_ff):
         user2 = User.objects.create_and_join(self.organization, "test2@test.com", "password")
 
@@ -89,7 +133,7 @@ class TestCreateNotification(BaseTest):
     def test_resolve_team_excludes_org_members_without_project_access(self):
         from posthog.models import OrganizationMembership
 
-        from ee.models.rbac.access_control import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}

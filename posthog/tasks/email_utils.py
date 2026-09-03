@@ -4,9 +4,9 @@ from typing import Any
 
 def auto_select_digest_project(
     user: Any,
-    team_data: dict[int, dict],
+    team_data: dict[int, Any],
     setting_key: str,
-    sort_key: Callable[[dict], float],
+    sort_key: Callable[[Any], float],
     persist: bool = True,
 ) -> bool:
     """Auto-select the busiest project for first-time digest users.

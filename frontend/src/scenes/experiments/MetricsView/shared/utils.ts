@@ -280,7 +280,8 @@ export function formatMetricValue(data: any, metric: ExperimentMetric): string {
             const ratio = data.sum / data.denominator_sum
             return ratio.toFixed(2)
         }
-        return '0.000'
+        // The ratio is undefined without denominator data, so don't render a fake zero
+        return '—'
     }
 
     const primaryValue = data.sum / data.number_of_samples

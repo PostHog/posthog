@@ -252,6 +252,7 @@ describe('RequestContext', () => {
             )
             ctx.setMcpContexts(
                 {
+                    authMethod: 'personal_api_key',
                     sessionId: 'sess-1',
                     mcpClientName: 'Claude Desktop',
                     mcpClientVersion: '2.0',

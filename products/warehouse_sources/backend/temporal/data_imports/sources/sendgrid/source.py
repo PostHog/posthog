@@ -35,6 +35,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.sendgrid.s
     ENDPOINTS,
     INCREMENTAL_FIELDS,
     SENDGRID_ENDPOINTS,
+    SHOULD_SYNC_DEFAULT,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -59,8 +60,11 @@ class SendGridSource(ResumableSource[SendGridSourceConfig, SendGridResumeConfig]
         return CANONICAL_DESCRIPTIONS
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
+        # Insertion order matters: the job finalizer surfaces the message of the first matching
+        # key, and the bare-host 403 key below also matches /v3/messages error text.
         return {
             "401 Client Error: Unauthorized for url: https://api.sendgrid.com": "Your SendGrid API key is invalid or expired. Please generate a new key and reconnect.",
+            "403 Client Error: Forbidden for url: https://api.sendgrid.com/v3/messages": "Message activity needs SendGrid's paid additional email activity history add-on and an API key with Email Activity access. Add both in SendGrid, then resume this sync. Other SendGrid tables are not affected.",
             # Keyed on the error text, so this covers every endpoint and can't name the one scope.
             # `get_endpoint_permissions` does that per table before a sync is ever queued.
             "403 Client Error: Forbidden for url: https://api.sendgrid.com": "Your SendGrid API key cannot read this table. Add that table's read access to the key in SendGrid under Settings > API Keys, then resume this sync. Marketing lists also need an account with Marketing Campaigns.",
@@ -75,7 +79,16 @@ class SendGridSource(ResumableSource[SendGridSourceConfig, SendGridResumeConfig]
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            # message_activity rows mutate in place as events land (status, opens_count,
+            # last_event_time), so append mode would pile up stale copies; merge on msg_id is
+            # the only safe incremental mode.
+            merge_only=("message_activity",),
+            should_sync_default=SHOULD_SYNC_DEFAULT,
+        )
 
     def validate_credentials(
         self,
@@ -150,8 +163,10 @@ You can create an API key in your [SendGrid account settings](https://app.sendgr
 
 Grant the following read access (Restricted Access) so the key can reach the data you want to sync:
 - **Suppressions**: bounces, blocks, invalid emails, spam reports, global unsubscribes, unsubscribe groups
+- **Stats**: global email statistics (daily requests, delivered, opens, clicks, bounces)
 - **Marketing**: marketing lists. This also needs an account with Marketing Campaigns enabled.
 - **Template Engine**: templates
+- **Email Activity**: message activity. This table is off by default and also needs SendGrid's paid additional email activity history add-on.
 
 Tables your key cannot read are flagged in the next step and left unselected.
 """,

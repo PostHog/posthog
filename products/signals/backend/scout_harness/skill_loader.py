@@ -2,13 +2,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from django.db.models import Max, Min
 
 from posthog.models.team.team import Team
 
 from products.skills.backend.models.skills import LLMSkill, LLMSkillFile, LLMSkillOwner
+
+if TYPE_CHECKING:
+    from products.signals.backend.models import SignalScoutConfig
 
 # Naming contract for skills that steer a Signals-agent run.
 SIGNALS_SCOUT_SKILL_PREFIX = "signals-scout-"
@@ -130,6 +133,49 @@ def resolve_skill_owner_user_uuids(team: Team, skill_name: str) -> list[str]:
         .order_by("created_at", "id")
         .values_list("user__uuid", flat=True)
     ]
+
+
+def resolve_scout_acting_user_id(team: Team, skill_name: str, config: SignalScoutConfig | None) -> int | None:
+    """User id a scout run acts as, which is also where its AI spend is attributed.
+
+    The version-history creator (earliest version row with a known author) wins: they wrote the
+    prompt the run executes, so acting as them mirrors how user-triggered runs act as the
+    triggering user. For skills with no attributable version author, such as a pristine canonical
+    scout whose seeded versions are all system-authored, the fallback is the config's `enabled_by`
+    (who last switched the scout on) and then its `created_by`, both stamped server-side from the
+    authenticated requester, so each candidate identity took the enabling action themselves.
+
+    Every identity source here must be self-consenting or editor-proof. `LLMSkillOwner` is
+    deliberately NOT one: any skill editor can rewrite the owner list without publishing a
+    version, so consulting it would let an editor choose which teammate's identity the run mints
+    (the same escalation `auto_start._resolve_autostart_assignee` excludes owner-provenance
+    reviewers for).
+
+    Every path restricts to `team.all_users_with_access()` (active members only), because the run
+    mints a sandbox token as this user. Returns None when no path resolves a member; the runner
+    then falls back to the team-level default (`resolve_acting_user_id_for_team`).
+    """
+    creator_id = (
+        LLMSkill.objects.filter(
+            team=team,
+            name=skill_name,
+            deleted=False,
+            created_by__isnull=False,
+            created_by__in=team.all_users_with_access(),
+        )
+        .order_by("created_at", "id")
+        .values_list("created_by_id", flat=True)
+        .first()
+    )
+    if creator_id is not None:
+        return creator_id
+    if config is None:
+        return None
+    candidate_ids = [user_id for user_id in (config.enabled_by_id, config.created_by_id) if user_id is not None]
+    if not candidate_ids:
+        return None
+    members = set(team.all_users_with_access().filter(id__in=candidate_ids).values_list("id", flat=True))
+    return next((user_id for user_id in candidate_ids if user_id in members), None)
 
 
 def _skill_has_owner_rows(team: Team, skill_name: str) -> bool:

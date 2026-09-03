@@ -1,100 +1,92 @@
 database "posthog" {
+  # Mirrors the events column set minus events' materialized property columns, with
+  # the full properties JSON kept as the source of truth. The typed property columns
+  # below carry their DEFAULT expression only on sharded_flag_evaluations; the
+  # Distributed proxy repeats them plain, because a Distributed engine computes
+  # nothing.
   table "_flag_evaluations_columns" {
     abstract = true
-    column "team_id" {
-      type = "Int64"
-    }
     column "uuid" {
       type = "UUID"
     }
+    column "event" {
+      type = "LowCardinality(String)"
+    }
+    column "properties" {
+      type = "String"
+    }
     column "timestamp" {
       type = "DateTime64(6, 'UTC')"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "distinct_id" {
+      type = "String"
+    }
+    column "created_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "person_id" {
+      type = "UUID"
+    }
+    column "person_properties" {
+      type = "String"
+    }
+    column "group0_properties" {
+      type = "String"
+    }
+    column "group1_properties" {
+      type = "String"
+    }
+    column "group2_properties" {
+      type = "String"
+    }
+    column "group3_properties" {
+      type = "String"
+    }
+    column "group4_properties" {
+      type = "String"
     }
     column "inserted_at" {
       type    = "DateTime64(6, 'UTC')"
       default = "timestamp"
     }
-    column "distinct_id" {
-      type = "String"
+    column "$group_0" {
+      type    = "String"
+      comment = "column_materializer::$group_0"
     }
-    column "session_id" {
-      type = "String"
+    column "$group_1" {
+      type    = "String"
+      comment = "column_materializer::$group_1"
     }
-    column "device_id" {
-      type = "String"
+    column "$group_2" {
+      type    = "String"
+      comment = "column_materializer::$group_2"
+    }
+    column "$group_3" {
+      type    = "String"
+      comment = "column_materializer::$group_3"
+    }
+    column "$group_4" {
+      type    = "String"
+      comment = "column_materializer::$group_4"
     }
     column "flag_key" {
-      type = "String"
+      type    = "String"
+      comment = "column_materializer::properties::$feature_flag"
     }
     column "response" {
-      type = "LowCardinality(String)"
+      type    = "LowCardinality(String)"
+      comment = "column_materializer::properties::$feature_flag_response"
     }
-    column "flag_id" {
-      type = "UInt64"
-    }
-    column "flag_version" {
-      type = "UInt32"
-    }
-    column "reason" {
-      type = "LowCardinality(String)"
+    column "session_id" {
+      type    = "String"
+      comment = "column_materializer::properties::$session_id"
     }
     column "request_id" {
-      type = "String"
-    }
-    column "evaluated_at" {
-      type    = "DateTime64(6, 'UTC')"
-      default = "timestamp"
-    }
-    column "error" {
-      type = "String"
-    }
-    column "locally_evaluated" {
-      type = "Bool"
-    }
-    column "lib" {
-      type = "LowCardinality(String)"
-    }
-    column "lib_version" {
-      type = "LowCardinality(String)"
-    }
-    column "is_server" {
-      type = "Bool"
-    }
-    column "os" {
-      type = "LowCardinality(String)"
-    }
-    column "os_version" {
-      type = "LowCardinality(String)"
-    }
-    column "app_version" {
-      type = "LowCardinality(String)"
-    }
-    column "current_url" {
-      type = "String"
-    }
-    column "pathname" {
-      type = "String"
-    }
-    column "country_code" {
-      type = "LowCardinality(String)"
-    }
-    column "subdivision_1_code" {
-      type = "LowCardinality(String)"
-    }
-    column "group_0" {
-      type = "String"
-    }
-    column "group_1" {
-      type = "String"
-    }
-    column "group_2" {
-      type = "String"
-    }
-    column "group_3" {
-      type = "String"
-    }
-    column "group_4" {
-      type = "String"
+      type    = "String"
+      comment = "column_materializer::properties::$feature_flag_request_id"
     }
     column "_timestamp" {
       type = "DateTime"
@@ -251,6 +243,126 @@ database "posthog" {
     engine "replicated_merge_tree" {
       zoo_path     = "/clickhouse/tables/noshard/posthog.channel_definition"
       replica_name = "{replica}-{shard}"
+    }
+  }
+  table "clickhouse_cleanup_deleted_persons" {
+    partition_by = "run_id"
+    order_by = ["run_id", "team_id", "person_id"]
+    ttl      = "created_at + toIntervalDay(14)"
+    settings = {
+      index_granularity = "8192"
+      ttl_only_drop_parts = "1"
+    }
+    column "run_id" {
+      type = "String"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "person_id" {
+      type = "UUID"
+    }
+    column "max_version" {
+      type = "UInt64"
+    }
+    column "created_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now64()"
+    }
+    engine "replicated_replacing_merge_tree" {
+      zoo_path       = "/clickhouse/tables/noshard/posthog.clickhouse_cleanup_deleted_persons"
+      replica_name   = "{replica}-{shard}"
+      version_column = "created_at"
+    }
+  }
+  table "clickhouse_cleanup_orphaned_distinct_ids" {
+    partition_by = "run_id"
+    order_by = ["run_id", "team_id", "distinct_id"]
+    ttl      = "created_at + toIntervalDay(14)"
+    settings = {
+      index_granularity = "8192"
+      ttl_only_drop_parts = "1"
+    }
+    column "run_id" {
+      type = "String"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "distinct_id" {
+      type = "String"
+    }
+    column "person_id" {
+      type = "UUID"
+    }
+    column "own_tombstone" {
+      type = "UInt8"
+    }
+    column "max_version" {
+      type = "Int64"
+    }
+    column "created_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now64()"
+    }
+    engine "replicated_replacing_merge_tree" {
+      zoo_path       = "/clickhouse/tables/noshard/posthog.clickhouse_cleanup_orphaned_distinct_ids"
+      replica_name   = "{replica}-{shard}"
+      version_column = "created_at"
+    }
+  }
+  table "clickhouse_cleanup_revived_distinct_ids" {
+    partition_by = "run_id"
+    order_by = ["run_id", "team_id", "distinct_id"]
+    ttl      = "created_at + toIntervalDay(14)"
+    settings = {
+      index_granularity = "8192"
+      ttl_only_drop_parts = "1"
+    }
+    column "run_id" {
+      type = "String"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "distinct_id" {
+      type = "String"
+    }
+    column "created_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now64()"
+    }
+    engine "replicated_replacing_merge_tree" {
+      zoo_path       = "/clickhouse/tables/noshard/posthog.clickhouse_cleanup_revived_distinct_ids"
+      replica_name   = "{replica}-{shard}"
+      version_column = "created_at"
+    }
+  }
+  table "clickhouse_cleanup_revived_persons" {
+    partition_by = "run_id"
+    order_by = ["run_id", "team_id", "person_id"]
+    ttl      = "created_at + toIntervalDay(14)"
+    settings = {
+      index_granularity = "8192"
+      ttl_only_drop_parts = "1"
+    }
+    column "run_id" {
+      type = "String"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "person_id" {
+      type = "UUID"
+    }
+    column "created_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now64()"
+    }
+    engine "replicated_replacing_merge_tree" {
+      zoo_path       = "/clickhouse/tables/noshard/posthog.clickhouse_cleanup_revived_persons"
+      replica_name   = "{replica}-{shard}"
+      version_column = "created_at"
     }
   }
   table "cohort_membership" {
@@ -1573,110 +1685,6 @@ database "posthog" {
       zoo_path       = "/clickhouse/tables/{shard}/posthog.events_json"
       replica_name   = "{replica}"
       version_column = "_timestamp"
-    }
-  }
-  table "writable_events_json" {
-    column "uuid" {
-      type = "UUID"
-    }
-    column "event" {
-      type = "String"
-    }
-    column "properties" {
-      type = "JSON(max_dynamic_types=8, max_dynamic_paths=256, `$active_feature_flags` Array(String), `$ai_experiment_id` Nullable(String), `$ai_http_status` Nullable(String), `$ai_is_error` Nullable(String), `$ai_model` Nullable(String), `$ai_parent_id` Nullable(String), `$ai_prompt_name` Nullable(String), `$ai_provider` Nullable(String), `$ai_session_id` Nullable(String), `$ai_span_id` Nullable(String), `$ai_total_cost_usd` Nullable(String), `$ai_trace_id` Nullable(String), `$anon_distinct_id` Nullable(String), `$app_build` Nullable(String), `$app_namespace` Nullable(String), `$app_version` Nullable(String), `$browser` Nullable(String), `$browser_version` Nullable(String), `$current_url` Nullable(String), `$device` Nullable(String), `$device_id` Nullable(String), `$device_model` Nullable(String), `$device_type` Nullable(String), `$el_text` Nullable(String), `$event_type` Nullable(String), `$exception_fingerprint` Nullable(String), `$exception_functions` Array(String), `$exception_issue_id` Nullable(String), `$exception_sources` Array(String), `$exception_types` Array(String), `$exception_values` Array(String), `$feature_flag` Nullable(String), `$feature_flag_payloads` Nullable(String), `$feature_flag_response` Nullable(String), `$geoip_city_name` Nullable(String), `$geoip_country_code` Nullable(String), `$geoip_country_name` Nullable(String), `$geoip_subdivision_1_code` Nullable(String), `$group_0` Nullable(String), `$group_1` Nullable(String), `$group_2` Nullable(String), `$group_3` Nullable(String), `$group_4` Nullable(String), `$groups` Nullable(String), `$host` Nullable(String), `$initial_pathname` Nullable(String), `$initial_referrer` Nullable(String), `$initial_referring_domain` Nullable(String), `$ip` Nullable(String), `$is_identified` Nullable(String), `$lib` Nullable(String), `$lib_custom_api_host` Nullable(String), `$lib_version` Nullable(String), `$lib_version__minor` Nullable(String), `$os` Nullable(String), `$os_name` Nullable(String), `$os_version` Nullable(String), `$pathname` Nullable(String), `$prev_pageview_max_content_percentage` Nullable(String), `$prev_pageview_max_scroll_percentage` Nullable(String), `$prev_pageview_pathname` Nullable(String), `$process_person_profile` Nullable(String), `$referrer` Nullable(String), `$referring_domain` Nullable(String), `$screen_height` Nullable(String), `$screen_name` Nullable(String), `$screen_width` Nullable(String), `$sent_at` Nullable(String), `$session_id` Nullable(String), `$survey_id` Nullable(String), `$survey_response` Nullable(String), `$survey_response_1` Nullable(String), `$time` Nullable(String), `$user_id` Nullable(String), `$viewport_height` Nullable(String), `$viewport_width` Nullable(String), `$web_vitals_CLS_value` Nullable(String), `$web_vitals_FCP_value` Nullable(String), `$web_vitals_INP_value` Nullable(String), `$web_vitals_LCP_value` Nullable(String), `$window_id` Nullable(String))"
-    }
-    column "timestamp" {
-      type = "DateTime64(6, 'UTC')"
-    }
-    column "team_id" {
-      type = "Int64"
-    }
-    column "distinct_id" {
-      type = "String"
-    }
-    column "elements_hash" {
-      type = "String"
-      default = "''"
-    }
-    column "created_at" {
-      type = "DateTime64(6, 'UTC')"
-    }
-    column "_timestamp" {
-      type = "DateTime"
-    }
-    column "_offset" {
-      type = "UInt64"
-    }
-    column "elements_chain" {
-      type = "String"
-    }
-    column "person_id" {
-      type = "UUID"
-    }
-    column "person_properties" {
-      type = "JSON(max_dynamic_types=6, max_dynamic_paths=32, `$app_version` Nullable(String), `$browser` Nullable(String), `$current_url` Nullable(String), `$geoip_continent_name` Nullable(String), `$geoip_country_code` Nullable(String), `$geoip_country_name` Nullable(String), `$initial_current_url` Nullable(String), `$initial_fbclid` Nullable(String), `$initial_gad_source` Nullable(String), `$initial_gbraid` Nullable(String), `$initial_gclid` Nullable(String), `$initial_msclkid` Nullable(String), `$initial_pathname` Nullable(String), `$initial_referring_domain` Nullable(String), `$initial_utm_campaign` Nullable(String), `$initial_utm_content` Nullable(String), `$initial_utm_medium` Nullable(String), `$initial_utm_source` Nullable(String), `$initial_utm_term` Nullable(String), `$initial_wbraid` Nullable(String), `$os_name` Nullable(String), `$referring_domain` Nullable(String))"
-    }
-    column "group0_properties" {
-      type = "String"
-      codec = "ZSTD(3)"
-    }
-    column "group1_properties" {
-      type = "String"
-      codec = "ZSTD(3)"
-    }
-    column "group2_properties" {
-      type = "String"
-      codec = "ZSTD(3)"
-    }
-    column "group3_properties" {
-      type = "String"
-      codec = "ZSTD(3)"
-    }
-    column "group4_properties" {
-      type = "String"
-      codec = "ZSTD(3)"
-    }
-    column "person_created_at" {
-      type = "DateTime64(3)"
-    }
-    column "group0_created_at" {
-      type = "DateTime64(3)"
-    }
-    column "group1_created_at" {
-      type = "DateTime64(3)"
-    }
-    column "group2_created_at" {
-      type = "DateTime64(3)"
-    }
-    column "group3_created_at" {
-      type = "DateTime64(3)"
-    }
-    column "group4_created_at" {
-      type = "DateTime64(3)"
-    }
-    column "inserted_at" {
-      type = "Nullable(DateTime64(6, 'UTC'))"
-      default = "now64()"
-    }
-    column "person_mode" {
-      type = "Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2)"
-    }
-    column "is_deleted" {
-      type = "Bool"
-      default = "false"
-    }
-    column "consumer_breadcrumbs" {
-      type = "Array(String)"
-    }
-    column "historical_migration" {
-      type = "Bool"
-      default = "false"
-    }
-    engine "distributed" {
-      cluster_name    = "posthog"
-      remote_database = "posthog"
-      remote_table    = "sharded_events_json"
-      sharding_key    = "sipHash64(distinct_id)"
     }
   }
 
@@ -3586,8 +3594,40 @@ database "posthog" {
       ttl_only_drop_parts = "1"
     }
     extend = "_flag_evaluations_columns"
+    patch_column "$group_0" {
+      default = "replaceRegexpAll(JSONExtractRaw(properties, '$group_0'), '^\"|\"$', '')"
+    }
+    patch_column "$group_1" {
+      default = "replaceRegexpAll(JSONExtractRaw(properties, '$group_1'), '^\"|\"$', '')"
+    }
+    patch_column "$group_2" {
+      default = "replaceRegexpAll(JSONExtractRaw(properties, '$group_2'), '^\"|\"$', '')"
+    }
+    patch_column "$group_3" {
+      default = "replaceRegexpAll(JSONExtractRaw(properties, '$group_3'), '^\"|\"$', '')"
+    }
+    patch_column "$group_4" {
+      default = "replaceRegexpAll(JSONExtractRaw(properties, '$group_4'), '^\"|\"$', '')"
+    }
+    patch_column "flag_key" {
+      default = "replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag'), '^\"|\"$', '')"
+    }
+    patch_column "response" {
+      default = "replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_response'), '^\"|\"$', '')"
+    }
+    patch_column "session_id" {
+      default = "replaceRegexpAll(JSONExtractRaw(properties, '$session_id'), '^\"|\"$', '')"
+    }
+    patch_column "request_id" {
+      default = "replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_request_id'), '^\"|\"$', '')"
+    }
     index "distinct_id_idx" {
       expr        = "distinct_id"
+      type        = "bloom_filter(0.01)"
+      granularity = 1
+    }
+    index "person_id_idx" {
+      expr        = "person_id"
       type        = "bloom_filter(0.01)"
       granularity = 1
     }
@@ -5778,41 +5818,6 @@ database "posthog" {
       sharding_key    = "sipHash64(distinct_id)"
     }
   }
-  table "writable_log_entries" {
-    column "team_id" {
-      type = "UInt64"
-    }
-    column "log_source" {
-      type = "LowCardinality(String)"
-    }
-    column "log_source_id" {
-      type = "String"
-    }
-    column "instance_id" {
-      type = "String"
-    }
-    column "timestamp" {
-      type = "DateTime64(6, 'UTC')"
-    }
-    column "level" {
-      type = "LowCardinality(String)"
-    }
-    column "message" {
-      type = "String"
-    }
-    column "_timestamp" {
-      type = "DateTime"
-    }
-    column "_offset" {
-      type = "UInt64"
-    }
-    engine "distributed" {
-      cluster_name    = "posthog"
-      remote_database = "posthog"
-      remote_table    = "sharded_log_entries"
-      sharding_key    = "rand()"
-    }
-  }
   table "writable_posthog_document_embeddings_text_embedding_3_large_3072" {
     column "team_id" {
       type = "Int64"
@@ -6265,103 +6270,6 @@ database "posthog" {
       remote_database = "posthog"
       remote_table    = "sharded_session_replay_embeddings"
       sharding_key    = "sipHash64(session_id)"
-    }
-  }
-  table "writable_session_replay_events" {
-    column "session_id" {
-      type = "String"
-    }
-    column "team_id" {
-      type = "Int64"
-    }
-    column "distinct_id" {
-      type = "String"
-    }
-    column "min_first_timestamp" {
-      type = "SimpleAggregateFunction(min, DateTime64(6, 'UTC'))"
-    }
-    column "max_last_timestamp" {
-      type = "SimpleAggregateFunction(max, DateTime64(6, 'UTC'))"
-    }
-    column "block_first_timestamps" {
-      type = "SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC')))"
-    }
-    column "block_last_timestamps" {
-      type = "SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC')))"
-    }
-    column "block_urls" {
-      type = "SimpleAggregateFunction(groupArrayArray, Array(String))"
-    }
-    column "first_url" {
-      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
-    }
-    column "all_urls" {
-      type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
-    }
-    column "click_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "keypress_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "mouse_activity_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "active_milliseconds" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "console_log_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "console_warn_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "console_error_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "size" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "message_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "event_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "snapshot_source" {
-      type = "AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC'))"
-    }
-    column "snapshot_library" {
-      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
-    }
-    column "_timestamp" {
-      type = "SimpleAggregateFunction(max, DateTime)"
-    }
-    column "is_deleted" {
-      type    = "SimpleAggregateFunction(max, UInt8)"
-      default = "0"
-    }
-    column "ai_tags_fixed" {
-      type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
-    }
-    column "ai_tags_freeform" {
-      type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
-    }
-    column "ai_highlighted" {
-      type    = "SimpleAggregateFunction(max, UInt8)"
-      default = "0"
-    }
-    column "surfacing_score" {
-      type = "SimpleAggregateFunction(max, Nullable(Float32))"
-    }
-    column "retention_period_days" {
-      type = "SimpleAggregateFunction(max, Nullable(Int64))"
-    }
-    engine "distributed" {
-      cluster_name    = "posthog"
-      remote_database = "posthog"
-      remote_table    = "sharded_session_replay_events"
-      sharding_key    = "sipHash64(distinct_id)"
     }
   }
   table "writable_sessions" {
@@ -8075,6 +7983,53 @@ SQL
     column "mat_$ai_experiment_id" {
       type    = "Nullable(String)"
       comment = "column_materializer::properties::$ai_experiment_id"
+    }
+  }
+  table "sharded_billing_usage_records" {
+    order_by     = ["team_id", "toDate(timestamp)", "producer_id", "usage_key", "record_id"]
+    partition_by = "toYYYYMM(timestamp)"
+    settings = {
+      index_granularity = "8192"
+    }
+    column "schema_version" { type = "UInt8" }
+    column "record_id" { type = "String" }
+    column "producer_id" { type = "LowCardinality(String)" }
+    column "team_id" { type = "Int64" }
+    column "organization_id" { type = "UUID" }
+    column "usage_key" { type = "LowCardinality(String)" }
+    column "unit" { type = "LowCardinality(String)" }
+    column "quantity" { type = "Int64" }
+    column "timestamp" { type = "DateTime64(6, 'UTC')" }
+    column "inserted_at" { type = "DateTime64(6, 'UTC')" }
+    column "_timestamp" { type = "DateTime" }
+    column "_offset" { type = "UInt64" }
+    column "_partition" { type = "UInt64" }
+    engine "replicated_replacing_merge_tree" {
+      zoo_path       = "/clickhouse/tables/{shard}/posthog.sharded_billing_usage_records"
+      replica_name   = "{replica}"
+      version_column = "inserted_at"
+    }
+  }
+
+  table "billing_usage_records" {
+    column "schema_version" { type = "UInt8" }
+    column "record_id" { type = "String" }
+    column "producer_id" { type = "LowCardinality(String)" }
+    column "team_id" { type = "Int64" }
+    column "organization_id" { type = "UUID" }
+    column "usage_key" { type = "LowCardinality(String)" }
+    column "unit" { type = "LowCardinality(String)" }
+    column "quantity" { type = "Int64" }
+    column "timestamp" { type = "DateTime64(6, 'UTC')" }
+    column "inserted_at" { type = "DateTime64(6, 'UTC')" }
+    column "_timestamp" { type = "DateTime" }
+    column "_offset" { type = "UInt64" }
+    column "_partition" { type = "UInt64" }
+    engine "distributed" {
+      cluster_name    = "posthog"
+      remote_database = "posthog"
+      remote_table    = "sharded_billing_usage_records"
+      sharding_key    = "cityHash64(team_id)"
     }
   }
 }

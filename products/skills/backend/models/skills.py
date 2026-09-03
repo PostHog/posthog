@@ -39,6 +39,7 @@ class LLMSkill(UUIDModel):
 
     # Required by Agent Skills spec (https://agentskills.io/specification)
     name = models.CharField(max_length=64)
+    # Column holds 4096 to keep legacy rows valid; new writes cap at 1024 (the spec limit) in the serializer.
     description = models.CharField(max_length=4096)
 
     # The SKILL.md body content (markdown instructions)

@@ -136,4 +136,23 @@ RUN python3 --version && \
     node --version && \
     npm --version
 
+# Bake the notebooks SQLV2 kernel package. The backend launches it from here when
+# the stamp matches the package hash it expects, and uploads the same modules as a
+# tarball when it does not, so a kernel edit never waits on an image build.
+# kernel_package.py supplies both the destination and the stamp, so this image and
+# the backend cannot drift apart on where the package lives or how its hash is
+# derived. This stays last because it invalidates on every kernel edit and the pip
+# layer above is expensive to rebuild. The import check enforces the package's rule
+# that it may only use libraries this image already carries.
+COPY products/notebooks/backend/kernel_package.py /tmp/nb_kernel_build/kernel_package.py
+COPY products/notebooks/backend/sandbox/kernel/ /tmp/nb_kernel_build/sandbox/kernel/
+RUN ROOT="$(python3 /tmp/nb_kernel_build/kernel_package.py --baked-root)" && \
+    mkdir -p "$ROOT" && \
+    cp -R /tmp/nb_kernel_build/sandbox/kernel "$ROOT/nb_kernel" && \
+    python3 /tmp/nb_kernel_build/kernel_package.py > "$ROOT/VERSION" && \
+    rm -rf /tmp/nb_kernel_build && \
+    test -s "$ROOT/VERSION" && \
+    PYTHONPATH="$ROOT" python3 -c \
+      "import nb_kernel.server, nb_kernel.executor, nb_kernel.bootstrap, nb_kernel.result_store"
+
 CMD ["/bin/bash"]

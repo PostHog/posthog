@@ -19,13 +19,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sou
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.twilio.settings import (
     MAIN_KEY_ONLY_ENDPOINTS,
+    TWILIO_API_HOST,
     TWILIO_ENDPOINTS,
     TwilioEndpointConfig,
 )
 
-TWILIO_BASE_URL = "https://api.twilio.com"
+# The legacy Account API host. Kept as an alias so the legacy paginator can resolve that API's
+# root-relative `next_page_uri` links, which are always served from this host.
+TWILIO_BASE_URL = TWILIO_API_HOST
 TWILIO_API_VERSION = "2010-04-01"
-DEFAULT_PAGE_SIZE = 1000
 
 TwilioAuth = tuple[str, str]
 
@@ -70,24 +72,32 @@ class TwilioResumeConfig:
 
 
 class TwilioNextPageUriPaginator(BaseNextUrlPaginator):
-    """Follow Twilio's body-level ``next_page_uri`` link.
+    """Follow Twilio's body-level next-page link, in either of the two shapes Twilio uses.
 
-    Twilio returns ``next_page_uri`` as a root-relative path (null/absent on the last page). The
-    self-contained next link already carries every query param (PageSize, filters, Page token), so
-    we resolve it to an absolute URL on the API host and let ``BaseNextUrlPaginator`` retarget the
-    request to it — dropping the original params so they aren't re-appended each page.
+    The legacy 2010-04-01 API returns a root-relative ``next_page_uri`` (null/absent on the last
+    page), which we resolve to an absolute URL on the legacy host. The newer subdomain APIs (Verify,
+    Messaging Services) return an absolute ``meta.next_page_url`` instead. Either link is
+    self-contained — it already carries every query param (PageSize, filters, Page token) — so we let
+    ``BaseNextUrlPaginator`` retarget the request to it and drop the original params.
     """
 
     def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
         try:
-            next_page_uri = response.json().get("next_page_uri")
+            body = response.json()
         except Exception:
-            next_page_uri = None
+            body = None
+        if not isinstance(body, dict):
+            self._advance_to(None)
+            return
+
+        next_page_uri = body.get("next_page_uri")
         if next_page_uri:
-            self._next_url = f"{TWILIO_BASE_URL}{next_page_uri}"
-            self._has_next_page = True
-        else:
-            self._has_next_page = False
+            self._advance_to(f"{TWILIO_BASE_URL}{next_page_uri}")
+            return
+
+        meta = body.get("meta")
+        next_page_url = meta.get("next_page_url") if isinstance(meta, dict) else None
+        self._advance_to(next_page_url)
 
 
 def _format_filter_date(value: Any) -> str:
@@ -108,13 +118,28 @@ def _format_filter_date(value: Any) -> str:
         raise ValueError(f"Cannot build a Twilio date filter from incremental value {value!r}") from e
 
 
+def _format_filter_value(config: TwilioEndpointConfig, value: Any) -> str:
+    """Format the incremental watermark for this endpoint's date filter.
+
+    The legacy API takes a day-granular date. The Verify API's `DateCreatedAfter` wants an ISO 8601
+    GMT datetime and is exclusive, so we anchor it to the start of the watermark's day: the whole
+    boundary day is re-fetched and de-duplicated on `sid` rather than dropping same-instant rows.
+    """
+    day = _format_filter_date(value)
+    if config.date_filter_format == "datetime":
+        return f"{day}T00:00:00Z"
+    return day
+
+
 def _build_initial_params(
     config: TwilioEndpointConfig,
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any,
     incremental_field: str | None,
 ) -> dict[str, Any]:
-    params: dict[str, Any] = {"PageSize": DEFAULT_PAGE_SIZE}
+    params: dict[str, Any] = {}
+    if config.page_size is not None:
+        params["PageSize"] = config.page_size
 
     if should_use_incremental_field and db_incremental_field_last_value is not None:
         # Honor the user's chosen cursor field; only filter when it maps to a server-side filter.
@@ -123,16 +148,25 @@ def _build_initial_params(
             chosen = next(iter(config.incremental_filter_params))
         if chosen is not None:
             filter_base = config.incremental_filter_params[chosen]
-            # The operator lives in the parameter NAME (e.g. `DateSent>`); the query separator `=`
-            # then yields Twilio's documented `DateSent>=<date>` (inclusive, on-or-after) form. The
-            # date value must stay plain — inlining the operator into the value triggers error 20001.
-            params[f"{filter_base}>"] = _format_filter_date(db_incremental_field_last_value)
+            # On the legacy API the operator lives in the parameter NAME (e.g. `DateSent>`); the query
+            # separator `=` then yields Twilio's documented `DateSent>=<date>` (inclusive, on-or-after)
+            # form. The Verify API instead names its param `DateCreatedAfter` outright and takes no
+            # operator. Either way the value stays plain — inlining an operator triggers error 20001.
+            params[f"{filter_base}{config.filter_operator}"] = _format_filter_value(
+                config, db_incremental_field_last_value
+            )
 
     return params
 
 
 def _build_resource_path(config: TwilioEndpointConfig, account_sid: str) -> str:
-    return f"/{TWILIO_API_VERSION}/Accounts/{account_sid}/{config.path}"
+    if config.account_scoped:
+        return f"/{TWILIO_API_VERSION}/Accounts/{account_sid}/{config.path}"
+    return config.path
+
+
+def _endpoint_url(config: TwilioEndpointConfig, account_sid: str) -> str:
+    return f"{config.base_url}{_build_resource_path(config, account_sid)}"
 
 
 def _unexpected_status_message(status: int) -> str:
@@ -151,7 +185,7 @@ def _endpoint_denied_message(schema_name: str) -> str:
 def _probe_status(auth: TwilioAuth, account_sid: str, schema_name: str) -> int | None:
     """GET one list resource with PageSize=1 and report the HTTP status, or None on transport failure."""
     config = TWILIO_ENDPOINTS[schema_name]
-    url = f"{TWILIO_BASE_URL}{_build_resource_path(config, account_sid)}?PageSize=1"
+    url = f"{_endpoint_url(config, account_sid)}?PageSize=1"
     _ok, status = validate_via_probe(
         lambda: make_tracked_session(redact_values=(auth[1],)),
         url,
@@ -229,7 +263,7 @@ def twilio_source(
 
     rest_config: RESTAPIConfig = {
         "client": {
-            "base_url": TWILIO_BASE_URL,
+            "base_url": config.base_url,
             # HTTP basic auth via the framework so the secret is redacted from logs and errors.
             "auth": {"type": "http_basic", "username": auth[0], "password": auth[1]},
             "paginator": TwilioNextPageUriPaginator(),

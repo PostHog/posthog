@@ -528,11 +528,11 @@ class TestResolveAccessToken:
             patch(f"{self._SOURCE_MODULE}.auth_test_user_id", return_value="UBOT") as mock_auth_test,
             patch.object(source, "get_oauth_integration") as mock_get_integration,
         ):
-            access_token, authed_user, cache_id = source._resolve_access_token(config, team_id=1)
+            access = source._resolve_access_token(config, team_id=1)
 
-        assert access_token == "xoxb-abc"
-        assert authed_user == "UBOT"
-        assert cache_id == manual_cache_id("xoxb-abc")
+        assert access.access_token == "xoxb-abc"
+        assert access.authed_user_id == "UBOT"
+        assert access.cache_id == manual_cache_id("xoxb-abc")
         # The bring-your-own path must never touch an Integration row — that's what keeps it
         # off the shared PostHog app.
         mock_get_integration.assert_not_called()
@@ -542,7 +542,10 @@ class TestResolveAccessToken:
         from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.slack import (
             SlackSourceConfig,
         )
-        from products.warehouse_sources.backend.temporal.data_imports.sources.slack.source import SlackSource
+        from products.warehouse_sources.backend.temporal.data_imports.sources.slack.source import (
+            SlackAccess,
+            SlackSource,
+        )
 
         config = SlackSourceConfig.from_dict({"slack_integration_id": 42})
         source = SlackSource()
@@ -553,9 +556,9 @@ class TestResolveAccessToken:
         integration.config = {"authed_user": {"id": "U_INSTALLER"}}
 
         with patch.object(source, "get_oauth_integration", return_value=integration) as mock_get_integration:
-            access_token, authed_user, cache_id = source._resolve_access_token(config, team_id=1)
+            access = source._resolve_access_token(config, team_id=1)
 
-        assert (access_token, authed_user, cache_id) == ("token", "U_INSTALLER", "42")
+        assert access == SlackAccess(access_token="token", authed_user_id="U_INSTALLER", cache_id="42")
         mock_get_integration.assert_called_once_with(42, 1)
 
     def test_token_takes_precedence_over_a_legacy_integration(self) -> None:
@@ -573,9 +576,9 @@ class TestResolveAccessToken:
             patch(f"{self._SOURCE_MODULE}.auth_test_user_id", return_value="UBOT"),
             patch.object(source, "get_oauth_integration") as mock_get_integration,
         ):
-            access_token, _authed_user, _cache_id = source._resolve_access_token(config, team_id=1)
+            access = source._resolve_access_token(config, team_id=1)
 
-        assert access_token == "xoxb-new"
+        assert access.access_token == "xoxb-new"
         mock_get_integration.assert_not_called()
 
     def test_no_credentials_raises(self) -> None:

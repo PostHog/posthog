@@ -47,6 +47,7 @@ const POSTHOG_DESTRUCTIVE_SUB_TOOLS = new Set([
     'experiment-ship-variant',
     'external-data-schemas-resync',
     'external-data-sources-repair-cdc-create',
+    'feature-requests-remove-evidence-create',
     'heatmaps-saved-regenerate',
     'inbox-reports-bulk-set-state',
     'inbox-reports-set-state',
@@ -150,6 +151,7 @@ export function defaultPermissionDecision(record: PermissionRequestRecord): Perm
  */
 const PERSIST_PROMPT_SUB_TOOLS = new Set([
     'dashboard-create',
+    'dashboard-create-tile',
     'dashboard-create-text-tile',
     'dashboard-tile-copy',
     'dashboard-widgets-batch-add',
@@ -162,6 +164,7 @@ const PERSIST_PROMPT_SUB_TOOLS = new Set([
     'cdp-functions-create',
     'workflows-create',
     'workflows-create-email-template',
+    'llma-parser-recipe-create',
 ])
 
 /**

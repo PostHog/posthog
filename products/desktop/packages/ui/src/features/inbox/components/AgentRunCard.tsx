@@ -14,7 +14,6 @@ import {
 import { InboxMetaSourceStack } from "@posthog/ui/features/inbox/components/InboxMetaSourceStack";
 import { InboxBadge } from "@posthog/ui/features/inbox/components/utils/InboxBadge";
 import { hasKnownSourceProduct } from "@posthog/ui/features/inbox/components/utils/source-product-icons";
-import { Flex, Text } from "@radix-ui/themes";
 import { useNavigate } from "@tanstack/react-router";
 
 export type RunVariant = "queued" | "live" | "completed" | "failed";
@@ -36,7 +35,7 @@ export const RUN_VARIANT_TIMESTAMP_LABEL: Record<RunVariant, string> = {
   failed: "Failed",
 };
 
-interface VariantMeta {
+export interface VariantMeta {
   label: string;
   badgeTone: "default" | "info" | "success" | "destructive";
   orbClass: string;
@@ -44,7 +43,7 @@ interface VariantMeta {
   ariaLabel: string;
 }
 
-const VARIANT_META: Record<RunVariant, VariantMeta> = {
+export const VARIANT_META: Record<RunVariant, VariantMeta> = {
   queued: {
     label: "Queued",
     badgeTone: "default",
@@ -82,17 +81,15 @@ function pickTimestamp(report: SignalReport, variant: RunVariant): string {
 
 function RunStatusOrb({ meta }: { meta: VariantMeta }) {
   return (
-    <Flex
-      align="center"
-      justify="center"
-      className={`h-7 w-7 shrink-0 rounded-full ring-1 ring-inset ${meta.orbClass}`}
+    <div
+      className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ring-1 ring-inset ${meta.orbClass}`}
     >
       <span
         className={`block h-1.5 w-1.5 rounded-full ${meta.dotClass}`}
         role="img"
         aria-label={meta.ariaLabel}
       />
-    </Flex>
+    </div>
   );
 }
 
@@ -114,22 +111,27 @@ export function AgentRunCard({ report }: AgentRunCardProps) {
       type="button"
       onClick={() =>
         navigate({
-          to: "/code/inbox/runs/$reportId",
+          to: "/inbox/runs/$reportId",
           params: { reportId: report.id },
         })
       }
-      className="group flex w-full items-start gap-3 rounded-(--radius-2) border border-border bg-(--color-panel-solid) px-4 py-3.5 text-left transition duration-150 hover:border-(--gray-6) hover:bg-(--gray-2) hover:shadow-sm focus-visible:bg-(--gray-2) focus-visible:outline-none"
+      className="group relative flex w-full items-start gap-3 rounded-(--radius-2) border border-border bg-(--color-panel-solid) px-4 py-3.5 text-left transition duration-150 hover:border-(--gray-6) hover:bg-(--gray-2) hover:shadow-sm focus-visible:bg-(--gray-2) focus-visible:outline-none"
     >
+      <div className="absolute top-3.5 right-4">
+        <InboxBadge variant={meta.badgeTone}>{meta.label}</InboxBadge>
+      </div>
+
       <RunStatusOrb meta={meta} />
 
-      <Flex direction="column" gap="1.5" className="min-w-0 flex-1">
-        <Text className="wrap-break-word min-w-0 font-semibold text-[14px] text-gray-11 leading-snug tracking-tight">
+      <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+        {/* Pad clear of the absolute status badge. */}
+        <span className="wrap-break-word min-w-0 pr-20 font-semibold text-[14px] text-gray-11 leading-snug tracking-tight">
           {report.title ?? "Untitled run"}
-        </Text>
+        </span>
         {headline ? (
-          <Text className="wrap-break-word line-clamp-2 text-[12.5px] text-gray-10 leading-snug">
+          <span className="wrap-break-word line-clamp-2 text-[12.5px] text-gray-10 leading-snug">
             {headline}
-          </Text>
+          </span>
         ) : null}
         <InboxMetaRow className="mt-1.5">
           {hasSource ? (
@@ -142,21 +144,12 @@ export function AgentRunCard({ report }: AgentRunCardProps) {
             {RUN_VARIANT_TIMESTAMP_LABEL[variant]}{" "}
             {formatRelativeTimeLong(timestampSource)}
           </InboxMetaText>
+          <InboxMetaSeparator />
+          <InboxMetaText mono className="text-[11px]">
+            {runId}
+          </InboxMetaText>
         </InboxMetaRow>
-      </Flex>
-
-      <Flex
-        align="end"
-        direction="column"
-        justify="center"
-        gap="1.5"
-        className="self-stretch border-border border-l pl-3"
-      >
-        <InboxBadge variant={meta.badgeTone}>{meta.label}</InboxBadge>
-        <InboxMetaText mono className="text-[11px]">
-          {runId}
-        </InboxMetaText>
-      </Flex>
+      </div>
     </button>
   );
 }

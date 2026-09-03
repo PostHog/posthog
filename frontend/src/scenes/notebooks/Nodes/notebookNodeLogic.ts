@@ -18,6 +18,7 @@ import posthog from 'posthog-js'
 import { LemonMenuItems } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import type { NotebookComponentToolbarTitleStatus } from 'lib/components/MarkdownNotebook/componentToolbarExtras'
 import { JSONContent, RichContentNode } from 'lib/components/RichContentEditor/types'
 import { hashCodeForString } from 'lib/utils/strings'
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
@@ -871,6 +872,7 @@ export type NotebookNodeLogicProps = {
     messageListeners?: NotebookNodeMessagesListeners
     startExpanded?: boolean
     titlePlaceholder: string
+    editableTitle?: boolean
     settingsPlacement?: NotebookNodeSettingsPlacement
 } & NotebookNodeAttributeProperties<any>
 
@@ -908,6 +910,7 @@ export interface notebookNodeLogicValues {
     duckSqlRunQueued: boolean
     duckSqlTablesUsed: string[]
     duckSqlUpstreamTableSources: Record<string, NotebookDependencyUsage>
+    editableTitle: boolean
     expanded: boolean
     exportedGlobals: {
         name: string
@@ -940,6 +943,7 @@ export interface notebookNodeLogicValues {
     sqlV2ReturnVariableUsage: NotebookDependencyUsage[]
     title: any
     titlePlaceholder: string
+    titleStatus: NotebookComponentToolbarTitleStatus | null
     usageByVariable: Record<string, NotebookDependencyUsage[]>
 }
 
@@ -1058,6 +1062,9 @@ export interface notebookNodeLogicActions {
     setTitlePlaceholder: (titlePlaceholder: string) => {
         titlePlaceholder: string
     }
+    setTitleStatus: (titleStatus: NotebookComponentToolbarTitleStatus | null) => {
+        titleStatus: NotebookComponentToolbarTitleStatus | null
+    }
     toggleEditing: (visible?: boolean) => {
         visible: boolean | undefined
     }
@@ -1079,7 +1086,8 @@ export interface notebookNodeLogicMeta {
         nodeType: (nodeType: NotebookNodeType) => NotebookNodeType
         Settings: (arg: any) => NotebookNodeSettings | null
         settingsPlacement: (arg: any) => NotebookNodeSettingsPlacement
-        title: (titlePlaceholder: string, nodeAttributes: any) => any
+        editableTitle: (arg: any) => boolean
+        title: (titlePlaceholder: string, nodeAttributes: any, editableTitle: boolean) => any
         children: (nodeAttributes: any) => NotebookNodeResource[]
         exportedGlobals: (nodeAttributes: any) => {
             name: string
@@ -1174,6 +1182,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         initializeNode: true,
         setMessageListeners: (listeners: NotebookNodeMessagesListeners) => ({ listeners }),
         setTitlePlaceholder: (titlePlaceholder: string) => ({ titlePlaceholder }),
+        setTitleStatus: (titleStatus: NotebookComponentToolbarTitleStatus | null) => ({ titleStatus }),
         setRef: (ref: HTMLElement | null) => ({ ref }),
         toggleEditingTitle: (editing?: boolean) => ({ editing }),
         copyToClipboard: true,
@@ -1281,6 +1290,12 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
                 setTitlePlaceholder: (_, { titlePlaceholder }) => titlePlaceholder,
             },
         ],
+        titleStatus: [
+            null as NotebookComponentToolbarTitleStatus | null,
+            {
+                setTitleStatus: (_, { titleStatus }) => titleStatus,
+            },
+        ],
         isEditingTitle: [
             false,
             {
@@ -1382,13 +1397,22 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
             () => [(_, props) => props],
             (props): NotebookNodeSettingsPlacement => props.settingsPlacement ?? 'left',
         ],
+        editableTitle: [
+            () => [(_, props) => props.editableTitle],
+            (editableTitle: boolean | undefined): boolean => editableTitle ?? true,
+        ],
 
         title: [
-            (s) => [s.titlePlaceholder, s.nodeAttributes],
-            (titlePlaceholder: string, nodeAttributes) => nodeAttributes.title || titlePlaceholder,
+            (s) => [s.titlePlaceholder, s.nodeAttributes, s.editableTitle],
+            (titlePlaceholder: string, nodeAttributes, editableTitle: boolean) =>
+                (editableTitle ? nodeAttributes.title : null) || titlePlaceholder,
         ],
         // TODO: Fix the typing of nodeAttributes
-        children: [(s) => [s.nodeAttributes], (nodeAttributes): NotebookNodeResource[] => nodeAttributes.children],
+        children: [
+            (s) => [s.nodeAttributes],
+            (nodeAttributes): NotebookNodeResource[] =>
+                Array.isArray(nodeAttributes.children) ? nodeAttributes.children : [],
+        ],
 
         exportedGlobals: [
             (s) => [s.nodeAttributes],

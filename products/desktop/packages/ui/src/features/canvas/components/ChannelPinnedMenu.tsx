@@ -33,7 +33,7 @@ export function ChannelPinnedMenu({ channelId }: { channelId: string }) {
       dashboard_id: dashboardId,
     });
     void navigate({
-      to: "/website/$channelId/dashboards/$dashboardId",
+      to: "/spaces/$channelId/dashboards/$dashboardId",
       params: { channelId, dashboardId },
     });
   };

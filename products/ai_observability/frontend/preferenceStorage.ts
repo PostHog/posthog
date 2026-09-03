@@ -1,16 +1,5 @@
-import { getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
+import { buildTeamScopedStorageConfig } from 'lib/logic/persistence'
 
-interface AIObservabilityPreferenceStorageConfig {
-    persist: true
+export const buildAiObservabilityStorageConfig = (
     storageKey: string
-}
-
-export function buildAiObservabilityStorageConfig(storageKey: string): AIObservabilityPreferenceStorageConfig {
-    const teamId = getCurrentTeamIdOrNone()
-    const teamPrefix = teamId ? `${teamId}__` : ''
-
-    return {
-        persist: true,
-        storageKey: `${teamPrefix}ai_observability.${storageKey}`,
-    }
-}
+): ReturnType<typeof buildTeamScopedStorageConfig> => buildTeamScopedStorageConfig(`ai_observability.${storageKey}`)

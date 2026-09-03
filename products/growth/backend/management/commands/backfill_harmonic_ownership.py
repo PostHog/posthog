@@ -1,16 +1,22 @@
 """Backfill ownership_status/parent_company/parent_company_domain for orgs enriched before
 Harmonic ownership lookup shipped.
 
-Targets OrganizationEnrichment rows with no "ownership_status" key in `data` — that key is
-absent both for pre-feature orgs and for orgs where Harmonic has no ownership opinion, so a
-re-run is a no-op for the latter rather than a retry; see the write skip below. Re-fetches each
-org fresh from Harmonic (paced by --sleep) rather than replaying the archived payload, since
-the field didn't exist in the response schema this repo requested at the time of the original
-fetch. The fresh fetch is archived the same way the live path archives one (including a
-not-found), so the refreshed payload is available to the labels pipeline and any later offline
-re-analysis; only the OrganizationEnrichment.data/group-property write is scoped to the three
-ownership fields. Prints base-rate stats at the end for the vendor decision this backfill exists
-to inform.
+Targets OrganizationEnrichment rows with no "ownership_status" key in `data`, restricted to
+orgs the live pipeline actually fetched from a provider (an OrganizationEnrichmentFetch row
+exists) and not explicitly flagged personal-domain (data__work_email is not False) — this
+excludes personal-domain signups, which never got a provider lookup and would otherwise have
+a vendor's own ownership data written onto them. Known gap, accepted: archive_provider_fetch
+never raises, so an org whose fetch succeeded but whose archive write failed silently has no
+fetch row and is skipped here — rare, and skipping is the safe direction for this command. The missing "ownership_status" key is
+otherwise absent both for pre-feature orgs and for orgs where Harmonic has no ownership
+opinion, so a re-run is a no-op for the latter rather than a retry; see the write skip below.
+Re-fetches each org fresh from Harmonic (paced by --sleep) rather than replaying the archived
+payload, since the field didn't exist in the response schema this repo requested at the time of
+the original fetch. The fresh fetch is archived the same way the live path archives one
+(including a not-found), so the refreshed payload is available to the labels pipeline and any
+later offline re-analysis; only the OrganizationEnrichment.data/group-property write is scoped
+to the three ownership fields. Prints base-rate stats at the end for the vendor decision this
+backfill exists to inform.
 """
 
 import time
@@ -18,7 +24,7 @@ import asyncio
 from typing import Any, Optional
 
 from django.core.management.base import BaseCommand, CommandError, CommandParser
-from django.db.models import QuerySet
+from django.db.models import Exists, OuterRef, Q, QuerySet
 
 from posthoganalytics.client import Client
 
@@ -29,7 +35,7 @@ from products.growth.backend.enrichment.fields import EnrichmentFields
 from products.growth.backend.enrichment.labels import signup_domain_for_organization
 from products.growth.backend.enrichment.providers import HarmonicEnrichmentProvider
 from products.growth.backend.enrichment.writer import archive_provider_fetch, write_organization_enrichment
-from products.growth.backend.models import OrganizationEnrichment
+from products.growth.backend.models import OrganizationEnrichment, OrganizationEnrichmentFetch
 
 _PROGRESS_INTERVAL = 100
 _ACQUIRED_OR_MERGED = "ACQUIRED_OR_MERGED"
@@ -39,8 +45,18 @@ _MISS_PAYLOAD = {"companyFound": False}
 
 
 def _unbackfilled_qs() -> QuerySet[OrganizationEnrichment]:
+    # Eligibility is "the live pipeline actually fetched this org from a provider", not
+    # "has a work_email flag" — personal-domain signups get a work_email=False record but
+    # never a provider fetch, so requiring a fetch row keeps them out without depending on
+    # work_email having been recorded (it postdates some existing rows).
+    has_fetch = OrganizationEnrichmentFetch.objects.filter(organization_id=OuterRef("organization_id"))
     return (
         OrganizationEnrichment.objects.exclude(data__has_key="ownership_status")
+        # Q(has_key) & Q(==False), not a bare exclude(data__work_email=False): JSONField key
+        # lookups return SQL NULL for a missing key, and exclude() on a bare comparison would
+        # drop those NULL rows too (Django's documented JSONField exclude() gotcha).
+        .exclude(Q(data__has_key="work_email") & Q(data__work_email=False))
+        .filter(Exists(has_fetch))
         .select_related("organization")
         .order_by("id")
     )
@@ -49,10 +65,11 @@ def _unbackfilled_qs() -> QuerySet[OrganizationEnrichment]:
 class Command(BaseCommand):
     help = (
         "Backfill ownership_status, parent_company, and parent_company_domain onto already-"
-        "enriched organizations, and print ACQUIRED_OR_MERGED / parent-resolution base rates. "
-        "An org whose fresh fetch has no ownership_status is counted as processed but left "
-        "unwritten and un-flagged for retry — re-running this command will fetch it again "
-        "every time until Harmonic starts returning a value for it."
+        "enriched work-domain organizations (personal-domain signups are excluded), and print "
+        "ACQUIRED_OR_MERGED / parent-resolution base rates. An org whose fresh fetch has no "
+        "ownership_status is counted as processed but left unwritten and un-flagged for retry "
+        "— re-running this command will fetch it again every time until Harmonic starts "
+        "returning a value for it."
     )
 
     def add_arguments(self, parser: CommandParser) -> None:
@@ -137,10 +154,11 @@ class Command(BaseCommand):
         # path (core.py) — the refreshed payload now carries ownershipStatus/relatedCompanies for
         # the labels pipeline and any future offline re-analysis to read.
         if not dry_run:
+            base_payload = lookup.raw_payload if lookup.raw_payload is not None else _MISS_PAYLOAD
             archive_provider_fetch(
                 organization_id=str(record.organization_id),
                 provider=provider.name,
-                payload=lookup.raw_payload if lookup.raw_payload is not None else _MISS_PAYLOAD,
+                payload={**base_payload, "enrichmentUrn": lookup.enrichment_urn},
                 is_recheck=True,
             )
 

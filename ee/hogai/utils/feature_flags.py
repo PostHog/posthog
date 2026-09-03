@@ -94,9 +94,9 @@ def is_core_memory_disabled(team: Team, user: User) -> bool:
     )
 
 
-def has_mcp_servers_feature_flag(team: Team, user: User) -> bool:
+def has_mcp_gateway_feature_flag(team: Team, user: User) -> bool:
     return feature_enabled_or_false(
-        "mcp-servers",
+        "mcp-gateway",
         str(user.distinct_id),
         groups={"organization": str(team.organization_id)},
         group_properties={"organization": {"id": str(team.organization_id)}},

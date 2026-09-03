@@ -43,6 +43,109 @@ COMMENTED_OUT_STALE = (
     "//     throw Error('Invalid URL.')\n// }"
 ) + _SEND_BODY
 
+# The two LinkedIn hog shapes carrying a version header in production. Destinations created from the
+# Python-era template (before Oct 2025, including those bumped from 202409 by linked-api-version-update)
+# build body.user.userInfo in place with no guard; destinations created later collect userInfo into a
+# local and guard on its length. `{version}` is substituted per test.
+LINKEDIN_LEGACY_SHAPE = """
+let body := {
+    'conversion': f'urn:lla:llaPartnerConversion:{inputs.conversionRuleId}',
+    'conversionHappenedAt': inputs.conversionDateTime,
+    'user': {
+        'userIds': [],
+        'userInfo': {}
+     },
+    'eventId' : inputs.eventId
+}
+
+if (not empty(inputs.conversionValue) or not empty(inputs.currencyCode)) {
+    body.conversionValue := {}
+}
+if (not empty(inputs.currencyCode)) {
+    body.conversionValue.currencyCode := inputs.currencyCode
+}
+if (not empty(inputs.conversionValue)) {
+    body.conversionValue.amount := inputs.conversionValue
+}
+
+for (let key, value in inputs.userInfo) {
+    if (not empty(value)) {
+        body.user.userInfo[key] := value
+    }
+}
+
+for (let key, value in inputs.userIds) {
+    if (not empty(value)) {
+        body.user.userIds := arrayPushBack(body.user.userIds, {'idType': key, 'idValue': value})
+    }
+}
+
+let res := fetch('https://api.linkedin.com/rest/conversionEvents', {
+    'method': 'POST',
+    'headers': {
+        'Authorization': f'Bearer {inputs.oauth.access_token}',
+        'Content-Type': 'application/json',
+        'LinkedIn-Version': '{version}'
+    },
+    'body': body
+})
+
+if (res.status >= 400) {
+    throw Error(f'Error from api.linkedin.com (status {res.status}): {res.body}')
+}
+""".strip()
+
+LINKEDIN_NEW_SHAPE = """
+let body := {
+    'conversion': f'urn:lla:llaPartnerConversion:{inputs.conversionRuleId}',
+    'conversionHappenedAt': inputs.conversionDateTime,
+    'user': {
+        'userIds': []
+     },
+    'eventId' : inputs.eventId
+}
+
+if (not empty(inputs.conversionValue) or not empty(inputs.currencyCode)) {
+    body.conversionValue := {}
+}
+if (not empty(inputs.currencyCode)) {
+    body.conversionValue.currencyCode := inputs.currencyCode
+}
+if (not empty(inputs.conversionValue)) {
+    body.conversionValue.amount := inputs.conversionValue
+}
+
+let userInfo := {}
+for (let key, value in inputs.userInfo) {
+    if (not empty(value)) {
+        userInfo[key] := value
+    }
+}
+if (length(keys(userInfo)) >= 1) {
+    body.user['userInfo'] := userInfo
+}
+
+for (let key, value in inputs.userIds) {
+    if (not empty(value)) {
+        body.user.userIds := arrayPushBack(body.user.userIds, {'idType': key, 'idValue': value})
+    }
+}
+
+let res := fetch('https://api.linkedin.com/rest/conversionEvents', {
+    'method': 'POST',
+    'headers': {
+        'Authorization': f'Bearer {inputs.oauth.access_token}',
+        'Content-Type': 'application/json',
+        'LinkedIn-Version': '{version}'
+    },
+    'body': body
+})
+
+if (res.status >= 400) {
+    throw Error(f'Error from api.linkedin.com (status {res.status}): {res.body}')
+}
+""".strip()
+
 
 class TestUpdateHogFunctionCode(BaseTest):
     def setUp(self):
@@ -318,6 +421,60 @@ class TestUpdateHogFunctionCode(BaseTest):
         output = out.getvalue()
         self.assertIn("Found 0 destinations to process", output)
         self.assertIn("Updated: 0", output)
+
+    def _create_linkedin_function(self, hog: str) -> HogFunction:
+        with patch("products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers"):
+            return HogFunction.objects.create(
+                team=self.team,
+                name="LinkedIn Shape Function",
+                type="destination",
+                template_id="template-linkedin-ads",
+                hog=hog,
+                enabled=True,
+            )
+
+    @parameterized.expand(
+        [
+            ("legacy_shape", LINKEDIN_LEGACY_SHAPE),
+            ("new_shape", LINKEDIN_NEW_SHAPE),
+        ]
+    )
+    def test_linkedin_202607_migration_guards_userinfo_in_both_shapes(self, _name, shape):
+        function = self._create_linkedin_function(shape.replace("{version}", "202508"))
+
+        with patch(
+            "posthog.management.commands.update_hog_function_code.compile_hog",
+            return_value="compiled_bytecode",
+        ):
+            out = StringIO()
+            call_command("update_hog_function_code", replace_key="linkedin-api-version-update-202607", stdout=out)
+
+        function.refresh_from_db()
+        assert "'LinkedIn-Version': '202607'" in function.hog
+        assert "'LinkedIn-Version': '202508'" not in function.hog
+        # 202607 rejects a userInfo without both names, so no path may still attach one unguarded.
+        assert "not empty(userInfo['firstName']) and not empty(userInfo['lastName'])" in function.hog
+        assert "body.user.userInfo[key]" not in function.hog
+        assert "'userInfo': {}" not in function.hog
+        assert "length(keys(userInfo))" not in function.hog
+        # The migrated source must be valid Hog - guards against a typo in the replacement's to_string.
+        compile_hog_for_check(function.hog, "destination")
+
+    def test_linkedin_202607_migration_skips_202409_destinations(self):
+        legacy_202409 = LINKEDIN_LEGACY_SHAPE.replace("{version}", "202409")
+        function = self._create_linkedin_function(legacy_202409)
+
+        with patch(
+            "posthog.management.commands.update_hog_function_code.compile_hog",
+            return_value="compiled_bytecode",
+        ):
+            out = StringIO()
+            call_command("update_hog_function_code", replace_key="linkedin-api-version-update-202607", stdout=out)
+
+        function.refresh_from_db()
+        # 202409 destinations died a year ago and are revived separately with customer awareness,
+        # so the run must not touch any part of their code.
+        assert function.hog == legacy_202409
 
     def _create_teams_function(self, hog: str) -> HogFunction:
         with patch("products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers"):

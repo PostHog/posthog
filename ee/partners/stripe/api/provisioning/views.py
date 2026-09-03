@@ -17,6 +17,7 @@ of the HMAC), so those two run every check explicitly in the handler.
 from __future__ import annotations
 
 import re
+import math
 import base64
 import hashlib
 import secrets
@@ -70,6 +71,7 @@ from ee.partners.stripe.api.provisioning.core import (
     remove_team_from_token_scopes,
     resolve_or_create_project_team,
     set_provisioning_service_id,
+    user_can_access_team,
 )
 from ee.partners.stripe.api.provisioning.exceptions import Envelope, PreRenderedError, SpecError, render_spec_error
 from ee.partners.stripe.api.provisioning.region_proxy import RegionProxyMixin
@@ -103,6 +105,32 @@ class StripeProvisioningAPIView(RegionProxyMixin, APIView):
     authentication_classes: list[type[BaseAuthentication]] = []
     permission_classes: list = []
     spec_envelope: ClassVar[Envelope] = "flat"
+    # Rate-limit errors keep one shape per endpoint whichever throttle refuses,
+    # so a global throttle can't answer a bucket rejection in another envelope.
+    # The token endpoint keeps the typed shape here, not its own oauth one.
+    rate_limit_envelope: ClassVar[Envelope] = "typed"
+
+    def check_throttles(self, request: Request) -> None:
+        """Reject in the endpoint's rate-limit envelope: DRF's default
+        ``{"detail": ...}`` shape is not part of this namespace's wire contract
+        and must not leak out of it, whichever throttle refuses. Consults every throttle and keeps
+        the longest wait, mirroring DRF's own ``check_throttles`` so
+        ``Retry-After`` is the real time until the request would be allowed,
+        not the first refusing throttle's shorter window."""
+        durations: list[float | None] = []
+        for throttle in self.get_throttles():
+            if not throttle.allow_request(request, self):
+                durations.append(throttle.wait())
+        if not durations:
+            return
+        wait = max((d for d in durations if d is not None), default=None)
+        raise SpecError(
+            "rate_limited",
+            "Rate limit exceeded. Try again later.",
+            status=429,
+            envelope=self.rate_limit_envelope,
+            retry_after=math.ceil(wait) if wait else None,
+        )
 
     def handle_exception(self, exc: Exception) -> Response:
         if isinstance(exc, PreRenderedError):
@@ -458,6 +486,16 @@ class OAuthTokenView(StripeProvisioningAPIView):
             # consent team from the refreshed scope. If the prior token was somehow empty-
             # scoped, fall back to zero so the helper short-circuits without claiming a team.
             base_team_id = old_scoped_teams[0] if old_scoped_teams else 0
+
+            # Deactivation drops the user's login sessions but leaves their OAuth tokens
+            # intact, and the team check below answers only about membership and roles, so a
+            # deactivated user still passes it. Without this gate the partner rotates into a
+            # fresh token pair for as long as it keeps refreshing. Checked before any token
+            # row is mutated, like the other fail-closed gates here.
+            if not user.is_active:
+                capture_provisioning_event("token_exchange", "user_inactive", grant_type="refresh_token")
+                raise SpecError("invalid_grant", "User is not active; re-authorize.")
+
             scoped_teams = compute_partner_scoped_teams(oauth_app, user, base_team_id)
             # Same fail-closed rule as issuance: an empty scoped_teams is unrestricted under the
             # standard permission check, so a refresh whose base team vanished or whose access was
@@ -538,6 +576,7 @@ class OAuthTokenView(StripeProvisioningAPIView):
 
 class StripeResourceAPIView(SignatureCheckedMixin, StripeProvisioningAPIView):
     spec_envelope = "status"
+    rate_limit_envelope: ClassVar[Envelope] = "status"
     region_proxy_strategy = "bearer_lookup"
     authentication_classes = [StripeBearerAuthentication]
 
@@ -547,14 +586,28 @@ class StripeResourceAPIView(SignatureCheckedMixin, StripeProvisioningAPIView):
         except (ValueError, TypeError):
             raise SpecError("invalid_resource_id", "Invalid resource ID", resource_id=resource_id)
 
-        # TODO: latent bug - this checks only the token's issuance-time scoped_teams,
-        # not the user's current team-level access. If the user is later removed from
-        # the team/org, the (long-lived) bearer can still read/rotate/update/remove
-        # the resource until it is refreshed (refresh re-derives scope via
-        # compute_partner_scoped_teams). Revalidate live access here to close it.
         if team_id not in (access_token.scoped_teams or []):
             raise SpecError("forbidden", "Resource not accessible with this token", resource_id=resource_id, status=403)
+
+        # A team that no longer exists has no access left to re-check; `get_team` decides what
+        # a missing team means for each endpoint.
+        team = Team.objects.select_related("organization").filter(id=team_id).first()
+        if team is not None:
+            self.assert_team_access(team, access_token, resource_id=resource_id)
         return team_id
+
+    def assert_team_access(self, team: Team, access_token: OAuthAccessToken, *, resource_id: str = "") -> None:
+        """Re-check that the token's user can still reach the team.
+
+        Every bearer endpoint that acts on a team calls this, whether it found the team through
+        the request's resource id or through the token's own scope. `scoped_teams` is a snapshot
+        taken when the token was minted, and tokens here last a year, so it outlives the access
+        it records by a long way. Re-running the check the scope was built from (see
+        `compute_partner_scoped_teams`) makes an org removal or an access-control change apply
+        to the next request instead of waiting for a refresh.
+        """
+        if access_token.user is None or not user_can_access_team(access_token.user, team):
+            raise SpecError("forbidden", "Resource not accessible with this token", resource_id=resource_id, status=403)
 
     def get_team(self, team_id: int, resource_id: str) -> Team:
         try:
@@ -618,6 +671,9 @@ class ResourcesCreateView(StripeResourceAPIView):
                     "resource_created", "error", partner=app, error_code="team_not_found", team_id=team_id
                 )
                 raise SpecError("team_not_found", "Team not found", resource_id=str(team_id), status=404)
+            # The project_id branch above re-checks access inside resolve_or_create_project_team;
+            # this branch takes the team straight off the token's scope, so it checks here.
+            self.assert_team_access(team, access_token, resource_id=str(team_id))
 
         # TODO: latent bug - this runs on every call, so a repeated create for
         # an existing team overwrites its service_id (not idempotent), and the
@@ -899,6 +955,15 @@ class DeepLinksView(StripeResourceAPIView):
     @extend_schema(exclude=True)
     def post(self, request: Request) -> Response:
         access_token = cast(OAuthAccessToken, request.auth)
+
+        # A deep link logs its user straight in, so reaching this namespace is not enough.
+        if not access_token.application.provisioning.can_issue_deep_links:
+            capture_provisioning_event("deep_link_created", "not_enabled", partner=access_token.application)
+            raise SpecError(
+                "deep_links_not_enabled",
+                "Deep links are not enabled for this partner",
+                status=403,
+            )
 
         serializer = DeepLinkSerializer(data=request.data)
         if not serializer.is_valid():

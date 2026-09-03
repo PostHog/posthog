@@ -36,7 +36,7 @@ function StepTriggerConfigurationDataWarehouseTable({ node }: { node: any }): JS
     const { actionValidationErrorsById } = useValues(workflowLogic)
     const { externalDataSourceTables, dataWarehouseTables, dataWarehouseTablesMap, databaseLoading } =
         useValues(databaseTableListLogic)
-    const { loadDatabase } = useActions(databaseTableListLogic)
+    const { loadDatabase, ensureAllTableFields } = useActions(databaseTableListLogic)
 
     useEffect(() => {
         // The list isn't loaded automatically on mount, so kick it off when the panel opens.
@@ -44,6 +44,9 @@ function StepTriggerConfigurationDataWarehouseTable({ node }: { node: any }): JS
         // self-managed tables (which have no source) doesn't refetch on every mount.
         if (!dataWarehouseTables.length) {
             loadDatabase()
+        } else {
+            // The store may hold a shallow (fields-less) schema left by the SQL editor.
+            ensureAllTableFields()
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])

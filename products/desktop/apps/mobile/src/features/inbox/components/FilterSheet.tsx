@@ -1,12 +1,14 @@
 import { Text } from "@components/text";
 import { INBOX_PIPELINE_STATUSES } from "@posthog/core/inbox/reportFiltering";
 import { inboxStatusLabel } from "@posthog/core/inbox/reportPresentation";
-import { EXTERNAL_INBOX_SOURCES, type SourceProduct } from "@posthog/shared";
 import type { SignalReportPriority } from "@posthog/shared/domain-types";
 import { Check } from "phosphor-react-native";
+import { useMemo } from "react";
 import { Modal, Pressable, ScrollView, View } from "react-native";
 import { useScreenInsets } from "@/hooks/useScreenInsets";
 import { useThemeColors } from "@/lib/theme";
+import { useSignalSourceConfigs } from "../hooks/useSignalSourceConfigs";
+import { narrowSourceProductOptions } from "../sourceFilterOptions";
 import { useInboxFilterStore } from "../stores/inboxFilterStore";
 
 interface FilterSheetProps {
@@ -57,22 +59,6 @@ function usePriorityDotColors(): Record<SignalReportPriority, string> {
     P4: themeColors.gray[9],
   };
 }
-
-export const SOURCE_PRODUCT_OPTIONS: { value: SourceProduct; label: string }[] =
-  [
-    { value: "session_replay", label: "Session replay" },
-    { value: "error_tracking", label: "Error tracking" },
-    { value: "llm_analytics", label: "AI observability" },
-    { value: "github", label: "GitHub" },
-    { value: "linear", label: "Linear" },
-    { value: "zendesk", label: "Zendesk" },
-    { value: "conversations", label: "Conversations" },
-    { value: "signals_scout", label: "Scout" },
-    ...EXTERNAL_INBOX_SOURCES.map((source) => ({
-      value: source.product,
-      label: source.label,
-    })),
-  ];
 
 function SectionHeader({ title }: { title: string }) {
   return (
@@ -128,6 +114,12 @@ export function FilterSheet({ visible, onClose }: FilterSheetProps) {
   const togglePriority = useInboxFilterStore((s) => s.togglePriority);
   const setPriorityFilter = useInboxFilterStore((s) => s.setPriorityFilter);
   const resetFilters = useInboxFilterStore((s) => s.resetFilters);
+
+  const { data: sourceConfigs } = useSignalSourceConfigs();
+  const sourceOptions = useMemo(
+    () => narrowSourceProductOptions(sourceConfigs, sourceProductFilter),
+    [sourceConfigs, sourceProductFilter],
+  );
 
   const hasActiveFilters =
     sourceProductFilter.length > 0 ||
@@ -241,7 +233,7 @@ export function FilterSheet({ visible, onClose }: FilterSheetProps) {
               selected={sourceProductFilter.length === 0}
               onPress={clearSourceProductFilter}
             />
-            {SOURCE_PRODUCT_OPTIONS.map((option) => (
+            {sourceOptions.map((option) => (
               <OptionRow
                 key={option.value}
                 label={option.label}

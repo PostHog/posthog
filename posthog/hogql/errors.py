@@ -11,6 +11,10 @@ class BaseHogQLError(Exception, ABC):
     message: str
     start: Optional[int]
     end: Optional[int]
+    fix: Optional[str]
+    """Literal text the editor substitutes for the range between `start` and `end`, offered as a
+    quick fix. Only set it when that range is known: the editor falls back to marking the whole
+    query when a notice has no span, so a fix without one replaces everything the user typed."""
 
     def __init__(
         self,
@@ -19,6 +23,7 @@ class BaseHogQLError(Exception, ABC):
         start: Optional[int] = None,
         end: Optional[int] = None,
         node: Optional["Expr"] = None,
+        fix: Optional[str] = None,
     ):
         super().__init__(message)
         if node is not None and node.start is not None and node.end is not None:
@@ -27,6 +32,7 @@ class BaseHogQLError(Exception, ABC):
         else:
             self.start = start
             self.end = end
+        self.fix = fix
 
 
 # Exposed vs. internal
@@ -35,7 +41,10 @@ class BaseHogQLError(Exception, ABC):
 class ExposedHogQLError(BaseHogQLError):
     """An exception that can be exposed to the user."""
 
-    pass
+    # Surfaced as the error code on API responses so clients can tell a deterministic query
+    # failure from a transient blip without matching on the message. Subclasses override this
+    # fallback with a more specific value.
+    code_name = "hogql_error"
 
 
 class InternalHogQLError(BaseHogQLError):
@@ -50,13 +59,13 @@ class InternalHogQLError(BaseHogQLError):
 class SyntaxError(ExposedHogQLError):
     """The input does not conform to HogQL syntax."""
 
-    pass
+    code_name = "hogql_syntax_error"
 
 
 class QueryError(ExposedHogQLError):
     """The query is invalid, though correct syntactically."""
 
-    pass
+    code_name = "hogql_query_error"
 
 
 class TableAccessDeniedError(QueryError):

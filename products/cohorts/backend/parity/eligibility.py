@@ -21,7 +21,7 @@ import math
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Optional, Union
+from typing import Any, Literal, Optional, Union
 
 SINGLE_LEAF = "single_leaf"
 STAGE2_COMPOSABLE = "stage2_composable"
@@ -60,7 +60,7 @@ class ScreenedCohort:
 
 @dataclass(frozen=True)
 class _Leaf:
-    kind: str  # "person" | "behavioral" | "cohort_ref"
+    kind: Literal["person", "behavioral", "cohort_ref"]
     negated: bool = False
     window_days: Optional[float] = None
     ref_id: Optional[int] = None
@@ -118,7 +118,7 @@ def _is_absolute_datetime(raw: str) -> bool:
 # window length in days for the soundness check (fractional for "seconds", inf for "explicit").
 @dataclass(frozen=True)
 class _Window:
-    kind: str
+    kind: Literal["days", "seconds", "explicit"]
     days: float
 
 

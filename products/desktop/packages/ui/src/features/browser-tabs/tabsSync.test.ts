@@ -21,6 +21,8 @@ function snap(tabIds: string[]): TabsSnapshot {
     tabs: tabIds.map((id, i) => ({
       id,
       windowId: "w1",
+      href: null,
+      viewState: null,
       dashboardId: null,
       taskId: null,
       channelId: `c-${id}`,

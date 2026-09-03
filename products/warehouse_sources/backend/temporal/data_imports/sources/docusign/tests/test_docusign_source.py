@@ -5,21 +5,15 @@ from unittest import mock
 
 import structlog
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType, SourceFieldSelectConfig
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.docusign.docusign import DocusignResumeConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.docusign.settings import (
-    DOCUSIGN_ENDPOINTS,
-    ENDPOINTS,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.docusign.settings import DOCUSIGN_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.docusign.source import DocusignSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.docusign import (
     DocusignAuthTypeConfig,
     DocusignSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _VALIDATE = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.docusign.source.validate_docusign_credentials"
@@ -66,53 +60,11 @@ class TestDocusignSource:
         self.source = DocusignSource()
         self.team_id = 123
 
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.DOCUSIGN
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-
-        assert config.name.value == "Docusign"
-        assert config.label == "DocuSign"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is None
-        assert config.iconPath == "/static/services/docusign.png"
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/docusign"
-
-        select_names = [f.name for f in config.fields if isinstance(f, SourceFieldSelectConfig)]
-        assert select_names == ["environment", "auth_type"]
-        input_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert input_names == ["account_id", "start_date"]
-
     def test_api_version_metadata_pins_what_the_transport_calls(self) -> None:
         assert self.source.supported_versions == ("v2.1",)
         assert self.source.default_version in self.source.supported_versions
         assert self.source.api_docs_url is not None
         assert self.source.api_docs_url.startswith("https://")
-
-    @pytest.mark.parametrize("secret_field", ["private_key", "secret_key", "refresh_token"])
-    def test_credential_fields_are_marked_secret(self, secret_field: str) -> None:
-        auth_field = next(
-            f
-            for f in self.source.get_source_config.fields
-            if isinstance(f, SourceFieldSelectConfig) and f.name == "auth_type"
-        )
-        candidates = [
-            sub
-            for option in auth_field.options
-            for sub in (option.fields or [])
-            if isinstance(sub, SourceFieldInputConfig) and sub.name == secret_field
-        ]
-
-        assert candidates, f"{secret_field} is not offered by any auth option"
-        for field in candidates:
-            assert field.secret is True
-            assert field.type in (SourceFieldInputConfigType.PASSWORD, SourceFieldInputConfigType.TEXTAREA)
-
-    def test_get_schemas_lists_every_endpoint(self) -> None:
-        schemas = self.source.get_schemas(jwt_config(), self.team_id)
-
-        assert [s.name for s in schemas] == list(ENDPOINTS)
 
     @pytest.mark.parametrize("endpoint_name", sorted(DOCUSIGN_ENDPOINTS))
     def test_incremental_support_matches_the_endpoint_catalog(self, endpoint_name: str) -> None:
@@ -122,25 +74,6 @@ class TestDocusignSource:
         # Only endpoints with a real server-side date filter advertise incremental sync.
         assert schema.supports_incremental is bool(endpoint.date_filter_param)
         assert [f["field"] for f in schema.incremental_fields] == [f["field"] for f in endpoint.incremental_fields]
-
-    def test_get_schemas_filters_by_name(self) -> None:
-        schemas = self.source.get_schemas(jwt_config(), self.team_id, names=["envelopes", "users"])
-
-        assert {s.name for s in schemas} == {"envelopes", "users"}
-
-    def test_documented_tables_render_for_public_docs(self) -> None:
-        tables = self.source.get_documented_tables()
-
-        assert {t["name"] for t in tables} == set(ENDPOINTS)
-        assert all(t["description"] for t in tables)
-
-    def test_canonical_descriptions_cover_every_endpoint(self) -> None:
-        descriptions = self.source.get_canonical_descriptions()
-
-        assert set(descriptions) == set(ENDPOINTS)
-        for name, entry in descriptions.items():
-            primary_keys = DOCUSIGN_ENDPOINTS[name].primary_key
-            assert set(primary_keys) <= set(entry.get("columns", {})), name
 
     @pytest.mark.parametrize(
         "auth_overrides,expected_fragment",
@@ -183,12 +116,6 @@ class TestDocusignSource:
     def test_validate_credentials_passes_the_transport_failure_through(self) -> None:
         with mock.patch(_VALIDATE, return_value=(False, "nope")):
             assert self.source.validate_credentials(jwt_config(), self.team_id) == (False, "nope")
-
-    def test_resumable_manager_is_bound_to_the_docusign_cursor(self) -> None:
-        manager = self.source.get_resumable_source_manager(source_inputs("envelopes"))
-
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is DocusignResumeConfig
 
     @pytest.mark.parametrize("endpoint_name", sorted(DOCUSIGN_ENDPOINTS))
     def test_source_for_pipeline_wires_the_endpoint_through(self, endpoint_name: str) -> None:

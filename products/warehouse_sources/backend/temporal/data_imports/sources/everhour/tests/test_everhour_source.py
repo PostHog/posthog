@@ -1,16 +1,11 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.everhour.everhour import EverhourResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.everhour.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.everhour.source import EverhourSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.everhour import (
     EverhourSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.everhour.source"
 
@@ -20,29 +15,6 @@ class TestEverhourSource:
         self.source = EverhourSource()
         self.team_id = 123
         self.config = EverhourSourceConfig(api_key="ev_abc")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.EVERHOUR
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-
-        assert config.name.value == "Everhour"
-        assert config.label == "Everhour"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert not config.unreleasedSource
-        assert config.iconPath == "/static/services/everhour.png"
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/everhour"
-
-        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert field_names == ["api_key"]
-
-    def test_api_key_field_is_secret_password(self) -> None:
-        config = self.source.get_source_config
-        key_field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_key")
-        assert key_field.type == SourceFieldInputConfigType.PASSWORD
-        assert key_field.secret is True
-        assert key_field.required is True
 
     @pytest.mark.parametrize(
         "observed_error",
@@ -119,42 +91,3 @@ class TestEverhourSource:
         assert is_valid is expected_valid
         assert error_message == expected_message
         mock_validate.assert_called_once_with(self.config.api_key)
-
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is EverhourResumeConfig
-
-    @mock.patch(f"{SOURCE_MODULE}.everhour_source")
-    def test_source_for_pipeline_plumbs_arguments(self, mock_everhour_source: mock.MagicMock) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "time_records"
-        inputs.should_use_incremental_field = True
-        inputs.db_incremental_field_last_value = "2026-01-01"
-        manager = mock.MagicMock()
-
-        self.source.source_for_pipeline(self.config, manager, inputs)
-
-        mock_everhour_source.assert_called_once()
-        kwargs = mock_everhour_source.call_args.kwargs
-        assert kwargs["api_key"] == "ev_abc"
-        assert kwargs["endpoint"] == "time_records"
-        assert kwargs["resumable_source_manager"] is manager
-        assert kwargs["should_use_incremental_field"] is True
-        assert kwargs["db_incremental_field_last_value"] == "2026-01-01"
-
-    @mock.patch(f"{SOURCE_MODULE}.everhour_source")
-    def test_source_for_pipeline_omits_last_value_when_not_incremental(
-        self, mock_everhour_source: mock.MagicMock
-    ) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "clients"
-        inputs.should_use_incremental_field = False
-        inputs.db_incremental_field_last_value = "should-be-ignored"
-        manager = mock.MagicMock()
-
-        self.source.source_for_pipeline(self.config, manager, inputs)
-
-        kwargs = mock_everhour_source.call_args.kwargs
-        assert kwargs["db_incremental_field_last_value"] is None

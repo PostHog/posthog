@@ -136,6 +136,64 @@ describe('dataVisualizationLogic', () => {
         })
     })
 
+    it('initializes axes when columns load after selecting a visualization type', async () => {
+        logic.actions.setVisualizationType(ChartDisplayType.ActionsLineGraph)
+
+        await expectLogic(logic).toMatchValues({
+            selectedXAxis: null,
+            selectedYAxis: null,
+        })
+
+        dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId }).actions.setResponse({
+            results: [['signed_up', 'Safari', 11]],
+            columns: ['event', 'browser', 'total_count'],
+            types: [
+                ['event', 'String'],
+                ['browser', 'Nullable(String)'],
+                ['total_count', 'UInt64'],
+            ],
+        })
+
+        await expectLogic(logic).toMatchValues({
+            selectedXAxis: 'event',
+            selectedYAxis: [expect.objectContaining({ name: 'total_count' })],
+        })
+    })
+
+    it('auto-maps box plot columns when the chart is selected', async () => {
+        dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId }).actions.setResponse({
+            columns: ['bucket', 'series', 'min', 'p25', 'median', 'mean', 'p75', 'max'],
+            types: [
+                ['bucket', 'Date'],
+                ['series', 'String'],
+                ['min', 'Float64'],
+                ['p25', 'Float64'],
+                ['median', 'Float64'],
+                ['mean', 'Float64'],
+                ['p75', 'Float64'],
+                ['max', 'Float64'],
+            ],
+            results: [['2026-01-01', 'Free', 1, 2, 3, 4, 5, 6]],
+        })
+
+        logic.actions.setVisualizationType(ChartDisplayType.BoxPlot)
+
+        await expectLogic(logic).toMatchValues({
+            chartSettings: expect.objectContaining({
+                boxPlot: {
+                    xAxisColumn: 'bucket',
+                    seriesColumn: 'series',
+                    minColumn: 'min',
+                    p25Column: 'p25',
+                    medianColumn: 'median',
+                    meanColumn: 'mean',
+                    p75Column: 'p75',
+                    maxColumn: 'max',
+                },
+            }),
+        })
+    })
+
     it('resets axes when y-axis columns are no longer numerical', async () => {
         const dataNode = dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId })
 
@@ -375,6 +433,80 @@ describe('dataVisualizationLogic', () => {
         })
     })
 
+    it('moves a scatter plot onto a numeric x-axis when the selected one has no coordinates', async () => {
+        dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId }).actions.setResponse({
+            columns: ['country', 'session_duration', 'revenue'],
+            types: [
+                ['country', 'String'],
+                ['session_duration', 'Int64'],
+                ['revenue', 'Float64'],
+            ],
+            results: [['US', 120, 42.5]],
+        })
+
+        // Auto put the string column on the x-axis and both numeric columns on the y-axis.
+        await expectLogic(logic).toMatchValues({ selectedXAxis: 'country' })
+
+        logic.actions.setVisualizationType(ChartDisplayType.ScatterPlot)
+
+        await expectLogic(logic).toMatchValues({
+            selectedXAxis: 'session_duration',
+            selectedYAxis: [expect.objectContaining({ name: 'revenue' })],
+        })
+    })
+
+    it('keeps a numeric x-axis and drops it from the y-series when a scatter plot is picked', async () => {
+        dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId }).actions.setResponse({
+            columns: ['session_duration', 'revenue'],
+            types: [
+                ['session_duration', 'Int64'],
+                ['revenue', 'Float64'],
+            ],
+            results: [[120, 42.5]],
+        })
+
+        logic.actions.updateXSeries('revenue')
+        logic.actions.setVisualizationType(ChartDisplayType.ScatterPlot)
+
+        // The numeric x is kept, but must be removed from the y-series so it doesn't plot against itself.
+        await expectLogic(logic).toMatchValues({
+            selectedXAxis: 'revenue',
+            selectedYAxis: [expect.objectContaining({ name: 'session_duration' })],
+        })
+    })
+
+    it('re-resolves a scatter x-axis when an all-numeric query changes columns', async () => {
+        const dataNode = dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId })
+        dataNode.actions.setResponse({
+            columns: ['a', 'b'],
+            types: [
+                ['a', 'Int64'],
+                ['b', 'Int64'],
+            ],
+            results: [[1, 2]],
+        })
+
+        logic.actions.setVisualizationType(ChartDisplayType.ScatterPlot)
+        await expectLogic(logic).toMatchValues({ selectedXAxis: 'a' })
+
+        // Editing the query to add another numeric column re-runs the columns subscription. Without an
+        // explicit scatter resolution there, x would be left null and every point would drop.
+        dataNode.actions.setResponse({
+            columns: ['a', 'b', 'c'],
+            types: [
+                ['a', 'Int64'],
+                ['b', 'Int64'],
+                ['c', 'Int64'],
+            ],
+            results: [[1, 2, 3]],
+        })
+
+        await expectLogic(logic).toMatchValues({
+            selectedXAxis: 'a',
+            selectedYAxis: [expect.objectContaining({ name: 'b' }), expect.objectContaining({ name: 'c' })],
+        })
+    })
+
     it('auto-fills 2d heatmap columns when selecting auto on heatmap data', async () => {
         dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId }).actions.setResponse({
             columns: ['region', 'segment', 'count'],
@@ -392,13 +524,13 @@ describe('dataVisualizationLogic', () => {
         await expectLogic(logic).toMatchValues({
             visualizationType: ChartDisplayType.Auto,
             effectiveVisualizationType: ChartDisplayType.TwoDimensionalHeatmap,
-            chartSettings: {
+            chartSettings: expect.objectContaining({
                 heatmap: {
                     xAxisColumn: 'region',
                     yAxisColumn: 'segment',
                     valueColumn: 'count',
                 },
-            },
+            }),
         })
     })
 

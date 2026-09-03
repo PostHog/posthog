@@ -256,7 +256,7 @@ describe('cursorInInertTrackGap', () => {
             const stackedScales = createBarScales(stack, labels, dimensions, {
                 barLayout: 'stacked',
                 axisOrientation: 'horizontal',
-                valueDomain: [0, 100],
+                valueDomain: { min: 0, max: 100 },
             })
             return cursorInInertTrackGap({
                 series: stack,

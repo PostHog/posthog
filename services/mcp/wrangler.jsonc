@@ -55,7 +55,7 @@
     "rules": [
         {
             "type": "Text",
-            "globs": ["**/*.md"],
+            "globs": ["**/*.md", "**/*.yaml"],
             "fallthrough": true,
         },
     ],

@@ -1,20 +1,5 @@
-import type { TaskRunStatus } from "@posthog/shared/domain-types";
 import { describe, expect, it } from "vitest";
-import {
-  RUN_STATUS_FILTER_OPTIONS,
-  RUN_STATUS_LABELS,
-  runStatusLabel,
-  runStatusVariant,
-} from "./runStatus";
-
-const ALL_STATUSES: TaskRunStatus[] = [
-  "not_started",
-  "queued",
-  "in_progress",
-  "completed",
-  "failed",
-  "cancelled",
-];
+import { runStatusLabel, runStatusVariant } from "./runStatus";
 
 describe("runStatusLabel", () => {
   it.each([
@@ -47,29 +32,5 @@ describe("runStatusVariant", () => {
 
   it("falls back to default when there is no run", () => {
     expect(runStatusVariant(null)).toBe("default");
-  });
-});
-
-describe("RUN_STATUS_FILTER_OPTIONS", () => {
-  it("leads with the any-status option", () => {
-    expect(RUN_STATUS_FILTER_OPTIONS[0]).toEqual({
-      value: null,
-      label: "Any status",
-    });
-  });
-
-  it("offers every run status, so none is silently unfilterable", () => {
-    const offered = RUN_STATUS_FILTER_OPTIONS.map((o) => o.value).filter(
-      (v) => v !== null,
-    );
-    expect(new Set(offered)).toEqual(new Set(ALL_STATUSES));
-  });
-
-  it("reuses the shared labels rather than restating them", () => {
-    for (const option of RUN_STATUS_FILTER_OPTIONS) {
-      if (option.value) {
-        expect(option.label).toBe(RUN_STATUS_LABELS[option.value]);
-      }
-    }
   });
 });

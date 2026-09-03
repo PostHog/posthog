@@ -157,7 +157,8 @@ export function NodeTypePanel(): JSX.Element {
 function GraphViewContent(): JSX.Element {
     const { isDarkModeOn } = useValues(themeLogic)
 
-    const { enrichedNodes, enrichedEdges, debouncedSearchTerm, savedViewport } = useValues(dataModelingLogic)
+    const { enrichedNodes, enrichedEdges, debouncedSearchTerm, savedViewport, searchLayoutNodes } =
+        useValues(dataModelingLogic)
     const { onEdgesChange, onNodesChange, setReactFlowInstance, setReactFlowWrapper } = useActions(dataModelingLogic)
 
     const reactFlowWrapper = useRef<HTMLDivElement>(null)
@@ -172,15 +173,14 @@ function GraphViewContent(): JSX.Element {
     }, [setReactFlowWrapper])
 
     useEffect(() => {
-        // enrichedNodes is already filtered down to the search matches, so fit to whatever remains
-        if (debouncedSearchTerm.length > 0 && enrichedNodes.length > 0) {
+        if (debouncedSearchTerm.length > 0 && searchLayoutNodes && searchLayoutNodes.length > 0) {
             reactFlowInstance.fitView({
-                nodes: enrichedNodes,
+                nodes: searchLayoutNodes,
                 duration: 400,
                 maxZoom: 1,
             })
         }
-    }, [debouncedSearchTerm, enrichedNodes, reactFlowInstance])
+    }, [debouncedSearchTerm, reactFlowInstance, searchLayoutNodes])
 
     return (
         <div ref={reactFlowWrapper} className="relative w-full border rounded-lg overflow-hidden h-[calc(100vh-17rem)]">

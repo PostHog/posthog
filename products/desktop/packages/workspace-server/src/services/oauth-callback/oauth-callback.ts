@@ -108,7 +108,9 @@ export class OAuthCallbackServer {
         );
       });
 
-      server.listen(port, () => {
+      // Bind to loopback only so the dev callback endpoint is reachable
+      // solely from this machine and not from other hosts on the LAN.
+      server.listen(port, "127.0.0.1", () => {
         onListening?.();
       });
     });

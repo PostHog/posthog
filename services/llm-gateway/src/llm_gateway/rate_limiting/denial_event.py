@@ -34,6 +34,7 @@ class PosthogDenialCapturer:
             "status_code": result.status_code,
             "detail": result.detail,
             "retry_after_seconds": result.retry_after,
+            "retry_after_resets_limit": result.retry_after_resets_limit,
             "used_usd": result.used_usd,
             "limit_usd": result.limit_usd,
             "auth_method": auth_user.auth_method,

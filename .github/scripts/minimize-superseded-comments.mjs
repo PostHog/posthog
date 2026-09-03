@@ -21,9 +21,6 @@
 // rewords its message the group silently stops matching, so the zero-match log below
 // is the breadcrumb that says a prefix has drifted.
 const COMMENT_GROUPS = [
-    // stamphog's per-push "kept your approval" notes ("Note retained approval" step
-    // in .github/workflows/pr-approval-agent.yml)
-    { author: 'github-actions', prefix: 'Retaining stamphog approval' },
     // "branch advanced" skip notices ("Post skip comment" step in
     // .github/actions/commit-snapshots/action.yml)
     { author: 'github-actions', prefix: '⏭️ Skipped snapshot commit' },

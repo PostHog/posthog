@@ -10,151 +10,6 @@
 import * as zod from 'zod'
 
 /**
- * Unified endpoint that handles both conversation creation and streaming.
- *
- * - If message is provided: Start new conversation processing
- * - If no message: Stream from existing conversation
- */
-export const conversationsCreateBodyContentMax = 40000
-
-export const conversationsCreateBodyIsSandboxDefault = false
-
-export const ConversationsCreateBody = /* @__PURE__ */ zod
-    .object({
-        content: zod.string().max(conversationsCreateBodyContentMax).nullable(),
-        conversation: zod.uuid(),
-        contextual_tools: zod.record(zod.string(), zod.unknown()).optional(),
-        ui_context: zod.unknown().optional(),
-        billing_context: zod.unknown().optional(),
-        trace_id: zod.uuid(),
-        session_id: zod.string().optional(),
-        agent_mode: zod
-            .enum([
-                'product_analytics',
-                'sql',
-                'session_replay',
-                'error_tracking',
-                'plan',
-                'execution',
-                'survey',
-                'research',
-                'flags',
-                'llm_analytics',
-                'sandbox',
-                'user_interview',
-                'customer_analytics',
-            ])
-            .optional()
-            .describe(
-                '\* `product_analytics` - product_analytics\n\* `sql` - sql\n\* `session_replay` - session_replay\n\* `error_tracking` - error_tracking\n\* `plan` - plan\n\* `execution` - execution\n\* `survey` - survey\n\* `research` - research\n\* `flags` - flags\n\* `llm_analytics` - llm_analytics\n\* `sandbox` - sandbox\n\* `user_interview` - user_interview\n\* `customer_analytics` - customer_analytics'
-            ),
-        is_sandbox: zod.boolean().default(conversationsCreateBodyIsSandboxDefault),
-        resume_payload: zod.unknown().optional(),
-    })
-    .describe('Serializer for appending a message to an existing conversation without triggering AI processing.')
-
-/**
- * Appends a message to an existing conversation without triggering AI processing.
- * This is used for client-side generated messages that need to be persisted
- * (e.g., support ticket confirmation messages).
- */
-export const conversationsAppendMessageCreateBodyContentMax = 10000
-
-export const ConversationsAppendMessageCreateBody = /* @__PURE__ */ zod
-    .object({
-        content: zod.string().max(conversationsAppendMessageCreateBodyContentMax),
-    })
-    .describe('Serializer for appending a message to an existing conversation without triggering AI processing.')
-
-/**
- * Cancel the conversation's in-progress LangGraph run.
- */
-export const ConversationsCancelPartialUpdateBody = /* @__PURE__ */ zod.looseObject({})
-
-/**
- * Create-or-resume a sandbox conversation — the single sandbox session opener. With `content`, processes the turn (first message, in-progress follow-up, or terminal resume); without `content`, warms a sandbox that idles awaiting the first message. Returns the `(task, run)` handle the frontend opens SSE against. The conversation row is created on first use from the URL id.
- */
-export const conversationsOpenCreateBodyContentMax = 40000
-
-export const ConversationsOpenCreateBody = /* @__PURE__ */ zod
-    .object({
-        content: zod
-            .string()
-            .max(conversationsOpenCreateBodyContentMax)
-            .nullish()
-            .describe(
-                "The user's message text. Omit or null to warm a sandbox (boot + idle) ahead of the first message."
-            ),
-        trace_id: zod
-            .uuid()
-            .optional()
-            .describe("Client-generated trace id correlated with the resulting Run's SSE stream."),
-        attached_context: zod
-            .array(
-                zod
-                    .object({
-                        type: zod
-                            .enum([
-                                'action',
-                                'dashboard',
-                                'error_tracking_issue',
-                                'evaluation',
-                                'event',
-                                'insight',
-                                'notebook',
-                                'text',
-                            ])
-                            .describe(
-                                '\* `action` - action\n\* `dashboard` - dashboard\n\* `error_tracking_issue` - error_tracking_issue\n\* `evaluation` - evaluation\n\* `event` - event\n\* `insight` - insight\n\* `notebook` - notebook\n\* `text` - text'
-                            )
-                            .describe(
-                                'Attachment kind. Entity types carry `id` (+ optional `name`); `text` carries `value`.\n\n\* `action` - action\n\* `dashboard` - dashboard\n\* `error_tracking_issue` - error_tracking_issue\n\* `evaluation` - evaluation\n\* `event` - event\n\* `insight` - insight\n\* `notebook` - notebook\n\* `text` - text'
-                            ),
-                        id: zod
-                            .unknown()
-                            .optional()
-                            .describe(
-                                'Entity identifier — integer for `dashboard`\/`action`, string short_id\/UUID otherwise. Absent for `text`.'
-                            ),
-                        name: zod
-                            .string()
-                            .optional()
-                            .describe('Optional human-readable label rendered in the context block.'),
-                        value: zod.string().optional().describe('Free-text content. Only for `text` attachments.'),
-                    })
-                    .describe(
-                        'One typed attachment carried by a sandbox message.\n\nDEPRECATED PATH — do not extend. This structured `attached_context` (and its server-side wrap in\n`context_wrapper.py`) exists only for the legacy Max conversations bridge and is removed with it;\nthe live path wraps context client-side (`products\/posthog_ai\/frontend\/utils\/posthogContextBlock.ts`).'
-                    )
-            )
-            .optional()
-            .describe('Typed PostHog entities (and free text) attached to this message.'),
-        initial_permission_mode: zod
-            .enum(['default', 'acceptEdits', 'plan', 'bypassPermissions', 'auto'])
-            .describe(
-                '\* `default` - default\n\* `acceptEdits` - acceptEdits\n\* `plan` - plan\n\* `bypassPermissions` - bypassPermissions\n\* `auto` - auto'
-            )
-            .optional()
-            .describe(
-                'Initial permission mode for the sandbox agent session. Defaults to `auto`, which allows safe tool use while preserving explicit confirmations.\n\n\* `default` - default\n\* `acceptEdits` - acceptEdits\n\* `plan` - plan\n\* `bypassPermissions` - bypassPermissions\n\* `auto` - auto'
-            ),
-        task_id: zod
-            .uuid()
-            .optional()
-            .describe(
-                "Bind a brand-new sandbox conversation to an existing Task so the first message resumes that Task's run. Honored only when this request creates the conversation row; ignored for an already-existing conversation."
-            ),
-    })
-    .describe(
-        'Request body for `POST \/conversations\/{id}\/open\/`. A string `content` processes a turn; a\nnull\/absent `content` warms a sandbox that idles awaiting the first message.'
-    )
-
-export const ConversationsQueueCreateBody = /* @__PURE__ */ zod.looseObject({})
-
-export const ConversationsQueuePartialUpdateBody = /* @__PURE__ */ zod.looseObject({})
-
-export const ConversationsQueueClearCreateBody = /* @__PURE__ */ zod.looseObject({})
-
-/**
  * Handle ticket updates including assignee changes.
  */
 export const ConversationsTicketsUpdateBody = /* @__PURE__ */ zod
@@ -166,7 +21,7 @@ export const ConversationsTicketsUpdateBody = /* @__PURE__ */ zod
             )
             .optional()
             .describe(
-                'Ticket status: new, open, pending, on_hold, or resolved\n\n\* `new` - New\n\* `open` - Open\n\* `pending` - Pending\n\* `on_hold` - On hold\n\* `resolved` - Resolved'
+                'Ticket status: new, open, pending, on_hold, or resolved.\n\n\* `new` - New\n\* `open` - Open\n\* `pending` - Pending\n\* `on_hold` - On hold\n\* `resolved` - Resolved'
             ),
         priority: zod
             .union([
@@ -178,19 +33,35 @@ export const ConversationsTicketsUpdateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                'Ticket priority: low, medium, high, or critical. Null if unset.\n\n\* `low` - Low\n\* `medium` - Medium\n\* `high` - High\n\* `critical` - Critical'
+                'Ticket priority: low, medium, high, or critical. Pass null to clear it.\n\n\* `low` - Low\n\* `medium` - Medium\n\* `high` - High\n\* `critical` - Critical'
             ),
-        anonymous_traits: zod.unknown().optional().describe('Customer-provided traits such as name and email'),
-        ai_resolved: zod.boolean().optional(),
-        escalation_reason: zod.string().nullish(),
-        sla_due_at: zod.iso
+        assignee: zod
+            .union([
+                zod.union([
+                    zod.object({
+                        type: zod.enum(['user']).describe('Assign the ticket to a user.'),
+                        id: zod.number().describe('User ID.'),
+                    }),
+                    zod.object({
+                        type: zod.enum(['role']).describe('Assign the ticket to a role.'),
+                        id: zod.uuid().describe('Role ID.'),
+                    }),
+                ]),
+                zod.null(),
+            ])
+            .optional()
+            .describe('User or role to assign. Pass null to remove the current assignee.'),
+        anonymous_traits: zod.unknown().optional().describe('Customer details such as name and email.'),
+        ai_resolved: zod.boolean().optional().describe('Whether AI resolved the ticket.'),
+        escalation_reason: zod.string().nullish().describe('Reason the ticket was escalated. Pass null to clear it.'),
+        sla_due_at: zod.iso.datetime({ offset: true }).nullish().describe('SLA deadline. Pass null to clear it.'),
+        snoozed_until: zod.iso
             .datetime({ offset: true })
             .nullish()
-            .describe('SLA deadline set via workflows. Null means no SLA.'),
-        snoozed_until: zod.iso.datetime({ offset: true }).nullish(),
-        tags: zod.array(zod.unknown()).optional(),
+            .describe('Time to reopen the ticket. Pass null to reopen it now.'),
+        tags: zod.array(zod.string()).optional().describe('Tag names to set on the ticket.'),
     })
-    .describe('Mixin for serializers to add user access control fields')
+    .describe('Fields accepted when updating a ticket.')
 
 export const ConversationsTicketsPartialUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -201,7 +72,7 @@ export const ConversationsTicketsPartialUpdateBody = /* @__PURE__ */ zod
             )
             .optional()
             .describe(
-                'Ticket status: new, open, pending, on_hold, or resolved\n\n\* `new` - New\n\* `open` - Open\n\* `pending` - Pending\n\* `on_hold` - On hold\n\* `resolved` - Resolved'
+                'Ticket status: new, open, pending, on_hold, or resolved.\n\n\* `new` - New\n\* `open` - Open\n\* `pending` - Pending\n\* `on_hold` - On hold\n\* `resolved` - Resolved'
             ),
         priority: zod
             .union([
@@ -213,19 +84,35 @@ export const ConversationsTicketsPartialUpdateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                'Ticket priority: low, medium, high, or critical. Null if unset.\n\n\* `low` - Low\n\* `medium` - Medium\n\* `high` - High\n\* `critical` - Critical'
+                'Ticket priority: low, medium, high, or critical. Pass null to clear it.\n\n\* `low` - Low\n\* `medium` - Medium\n\* `high` - High\n\* `critical` - Critical'
             ),
-        anonymous_traits: zod.unknown().optional().describe('Customer-provided traits such as name and email'),
-        ai_resolved: zod.boolean().optional(),
-        escalation_reason: zod.string().nullish(),
-        sla_due_at: zod.iso
+        assignee: zod
+            .union([
+                zod.union([
+                    zod.object({
+                        type: zod.enum(['user']).describe('Assign the ticket to a user.'),
+                        id: zod.number().describe('User ID.'),
+                    }),
+                    zod.object({
+                        type: zod.enum(['role']).describe('Assign the ticket to a role.'),
+                        id: zod.uuid().describe('Role ID.'),
+                    }),
+                ]),
+                zod.null(),
+            ])
+            .optional()
+            .describe('User or role to assign. Pass null to remove the current assignee.'),
+        anonymous_traits: zod.unknown().optional().describe('Customer details such as name and email.'),
+        ai_resolved: zod.boolean().optional().describe('Whether AI resolved the ticket.'),
+        escalation_reason: zod.string().nullish().describe('Reason the ticket was escalated. Pass null to clear it.'),
+        sla_due_at: zod.iso.datetime({ offset: true }).nullish().describe('SLA deadline. Pass null to clear it.'),
+        snoozed_until: zod.iso
             .datetime({ offset: true })
             .nullish()
-            .describe('SLA deadline set via workflows. Null means no SLA.'),
-        snoozed_until: zod.iso.datetime({ offset: true }).nullish(),
-        tags: zod.array(zod.unknown()).optional(),
+            .describe('Time to reopen the ticket. Pass null to reopen it now.'),
+        tags: zod.array(zod.string()).optional().describe('Tag names to set on the ticket.'),
     })
-    .describe('Mixin for serializers to add user access control fields')
+    .describe('Fields accepted when updating a ticket.')
 
 /**
  * Record reviewer feedback on an AI reply, captured to the internal analytics project.
@@ -374,6 +261,10 @@ export const conversationsTicketsComposeCreateBodyEmailSubjectMax = 500
 
 export const conversationsTicketsComposeCreateBodyMessageMax = 5000
 
+export const conversationsTicketsComposeCreateBodyTagsItemMax = 255
+
+export const conversationsTicketsComposeCreateBodyTagsMax = 100
+
 export const ConversationsTicketsComposeCreateBody = /* @__PURE__ */ zod.object({
     recipient_email: zod.email().describe('Recipient email address.'),
     recipient_distinct_id: zod
@@ -389,6 +280,13 @@ export const ConversationsTicketsComposeCreateBody = /* @__PURE__ */ zod.object(
     email_config_id: zod.uuid().describe('ID of the EmailChannel to send from.'),
     message: zod.string().max(conversationsTicketsComposeCreateBodyMessageMax).describe('Message content in markdown.'),
     rich_content: zod.unknown().optional().describe('TipTap rich content JSON for formatted messages.'),
+    tags: zod
+        .array(zod.string().max(conversationsTicketsComposeCreateBodyTagsItemMax))
+        .max(conversationsTicketsComposeCreateBodyTagsMax)
+        .optional()
+        .describe(
+            'Tags to apply to the new ticket, e.g. to mark its source. Each is normalized (lowercased, trimmed). Up to 100.'
+        ),
 })
 
 export const conversationsViewsCreateBodyNameMax = 400

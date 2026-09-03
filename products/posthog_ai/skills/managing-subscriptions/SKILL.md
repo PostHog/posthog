@@ -204,3 +204,8 @@ When the user doesn't specify details:
 - **Slack not connected**: If a Slack subscription is requested but no Slack integration exists, explain that Slack must be connected in [Project settings > Integrations](/settings/integrations) first, then offer email as an alternative. Do not attempt to create the subscription — it will fail with a validation error
 - **Slack integration wrong team**: The Slack integration must belong to the same PostHog team. If `integrations-list` returns Slack integrations but creation still fails, the integration may be misconfigured
 - **Dashboard insights**: Dashboard subscriptions require at least 1 and at most 10 insights selected via `dashboard_export_insights`. If the user doesn't specify which insights, fetch the dashboard with `dashboard-get` and select up to the first 10 insights from its tiles
+
+## Related skills
+
+- **`building-a-dashboard`** — assemble the dashboard worth subscribing to first
+- **`creating-ai-subscription`** — schedule a free-text AI report instead of an insight/dashboard snapshot

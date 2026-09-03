@@ -21,7 +21,7 @@ from posthog.clickhouse.client.connection import Workload
 from posthog.cloud_utils import is_cloud
 from posthog.models import Team
 
-from products.signals.dags.inbox_ranking.common import LABELS_EPOCH, ensure_utc
+from products.signals.dags.inbox_ranking.common import LABELS_EPOCH, WRONG_DISMISSAL_REASONS, ensure_utc
 
 # All regions' label telemetry lands in the US dogfood project (PostHog internal, team 2).
 LABELS_TEAM_ID = 2
@@ -93,12 +93,25 @@ def valid_report_uuids(report_ids: set[str | None]) -> set[str]:
     return {canonical for report_id in report_ids if (canonical := canonical_report_uuid(report_id)) is not None}
 
 
+# Trust boundary for every label stream below: these are analytics events captured in the dogfood
+# project, not authoritative records, so a label attests that an event arrived and never that the
+# thing it describes happened. The authoritative rows (SignalReport, SignalReportRefund) sit in
+# per-region Postgres while this dag runs US-only, so sourcing labels from them would silently drop
+# every non-US report — the same constraint that makes cross-region reports label-only (README.md).
+# Weight a label by how it is produced: the status, pr and refund streams are server-emitted behind
+# authenticated endpoints, while impressions, opens, actions and feedback come from the clients.
+
 # The `Inbox report feedback` producer contract (products/signals/frontend/inbox/inboxAnalytics.ts emits
 # exactly these two). Applied to the labeled-id spine and the feedback stream alike, so an event
 # whose sentiment is missing or off-contract carries no label and can neither mint a label-only
 # training row nor stamp a feedback label onto a real report.
 FEEDBACK_SENTIMENTS_SQL = "toString(properties.sentiment) IN ('positive', 'negative')"
 
+# `impressions` is read from the raw properties JSON rather than as `properties.impressions`. HogQL
+# casts a property with its project-wide property definition type, and other events in the dogfood
+# project send `impressions` as a number, which types the definition as Numeric and turns the array
+# into a Float64 cast that JSONExtractArrayRaw rejects. The raw read does not depend on that type.
+#
 # The feedback filter rides as a second predicate rather than its own UNION branch so the whole
 # select keeps one sort-key-aligned `event IN (...)` scan.
 LABELED_REPORT_IDS_SQL = f"""
@@ -106,7 +119,7 @@ SELECT DISTINCT report_id
 FROM (
     SELECT JSONExtractString(imp, 'report_id') AS report_id
     FROM events
-    ARRAY JOIN JSONExtractArrayRaw(coalesce(properties.impressions, '[]')) AS imp
+    ARRAY JOIN JSONExtractArrayRaw(properties, 'impressions') AS imp
     WHERE event = 'Inbox reports impressed'
       AND timestamp >= toDateTime({{labels_epoch}}) AND timestamp < toDateTime({{snapshot_end}})
     UNION ALL
@@ -116,7 +129,8 @@ FROM (
         'Inbox report opened',
         'Inbox report action',
         'Inbox report feedback',
-        'signal_report_status_changed'
+        'signal_report_status_changed',
+        'signals_pr_refund_created'
     )
       AND (event != 'Inbox report feedback' OR {FEEDBACK_SENTIMENTS_SQL})
       AND timestamp >= toDateTime({{labels_epoch}}) AND timestamp < toDateTime({{snapshot_end}})
@@ -167,6 +181,66 @@ WHERE product = %(product)s
 GROUP BY team_id, document_id
 """
 
+# Signal documents: the grouping pipeline's own rows in the same table, one per signal, carrying the
+# report they grouped into in the metadata JSON. Read incrementally by inserted_at rather than as a
+# snapshot — at signal grain a cumulative copy is several GB a day (a 1536-float vector per signal,
+# fleet-wide) against tens of MB for one day's emissions.
+#
+# Rows come back raw, with no argMax dedupe: this scan never builds the wide aggregation states the
+# report query needs, and both versions of a re-emitted signal are kept when both survive to be read.
+# Readers take the latest row per (team_id, signal_id) at or before their cutoff, because a
+# caller-supplied document_id is only unique within a team.
+#
+# "When both survive" is the honest limit: the source replaces on (team, day, product, document_type,
+# rendering, document_id) and a retraction re-emits under that same key, so a merge before this scan
+# leaves only the retraction. argMax would not save it — the merge removes the row, it does not hide
+# it. The asset docstring records what that costs and why closing it is out of scope here.
+#
+# Index reality is the report query's, minus the GROUP BY: no team_id sort-key prefix and no
+# inserted_at in the sort key, so this full-scans the TTL-bounded table with PREWHERE filtering the
+# small columns before the wide embedding column is read. The memory budget is half the report
+# scan's because nothing is aggregated.
+SIGNAL_EMBEDDINGS_QUERY_SETTINGS: dict[str, int] = {
+    "max_execution_time": 600,
+    "max_memory_usage": 10 * 1024**3,
+}
+
+# `content` is deliberately not selected: the vector is the feature, and the signal's verbatim source
+# text has no business leaving ClickHouse. Same for the free-text metadata fields (extra, remediation,
+# match_query, reason) — only the structured ones are extracted here.
+SIGNAL_EMBEDDINGS_SQL = f"""
+SELECT
+    team_id,
+    document_id,
+    nullIf(JSONExtractString(metadata, 'report_id'), '') AS report_id,
+    timestamp,
+    inserted_at,
+    embedding,
+    JSONExtractFloat(metadata, 'weight') AS weight,
+    nullIf(JSONExtractString(metadata, 'source_product'), '') AS source_product,
+    nullIf(JSONExtractString(metadata, 'source_type'), '') AS source_type,
+    nullIf(JSONExtractString(metadata, 'source_id'), '') AS source_id,
+    JSONExtractBool(metadata, 'deleted') AS is_deleted,
+    -- A matched signal's metadata carries parent_signal_id, an unmatched one's carries
+    -- rejected_signal_ids, and both carry reason — so the parent check has to come first.
+    nullIf(
+        multiIf(
+            JSONHas(metadata, 'match_metadata', 'parent_signal_id'), 'matched',
+            JSONHas(metadata, 'match_metadata', 'reason'), 'no_match',
+            ''
+        ),
+        ''
+    ) AS match_kind,
+    nullIf(JSONExtractString(metadata, 'match_metadata', 'parent_signal_id'), '') AS match_parent_signal_id,
+    JSONLength(metadata, 'match_metadata', 'rejected_signal_ids') AS rejected_signal_count
+FROM {EMBEDDINGS_TABLE}
+WHERE product = %(product)s
+  AND document_type = %(document_type)s
+  AND rendering = %(rendering)s
+  AND inserted_at >= %(window_start)s
+  AND inserted_at < %(window_end)s
+"""
+
 IMPRESSIONS_COLUMNS = (
     "first_impressed_at",
     "impression_unit_count",
@@ -194,7 +268,7 @@ SELECT
     min({_IMPRESSION_RANK}) AS best_impression_rank,
     argMax(JSONExtract(imp, 'source_products', 'Array(String)'), timestamp) AS source_products
 FROM events
-ARRAY JOIN JSONExtractArrayRaw(coalesce(properties.impressions, '[]')) AS imp
+ARRAY JOIN JSONExtractArrayRaw(properties, 'impressions') AS imp
 WHERE event = 'Inbox reports impressed'
   AND timestamp >= toDateTime({{labels_epoch}}) AND timestamp < toDateTime({{snapshot_end}})
 GROUP BY report_id
@@ -222,10 +296,31 @@ ACTIONS_COLUMNS = (
     "first_create_pr_clicked_at",
     "discuss_count",
     "snooze_count",
+    "reviewer_add_count",
+    "first_reviewer_added_at",
+    "reviewer_remove_count",
+    "first_reviewer_removed_at",
+    "resolve_click_count",
+    "first_resolve_clicked_at",
 )
 # Bulk action rows carry no report_id and are excluded; bulk dismissals are recovered from the
 # server-side status stream instead. minIf misses fill non-nullable datetimes with epoch 0, hence
 # the nullIf(..., fromUnixTimestamp(0)) wraps here and below.
+#
+# The reviewer actions edit the report's suggested-reviewer list: adding one is a mild positive
+# engagement signal, removing one plausibly means the suggested-reviewer heuristic mis-routed the
+# report, which is useful to the policy layer even if never a model head. `click_suggested_reviewer`
+# also exists but is deliberately not aggregated: it fires so rarely it carries no signal.
+#
+# `resolve` marks a report done without an inbox PR, so it is a distinct positive outcome the
+# `create_pr` click does not cover. The `*_click*` names keep it apart from the status stream's
+# `first_resolved_at`, which conflates every path a report reaches `resolved`. `restore`
+# (un-dismissing a report) shares this aggregation shape and is a follow-up.
+#
+# Blind spot: a bulk-bar resolve fires one report_id-less event and drops here like every bulk
+# action. Bulk dismissals are recovered from the status stream; bulk resolves are not, because the
+# same `first_resolved_at` conflation rules it out as a substitute. So a head must read
+# `resolve_click_count` = 0 as unknown, not as "the report was never resolved".
 ACTIONS_SQL = """
 SELECT
     toString(properties.report_id) AS report_id,
@@ -234,13 +329,21 @@ SELECT
     countIf(toString(properties.action_type) = 'create_pr') AS create_pr_click_count,
     nullIf(minIf(timestamp, toString(properties.action_type) = 'create_pr'), fromUnixTimestamp(0)) AS first_create_pr_clicked_at,
     countIf(toString(properties.action_type) = 'discuss') AS discuss_count,
-    countIf(toString(properties.action_type) = 'snooze') AS snooze_count
+    countIf(toString(properties.action_type) = 'snooze') AS snooze_count,
+    countIf(toString(properties.action_type) = 'add_suggested_reviewer') AS reviewer_add_count,
+    nullIf(minIf(timestamp, toString(properties.action_type) = 'add_suggested_reviewer'), fromUnixTimestamp(0)) AS first_reviewer_added_at,
+    countIf(toString(properties.action_type) = 'remove_suggested_reviewer') AS reviewer_remove_count,
+    nullIf(minIf(timestamp, toString(properties.action_type) = 'remove_suggested_reviewer'), fromUnixTimestamp(0)) AS first_reviewer_removed_at,
+    countIf(toString(properties.action_type) = 'resolve') AS resolve_click_count,
+    nullIf(minIf(timestamp, toString(properties.action_type) = 'resolve'), fromUnixTimestamp(0)) AS first_resolve_clicked_at
 FROM events
 WHERE event = 'Inbox report action'
   AND timestamp >= toDateTime({labels_epoch}) AND timestamp < toDateTime({snapshot_end})
   AND toString(properties.report_id) != ''
 GROUP BY report_id
 """
+
+_WRONG_DISMISSAL_REASONS_SQL = ", ".join(f"'{reason}'" for reason in WRONG_DISMISSAL_REASONS)
 
 STATUS_COLUMNS = (
     "first_resolved_at",
@@ -250,6 +353,7 @@ STATUS_COLUMNS = (
     "latest_status_event",
     "latest_status_event_at",
     "dismissal_reason",
+    "wrong_dismissal_count",
     "status_event_priority",
     "status_event_actionability",
     "status_event_team_id",
@@ -266,7 +370,8 @@ STATUS_COLUMNS = (
 # capture_status_change_analytics snapshots them onto every transition: artefacts can be re-judged
 # or edited, so the state asset's cutoff-observed judgment is not necessarily what was true when
 # the outcome happened. Both are kept — state for features, these for label-time provenance.
-STATUS_SQL = """
+STATUS_SQL = (
+    """
 SELECT
     report_id,
     nullIf(minIf(first_timestamp, outcome = 'resolved'), fromUnixTimestamp(0)) AS first_resolved_at,
@@ -277,8 +382,21 @@ SELECT
     max(last_timestamp) AS latest_status_event_at,
     -- argMax skips NULL values, so this is the reason from the latest *reasoned* transition (the
     -- intended semantic: reasons only accompany dismissals/snoozes), not necessarily paired with
-    -- latest_status_event above.
-    argMax(dismissal_reason, last_timestamp) AS dismissal_reason,
+    -- latest_status_event above. Restricted to the latest transition's tenant, like the count
+    -- below: a reason-less genuine transition must not let an older reason from another team
+    -- through.
+    argMaxIf(bucket_dismissal_reason, last_timestamp, event_team_id = latest_event_team_id) AS dismissal_reason,
+    -- Cumulative, unlike dismissal_reason above: a restore or a later dismissal with another reason
+    -- overwrites the latest-wins reason, and a label that can revert to 0 breaks the training
+    -- builder's assumption that labels only grow. Counted per bucket (a bucket that saw any wrong
+    -- reason counts once, so a same-bucket re-dismissal cannot erase it) and only for buckets that
+    -- name the same tenant as the latest transition, which is the event the provenance
+    -- cross-check validates against Postgres. Buckets are split by tenant, so the flag and the
+    -- team it is checked against always come from the same events. The dismiss_wrong head reads
+    -- this column.
+    countIf(
+        outcome = 'dismissed' AND bucket_wrong_dismissal = 1 AND event_team_id = latest_event_team_id
+    ) AS wrong_dismissal_count,
     -- These two must stay paired with latest_status_event, so coalesce/nullIf keeps argMax from
     -- skipping a null: a judgment artefact can be deleted, and then the latest transition
     -- genuinely carries none. Plain argMax would reach back to an older transition and present
@@ -289,9 +407,20 @@ SELECT
     -- label-only row can have: reports outside this dag's region have no Postgres state and no
     -- embedding here. Deliberately *not* merged into report_team_id, which is a US team id by
     -- construction — team ids are per-region, so an EU 42 and a US 42 are different teams and
-    -- nothing on the event says which region emitted it.
-    toInt(argMax(coalesce(event_team_id, ''), last_timestamp)) AS status_event_team_id
+    -- nothing on the event says which region emitted it. Read from the window column rather than
+    -- selected again, so the tenant the provenance check sees is the one the aggregates above
+    -- filtered on, even when two tenants' buckets tie on last_timestamp.
+    toInt(any(latest_event_team_id)) AS status_event_team_id
 FROM (
+    SELECT
+        *,
+        -- The team the latest transition reported, on every bucket row, so an aggregate above can
+        -- filter on it (ClickHouse does not allow an aggregate inside another aggregate). The
+        -- tenant is the tie-breaker so the selection is deterministic.
+        argMax(
+            coalesce(event_team_id, ''), tuple(last_timestamp, coalesce(event_team_id, ''))
+        ) OVER (PARTITION BY report_id) AS latest_event_team_id
+    FROM (
     SELECT
         min(events.timestamp) AS first_timestamp,
         max(events.timestamp) AS last_timestamp,
@@ -307,22 +436,33 @@ FROM (
         ) AS outcome,
         -- Latest event in the bucket rather than any(): identical for the duplicate deliveries this
         -- grouping targets, and the one that matches last_timestamp when it collapsed real repeats.
-        nullIf(argMax(toString(properties.dismissal_reason), events.timestamp), '') AS dismissal_reason,
+        -- Named apart from the outer alias: ClickHouse resolves a bare `dismissal_reason` in the outer
+        -- aggregates to the outer alias, which is itself an aggregate.
+        nullIf(argMax(toString(properties.dismissal_reason), events.timestamp), '') AS bucket_dismissal_reason,
+        max(toString(properties.dismissal_reason) IN ("""
+    + _WRONG_DISMISSAL_REASONS_SQL
+    + """)) AS bucket_wrong_dismissal,
         nullIf(argMax(toString(properties.priority), events.timestamp), '') AS event_priority,
         nullIf(argMax(toString(properties.actionability), events.timestamp), '') AS event_actionability,
-        nullIf(argMax(toString(properties.team_id), events.timestamp), '') AS event_team_id
+        nullIf(toString(properties.team_id), '') AS event_team_id
     FROM events
     WHERE event = 'signal_report_status_changed'
       AND events.timestamp >= toDateTime({labels_epoch}) AND events.timestamp < toDateTime({snapshot_end})
       AND toString(properties.report_id) != ''
+    -- The tenant is part of the bucket key: an event naming another team never shares a bucket
+    -- with the genuine transition it collides with, so its reason cannot be counted under the
+    -- genuine event's team.
     GROUP BY
         report_id,
         previous_status,
         status,
+        event_team_id,
         toStartOfInterval(events.timestamp, INTERVAL 10 MINUTE)
+    )
 )
 GROUP BY report_id
 """
+)
 
 PR_COLUMNS = (
     "pr_created_count",
@@ -371,6 +511,34 @@ WHERE event = 'Inbox report feedback'
 GROUP BY report_id
 """
 
+REFUNDS_COLUMNS = (
+    "refund_count",
+    "first_refunded_at",
+    "refund_reason",
+    "refund_billing_path",
+    "refund_credits",
+)
+# The refund action is the strongest explicit negative PR-quality label: a human reviewed the
+# implementation PR and asked for the charge back. It is deliberately its own stream because the
+# status stream cannot recover it: a refunded merged-PR report stays `resolved` (see the refund
+# guard in products/signals/backend/views.py), so `dismissal_reason='refunded'` misses those.
+# The endpoint mints one refund per report ever and repeat calls do not re-emit, so uniq over
+# refund_id keeps the count honest under at-least-once analytics delivery.
+REFUNDS_SQL = """
+SELECT
+    toString(properties.report_id) AS report_id,
+    uniq(toString(properties.refund_id)) AS refund_count,
+    min(timestamp) AS first_refunded_at,
+    nullIf(argMax(toString(properties.reason), timestamp), '') AS refund_reason,
+    nullIf(argMax(toString(properties.billing_path), timestamp), '') AS refund_billing_path,
+    argMax(toInt(properties.credits), timestamp) AS refund_credits
+FROM events
+WHERE event = 'signals_pr_refund_created'
+  AND timestamp >= toDateTime({labels_epoch}) AND timestamp < toDateTime({snapshot_end})
+  AND toString(properties.report_id) != ''
+GROUP BY report_id
+"""
+
 LABEL_STREAMS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("impressions", IMPRESSIONS_SQL, IMPRESSIONS_COLUMNS),
     ("opens", OPENS_SQL, OPENS_COLUMNS),
@@ -378,6 +546,7 @@ LABEL_STREAMS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("feedback", FEEDBACK_SQL, FEEDBACK_COLUMNS),
     ("status_changes", STATUS_SQL, STATUS_COLUMNS),
     ("pr_events", PR_EVENTS_SQL, PR_COLUMNS),
+    ("refunds", REFUNDS_SQL, REFUNDS_COLUMNS),
 )
 
 # Every label column a report can have, with its no-events default. Streams overwrite their own
@@ -409,6 +578,7 @@ LABEL_DEFAULTS: dict[str, Any] = {
     "latest_status_event": None,
     "latest_status_event_at": None,
     "dismissal_reason": None,
+    "wrong_dismissal_count": 0,
     "status_event_priority": None,
     "status_event_actionability": None,
     "status_event_team_id": None,
@@ -417,6 +587,17 @@ LABEL_DEFAULTS: dict[str, Any] = {
     "pr_merged_count": 0,
     "first_pr_merged_at": None,
     "pr_closed_count": 0,
+    "refund_count": 0,
+    "first_refunded_at": None,
+    "refund_reason": None,
+    "refund_billing_path": None,
+    "refund_credits": None,
+    "reviewer_add_count": 0,
+    "first_reviewer_added_at": None,
+    "reviewer_remove_count": 0,
+    "first_reviewer_removed_at": None,
+    "resolve_click_count": 0,
+    "first_resolve_clicked_at": None,
 }
 
 _TIMESTAMP_LABEL_COLUMNS = frozenset(name for name in LABEL_DEFAULTS if name.endswith("_at"))

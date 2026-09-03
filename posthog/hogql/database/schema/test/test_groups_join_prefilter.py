@@ -49,7 +49,7 @@ class TestGroupsJoinPrefilter(APIBaseTest):
         # The `$group_0` field reference can be wrapped by the resolver (timestamp clamping
         # against the GroupTypeMapping created_at, etc.), so we only assert the column ref
         # appears in the printed SQL — not the exact SELECT prefix.
-        self.assertIn("in(key,", sql)
+        self.assertIn("globalIn(key,", sql)
         self.assertIn("events.`$group_0`", sql)
         self.assertIn("FROM events", sql)
 
@@ -61,7 +61,7 @@ class TestGroupsJoinPrefilter(APIBaseTest):
             "AND timestamp > toDateTime('2026-06-23 02:48:28') "
             "AND timestamp < toDateTime('2026-06-23 13:32:26')"
         )
-        self.assertIn("in(key,", sql)
+        self.assertIn("globalIn(key,", sql)
         self.assertIn("events.`$group_0`", sql)
 
     def test_skips_filter_when_outer_where_lacks_timestamp(self):

@@ -11,11 +11,17 @@ from pyarrow.parquet import write_table
 from structlog.types import FilteringBoundLogger
 
 from posthog.sync import database_sync_to_async_pool
+from posthog.temporal.common.utils import aretry_on_db_connection_drop
 
 from products.data_warehouse.backend.facade.api import aget_s3_client, ensure_bucket_exists
 from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import (
     PersonPropertySourceProjection,
+    WarehouseBinding,
     person_property_projection_for,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.person_property_paths import (
+    binding_staged_prefix,
+    job_staged_prefix,
 )
 
 # A sibling job prefix whose newest file is older than this is considered abandoned (its consumer
@@ -26,15 +32,18 @@ ABANDONED_STAGED_PREFIX_TTL = timedelta(days=7)
 
 
 class PersonPropertyRowSink:
-    """Stages a projection of each synced chunk to S3 for the person-property upsert job.
+    """Stages a projection of each written chunk to S3 for the person-property upsert job.
 
     Mirrors ``CDPProducer``: gated on a hook so a table with no person-target source stages
     nothing, and only the columns the sources actually need (key + mapped columns) leave the
     pipeline. A source is staged only when its key (person identifier) column is present in the
-    synced chunk, so a staged file always carries an identifier to attach its properties to. A
-    post-sync job (later PR) reads these files and upserts person properties, then clears them.
+    chunk, so a staged file always carries an identifier to attach its properties to. A post-run
+    job reads these files and upserts person properties, then clears them.
 
-    Multiple job prefixes can coexist under a schema while the consumer lags, so the consumer
+    Both warehouse write paths build one: a data-import job (per synced chunk) and a data-modeling
+    materialization (per written batch). The binding is what distinguishes their staged folders.
+
+    Multiple job prefixes can coexist under a binding while the consumer lags, so the consumer
     must apply prefixes in job order (or last-write-wins per person key) — a lagged older job
     applied after a newer one would regress properties to stale values. Within one job, staged
     files from a retried attempt sort after the failed attempt's (attempt-timestamped names), so
@@ -42,10 +51,16 @@ class PersonPropertyRowSink:
     """
 
     def __init__(
-        self, team_id: int, schema_id: str, job_id: str, logger: FilteringBoundLogger, *, is_incremental: bool
+        self,
+        team_id: int,
+        binding: WarehouseBinding,
+        job_id: str,
+        logger: FilteringBoundLogger,
+        *,
+        is_incremental: bool,
     ) -> None:
         self.team_id = team_id
-        self.schema_id = schema_id
+        self.binding = binding
         self.job_id = job_id
         self.logger = logger
         self._is_incremental = is_incremental
@@ -83,18 +98,24 @@ class PersonPropertyRowSink:
 
         return self._fs_cache
 
-    def _get_schema_prefix(self) -> str:
-        return f"{settings.DATAWAREHOUSE_BUCKET}/person_property_sync/{self.team_id}/{self.schema_id}"
+    def _get_binding_prefix(self) -> str:
+        return binding_staged_prefix(self.team_id, self.binding)
 
     def _get_path_prefix(self) -> str:
-        return f"{self._get_schema_prefix()}/{self.job_id}"
+        return job_staged_prefix(self.team_id, self.binding, self.job_id)
 
     async def _get_projection(self) -> list[PersonPropertySourceProjection] | None:
-        """One projection per enabled person source on the schema (key + mapped columns), or None
-        when nothing needs staging. Resolved once per run."""
+        """One projection per enabled person source on the binding (key + mapped columns), or None
+        when nothing needs staging. Resolved once per run.
+
+        The resolver reads the app DB (team scoping, enabled profile sources), so a long-lived
+        worker's pooled connection can have gone stale (pooler recycle, failover, deploy) since it
+        was last used. Retry once on a fresh connection rather than let that escape as
+        error-tracking noise, or as a silently skipped person-property sync for the run.
+        """
         if not self._projection_resolved:
-            self._projection = await database_sync_to_async_pool(person_property_projection_for)(
-                self.team_id, self.schema_id
+            self._projection = await aretry_on_db_connection_drop(
+                lambda: database_sync_to_async_pool(person_property_projection_for)(self.team_id, self.binding)
             )
             self._projection_resolved = True
         return self._projection
@@ -145,29 +166,38 @@ class PersonPropertyRowSink:
         wiping it would lose that sync's delta. Only prefixes older than
         ``ABANDONED_STAGED_PREFIX_TTL`` are swept, as the backstop against a consumer that never
         ran.
+
+        The two clears are independent backstops, so a failure in one (e.g. a permissions error
+        deleting the own prefix) must not skip the other — the sweep always runs, and any
+        own-prefix error is re-raised only afterward.
         """
         async with aget_s3_client() as s3_client:
+            own_prefix_error: Exception | None = None
             if not self._is_incremental:
                 try:
                     await s3_client._rm(f"s3://{self._get_path_prefix()}/", recursive=True)
                 except FileNotFoundError:
                     pass
+                except Exception as e:
+                    own_prefix_error = e
             await self._sweep_abandoned_sibling_prefixes(s3_client)
+            if own_prefix_error is not None:
+                raise own_prefix_error
 
     async def _sweep_abandoned_sibling_prefixes(self, s3_client: Any) -> None:
         try:
-            entries = await s3_client._find(f"s3://{self._get_schema_prefix()}/", detail=True)
+            entries = await s3_client._find(f"s3://{self._get_binding_prefix()}/", detail=True)
         except FileNotFoundError:
             return
         if not isinstance(entries, dict) or not entries:
             return
 
-        schema_prefix = self._get_schema_prefix().lstrip("/")
+        binding_prefix = self._get_binding_prefix().lstrip("/")
         files_by_job: dict[str, list[str]] = {}
         newest_by_job: dict[str, datetime] = {}
         for path, info in entries.items():
             key = path.lstrip("/")
-            relative = key[len(schema_prefix) :].lstrip("/")
+            relative = key[len(binding_prefix) :].lstrip("/")
             job_segment = relative.split("/", 1)[0]
             if not job_segment or job_segment == str(self.job_id):
                 continue
@@ -189,6 +219,6 @@ class PersonPropertyRowSink:
         if not stale_files:
             return
         await self.logger.adebug(
-            f"Sweeping {len(stale_files)} abandoned person-property staged files under {schema_prefix}"
+            f"Sweeping {len(stale_files)} abandoned person-property staged files under {binding_prefix}"
         )
         await s3_client._rm([f"s3://{key}" for key in stale_files])

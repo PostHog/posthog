@@ -19,12 +19,14 @@
 //! + topics) rather than deep copies of limiter state.
 use crate::api::CaptureError;
 use crate::config::{EnvelopeCompression, KafkaConfig};
-use crate::ordering::{person_ordering, OrderingGuarantee};
+use crate::ordering::OrderingGuarantee;
+use crate::outputs::PublishEvents;
+use crate::pipeline::{self, Address, Lane, Pipeline};
 use crate::serialization::Serializer;
 use crate::sinks::producer::{KafkaProducer, ProduceRecord};
-use crate::sinks::registry::{Output, OutputRegistry};
-use crate::sinks::Event;
-use crate::v0_request::{DataType, OverflowReason, ProcessedEvent, ProcessedEventMetadata};
+use crate::sinks::registry::{Destination, TopicTable};
+use crate::sinks::sink::{fold_results, Outcome, PreparedPayload, Sink, SinkResult};
+use crate::v0_request::{DataType, ProcessedEvent};
 use async_trait::async_trait;
 use metrics::{counter, gauge, histogram};
 use rdkafka::producer::{FutureProducer, Producer};
@@ -96,7 +98,7 @@ impl rdkafka::ClientContext for KafkaContext {
         gauge!("capture_kafka_callback_queue_depth",).set(stats.replyq as f64);
         gauge!("capture_kafka_producer_queue_depth",).set(stats.msg_cnt as f64);
         gauge!("capture_kafka_producer_queue_depth_limit",).set(stats.msg_max as f64);
-        gauge!("capture_kafka_producer_queue_bytes",).set(stats.msg_max as f64);
+        gauge!("capture_kafka_producer_queue_bytes",).set(stats.msg_size as f64);
         gauge!("capture_kafka_producer_queue_bytes_limit",).set(stats.msg_size_max as f64);
 
         for (topic, stats) in stats.topics {
@@ -182,7 +184,7 @@ impl rdkafka::ClientContext for KafkaContext {
 /// is cloned once per spawned prep task.
 pub struct KafkaSinkBase<P: KafkaProducer> {
     producer: Arc<P>,
-    topics: Arc<OutputRegistry>,
+    topics: Arc<TopicTable>,
     replay_envelope_compression: EnvelopeCompression,
 }
 
@@ -196,453 +198,40 @@ impl<P: KafkaProducer> Clone for KafkaSinkBase<P> {
     }
 }
 
-/// The pure routing decision for a single event: which output, and which
-/// ordering guarantee. Depends only on [`ProcessedEventMetadata`] (stamped
-/// upstream by the pipeline) and the AI overflow valve — the one piece of
-/// sink config that changes a routing decision rather than a topic name.
-/// Side effects are not part of the decision: the dlq header set and the
-/// reroute counters follow from the target, and the person-processing header
-/// follows from [`ProcessedEventMetadata::person_processing_disabled`] —
-/// the stamped flag, or a `ForceLimited` reason, which implies the skip on
-/// its own.
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct Route {
-    target: Output,
-    ordering: OrderingGuarantee,
+/// Map a lane address to the sink's configured [`Destination`]. Every
+/// `(pipeline, lane)` pair is spelled out so that a new lane, or a change
+/// making an unbacked pair reachable, has to visit this match instead of
+/// being absorbed by a wildcard. `None` marks a pair [`pipeline::resolve`]
+/// never produces — no output backs it, and the caller dlqs the event.
+fn lane_output(pipeline: Pipeline, lane: Lane) -> Option<Destination> {
+    match (pipeline, lane) {
+        (Pipeline::Analytics, Lane::Main) => Some(Destination::AnalyticsMain),
+        (Pipeline::Analytics, Lane::Overflow) => Some(Destination::AnalyticsOverflow),
+        (Pipeline::Analytics, Lane::Historical) => Some(Destination::AnalyticsHistorical),
+        (Pipeline::Ai, Lane::Main) => Some(Destination::AiMain),
+        (Pipeline::Ai, Lane::Overflow) => Some(Destination::AiOverflow),
+        (Pipeline::Ai, Lane::Historical) => None,
+        (Pipeline::Warnings, Lane::Main) => Some(Destination::ClientWarningsMain),
+        (Pipeline::Warnings, Lane::Overflow | Lane::Historical) => None,
+        (Pipeline::Heatmaps, Lane::Main) => Some(Destination::HeatmapsMain),
+        (Pipeline::Heatmaps, Lane::Overflow | Lane::Historical) => None,
+        (Pipeline::ErrorTracking, Lane::Main) => Some(Destination::ErrorTrackingMain),
+        (Pipeline::ErrorTracking, Lane::Overflow | Lane::Historical) => None,
+        (Pipeline::Replay, Lane::Main) => Some(Destination::SessionReplayMain),
+        (Pipeline::Replay, Lane::Overflow) => Some(Destination::SessionReplayOverflow),
+        (Pipeline::Replay, Lane::Historical) => None,
+    }
 }
 
-/// Decide an event's route from its metadata. DLQ and custom-topic redirects
-/// take priority over per-datatype and overflow routing. Consulted by the
-/// sink, which resolves the target to a topic string and the ordering
-/// guarantee to a partition key, and applies the target-implied side effects.
-/// A replay event with no session id is rejected here, so every returned
-/// `Route` is realizable by the sink.
-fn route(
-    metadata: &ProcessedEventMetadata,
-    ai_events_overflow_armed: bool,
-) -> Result<Route, CaptureError> {
-    // redirect_to_dlq takes priority over all other routing.
-    if metadata.redirect_to_dlq {
-        return Ok(Route {
-            target: Output::Dlq,
-            ordering: OrderingGuarantee::PerDistinctId,
-        });
-    }
+/// The dlq output's contract: count the reroute and stamp the dlq header set.
+fn dlq_reroute_effects(headers: &mut common_types::CapturedEventHeaders, reason: &'static str) {
+    counter!("capture_events_rerouted_dlq", &[("reason", reason)]).increment(1);
 
-    if let Some(ref topic) = metadata.redirect_to_topic {
-        return Ok(Route {
-            target: Output::Custom(topic.clone()),
-            ordering: OrderingGuarantee::PerDistinctId,
-        });
-    }
-
-    Ok(match metadata.data_type {
-        DataType::AnalyticsHistorical => Route {
-            // Historical events never overflow — force_overflow and
-            // overflow_reason are deliberately ignored here.
-            target: Output::AnalyticsHistorical,
-            ordering: OrderingGuarantee::PerDistinctId,
-        },
-        DataType::AnalyticsMain => {
-            // Precedence: force_overflow (restrictions) -> overflow_reason
-            // (pipeline-stamped) -> default main-topic routing.
-            if metadata.force_overflow {
-                Route {
-                    target: Output::AnalyticsOverflow,
-                    ordering: person_ordering(metadata.person_processing_disabled()),
-                }
-            } else {
-                match &metadata.overflow_reason {
-                    Some(OverflowReason::ForceLimited) => Route {
-                        target: Output::AnalyticsOverflow,
-                        ordering: OrderingGuarantee::None,
-                    },
-                    // The person flag alone decides the key here, in both
-                    // directions. A burst keeps its key while person processing
-                    // is on — the overflow consumer updates persons keyed on
-                    // distinct id, so spreading one distinct id across
-                    // partitions turns a hot key into contended person-row
-                    // updates — which makes the locality preference irrelevant
-                    // on this lane. And a key whose person processing is
-                    // already off (the global rate limiter stamps its verdict
-                    // before the overflow limiter overwrites the reason) must
-                    // not get its partition back.
-                    Some(OverflowReason::RateLimited { .. }) => Route {
-                        target: Output::AnalyticsOverflow,
-                        ordering: person_ordering(metadata.person_processing_disabled()),
-                    },
-                    // ReplayLimited is stamped only by the recordings pipeline,
-                    // so an analytics event cannot carry it — the shared
-                    // OverflowReason enum forces the arm, which treats the
-                    // impossible stamp as unstamped.
-                    Some(OverflowReason::ReplayLimited) | None => Route {
-                        target: Output::AnalyticsMain,
-                        ordering: person_ordering(metadata.person_processing_disabled()),
-                    },
-                }
-            }
-        }
-        DataType::AiEvents => {
-            // Valve armed: the AI lanes route overflow like analytics, except
-            // that a burst may spread while person processing is on — the AI
-            // consumer reads persons without writing them, so keyless
-            // person-on records cause no person-update contention there.
-            // Valve unarmed: AI events never overflow —
-            // force_overflow and stamped reasons are deliberately ignored
-            // (the pipeline never stamps a reason on this lane anyway). The
-            // default route keeps the event key regardless of
-            // skip_person_processing (v1 only nulls keys for
-            // Main/Overflow-shaped destinations). AI events never reroute
-            // historical.
-            if ai_events_overflow_armed && metadata.force_overflow {
-                Route {
-                    target: Output::AiOverflow,
-                    ordering: person_ordering(metadata.person_processing_disabled()),
-                }
-            } else if ai_events_overflow_armed {
-                match &metadata.overflow_reason {
-                    Some(OverflowReason::ForceLimited) => Route {
-                        target: Output::AiOverflow,
-                        ordering: OrderingGuarantee::None,
-                    },
-                    Some(OverflowReason::RateLimited {
-                        preserve_locality: true,
-                    }) => Route {
-                        target: Output::AiOverflow,
-                        // Same precedence as the analytics overflow lane above.
-                        ordering: person_ordering(metadata.person_processing_disabled()),
-                    },
-                    Some(OverflowReason::RateLimited {
-                        preserve_locality: false,
-                    }) => Route {
-                        target: Output::AiOverflow,
-                        ordering: OrderingGuarantee::None,
-                    },
-                    // ReplayLimited cannot be stamped on the AI lane either;
-                    // treated as unstamped, as above.
-                    Some(OverflowReason::ReplayLimited) | None => Route {
-                        target: Output::AiMain,
-                        ordering: OrderingGuarantee::PerDistinctId,
-                    },
-                }
-            } else {
-                Route {
-                    target: Output::AiMain,
-                    ordering: OrderingGuarantee::PerDistinctId,
-                }
-            }
-        }
-        DataType::ClientIngestionWarning => Route {
-            target: Output::ClientWarningsMain,
-            ordering: OrderingGuarantee::PerDistinctId,
-        },
-        DataType::HeatmapMain => Route {
-            target: Output::HeatmapsMain,
-            ordering: OrderingGuarantee::PerDistinctId,
-        },
-        DataType::ExceptionErrorTracking => Route {
-            target: Output::ErrorTrackingMain,
-            ordering: OrderingGuarantee::PerDistinctId,
-        },
-        DataType::SnapshotMain => {
-            // Precedence: force_overflow (restrictions) -> overflow_reason
-            // (pipeline-stamped ReplayLimited) -> default main-topic routing.
-            // Partition key is always session_id for replay to keep per-session
-            // ordering on the overflow topic; a missing id makes the decision
-            // unrealizable, so it is rejected as part of the decision.
-            if metadata.session_id.is_none() {
-                return Err(CaptureError::MissingSessionId);
-            }
-            let target = if metadata.force_overflow
-                || matches!(
-                    metadata.overflow_reason,
-                    Some(OverflowReason::ReplayLimited)
-                ) {
-                Output::SessionReplayOverflow
-            } else {
-                Output::SessionReplayMain
-            };
-            Route {
-                target,
-                ordering: OrderingGuarantee::PerSession,
-            }
-        }
-    })
-}
-
-#[cfg(test)]
-mod route_tests {
-    use super::*;
-    use rstest::rstest;
-
-    fn meta(data_type: DataType) -> ProcessedEventMetadata {
-        ProcessedEventMetadata {
-            data_type,
-            session_id: Some("session123".to_string()),
-            computed_timestamp: None,
-            event_name: "test_event".to_string(),
-            force_overflow: false,
-            skip_person_processing: false,
-            redirect_to_dlq: false,
-            redirect_to_topic: None,
-            skip_heatmap_processing: false,
-            overflow_reason: None,
-            distinct_id_truncated_from: None,
-        }
-    }
-
-    #[test]
-    fn dlq_wins_over_custom_topic_and_datatype() {
-        // redirect_to_dlq set alongside redirect_to_topic and an overflow
-        // reason: DLQ still wins, keyed on the event key, with the DLQ effect.
-        let mut m = meta(DataType::AnalyticsMain);
-        m.redirect_to_dlq = true;
-        m.redirect_to_topic = Some("custom".to_string());
-        m.force_overflow = true;
-        assert_eq!(
-            route(&m, false).unwrap(),
-            Route {
-                target: Output::Dlq,
-                ordering: OrderingGuarantee::PerDistinctId,
-            }
-        );
-    }
-
-    #[test]
-    fn custom_topic_wins_over_datatype() {
-        // Custom-topic redirect beats per-datatype/overflow routing (but not DLQ).
-        let mut m = meta(DataType::AnalyticsMain);
-        m.redirect_to_topic = Some("my_topic".to_string());
-        m.force_overflow = true;
-        assert_eq!(
-            route(&m, false).unwrap(),
-            Route {
-                target: Output::Custom("my_topic".to_string()),
-                ordering: OrderingGuarantee::PerDistinctId,
-            }
-        );
-    }
-
-    #[test]
-    fn per_datatype_targets() {
-        for (dt, target) in [
-            (DataType::AnalyticsMain, Output::AnalyticsMain),
-            (DataType::AnalyticsHistorical, Output::AnalyticsHistorical),
-            (DataType::ClientIngestionWarning, Output::ClientWarningsMain),
-            (DataType::HeatmapMain, Output::HeatmapsMain),
-            (DataType::ExceptionErrorTracking, Output::ErrorTrackingMain),
-            (DataType::AiEvents, Output::AiMain),
-            (DataType::SnapshotMain, Output::SessionReplayMain),
-        ] {
-            let m = meta(dt);
-            let r = route(&m, false).unwrap();
-            assert_eq!(r.target, target, "wrong target for {dt:?}");
-        }
-    }
-
-    #[test]
-    fn analytics_main_overflow_ordering() {
-        // force_overflow -> overflow topic; key policy follows skip_person.
-        let mut m = meta(DataType::AnalyticsMain);
-        m.force_overflow = true;
-        assert_eq!(
-            route(&m, false).unwrap().ordering,
-            OrderingGuarantee::PerDistinctId
-        );
-        m.skip_person_processing = true;
-        assert_eq!(route(&m, false).unwrap().ordering, OrderingGuarantee::None);
-        assert_eq!(route(&m, false).unwrap().target, Output::AnalyticsOverflow);
-    }
-
-    #[test]
-    fn analytics_main_overflow_reason_precedence() {
-        let base = meta(DataType::AnalyticsMain);
-
-        let mut force_limited = base.clone();
-        force_limited.overflow_reason = Some(OverflowReason::ForceLimited);
-        assert_eq!(
-            route(&force_limited, false).unwrap(),
-            Route {
-                target: Output::AnalyticsOverflow,
-                ordering: OrderingGuarantee::None,
-            }
-        );
-
-        let mut preserve = base.clone();
-        preserve.overflow_reason = Some(OverflowReason::RateLimited {
-            preserve_locality: true,
-        });
-        assert_eq!(
-            route(&preserve, false).unwrap().ordering,
-            OrderingGuarantee::PerDistinctId
-        );
-        assert_eq!(
-            route(&preserve, false).unwrap().target,
-            Output::AnalyticsOverflow
-        );
-
-        // The locality preference is irrelevant on the analytics lane: a
-        // person-on burst keeps its key either way, because the overflow
-        // consumer writes persons keyed on distinct id.
-        let mut no_preserve = base.clone();
-        no_preserve.overflow_reason = Some(OverflowReason::RateLimited {
-            preserve_locality: false,
-        });
-        assert_eq!(
-            route(&no_preserve, false).unwrap().ordering,
-            OrderingGuarantee::PerDistinctId
-        );
-        assert_eq!(
-            route(&no_preserve, false).unwrap().target,
-            Output::AnalyticsOverflow
-        );
-        no_preserve.skip_person_processing = true;
-        assert_eq!(
-            route(&no_preserve, false).unwrap().ordering,
-            OrderingGuarantee::None
-        );
-
-        // ReplayLimited cannot be stamped on analytics events (only the
-        // recordings pipeline produces it); the impossible combination is
-        // treated as unstamped.
-        let mut replay = base;
-        replay.overflow_reason = Some(OverflowReason::ReplayLimited);
-        assert_eq!(route(&replay, false).unwrap().target, Output::AnalyticsMain);
-    }
-
-    /// The global rate limiter stamps `skip_person_processing` before the
-    /// overflow limiter runs, and the overflow limiter overwrites the reason it
-    /// stamped. Without this precedence a key the rate limiter declared too hot
-    /// would go back to hashing onto a single overflow partition whenever the
-    /// limiter preserves locality, which is how prod-US is configured.
-    #[rstest]
-    #[case::analytics(DataType::AnalyticsMain, Output::AnalyticsOverflow)]
-    #[case::ai(DataType::AiEvents, Output::AiOverflow)]
-    fn person_processing_off_outranks_preserve_locality(
-        #[case] data_type: DataType,
-        #[case] expected_target: Output,
-    ) {
-        let armed = data_type == DataType::AiEvents;
-        let mut m = meta(data_type);
-        m.overflow_reason = Some(OverflowReason::RateLimited {
-            preserve_locality: true,
-        });
-
-        assert_eq!(
-            route(&m, armed).unwrap().ordering,
-            OrderingGuarantee::PerDistinctId,
-            "locality is preserved while person processing is on"
-        );
-
-        m.skip_person_processing = true;
-        assert_eq!(
-            route(&m, armed).unwrap(),
-            Route {
-                target: expected_target,
-                ordering: OrderingGuarantee::None,
-            }
-        );
-    }
-
-    #[test]
-    fn ai_events_overflow_gated_on_valve() {
-        // Valve unarmed: force_overflow and stamped reasons are ignored — the
-        // AI lane never overflows and keeps its event key.
-        let mut m = meta(DataType::AiEvents);
-        m.force_overflow = true;
-        assert_eq!(
-            route(&m, false).unwrap(),
-            Route {
-                target: Output::AiMain,
-                ordering: OrderingGuarantee::PerDistinctId,
-            }
-        );
-
-        // Valve armed: mirrors the analytics main lane's overflow handling.
-        assert_eq!(route(&m, true).unwrap().target, Output::AiOverflow);
-        assert_eq!(
-            route(&m, true).unwrap().ordering,
-            OrderingGuarantee::PerDistinctId
-        );
-        m.skip_person_processing = true;
-        assert_eq!(route(&m, true).unwrap().ordering, OrderingGuarantee::None);
-
-        let mut force_limited = meta(DataType::AiEvents);
-        force_limited.overflow_reason = Some(OverflowReason::ForceLimited);
-        assert_eq!(
-            route(&force_limited, true).unwrap(),
-            Route {
-                target: Output::AiOverflow,
-                ordering: OrderingGuarantee::None,
-            }
-        );
-        assert_eq!(route(&force_limited, false).unwrap().target, Output::AiMain);
-    }
-
-    #[test]
-    fn ai_events_default_route_keeps_event_key() {
-        // skip_person_processing must not null the key on the AI default
-        // route: v1 only nulls keys for Main/Overflow-shaped destinations.
-        let mut m = meta(DataType::AiEvents);
-        m.skip_person_processing = true;
-        for armed in [false, true] {
-            assert_eq!(
-                route(&m, armed).unwrap(),
-                Route {
-                    target: Output::AiMain,
-                    ordering: OrderingGuarantee::PerDistinctId,
-                },
-                "armed={armed}"
-            );
-        }
-    }
-
-    #[test]
-    fn snapshot_routing_uses_session_id_key() {
-        let mut m = meta(DataType::SnapshotMain);
-        assert_eq!(
-            route(&m, false).unwrap(),
-            Route {
-                target: Output::SessionReplayMain,
-                ordering: OrderingGuarantee::PerSession,
-            }
-        );
-
-        m.force_overflow = true;
-        assert_eq!(
-            route(&m, false).unwrap().target,
-            Output::SessionReplayOverflow
-        );
-        assert_eq!(
-            route(&m, false).unwrap().ordering,
-            OrderingGuarantee::PerSession
-        );
-
-        m.force_overflow = false;
-        m.overflow_reason = Some(OverflowReason::ReplayLimited);
-        assert_eq!(
-            route(&m, false).unwrap().target,
-            Output::SessionReplayOverflow
-        );
-    }
-
-    /// A replay event with no session id has no realizable route — the
-    /// decision itself rejects, rather than handing the sink a `PerSession`
-    /// guarantee it cannot key.
-    #[test]
-    fn snapshot_without_session_id_is_rejected() {
-        let mut m = meta(DataType::SnapshotMain);
-        m.session_id = None;
-        assert!(matches!(
-            route(&m, false),
-            Err(CaptureError::MissingSessionId)
-        ));
-
-        // A dlq redirect keys on the event key, so it stays realizable
-        // without a session id.
-        m.redirect_to_dlq = true;
-        assert_eq!(route(&m, false).unwrap().target, Output::Dlq);
-    }
+    headers.set_dlq_reason(reason.to_string());
+    // Unlike with our node code, DLQ step will always be static.
+    headers.set_dlq_step("capture".to_string());
+    headers
+        .set_dlq_timestamp(chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true));
 }
 
 /// The default KafkaSink using rdkafka's FutureProducer
@@ -657,7 +246,7 @@ impl KafkaSink {
         // here, at startup, instead of at first produce. Config-only, so it
         // runs before the producer is built and the broker is pinged — the
         // refusal is instant, not one connect attempt later.
-        let registry = OutputRegistry::from(&config);
+        let registry = TopicTable::from(&config);
         if config.outputs_completeness_check_enabled {
             registry.check_complete()?;
         } else {
@@ -796,7 +385,7 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
     /// Create a new KafkaSinkBase with a custom producer (useful for testing).
     /// No limiters — the sink is a mechanism layer; overflow stamping happens
     /// upstream in the pipeline. See the module header for details.
-    pub fn with_producer(producer: P, topics: OutputRegistry) -> Self {
+    pub fn with_producer(producer: P, topics: TopicTable) -> Self {
         Self {
             producer: Arc::new(producer),
             topics: Arc::new(topics),
@@ -807,7 +396,7 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
     /// Same as `with_producer` but with envelope compression enabled. Used in tests.
     pub fn with_producer_and_compression(
         producer: P,
-        topics: OutputRegistry,
+        topics: TopicTable,
         replay_envelope_compression: EnvelopeCompression,
     ) -> Self {
         Self {
@@ -819,9 +408,9 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
 
     /// CPU-bound prep work: serialize payload + build headers + pick topic/key.
     /// Safe to run concurrently across events in a batch because it does not
-    /// touch the librdkafka producer queue — phase 2 of `send_batch` is what
-    /// enforces per-partition ordering by calling `enqueue_record` serially
-    /// in the original event order.
+    /// touch the librdkafka producer queue — `Sink::publish` is what enforces
+    /// per-partition ordering by calling `enqueue_record` serially in the
+    /// original event order.
     ///
     /// Routing policy is read from `ProcessedEventMetadata` (stamped upstream
     /// by the pipeline). This function does not consult any limiter — it is
@@ -829,10 +418,11 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
     /// overflow routing.
     ///
     /// Not `async`: there are no await points, and keeping it
-    /// synchronous lets `send_batch`'s serial fast path call it inline without
-    /// any runtime indirection.
-    fn prepare_record(&self, event: ProcessedEvent) -> Result<ProduceRecord, CaptureError> {
+    /// synchronous lets `prepare_batch`'s serial fast path call it inline
+    /// without any runtime indirection.
+    fn prepare_record(&self, event: ProcessedEvent) -> Result<PreparedPayload, CaptureError> {
         let (event, metadata) = (event.event, event.metadata);
+        let uuid = event.uuid;
 
         // Encoding is resolved by data_type, not by the routed destination:
         // session replay gets the lz4 envelope when configured, everything
@@ -869,123 +459,147 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
             headers.set_skip_heatmap_processing(true);
         }
 
-        // The routing decision is pure metadata policy; the sink resolves the
-        // target against its topic config, the key policy against the values
-        // it owns, and applies the target-implied side effects.
-        let decision = route(&metadata, self.topics.ai_events_overflow_armed())?;
-
-        let topic: &str = self.topics.topic_for(&decision.target);
-
-        let partition_key: Option<&str> = match decision.ordering {
-            OrderingGuarantee::PerDistinctId => Some(event_key.as_str()),
-            OrderingGuarantee::None => None,
-            // route() rejects replay events without a session id, so the id
-            // is present whenever PerSession is decided.
-            OrderingGuarantee::PerSession => Some(
-                metadata
-                    .session_id
-                    .as_deref()
-                    .ok_or(CaptureError::MissingSessionId)?,
-            ),
-        };
-
-        // Output-implied side effects: the dlq output's contract includes the
-        // dlq header set, and both redirect outputs count their reroutes.
-        match decision.target {
-            Output::Dlq => {
-                counter!(
-                    "capture_events_rerouted_dlq",
-                    &[("reason", "event_restriction")]
-                )
-                .increment(1);
-
-                // DLQ reason cannot be known beyond being triggered by an event restriction.
-                headers.set_dlq_reason("event_restriction".to_string());
-                // Unlike with our node code, DLQ step will always be static.
-                headers.set_dlq_step("capture".to_string());
-                headers.set_dlq_timestamp(
-                    chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
-                );
+        // The address decision is pure metadata policy, owned by the pipeline
+        // layer; the sink bridges it to an output, resolves that against its
+        // topic config, realizes the key policy against the values it owns,
+        // and applies the address-implied side effects in the same match —
+        // the dlq output's contract includes the dlq header set, and both
+        // admin redirects count their reroutes.
+        let decision = pipeline::resolve(&metadata, self.topics.ai_events_overflow_armed())?;
+        let target = match decision.address {
+            Address::Dlq => {
+                dlq_reroute_effects(&mut headers, "event_restriction");
+                Destination::Dlq
             }
-            Output::Custom(_) => {
+            Address::Custom(topic) => {
                 counter!(
                     "capture_events_rerouted_custom_topic",
                     &[("reason", "event_restriction")]
                 )
                 .increment(1);
+                Destination::Custom(topic)
             }
-            _ => {}
-        }
+            Address::Lane { pipeline, lane } => match lane_output(pipeline, lane) {
+                Some(output) => output,
+                // A pair `resolve` never produces: no output backs it, so
+                // the event goes to the dlq — preserved and replayable —
+                // instead of being processed through a lane with the wrong
+                // semantics. Loud, because reaching this arm means a change
+                // made the pair producible without giving it an output.
+                None => {
+                    debug_assert!(false, "no output backs ({pipeline:?}, {lane:?})");
+                    error!("no output backs ({pipeline:?}, {lane:?}), publishing to the dlq");
+                    dlq_reroute_effects(&mut headers, "unbacked_lane");
+                    Destination::Dlq
+                }
+            },
+        };
+
+        let destination = self.topics.topic_for(&target).to_string();
+
+        let partition_key = match decision.ordering {
+            // resolve() rejects replay events without a session id, so the id
+            // is present whenever PerSession is decided.
+            OrderingGuarantee::PerSession => {
+                metadata.session_id.ok_or(CaptureError::MissingSessionId)?
+            }
+            OrderingGuarantee::PerDistinctId | OrderingGuarantee::None => event_key,
+        };
 
         if let Some(encoding) = serializer.content_encoding() {
             headers.set_content_encoding(encoding.to_string());
         }
 
-        Ok(ProduceRecord {
-            topic: topic.to_string(),
-            key: partition_key.map(|s| s.to_string()),
+        Ok(PreparedPayload {
+            uuid,
+            destination,
+            partition_key,
+            ordering: decision.ordering,
             payload,
             headers,
         })
     }
 
-    /// Serial, ordering-preserving enqueue into librdkafka. Emits the per-topic
-    /// bytes counter and returns the ack future for the caller to await.
-    /// librdkafka preserves on-wire partition order by `send_result` call order,
-    /// so this MUST be called in the original event order within a batch.
-    fn enqueue_record(&self, record: ProduceRecord) -> Result<P::AckFuture, CaptureError> {
-        let payload_bytes = record.payload.len() as u64;
-        counter!("capture_kafka_produce_bytes_total", "topic" => record.topic.clone())
-            .increment(payload_bytes);
-        self.producer.send(record)
+    /// Serial, ordering-preserving enqueue into librdkafka. The one place the
+    /// backend-agnostic payload becomes Kafka-shaped: `destination` is the
+    /// topic, and `ordering` decides whether the record is keyed. Emits the
+    /// per-topic bytes counter and returns the ack future for the caller to
+    /// await. librdkafka preserves on-wire partition order by `send_result`
+    /// call order, so this MUST be called in the original event order within
+    /// a batch.
+    fn enqueue_record(&self, payload: PreparedPayload) -> Result<P::AckFuture, CaptureError> {
+        counter!("capture_kafka_produce_bytes_total", "topic" => payload.destination.clone())
+            .increment(payload.payload.len() as u64);
+
+        // No key reaches rdkafka as round-robin; `Some("")` would murmur2-hash
+        // every record onto one deterministic hot partition.
+        let key = match payload.ordering {
+            OrderingGuarantee::None => None,
+            _ => Some(payload.partition_key),
+        };
+
+        self.producer.send(ProduceRecord {
+            topic: payload.destination,
+            key,
+            payload: payload.payload,
+            headers: payload.headers,
+        })
     }
 
-    /// Prep + enqueue for the single-event path. Retained as a thin wrapper so
-    /// the `Event::send` impl stays unchanged; `send_batch` uses prepare_record
-    /// and enqueue_record directly to parallelize the prep phase.
+    /// Prep + enqueue for the one-event fast path, returning the raw ack
+    /// future so a single send can await it inline.
+    ///
+    /// Records the same two phase histograms as the batch path, on the error
+    /// exits as well, so a publish of one event stays in the same population
+    /// as a publish of many. Without this, the cheapest publishes leave the
+    /// distribution and the in-process quantiles step up on their own.
     fn kafka_send(&self, event: ProcessedEvent) -> Result<P::AckFuture, CaptureError> {
-        let record = self.prepare_record(event)?;
-        self.enqueue_record(record)
+        let prep_start = Instant::now();
+        let payload = self.prepare_record(event);
+        histogram!("capture_kafka_batch_prep_duration_seconds")
+            .record(prep_start.elapsed().as_secs_f64());
+
+        let enqueue_start = Instant::now();
+        let ack_future = self.enqueue_record(payload?);
+        histogram!("capture_kafka_batch_enqueue_duration_seconds")
+            .record(enqueue_start.elapsed().as_secs_f64());
+
+        ack_future
     }
 }
 
-/// Batches below this size take the serial fast path in `send_batch`: spawning
-/// N `JoinSet` tasks to run `prepare_record` in parallel is net-negative when
-/// each task does only a `serde_json::to_string` and a header build — the
-/// scheduler overhead dominates the CPU savings. Scatter-gather kicks in at
-/// or above this threshold where parallel prep wins back its spawn cost.
+/// Batches below this size take the serial fast path in `prepare_batch`:
+/// spawning N `JoinSet` tasks to run `prepare_record` in parallel is
+/// net-negative when each task does only a `serde_json::to_string` and a
+/// header build — the scheduler overhead dominates the CPU savings.
+/// Scatter-gather kicks in at or above this threshold where parallel prep
+/// wins back its spawn cost.
 pub(crate) const SCATTER_GATHER_MIN_BATCH: usize = 8;
 
-#[async_trait]
-impl<P: KafkaProducer + 'static> Event for KafkaSinkBase<P> {
-    #[instrument(skip_all)]
-    async fn send(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
-        let ack_future = self.kafka_send(event)?;
-        histogram!("capture_event_batch_size").record(1.0);
-        ack_future.instrument(info_span!("ack_wait_one")).await
-    }
-
-    #[instrument(skip_all)]
-    async fn send_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
+impl<P: KafkaProducer + 'static> KafkaSinkBase<P> {
+    /// CPU-bound batch prep: run `prepare_record` over the batch and return
+    /// the payloads in the original event order, fail-fast on the first prep
+    /// error so no partially-prepped batch reaches the producer. Inherent
+    /// rather than on the `Sink` trait: payload assembly is not backend
+    /// mechanism, and the outputs layer becomes its caller.
+    pub(crate) async fn prepare_batch(
+        &self,
+        events: Vec<ProcessedEvent>,
+    ) -> Result<Vec<PreparedPayload>, CaptureError> {
         let batch_size = events.len();
-        // Record the batch-size histogram up front so the distribution is a
-        // faithful view of batches submitted, not only those that succeeded.
-        // Matches the single-event `send` path which records before any await.
-        histogram!("capture_event_batch_size").record(batch_size as f64);
 
         // Small-batch fast path. For batches under `SCATTER_GATHER_MIN_BATCH`
         // the JoinSet spawn overhead dominates any parallel-prep win, so we
-        // stay single-threaded. We keep the scatter-gather path's semantic
-        // "prep error -> no records produced" by prepping all events first
-        // into a Vec, then doing the serial enqueue phase only if all prep
-        // succeeded. Both duration histograms are recorded so dashboards
+        // stay single-threaded. Both paths share the semantic "prep error ->
+        // no records produced": all events prep before anything is enqueued.
+        // The duration histogram is recorded on every exit so dashboards
         // keep a faithful view of the fast path.
         if batch_size < SCATTER_GATHER_MIN_BATCH {
             let prep_start = Instant::now();
-            let mut prepared: Vec<ProduceRecord> = Vec::with_capacity(batch_size);
+            let mut prepared: Vec<PreparedPayload> = Vec::with_capacity(batch_size);
             for event in events {
                 match self.prepare_record(event) {
-                    Ok(record) => prepared.push(record),
+                    Ok(payload) => prepared.push(payload),
                     Err(err) => {
                         histogram!("capture_kafka_batch_prep_duration_seconds")
                             .record(prep_start.elapsed().as_secs_f64());
@@ -995,38 +609,16 @@ impl<P: KafkaProducer + 'static> Event for KafkaSinkBase<P> {
             }
             histogram!("capture_kafka_batch_prep_duration_seconds")
                 .record(prep_start.elapsed().as_secs_f64());
-
-            let enqueue_start = Instant::now();
-            let mut ack_set = JoinSet::new();
-            for record in prepared {
-                match self.enqueue_record(record) {
-                    Ok(ack_future) => {
-                        ack_set.spawn(ack_future);
-                    }
-                    Err(err) => {
-                        // Dropping ack_set aborts any in-flight spawned ack
-                        // futures; DeliveryAckFuture::drop records the
-                        // "dropped" outcome on capture_kafka_produce_ack_duration_ms.
-                        // Mirror of phase-2 behavior in the scatter-gather path.
-                        histogram!("capture_kafka_batch_enqueue_duration_seconds")
-                            .record(enqueue_start.elapsed().as_secs_f64());
-                        return Err(err);
-                    }
-                }
-            }
-            histogram!("capture_kafka_batch_enqueue_duration_seconds")
-                .record(enqueue_start.elapsed().as_secs_f64());
-
-            return drain_acks(ack_set).await;
+            return Ok(prepared);
         }
 
-        // Phase 1: parallel prep across tokio workers. Each task returns its
-        // input index so we can reassemble results in the original event order
+        // Parallel prep across tokio workers. Each task returns its input
+        // index so we can reassemble results in the original event order
         // before the serial enqueue phase. This is where the CPU win lives:
         // serde_json::to_string + header build run concurrently on up to N
         // worker threads, rather than sequentially on a single task.
         let prep_start = Instant::now();
-        let mut prep_set: JoinSet<(usize, Result<ProduceRecord, CaptureError>)> = JoinSet::new();
+        let mut prep_set: JoinSet<(usize, Result<PreparedPayload, CaptureError>)> = JoinSet::new();
         for (idx, event) in events.into_iter().enumerate() {
             let this = self.clone();
             prep_set.spawn(
@@ -1035,14 +627,14 @@ impl<P: KafkaProducer + 'static> Event for KafkaSinkBase<P> {
             );
         }
 
-        // Collect into a (idx, record) Vec and sort rather than indexing into
-        // a `Vec<Option<ProduceRecord>>`. Encodes the "every slot filled"
+        // Collect into a (idx, payload) Vec and sort rather than indexing into
+        // a `Vec<Option<PreparedPayload>>`. Encodes the "every slot filled"
         // invariant in the type: no `Option`, no unreachable `expect`, no
         // N-element `None` preallocation. Our only cancellation source is
         // `prep_set.abort_all()` below, invoked only from an already-errored
         // branch, so any `JoinError` observed during normal drain implies a
         // panic inside `prepare_record` — counted separately so it's alertable.
-        let mut prepared: Vec<(usize, ProduceRecord)> = Vec::with_capacity(batch_size);
+        let mut prepared: Vec<(usize, PreparedPayload)> = Vec::with_capacity(batch_size);
         while let Some(join_result) = prep_set.join_next().await {
             let (idx, result) = match join_result {
                 Err(err) => {
@@ -1060,7 +652,7 @@ impl<P: KafkaProducer + 'static> Event for KafkaSinkBase<P> {
                 Ok(inner) => inner,
             };
             match result {
-                Ok(record) => prepared.push((idx, record)),
+                Ok(payload) => prepared.push((idx, payload)),
                 Err(err) => {
                     prep_set.abort_all();
                     histogram!("capture_kafka_batch_prep_duration_seconds")
@@ -1074,36 +666,67 @@ impl<P: KafkaProducer + 'static> Event for KafkaSinkBase<P> {
         histogram!("capture_kafka_batch_prep_duration_seconds")
             .record(prep_start.elapsed().as_secs_f64());
 
-        // Phase 2: serial enqueue in original event order. This is the ordering
-        // bottleneck we deliberately keep: librdkafka preserves per-partition
-        // on-wire order by send_result() call order, and same-distinct_id events
-        // hash to the same partition via murmur2. Within-batch same-key ordering
-        // must survive so e.g. $identify lands before subsequent events.
+        Ok(prepared.into_iter().map(|(_, payload)| payload).collect())
+    }
+}
+
+#[async_trait]
+impl<P: KafkaProducer + 'static> Sink for KafkaSinkBase<P> {
+    /// Serial enqueue in payload order + fail-fast ack drain. The serial
+    /// enqueue is the ordering bottleneck we deliberately keep: librdkafka
+    /// preserves per-partition on-wire order by send_result() call order, and
+    /// same-distinct_id events hash to the same partition via murmur2.
+    /// Within-batch same-key ordering must survive so e.g. $identify lands
+    /// before subsequent events.
+    ///
+    /// Results are batch-uniform: the whole batch reports the first failure,
+    /// acked-before-failure events included. The per-event surface refines
+    /// only with the per-event response model.
+    async fn publish(&self, payloads: Vec<PreparedPayload>) -> Vec<SinkResult> {
+        // Results are built in payload order as the loop enqueues, so the one
+        // Vec the return type requires is the only allocation on the happy
+        // path. Failure paths rewrite it in place to the batch-uniform error.
+        let mut results: Vec<SinkResult> = Vec::with_capacity(payloads.len());
+
         let enqueue_start = Instant::now();
         let mut ack_set = JoinSet::new();
-        for (_, record) in prepared {
-            match self.enqueue_record(record) {
+        let mut payloads = payloads.into_iter();
+        for payload in payloads.by_ref() {
+            let uuid = payload.uuid;
+            match self.enqueue_record(payload) {
                 Ok(ack_future) => {
                     ack_set.spawn(ack_future);
+                    results.push(SinkResult::published(uuid));
                 }
                 Err(err) => {
                     // Record enqueue duration on the error path too so slow-fail
                     // cases (e.g. QueueFull after a long stall) stay observable.
-                    // Dropping `ack_set` when we return Err aborts any already
-                    // spawned ack futures for this batch; DeliveryAckFuture::drop
-                    // then records the "dropped" outcome on
-                    // capture_kafka_produce_ack_duration_ms. This is the phase-2
-                    // mirror of phase-1's explicit `prep_set.abort_all()`.
+                    // Dropping `ack_set` aborts any already spawned ack futures
+                    // for this batch; DeliveryAckFuture::drop then records the
+                    // "dropped" outcome on capture_kafka_produce_ack_duration_ms.
                     histogram!("capture_kafka_batch_enqueue_duration_seconds")
                         .record(enqueue_start.elapsed().as_secs_f64());
-                    return Err(err);
+                    for result in &mut results {
+                        result.outcome = Outcome::Failed(err.clone());
+                    }
+                    results.push(SinkResult::failed(uuid, err.clone()));
+                    results.extend(payloads.map(|p| SinkResult::failed(p.uuid, err.clone())));
+                    return results;
                 }
             }
         }
         histogram!("capture_kafka_batch_enqueue_duration_seconds")
             .record(enqueue_start.elapsed().as_secs_f64());
 
-        drain_acks(ack_set).await
+        match drain_acks(ack_set).await {
+            Ok(()) => results,
+            Err(err) => {
+                for result in &mut results {
+                    result.outcome = Outcome::Failed(err.clone());
+                }
+                results
+            }
+        }
     }
 
     fn flush(&self) -> Result<(), anyhow::Error> {
@@ -1111,11 +734,33 @@ impl<P: KafkaProducer + 'static> Event for KafkaSinkBase<P> {
     }
 }
 
-/// Phase 3 of `send_batch`: concurrent ack drain, fail-fast on first ack error.
-/// Shared between the scatter-gather path and the small-batch serial fast path
-/// so both converge on the same fail-fast + abort-siblings semantics. Dropping
-/// the JoinSet on error aborts remaining spawned ack futures; DeliveryAckFuture
-/// Drop then records the "dropped" outcome on capture_kafka_produce_ack_duration_ms.
+#[async_trait]
+impl<P: KafkaProducer + 'static> PublishEvents for KafkaSinkBase<P> {
+    #[instrument(skip_all)]
+    async fn publish_events(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
+        // Skip `prepare_batch`, a `JoinSet` of one, and a fold over one
+        // result on the endpoints that publish a single event per request.
+        if events.len() == 1 {
+            let event = events.into_iter().next().expect("length checked above");
+            return self
+                .kafka_send(event)?
+                .instrument(info_span!("ack_wait_one"))
+                .await;
+        }
+
+        let payloads = self.prepare_batch(events).await?;
+        fold_results(Sink::publish(self, payloads).await)
+    }
+
+    fn flush(&self) -> Result<(), anyhow::Error> {
+        Sink::flush(self)
+    }
+}
+
+/// Concurrent ack drain for `Sink::publish`, fail-fast on first ack error.
+/// Dropping the JoinSet on error aborts remaining spawned ack futures;
+/// DeliveryAckFuture Drop then records the "dropped" outcome on
+/// capture_kafka_produce_ack_duration_ms.
 async fn drain_acks(mut ack_set: JoinSet<Result<(), CaptureError>>) -> Result<(), CaptureError> {
     async move {
         while let Some(res) = ack_set.join_next().await {
@@ -1145,8 +790,8 @@ pub(crate) use crate::sinks::registry::test_topics;
 mod tests {
     use crate::api::CaptureError;
     use crate::config::{self, EnvelopeCompression};
+    use crate::outputs::PublishEvents;
     use crate::sinks::kafka::KafkaSink;
-    use crate::sinks::Event;
     use crate::utils::uuid_v7_from_datetime;
     use crate::v0_request::{DataType, OverflowReason, ProcessedEvent, ProcessedEventMetadata};
     use common_types::CapturedEvent;
@@ -1288,16 +933,16 @@ mod tests {
 
         // Wait for producer to be healthy, to keep kafka_message_timeout_ms short and tests faster
         for _ in 0..20 {
-            if sink.send(event.clone()).await.is_ok() {
+            if sink.publish_events(vec![event.clone()]).await.is_ok() {
                 break;
             }
         }
 
         // Send events to confirm happy path
-        sink.send(event.clone())
+        sink.publish_events(vec![event.clone()])
             .await
             .expect("failed to send one initial event");
-        sink.send_batch(vec![event.clone(), event.clone()])
+        sink.publish_events(vec![event.clone(), event.clone()])
             .await
             .expect("failed to send initial event batch");
 
@@ -1328,7 +973,7 @@ mod tests {
             metadata: metadata.clone(),
         };
 
-        sink.send(big_event)
+        sink.publish_events(vec![big_event])
             .await
             .expect("failed to send event larger than default max size");
 
@@ -1358,7 +1003,7 @@ mod tests {
             metadata: metadata.clone(),
         };
 
-        match sink.send(big_event).await {
+        match sink.publish_events(vec![big_event]).await {
             Err(CaptureError::EventTooBig(_)) => {} // Expected
             Err(err) => panic!("wrong error code {err}"),
             Ok(()) => panic!("should have errored"),
@@ -1368,7 +1013,7 @@ mod tests {
         cluster.clear_request_errors(RDKafkaApiKey::Produce);
         let err = [RDKafkaRespErr::RD_KAFKA_RESP_ERR_MSG_SIZE_TOO_LARGE; 1];
         cluster.request_errors(RDKafkaApiKey::Produce, &err);
-        match sink.send(event.clone()).await {
+        match sink.publish_events(vec![event.clone()]).await {
             Err(CaptureError::EventTooBig(_)) => {} // Expected
             Err(err) => panic!("wrong error code {err}"),
             Ok(()) => panic!("should have errored"),
@@ -1376,7 +1021,10 @@ mod tests {
         cluster.clear_request_errors(RDKafkaApiKey::Produce);
         let err = [RDKafkaRespErr::RD_KAFKA_RESP_ERR_INVALID_PARTITIONS; 1];
         cluster.request_errors(RDKafkaApiKey::Produce, &err);
-        match sink.send_batch(vec![event.clone(), event.clone()]).await {
+        match sink
+            .publish_events(vec![event.clone(), event.clone()])
+            .await
+        {
             Err(CaptureError::RetryableSinkError) => {} // Expected
             Err(err) => panic!("wrong error code {err}"),
             Ok(()) => panic!("should have errored"),
@@ -1386,13 +1034,13 @@ mod tests {
         cluster.clear_request_errors(RDKafkaApiKey::Produce);
         let err = [RDKafkaRespErr::RD_KAFKA_RESP_ERR_BROKER_NOT_AVAILABLE; 2];
         cluster.request_errors(RDKafkaApiKey::Produce, &err);
-        sink.send(event.clone())
+        sink.publish_events(vec![event.clone()])
             .await
             .expect("failed to send one event after recovery");
         cluster.clear_request_errors(RDKafkaApiKey::Produce);
         let err = [RDKafkaRespErr::RD_KAFKA_RESP_ERR_BROKER_NOT_AVAILABLE; 2];
         cluster.request_errors(RDKafkaApiKey::Produce, &err);
-        sink.send_batch(vec![event.clone(), event.clone()])
+        sink.publish_events(vec![event.clone(), event.clone()])
             .await
             .expect("failed to send event batch after recovery");
 
@@ -1400,12 +1048,15 @@ mod tests {
         cluster.clear_request_errors(RDKafkaApiKey::Produce);
         let err = [RDKafkaRespErr::RD_KAFKA_RESP_ERR_BROKER_NOT_AVAILABLE; 50];
         cluster.request_errors(RDKafkaApiKey::Produce, &err);
-        match sink.send(event.clone()).await {
+        match sink.publish_events(vec![event.clone()]).await {
             Err(CaptureError::RetryableSinkError) => {} // Expected
             Err(err) => panic!("wrong error code {err}"),
             Ok(()) => panic!("should have errored"),
         };
-        match sink.send_batch(vec![event.clone(), event.clone()]).await {
+        match sink
+            .publish_events(vec![event.clone(), event.clone()])
+            .await
+        {
             Err(CaptureError::RetryableSinkError) => {} // Expected
             Err(err) => panic!("wrong error code {err}"),
             Ok(()) => panic!("should have errored"),
@@ -1537,6 +1188,7 @@ mod tests {
         use super::*;
         use crate::sinks::kafka::{test_topics, KafkaSinkBase, SCATTER_GATHER_MIN_BATCH};
         use crate::sinks::producer::MockKafkaProducer;
+        use crate::sinks::sink::{Outcome, Sink};
         use rstest::rstest;
 
         const MAIN_TOPIC: &str = "events_plugin_ingestion";
@@ -1667,7 +1319,7 @@ mod tests {
             );
 
             let event = create_test_event(&input);
-            sink.send(event).await.unwrap();
+            sink.publish_events(vec![event]).await.unwrap();
 
             let records = producer.get_records();
             assert_eq!(records.len(), 1, "Expected exactly one record");
@@ -2754,7 +2406,7 @@ mod tests {
                 ..Default::default()
             });
             event.metadata.overflow_reason = Some(OverflowReason::ForceLimited);
-            sink.send(event).await.unwrap();
+            sink.publish_events(vec![event]).await.unwrap();
 
             let records = producer.get_records();
             assert_eq!(records.len(), 1);
@@ -2849,8 +2501,8 @@ mod tests {
             let mut exception_event = base;
             exception_event.metadata.data_type = DataType::ExceptionErrorTracking;
 
-            sink.send(ai_event).await.unwrap();
-            sink.send(exception_event).await.unwrap();
+            sink.publish_events(vec![ai_event]).await.unwrap();
+            sink.publish_events(vec![exception_event]).await.unwrap();
 
             let records = producer.get_records();
             assert_eq!(records.len(), 2);
@@ -3195,14 +2847,14 @@ mod tests {
             .await;
         }
 
-        // ==================== send_batch ordering + error tests ====================
-        // These exercise the B2 three-phase send_batch: parallel prepare_record,
+        // ==================== publish_events ordering + error tests ====================
+        // These exercise the three-phase batch path: parallel prepare_record,
         // serial enqueue_record, concurrent ack drain. The ordering test runs on
         // a multi-thread runtime so phase 1 actually parallelizes across workers
         // and we can detect if phase 2 is accidentally reordering records.
 
         #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-        async fn send_batch_preserves_order_same_key() {
+        async fn publish_events_preserves_order_same_key() {
             let producer = MockKafkaProducer::new();
             let sink = KafkaSinkBase::with_producer(producer.clone(), test_topics());
 
@@ -3226,7 +2878,9 @@ mod tests {
             let input_uuids: Vec<String> =
                 events.iter().map(|e| e.event.uuid.to_string()).collect();
 
-            sink.send_batch(events).await.expect("send_batch failed");
+            sink.publish_events(events)
+                .await
+                .expect("publish_events failed");
 
             let records = producer.get_records();
             assert_eq!(records.len(), 20, "expected 20 records");
@@ -3249,7 +2903,7 @@ mod tests {
 
             assert_eq!(
                 output_uuids, input_uuids,
-                "send_batch must preserve input order for same-key events"
+                "publish_events must preserve input order for same-key events"
             );
 
             // Sanity: all records share the same partition key.
@@ -3264,7 +2918,7 @@ mod tests {
         }
 
         #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-        async fn send_batch_prep_error_aborts_batch() {
+        async fn publish_events_prep_error_aborts_batch() {
             let producer = MockKafkaProducer::new();
             let sink = KafkaSinkBase::with_producer(producer.clone(), test_topics());
 
@@ -3302,11 +2956,11 @@ mod tests {
             bad.metadata.session_id = None;
             events[2] = bad;
 
-            let res = sink.send_batch(events).await;
+            let res = sink.publish_events(events).await;
             match res {
                 Err(CaptureError::MissingSessionId) => {}
                 Err(other) => panic!("expected MissingSessionId, got {other:?}"),
-                Ok(()) => panic!("expected send_batch to fail on prep error"),
+                Ok(()) => panic!("expected publish_events to fail on prep error"),
             }
 
             let records = producer.get_records();
@@ -3317,7 +2971,7 @@ mod tests {
             );
         }
 
-        // ==================== send_batch fast-path + mid-batch failure tests ====================
+        // ==================== publish_events fast-path + mid-batch failure tests ====================
 
         /// Builds N AnalyticsMain events with sequential distinct_ids so each
         /// record is individually identifiable in the mock producer's output.
@@ -3332,9 +2986,9 @@ mod tests {
         }
 
         #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-        async fn send_batch_mid_enqueue_failure_preserves_earlier_records() {
+        async fn publish_events_mid_enqueue_failure_preserves_earlier_records() {
             // Fail at phase-2 send #3 (0-indexed): events [0, 1, 2] should land
-            // in the mock, send_batch must return Err, and no event at index
+            // in the mock, publish_events must return Err, and no event at index
             // >= 3 should ever hit the producer. Batch size is well above the
             // scatter-gather threshold so phase 2 runs post-parallel-prep.
             const BATCH: usize = 10;
@@ -3346,11 +3000,11 @@ mod tests {
             let input_distinct_ids: Vec<String> =
                 events.iter().map(|e| e.event.distinct_id.clone()).collect();
 
-            let res = sink.send_batch(events).await;
+            let res = sink.publish_events(events).await;
             match res {
                 Err(CaptureError::RetryableSinkError) => {}
                 Err(other) => panic!("expected RetryableSinkError, got {other:?}"),
-                Ok(()) => panic!("expected send_batch to fail on enqueue #{FAIL_IDX}"),
+                Ok(()) => panic!("expected publish_events to fail on enqueue #{FAIL_IDX}"),
             }
 
             let records = producer.get_records();
@@ -3382,22 +3036,90 @@ mod tests {
         }
 
         #[tokio::test]
-        async fn send_batch_single_event_via_batch_path() {
-            // batch_size=1 exercises the serial fast path (1 < SCATTER_GATHER_MIN_BATCH)
-            // and verifies the loop handles a single-element batch correctly.
+        async fn publish_events_single_event_skips_the_batch_path() {
+            // One event short-circuits to kafka_send: no prepare_batch, no
+            // JoinSet. This is the live path for the single-event endpoints.
             let producer = MockKafkaProducer::new();
             let sink = KafkaSinkBase::with_producer(producer.clone(), test_topics());
 
             let events = build_batch(1);
-            sink.send_batch(events).await.expect("send_batch failed");
+            sink.publish_events(events)
+                .await
+                .expect("publish_events failed");
 
             let records = producer.get_records();
             assert_eq!(records.len(), 1, "expected exactly one record");
             assert_eq!(records[0].topic, MAIN_TOPIC);
         }
 
+        #[tokio::test]
+        async fn publish_events_two_events_take_the_batch_path() {
+            // Two events is the smallest batch that still reaches
+            // prepare_batch. A one-event guard that grew an off-by-one would
+            // swallow the second event here and nowhere else.
+            let producer = MockKafkaProducer::new();
+            let sink = KafkaSinkBase::with_producer(producer.clone(), test_topics());
+
+            sink.publish_events(build_batch(2))
+                .await
+                .expect("publish_events failed");
+
+            let records = producer.get_records();
+            assert_eq!(records.len(), 2, "both events must reach the producer");
+        }
+
+        /// Runs `f` under a local metrics recorder and counts the samples that
+        /// landed on `name`. The recorder is thread-scoped, so `f` has to drive
+        /// its own futures on this thread.
+        fn histogram_sample_count(name: &str, f: impl FnOnce()) -> usize {
+            use metrics_util::debugging::{DebugValue, DebuggingRecorder};
+
+            let recorder = DebuggingRecorder::new();
+            let snapshotter = recorder.snapshotter();
+            let _guard = metrics::set_default_local_recorder(&recorder);
+            f();
+
+            snapshotter
+                .snapshot()
+                .into_vec()
+                .into_iter()
+                .filter_map(|(key, _, _, value)| match value {
+                    DebugValue::Histogram(samples) if key.key().name() == name => {
+                        Some(samples.len())
+                    }
+                    _ => None,
+                })
+                .sum()
+        }
+
+        #[test]
+        fn publish_events_one_event_feeds_the_phase_histograms() {
+            // The one-event path skips prepare_batch and Sink::publish, which
+            // own these two histograms, so it has to record them itself.
+            // Otherwise every single-event endpoint drops out of the
+            // distribution and the in-process quantiles step up unprompted.
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("runtime");
+
+            for name in [
+                "capture_kafka_batch_prep_duration_seconds",
+                "capture_kafka_batch_enqueue_duration_seconds",
+            ] {
+                let samples = histogram_sample_count(name, || {
+                    let producer = MockKafkaProducer::new();
+                    let sink = KafkaSinkBase::with_producer(producer, test_topics());
+                    runtime
+                        .block_on(sink.publish_events(build_batch(1)))
+                        .expect("publish_events failed");
+                });
+                assert_eq!(samples, 1, "{name} must see the one-event publish");
+            }
+        }
+
         #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-        async fn send_batch_just_below_threshold_uses_serial_path() {
+        async fn publish_events_just_below_threshold_uses_serial_path() {
             // batch_size = SCATTER_GATHER_MIN_BATCH - 1 takes the serial fast
             // path. We can't observe "which path ran" directly, so we assert
             // behavioral equivalence: N records, correct topic, input order.
@@ -3409,7 +3131,9 @@ mod tests {
             let input_distinct_ids: Vec<String> =
                 events.iter().map(|e| e.event.distinct_id.clone()).collect();
 
-            sink.send_batch(events).await.expect("send_batch failed");
+            sink.publish_events(events)
+                .await
+                .expect("publish_events failed");
 
             let records = producer.get_records();
             assert_eq!(records.len(), size);
@@ -3428,7 +3152,7 @@ mod tests {
         }
 
         #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-        async fn send_batch_at_threshold_uses_scatter_gather_path() {
+        async fn publish_events_at_threshold_uses_scatter_gather_path() {
             // batch_size = SCATTER_GATHER_MIN_BATCH takes the scatter-gather
             // path. Behavioral equivalence with the serial path must hold:
             // same N records, same order, same topics.
@@ -3440,7 +3164,9 @@ mod tests {
             let input_distinct_ids: Vec<String> =
                 events.iter().map(|e| e.event.distinct_id.clone()).collect();
 
-            sink.send_batch(events).await.expect("send_batch failed");
+            sink.publish_events(events)
+                .await
+                .expect("publish_events failed");
 
             let records = producer.get_records();
             assert_eq!(records.len(), size);
@@ -3456,6 +3182,88 @@ mod tests {
                 output, input_distinct_ids,
                 "scatter-gather path must preserve input order after sort_unstable_by_key"
             );
+        }
+
+        // ==================== Sink mechanism seam ====================
+        // The per-event result surface `Sink::publish` reports: uuid-aligned
+        // with the input payloads, batch-uniform on failure. `fold_results`
+        // discards this shape, so the publish_events tests above cannot see it —
+        // and the outputs layer builds on it.
+
+        #[tokio::test]
+        async fn publish_reports_uuid_aligned_results() {
+            let producer = MockKafkaProducer::new();
+            let sink = KafkaSinkBase::with_producer(producer.clone(), test_topics());
+
+            let payloads = sink
+                .prepare_batch(build_batch(3))
+                .await
+                .expect("prepare_batch failed");
+            let input_uuids: Vec<_> = payloads.iter().map(|p| p.uuid).collect();
+
+            let results = sink.publish(payloads).await;
+
+            assert_eq!(results.len(), 3);
+            for (result, uuid) in results.iter().zip(&input_uuids) {
+                assert_eq!(result.uuid, *uuid, "results must align with input order");
+                assert!(matches!(result.outcome, Outcome::Published));
+            }
+        }
+
+        #[tokio::test]
+        async fn publish_enqueue_failure_is_batch_uniform() {
+            const FAIL_IDX: usize = 1;
+            let producer = MockKafkaProducer::new_failing_at(FAIL_IDX);
+            let sink = KafkaSinkBase::with_producer(producer.clone(), test_topics());
+
+            let payloads = sink
+                .prepare_batch(build_batch(3))
+                .await
+                .expect("prepare_batch failed");
+            let input_uuids: Vec<_> = payloads.iter().map(|p| p.uuid).collect();
+
+            let results = sink.publish(payloads).await;
+
+            // Every event reports the failure, the one enqueued before it
+            // included; only the records before the failing index reached
+            // the producer.
+            assert_eq!(results.len(), 3);
+            for (result, uuid) in results.iter().zip(&input_uuids) {
+                assert_eq!(result.uuid, *uuid, "results must align with input order");
+                assert!(matches!(
+                    result.outcome,
+                    Outcome::Failed(CaptureError::RetryableSinkError)
+                ));
+            }
+            assert_eq!(producer.get_records().len(), FAIL_IDX);
+        }
+
+        #[tokio::test]
+        async fn publish_ack_failure_is_batch_uniform() {
+            const FAIL_IDX: usize = 1;
+            let producer = MockKafkaProducer::new_failing_ack_at(FAIL_IDX);
+            let sink = KafkaSinkBase::with_producer(producer.clone(), test_topics());
+
+            let payloads = sink
+                .prepare_batch(build_batch(3))
+                .await
+                .expect("prepare_batch failed");
+            let input_uuids: Vec<_> = payloads.iter().map(|p| p.uuid).collect();
+
+            let results = sink.publish(payloads).await;
+
+            // The producer accepted every record — all three were enqueued —
+            // but one delivery report failed, so the whole batch reports the
+            // failure, acked-before-failure events included.
+            assert_eq!(results.len(), 3);
+            for (result, uuid) in results.iter().zip(&input_uuids) {
+                assert_eq!(result.uuid, *uuid, "results must align with input order");
+                assert!(matches!(
+                    result.outcome,
+                    Outcome::Failed(CaptureError::RetryableSinkError)
+                ));
+            }
+            assert_eq!(producer.get_records().len(), 3);
         }
 
         /// Per-event-type topic routing is covered by `assert_routing` for
@@ -3499,7 +3307,9 @@ mod tests {
                 events.push(create_test_event(&EventInput::default()));
             }
 
-            sink.send_batch(events).await.expect("send_batch failed");
+            sink.publish_events(events)
+                .await
+                .expect("publish_events failed");
 
             let records = producer.get_records();
             assert_eq!(records.len(), pad_to.max(5));
@@ -3523,13 +3333,13 @@ mod tests {
         }
 
         #[tokio::test]
-        async fn send_batch_mixed_datatypes_serial_path() {
+        async fn publish_events_mixed_datatypes_serial_path() {
             // 5 events < SCATTER_GATHER_MIN_BATCH => serial fast path.
             mixed_datatypes_routing_for_batch(5).await;
         }
 
         #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-        async fn send_batch_mixed_datatypes_scatter_gather_path() {
+        async fn publish_events_mixed_datatypes_scatter_gather_path() {
             // 10 events >= SCATTER_GATHER_MIN_BATCH => scatter-gather path.
             mixed_datatypes_routing_for_batch(10).await;
         }

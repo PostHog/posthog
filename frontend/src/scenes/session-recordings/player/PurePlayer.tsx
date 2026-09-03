@@ -95,6 +95,7 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
         endReached,
         hasLateFullSnapshot,
         leadingUnplayableMs,
+        hasOversizedMutations,
     } = useValues(sessionRecordingPlayerLogic)
 
     const {
@@ -214,6 +215,7 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
                     seekBackward(e.altKey ? ONE_SECOND_MS : undefined)
                 },
                 willHandleEvent: true,
+                allowRepeat: true,
             },
             arrowright: {
                 action: (e) => {
@@ -225,6 +227,7 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
                     seekForward(e.altKey ? ONE_SECOND_MS : undefined)
                 },
                 willHandleEvent: true,
+                allowRepeat: true,
             },
             ...speedHotkeys,
             ...(isFullScreen ? { escape: { action: () => setIsFullScreen(false) } } : {}),
@@ -357,12 +360,28 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
                                     {hasLateFullSnapshot && !hidePlayerElements ? (
                                         <LemonBanner
                                             type="warning"
+                                            // The player column over-commits its height, so a flexible banner gets
+                                            // squashed and its text spills out of the border in narrow players
+                                            className="shrink-0"
                                             dismissKey={`late-full-snapshot-${sessionRecordingId}`}
                                         >
                                             The first{' '}
                                             {humanFriendlyDuration(leadingUnplayableMs / 1000, { maxUnits: 2 })} of this
                                             recording can't be shown — the initial snapshot of the screen arrived late,
                                             so playback starts from the first frame we can render.{' '}
+                                            <Link to="https://posthog.com/docs/session-replay/troubleshooting">
+                                                Learn more
+                                            </Link>
+                                        </LemonBanner>
+                                    ) : null}
+                                    {hasOversizedMutations && !hidePlayerElements ? (
+                                        <LemonBanner
+                                            type="warning"
+                                            className="shrink-0"
+                                            dismissKey={`oversized-mutations-${sessionRecordingId}`}
+                                        >
+                                            Parts of this recording captured too much changing content to render.
+                                            Playback skips those sections to keep the player responsive.{' '}
                                             <Link to="https://posthog.com/docs/session-replay/troubleshooting">
                                                 Learn more
                                             </Link>

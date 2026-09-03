@@ -67,10 +67,6 @@ export function SpanLogsTab({ span }: { span: Span }): JSX.Element {
                 id={`tracing-logs-${span.trace_id}`}
                 pinnedFilters={pinnedFilters}
                 initialFilters={initialFilters}
-                // Full-screen is off (like PersonLogsTab): the shared modal can't carry pinnedFilters,
-                // so it would open unscoped and clear this viewer's scope. "Open in Logs" preserves
-                // the scope via the URL filterGroup instead.
-                showFullScreenButton={false}
                 showSavedViewsButton={false}
                 // Start with the facet/filter rail hidden — the drawer is narrow and the pinned
                 // scope already covers the common case; "Show filters" re-expands it.

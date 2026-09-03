@@ -4,15 +4,18 @@ import { getSurveyStatus } from 'scenes/surveys/surveysLogic'
 
 import { ProgressStatus, Survey } from '~/types'
 
-export function SurveyStatusTag({ survey }: { survey: Pick<Survey, 'start_date' | 'end_date'> }): JSX.Element {
-    const statusColors = {
+export function getSurveyStatusTagType(status: ProgressStatus): LemonTagType {
+    return {
         running: 'success',
         draft: 'default',
         complete: 'completion',
-    } as Record<ProgressStatus, LemonTagType>
+    }[status] as LemonTagType
+}
+
+export function SurveyStatusTag({ survey }: { survey: Pick<Survey, 'start_date' | 'end_date'> }): JSX.Element {
     const status = getSurveyStatus(survey)
     return (
-        <LemonTag type={statusColors[status]} className="font-semibold" data-attr="status">
+        <LemonTag type={getSurveyStatusTagType(status)} className="font-semibold" data-attr="status">
             {status.toUpperCase()}
         </LemonTag>
     )

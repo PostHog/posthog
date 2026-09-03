@@ -6,7 +6,11 @@ import {
   BROWSER_TABS_CLIENT,
   type BrowserTabsClient,
 } from "./browserTabsClient";
-import { applyRemoteSnapshot, registerSnapshotFetcher } from "./tabsSync";
+import {
+  applyRemoteSnapshot,
+  registerSnapshotFetcher,
+  registerTabTargetWriter,
+} from "./tabsSync";
 
 const SEED_ATTEMPTS = 3;
 const SEED_RETRY_BASE_MS = 1_000;
@@ -37,6 +41,7 @@ export class BrowserTabsEventsContribution implements Contribution {
     // Lets tabsSync re-pull the authoritative snapshot after a FAILED write
     // (a failed mutation emits no snapshotChange, so nothing else reconciles).
     registerSnapshotFetcher(() => this.client.getSnapshot());
+    registerTabTargetWriter((input) => this.client.setTabTarget(input));
 
     // Abort any prior loop so a repeated start() can't stack a second one
     // (mirrors the subscription replacement below).
@@ -83,6 +88,7 @@ export class BrowserTabsEventsContribution implements Contribution {
     this.seedAbort?.abort();
     this.seedAbort = null;
     registerSnapshotFetcher(null);
+    registerTabTargetWriter(null);
     this.subscription?.unsubscribe();
     this.subscription = null;
   }

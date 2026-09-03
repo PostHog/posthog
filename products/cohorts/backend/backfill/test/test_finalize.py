@@ -1,4 +1,5 @@
 import importlib
+from datetime import timedelta
 
 from posthog.test.base import BaseTest
 from unittest import mock
@@ -376,3 +377,87 @@ class TestBackfillFinalizer(BaseTest):
         self.assertEqual(
             mock_logger.error.call_args[0][0], "cohort_backfill_finalizer_cohort_scoped_run_participation_count"
         )
+
+    @parameterized.expand([("unset", ""), ("all", "all"), ("uppercase", "ALL"), ("star", "*")])
+    def test_run_allowlist_keywords_lift_the_restriction(self, _name: str, raw: str) -> None:
+        run, _ = self._make_run(["completed"])
+
+        with override_settings(BEHAVIORAL_BACKFILL_FINALIZER_RUN_ALLOWLIST=raw):
+            result = finalize_backfill_runs()
+
+        # A fail-closed reading of any of these would silently park the whole backlog on a
+        # deployment that never set the value.
+        run.refresh_from_db()
+        self.assertEqual(run.status, CohortBackfillRunStatus.COMPLETED)
+        self.assertEqual(result.not_allowlisted, 0)
+
+    def test_run_allowlist_excludes_a_run_that_is_not_listed(self) -> None:
+        listed, listed_cohorts = self._make_run(["completed"], scope=CohortBackfillScope.COHORT)
+        unlisted, unlisted_cohorts = self._make_run(["completed"], scope=CohortBackfillScope.COHORT)
+
+        with override_settings(BEHAVIORAL_BACKFILL_FINALIZER_RUN_ALLOWLIST=str(listed.id)):
+            result = finalize_backfill_runs()
+
+        listed.refresh_from_db()
+        unlisted.refresh_from_db()
+        listed_cohorts[0].refresh_from_db()
+        unlisted_cohorts[0].refresh_from_db()
+        self.assertEqual(listed.status, CohortBackfillRunStatus.COMPLETED)
+        self.assertIsNotNone(listed_cohorts[0].last_backfill_events_at)
+        # A stamp cannot be undone, so an unverified run must come out of the pass untouched.
+        self.assertEqual(unlisted.status, CohortBackfillRunStatus.RECONCILING)
+        self.assertIsNone(unlisted_cohorts[0].last_backfill_events_at)
+        self.assertEqual(result.not_allowlisted, 1)
+
+    @parameterized.expand(
+        [
+            ("none", "none", 0),
+            ("all_tokens_malformed", "not-a-uuid", 0),
+            ("one_good_token", None, 1),
+        ]
+    )
+    def test_run_allowlist_never_widens_on_a_bad_value(self, _name: str, raw: str | None, expected_stamps: int) -> None:
+        run, cohorts = self._make_run(["completed"])
+        # `None` stands for "the run's own id alongside a malformed token".
+        value = raw if raw is not None else f"{run.id},garbage"
+
+        with override_settings(BEHAVIORAL_BACKFILL_FINALIZER_RUN_ALLOWLIST=value):
+            finalize_backfill_runs()
+
+        cohorts[0].refresh_from_db()
+        # A typo in a restriction must not degrade into "every run": widening is the direction that
+        # cannot be walked back.
+        self.assertEqual(1 if cohorts[0].last_backfill_events_at else 0, expected_stamps)
+
+    @parameterized.expand([("unhyphenated", "hex"), ("uppercase", "upper")])
+    def test_run_allowlist_matches_a_pasted_id_in_any_form(self, _name: str, form: str) -> None:
+        run, cohorts = self._make_run(["completed"])
+        raw = run.id.hex if form == "hex" else str(run.id).upper()
+
+        with override_settings(BEHAVIORAL_BACKFILL_FINALIZER_RUN_ALLOWLIST=raw):
+            finalize_backfill_runs()
+
+        # Comparing raw strings would make an operator's pasted line silently match nothing.
+        cohorts[0].refresh_from_db()
+        self.assertIsNotNone(cohorts[0].last_backfill_events_at)
+
+    @override_settings(
+        BEHAVIORAL_BACKFILL_PERSON_READINESS_ENABLED=False,
+        BEHAVIORAL_BACKFILL_FINALIZER_MAX_RUNS_PER_PASS=2,
+    )
+    def test_excluded_runs_do_not_consume_the_per_kind_budget(self) -> None:
+        excluded = [self._make_run(["completed"], scope=CohortBackfillScope.COHORT)[0] for _ in range(5)]
+        CohortBackfillRun.objects.for_team(self.team.id).filter(id__in=[run.id for run in excluded]).update(
+            reconcile_observed_at=timezone.now() - timedelta(days=1)
+        )
+        allowlisted, cohorts = self._make_run(["completed"], scope=CohortBackfillScope.COHORT)
+
+        with override_settings(BEHAVIORAL_BACKFILL_FINALIZER_RUN_ALLOWLIST=str(allowlisted.id)):
+            finalize_backfill_runs()
+
+        # The budget slice is applied in SQL. A Python post-filter would let these five older
+        # exclusions eat the whole pass and the verified run would never be stamped.
+        allowlisted.refresh_from_db()
+        cohorts[0].refresh_from_db()
+        self.assertEqual(allowlisted.status, CohortBackfillRunStatus.COMPLETED)
+        self.assertIsNotNone(cohorts[0].last_backfill_events_at)

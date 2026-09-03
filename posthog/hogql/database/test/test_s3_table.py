@@ -298,7 +298,7 @@ class TestS3Table(BaseTest):
 
                 self.assertEqual(
                     clickhouse,
-                    f"SELECT events.uuid AS uuid, events.event AS event FROM {self._events_from_sql()} WHERE and(equals(events.team_id, {self.team.pk}), ifNull(globalIn(events.event, (SELECT aapl_stock.Date AS Date FROM s3(%(hogql_val_0_sensitive)s, %(hogql_val_1)s) AS aapl_stock)), 0)) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+                    f"SELECT events.uuid AS uuid, events.event AS event FROM {self._events_from_sql()} WHERE and(equals(events.team_id, {self.team.pk}), globalIn(events.event, (SELECT aapl_stock.Date AS Date FROM s3(%(hogql_val_0_sensitive)s, %(hogql_val_1)s) AS aapl_stock))) LIMIT {MAX_SELECT_RETURNED_ROWS}",
                 )
 
     def test_s3_build_function_call_without_context(self):

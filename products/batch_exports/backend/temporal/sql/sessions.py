@@ -5,7 +5,7 @@ import datetime as dt
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
 
-from products.batch_exports.backend.temporal.sql.common import HogQLQueryBatchExportSettings
+from products.batch_exports.backend.temporal.sql.common import BatchExportQuerySettings
 
 # max_inserted_at is only available since around end of 2025. Before
 # that, it is the zero value (unix epoch). We use greatest to pick
@@ -72,5 +72,5 @@ SELECT_FROM_SESSIONS_HOGQL = ast.SelectQuery(
         parse_expr("$entry_irclid as entry_irclid"),
     ],
     select_from=ast.JoinExpr(table=ast.Field(chain=["sessions"])),
-    settings=HogQLQueryBatchExportSettings(),
+    settings=BatchExportQuerySettings(),
 )

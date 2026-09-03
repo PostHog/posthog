@@ -72,7 +72,7 @@ export function InsightSelector({
                 <span className="font-medium">
                     {selectedCount} of {MAX_INSIGHTS} insights selected
                 </span>
-                {selectedCount === 0 && <span className="text-warning">Select at least one insight</span>}
+                {selectedCount === 0 && <span className="text-danger">Select at least one insight</span>}
             </div>
             {showSearch && (
                 <LemonInput

@@ -114,6 +114,246 @@ describe('signalTeamConfigLogic', () => {
         expect(lastPostBody?.autostart_base_branches).toEqual({ 'acme/web': 'release', 'acme/api': 'develop' })
     })
 
+    it('saves and clears the daily report limit through the draft', async () => {
+        await mountWith({})
+        logic.actions.setDraftMaxReportsPerDay(5)
+        expect(logic.values.saveMaxReportsPerDayDisabledReason).toBeNull()
+        logic.actions.saveDraftMaxReportsPerDay()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(lastPostBody).toEqual({ max_reports_per_day: 5 })
+        expect(logic.values.maxReportsPerDay).toBe(5)
+
+        logic.actions.setDraftMaxReportsPerDay(null)
+        logic.actions.saveDraftMaxReportsPerDay()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(lastPostBody).toEqual({ max_reports_per_day: null })
+        expect(logic.values.maxReportsPerDay).toBeNull()
+    })
+
+    it('keeps an unsaved daily limit draft when an unrelated setting is saved', async () => {
+        await mountWith({})
+        logic.actions.setDraftMaxReportsPerDay(7)
+        // Saving a different field on this shared singleton logic must not re-anchor the draft.
+        logic.actions.patchTeamConfig({ autostart_enabled: false })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.draftMaxReportsPerDay).toBe(7)
+    })
+
+    it('keeps an unsaved daily limit draft when an unrelated save fails and reloads', async () => {
+        const serverConfig: SignalTeamConfig = {
+            id: 'cfg-1',
+            autostart_enabled: true,
+            default_autostart_priority: 'P4',
+            autostart_base_branches: {},
+        }
+        useMocks({
+            get: { '/api/projects/:team_id/signals/config/': () => [200, serverConfig] },
+            post: { '/api/projects/:team_id/signals/config/': () => [500, { detail: 'Failed to save' }] },
+        })
+        initKeaTests()
+        logic = signalTeamConfigLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setDraftMaxReportsPerDay(7)
+        // The failed patch triggers a reload; the reseed guard must not clobber the unsaved draft.
+        logic.actions.patchTeamConfig({ autostart_enabled: false })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.draftMaxReportsPerDay).toBe(7)
+    })
+
+    it('refreshes the config when the user returns to the tab, without wiping the draft', async () => {
+        let reportsToday = 3
+        useMocks({
+            get: {
+                '/api/projects/:team_id/signals/config/': () => [
+                    200,
+                    {
+                        id: 'cfg-1',
+                        autostart_enabled: true,
+                        default_autostart_priority: 'P4',
+                        autostart_base_branches: {},
+                        max_reports_per_day: 10,
+                        reports_generated_today: reportsToday,
+                    },
+                ],
+            },
+        })
+        initKeaTests()
+        logic = signalTeamConfigLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.reportsGeneratedToday).toBe(3)
+
+        logic.actions.setDraftMaxReportsPerDay(7)
+        reportsToday = 9
+        // jsdom's visibilityState is 'visible', so this dispatch is a return-to-tab.
+        document.dispatchEvent(new Event('visibilitychange'))
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.reportsGeneratedToday).toBe(9)
+        // The reseed guard must hold for this reload path too, not just failure reloads.
+        expect(logic.values.draftMaxReportsPerDay).toBe(7)
+    })
+
+    it('does not save the daily limit while a config request is in flight', async () => {
+        let getCount = 0
+        let resolveRefresh: (() => void) | undefined
+        const postBodies: Partial<SignalTeamConfig>[] = []
+        useMocks({
+            get: {
+                '/api/projects/:team_id/signals/config/': async () => {
+                    getCount += 1
+                    if (getCount > 1) {
+                        // Hold the refresh GET open so a save can land while it is in flight.
+                        await new Promise<void>((resolve) => {
+                            resolveRefresh = resolve
+                        })
+                    }
+                    return [
+                        200,
+                        {
+                            id: 'cfg-1',
+                            autostart_enabled: true,
+                            default_autostart_priority: 'P4',
+                            autostart_base_branches: {},
+                            max_reports_per_day: null,
+                        },
+                    ]
+                },
+            },
+            post: {
+                '/api/projects/:team_id/signals/config/': async ({ request }) => {
+                    const body = (await request.json()) as Partial<SignalTeamConfig>
+                    postBodies.push(body)
+                    return [200, { id: 'cfg-1', autostart_enabled: true, default_autostart_priority: 'P4', ...body }]
+                },
+            },
+        })
+        initKeaTests()
+        logic = signalTeamConfigLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        // Type a new limit, then a background refresh starts (jsdom's visibilityState is 'visible').
+        logic.actions.setDraftMaxReportsPerDay(5)
+        document.dispatchEvent(new Event('visibilitychange'))
+        await waitFor(() => expect(logic.values.teamConfigLoading).toBe(true))
+        // The draft differs from the saved value, so only the in-flight guard can block the save.
+        expect(logic.values.saveMaxReportsPerDayDisabledReason).toBeNull()
+
+        // Pressing Enter while the refresh GET is in flight must not fire a racing PATCH.
+        logic.actions.saveDraftMaxReportsPerDay()
+        expect(postBodies).toHaveLength(0)
+
+        resolveRefresh?.()
+        await expectLogic(logic).toFinishAllListeners()
+    })
+
+    it('throttles rapid tab-return refreshes to one request per window', async () => {
+        let getCount = 0
+        useMocks({
+            get: {
+                '/api/projects/:team_id/signals/config/': () => {
+                    getCount += 1
+                    return [
+                        200,
+                        {
+                            id: 'cfg-1',
+                            autostart_enabled: true,
+                            default_autostart_priority: 'P4',
+                            autostart_base_branches: {},
+                        },
+                    ]
+                },
+            },
+        })
+        initKeaTests()
+        logic = signalTeamConfigLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(getCount).toBe(1)
+
+        // jsdom's visibilityState is 'visible', so each dispatch is a return-to-tab.
+        document.dispatchEvent(new Event('visibilitychange'))
+        await expectLogic(logic).toFinishAllListeners()
+        expect(getCount).toBe(2)
+
+        // A second return within the throttle window must not fire another GET.
+        document.dispatchEvent(new Event('visibilitychange'))
+        await expectLogic(logic).toFinishAllListeners()
+        expect(getCount).toBe(2)
+    })
+
+    it('stays out of the updating state during a background tab-return refresh', async () => {
+        let getCount = 0
+        let resolveRefresh: (() => void) | undefined
+        useMocks({
+            get: {
+                '/api/projects/:team_id/signals/config/': async () => {
+                    getCount += 1
+                    if (getCount > 1) {
+                        // Hold the refresh GET open so its in-flight state can be observed.
+                        await new Promise<void>((resolve) => {
+                            resolveRefresh = resolve
+                        })
+                    }
+                    return [
+                        200,
+                        {
+                            id: 'cfg-1',
+                            autostart_enabled: true,
+                            default_autostart_priority: 'P4',
+                            autostart_base_branches: {},
+                        },
+                    ]
+                },
+            },
+        })
+        initKeaTests()
+        logic = signalTeamConfigLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        // jsdom's visibilityState is 'visible', so this dispatch is a return-to-tab.
+        document.dispatchEvent(new Event('visibilitychange'))
+        // The refresh GET is now in flight, but it is a load, not a save, so the controls stay enabled.
+        await waitFor(() => expect(logic.values.teamConfigLoading).toBe(true))
+        expect(logic.values.teamConfigUpdating).toBe(false)
+
+        resolveRefresh?.()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.teamConfigUpdating).toBe(false)
+    })
+
+    it('treats a cleared (NaN) daily limit input as unlimited', async () => {
+        await mountWith({})
+        logic.actions.setDraftMaxReportsPerDay(5)
+        logic.actions.saveDraftMaxReportsPerDay()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.maxReportsPerDay).toBe(5)
+
+        // A cleared number LemonInput emits NaN; it must reset the draft to null, not disable Save.
+        logic.actions.setDraftMaxReportsPerDay(Number.NaN)
+        expect(logic.values.draftMaxReportsPerDay).toBeNull()
+        expect(logic.values.saveMaxReportsPerDayDisabledReason).toBeNull()
+        logic.actions.saveDraftMaxReportsPerDay()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(lastPostBody).toEqual({ max_reports_per_day: null })
+        expect(logic.values.maxReportsPerDay).toBeNull()
+    })
+
+    it('blocks saving an invalid or unchanged daily report limit draft', async () => {
+        await mountWith({})
+        // Loading anchored the draft to the server value, so there is nothing to save yet.
+        expect(logic.values.saveMaxReportsPerDayDisabledReason).toBe('No changes to save')
+        logic.actions.setDraftMaxReportsPerDay(0)
+        expect(logic.values.saveMaxReportsPerDayDisabledReason).toBe('Enter a whole number of at least 1')
+        logic.actions.saveDraftMaxReportsPerDay()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(lastPostBody).toBeNull()
+    })
+
     it('serializes rapid override updates so the latest map is persisted last', async () => {
         const initialConfig: SignalTeamConfig = {
             id: 'cfg-1',

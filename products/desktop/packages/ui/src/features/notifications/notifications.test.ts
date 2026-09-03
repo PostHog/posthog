@@ -17,7 +17,6 @@ const toastMock = vi.hoisted(() => ({
 vi.mock("@posthog/ui/primitives/toast", () => ({ toast: toastMock }));
 
 import { playCompletionSound } from "@posthog/ui/utils/sounds";
-import { useErrorDetailsStore } from "./errorDetails";
 import type {
   IActiveView,
   INotificationSettings,
@@ -235,28 +234,13 @@ describe("notifyError", () => {
     );
   });
 
-  it("attaches a Details action that opens the error details dialog", () => {
-    useErrorDetailsStore.getState().close();
+  it("forwards the complete payload for the toast wrapper's View larger action", () => {
     const { bus } = makeBus({ hasFocus: true });
     bus.notifyError("Sync failed", payload);
-    const options = toastMock.error.mock.calls[0]?.[1] as {
-      action?: { label: string; onClick: () => void };
-    };
-    expect(options.action?.label).toBe("Details");
-    options.action?.onClick();
-    const detail = useErrorDetailsStore.getState().detail;
-    expect(detail?.title).toBe("Sync failed");
-    expect(detail?.error).toBe(payload);
-    useErrorDetailsStore.getState().close();
-  });
-
-  it("the Details action wins over target navigation on error toasts", () => {
-    const { bus } = makeBus({ hasFocus: true });
-    bus.notifyError("Sync failed", payload, taskTarget(TASK_ID));
-    const options = toastMock.error.mock.calls[0]?.[1] as {
-      action?: { label: string };
-    };
-    expect(options.action?.label).toBe("Details");
+    expect(toastMock.error).toHaveBeenCalledWith(
+      "Sync failed",
+      expect.objectContaining({ error: payload }),
+    );
   });
 
   it("app unfocused → native notification with the summary as body", () => {

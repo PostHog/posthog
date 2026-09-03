@@ -28,10 +28,19 @@ mark-changed = "all"
 globs = [".sqlx/**"]
 mark-changed = "all"
 
-# Proto files trigger the two build-script crates that read them.
+# Proto files trigger every build-script crate that reads them. The
+# proto_build_scripts_are_in_determinator_rules test fails if a crate compiles
+# protos and is missing here, so keep this list complete rather than counted.
 [[path-rule]]
 globs = ["../proto/**"]
-mark-changed = ["personhog-proto", "kafka-assigner-proto", "cymbal-proto"]
+mark-changed = [
+    "personhog-proto",
+    "kafka-assigner-proto",
+    "cymbal-proto",
+    "ingestion-worker-proto",
+    "prometheus-rw-proto",
+    "usage-ingestion-proto",
+]
 
 # Hypercache contract: Python serializer changes may break Rust deserialization.
 # Must come BEFORE the catch-all rule below.
@@ -82,7 +91,6 @@ mark-changed = []
 globs = [
     "persons_migrations/**",
     "behavioral_cohorts_migrations/**",
-    "cyclotron-core/migrations/**",
     "cyclotron-node-migrations/**",
     "flags_read_store_migrations/**",
     "bin/migrate-*",
@@ -94,6 +102,11 @@ mark-changed = []
 # deps like personhog-proto flow through the graph already). Mark the
 # harness affected whenever a service it spawns changes so the CI gate
 # runs against those changes.
+#
+# The merge queue needs the same edge to keep a harness change out of a lane
+# parallel to one of these services. It gets it from here: the lane script
+# (.github/scripts/trunk-impacted-targets.js) takes this binary's affected set
+# as its rust:crate: answer, so this rule is the edge's only home.
 [[package-rule]]
 on-affected = [
     "personhog-replica",

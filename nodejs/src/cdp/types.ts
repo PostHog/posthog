@@ -44,10 +44,17 @@ export type HogFunctionMasking = {
     threshold: number | null
 }
 
+export type HogFunctionFilterDataWarehouse = {
+    table_name?: string
+}
+
 export interface HogFunctionFilters {
-    source?: 'events' | 'person-updates' | 'data-warehouse-table' // Special case to identify what kind of thing this filters on
+    source?: 'events' | 'internal-events' | 'person-updates' | 'data-warehouse-table' | 'data-warehouse-view' // Special case to identify what kind of thing this filters on
     events?: HogFunctionFilterEvent[]
     actions?: HogFunctionFilterAction[]
+    // Warehouse tables this function is subscribed to. Never compiled into bytecode, so the
+    // consumer has to match on it directly.
+    data_warehouse?: HogFunctionFilterDataWarehouse[]
     properties?: Record<string, any>[] // Global property filters that apply to all events
     filter_test_accounts?: boolean
     bytecode?: HogBytecode
@@ -184,6 +191,7 @@ export type HogFunctionFilterGlobals = {
     }
 
     variables: Record<string, any> | undefined // For HogFlows, workflow-level variables
+    cohort_ids?: number[] // Cohorts the person is a member of, read by the inCohort/notInCohort STL functions
 }
 
 export type MetricLogSource = 'hog_function' | 'hog_flow' | 'legacy_plugin'
@@ -214,6 +222,7 @@ export type MinimalAppMetric = {
     metric_kind: 'failure' | 'success' | 'other' | 'email' | 'sms' | 'push' | 'billing' | 'fetch'
     metric_name:
         | 'early_exit'
+        | 'canceled'
         | 'triggered'
         | 'trigger_failed'
         | 'succeeded'
@@ -236,19 +245,21 @@ export type MinimalAppMetric = {
         | 'email_failed'
         | 'email_opened'
         | 'email_link_clicked'
+        | 'email_link_clicked_by_link'
         | 'email_bounced'
         | 'email_bounced_hard'
         | 'email_bounced_transient'
         | 'email_bounced_undetermined'
         | 'email_bounce_prevented'
         | 'email_suppressed'
+        | 'email_suspended'
         | 'email_blocked'
-        | 'email_spam'
         | 'email_unsubscribed'
         | 'email_untracked'
         | 'push_sent'
         | 'push_failed'
         | 'push_skipped'
+        | 'push_opened'
         | 'quota_limited'
         | 'conversion'
         | 'exited_workflow_changed'
@@ -302,19 +313,55 @@ export type CyclotronJobInvocation = {
     queueMetadata?: Record<string, any> | null
     // Where the invocation came from (kafka or postgres)
     queueSource?: CyclotronJobQueueSource
+    // Cancellation was requested (CyclotronV2Manager.cancelJobs) while this invocation
+    // was in flight. The consumer must terminate it as canceled instead of executing.
+    cancelRequestedAt?: DateTime
 }
 
 // The result of an execution
 export type CyclotronJobInvocationResult<T extends CyclotronJobInvocation = CyclotronJobInvocation> = {
     invocation: T
     finished: boolean
+    /** The invocation deliberately finished without running because its trigger did not match. */
+    skipped?: boolean
+    // The run was canceled rather than succeeding or failing. Only meaningful with
+    // finished=true and no error: the job row and the lifecycle row both flip to
+    // 'canceled'.
+    canceled?: boolean
     error?: any
     logs: MinimalLogEntry[]
     metrics: MinimalAppMetric[]
     capturedPostHogEvents: HogFunctionCapturedEvent[]
     warehouseWebhookPayloads: WarehouseWebhookPayload[]
     messageAssets: MessageAssetRow[]
+    conversionWatchers: ConversionWatcherRow[]
     execResult?: unknown
+}
+
+// The compiled conversion goal as it stood when a run enrolled. Pinned to the run rather than read
+// from the live flow, so editing a goal changes what future runs are measured against without
+// re-judging cohorts already in flight under the old one.
+export type PinnedConversionGoal = {
+    // Property-based goal, evaluated against person properties.
+    properties?: any[]
+    // Event-based goals, any one of which converts.
+    events?: any[][]
+}
+
+// One per enrolled run on a workflow with a conversion goal, outliving the run so a conversion that
+// lands after the last step is still observable. See the conversion_watchers migration for why this
+// is not a cyclotron_jobs row.
+export type ConversionWatcherRow = {
+    id: string
+    team_id: number
+    function_id: string
+    run_id: string
+    parent_run_id: string | null
+    distinct_id: string | null
+    person_id: string | null
+    flow_version: number | null
+    goal: PinnedConversionGoal
+    expires_at: Date
 }
 
 export type CyclotronJobInvocationHogFunctionContext = {
@@ -348,6 +395,10 @@ export type CyclotronJobInvocationHogFlow = CyclotronJobInvocation & {
     person?: CyclotronPerson
     groups?: HogFunctionInvocationGlobals['groups']
     filterGlobals: HogFunctionFilterGlobals
+    // Re-reads the person uncached and rebuilds filterGlobals from it. The worker supplies this; a
+    // wait step calls it before its first evaluation, where a stale person parks the run for good.
+    // It returns the values rather than mutating, so it stays correct on a cloned invocation.
+    refreshPerson?: () => Promise<{ person?: CyclotronPerson; filterGlobals: HogFunctionFilterGlobals }>
 }
 
 export type HogFlowInvocationContext = {
@@ -379,6 +430,14 @@ export type HogFlowInvocationContext = {
     currentAction?: {
         id: string
         startedAtTimestamp: number
+        // The instant a delay_until step resolved to when it first parked, as an ISO string. A resumed
+        // invocation rebuilds its filter globals from stored state, which can arrive without the event
+        // properties the expression reads, so re-evaluating on wake is allowed to fail back to this.
+        delayUntilAt?: string
+        // Set when a delay_until step could not work out when to continue. The run aborts on it whatever
+        // on_error says, because "no date" is not an ambiguous failure to carry on from: continuing would
+        // run the next step immediately, which for a "N days before X" message is worse than not sending.
+        delayUntilUnresolved?: boolean
         hogFunctionState?: CyclotronJobInvocationHogFunctionContext
         // Set by the subscription matcher consumer when it wakes a wait_until_condition
         // job because a matching event arrived (as opposed to a scheduled timeout firing).
@@ -457,6 +516,10 @@ export type HogFunctionInputSchemaType = {
         | 'non_failure_status_codes'
         | 'customer_analytics_account_properties'
         | 'customer_analytics_account_relationships'
+        | 'task_model'
+        | 'task_repository'
+        | 'task_mcp_installations'
+        | 'signals_scout'
     key: string
     label?: string
     choices?: { value: string; label: string }[]

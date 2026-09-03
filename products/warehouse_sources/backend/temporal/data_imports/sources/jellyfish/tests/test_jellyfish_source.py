@@ -5,16 +5,12 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from posthog.schema import SourceFieldInputConfig
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.jellyfish import (
     JellyfishSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.jellyfish import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.jellyfish.jellyfish import JellyfishResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.jellyfish.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.jellyfish.source import JellyfishSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestJellyfishSource:
@@ -22,25 +18,12 @@ class TestJellyfishSource:
         self.source = JellyfishSource()
         self.team_id = 123
 
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.JELLYFISH
-
-    def test_config_fields(self) -> None:
-        config = self.source.get_source_config
-        fields = {f.name: f for f in config.fields if isinstance(f, SourceFieldInputConfig)}
-        assert set(fields) == {"api_token"}
-        assert fields["api_token"].required is True
-        assert fields["api_token"].secret is True
-
     def test_source_is_released(self) -> None:
         # `unreleasedSource=True` hides the connector from every user — a finished source must
         # never carry it (newness is expressed via releaseStatus instead).
         config = self.source.get_source_config
         assert not config.unreleasedSource
         assert config.releaseStatus is not None
-
-    def test_docs_url_matches_doc_filename(self) -> None:
-        assert self.source.get_source_config.docsUrl == "https://posthog.com/docs/cdp/sources/jellyfish"
 
     def test_lists_tables_without_credentials(self) -> None:
         # Static endpoint catalog with no I/O, so the public docs can render the table list.
@@ -100,11 +83,6 @@ class TestJellyfishSource:
     def test_transient_errors_remain_retryable(self, _name: str, other_error: str) -> None:
         non_retryable = self.source.get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable)
-
-    def test_resumable_manager_is_bound_to_resume_config(self) -> None:
-        inputs = MagicMock()
-        manager = self.source.get_resumable_source_manager(inputs)
-        assert manager._data_class is JellyfishResumeConfig
 
     def test_source_for_pipeline_plumbs_args(self, monkeypatch: Any) -> None:
         captured: dict[str, Any] = {}

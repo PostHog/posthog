@@ -60,7 +60,7 @@ export function LoopRow({
 
   return (
     <Link
-      to="/code/loops/$loopId"
+      to="/loops/$loopId"
       params={{ loopId: loop.id }}
       state={{ loopListOrigin: true }}
       className="group flex items-center justify-between gap-3 rounded-(--radius-2) border border-border bg-(--color-panel-solid) px-4 py-3.5 no-underline transition-colors duration-150 hover:border-(--gray-6) hover:bg-(--gray-2)"

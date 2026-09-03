@@ -1,10 +1,10 @@
-from posthog import settings
 from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
 from posthog.models.person.sql import (
     KAFKA_PERSON_DISTINCT_ID_OVERRIDES_WS_TABLE_SQL,
     PERSON_DISTINCT_ID_OVERRIDES_WS_MV_SQL,
 )
+from posthog.run_mode import run_mode
 
 # Migration to create a WarpStream Kafka engine table for person_distinct_id_overrides.
 #
@@ -25,7 +25,7 @@ from posthog.models.person.sql import (
 
 operations = (
     []
-    if settings.CLOUD_DEPLOYMENT not in ("US", "EU", "DEV")
+    if not run_mode().is_deployed_cloud
     else [
         run_sql_with_exceptions(
             KAFKA_PERSON_DISTINCT_ID_OVERRIDES_WS_TABLE_SQL(),

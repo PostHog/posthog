@@ -3,7 +3,6 @@ import fs from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
 import { execGh } from "@posthog/git/gh";
-import { readHandoffLocalGitState } from "@posthog/git/handoff";
 import { getGitOperationManager } from "@posthog/git/operation-manager";
 import {
   type DiffStats,
@@ -32,18 +31,13 @@ import {
   unstageFiles as gitUnstageFiles,
   isGitRepository,
 } from "@posthog/git/queries";
-import {
-  CreateBranchSaga,
-  ResetToDefaultBranchSaga,
-  SwitchBranchSaga,
-} from "@posthog/git/sagas/branch";
+import { CreateBranchSaga, SwitchBranchSaga } from "@posthog/git/sagas/branch";
 import { CleanWorkingTreeSaga } from "@posthog/git/sagas/clean";
 import { CloneSaga } from "@posthog/git/sagas/clone";
 import { CommitSaga } from "@posthog/git/sagas/commit";
 import { DiscardFileChangesSaga } from "@posthog/git/sagas/discard";
 import { PullSaga } from "@posthog/git/sagas/pull";
 import { PushSaga } from "@posthog/git/sagas/push";
-import { StashPushSaga } from "@posthog/git/sagas/stash";
 import { parseGithubUrl } from "@posthog/git/utils";
 import { TypedEventEmitter } from "@posthog/shared";
 import { injectable } from "inversify";
@@ -69,7 +63,6 @@ import type {
   GitStateSnapshot,
   GitStatusOutput,
   GitSyncStatus,
-  HandoffLocalGitState,
   MergePrOutput,
   OpenPrOutput,
   PrActionType,
@@ -91,7 +84,11 @@ import type {
   SyncOutput,
   UpdatePrByUrlOutput,
 } from "./schemas";
-import { getPrInfoByUrlOutput, prConversationCommentSchema } from "./schemas";
+import {
+  getPrDetailsByUrlOutput,
+  getPrInfoByUrlOutput,
+  prConversationCommentSchema,
+} from "./schemas";
 
 const FETCH_THROTTLE_MS = 30_000;
 /** Max PRs per GraphQL request – stays well under GitHub's complexity ceiling. */
@@ -126,6 +123,49 @@ function toUnifiedDiffPatch(
   const fromPath = status === "added" ? "/dev/null" : `a/${oldPath}`;
   const toPath = status === "deleted" ? "/dev/null" : `b/${filename}`;
   return `diff --git a/${oldPath} b/${filename}\n--- ${fromPath}\n+++ ${toPath}\n${rawPatch}`;
+}
+
+/** One entry of the `files[]` array GitHub's REST diff endpoints (PR files, compare, commit) share. */
+interface GithubApiFile {
+  filename: string;
+  status: string;
+  previous_filename?: string;
+  additions: number;
+  deletions: number;
+  patch?: string;
+  sha?: string;
+}
+
+function mapGithubApiFiles(files: GithubApiFile[]): ChangedFile[] {
+  return files.map((f) => {
+    let status: ChangedFile["status"];
+    switch (f.status) {
+      case "added":
+        status = "added";
+        break;
+      case "removed":
+        status = "deleted";
+        break;
+      case "renamed":
+        status = "renamed";
+        break;
+      default:
+        status = "modified";
+        break;
+    }
+
+    return {
+      path: f.filename,
+      status,
+      originalPath: f.previous_filename,
+      linesAdded: f.additions,
+      linesRemoved: f.deletions,
+      sha: f.sha,
+      patch: f.patch
+        ? toUnifiedDiffPatch(f.patch, f.filename, f.previous_filename, status)
+        : undefined,
+    };
+  });
 }
 
 /**
@@ -175,7 +215,7 @@ export function mapPrState(
   return null;
 }
 
-export const GitCloneEvent = { CloneProgress: "cloneProgress" } as const;
+const GitCloneEvent = { CloneProgress: "cloneProgress" } as const;
 export interface GitCloneEvents {
   [GitCloneEvent.CloneProgress]: CloneProgressPayload;
 }
@@ -231,7 +271,7 @@ export class GitService extends TypedEventEmitter<GitCloneEvents> {
     env?: Record<string, string>,
   ): Promise<{ success: boolean; message: string; prUrl: string | null }> {
     const prFooter =
-      "\n\n---\n*Created with [PostHog Code](https://posthog.com/code?ref=pr)*";
+      "\n\n---\n*Created with [PostHog Desktop](https://posthog.com/desktop?ref=pr)*";
     const args = ["pr", "create"];
     if (title) {
       args.push("--title", title);
@@ -989,22 +1029,16 @@ export class GitService extends TypedEventEmitter<GitCloneEvents> {
         "api",
         `repos/${pr.owner}/${pr.repo}/pulls/${pr.number}`,
         "--jq",
-        "{state,merged,draft,headRefName: .head.ref,title}",
+        "{state,merged,draft,headRefName: .head.ref,title,author: (.user.login // null)}",
       ]);
 
       if (result.exitCode !== 0) {
         return null;
       }
 
-      const data = JSON.parse(result.stdout) as {
-        state: string;
-        merged: boolean;
-        draft: boolean;
-        headRefName: string | null;
-        title: string | null;
-      };
-
-      return data;
+      // The jq expression above and this schema describe one shape, so parse
+      // rather than cast: a GitHub field that moves fails here, not downstream.
+      return getPrDetailsByUrlOutput.parse(JSON.parse(result.stdout));
     } catch {
       return null;
     }
@@ -1053,48 +1087,8 @@ export class GitService extends TypedEventEmitter<GitCloneEvents> {
       );
     }
 
-    const pages = JSON.parse(result.stdout) as Array<
-      Array<{
-        filename: string;
-        status: string;
-        previous_filename?: string;
-        additions: number;
-        deletions: number;
-        patch?: string;
-        sha?: string;
-      }>
-    >;
-    const files = pages.flat();
-
-    return files.map((f) => {
-      let status: ChangedFile["status"];
-      switch (f.status) {
-        case "added":
-          status = "added";
-          break;
-        case "removed":
-          status = "deleted";
-          break;
-        case "renamed":
-          status = "renamed";
-          break;
-        default:
-          status = "modified";
-          break;
-      }
-
-      return {
-        path: f.filename,
-        status,
-        originalPath: f.previous_filename,
-        linesAdded: f.additions,
-        linesRemoved: f.deletions,
-        sha: f.sha,
-        patch: f.patch
-          ? toUnifiedDiffPatch(f.patch, f.filename, f.previous_filename, status)
-          : undefined,
-      };
-    });
+    const pages = JSON.parse(result.stdout) as GithubApiFile[][];
+    return mapGithubApiFiles(pages.flat());
   }
 
   /**
@@ -1245,49 +1239,42 @@ export class GitService extends TypedEventEmitter<GitCloneEvents> {
     }
 
     const response = JSON.parse(result.stdout) as {
-      files?: Array<{
-        filename: string;
-        status: string;
-        previous_filename?: string;
-        additions: number;
-        deletions: number;
-        patch?: string;
-        sha?: string;
-      }>;
+      files?: GithubApiFile[];
     };
-    const files = response.files;
+    return mapGithubApiFiles(response.files ?? []);
+  }
 
-    if (!files) return [];
+  async getCommitChangedFiles(
+    repo: string,
+    sha: string,
+  ): Promise<ChangedFile[]> {
+    const parts = repo.split("/");
+    if (parts.length !== 2) return [];
+    // The sha comes from event payloads; the guard keeps a crafted value from
+    // steering the authenticated request to a different GitHub endpoint.
+    if (!/^[0-9a-f]{7,40}$/i.test(sha)) return [];
 
-    return files.map((f) => {
-      let status: ChangedFile["status"];
-      switch (f.status) {
-        case "added":
-          status = "added";
-          break;
-        case "removed":
-          status = "deleted";
-          break;
-        case "renamed":
-          status = "renamed";
-          break;
-        default:
-          status = "modified";
-          break;
+    const [owner, repoName] = parts;
+    // A stalled fetch would otherwise hang this call forever, holding the expanded
+    // commit row on a permanent skeleton with no error the query can recover from.
+    const result = await execGh(
+      ["api", `repos/${owner}/${repoName}/commits/${sha}`],
+      { timeoutMs: 10_000 },
+    );
+
+    if (result.exitCode !== 0) {
+      if (/HTTP 404\b/.test(`${result.stderr} ${result.error ?? ""}`)) {
+        return [];
       }
+      throw new Error(
+        `Failed to fetch commit files: ${result.stderr || result.error || "Unknown error"}`,
+      );
+    }
 
-      return {
-        path: f.filename,
-        status,
-        originalPath: f.previous_filename,
-        linesAdded: f.additions,
-        linesRemoved: f.deletions,
-        sha: f.sha,
-        patch: f.patch
-          ? toUnifiedDiffPatch(f.patch, f.filename, f.previous_filename, status)
-          : undefined,
-      };
-    });
+    const response = JSON.parse(result.stdout) as {
+      files?: GithubApiFile[];
+    };
+    return mapGithubApiFiles(response.files ?? []);
   }
 
   async getLocalBranchChangedFiles(
@@ -1974,49 +1961,5 @@ export class GitService extends TypedEventEmitter<GitCloneEvents> {
     } catch {
       return [];
     }
-  }
-
-  async readHandoffLocalGitState(
-    directoryPath: string,
-  ): Promise<HandoffLocalGitState> {
-    return readHandoffLocalGitState(directoryPath);
-  }
-
-  async cleanupAfterCloudHandoff(
-    directoryPath: string,
-    branchName: string | null,
-  ): Promise<{
-    stashed: boolean;
-    switched: boolean;
-    defaultBranch: string | null;
-  }> {
-    let stashed = false;
-    const hasChanges =
-      (await this.getChangedFilesHead(directoryPath)).length > 0;
-
-    if (hasChanges) {
-      const label = branchName ?? "unknown";
-      const stashResult = await new StashPushSaga().run({
-        baseDir: directoryPath,
-        message: `posthog-code: handoff backup (${label})`,
-      });
-      if (!stashResult.success) {
-        return { stashed: false, switched: false, defaultBranch: null };
-      }
-      stashed = true;
-    }
-
-    const resetResult = await new ResetToDefaultBranchSaga().run({
-      baseDir: directoryPath,
-    });
-    if (!resetResult.success) {
-      return { stashed, switched: false, defaultBranch: null };
-    }
-
-    return {
-      stashed,
-      switched: resetResult.data.switched,
-      defaultBranch: resetResult.data.defaultBranch,
-    };
   }
 }

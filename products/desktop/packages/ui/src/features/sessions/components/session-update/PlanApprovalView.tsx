@@ -33,10 +33,17 @@ export function PlanApprovalView({
     | undefined;
   const isHistoricalPlan = rawInput?.historical === true;
 
-  const planText = useMemo(
-    () => extractPlanText({ rawInput, content }),
-    [content, rawInput],
-  );
+  const planText = useMemo(() => {
+    // Once resolved, the update stream may have replaced `content` with the
+    // outcome message (a denial's refusal text) — the typed rawInput.plan is
+    // then the only faithful copy, so it wins. While streaming, content stays
+    // authoritative over a possibly partial rawInput snapshot.
+    const resolved = isHistoricalPlan || isComplete || isFailed || wasCancelled;
+    return resolved
+      ? (extractPlanText({ rawInput, content: [] }) ??
+          extractPlanText({ rawInput, content }))
+      : extractPlanText({ rawInput, content });
+  }, [content, rawInput, isHistoricalPlan, isComplete, isFailed, wasCancelled]);
 
   const wasNotApproved = isFailed || wasCancelled;
   const showResult = isHistoricalPlan || isComplete || wasNotApproved;

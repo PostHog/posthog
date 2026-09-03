@@ -6,17 +6,16 @@ from django.core.cache import cache
 from rest_framework import status
 from slack_sdk.errors import SlackApiError
 
+from posthog.cdp.templates.fixtures import template_slack
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
-from posthog.cdp.templates.slack.template_slack import template as template_slack
 from posthog.constants import AvailableFeature
 from posthog.models import Integration, Organization, OrganizationMembership, Team
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.customer_analytics.backend.logic.event_stream_destination import _NO_MEMBERS_SENTINEL
 from products.customer_analytics.backend.models import EventStream, EventStreamMember, TeamCustomerAnalyticsConfig
 from products.customer_analytics.backend.test.factories import create_account
-
-from ee.models.rbac.access_control import AccessControl
 
 
 class TestEventStreamViewSet(APIBaseTest):

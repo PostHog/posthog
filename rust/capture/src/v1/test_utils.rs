@@ -677,7 +677,6 @@ use crate::event_restrictions::EventRestrictionService;
 use crate::global_rate_limiter::GlobalRateLimiter;
 use crate::quota_limiters::CaptureQuotaLimiter;
 use crate::router::{self, HistoricalConfig};
-use crate::sinks;
 use crate::time::TimeSource;
 use crate::v1::sinks::kafka::mock::MockProducer;
 use crate::v1::sinks::kafka::sink::KafkaSink;
@@ -701,6 +700,7 @@ pub struct TestStateBuilder {
     historical_threshold_days: Option<i64>,
     restriction_service: Option<EventRestrictionService>,
     global_rate_limiter: Option<Arc<GlobalRateLimiter>>,
+    ai_byte_rate_limiter: Option<Arc<GlobalRateLimiter>>,
     mock_producer: Option<Arc<MockProducer>>,
     ai_gateway_signing_secret: Option<String>,
     ingestion_warning_emitter: Option<Arc<dyn common_ingestion_warnings::WarningEmitter>>,
@@ -724,6 +724,7 @@ impl TestStateBuilder {
             historical_threshold_days: None,
             restriction_service: None,
             global_rate_limiter: None,
+            ai_byte_rate_limiter: None,
             mock_producer: None,
             ai_gateway_signing_secret: None,
             ingestion_warning_emitter: None,
@@ -792,6 +793,12 @@ impl TestStateBuilder {
     /// Add a global rate limiter.
     pub fn with_global_rate_limiter(mut self, limiter: Arc<GlobalRateLimiter>) -> Self {
         self.global_rate_limiter = Some(limiter);
+        self
+    }
+
+    /// Add the AI lane's byte-budget limiter.
+    pub fn with_ai_byte_rate_limiter(mut self, limiter: Arc<GlobalRateLimiter>) -> Self {
+        self.ai_byte_rate_limiter = Some(limiter);
         self
     }
 
@@ -906,14 +913,15 @@ impl TestStateBuilder {
             [(SinkName::Msk, boxed_sink)].into_iter().collect();
         let v1_router = v1_sinks::Router::new(SinkName::Msk, sinks_map);
 
-        // Legacy sink — no-op since V1 tests go through v1_sink_router
-        let legacy_sink: Arc<dyn sinks::Event + Send + Sync> =
-            Arc::new(crate::sinks::noop::NoOpSink::new());
+        // Legacy produce surface — no-op since V1 tests go through v1_sink_router
+        let legacy_outputs = Arc::new(crate::outputs::OutputRegistry::single(
+            crate::sinks::noop::NoOpSink::new(),
+        ));
 
         let timesource: Arc<dyn TimeSource + Send + Sync> = Arc::new(crate::time::SystemTime {});
 
         let state = router::State {
-            sink: legacy_sink,
+            outputs: legacy_outputs,
             timesource,
             redis,
             global_rate_limiter_token_distinctid: self.global_rate_limiter,
@@ -925,13 +933,14 @@ impl TestStateBuilder {
             is_mirror_deploy: false,
             verbose_sample_percent: 0.0,
             ai_max_sum_of_parts_bytes: 100 * 1024 * 1024,
-            ai_blob_storage: None,
+            ai_max_event_bytes: 0,
             body_chunk_read_timeout: None,
             body_read_chunk_size_kb: 64,
             capture_v1_max_compressed_body_bytes: 2 * 1024 * 1024,
             capture_v1_max_decompressed_body_bytes: 20 * 1024 * 1024,
             overflow_limiter,
             ai_events_overflow_limiter,
+            ai_byte_rate_limiter: self.ai_byte_rate_limiter,
             replay_overflow_limiter: None,
             v1_sink_router: Some(Arc::new(v1_router)),
             capture_v1_scatter_gather_min_batch: 8,

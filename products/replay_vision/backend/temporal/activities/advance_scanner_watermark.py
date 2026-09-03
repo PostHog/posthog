@@ -8,10 +8,14 @@ from products.replay_vision.backend.temporal.sweep_types import AdvanceScannerWa
 @activity.defn
 @track_activity()
 def advance_scanner_watermark_activity(inputs: AdvanceScannerWatermarkInputs) -> None:
-    updated = ReplayScanner.objects.filter(pk=inputs.scanner_id).update(
-        last_swept_at=inputs.new_last_swept_at,
-        last_seen_session_id=inputs.new_last_seen_session_id,
-    )
+    updates: dict[str, object] = {
+        "last_swept_at": inputs.new_last_swept_at,
+        "last_seen_session_id": inputs.new_last_seen_session_id,
+    }
+    if inputs.new_last_deep_swept_at is not None:
+        updates["deep_swept_through"] = inputs.new_last_deep_swept_at
+        updates["deep_seen_session_id"] = inputs.new_last_deep_seen_session_id
+    updated = ReplayScanner.objects.filter(pk=inputs.scanner_id).update(**updates)
     if updated == 0:
         activity.logger.info(
             "advance_scanner_watermark: scanner no longer exists",

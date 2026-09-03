@@ -7,13 +7,13 @@ from posthog.temporal.session_replay.count_playlist_items.counting_logic import 
     count_recordings_that_match_playlist_filters,
     fetch_playlists_to_count as fetch_playlists_to_count_sync,
 )
-from posthog.temporal.session_replay.count_playlist_items.types import CountPlaylistInput, PlaylistInfo
+from posthog.temporal.session_replay.count_playlist_items.types import CountPlaylistInput, PlaylistToCount
 
 LOGGER = get_write_only_logger()
 
 
 @activity.defn(name="fetch-playlists-to-count")
-async def fetch_playlists_to_count() -> list[PlaylistInfo]:
+async def fetch_playlists_to_count() -> list[PlaylistToCount]:
     logger = LOGGER.bind(activity="fetch-playlists-to-count")
     logger.info("Fetching playlists to count")
 
@@ -21,7 +21,7 @@ async def fetch_playlists_to_count() -> list[PlaylistInfo]:
 
     logger.info("Found playlists to count", to_count=len(playlist_ids))
 
-    return [PlaylistInfo(playlist_id=pid) for pid in playlist_ids]
+    return [PlaylistToCount(playlist_id=pid) for pid in playlist_ids]
 
 
 @activity.defn(name="count-recordings-for-playlist")

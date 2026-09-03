@@ -88,27 +88,43 @@ impl ErrorTelemetryMetadata {
             return metadata;
         }
 
-        let Some(client_error) = error
+        if let Some(client_error) = error
             .chain()
             .find_map(|source| source.downcast_ref::<ClientError>())
-        else {
+        {
+            match client_error {
+                ClientError::ApiError(status, _, body) => {
+                    metadata.error_kind = "api_error";
+                    metadata.http_status = Some(*status);
+                    metadata.api_error_code = safe_api_error_code(body);
+                }
+                ClientError::RequestError(err) => {
+                    metadata.error_kind = "request_error";
+                    metadata.is_timeout = Some(err.is_timeout());
+                    metadata.is_connect = Some(err.is_connect());
+                }
+                ClientError::InvalidUrl(_) => {
+                    metadata.error_kind = "invalid_url";
+                }
+            }
             return metadata;
-        };
+        }
 
-        match client_error {
-            ClientError::ApiError(status, _, body) => {
-                metadata.error_kind = "api_error";
-                metadata.http_status = Some(*status);
-                metadata.api_error_code = safe_api_error_code(body);
-            }
-            ClientError::RequestError(err) => {
-                metadata.error_kind = "request_error";
-                metadata.is_timeout = Some(err.is_timeout());
-                metadata.is_connect = Some(err.is_connect());
-            }
-            ClientError::InvalidUrl(_) => {
-                metadata.error_kind = "invalid_url";
-            }
+        if let Some(io_error) = find_error::<std::io::Error>(error) {
+            metadata.error_kind = "io_error";
+            metadata.io_error_kind = Some(format!("{:?}", io_error.kind()));
+        } else if find_error::<serde_json::Error>(error).is_some() {
+            metadata.error_kind = "json_error";
+        } else if find_error::<serde_yaml::Error>(error).is_some() {
+            metadata.error_kind = "yaml_error";
+        } else if find_error::<plist::Error>(error).is_some() {
+            metadata.error_kind = "plist_error";
+        } else if find_error::<sourcemap::Error>(error).is_some() {
+            metadata.error_kind = "sourcemap_error";
+        } else if find_error::<globset::Error>(error).is_some() {
+            metadata.error_kind = "glob_error";
+        } else if find_error::<zip::result::ZipError>(error).is_some() {
+            metadata.error_kind = "zip_error";
         }
 
         metadata
@@ -143,6 +159,13 @@ impl ErrorTelemetryMetadata {
 
         parts.join(":")
     }
+}
+
+fn find_error<T>(error: &Error) -> Option<&T>
+where
+    T: StdError + Send + Sync + 'static,
+{
+    error.chain().find_map(|source| source.downcast_ref::<T>())
 }
 
 #[derive(Deserialize)]
@@ -257,6 +280,31 @@ fn capture_exception(metadata: ErrorTelemetryMetadata) {
 mod tests {
     use super::*;
     use crate::api_proxy::{ApiProxyError, MaterializeStep};
+
+    #[test]
+    fn local_errors_produce_structured_telemetry() {
+        let cases = [
+            (
+                anyhow::Error::new(std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    "denied",
+                )),
+                "io_error",
+                Some("PermissionDenied"),
+            ),
+            (
+                anyhow::Error::new(serde_json::from_str::<serde_json::Value>("{").unwrap_err()),
+                "json_error",
+                None,
+            ),
+        ];
+
+        for (error, expected_kind, expected_io_kind) in cases {
+            let metadata = ErrorTelemetryMetadata::from_error(&error);
+            assert_eq!(metadata.error_kind, expected_kind);
+            assert_eq!(metadata.io_error_kind.as_deref(), expected_io_kind);
+        }
+    }
 
     #[test]
     fn proxy_launch_errors_produce_structured_telemetry() {

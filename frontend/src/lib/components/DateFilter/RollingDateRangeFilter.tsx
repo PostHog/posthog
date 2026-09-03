@@ -7,7 +7,7 @@ import { LemonButton, LemonButtonProps, LemonInput, LemonSelect, LemonSelectOpti
 import { dayjs } from 'lib/dayjs'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
-import { DateOption, rollingDateRangeFilterLogic } from './rollingDateRangeFilterLogic'
+import { type DateOption, type RelativeDateDirection, rollingDateRangeFilterLogic } from './rollingDateRangeFilterLogic'
 
 const dateOptions: LemonSelectOptionLeaf<DateOption>[] = [
     { value: 'seconds', label: 'seconds' },
@@ -36,6 +36,7 @@ type RollingDateRangeFilterProps = {
     }
     dateRangeFilterLabel?: string
     dateRangeFilterSuffixLabel?: string
+    direction?: RelativeDateDirection
     allowedDateOptions?: DateOption[]
     fullWidth?: LemonButtonProps['fullWidth']
     size?: 'small' | 'medium'
@@ -52,12 +53,13 @@ export function RollingDateRangeFilter({
     max,
     dateRangeFilterLabel = 'In the last',
     dateRangeFilterSuffixLabel,
+    direction = 'past',
     pageKey,
     allowedDateOptions = ['days', 'weeks', 'months', 'years'],
     fullWidth,
     size,
 }: RollingDateRangeFilterProps): JSX.Element {
-    const logicProps = { onChange, dateFrom, inUse: selected || inUse, max, pageKey }
+    const logicProps = { onChange, dateFrom, inUse: selected || inUse, max, pageKey, direction }
     const { increaseCounter, decreaseCounter, setCounter, setDateOption, toggleDateOptionsSelector, select } =
         useActions(rollingDateRangeFilterLogic(logicProps))
     const { counter, dateOption, formattedDate, startOfDateRange } = useValues(rollingDateRangeFilterLogic(logicProps))
@@ -79,7 +81,6 @@ export function RollingDateRangeFilter({
                     type="number"
                     value={counter ?? 0}
                     min={0}
-                    placeholder="0"
                     onChange={(value) => setCounter(value)}
                 />
                 <span
@@ -118,7 +119,8 @@ export function RollingDateRangeFilter({
         contents = (
             <LemonButton
                 className="RollingDateRangeFilter"
-                data-attr="rolling-date-range-filter"
+                // Pinned: changing this breaks autocapture dashboards and UI tests.
+                data-attr={direction === 'future' ? 'future-rolling-date-range-filter' : 'rolling-date-range-filter'}
                 onClick={select}
                 active={selected}
                 size={size}

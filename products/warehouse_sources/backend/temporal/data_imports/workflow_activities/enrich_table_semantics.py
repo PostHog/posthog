@@ -355,7 +355,9 @@ def enrich_table_semantics_sync(team_id: int, schema_id: uuid.UUID) -> dict[str,
     # (`created_at`, `customer_id`) each column surfaces as, so the description lands on the column that
     # `information_schema` and the AI agent actually see. Columns with no rename map to themselves.
     hogql_name_by_raw = get_hogql_column_name_mapping(table.table_name_without_prefix())
-    canonical = get_canonical_descriptions_for_source(schema.source.source_type).get(schema.name, {})
+    canonical = get_canonical_descriptions_for_source(
+        schema.source.source_type, table_prefix=schema.source.prefix or ""
+    ).get(schema.name, {})
     canonical_columns = {
         hogql_name_by_raw.get(raw_name, raw_name): description
         for raw_name, description in (canonical.get("columns") or {}).items()

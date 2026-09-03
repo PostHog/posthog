@@ -43,7 +43,6 @@ import { HogFlowScheduleService } from './cdp/services/hogflow-schedule/hogflow-
 import { HOGFLOW_BATCH_RESOLVE_QUEUE } from './cdp/services/hogflows/batch-resolver.types'
 import { HogFlowBatchPersonQueryService } from './cdp/services/hogflows/hogflow-batch-person-query.service'
 import { CyclotronJobQueueKafka } from './cdp/services/job-queue/job-queue-kafka'
-import { CyclotronJobQueuePostgres } from './cdp/services/job-queue/job-queue-postgres'
 import { CyclotronJobQueuePostgresV2 } from './cdp/services/job-queue/job-queue-postgres-v2'
 import { CyclotronJobQueueRateLimitedPostgresV2 } from './cdp/services/job-queue/job-queue-rate-limited-postgres-v2'
 import { hasEmailSigningKey } from './cdp/services/messaging/helpers/tracking-code'
@@ -99,9 +98,7 @@ export class PluginServer implements NodeServer {
             capabilities.cdpApi ||
             capabilities.cdpCyclotronWorker ||
             capabilities.cdpCyclotronWorkerHogFlow ||
-            capabilities.cdpCyclotronWorkerHogFlowLegacyPg ||
             capabilities.cdpCyclotronWorkerEmail ||
-            capabilities.cdpCyclotronWorkerEmailLegacyPg ||
             capabilities.cdpCohortMembership ||
             capabilities.cdpCyclotronWorkerBatchResolve ||
             capabilities.cdpHogflowSubscriptionMatcher ||
@@ -195,7 +192,10 @@ export class PluginServer implements NodeServer {
 
         if (capabilities.cdpInternalEvents) {
             serviceLoaders.push(async () => {
-                const consumer = new CdpInternalEventsConsumer(this.config, cdpDeps!, kafkaQueue)
+                const consumer = new CdpInternalEventsConsumer(this.config, cdpDeps!, {
+                    hogQueue: kafkaQueue,
+                    hogflowQueue: postgresV2Queue,
+                })
                 await consumer.start()
                 return consumer.service
             })
@@ -318,44 +318,15 @@ export class PluginServer implements NodeServer {
             })
         }
 
-        // Legacy postgres v1 drain for hogflow jobs — delete once cdp-cyclotron-worker-hogflows-pg-legacy is shut down
-        if (capabilities.cdpCyclotronWorkerHogFlowLegacyPg) {
-            serviceLoaders.push(async () => {
-                const legacyQueue = new CyclotronJobQueuePostgres(this.config.CONSUMER_BATCH_SIZE, this.config)
-                const worker = new CdpCyclotronWorkerHogFlow(
-                    this.config,
-                    this.withEmailValidationValkey(cdpDeps!),
-                    legacyQueue
-                )
-                await worker.start()
-                return worker.service
-            })
-        }
-
         // Boot-time guard: an email-sending deployment must carry a signing key, otherwise every send
         // would either mint an unsigned tracking link or (now that generate() fails closed) fail. Refuse
-        // to start instead of degrading silently. Both email workers below sign tracking codes.
-        const isEmailWorker = capabilities.cdpCyclotronWorkerEmail || capabilities.cdpCyclotronWorkerEmailLegacyPg
+        // to start instead of degrading silently. The email worker below signs tracking codes.
+        const isEmailWorker = capabilities.cdpCyclotronWorkerEmail
         if (isEmailWorker && !hasEmailSigningKey(this.config.ENCRYPTION_SALT_KEYS)) {
             throw new Error(
                 'Email worker requires ENCRYPTION_SALT_KEYS to sign tracking codes — refusing to start. ' +
                     'Configure ENCRYPTION_SALT_KEYS so outbound emails never mint unsigned tracking links.'
             )
-        }
-
-        // Transitional drain for email jobs stranded on the legacy V1 queue — the email worker
-        // run against V1, sending inline. Delete once V1 'email' throughput is ~0.
-        if (capabilities.cdpCyclotronWorkerEmailLegacyPg) {
-            serviceLoaders.push(async () => {
-                const legacyQueue = new CyclotronJobQueuePostgres(this.config.CONSUMER_BATCH_SIZE, this.config)
-                const worker = new CdpCyclotronWorkerEmail(
-                    this.config,
-                    this.withEmailValidationValkey(cdpDeps!),
-                    legacyQueue
-                )
-                await worker.start()
-                return worker.service
-            })
         }
 
         if (capabilities.cdpCyclotronWorkerEmail) {

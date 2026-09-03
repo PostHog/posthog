@@ -10,7 +10,7 @@ from posthog.models.file_system.file_system_representation import FileSystemRepr
 from posthog.models.file_system.file_system_view_log import get_recent_file_system_items, log_file_system_view
 
 from products.dashboards.backend.models.dashboard import Dashboard
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 
 class FileSystemWithLastViewed(Protocol):

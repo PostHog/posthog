@@ -4,12 +4,14 @@ import { type ComponentType, type ReactNode } from 'react'
 
 import * as chartPng from '@posthog/brand/hoggies/png/chart'
 import * as coffeeRunPng from '@posthog/brand/hoggies/png/coffee-run'
+import * as heartPng from '@posthog/brand/hoggies/png/heart'
 import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass-1'
+import * as starPng from '@posthog/brand/hoggies/png/star'
 import { IconCheck, IconChevronDown, IconCrown, IconInfo, IconLock, IconPeople, IconPerson } from '@posthog/icons'
 import { LemonModal, Tooltip } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
-import { ExplorerHog, HeartHog, StarHog, WavingHog } from 'lib/components/hedgehogs'
+import { ExplorerHog, WavingHog } from 'lib/components/hedgehogs'
 import { dayjs } from 'lib/dayjs'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -29,7 +31,9 @@ import { webAnalyticsAchievementsPreferencesLogic } from './webAnalyticsAchievem
 
 const HedgehogChart = pngHoggie(chartPng)
 const HedgehogCoffeeRun = pngHoggie(coffeeRunPng)
+const HedgehogHeart = pngHoggie(heartPng)
 const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
+const HedgehogStar = pngHoggie(starPng)
 
 const RING_TRACK_COLOR = 'var(--border)'
 const TIER_COLORS = [
@@ -56,7 +60,7 @@ const TRACK_META: Record<string, TrackMeta> = {
             `${humanFriendlyLargeNumber(n)} ${pluralize(n, 'day', 'days', false)} until "${next}"`,
     },
     loyalty: {
-        hog: HeartHog,
+        hog: HedgehogHeart,
         objective: 'Open Web analytics on many separate days over time.',
         unit: 'days',
         effortPhrase: (n, next) =>
@@ -77,7 +81,7 @@ const TRACK_META: Record<string, TrackMeta> = {
             `Watch ${humanFriendlyLargeNumber(n)} more ${pluralize(n, 'recording', 'recordings', false)} to reach "${next}"`,
     },
     conversions: {
-        hog: StarHog,
+        hog: HedgehogStar,
         objective: 'Set up conversion goals in Web analytics.',
         unit: 'conversions',
         effortPhrase: (n, next) => `${humanFriendlyLargeNumber(n)} more to reach "${next}"`,

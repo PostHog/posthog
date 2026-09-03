@@ -1,6 +1,6 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
-import { useEffect } from 'react'
+import { useCallback, useEffect } from 'react'
 
 import { IconGear } from '@posthog/icons'
 import { LemonButton, LemonDropdown, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
@@ -9,6 +9,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { newInternalTab } from 'lib/utils/newInternalTab'
 import { urls } from 'scenes/urls'
 
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
@@ -135,11 +136,69 @@ function TracesOptionsMenu(): JSX.Element | null {
     )
 }
 
+function buildTraceDetailUrl(row: LLMTrace, searchParams: Record<string, unknown>): string {
+    const nonTraceSearchParams = sanitizeTraceUrlSearchParams(searchParams, { removeSearch: true })
+    return combineUrl(urls.aiObservabilityTrace(row.id), {
+        ...nonTraceSearchParams,
+        back_to: 'traces',
+        timestamp: getTraceTimestamp(row.createdAt),
+    }).url
+}
+
+function getTraceFromRow(record: unknown): LLMTrace | null {
+    if (typeof record !== 'object' || !record || !('result' in record)) {
+        return null
+    }
+    const result = record.result
+    if (typeof result !== 'object' || !result || Array.isArray(result) || !('id' in result) || !result.id) {
+        return null
+    }
+    return result as LLMTrace
+}
+
+// Cells with their own link or button (ID, trace name, person) handle their own clicks.
+function hasOwnClickHandler(target: EventTarget | null): boolean {
+    return target instanceof Element && !!target.closest('button, a, [role="button"]')
+}
+
 export const useTracesQueryContext = (): QueryContext<DataTableNode> => {
+    const { searchParams } = useValues(router)
+    const { push } = useActions(router)
+    // Stable identity so DataTable's `onRow` useCallback holds and rows are not re-rendered each poll cycle.
+    const rowProps = useCallback<NonNullable<QueryContext['rowProps']>>(
+        (record) => {
+            const row = getTraceFromRow(record)
+            if (!row) {
+                return {}
+            }
+            const url = buildTraceDetailUrl(row, searchParams)
+            return {
+                onClick: (event) => {
+                    if (hasOwnClickHandler(event.target)) {
+                        return
+                    }
+                    if (event.metaKey || event.ctrlKey) {
+                        newInternalTab(url)
+                    } else {
+                        push(url)
+                    }
+                },
+                onAuxClick: (event) => {
+                    if (event.button !== 1 || hasOwnClickHandler(event.target)) {
+                        return
+                    }
+                    event.preventDefault()
+                    newInternalTab(url)
+                },
+            }
+        },
+        [push, searchParams]
+    )
     return {
         emptyStateHeading: 'There were no traces in this period',
         emptyStateDetail: 'Try changing the date range or filters.',
         dataTableMaxPaginationLimit: LLM_TRACES_PAGE_SIZE,
+        rowProps,
         columns: {
             id: {
                 title: 'ID',
@@ -200,20 +259,10 @@ export const useTracesQueryContext = (): QueryContext<DataTableNode> => {
 const IDColumn: QueryContextColumnComponent = ({ record }) => {
     const row = record as LLMTrace
     const { searchParams } = useValues(router)
-    const nonTraceSearchParams = sanitizeTraceUrlSearchParams(searchParams, { removeSearch: true })
     return (
         <strong>
             <Tooltip title={row.id}>
-                <Link
-                    to={
-                        combineUrl(urls.aiObservabilityTrace(row.id), {
-                            ...nonTraceSearchParams,
-                            back_to: 'traces',
-                            timestamp: getTraceTimestamp(row.createdAt),
-                        }).url
-                    }
-                    data-attr="trace-id-link"
-                >
+                <Link to={buildTraceDetailUrl(row, searchParams)} data-attr="trace-id-link">
                     {row.id.slice(0, 4)}...{row.id.slice(-4)}
                 </Link>
             </Tooltip>
@@ -224,20 +273,10 @@ const IDColumn: QueryContextColumnComponent = ({ record }) => {
 const TraceNameColumn: QueryContextColumnComponent = ({ record }) => {
     const row = record as LLMTrace
     const { searchParams } = useValues(router)
-    const nonTraceSearchParams = sanitizeTraceUrlSearchParams(searchParams, { removeSearch: true })
     return (
         <div className="flex items-center gap-2">
             <strong>
-                <Link
-                    to={
-                        combineUrl(urls.aiObservabilityTrace(row.id), {
-                            ...nonTraceSearchParams,
-                            back_to: 'traces',
-                            timestamp: getTraceTimestamp(row.createdAt),
-                        }).url
-                    }
-                    data-attr="trace-name-link"
-                >
+                <Link to={buildTraceDetailUrl(row, searchParams)} data-attr="trace-name-link">
                     {row.traceName || '–'}
                 </Link>
             </strong>
@@ -503,10 +542,11 @@ export function pickLastOutputMessage(
  * Some SDKs emit the trace input/output as a state wrapper object rather than a
  * bare messages array. Langchain/LangGraph writes `$ai_input_state` /
  * `$ai_output_state` as something like `{ agent_mode, messages: [...], ... }`.
- * Drill into the known `.messages` key so the picker sees a clean array; for
- * unknown wrapper shapes (agent-specific state like `{ current_step, ... }`)
- * return `null` in strict mode so the picker can fall through to the
- * generation-level fallback rather than dumping raw JSON.
+ * Drill into the known `.messages` key so the picker sees a clean array. The
+ * Vercel AI OTel path writes a single bare message object (`{ role, content }`),
+ * so wrap that as a one-element array. For unknown wrapper shapes (agent-specific
+ * state like `{ current_step, ... }`) return `null` in strict mode so the picker
+ * can fall through to the generation-level fallback rather than dumping raw JSON.
  */
 function unwrapMessageContainer(raw: unknown, strict: boolean): unknown {
     if (raw == null || typeof raw !== 'object' || Array.isArray(raw)) {
@@ -516,7 +556,20 @@ function unwrapMessageContainer(raw: unknown, strict: boolean): unknown {
     if (Array.isArray(obj.messages)) {
         return obj.messages
     }
+    if (isSingleMessage(obj)) {
+        return [obj]
+    }
     return strict ? null : raw
+}
+
+/**
+ * `role` alone is too weak a signal, since a state wrapper can carry one too.
+ * Requiring the payload as well (`content` for the chat shapes, a `parts` array
+ * for the OTel one) keeps those wrappers falling through to the strict-mode
+ * fallback.
+ */
+function isSingleMessage(obj: Record<string, unknown>): boolean {
+    return typeof obj.role === 'string' && ('content' in obj || Array.isArray(obj.parts))
 }
 
 function safeNormalize(

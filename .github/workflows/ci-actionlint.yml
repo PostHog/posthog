@@ -32,7 +32,8 @@ jobs:
               run: |
                   set -euo pipefail
                   mkdir -p ./.bin
-                  curl -fsSL -o ./download-actionlint.bash \
+                  curl -fsSL --retry 5 --retry-all-errors --retry-max-time 60 --connect-timeout 10 \
+                      -o ./download-actionlint.bash \
                       "https://raw.githubusercontent.com/rhysd/actionlint/${ACTIONLINT_SCRIPT_REF}/scripts/download-actionlint.bash"
                   bash ./download-actionlint.bash "${ACTIONLINT_VERSION}" ./.bin
                   ./.bin/actionlint -version

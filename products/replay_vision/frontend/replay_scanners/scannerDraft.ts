@@ -1,4 +1,4 @@
-import { ReplayScanner } from './types'
+import { ScannerFormValues } from './types'
 
 const DRAFT_STORAGE_KEY = 'replay-vision.new-scanner-draft'
 const DRAFT_VERSION = 1
@@ -8,17 +8,22 @@ interface StoredScannerDraft {
     version: number
     teamId: number
     savedAt: number
-    scanner: ReplayScanner
+    scanner: ScannerFormValues
 }
 
 export interface ScannerDraft {
-    scanner: ReplayScanner
+    scanner: ScannerFormValues
     savedAt: number
 }
 
-export function writeScannerDraft(teamId: number, scanner: ReplayScanner): number | null {
+export function writeScannerDraft(teamId: number, scanner: ScannerFormValues): number | null {
     const savedAt = Date.now()
-    const draft: StoredScannerDraft = { version: DRAFT_VERSION, teamId, savedAt, scanner }
+    const draft: StoredScannerDraft = {
+        version: DRAFT_VERSION,
+        teamId,
+        savedAt,
+        scanner,
+    }
     try {
         localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(draft))
         return savedAt

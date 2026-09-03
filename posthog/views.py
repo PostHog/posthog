@@ -26,6 +26,7 @@ import structlog
 from opentelemetry import trace
 
 from posthog.api.capture import capture_internal
+from posthog.api.secret_revocation import NON_PERSONAL_SECRET_PREFIXES
 from posthog.auth import AUTH_BRAND_COOKIE, apply_auth_brand_cookie, normalize_auth_brand
 from posthog.cloud_utils import is_cloud
 from posthog.email import is_email_available
@@ -87,7 +88,7 @@ def noop(*args, **kwargs) -> None:
 try:
     from ee.models.license import get_licensed_users_available
 except ImportError:
-    get_licensed_users_available = noop  # ty: ignore[invalid-assignment]
+    get_licensed_users_available = noop
 
 
 def login_required(view):
@@ -273,7 +274,7 @@ MAX_VALUE_DISPLAY_LENGTH = 200
 
 
 @dataclass
-class RedisKeyInfo:
+class RedisKeySnapshot:
     key: str
     type: str
     ttl: timedelta | int
@@ -302,7 +303,7 @@ def truncate_value(value, max_length: int = MAX_VALUE_DISPLAY_LENGTH) -> str:
     return str_value[:max_length] + "..."
 
 
-def get_redis_key_info(key: bytes, redis_client) -> RedisKeyInfo:
+def get_redis_key_info(key: bytes, redis_client) -> RedisKeySnapshot:
     redis_key = key.decode("utf-8")
     redis_type = redis_client.type(redis_key).decode("utf8")
     redis_ttl = redis_client.ttl(redis_key)
@@ -327,7 +328,7 @@ def get_redis_key_info(key: bytes, redis_client) -> RedisKeyInfo:
     full_value = str(value)
     is_truncated = len(full_value) > MAX_VALUE_DISPLAY_LENGTH
 
-    return RedisKeyInfo(
+    return RedisKeySnapshot(
         key=redis_key,
         type=redis_type,
         ttl=redis_ttl,
@@ -467,12 +468,7 @@ def api_key_search_view(request: HttpRequest):
     personal_api_key_hash_mode = None
     # Legacy personal API keys predate the phx_ prefix, so any query without another known
     # prefix is also treated as a personal key candidate (matching authentication behavior).
-    non_personal_api_key_prefixes = (
-        SECRET_API_TOKEN_PREFIX,
-        OAUTH_ACCESS_TOKEN_PREFIX,
-        OAUTH_REFRESH_TOKEN_PREFIX,
-        PROJECT_API_TOKEN_PREFIX,
-    )
+    non_personal_api_key_prefixes = (*NON_PERSONAL_SECRET_PREFIXES, PROJECT_API_TOKEN_PREFIX)
     if query and not query.startswith(non_personal_api_key_prefixes):
         result = find_personal_api_key(query)
         if result is not None:

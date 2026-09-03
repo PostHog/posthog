@@ -20,14 +20,20 @@ const EMPTY_COMMENT_HIGHLIGHTS: CanvasCommentHighlight[] = [];
 function buildArtifactHostDocument(
   artifactUrl: string,
   theme: CanvasTheme,
+  config?: Record<string, unknown>,
 ): string {
   const artifactOrigin = new URL(artifactUrl).origin;
   // The theme rides the fragment so the artifact runtime (a synchronous head
   // script) applies `.dark` before first paint — the bridge port only connects
   // at the load event, far too late to prevent a light flash. Fragments don't
-  // reach the server, so signed artifact URLs stay valid.
+  // reach the server, so signed artifact URLs stay valid. Placement config
+  // rides the same fragment: the runtime freezes it as ph.config at boot.
+  const fragment = new URLSearchParams({ theme });
+  if (config && Object.keys(config).length > 0) {
+    fragment.set("config", JSON.stringify(config));
+  }
   const themedUrl = new URL(artifactUrl);
-  themedUrl.hash = `theme=${theme}`;
+  themedUrl.hash = fragment.toString();
   const serializedArtifactUrl = JSON.stringify(themedUrl.href).replaceAll(
     "<",
     "\\u003c",
@@ -90,6 +96,9 @@ export interface BuiltCanvasProps {
    * data requests. */
   capabilities: CanvasCapabilities | undefined;
   onDataRequest: (method: string, payload: unknown) => Promise<unknown>;
+  /** Per-placement settings, exposed to the artifact as ph.config (frozen at
+   * boot). A changed config remounts the artifact. */
+  config?: Record<string, unknown>;
   onError?: (message: string, stack?: string) => void;
   /** The artifact's runtime booted and posted "ready" — proof the signed URL
    * actually loaded (an expired URL never gets this far). */
@@ -106,6 +115,7 @@ export function BuiltCanvas({
   artifactUrl,
   capabilities,
   onDataRequest,
+  config,
   onError,
   onReady,
   onRendered,
@@ -125,7 +135,11 @@ export function BuiltCanvas({
   // The srcDoc bakes in the mount-time theme only — folding the live theme in
   // would reload the artifact on every toggle. Live changes go over the port.
   const initialTheme = useRef(theme).current;
-  const hostDocument = buildArtifactHostDocument(artifactUrl, initialTheme);
+  const hostDocument = buildArtifactHostDocument(
+    artifactUrl,
+    initialTheme,
+    config,
+  );
   const latest = useRef({
     capabilities,
     onDataRequest,

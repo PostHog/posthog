@@ -10,7 +10,7 @@ const LazyDebugCHQueries = lazyWithRetry(() =>
     import('./DebugCHQueriesImpl').then((m) => ({ default: m.DebugCHQueries }))
 )
 
-/** Lazy facade so the debug panel's chart.js dependencies stay out of the eager menu/shortcut chunks. */
+/** Lazy facade so the debug panel's charting dependencies stay out of the eager menu/shortcut chunks. */
 export function DebugCHQueries(props: DebugCHQueriesProps): JSX.Element {
     return (
         <Suspense fallback={<Spinner />}>

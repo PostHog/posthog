@@ -1,5 +1,3 @@
-import copy
-from types import SimpleNamespace
 from typing import Any
 
 from django.test import SimpleTestCase
@@ -8,15 +6,17 @@ from parameterized import parameterized
 from rest_framework import serializers
 from rest_framework.exceptions import ErrorDetail
 
-from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
+from products.feature_flags.backend.api.feature_flag import _reject_serde_unsafe_filters
+from products.feature_flags.backend.api.filters_schema import FeatureFlagFiltersSerializer
+from products.feature_flags.backend.encrypted_flag_payloads import REDACTED_PAYLOAD_VALUE
 from products.feature_flags.backend.filters_validation import (
     CROSS_FIELD_CHECKS,
     Violation,
     check_groups_non_empty_for_create,
+    check_variant_rollout_sum,
     collect_cross_field_violations,
     collect_filters_violations,
     flatten_structural_errors,
-    validate_cross_field_or_raise,
 )
 
 
@@ -37,6 +37,18 @@ class TestFiltersValidation(SimpleTestCase):
                 ["cross_field.variant_rollout_sum_not_100"],
             ),
             ("variant_sum_exactly_100", {"multivariate": _multivariate(("a", 50), ("b", 50))}, []),
+            # Sums to 100.00000000000001; the flag UI accepts the same split.
+            (
+                "variant_sum_100_with_float_drift",
+                {"multivariate": _multivariate(("a", 0.01), ("b", 64.04), ("c", 35.95))},
+                [],
+            ),
+            # The smallest miss the flag UI can express, so the tolerance cannot swallow it.
+            (
+                "variant_sum_short_by_smallest_step",
+                {"multivariate": _multivariate(("a", 50), ("b", 49.99))},
+                ["cross_field.variant_rollout_sum_not_100"],
+            ),
             (
                 "variant_keys_duplicated",
                 {"multivariate": _multivariate(("a", 50), ("a", 50))},
@@ -223,6 +235,34 @@ class TestFiltersValidation(SimpleTestCase):
         violations = collect_cross_field_violations(filters)
         assert [violation.path for violation in violations] == ["groups[1].properties[1].value"]
 
+    # Validated filters are stored and then served verbatim to SDKs, and the .NET and Java
+    # clients type rollout percentages as int, so 100 must not come back as 100.0.
+    @parameterized.expand(
+        [
+            ("int_stays_int", 100, 100, int),
+            ("whole_float_narrows_to_int", 100.0, 100, int),
+            ("fraction_stays_float", 33.33, 33.33, float),
+            ("zero_stays_int", 0, 0, int),
+        ]
+    )
+    def test_rollout_percentage_keeps_whole_numbers_as_ints(
+        self, _name: str, stored: float, expected: float, expected_type: type
+    ) -> None:
+        serializer = FeatureFlagFiltersSerializer(
+            data={
+                "groups": [{"properties": [], "rollout_percentage": stored, "variant": None}],
+                "multivariate": _multivariate(("a", stored)),
+            },
+            context={},
+        )
+
+        assert serializer.is_valid(), serializer.errors
+        group_rollout = serializer.validated_data["groups"][0]["rollout_percentage"]
+        variant_rollout = serializer.validated_data["multivariate"]["variants"][0]["rollout_percentage"]
+        assert group_rollout == expected
+        assert type(group_rollout) is expected_type
+        assert type(variant_rollout) is expected_type
+
     def test_flatten_structural_errors_strips_indices_in_rule_id(self) -> None:
         errors = {
             "groups": [
@@ -262,132 +302,17 @@ class TestFiltersValidation(SimpleTestCase):
         rule_ids = [violation.rule_id for violation in collect_filters_violations(filters)]
         assert rule_ids == ["structural.payloads.invalid_payload_json"]
 
+    def test_variant_rollout_sum_violation_message_hides_float_artifacts(self) -> None:
+        violations = check_variant_rollout_sum({"multivariate": _multivariate(("a", 0.01), ("b", 64.04), ("c", 35))})
+
+        assert violations[0].message == "Variant rollout percentages must sum to 100, got 99.05."
+
     def test_collect_filters_violations_end_to_end(self) -> None:
         structural = collect_filters_violations({"groups": [{"properties": [{"type": "person"}]}]})
         assert [violation.rule_id for violation in structural] == ["structural.groups[].properties[].key.required"]
 
         cross_field = collect_filters_violations({"multivariate": _multivariate(("a", 50))})
         assert [violation.rule_id for violation in cross_field] == ["cross_field.variant_rollout_sum_not_100"]
-
-    def test_validate_cross_field_or_raise(self) -> None:
-        validate_cross_field_or_raise({"groups": []})
-
-        with self.assertRaises(serializers.ValidationError) as ctx:
-            validate_cross_field_or_raise({"multivariate": _multivariate(("a", 50))})
-        detail = ctx.exception.detail
-        assert isinstance(detail, list) and isinstance(detail[0], ErrorDetail)
-        assert detail[0].code == "cross_field.variant_rollout_sum_not_100"
-
-    # Parity guard for the phases 1-2 window: the cross-field rules mirror logic that still
-    # lives in validate_filters, and both run independently until the phase 3 swap. This
-    # corpus exercises the mirrored rules through both paths and asserts the same
-    # accept/reject verdict, so an edit to either side that changes a shared rule fails here
-    # instead of silently making the audit measure a different rule set than the write path.
-    # Scope: only rules that exist on both sides, with structurally valid input, and no
-    # cohort/flag properties or early_exit (those branches of validate_filters need DB or
-    # org context). Message text and error codes are documented to differ.
-    @parameterized.expand(
-        [
-            ("variant_sum_100_accepted", {"groups": [{}], "multivariate": _multivariate(("a", 50), ("b", 50))}, True),
-            ("variant_sum_50_rejected", {"groups": [{}], "multivariate": _multivariate(("a", 50))}, False),
-            (
-                "variant_override_valid",
-                {"groups": [{"variant": "a"}], "multivariate": _multivariate(("a", 100))},
-                True,
-            ),
-            (
-                "variant_override_dangling",
-                {"groups": [{"variant": "b"}], "multivariate": _multivariate(("a", 100))},
-                False,
-            ),
-            ("in_on_person_rejected", {"groups": [{"properties": [_person_prop(operator="in", value=[1])]}]}, False),
-            (
-                "regex_string_accepted",
-                {"groups": [{"properties": [_person_prop(operator="regex", value="^a+$")]}]},
-                True,
-            ),
-            ("regex_numeric_rejected", {"groups": [{"properties": [_person_prop(operator="regex", value=5)]}]}, False),
-            ("gt_string_accepted", {"groups": [{"properties": [_person_prop(operator="gt", value="5")]}]}, True),
-            ("gt_numeric_rejected", {"groups": [{"properties": [_person_prop(operator="gt", value=5)]}]}, False),
-            (
-                "min_alias_string_accepted",
-                {"groups": [{"properties": [_person_prop(operator="min", value="5")]}]},
-                True,
-            ),
-            (
-                "date_relative_accepted",
-                {"groups": [{"properties": [_person_prop(operator="is_date_after", value="-30d")]}]},
-                True,
-            ),
-            (
-                "date_junk_rejected",
-                {"groups": [{"properties": [_person_prop(operator="is_date_after", value="not a date")]}]},
-                False,
-            ),
-            (
-                "semver_valid_accepted",
-                {"groups": [{"properties": [_person_prop(operator="semver_gt", value="1.2.3")]}]},
-                True,
-            ),
-            (
-                "semver_junk_rejected",
-                {"groups": [{"properties": [_person_prop(operator="semver_gt", value="abc")]}]},
-                False,
-            ),
-            (
-                "multi_contains_list_accepted",
-                {"groups": [{"properties": [_person_prop(operator="icontains_multi", value=["a"])]}]},
-                True,
-            ),
-            (
-                "multi_contains_string_rejected",
-                {"groups": [{"properties": [_person_prop(operator="icontains_multi", value="a")]}]},
-                False,
-            ),
-            (
-                "person_agg_group_property_rejected",
-                {"groups": [{"properties": [{"key": "k", "type": "group", "group_type_index": 0, "value": "x"}]}]},
-                False,
-            ),
-            (
-                "group_agg_matching_index_accepted",
-                {
-                    "groups": [
-                        {
-                            "aggregation_group_type_index": 1,
-                            "properties": [
-                                {"key": "k", "type": "group", "group_type_index": 1, "operator": "exact", "value": "x"}
-                            ],
-                        }
-                    ]
-                },
-                True,
-            ),
-            (
-                "payload_key_not_variant_rejected",
-                {"groups": [{}], "multivariate": _multivariate(("a", 100)), "payloads": {"b": "1"}},
-                False,
-            ),
-            ("boolean_payload_false_key_rejected", {"groups": [{}], "payloads": {"false": "1"}}, False),
-            ("empty_groups_rejected_on_create", {"groups": []}, False),
-        ]
-    )
-    def test_write_path_parity(self, _name: str, filters: dict[str, Any], expected_accept: bool) -> None:
-        live_serializer = FeatureFlagSerializer(
-            data={}, context={"request": SimpleNamespace(method="POST"), "project_id": 1}
-        )
-        try:
-            live_serializer.validate_filters(copy.deepcopy(filters))
-            live_accepts = True
-        except serializers.ValidationError:
-            live_accepts = False
-
-        working = copy.deepcopy(filters)
-        violations = collect_filters_violations(working) or check_groups_non_empty_for_create(working)
-        new_accepts = not violations
-
-        assert live_accepts == expected_accept
-        assert new_accepts == expected_accept, violations
 
     def test_groups_non_empty_is_a_create_only_rule(self) -> None:
         # The POST/PATCH asymmetry is locked on #50084: stored/patched flags may have empty
@@ -398,3 +323,104 @@ class TestFiltersValidation(SimpleTestCase):
             "contextual.groups_empty_on_create"
         ]
         assert check_groups_non_empty_for_create({"groups": [{"properties": []}]}) == []
+
+
+class TestRejectSerdeUnsafeFilters(SimpleTestCase):
+    # The only cache-poisoning guard that runs while the enforcement switch is off, and the
+    # structural tier shadows it once the switch is on, so it needs its own coverage: nothing
+    # else in the suite exercises these rules.
+    @parameterized.expand(
+        [
+            ("filters_not_dict", "not a dict"),
+            ("agg_index_bool", {"aggregation_group_type_index": True}),
+            ("agg_index_string", {"aggregation_group_type_index": "0"}),
+            ("agg_index_over_i32", {"aggregation_group_type_index": 2**31}),
+            ("early_exit_int", {"early_exit": 1}),
+            ("feature_enrollment_string", {"feature_enrollment": "true"}),
+            ("holdout_not_dict", {"holdout": []}),
+            ("holdout_id_missing", {"holdout": {"exclusion_percentage": 10}}),
+            ("holdout_id_over_i64", {"holdout": {"id": 2**63, "exclusion_percentage": 10}}),
+            ("holdout_exclusion_missing", {"holdout": {"id": 1}}),
+            ("holdout_exclusion_string", {"holdout": {"id": 1, "exclusion_percentage": "10"}}),
+            ("groups_not_list", {"groups": {}}),
+            ("group_not_dict", {"groups": ["x"]}),
+            ("group_variant_int", {"groups": [{"variant": 1}]}),
+            ("group_rollout_string", {"groups": [{"rollout_percentage": "50"}]}),
+            ("group_rollout_bool", {"groups": [{"rollout_percentage": True}]}),
+            ("group_rollout_nan", {"groups": [{"rollout_percentage": float("nan")}]}),
+            ("group_rollout_over_100", {"groups": [{"rollout_percentage": 150}]}),
+            ("group_agg_index_bool", {"groups": [{"aggregation_group_type_index": False}]}),
+            ("group_agg_index_under_i32", {"groups": [{"aggregation_group_type_index": -(2**31) - 1}]}),
+            ("properties_not_list", {"groups": [{"properties": {}}]}),
+            ("property_not_dict", {"groups": [{"properties": ["x"]}]}),
+            ("property_group_type_index_string", {"groups": [{"properties": [{"group_type_index": "1"}]}]}),
+            ("property_group_type_index_over_i32", {"groups": [{"properties": [{"group_type_index": 2**31}]}]}),
+            ("property_negation_string", {"groups": [{"properties": [{"negation": "false"}]}]}),
+            ("property_operator_unknown", {"groups": [{"properties": [{"operator": "does not equal"}]}]}),
+            ("property_operator_unhashable", {"groups": [{"properties": [{"operator": []}]}]}),
+            ("property_type_unknown", {"groups": [{"properties": [{"key": "k", "type": "banana"}]}]}),
+            ("property_type_not_string", {"groups": [{"properties": [{"key": "k", "type": 1}]}]}),
+            # Rust has no `event` variant, so one of these fails the team's whole cached set.
+            ("property_type_event", {"groups": [{"properties": [{"key": "k", "type": "event"}]}]}),
+            # `behavioral` is a real insight filter type, but Rust flag matching has no variant
+            # for it (it can't evaluate events history) — it must stay rejected here.
+            ("property_type_behavioral", {"groups": [{"properties": [{"key": "$pageview", "type": "behavioral"}]}]}),
+            ("property_type_missing", {"groups": [{"properties": [{"key": "k"}]}]}),
+            ("property_empty", {"groups": [{"properties": [{}]}]}),
+            ("property_key_missing", {"groups": [{"properties": [{"type": "person"}]}]}),
+            ("property_key_null", {"groups": [{"properties": [{"key": None, "type": "person"}]}]}),
+            ("property_key_bool", {"groups": [{"properties": [{"key": True, "type": "person"}]}]}),
+            ("property_key_list", {"groups": [{"properties": [{"key": [], "type": "person"}]}]}),
+            ("multivariate_not_dict", {"multivariate": []}),
+            ("multivariate_variants_missing", {"multivariate": {}}),
+            ("multivariate_variants_null", {"multivariate": {"variants": None}}),
+            ("variants_not_list", {"multivariate": {"variants": {}}}),
+            ("variant_not_dict", {"multivariate": {"variants": ["x"]}}),
+            ("variant_rollout_null", {"multivariate": {"variants": [{"key": "a", "rollout_percentage": None}]}}),
+            ("variant_key_missing", {"multivariate": {"variants": [{"rollout_percentage": 100}]}}),
+            ("variant_key_not_string", {"multivariate": {"variants": [{"key": 1, "rollout_percentage": 100}]}}),
+            (
+                "variant_name_not_string",
+                {"multivariate": {"variants": [{"key": "a", "name": 1, "rollout_percentage": 100}]}},
+            ),
+            ("payloads_not_dict", {"payloads": []}),
+            ("payload_string_not_json", {"payloads": {"true": "not json"}}),
+        ]
+    )
+    def test_rejects_what_poisons_the_flag_cache(self, _name: str, filters: Any) -> None:
+        with self.assertRaises(serializers.ValidationError):
+            _reject_serde_unsafe_filters(filters)
+
+    @parameterized.expand(
+        [
+            ("empty", {}),
+            ("alias_operator", {"groups": [{"properties": [{"key": "k", "type": "person", "operator": "min"}]}]}),
+            # Rust deserializes person_metadata; the structural tier narrows to four types,
+            # but that is a policy choice rather than something serde rejects.
+            ("person_metadata_type", {"groups": [{"properties": [{"key": "k", "type": "person_metadata"}]}]}),
+            ("operator_absent", {"groups": [{"properties": [{"key": "x", "type": "person"}]}]}),
+            # deserialize_key accepts a JSON number and normalizes it to a string.
+            ("numeric_key", {"groups": [{"properties": [{"key": 226357, "type": "flag"}]}]}),
+            ("payload_dict_value", {"payloads": {"true": {"a": 1}}}),
+            ("payload_nan_token", {"payloads": {"true": "NaN"}}),
+            ("redacted_payload_sentinel", {"payloads": {"true": REDACTED_PAYLOAD_VALUE}}),
+            ("holdout_exclusion_clamped_by_rust", {"holdout": {"id": 1, "exclusion_percentage": 150}}),
+            (
+                "well_formed",
+                {
+                    "groups": [
+                        {
+                            "properties": [{"key": "email", "type": "person", "operator": "icontains", "value": "@x"}],
+                            "rollout_percentage": 50,
+                        }
+                    ],
+                    "multivariate": {"variants": [{"key": "a", "rollout_percentage": 100}]},
+                    "payloads": {"a": '"p"'},
+                    "feature_enrollment": False,
+                    "holdout": {"id": 1, "exclusion_percentage": 10},
+                },
+            ),
+        ]
+    )
+    def test_accepts_what_master_accepted(self, _name: str, filters: Any) -> None:
+        _reject_serde_unsafe_filters(filters)

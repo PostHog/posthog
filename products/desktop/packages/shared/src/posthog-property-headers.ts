@@ -2,6 +2,8 @@ export type PosthogPropertyValue = string | number | boolean | null | undefined;
 
 export type PosthogProperties = Record<string, PosthogPropertyValue>;
 
+export const POSTHOG_PROJECT_ID_HEADER = "X-PostHog-Project-Id";
+
 /**
  * Make a value safe to embed in an HTTP header value. Only printable ASCII
  * survives: latin1 is valid per RFC 9110 and undici accepts it, but Bun's
@@ -59,8 +61,70 @@ export function buildPosthogPropertyHeaderLines(
     .join("\n");
 }
 
+/**
+ * Attribution node header for the person a request is spent on behalf of. The
+ * gateway keys its per-user spend limit on this value, so it must be the same
+ * node the spend-limit endpoint writes the limit against: the user's distinct
+ * id, not their uuid (see products/ai_gateway/backend/logic.py, _spend_node).
+ *
+ * Trust model: for local sessions this header is asserted by the client, so
+ * the limit it keys is a self-imposed guardrail, not a security boundary.
+ * Cloud runs pin the node server-side into the run's scoped token.
+ */
+const POSTHOG_USER_HEADER = "X-PostHog-User";
+
+export function buildPosthogUserHeaderRecord(
+  userNode: string | null | undefined,
+): Record<string, string> {
+  return userNode
+    ? { [POSTHOG_USER_HEADER]: sanitizeHeaderValue(userNode) }
+    : {};
+}
+
+export function buildPosthogUserHeaderLines(
+  userNode: string | null | undefined,
+): string {
+  return userNode
+    ? `${POSTHOG_USER_HEADER}: ${sanitizeHeaderValue(userNode)}`
+    : "";
+}
+
+export function buildPosthogProjectHeaderRecord(
+  projectId: number | null | undefined,
+): Record<string, string> {
+  return projectId ? { [POSTHOG_PROJECT_ID_HEADER]: String(projectId) } : {};
+}
+
+export function buildPosthogProjectHeaderLines(
+  projectId: number | null | undefined,
+): string {
+  return projectId ? `${POSTHOG_PROJECT_ID_HEADER}: ${projectId}` : "";
+}
+
+export function buildPosthogScopedPropertyHeaderRecord(
+  properties: PosthogProperties,
+  projectId: number | null | undefined,
+): Record<string, string> {
+  return {
+    ...buildPosthogPropertyHeaderRecord(properties),
+    ...buildPosthogProjectHeaderRecord(projectId),
+  };
+}
+
+export function buildPosthogScopedPropertyHeaderLines(
+  properties: PosthogProperties,
+  projectId: number | null | undefined,
+): string {
+  return [
+    buildPosthogPropertyHeaderLines(properties),
+    buildPosthogProjectHeaderLines(projectId),
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
 /** Header carrying the whole property set as one JSON object. */
-export const POSTHOG_PROPERTIES_HEADER = "X-PostHog-Properties";
+const POSTHOG_PROPERTIES_HEADER = "X-PostHog-Properties";
 
 /**
  * Byte cap the Go gateway enforces on {@link POSTHOG_PROPERTIES_HEADER}; a

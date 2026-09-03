@@ -6,6 +6,7 @@ from posthog.test.base import APIBaseTest
 
 from django.utils import timezone
 
+from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
@@ -42,6 +43,20 @@ class TestConnectedAppsViewSet(APIBaseTest):
             expires=timezone.now() + timedelta(hours=expires_hours),
         )
 
+    def _create_refresh_token(
+        self,
+        app: OAuthApplication,
+        access_token: OAuthAccessToken | None = None,
+        revoked: bool = False,
+    ) -> OAuthRefreshToken:
+        return OAuthRefreshToken.objects.create(
+            user=self.user,
+            application=app,
+            token=f"test-refresh-token-{OAuthRefreshToken.objects.count()}",
+            access_token=access_token,
+            revoked=timezone.now() if revoked else None,
+        )
+
     def test_list_returns_apps_with_active_tokens(self):
         app = self._create_app("Claude Code", logo_uri="https://example.com/logo.png")
         self._create_token(app)
@@ -65,6 +80,29 @@ class TestConnectedAppsViewSet(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert len(response.json()) == 0
+
+    @parameterized.expand(
+        [
+            ("live_refresh_token", False, True),
+            ("revoked_refresh_token", True, False),
+        ]
+    )
+    def test_list_keys_on_live_refresh_tokens_not_only_access_tokens(
+        self, _name: str, revoked: bool, expected_listed: bool
+    ):
+        app = self._create_app()
+        access_token = self._create_token(app, scope="read write", expires_hours=-1)
+        self._create_refresh_token(app, access_token=access_token, revoked=revoked)
+
+        response = self.client.get("/api/oauth/connected-apps/")
+
+        assert response.status_code == status.HTTP_200_OK
+        if not expected_listed:
+            assert response.json() == []
+            return
+        assert len(response.json()) == 1
+        assert response.json()[0]["id"] == str(app.id)
+        assert set(response.json()[0]["scopes"]) == {"read", "write"}
 
     def test_list_excludes_other_users_tokens(self):
         other_user = User.objects.create_and_join(self.organization, "other@example.com", "password")
@@ -148,6 +186,16 @@ class TestConnectedAppsViewSet(APIBaseTest):
         self.client.post(f"/api/oauth/connected-apps/{app.id}/revoke/")
 
         assert OAuthGrant.objects.filter(user=self.user, application=app).count() == 0
+
+    def test_revoke_succeeds_when_only_a_refresh_token_is_live(self):
+        app = self._create_app()
+        access_token = self._create_token(app, expires_hours=-1)
+        refresh_token = self._create_refresh_token(app, access_token=access_token)
+
+        response = self.client.post(f"/api/oauth/connected-apps/{app.id}/revoke/")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not OAuthRefreshToken.objects.filter(pk=refresh_token.pk).exists()
 
     def test_revoke_does_not_affect_other_users_tokens(self):
         other_user = User.objects.create_and_join(self.organization, "other@example.com", "password")

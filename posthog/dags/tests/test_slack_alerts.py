@@ -59,6 +59,28 @@ class TestSlackAlertsRouting:
 
         assert result == JobOwners.TEAM_SELF_DRIVING.value
 
+    def test_asset_job_with_inbox_signal_steps_routes_to_self_driving(self):
+        mock_run = mock.MagicMock(spec=dagster.DagsterRun)
+        mock_run.job_name = "__ASSET_JOB"
+        mock_run.tags = {}
+
+        error_message = "Execution of run for \"__ASSET_JOB\" failed. Steps failed: ['inbox_signal_embeddings']."
+
+        result = get_job_owner_for_alert(mock_run, error_message)
+
+        assert result == JobOwners.TEAM_SELF_DRIVING.value
+
+    def test_asset_job_with_inbox_ranking_steps_routes_to_self_driving(self):
+        mock_run = mock.MagicMock(spec=dagster.DagsterRun)
+        mock_run.job_name = "__ASSET_JOB"
+        mock_run.tags = {}
+
+        error_message = "Execution of run for \"__ASSET_JOB\" failed. Steps failed: ['inbox_ranking_model_candidate']."
+
+        result = get_job_owner_for_alert(mock_run, error_message)
+
+        assert result == JobOwners.TEAM_SELF_DRIVING.value
+
     def test_asset_job_without_web_steps_uses_original_owner(self):
         mock_run = mock.MagicMock(spec=dagster.DagsterRun)
         mock_run.job_name = "__ASSET_JOB"

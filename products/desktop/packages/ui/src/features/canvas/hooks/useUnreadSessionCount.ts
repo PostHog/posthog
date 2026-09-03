@@ -3,6 +3,7 @@ import {
   isTaskUnread,
   readRunMode,
 } from "@posthog/core/sidebar/buildSidebarData";
+import { taskActivityAt } from "@posthog/core/tasks/taskActivity";
 import { readPrUrls } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import { useArchivedTaskIds } from "@posthog/ui/features/archive/useArchivedTaskIds";
@@ -32,7 +33,7 @@ export function wantsAttention(
   lastViewedAt: TaskTimestamps,
 ): boolean {
   const { tone } = taskDot({
-    isUnread: isTaskUnread(task.updated_at, lastViewedAt[task.id]),
+    isUnread: isTaskUnread(taskActivityAt(task), lastViewedAt[task.id]),
     taskRunStatus: task.latest_run?.status ?? undefined,
     // A run's mode decides whether its status is a claim about work at all, so
     // without it the "Pending" rows never count. It rides on the run's state,

@@ -1,13 +1,18 @@
 import {
     evaluationOffersSessionTarget,
     evaluationSupportsReports,
-    evaluationSupportsRunSummary,
+    evaluationSupportsRunOutcomes,
 } from './evaluationCapabilities'
 import type { EvaluationOutputType, EvaluationTarget } from './types'
 
 describe('evaluationCapabilities', () => {
     it.each<
-        [outputType: EvaluationOutputType, target: EvaluationTarget, supportsReports: boolean, supportsSummary: boolean]
+        [
+            outputType: EvaluationOutputType,
+            target: EvaluationTarget,
+            supportsReports: boolean,
+            supportsRunOutcomes: boolean,
+        ]
     >([
         ['boolean', 'generation', true, true],
         ['sentiment', 'generation', true, false],
@@ -19,11 +24,11 @@ describe('evaluationCapabilities', () => {
         ['sentiment', 'session', false, false],
     ])(
         'supports the expected capabilities for %s %s evaluations',
-        (outputType, target, supportsReports, supportsSummary) => {
+        (outputType, target, supportsReports, supportsRunOutcomes) => {
             const evaluation = { output_type: outputType, target }
 
             expect(evaluationSupportsReports(evaluation)).toBe(supportsReports)
-            expect(evaluationSupportsRunSummary(evaluation)).toBe(supportsSummary)
+            expect(evaluationSupportsRunOutcomes(evaluation)).toBe(supportsRunOutcomes)
         }
     )
 

@@ -1,5 +1,7 @@
 import type { ReactNode } from 'react'
 
+import { WizardReview } from 'lib/components/WizardReview'
+
 import { AlertWizardStep } from 'products/alerts/frontend/components/AlertWizard'
 
 interface WizardStepInput {
@@ -66,26 +68,19 @@ export function buildWizardSteps(input: WizardStepInput): AlertWizardStep[] {
             canAdvance: !alertFormHasErrors,
             cannotAdvanceReason: alertFormHasErrors ? 'Fix the errors in previous steps before creating.' : undefined,
             content: (
-                <div className="space-y-3">
-                    <div className="rounded border border-border bg-bg-light p-3 space-y-1.5 text-sm">
-                        <div className="flex gap-2">
-                            <span className="text-muted w-20 shrink-0">Fires when</span>
-                            <span className="font-medium">{reviewFires}</span>
-                        </div>
-                        <div className="flex gap-2">
-                            <span className="text-muted w-20 shrink-0">Runs</span>
-                            <span className="font-medium">{reviewCadence}</span>
-                        </div>
-                        <div className="flex gap-2">
-                            <span className="text-muted w-20 shrink-0">Notifies</span>
-                            <span className="font-medium">{reviewNotifies}</span>
-                        </div>
-                    </div>
-                    <p className="text-xs text-muted">
-                        You can adjust any of this later without stepping through the wizard. Editing an existing alert
-                        opens straight to its sections.
-                    </p>
-                </div>
+                <WizardReview
+                    items={[
+                        { label: 'Fires when', value: reviewFires },
+                        { label: 'Runs', value: reviewCadence },
+                        { label: 'Notifies', value: reviewNotifies },
+                    ]}
+                    footer={
+                        <p className="text-xs text-muted">
+                            You can adjust any of this later without stepping through the wizard. Editing an existing
+                            alert opens straight to its sections.
+                        </p>
+                    }
+                />
             ),
         },
     ]

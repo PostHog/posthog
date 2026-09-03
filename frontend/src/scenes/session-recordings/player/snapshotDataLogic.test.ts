@@ -85,6 +85,25 @@ describe('snapshotDataLogic', () => {
             consoleError.mockRestore()
         })
 
+        it('re-arms the retry budget after retrySnapshotLoading, so a later failure is not instantly exhausted', async () => {
+            const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {})
+            // Exhaust the budget; consume the terminal action so it is out of the recording window.
+            await expectLogic(logic, () => {
+                logic.actions.loadSnapshotsForSourceFailure('load failed', new Error('load failed'))
+                logic.actions.loadSnapshotsForSourceFailure('load failed', new Error('load failed'))
+                logic.actions.loadSnapshotsForSourceFailure('load failed', new Error('load failed'))
+                logic.actions.loadSnapshotsForSourceFailure('load failed', new Error('load failed'))
+            }).toDispatchActions(['snapshotSourceLoadExhausted'])
+
+            logic.actions.retrySnapshotLoading()
+
+            // A single failure now must not re-trigger the terminal action — the budget was reset.
+            await expectLogic(logic, () => {
+                logic.actions.loadSnapshotsForSourceFailure('load failed', new Error('load failed'))
+            }).toNotHaveDispatchedActions(['snapshotSourceLoadExhausted'])
+            consoleError.mockRestore()
+        })
+
         it('does not grant a permanently-unauthorized source a fresh retry budget on a new seek target', async () => {
             const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {})
             const error = new ApiError('Unauthorized', 401)

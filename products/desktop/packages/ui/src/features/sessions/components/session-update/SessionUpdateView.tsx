@@ -1,6 +1,7 @@
 import { AgentMessage } from "@posthog/ui/features/sessions/components/session-update/AgentMessage";
 import { CompactBoundaryView } from "@posthog/ui/features/sessions/components/session-update/CompactBoundaryView";
 import { ConsoleMessage } from "@posthog/ui/features/sessions/components/session-update/ConsoleMessage";
+import { ConversationClearedView } from "@posthog/ui/features/sessions/components/session-update/ConversationClearedView";
 import { ErrorNotificationView } from "@posthog/ui/features/sessions/components/session-update/ErrorNotificationView";
 import { ProgressGroupView } from "@posthog/ui/features/sessions/components/session-update/ProgressGroupView";
 import { StatusNotificationView } from "@posthog/ui/features/sessions/components/session-update/StatusNotificationView";
@@ -25,6 +26,9 @@ export type RenderItem =
       timestamp?: string;
     }
   | CompactBoundaryUpdate
+  | {
+      sessionUpdate: "conversation_cleared";
+    }
   | {
       sessionUpdate: "status";
       status: string;
@@ -127,6 +131,8 @@ export const SessionUpdateView = memo(function SessionUpdateView({
           contextSize={item.contextSize}
         />
       );
+    case "conversation_cleared":
+      return <ConversationClearedView />;
     case "status":
       return (
         <StatusNotificationView

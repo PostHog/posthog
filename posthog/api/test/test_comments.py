@@ -19,11 +19,10 @@ from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.redis import get_client
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV, POSTHOG_AI_APP_CLIENT_ID_DEV
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.conversations.backend.models import Ticket
 from products.conversations.backend.models.constants import Channel, Status
 from products.conversations.backend.reply_dedupe import REPLY_IN_PROGRESS_ERROR_TYPE, ReplyFingerprint, reserve
-
-from ee.models.rbac.access_control import AccessControl
 
 
 class TestComments(APIBaseTest, QueryMatchingTest):
@@ -96,6 +95,37 @@ class TestComments(APIBaseTest, QueryMatchingTest):
             f"/api/projects/{self.team.id}/comments?scope=task_artifact&item_id=artifact-1&task_id={task.id}"
         )
         assert [row["id"] for row in with_task.json()["results"]] == [created.json()["id"]]
+
+    @mock.patch("posthog.api.comments.send_mention_notifications")
+    @mock.patch("posthog.api.comments.produce_discussion_mention_events")
+    @mock.patch("posthog.tasks.email.send_discussions_mentioned.delay")
+    def test_desktop_comment_mentions_do_not_enqueue_email(
+        self,
+        send_email: mock.Mock,
+        produce_events: mock.Mock,
+        send_notifications: mock.Mock,
+    ) -> None:
+        task = self._task_artifact_target()
+        mentioned = User.objects.create_and_join(self.organization, "desktop-mentioned@example.com", None)
+        payload = {
+            "content": "Review this",
+            "scope": "task_artifact",
+            "item_id": "artifact-1",
+            "item_context": {"anchor": {"kind": "document"}, "taskId": str(task.id)},
+            "mentions": [mentioned.id],
+        }
+
+        created = self.client.post(f"/api/projects/{self.team.id}/comments", payload)
+        updated = self.client.patch(
+            f"/api/projects/{self.team.id}/comments/{created.json()['id']}",
+            {"content": "Review this update", "mentions": [mentioned.id]},
+        )
+
+        assert created.status_code == status.HTTP_201_CREATED
+        assert updated.status_code == status.HTTP_200_OK
+        send_email.assert_not_called()
+        assert produce_events.call_count == 2
+        assert send_notifications.call_count == 2
 
     @mock.patch("posthog.api.comments.posthoganalytics.capture")
     def test_task_comment_actions_track_mentions_without_counting_state_as_replies(self, capture: mock.Mock) -> None:
@@ -1373,6 +1403,48 @@ class TestComments(APIBaseTest, QueryMatchingTest):
         response = self.client.get(f"/api/projects/{self.team.id}/comments")
         assert response.status_code == status.HTTP_200_OK
         assert [c["scope"] for c in response.json()["results"]] == ["Notebook"]
+
+    @mock.patch("posthog.api.comments.CommentViewSet._slack_mirror_flag_enabled", return_value=True)
+    def test_email_thread_comments_are_blocked_from_generic_comment_surfaces(self, _flag: mock.Mock) -> None:
+        comment = Comment.objects.create(
+            team=self.team,
+            scope="EmailThread",
+            item_id="019fed13-8204-76cd-8c0c-5d02cf10fc02",
+            content="Private email body",
+            created_by=self.user,
+        )
+
+        unscoped = self.client.get(f"/api/projects/{self.team.id}/comments")
+        scoped = self.client.get(f"/api/projects/{self.team.id}/comments?scope=EmailThread")
+        detail = self.client.get(f"/api/projects/{self.team.id}/comments/{comment.id}")
+        update = self.client.patch(
+            f"/api/projects/{self.team.id}/comments/{comment.id}",
+            {"content": "Rewritten email body"},
+        )
+        create = self.client.post(
+            f"/api/projects/{self.team.id}/comments",
+            {
+                "scope": "EmailThread",
+                "item_id": "019fed13-8204-76cd-8c0c-5d02cf10fc02",
+                "content": "New email body",
+            },
+        )
+        slack = self.client.post(
+            f"/api/projects/{self.team.id}/comments/{comment.id}/send_to_slack/",
+            {"integration_id": 1, "channel_id": "C1"},
+        )
+
+        assert comment.id not in {row["id"] for row in unscoped.json()["results"]}
+        assert scoped.json()["results"] == []
+        assert detail.status_code == status.HTTP_404_NOT_FOUND
+        assert update.status_code == status.HTTP_404_NOT_FOUND
+        assert create.status_code == status.HTTP_403_FORBIDDEN
+        assert slack.status_code == status.HTTP_404_NOT_FOUND
+        assert not ActivityLog.objects.filter(
+            team_id=self.team.id,
+            scope="EmailThread",
+            item_id=comment.item_id,
+        ).exists()
 
     def test_ticket_scoped_comment_detail_actions_work_for_session_users(self) -> None:
         # Detail actions carry no scope param; the default-list exclusion must not 404 them.

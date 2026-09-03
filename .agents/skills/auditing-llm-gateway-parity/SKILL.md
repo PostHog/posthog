@@ -24,6 +24,7 @@ For the Python gateway, inspect:
 
 - `services/llm-gateway/src/llm_gateway/api/` for routes and wire behavior
 - `services/llm-gateway/src/llm_gateway/auth/` for accepted credentials
+- `services/llm-gateway/src/llm_gateway/db/required_tables.py` for the tables the gateway may read; a change adding a table read needs its posthog-cloud-infra SELECT grant landed in every environment first
 - `services/llm-gateway/src/llm_gateway/products/config.py` for trusted product policy, models, and billing
 - `services/llm-gateway/src/llm_gateway/rate_limiting/` for budgets and limits
 - `services/llm-gateway/src/llm_gateway/callbacks/` for event attribution

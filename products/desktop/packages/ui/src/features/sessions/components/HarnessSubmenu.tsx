@@ -5,25 +5,27 @@ import {
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
 } from "@posthog/quill";
+import { HARNESS_DISPLAY_NAMES } from "@posthog/shared";
 import type { AgentAdapter } from "@posthog/ui/features/settings/settingsStore";
 
 export type AgentHarness = AgentAdapter | "pi";
 
 const harnessLabels: Record<AgentHarness, string> = {
-  claude: "Claude Code",
-  codex: "Codex",
+  ...HARNESS_DISPLAY_NAMES,
   pi: "Pi",
 };
 
 interface HarnessSubmenuProps {
   value: AgentHarness;
   includePi?: boolean;
+  closeOnChange?: boolean;
   onChange: (harness: AgentHarness) => void;
 }
 
 export function HarnessSubmenu({
   value,
   includePi,
+  closeOnChange = true,
   onChange,
 }: HarnessSubmenuProps): React.JSX.Element {
   return (
@@ -47,12 +49,16 @@ export function HarnessSubmenu({
             }
           }}
         >
-          <DropdownMenuRadioItem value="claude">
+          <DropdownMenuRadioItem value="claude" closeOnClick={closeOnChange}>
             Claude Code
           </DropdownMenuRadioItem>
-          <DropdownMenuRadioItem value="codex">Codex</DropdownMenuRadioItem>
+          <DropdownMenuRadioItem value="codex" closeOnClick={closeOnChange}>
+            Codex
+          </DropdownMenuRadioItem>
           {includePi && (
-            <DropdownMenuRadioItem value="pi">Pi</DropdownMenuRadioItem>
+            <DropdownMenuRadioItem value="pi" closeOnClick={closeOnChange}>
+              Pi
+            </DropdownMenuRadioItem>
           )}
         </DropdownMenuRadioGroup>
       </DropdownMenuSubContent>

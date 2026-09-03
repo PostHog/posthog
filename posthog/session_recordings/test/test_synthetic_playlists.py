@@ -1,5 +1,6 @@
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
+from typing import Any, cast
 
 from posthog.test.base import APIBaseTest, _create_event, flush_persons_and_events
 from unittest.mock import patch
@@ -16,16 +17,10 @@ from posthog.models.event.sql import EVENTS_JSON_DATA_TABLE
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.utils import uuid7
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
+from posthog.session_recordings.session_recording_api import RecordingsListingResult
 from posthog.session_recordings.synthetic_playlists import ExpiringPlaylistSource, FrustrationSignalsPlaylistSource
 
 from products.exports.backend.models.exported_asset import ExportedAsset
-
-try:
-    from products.replay.backend.models.session_summaries import SingleSessionSummary
-
-    HAS_EE = True
-except ImportError:
-    HAS_EE = False
 
 
 class TestSyntheticPlaylists(APIBaseTest):
@@ -58,8 +53,6 @@ class TestSyntheticPlaylists(APIBaseTest):
             "synthetic-expiring",
             "synthetic-frustrated",
         ]
-        if HAS_EE:
-            expected.append("synthetic-summarised")
 
         assert sorted(synthetic_short_ids) == sorted(expected)
 
@@ -77,7 +70,9 @@ class TestSyntheticPlaylists(APIBaseTest):
 
         with patch(
             "posthog.session_recordings.synthetic_playlists.list_recordings_from_query",
-            return_value=(recordings, False, None, None),
+            return_value=RecordingsListingResult(
+                recordings=cast(Any, recordings), more_recordings_available=False, timings_header="", next_cursor=None
+            ),
         ) as mock_query:
             count = source.count_session_ids(self.team, self.user)
             session_ids = source.get_session_ids(self.team, self.user)
@@ -225,28 +220,6 @@ class TestSyntheticPlaylists(APIBaseTest):
 
         assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
 
-    def test_synthetic_playlist_summarised_content(self) -> None:
-        if not HAS_EE:
-            # Skip test if EE is not available
-            return
-
-        SingleSessionSummary.objects.create(
-            team=self.team,
-            session_id="summarised-session-1",
-            summary={"content": "User completed checkout flow"},
-            created_by=self.user,
-        )
-        SingleSessionSummary.objects.create(
-            team=self.team,
-            session_id="summarised-session-2",
-            summary={"content": "User encountered error on login"},
-            created_by=self.user,
-        )
-
-        playlist = self._get_synthetic_playlist("synthetic-summarised")
-
-        assert playlist["recordings_counts"]["collection"]["count"] == 2
-
     def test_pagination_includes_synthetics_only_on_first_page(self) -> None:
         for i in range(25):
             SessionRecordingPlaylist.objects.create(
@@ -256,7 +229,7 @@ class TestSyntheticPlaylists(APIBaseTest):
                 type="collection",
             )
 
-        expected_synthetic_count = 7 if HAS_EE else 6
+        expected_synthetic_count = 6
 
         page1_data = self._get_playlists_response("?limit=20")
         assert len(page1_data["results"]) == 20
@@ -269,7 +242,7 @@ class TestSyntheticPlaylists(APIBaseTest):
         assert page2_data["count"] == 25 + expected_synthetic_count
 
     def test_pagination_limit_constrains_combined_results(self) -> None:
-        expected_synthetic_count = 7 if HAS_EE else 6
+        expected_synthetic_count = 6
 
         # With no DB playlists, requesting limit=3 should return at most 3
         # synthetic playlists, not all of them.
@@ -308,7 +281,7 @@ class TestSyntheticPlaylists(APIBaseTest):
             last_modified_at=base_time,
         )
 
-        expected_synthetic_count = 7 if HAS_EE else 6
+        expected_synthetic_count = 6
 
         response_data = self._get_playlists_response(f"?order={order_param}")
         results = response_data["results"]

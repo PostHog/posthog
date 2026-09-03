@@ -36,6 +36,13 @@ SignalEmitter = Callable[[int, dict[str, Any]], SignalEmitterOutput | None]
 RecordFetcher = Callable[[Any, "SignalSourceTableConfig", dict[str, Any]], list[dict[str, Any]]]
 
 
+def redacted_record(record: dict[str, Any], unloggable_fields: tuple[str, ...]) -> dict[str, Any]:
+    """A record safe to log, with the source's declared identity columns dropped."""
+    if not unloggable_fields:
+        return record
+    return {k: v for k, v in record.items() if k not in unloggable_fields}
+
+
 class SignalSourceTableConfig(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -59,6 +66,15 @@ class SignalSourceTableConfig(BaseModel):
     first_sync_lookback_days: int = 7
     # LLM prompt to check if a record is actionable before emitting. If None, all records == actionable.
     actionability_prompt: str | None = None
+    # `extra` keys the actionability gate needs alongside the description, for sources whose verdict
+    # depends on metadata the description doesn't carry (e.g. who filed a GitHub issue). Declared per
+    # source rather than dumping all of `extra`, so a prompt only ever widens where its source asked.
+    # Steered teams already see all of `extra`, so this is what unsteered teams get.
+    actionability_context_fields: tuple[str, ...] = ()
+    # Source columns to strip before a record reaches a log line, for columns carrying more identity
+    # than the emitter keeps on `extra` (e.g. GitHub's nested user object, of which only the handle
+    # survives). The shared pipeline logs whole records when an emitter fails.
+    unloggable_fields: tuple[str, ...] = ()
     # LLM prompt to summarize descriptions that exceed the threshold. If None, no summarization is performed.
     summarization_prompt: str | None = None
     # How large the description can be before emitting

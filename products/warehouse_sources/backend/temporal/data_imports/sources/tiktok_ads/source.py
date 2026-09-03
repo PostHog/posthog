@@ -42,6 +42,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads
 from products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads.utils import (
     TIKTOK_APP_TOKEN_MISMATCH_MESSAGE,
     TIKTOK_AUTH_ERROR_CODES,
+    TIKTOK_CREATIVE_PERMISSION_DENIED_FRAGMENTS,
+    TIKTOK_CREATIVE_PERMISSION_DENIED_MESSAGE,
     TIKTOK_NON_RETRYABLE_ERROR_PREFIX,
     TIKTOK_TRANSIENT_ERROR_CODES,
     TIKTOK_TRANSIENT_ERROR_MESSAGE,
@@ -72,7 +74,10 @@ class TikTokAdsSource(ResumableSource[TikTokAdsSourceConfig, TikTokAdsResumeConf
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            # TikTok client errors not in the retryable code set (e.g. 40001 — the advertiser
+            # Must precede TIKTOK_NON_RETRYABLE_ERROR_PREFIX: a denial matches both keys, and
+            # `external_data_job` takes the first match in dict order, discarding it when None.
+            **dict.fromkeys(TIKTOK_CREATIVE_PERMISSION_DENIED_FRAGMENTS, TIKTOK_CREATIVE_PERMISSION_DENIED_MESSAGE),
+            # Other TikTok client errors not in the retryable code set (e.g. 40001 — the advertiser
             # doesn't exist or has been deleted). The paginator raises these with this exact
             # prefix; retrying cannot recover, so fail the job fast. The raw message is kept as
             # the user-facing error since it names the specific advertiser and TikTok error code.
@@ -84,13 +89,33 @@ class TikTokAdsSource(ResumableSource[TikTokAdsSourceConfig, TikTokAdsResumeConf
             "Integration not found": "The linked TikTok Ads integration no longer exists. Please reconnect your TikTok Ads integration.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        return {
+            # The paginator's `update_state` raises this exact prefix for every TikTok API code
+            # it already classifies as transient (rate limits, "System error", maintenance) — see
+            # `TikTokAdsPaginator.update_state`'s `retryable_codes`. Temporal retries the whole
+            # activity regardless, so this shouldn't page us as a bug.
+            "TikTok API error:",
+        }
+
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.TIK_TOK_ADS,
             category=DataWarehouseSourceCategory.ADVERTISING,
             label="TikTok Ads",
-            caption="Collect campaign data, ad performance, and advertising metrics from TikTok Ads. Ensure you have granted PostHog access to your TikTok Ads account, learn how to do this in [the documentation](https://posthog.com/docs/cdp/sources/tiktok-ads).",
+            caption=(
+                "Collect campaign data, ad performance, and advertising metrics from TikTok Ads. "
+                "Ensure you have granted PostHog access to your TikTok Ads account, learn how to do this in "
+                "[the documentation](https://posthog.com/docs/cdp/sources/tiktok-ads).\n\n"
+                "If TikTok's authorization page rejects the connection before returning to PostHog, this is "
+                "usually an account or region restriction on TikTok's side. Check that you have an admin role "
+                "in the TikTok Business Center you're connecting, and that TikTok Ads is available in your region. "
+                "If it still fails, copy the Log ID from TikTok's error page and contact support.\n\n"
+                "The creative_videos and creative_images tables additionally need creative asset access on the "
+                "advertiser account. If your advertiser hasn't granted it, leave those two tables unselected. "
+                "Every other table syncs without it."
+            ),
             releaseStatus=ReleaseStatus.GA,
             iconPath="/static/services/tiktok.png",
             docsUrl="https://posthog.com/docs/cdp/sources/tiktok-ads",

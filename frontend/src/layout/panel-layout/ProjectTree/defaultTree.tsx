@@ -112,7 +112,7 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     marketing_analytics: {
         icon: <IconMegaphone />,
-        iconColor: ['var(--color-product-marketing-analytics-light)'],
+        iconColor: ['var(--color-product-marketing-analytics-light)', 'var(--color-product-marketing-analytics-dark)'],
     },
     managed_viewsets: {
         icon: <IconDatabase />,
@@ -154,11 +154,11 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     product_tour: {
         icon: <IconSpotlight />,
-        iconColor: ['var(--color-product-surveys-light)'],
+        iconColor: ['var(--color-product-product-tours-light)', 'var(--color-product-product-tours-dark)'],
     },
     user_interview: {
         icon: <IconApp />,
-        iconColor: ['var(--color-product-user-interviews-light)'],
+        iconColor: ['var(--color-product-user-interviews-light)', 'var(--color-product-user-interviews-dark)'],
     },
     home: {
         icon: <IconHome />,
@@ -168,11 +168,11 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     logs: {
         icon: <IconLive />,
-        iconColor: ['var(--color-product-logs-light)'],
+        iconColor: ['var(--color-product-logs-light)', 'var(--color-product-logs-dark)'],
     },
     tracing: {
         icon: <IconListTree />,
-        iconColor: ['var(--color-product-tracing-light)'],
+        iconColor: ['var(--color-product-tracing-light)', 'var(--color-product-tracing-dark)'],
     },
     metrics: {
         icon: <IconGraph />,
@@ -199,14 +199,14 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     data_pipeline: {
         icon: <IconPlug />,
-        iconColor: ['var(--color-product-data-pipeline-light)'],
+        iconColor: ['var(--color-product-data-pipeline-light)', 'var(--color-product-data-pipeline-dark)'],
     },
     data_pipeline_metadata: {
         icon: <IconPlug />,
     },
     data_warehouse: {
         icon: <IconDatabase />,
-        iconColor: ['var(--color-product-data-warehouse-light)'],
+        iconColor: ['var(--color-product-data-warehouse-light)', 'var(--color-product-data-warehouse-dark)'],
     },
     link: {
         icon: <IconExternal />,
@@ -355,6 +355,7 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     visual_review: {
         icon: <IconApp />,
+        iconColor: ['var(--color-product-visual-review-light)', 'var(--color-product-visual-review-dark)'],
     },
     code_review: {
         icon: <IconPullRequest />,

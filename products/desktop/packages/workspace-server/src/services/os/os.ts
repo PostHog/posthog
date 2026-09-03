@@ -32,6 +32,7 @@ import {
 import { inject, injectable } from "inversify";
 import type {
   ClaudePermissions,
+  HostInfo,
   ImageAttachment,
   MessageBoxOptions,
   SavedAttachment,
@@ -49,14 +50,18 @@ const MAX_FILE_SIZE = 50 * 1024 * 1024;
 const CLIPBOARD_TEMP_DIR = path.join(os.tmpdir(), "posthog-code-clipboard");
 const claudeSettingsPath = path.join(os.homedir(), ".claude", "settings.json");
 
-// User-level agent instruction files, most-preferred first: AGENTS.md (the
-// cross-agent convention) from any of its conventional homes wins over Claude
-// Code's CLAUDE.md.
-const USER_AGENT_INSTRUCTIONS_CANDIDATES: ReadonlyArray<[string, string]> = [
+// User-level agent instruction files as path segments under the home
+// directory, most-preferred first: AGENTS.md (the cross-agent convention) from
+// any of its conventional homes wins over Claude Code's CLAUDE.md, and a
+// tool-specific home wins over the bare home root. Only the first match is
+// read, so pointing several of these at one file still syncs it once.
+const USER_AGENT_INSTRUCTIONS_CANDIDATES: ReadonlyArray<readonly string[]> = [
   [".agents", "AGENTS.md"],
   [".codex", "AGENTS.md"],
   [".claude", "AGENTS.md"],
+  ["AGENTS.md"],
   [".claude", "CLAUDE.md"],
+  ["CLAUDE.md"],
 ];
 
 // Claude Code follows `@path` imports up to four hops deep; we match that so a
@@ -113,8 +118,8 @@ export class OsService {
    * user's CLAUDE.md. Null when none exists.
    */
   async getUserAgentInstructions(): Promise<UserAgentInstructions | null> {
-    for (const [dir, file] of USER_AGENT_INSTRUCTIONS_CANDIDATES) {
-      const filePath = path.join(os.homedir(), dir, file);
+    for (const segments of USER_AGENT_INSTRUCTIONS_CANDIDATES) {
+      const filePath = path.join(os.homedir(), ...segments);
       let content: string;
       try {
         content = await fsPromises.readFile(filePath, "utf-8");
@@ -133,7 +138,7 @@ export class OsService {
       const truncated = expanded.length > USER_AGENT_INSTRUCTIONS_MAX_LENGTH;
       return {
         path: filePath,
-        displayPath: `~/${dir}/${file}`,
+        displayPath: `~/${segments.join("/")}`,
         content: truncated
           ? expanded.slice(0, USER_AGENT_INSTRUCTIONS_MAX_LENGTH)
           : expanded,
@@ -466,8 +471,16 @@ export class OsService {
     return this.appMeta.version;
   }
 
+  getHostInfo(): HostInfo {
+    return { platform: this.appMeta.platform, arch: this.appMeta.arch };
+  }
+
   getWorktreeLocation(): string {
     return this.workspaceSettings.getWorktreeLocation();
+  }
+
+  setWorktreeLocation(location: string): void {
+    this.workspaceSettings.setWorktreeLocation(location);
   }
 
   async readFileAsDataUrl(

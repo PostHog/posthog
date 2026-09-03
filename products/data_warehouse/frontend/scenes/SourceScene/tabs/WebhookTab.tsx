@@ -84,6 +84,7 @@ export function WebhookTab({ id }: { id: string }): JSX.Element {
                 sourceConfig={sourceConfig}
                 webhookResult={createWebhookResult}
                 webhookCreating={webhookCreating}
+                autoCreationBlockedReason={webhookInfo?.auto_creation_blocked_reason}
                 onCreateWebhook={createWebhook}
                 formLogic={webhookTabLogic(logicProps)}
                 formKey="webhookFieldInputs"
@@ -132,6 +133,7 @@ export function WebhookTab({ id }: { id: string }): JSX.Element {
                             sourceConfig={sourceConfig}
                             webhookCreating={webhookCreating}
                             createWebhookResult={createWebhookResult}
+                            autoCreationBlockedReason={webhookInfo.auto_creation_blocked_reason}
                             onCreateWebhook={createWebhook}
                         />
                     )}
@@ -306,6 +308,7 @@ function WebhookRecreateSection({
     sourceConfig,
     webhookCreating,
     createWebhookResult,
+    autoCreationBlockedReason,
     onCreateWebhook,
 }: {
     id: string
@@ -313,6 +316,7 @@ function WebhookRecreateSection({
     sourceConfig: any
     webhookCreating: boolean
     createWebhookResult: WebhookCreateResult | null
+    autoCreationBlockedReason?: string | null
     onCreateWebhook: () => void
 }): JSX.Element {
     return (
@@ -321,6 +325,7 @@ function WebhookRecreateSection({
             sourceConfig={sourceConfig}
             webhookResult={createWebhookResult}
             webhookCreating={webhookCreating}
+            autoCreationBlockedReason={autoCreationBlockedReason}
             onCreateWebhook={onCreateWebhook}
             formLogic={webhookTabLogic({ id })}
             formKey="webhookFieldInputs"

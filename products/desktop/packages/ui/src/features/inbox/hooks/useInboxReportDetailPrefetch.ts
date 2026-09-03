@@ -1,65 +1,83 @@
-import { seedInboxReportDetailCache } from "@posthog/core/inbox/inboxQuery";
-import type { SignalReport } from "@posthog/shared/types";
+import {
+  INBOX_REPORT_DETAIL_STALE_TIME_MS,
+  inboxReportDetailQueryKey,
+} from "@posthog/core/inbox/inboxQuery";
+import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
+import { AUTH_SCOPED_QUERY_META } from "@posthog/ui/features/auth/useCurrentUser";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
 import { useCallback, useMemo } from "react";
 
 export type InboxDetailRoute =
   | {
-      to: "/code/inbox/pulls/$reportId";
+      to: "/inbox/pulls/$reportId";
       params: { reportId: string };
     }
   | {
-      to: "/code/inbox/reports/$reportId";
+      to: "/inbox/reports/$reportId";
       params: { reportId: string };
     }
   | {
-      to: "/code/inbox/runs/$reportId";
+      to: "/inbox/runs/$reportId";
       params: { reportId: string };
     }
   | {
-      to: "/code/inbox/dismissed/$reportId";
+      to: "/inbox/dismissed/$reportId";
       params: { reportId: string };
     };
 
+interface InboxReportDetailPrefetch {
+  prefetch: () => void;
+  pointerHandlers: {
+    onPointerEnter: () => void;
+    onFocus: () => void;
+    onPointerDown: () => void;
+  };
+}
+
 /**
- * `<Link preload="intent">` already triggers route preload on hover/focus, so we
- * don't wire `onPointerEnter` here – that would double-fire `router.preloadRoute`
- * and run the destination loader for every card the cursor brushed.
- *
- * `onPointerDown` only seeds the detail-cache so a click navigation can resolve
- * the detail synchronously without flicker.
+ * `<Link preload="intent">` warms route code on hover/focus. These handlers warm
+ * the authenticated report request itself, which the route loader cannot do.
  */
 export function useInboxReportDetailPrefetch(
-  report: SignalReport,
-  route: InboxDetailRoute,
-) {
+  route: InboxDetailRoute | null,
+): InboxReportDetailPrefetch {
   const queryClient = useQueryClient();
   const router = useRouter();
-
-  const seed = useCallback(() => {
-    seedInboxReportDetailCache(queryClient, report);
-  }, [queryClient, report]);
+  const client = useOptionalAuthenticatedClient();
 
   // Callers build `route` inline each render, so use the route's stable id
   // pieces as deps instead of the object reference itself.
-  const { to, params } = route;
-  const reportId = params.reportId;
+  const to = route?.to;
+  const reportId = route?.params.reportId;
+  const prefetchReport = useCallback(() => {
+    if (!client || !reportId) return;
+    void queryClient.prefetchQuery({
+      queryKey: inboxReportDetailQueryKey(reportId),
+      queryFn: () => client.getSignalReport(reportId),
+      staleTime: INBOX_REPORT_DETAIL_STALE_TIME_MS,
+      meta: AUTH_SCOPED_QUERY_META,
+    });
+  }, [client, queryClient, reportId]);
+
   const prefetch = useCallback(() => {
-    seedInboxReportDetailCache(queryClient, report);
+    prefetchReport();
+    if (!to || !reportId) return;
     void router.preloadRoute({
       to,
       params: { reportId },
     } as InboxDetailRoute);
-  }, [queryClient, report, router, to, reportId]);
+  }, [prefetchReport, reportId, router, to]);
 
   return useMemo(
     () => ({
       prefetch,
       pointerHandlers: {
-        onPointerDown: seed,
+        onPointerEnter: prefetchReport,
+        onFocus: prefetchReport,
+        onPointerDown: prefetchReport,
       },
     }),
-    [prefetch, seed],
+    [prefetch, prefetchReport],
   );
 }

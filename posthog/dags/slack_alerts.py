@@ -105,6 +105,8 @@ def send_slack_alert(context, client, channel: str, blocks: list, fallback_text:
 ASSET_NAME_PREFIX_OWNERS: tuple[tuple[str, JobOwners], ...] = (
     ("web_", JobOwners.TEAM_WEB_ANALYTICS),
     ("inbox_report_", JobOwners.TEAM_SELF_DRIVING),
+    ("inbox_signal_", JobOwners.TEAM_SELF_DRIVING),
+    ("inbox_ranking_", JobOwners.TEAM_SELF_DRIVING),
 )
 
 

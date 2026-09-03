@@ -10,12 +10,14 @@ import { ExperimentsNotebookTable } from '../AddExperimentsToNotebookModal/Exper
 
 export type MarkdownNotebookExperimentPickerProps = {
     isOpen: boolean
+    title?: string
     onClose: () => void
     onSelect: (experimentId: number) => void
 }
 
 export function MarkdownNotebookExperimentPicker({
     isOpen,
+    title = 'Add experiment to notebook',
     onClose,
     onSelect,
 }: MarkdownNotebookExperimentPickerProps): JSX.Element {
@@ -34,7 +36,7 @@ export function MarkdownNotebookExperimentPicker({
 
     return (
         <LemonModal
-            title="Add experiment to notebook"
+            title={title}
             onClose={onClose}
             isOpen={isOpen}
             footer={

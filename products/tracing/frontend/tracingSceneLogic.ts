@@ -159,8 +159,12 @@ export interface tracingSceneLogicActions {
     setDateRange: (dateRange: DateRange) => {
         dateRange: DateRange
     } // tracingFiltersLogic
-    setFilterGroup: (filterGroup: UniversalFiltersGroup) => {
+    setFilterGroup: (
+        filterGroup: UniversalFiltersGroup,
+        skipQuery?: boolean | undefined
+    ) => {
         filterGroup: UniversalFiltersGroup
+        skipQuery: boolean
     } // tracingFiltersLogic
     setFilters: (filters: Partial<TracingFilters>) => {
         filters: Partial<TracingFilters>

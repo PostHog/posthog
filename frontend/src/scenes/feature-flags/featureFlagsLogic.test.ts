@@ -3,9 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
-import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { showApprovalRequiredToast } from 'scenes/approvals/ApprovalRequiredBanner'
 import { NEW_FLAG } from 'scenes/feature-flags/featureFlagLogic'
 import {
@@ -339,13 +337,14 @@ describe('updateFeatureFlag 409 handling', () => {
     ])(
         'shows approval toast with "$expected" when toggling active=$active gets a 409',
         async ({ active, expected }) => {
-            const error = { status: 409, data: { change_request_id: 'cr-123' } }
+            const error = { status: 409, data: { change_request_id: 'cr-123', code: 'approval_required' } }
             jest.spyOn(api, 'update').mockRejectedValueOnce(error)
 
             logic.actions.updateFeatureFlag({ id: 1, payload: { active } })
             await expectLogic(logic).toFinishAllListeners()
 
-            expect(showApprovalRequiredToast).toHaveBeenCalledWith('cr-123', expected)
+            expect(showApprovalRequiredToast).toHaveBeenCalledWith('cr-123', expected, 'approval_required')
+            expect(posthog.captureException).not.toHaveBeenCalled()
         }
     )
 
@@ -367,6 +366,8 @@ describe('updateFeatureFlag 409 handling', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(showApprovalRequiredToast).not.toHaveBeenCalled()
+        // A non-approval 409 stays visible to error tracking; only approval-shaped ones are suppressed
+        expect(posthog.captureException).toHaveBeenCalledWith(error)
     })
 })
 
@@ -428,21 +429,16 @@ describe('updateFeatureFlagArchived', () => {
         expect(logic.values.featureFlagsUpdating[1]).toBeUndefined()
     })
 
-    // The list arm of the disable-and-archive experiment: the row toggle has to reach
-    // updateFeatureFlagArchived with the list's own via, not the archive dialog's.
-    it('archives via the disable confirmation when the test variant picks it', async () => {
+    // The list arm of the disable-and-archive dialog: picking "Disable and archive" from the row
+    // toggle has to reach updateFeatureFlagArchived with the list's own via, not the archive dialog's.
+    it('archives via the disable confirmation when disable and archive is picked', async () => {
         const openDialog = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
         jest.spyOn(api, 'update').mockResolvedValueOnce({ id: 1, key: 'test-flag', archived: true, active: false })
-        const flagsLogic = enabledFeaturesLogic()
-        flagsLogic.mount()
-        flagsLogic.actions.setFeatureFlags([FEATURE_FLAGS.FEATURE_FLAG_DISABLE_AND_ARCHIVE_EXPERIMENT], {
-            [FEATURE_FLAGS.FEATURE_FLAG_DISABLE_AND_ARCHIVE_EXPERIMENT]: 'test',
-        })
 
         logic.actions.toggleFeatureFlagActive(1, false)
-        expect(openDialog.mock.calls[0][0].primaryButton?.children).toBe('Disable and archive')
+        expect(openDialog.mock.calls[0][0].secondaryButton?.children).toBe('Disable and archive')
 
-        openDialog.mock.calls[0][0].primaryButton?.onClick?.(undefined as any)
+        openDialog.mock.calls[0][0].secondaryButton?.onClick?.(undefined as any)
         await expectLogic(logic).toFinishAllListeners()
 
         expect(capturesOf('feature flag archived')).toEqual([

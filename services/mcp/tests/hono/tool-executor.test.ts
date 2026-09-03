@@ -1,4 +1,5 @@
-import { beforeAll, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, describe, expect, it, vi, type MockInstance } from 'vitest'
+import { z } from 'zod'
 
 vi.mock('@/resources/internals', () => ({
     fetchContextMillResources: vi.fn().mockRejectedValue(new Error('mocked')),
@@ -18,6 +19,7 @@ import { ToolExecutor } from '@/hono/tool-executor'
 import { buildToolDomainsCompact } from '@/lib/instructions'
 import { RENDER_UI_RESOURCE_URI, URI_MAP } from '@/resources/ui-apps.generated'
 import { getToolDefinition } from '@/tools/toolDefinitions'
+import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY } from '@/tools/types'
 
 // A tool with a renderable (dispatchable) UI app — used to exercise the render-ui path.
 const uiAppTool = {
@@ -47,6 +49,7 @@ function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> 
         useSingleExec: false,
         toolFeatureFlags: undefined,
         apiKeyScopes: [],
+        oauthClientId: undefined,
         clientProfile: {
             capabilities: { supportsInstructions: true },
             isCliModeEnabled: vi.fn(() => false),
@@ -55,6 +58,7 @@ function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> 
             isClaudeChatHost: vi.fn(() => false),
         } as any,
         requestContext: {
+            authMethod: 'personal_api_key',
             sessionId: 'sess-1',
             mcpClientName: 'test',
             mcpClientVersion: '1.0',
@@ -68,6 +72,7 @@ function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> 
         distinctId: 'test-distinct-id',
         renderUiEnabled: false,
         metadata: undefined,
+        metadataCompact: undefined,
         groupTypes: undefined,
         ...overrides,
     }
@@ -328,6 +333,63 @@ describe('ToolExecutor', () => {
 
             expect(result.isError).toBe(true)
             expect(result.content[0].text).toContain('not found')
+        })
+    })
+
+    // A render-ui app loads its own data with a direct `tools/call`, reading
+    // `structuredContent` and ignoring the text channel. The formatted-table
+    // suppression that serves text-reading CLI clients must not reach that fetch,
+    // or the app has nothing to draw and shows its error state instead of the chart.
+    describe('structuredContent on a UI-app data fetch', () => {
+        const formattedTable = 'date|count\n2026-08-31|28'
+        let getToolByNameSpy: MockInstance | undefined
+
+        afterEach(() => {
+            getToolByNameSpy?.mockRestore()
+            getToolByNameSpy = undefined
+        })
+
+        it.each([
+            {
+                label: 'keeps it for a render-ui host, where this call is the app',
+                useSingleExec: true,
+                renderUiEnabled: true,
+                expectStructuredContent: true,
+            },
+            {
+                label: 'drops it for a CLI client without render-ui, which reads the table',
+                useSingleExec: true,
+                renderUiEnabled: false,
+                expectStructuredContent: false,
+            },
+            {
+                label: 'drops it in tools mode, where a direct call may be the model',
+                useSingleExec: false,
+                renderUiEnabled: true,
+                expectStructuredContent: false,
+            },
+        ])('$label', async ({ useSingleExec, renderUiEnabled, expectStructuredContent }) => {
+            getToolByNameSpy = vi.spyOn(catalog, 'getToolByName').mockReturnValue({
+                build() {
+                    return this.base
+                },
+                base: {
+                    schema: z.object({}),
+                    handler: async () => ({
+                        results: [{ count: 28, label: '$pageview' }],
+                        [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: formattedTable,
+                    }),
+                    _meta: uiAppTool._meta,
+                },
+            } as any)
+
+            const state = makeState([uiAppTool], { useSingleExec, renderUiEnabled })
+            vi.mocked(state.clientProfile.isCliModeEnabled).mockReturnValue(true)
+
+            const result = (await executor.handleToolCall({ name: 'survey-get', arguments: {} }, state)) as any
+
+            expect(result.content[0].text).toContain(formattedTable)
+            expect('structuredContent' in result).toBe(expectStructuredContent)
         })
     })
 })

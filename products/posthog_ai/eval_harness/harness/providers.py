@@ -162,6 +162,15 @@ class SandboxProviderStrategy(ABC):
         """Per-sandbox max lifetime, or ``None`` to keep ``SANDBOX_TTL_SECONDS``."""
         return None
 
+    def keeps_sandboxes(self) -> bool:
+        """Whether this run deliberately leaves sandboxes behind for inspection.
+
+        Covers the sandboxes the harness does not create itself — notebook kernels —
+        so a debugging flag that preserves a case's agent container preserves the
+        kernel container the same case provisioned.
+        """
+        return False
+
     def cleanup_case(self, task_id: str) -> None:  # noqa: B027 — optional hook; only providers whose per-case teardown can lag override it
         """Per-case teardown run after each case settles, on top of the workflow's own cleanup."""
 
@@ -197,9 +206,17 @@ class DockerProviderStrategy(SandboxProviderStrategy):
         # stale image can't break the whole run. Imported here because it pulls in Django.
         from products.tasks.backend.logic.services.docker_sandbox import (  # noqa: PLC0415 — Django import, kept off the harness import path
             ensure_fresh_base_image,
+            ensure_template_image,
+        )
+        from products.tasks.backend.logic.services.sandbox import (  # noqa: PLC0415 — Django import, kept off the harness import path
+            SandboxTemplate,
         )
 
         ensure_fresh_base_image(force=self.rebuild_image)
+        # The notebook kernel image is otherwise built on first use, inside a Temporal
+        # activity with a 5-minute budget — a cold build blows through it, and the run's
+        # first python cell fails on a timeout instead of on anything real.
+        ensure_template_image(SandboxTemplate.NOTEBOOK_BASE)
 
     def settings_overrides(self) -> dict[str, Any]:
         # Docker containers reach the host via host.docker.internal.
@@ -209,6 +226,9 @@ class DockerProviderStrategy(SandboxProviderStrategy):
             "SANDBOX_LLM_GATEWAY_URL": f"http://host.docker.internal:{LLM_GATEWAY_PORT}",
             "SANDBOX_MCP_URL": f"http://host.docker.internal:{MCP_PORT}/mcp",
         }
+
+    def keeps_sandboxes(self) -> bool:
+        return self.keep_containers
 
     def cleanup_case(self, task_id: str) -> None:
         # Belt-and-braces on top of the workflow's own shutdown: its cleanup_sandbox

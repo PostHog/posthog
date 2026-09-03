@@ -4,20 +4,24 @@ import {
   resolveCheckResultAction,
 } from "@posthog/core/settings/updateStatus";
 import { useHostTRPC } from "@posthog/host-router/react";
+import { Button, Spinner, Switch } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared";
-import { SettingRow } from "@posthog/ui/features/settings/SettingRow";
+import {
+  SettingsCard,
+  SettingsCardRow,
+  SettingsSection,
+} from "@posthog/ui/features/settings/components/SettingsCard";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { useWhatsNewStore } from "@posthog/ui/features/updates/whatsNewStore";
 import { track } from "@posthog/ui/shell/analytics";
 import { logger } from "@posthog/ui/shell/logger";
-import { Badge, Button, Flex, Spinner, Switch, Text } from "@radix-ui/themes";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useSubscription } from "@trpc/tanstack-react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 const log = logger.scope("updates-settings");
 
-export function UpdatesSettings() {
+export function UpdatesSection() {
   const trpc = useHostTRPC();
   const { data: appVersion } = useQuery(trpc.os.getAppVersion.queryOptions());
   const { data: updatesEnabled } = useQuery(
@@ -119,91 +123,96 @@ export function UpdatesSettings() {
     }),
   );
 
-  return (
-    <Flex direction="column">
-      <SettingRow label="Current version">
-        <Flex align="center" gap="2">
-          <Button
-            variant="ghost"
-            size="1"
-            onClick={() => useWhatsNewStore.getState().open()}
-          >
-            View changelog
-          </Button>
-          <Badge size="1" variant="soft" color="gray">
-            {appVersion || "Loading..."}
-          </Badge>
-        </Flex>
-      </SettingRow>
-
-      {updatesEnabled?.enabled ? (
-        <>
-          <SettingRow
-            label="Download updates automatically"
-            description="Download new versions in the background and install them on the next quit. When off, you choose when to download each update."
-          >
-            <Switch
-              checked={downloadUpdatesAutomatically}
-              onCheckedChange={handleAutoDownloadChange}
-              size="1"
-            />
-          </SettingRow>
-          <SettingRow
-            label="Dismissible update banners"
-            description="Reveal a dismiss button when hovering update banners. A dismissed banner stays hidden until a new update arrives or the app restarts."
-          >
-            <Switch
-              checked={dismissibleUpdateBanners}
-              onCheckedChange={handleDismissibleBannersChange}
-              size="1"
-            />
-          </SettingRow>
-        </>
-      ) : null}
-
-      <SettingRow
-        label="Check for updates"
-        description="Automatically checks for new versions on startup"
-        noBorder
+  const statusLine = updateStatus.message && (
+    <span className="inline-flex items-center gap-1">
+      {updateStatus.type === "info" && checkingForUpdates && (
+        <Spinner className="size-3" />
+      )}
+      {updateStatus.type === "success" && (
+        <CheckCircle size={13} weight="fill" className="text-green-9" />
+      )}
+      {updateStatus.type === "error" && (
+        <XCircle size={13} weight="fill" className="text-red-9" />
+      )}
+      <span
+        className={
+          updateStatus.type === "error"
+            ? "text-red-11"
+            : updateStatus.type === "success"
+              ? "text-green-11"
+              : undefined
+        }
       >
-        <Flex align="center" gap="3">
-          {updateStatus.message && (
-            <Flex align="center" gap="1">
-              {updateStatus.type === "info" && checkingForUpdates && (
-                <Spinner size="1" />
-              )}
-              {updateStatus.type === "success" && (
-                <CheckCircle size={14} weight="fill" className="text-green-9" />
-              )}
-              {updateStatus.type === "error" && (
-                <XCircle size={14} weight="fill" className="text-red-9" />
-              )}
-              <Text
-                color={
-                  updateStatus.type === "error"
-                    ? "red"
-                    : updateStatus.type === "success"
-                      ? "green"
-                      : "gray"
-                }
-                className="text-[13px]"
-              >
-                {updateStatus.message}
-              </Text>
-            </Flex>
-          )}
-          {!updatesDisabled && (
+        {updateStatus.message}
+      </span>
+    </span>
+  );
+
+  return (
+    <SettingsSection
+      label="Updates"
+      description="The version you are on and how new versions arrive"
+    >
+      <SettingsCard>
+        <SettingsCardRow
+          label={
+            <span className="inline-flex items-baseline gap-2">
+              Version
+              <span className="font-mono font-normal text-[12px] text-muted-foreground">
+                {appVersion ?? "…"}
+              </span>
+            </span>
+          }
+          description={statusLine}
+        >
+          <div className="flex items-center gap-2">
             <Button
-              variant="soft"
-              size="1"
-              onClick={handleCheckForUpdates}
-              disabled={checkingForUpdates}
+              type="button"
+              variant="link-muted"
+              size="sm"
+              onClick={() => useWhatsNewStore.getState().open()}
             >
-              {checkingForUpdates ? "Checking..." : "Check now"}
+              Changelog
             </Button>
-          )}
-        </Flex>
-      </SettingRow>
-    </Flex>
+            {!updatesDisabled && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleCheckForUpdates}
+                disabled={checkingForUpdates}
+              >
+                {checkingForUpdates ? "Checking..." : "Check now"}
+              </Button>
+            )}
+          </div>
+        </SettingsCardRow>
+
+        {updatesEnabled?.enabled && (
+          <>
+            <SettingsCardRow
+              label="Download updates automatically"
+              description="New versions download in the background and install on the next quit"
+            >
+              <Switch
+                size="sm"
+                checked={downloadUpdatesAutomatically}
+                onCheckedChange={handleAutoDownloadChange}
+              />
+            </SettingsCardRow>
+            <SettingsCardRow
+              label="Dismissible update banners"
+              description="Hovering an update banner reveals a dismiss button"
+            >
+              <Switch
+                size="sm"
+                checked={dismissibleUpdateBanners}
+                onCheckedChange={handleDismissibleBannersChange}
+              />
+            </SettingsCardRow>
+          </>
+        )}
+      </SettingsCard>
+    </SettingsSection>
   );
 }

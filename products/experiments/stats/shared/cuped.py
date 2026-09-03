@@ -18,7 +18,7 @@ VARIANCE_FLOOR = 1e-10
 
 
 @dataclass
-class CupedData:
+class CupedCovariate:
     """Pre-experiment covariate data for a single experimental group.
 
     Attributes:
@@ -85,8 +85,8 @@ def _compute_covariance(
 def compute_theta(
     treatment_post: SampleMeanStatistic | ProportionStatistic,
     control_post: SampleMeanStatistic | ProportionStatistic,
-    treatment_cuped: CupedData,
-    control_cuped: CupedData,
+    treatment_cuped: CupedCovariate,
+    control_cuped: CupedCovariate,
 ) -> float:
     """Compute optimal theta by pooling treatment and control data.
 
@@ -116,7 +116,7 @@ def compute_theta(
 
 def _adjust_group(
     post: SampleMeanStatistic | ProportionStatistic,
-    cuped: CupedData,
+    cuped: CupedCovariate,
     theta: float,
 ) -> tuple[SampleMeanStatistic, float]:
     """Apply CUPED adjustment to a single group.
@@ -155,8 +155,8 @@ def _adjust_group(
 def cuped_adjust(
     treatment_post: SampleMeanStatistic | ProportionStatistic,
     control_post: SampleMeanStatistic | ProportionStatistic,
-    treatment_cuped: CupedData,
-    control_cuped: CupedData,
+    treatment_cuped: CupedCovariate,
+    control_cuped: CupedCovariate,
 ) -> CupedResult:
     """Apply CUPED variance reduction to experiment statistics.
 

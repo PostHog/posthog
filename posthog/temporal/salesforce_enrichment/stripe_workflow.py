@@ -235,15 +235,15 @@ async def enrich_stripe_page_activity(inputs: EnrichStripePageInputs) -> EnrichS
         errors: list[str] = []
         updated = 0
         if update_records:
-            success, failed = await asyncio.to_thread(
+            sf_result = await asyncio.to_thread(
                 bulk_update_salesforce_accounts,
                 sf,
                 update_records,
                 raise_on_batch_error=True,
             )
-            updated = success
-            if failed:
-                errors.append(f"sfdc_bulk_update_failed_count={failed}")
+            updated = sf_result.succeeded
+            if sf_result.failed:
+                errors.append(f"sfdc_bulk_update_failed_count={sf_result.failed}")
 
         heartbeater.details = (len(signals_rows), updated, skipped_no_account)
 

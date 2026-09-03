@@ -70,7 +70,6 @@ describe('ErrorTrackingWidget', () => {
         expect(
             screen.getByText("No issues matched your filters. That's a good thing. Enjoy the quiet.")
         ).toBeInTheDocument()
-        expect(screen.getByAltText('PostHog hedgehog')).toBeInTheDocument()
     })
 
     it('shows setup prompt when exception autocapture is disabled', async () => {

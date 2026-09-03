@@ -340,8 +340,15 @@ export const welcomeDialogLogic = kea<welcomeDialogLogicType>([
         ],
         organizationName: [
             (s) => [s.welcomeData, s.user],
-            (data: WelcomePayload, user: null | import('../../types').UserType): string =>
-                data.organization_name || user?.organization?.name || '',
+            (data: WelcomePayload, user: null | import('../../types').UserType): string => {
+                const userOrgName = user?.organization?.name
+                // After an org switch the cached payload still names the previous org until the
+                // refetch lands. Prefer the user's current org so the title never lags behind.
+                if (userOrgName && data.organization_name && data.organization_name !== userOrgName) {
+                    return userOrgName
+                }
+                return data.organization_name || userOrgName || ''
+            },
         ],
         // Open for invitees (not the org creator) and for partner-provisioned accounts (which have no
         // inviter, so they'd otherwise never see it), when not already dismissed.
@@ -370,6 +377,13 @@ export const welcomeDialogLogic = kea<welcomeDialogLogicType>([
     }),
 
     listeners(({ actions, values }) => ({
+        resetForOrgChange: () => {
+            // The cached payload belongs to the previous org. Refetch so the members, dashboards,
+            // activity, and org name all reflect the org the user just switched to. The automatic
+            // refetch only fires when `shouldShowDialog` flips, which it does not when the dialog
+            // was eligible in both orgs.
+            actions.loadWelcomeData()
+        },
         loadWelcomeDataSuccess: ({ welcomeData }) => {
             if (!values.shouldShowDialog || values.welcomeDataError) {
                 return

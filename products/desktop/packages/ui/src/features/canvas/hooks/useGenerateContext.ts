@@ -8,7 +8,11 @@ import {
 } from "@posthog/core/task-detail/taskService";
 import { useService } from "@posthog/di/react";
 import { useHostTRPC } from "@posthog/host-router/react";
-import { getCloudUrlFromRegion, type WorkspaceMode } from "@posthog/shared";
+import {
+  CONTEXT_LAYER_FLAG,
+  getCloudUrlFromRegion,
+  type WorkspaceMode,
+} from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
@@ -19,6 +23,14 @@ import {
 import { channelFeedQueryKey } from "@posthog/ui/features/canvas/hooks/useChannelFeed";
 import { channelFeedMessagesQueryKey } from "@posthog/ui/features/canvas/hooks/useChannelFeedMessages";
 import { useChannelTaskMutations } from "@posthog/ui/features/canvas/hooks/useChannelTasks";
+import {
+  FEATURE_FLAGS,
+  type FeatureFlags,
+} from "@posthog/ui/features/feature-flags/identifiers";
+import {
+  resolveFeatureFlagAfterLoad,
+  useFeatureFlagsLoaded,
+} from "@posthog/ui/features/feature-flags/useFeatureFlagsLoaded";
 import { toastError } from "@posthog/ui/features/notifications/errorDetails";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { usePreviewConfig } from "@posthog/ui/features/task-detail/hooks/usePreviewConfig";
@@ -35,12 +47,12 @@ interface GenerateContextInput {
   workspaceMode?: WorkspaceMode;
 }
 
-// Launches the plan-mode session that builds a context's CONTEXT.md. The task
-// runs repo-less (the agent attaches a repo lazily and asks to clarify if it
-// can't find the right one) and starts in plan mode, seeded by the user's
-// description, so the user shapes the document before it publishes via the
-// PostHog MCP. Defaults to a cloud run so generation never ties up (or depends
-// on) the local machine. Returns the created task, or null on failure.
+// Launches the session that builds a context's CONTEXT.md. The task runs
+// repo-less (the agent attaches a repo lazily and asks to clarify if it can't
+// find the right one) and unattended in auto mode, seeded by the user's
+// description, so it publishes via the PostHog MCP without a round trip.
+// Defaults to a cloud run so generation never ties up (or depends on) the local
+// machine. Returns the created task, or null on failure.
 //
 // Channel-agnostic on purpose: the create-context dialog calls this with a
 // freshly-created context's id (no bound hook possible before it exists), and
@@ -48,6 +60,8 @@ interface GenerateContextInput {
 export function useGenerateContext() {
   const taskService = useService<TaskService>(TASK_SERVICE);
   const modelResolver = useService<ReportModelResolver>(REPORT_MODEL_RESOLVER);
+  const featureFlags = useService<FeatureFlags>(FEATURE_FLAGS);
+  const featureFlagsLoaded = useFeatureFlagsLoaded();
   const cloudRegion = useAuthStateValue((state) => state.cloudRegion);
   const trpc = useHostTRPC();
   const queryClient = useQueryClient();
@@ -73,6 +87,11 @@ export function useGenerateContext() {
     }: GenerateContextInput): Promise<Task | null> => {
       setIsStarting(true);
       try {
+        const contextLayerEnabled = await resolveFeatureFlagAfterLoad(
+          featureFlags,
+          CONTEXT_LAYER_FLAG,
+          featureFlagsLoaded,
+        );
         // The composer's picker may not have resolved yet (or the user never
         // used it), so fall back to the adapter's server default the way the
         // inbox one-click flows do; the resolver validates against the gateway.
@@ -89,7 +108,7 @@ export function useGenerateContext() {
             : undefined;
           if (!model) {
             toastError(
-              "Couldn't start the planning session",
+              "Couldn't start the CONTEXT.md session",
               "No model is configured for cloud runs.",
             );
             return null;
@@ -101,6 +120,7 @@ export function useGenerateContext() {
               channelName,
               channelId,
               description,
+              contextLayerEnabled,
             }),
             taskDescription: contextMdTaskTitle(channelName),
             workspaceMode,
@@ -108,9 +128,10 @@ export function useGenerateContext() {
             // Own the task on the channel so it lands in the context feed
             // (not just Recents).
             channelId,
-            // Plan mode: the agent proposes the document and waits for approval
-            // before publishing, so the user co-designs CONTEXT.md.
-            executionMode: "plan",
+            // Always auto, never the composer's last-used mode: this launch has
+            // no mode picker, and a plan-mode build just parks the agent behind
+            // an approval the user never asked for. They edit CONTEXT.md after.
+            executionMode: "auto",
             allowNoRepo: true,
             // A cloud run pairs a runtime adapter with a model, and the API
             // rejects one without the other. Since this flow never surfaces a
@@ -121,12 +142,12 @@ export function useGenerateContext() {
         );
 
         if (!result.success) {
-          toastError("Couldn't start the planning session", result.error);
+          toastError("Couldn't start the CONTEXT.md session", result.error);
           return null;
         }
 
         const task = result.data.task;
-        // File into the context so its Recents/Artifacts tabs pick it up.
+        // File into the context so its Recents list picks it up.
         // Best-effort — a failure here shouldn't undo a started task.
         void fileTask(channelId, task.id).catch(() => {});
         // Announce the CONTEXT.md build in the channel feed (durable, team-
@@ -172,6 +193,8 @@ export function useGenerateContext() {
       currentModel,
       modelResolver,
       cloudRegion,
+      featureFlags,
+      featureFlagsLoaded,
     ],
   );
 

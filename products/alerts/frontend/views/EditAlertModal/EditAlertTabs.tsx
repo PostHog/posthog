@@ -1,100 +1,58 @@
 import { useState } from 'react'
 
-import { IconBell, IconClock, IconGraph, IconPulse } from '@posthog/icons'
 import { LemonTabs } from '@posthog/lemon-ui'
 import type { LemonTab } from '@posthog/lemon-ui'
 
 import { AlertSummaryBanner, AlertSummarySection } from 'products/alerts/frontend/components/AlertSummaryBanner'
 
+export type EditAlertTab = LemonTab<string> & { summarySection?: AlertSummarySection }
+
+export function defaultAlertTabs({
+    monitorContent,
+    scheduleContent,
+    notifyContent,
+    historyContent,
+}: {
+    monitorContent: JSX.Element
+    scheduleContent: JSX.Element
+    notifyContent: JSX.Element
+    historyContent?: JSX.Element
+}): EditAlertTab[] {
+    return [
+        { key: 'monitor', summarySection: 'monitor', label: 'Monitor', content: monitorContent },
+        { key: 'schedule', summarySection: 'schedule', label: 'Schedule', content: scheduleContent },
+        { key: 'notify', summarySection: 'notify', label: 'Notify', content: notifyContent },
+        ...(historyContent ? [{ key: 'history', label: 'History', content: historyContent }] : []),
+    ]
+}
+
 interface EditAlertTabsProps {
     summary: { fires: string; cadence: string; notifies: string }
     summaryHeader?: React.ReactNode
-    nameNode: React.ReactNode
-    previewNode: React.ReactNode
-    definitionNode: React.ReactNode
-    scheduleNode: React.ReactNode
-    advancedNode: React.ReactNode
-    notifyNode: React.ReactNode
-    historyNode: React.ReactNode | null
+    statusNode?: React.ReactNode
+    tabs: EditAlertTab[]
+    showCadence?: boolean
 }
 
 export function EditAlertTabs({
     summary,
     summaryHeader,
-    nameNode,
-    previewNode,
-    definitionNode,
-    scheduleNode,
-    advancedNode,
-    notifyNode,
-    historyNode,
+    statusNode,
+    tabs,
+    showCadence,
 }: EditAlertTabsProps): JSX.Element {
     const [activeKey, setActiveKey] = useState<string>('monitor')
-
-    const tabs: (LemonTab<string> | null)[] = [
-        {
-            key: 'monitor',
-            label: (
-                <span className="flex items-center gap-1.5">
-                    <IconPulse className="size-4" />
-                    Monitor
-                </span>
-            ),
-            content: (
-                <div className="space-y-3 pt-3">
-                    {nameNode}
-                    {previewNode}
-                    {definitionNode}
-                </div>
-            ),
-        },
-        {
-            key: 'schedule',
-            label: (
-                <span className="flex items-center gap-1.5">
-                    <IconClock className="size-4" />
-                    Schedule
-                </span>
-            ),
-            content: (
-                <div className="space-y-3 pt-3">
-                    {scheduleNode}
-                    {advancedNode}
-                </div>
-            ),
-        },
-        {
-            key: 'notify',
-            label: (
-                <span className="flex items-center gap-1.5">
-                    <IconBell className="size-4" />
-                    Notify
-                </span>
-            ),
-            content: <div className="pt-3">{notifyNode}</div>,
-        },
-        historyNode
-            ? {
-                  key: 'history',
-                  label: (
-                      <span className="flex items-center gap-1.5">
-                          <IconGraph className="size-4" />
-                          History
-                      </span>
-                  ),
-                  content: <div className="pt-3">{historyNode}</div>,
-              }
-            : null,
-    ]
-
-    let activeSummarySection: AlertSummarySection | undefined
-    if (['monitor', 'schedule', 'notify'].includes(activeKey)) {
-        activeSummarySection = activeKey as AlertSummarySection
-    }
+    const activeSummarySection = tabs.find((tab) => tab.key === activeKey)?.summarySection
 
     return (
         <div className="space-y-3">
-            <AlertSummaryBanner summary={summary} header={summaryHeader} activeSection={activeSummarySection} />
+            <AlertSummaryBanner
+                summary={summary}
+                header={summaryHeader}
+                activeSection={activeSummarySection}
+                showCadence={showCadence}
+            />
+            {statusNode}
             <LemonTabs tabs={tabs} activeKey={activeKey} onChange={setActiveKey} className="flex-1 min-h-0" />
         </div>
     )

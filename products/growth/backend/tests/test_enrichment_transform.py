@@ -19,6 +19,7 @@ def _company(**overrides):
         "tractionMetrics": {
             "headcount": {"latestMetricValue": 130},
             "headcountEngineering": {"latestMetricValue": 45},
+            "webTraffic": {"latestMetricValue": 551400},
         },
         "tags": [{"type": "INDUSTRY", "displayValue": "Developer Tools", "isPrimaryTag": True}],
         "tagsV2": [],
@@ -34,6 +35,7 @@ def test_transform_maps_all_registry_fields():
         "company_type": "STARTUP",
         "headcount": 130,  # tractionMetrics wins over the top-level headcount
         "headcount_engineering": 45,
+        "web_traffic": 551400,
         "industry": "Developer Tools",
         "country": "US",  # ISO alpha-2, matching the icp_country format
         "founded_year": 2019,
@@ -116,6 +118,19 @@ def test_unmapped_country_name_is_dropped_not_written_raw():
     fields = transform_harmonic_company(_company(location={"country": "Kingdom of Freedonia"}))
     assert fields is not None
     assert fields.country is None
+
+
+def test_web_traffic_maps_from_traction_metrics():
+    fields = transform_harmonic_company(_company(tractionMetrics={"webTraffic": {"latestMetricValue": 12345}}))
+    assert fields is not None
+    assert fields.web_traffic == 12345
+
+
+def test_web_traffic_unset_when_traction_metrics_missing_key():
+    fields = transform_harmonic_company(_company(tractionMetrics={"headcount": {"latestMetricValue": 130}}))
+    assert fields is not None
+    assert fields.web_traffic is None
+    assert "web_traffic" not in fields.to_dict()
 
 
 def test_none_and_empty_payloads_return_none():

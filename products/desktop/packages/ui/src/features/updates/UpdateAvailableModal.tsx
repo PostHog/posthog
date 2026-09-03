@@ -20,6 +20,7 @@ import {
   Text,
 } from "@radix-ui/themes";
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { useEffect } from "react";
 
 function formatSpeed(bytesPerSecond: number | null): string {
   if (!bytesPerSecond || bytesPerSecond <= 0) return "";
@@ -50,9 +51,11 @@ function ReleaseNotesSkeleton() {
 export function UpdateAvailableModal() {
   const isOpen = useUpdateModalStore((state) => state.isOpen);
   const close = useUpdateModalStore((state) => state.close);
-  // The blocking required-update announcement subsumes this dialog — never
-  // stack the two update prompts.
   const blockingAnnouncementVisible = useBlockingAnnouncementVisible();
+
+  useEffect(() => {
+    if (isOpen && blockingAnnouncementVisible) close();
+  }, [isOpen, blockingAnnouncementVisible, close]);
   const {
     status,
     version,
@@ -95,7 +98,7 @@ export function UpdateAvailableModal() {
 
   return (
     <Dialog.Root
-      open={isOpen && !blockingAnnouncementVisible}
+      open={isOpen}
       onOpenChange={(open) => {
         if (!open) close();
       }}

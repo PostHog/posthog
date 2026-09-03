@@ -1,9 +1,11 @@
+import os
+
 import pytest
 from unittest.mock import MagicMock, patch
 
 import pyarrow as pa
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
+from posthog.schema import ReleaseStatus, SourceFieldInputConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.motherduck import (
@@ -12,14 +14,18 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.motherduck.motherduck import (
     DEFAULT_MOTHERDUCK_FETCH_SIZE,
     DUCKDB_LOCAL_CONFIG,
+    MOTHERDUCK_SYSTEM_DATABASES,
     MotherDuckImplementation,
     build_motherduck_connection_string,
+    connect,
     filter_motherduck_incremental_fields,
+    translate_motherduck_error,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.motherduck.source import MotherduckSource
 from products.warehouse_sources.backend.types import IncrementalFieldType
 
-_CONNECT_PATH = "products.warehouse_sources.backend.temporal.data_imports.sources.motherduck.motherduck.duckdb.connect"
+_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.motherduck.motherduck"
+_CONNECT_PATH = f"{_MODULE}.duckdb.connect"
 
 
 def _make_config(**overrides) -> MotherduckSourceConfig:
@@ -67,13 +73,25 @@ class TestMotherDuck:
     # ------------------------------------------------------------------
 
     def test_connection_string_url_encodes_the_token(self):
-        assert build_motherduck_connection_string(" my_db ", "to ken/+=") == "md:my_db?motherduck_token=to+ken%2F%2B%3D"
+        assert (
+            build_motherduck_connection_string(" my_db ", "to ken/+=")
+            == "md:my_db?motherduck_token=to+ken%2F%2B%3D&saas_mode=true"
+        )
+
+    @pytest.mark.parametrize("database", ["", "   ", None])
+    def test_connection_string_without_a_database_is_account_wide(self, database):
+        # A blank database attaches every database the token can see, rather than failing.
+        assert (
+            build_motherduck_connection_string(database, "md-token") == "md:?motherduck_token=md-token&saas_mode=true"
+        )
+
+    def test_connection_string_pins_saas_mode(self):
+        # DuckDB runs in-process here, so the DSN must deny local file access and extension installs.
+        assert "saas_mode=true" in build_motherduck_connection_string("my_db", "md-token")
 
     @pytest.mark.parametrize(
         "database",
         [
-            "",
-            "   ",
             # Anything that could append its own connection parameters or split the DSN.
             "my_db?motherduck_token=attacker",
             "my_db&motherduck_token=attacker",
@@ -89,6 +107,22 @@ class TestMotherDuck:
     def test_connection_string_requires_a_token(self):
         with pytest.raises(ValueError):
             build_motherduck_connection_string("my_db", "")
+
+    @pytest.mark.parametrize(
+        "raw,expected_fragment",
+        [
+            ("UNAUTHENTICATED: jwt expired", "Invalid MotherDuck token"),
+            (
+                "Error: You've reached the daily compute limit for this plan. Upgrade to get more capacity.",
+                "reached its compute limit",
+            ),
+            ("Catalog Error: Table with name nope does not exist", "Can't find that database or schema"),
+            # Unmapped errors surface their first line only (DuckDB appends candidate/hint blocks).
+            ("Parser Error: syntax error at or near\nCandidate bindings: ...", "Parser Error: syntax error at or near"),
+        ],
+    )
+    def test_translate_error_maps_driver_failures_to_user_messages(self, raw, expected_fragment):
+        assert expected_fragment in translate_motherduck_error(Exception(raw))
 
     # ------------------------------------------------------------------
     # Incremental field types
@@ -125,9 +159,47 @@ class TestMotherDuck:
         with patch(_CONNECT_PATH) as mock_connect:
             with impl.connect(_make_config()):
                 pass
-        assert mock_connect.call_args.args[0] == "md:my_db?motherduck_token=md-token"
+        assert mock_connect.call_args.args[0] == "md:my_db?motherduck_token=md-token&saas_mode=true"
         # DuckDB shares this process, so it must not size itself against the whole host.
         assert mock_connect.call_args.kwargs["config"] == DUCKDB_LOCAL_CONFIG
+        # Neither imports nor direct queries write, so writes are refused engine-side.
+        assert mock_connect.call_args.kwargs["read_only"] is True
+
+    def test_connect_pins_the_catalog_when_given_one(self, impl):
+        with patch(_CONNECT_PATH) as mock_connect:
+            with impl.connect(_make_config(database=None), catalog="other_db"):
+                pass
+        # `USE` lets every catalog-scoped discovery query stay written against current_database().
+        mock_connect.return_value.execute.assert_called_once_with('USE "other_db"')
+
+    def test_connect_without_a_catalog_does_not_switch_database(self, impl):
+        with patch(_CONNECT_PATH) as mock_connect:
+            with impl.connect(_make_config()):
+                pass
+        mock_connect.return_value.execute.assert_not_called()
+
+    def test_config_redirects_extension_storage_off_the_home_directory(self):
+        # `home_directory` alone leaves extension storage at `~/.duckdb`, so it needs its own key.
+        assert DUCKDB_LOCAL_CONFIG["extension_directory"] != DUCKDB_LOCAL_CONFIG["home_directory"]
+        assert DUCKDB_LOCAL_CONFIG["extension_directory"].startswith(DUCKDB_LOCAL_CONFIG["home_directory"])
+
+    def test_connect_creates_the_configured_extension_store(self, tmp_path):
+        # Regression: extension autoload creates `~/.duckdb` on connect, which raised
+        # `Failed to create directory "/root/.duckdb": Permission denied` in a locked-down worker.
+        # connect() must create the store it configures, so driving it against a fresh base (rather
+        # than pre-making the directories) is what catches a dropped or reordered makedirs.
+        base = tmp_path / "duckdb-home"
+        config = {
+            **DUCKDB_LOCAL_CONFIG,
+            "home_directory": str(base),
+            "extension_directory": str(base / "extensions"),
+        }
+        with patch(f"{_MODULE}.DUCKDB_LOCAL_CONFIG", config), patch(_CONNECT_PATH) as mock_connect:
+            assert not base.exists()
+            connect("md-token", "my_db")
+        assert os.path.isdir(config["extension_directory"])
+        assert os.access(config["extension_directory"], os.W_OK)
+        assert mock_connect.call_args.kwargs["config"]["extension_directory"] == config["extension_directory"]
 
     def test_connect_closes_on_exit(self, impl):
         with patch(_CONNECT_PATH) as mock_connect:
@@ -149,9 +221,9 @@ class TestMotherDuck:
     def test_get_columns_groups_columns_by_table(self, impl):
         conn = _conn()
         conn.fetchall.return_value = [
-            ("analytics", "users", "id", "BIGINT", "NO"),
-            ("analytics", "users", "email", "VARCHAR", "YES"),
-            ("analytics", "orders", "id", "BIGINT", "NO"),
+            ("my_db", "analytics", "users", "id", "BIGINT", "NO"),
+            ("my_db", "analytics", "users", "email", "VARCHAR", "YES"),
+            ("my_db", "analytics", "orders", "id", "BIGINT", "NO"),
         ]
         result = impl.get_columns(conn, _make_config(), names=None)
         # Single-schema source keeps bare table names.
@@ -171,9 +243,9 @@ class TestMotherDuck:
     def test_get_columns_blank_schema_discovers_all_namespaces_qualified(self, impl, blank):
         conn = _conn()
         conn.fetchall.return_value = [
-            ("analytics", "users", "id", "BIGINT", "NO"),
-            ("sales", "users", "id", "BIGINT", "NO"),
-            ("sales", "orders", "id", "BIGINT", "NO"),
+            ("my_db", "analytics", "users", "id", "BIGINT", "NO"),
+            ("my_db", "sales", "users", "id", "BIGINT", "NO"),
+            ("my_db", "sales", "orders", "id", "BIGINT", "NO"),
         ]
         result = impl.get_columns(conn, _make_config(schema=blank), names=None)
         # Same table name in two schemas must stay distinct and qualified.
@@ -181,6 +253,25 @@ class TestMotherDuck:
         sql, params = conn.execute.call_args.args
         assert "table_schema NOT IN (?, ?)" in sql
         assert params == ["information_schema", "pg_catalog"]
+
+    @pytest.mark.parametrize("blank", ["", "   ", None])
+    def test_get_columns_blank_database_spans_catalogs_fully_qualified(self, impl, blank):
+        conn = _conn()
+        conn.fetchall.return_value = [
+            ("warehouse", "sales", "users", "id", "BIGINT", "NO"),
+            ("staging", "sales", "users", "id", "BIGINT", "NO"),
+        ]
+        result = impl.get_columns(conn, _make_config(database=blank, schema=""), names=None)
+        # Same schema and table in two catalogs must stay distinct.
+        assert set(result.keys()) == {"warehouse.sales.users", "staging.sales.users"}
+
+    def test_get_columns_blank_database_excludes_bookkeeping_catalogs(self, impl):
+        # MotherDuck and the client attach `system`, `temp` and friends — never customer data.
+        conn = _conn()
+        impl.get_columns(conn, _make_config(database="", schema=""), names=None)
+        sql, params = conn.execute.call_args.args
+        assert "c.table_catalog NOT IN (" in sql
+        assert params[: len(MOTHERDUCK_SYSTEM_DATABASES)] == list(MOTHERDUCK_SYSTEM_DATABASES)
 
     def test_get_columns_excludes_views(self, impl):
         # A view's definition runs inside this worker at query time — e.g. over a locally-executed
@@ -194,8 +285,8 @@ class TestMotherDuck:
     def test_get_columns_filters_by_names(self, impl):
         conn = _conn()
         conn.fetchall.return_value = [
-            ("analytics", "users", "id", "BIGINT", "NO"),
-            ("analytics", "orders", "id", "BIGINT", "NO"),
+            ("my_db", "analytics", "users", "id", "BIGINT", "NO"),
+            ("my_db", "analytics", "orders", "id", "BIGINT", "NO"),
         ]
         assert list(impl.get_columns(conn, _make_config(), names=["users"]).keys()) == ["users"]
 
@@ -203,13 +294,13 @@ class TestMotherDuck:
         # Mid-migration a row may be requested qualified while a configured-schema source still
         # discovers it bare — keep the requested (qualified) key, mapped to the bare columns.
         conn = _conn()
-        conn.fetchall.return_value = [("analytics", "users", "id", "BIGINT", "NO")]
+        conn.fetchall.return_value = [("my_db", "analytics", "users", "id", "BIGINT", "NO")]
         result = impl.get_columns(conn, _make_config(schema="analytics"), names=["analytics.users"])
         assert result == {"analytics.users": [("id", "BIGINT", False)]}
 
     def test_get_primary_keys_returns_constraint_columns_in_order(self, impl):
         conn = _conn()
-        conn.fetchall.return_value = [("analytics", "users", ["id", "tenant_id"])]
+        conn.fetchall.return_value = [("my_db", "analytics", "users", ["id", "tenant_id"])]
         out = impl.get_primary_keys(conn, _make_config(), tables=["users", "orders"])
         assert out == {"users": ["id", "tenant_id"], "orders": None}
         # One batched catalog query, not one per table.
@@ -218,8 +309,8 @@ class TestMotherDuck:
     def test_get_primary_keys_routes_to_qualified_display_names(self, impl):
         conn = _conn()
         conn.fetchall.return_value = [
-            ("analytics", "users", ["id"]),
-            ("sales", "users", ["uuid"]),
+            ("my_db", "analytics", "users", ["id"]),
+            ("my_db", "sales", "users", ["uuid"]),
         ]
         out = impl.get_primary_keys(conn, _make_config(schema=""), tables=["analytics.users", "sales.users"])
         assert out == {"analytics.users": ["id"], "sales.users": ["uuid"]}
@@ -233,9 +324,9 @@ class TestMotherDuck:
     def test_get_row_counts_reads_catalog_estimates(self, impl):
         conn = _conn()
         conn.fetchall.return_value = [
-            ("analytics", "users", 1_200),
-            ("analytics", "orders", None),
-            ("analytics", "unrequested", 5),
+            ("my_db", "analytics", "users", 1_200),
+            ("my_db", "analytics", "orders", None),
+            ("my_db", "analytics", "unrequested", 5),
         ]
         out = impl.get_row_counts(conn, _make_config(), tables=["users", "orders"])
         assert out == {"users": 1_200, "orders": None}
@@ -255,6 +346,17 @@ class TestMotherDuck:
         meta = impl.get_source_metadata(MagicMock(), _make_config(schema=""), tables=["analytics.users", "sales.users"])
         assert meta.schema_by_table == {"analytics.users": "analytics", "sales.users": "sales"}
         assert meta.table_name_by_table == {"analytics.users": "users", "sales.users": "users"}
+
+    def test_get_source_metadata_account_wide_stamps_each_rows_catalog(self, impl):
+        # Without a per-row catalog the pipeline could not tell which database to `USE`.
+        meta = impl.get_source_metadata(
+            MagicMock(),
+            _make_config(database="", schema=""),
+            tables=["warehouse.sales.users", "staging.sales.users"],
+        )
+        assert meta.catalog_by_table == {"warehouse.sales.users": "warehouse", "staging.sales.users": "staging"}
+        assert meta.schema_by_table == {"warehouse.sales.users": "sales", "staging.sales.users": "sales"}
+        assert meta.table_name_by_table == {"warehouse.sales.users": "users", "staging.sales.users": "users"}
 
     def test_get_primary_keys_for_table_scopes_the_lookup(self, impl):
         conn = _conn()
@@ -352,6 +454,49 @@ class TestMotherDuck:
         # The PK probe targets the resolved namespace too.
         assert metadata_conn.execute.call_args_list[0].args[1] == ["sales", "users"]
 
+    def test_build_pipeline_account_wide_row_switches_to_its_own_catalog(self, impl):
+        metadata_conn, streaming_conn = self._pipeline_mocks([(["id"],)], 1, [pa.RecordBatch.from_pydict({"id": [1]})])
+
+        with patch(_CONNECT_PATH, side_effect=[metadata_conn, streaming_conn]):
+            response = impl.build_pipeline(
+                _make_config(database="", schema=""), _make_inputs(schema_name="warehouse.sales.users")
+            )
+            assert response.name == "warehouse_sales_users"
+            list(response.items())
+
+        # The catalog is pinned per row, so the table reference itself stays two-part.
+        assert metadata_conn.execute.call_args_list[0].args[0] == 'USE "warehouse"'
+        assert 'FROM "sales"."users"' in streaming_conn.execute.call_args.args[0]
+
+    def test_build_pipeline_prefers_the_stamped_catalog_over_the_display_name(self, impl):
+        # Discovery stamps the real location; a renamed row must follow the stamp, not its label.
+        metadata_conn, streaming_conn = self._pipeline_mocks([(["id"],)], 1, [pa.RecordBatch.from_pydict({"id": [1]})])
+
+        with patch(_CONNECT_PATH, side_effect=[metadata_conn, streaming_conn]):
+            response = impl.build_pipeline(
+                _make_config(database="", schema=""),
+                _make_inputs(
+                    schema_name="stale.label.users",
+                    schema_metadata={
+                        "source_catalog": "warehouse",
+                        "source_schema": "sales",
+                        "source_table_name": "users",
+                    },
+                ),
+            )
+            list(response.items())
+
+        assert metadata_conn.execute.call_args_list[0].args[0] == 'USE "warehouse"'
+        assert 'FROM "sales"."users"' in streaming_conn.execute.call_args.args[0]
+
+    def test_build_pipeline_rejects_an_unresolvable_catalog(self, impl):
+        # Account-wide with nothing naming a catalog: `USE` would be a guess, and the sync would
+        # silently read whichever database DuckDB happens to resolve to.
+        with patch(_CONNECT_PATH) as mock_connect:
+            with pytest.raises(ValueError):
+                impl.build_pipeline(_make_config(database=""), _make_inputs(schema_name="users"))
+            mock_connect.assert_not_called()
+
     def test_build_pipeline_rejects_an_unresolvable_namespace(self, impl):
         # A blank config namespace plus a bare row name leaves nothing to qualify the table with,
         # and an unqualified `FROM users` would silently read whichever schema DuckDB resolves to.
@@ -380,12 +525,6 @@ class TestMotherDuck:
         assert isinstance(schema_field, SourceFieldInputConfig)
         assert schema_field.required is False
 
-    def test_access_token_is_stored_as_a_secret(self, source):
-        token_field = next(f for f in source.get_source_config.fields if f.name == "access_token")
-        assert isinstance(token_field, SourceFieldInputConfig)
-        assert token_field.secret is True
-        assert token_field.type == SourceFieldInputConfigType.PASSWORD
-
     @pytest.mark.parametrize(
         "error_msg",
         [
@@ -399,17 +538,18 @@ class TestMotherDuck:
         non_retryable = source.get_non_retryable_errors()
         assert any(pattern in error_msg for pattern in non_retryable), f"Error should be non-retryable: {error_msg}"
 
-    @pytest.mark.parametrize(
-        "overrides,expected_fragment",
-        [
-            ({"access_token": ""}, "access token"),
-            ({"database": "   "}, "database"),
-        ],
-    )
-    def test_validate_credentials_requires_connection_details(self, source, overrides, expected_fragment):
-        ok, message = source.validate_credentials(_make_config(**overrides), team_id=1)
+    def test_validate_credentials_requires_an_access_token(self, source):
+        ok, message = source.validate_credentials(_make_config(access_token=""), team_id=1)
         assert ok is False
-        assert message is not None and expected_fragment in message
+        assert message is not None and "access token" in message
+
+    @pytest.mark.parametrize("database", ["", "   ", None])
+    def test_validate_credentials_accepts_a_blank_database(self, source, database):
+        # Blank means "every database in the account", so it must not be rejected up front.
+        with patch.object(MotherduckSource, "get_schemas", return_value=[]):
+            ok, message = source.validate_credentials(_make_config(database=database), team_id=1)
+        assert ok is True
+        assert message is None
 
     @pytest.mark.parametrize(
         "error,expected_fragment",

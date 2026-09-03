@@ -1,5 +1,3 @@
-from typing import cast
-
 from posthog.hogql import ast
 from posthog.hogql.database.schema.exchange_rate import EXCHANGE_RATE_DECIMAL_PRECISION, convert_currency_call
 
@@ -10,7 +8,6 @@ from products.revenue_analytics.backend.views.sources.helpers import (
     currency_aware_divider,
     is_zero_decimal_in_stripe,
 )
-from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema
 from products.warehouse_sources.backend.facade.sources import CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME
 
 
@@ -23,7 +20,7 @@ def build(handle: SourceHandle) -> BuiltQuery:
 
     # Get all schemas for the source, avoid calling `filter` and do the filtering on Python-land
     # to avoid n+1 queries
-    schemas = source.schemas.all()
+    schemas = source.schemas
     charge_schema = next((schema for schema in schemas if schema.name == STRIPE_CHARGE_RESOURCE_NAME), None)
     if charge_schema is None:
         return BuiltQuery(
@@ -33,7 +30,6 @@ def build(handle: SourceHandle) -> BuiltQuery:
             test_comments="no_schema",
         )
 
-    charge_schema = cast(ExternalDataSchema, charge_schema)
     if charge_schema.table is None:
         return BuiltQuery(
             key=str(source.id),  # Using source rather than table because table hasn't been found
@@ -42,8 +38,7 @@ def build(handle: SourceHandle) -> BuiltQuery:
             test_comments="no_table",
         )
 
-    table = cast(DataWarehouseTable, charge_schema.table)
-    team = table.team
+    table = charge_schema.table
 
     query = ast.SelectQuery(
         select=[
@@ -87,7 +82,7 @@ def build(handle: SourceHandle) -> BuiltQuery:
             # Compute the adjusted original amount, which is the original amount divided by the amount decimal divider
             currency_aware_amount(),
             # Expose the base/converted currency, which is the base currency from the team's revenue config
-            ast.Alias(alias="currency", expr=ast.Constant(value=team.base_currency)),
+            ast.Alias(alias="currency", expr=ast.Constant(value=handle.team.base_currency)),
             # Convert the adjusted original amount to the base currency
             ast.Alias(
                 alias="amount",

@@ -121,17 +121,27 @@ describe('uploadToS3', () => {
 
     it.each([
         {
-            failure: 'a modeled service error whose body parsed fine',
+            // Even a 403 stays retryable: it can be a transient credential-refresh race, and a
+            // wasted retry is cheaper than discarding a finished render.
+            failure: 'a modeled 403 service error',
             error: Object.assign(new Error('Access Denied'), {
                 name: 'AccessDenied',
                 $response: { statusCode: 403 },
                 $metadata: { httpStatusCode: 403 },
             }),
         },
-        { failure: 'a failure carrying no HTTP response', error: new Error('socket hang up') },
-    ])('rethrows $failure untouched, so callers still see the SDK error', async ({ error }) => {
+        {
+            failure: 'a failure carrying no HTTP response',
+            error: new Error('socket hang up'),
+        },
+    ])('wraps $failure into a retryable typed S3_UPLOAD_FAILED', async ({ error }) => {
         mockDone.mockRejectedValue(error)
-        await expect(uploadToS3('/tmp/v.mp4', 'bucket', 'prefix', 'id')).rejects.toBe(error)
+        await expect(uploadToS3('/tmp/v.mp4', 'bucket', 'prefix', 'id')).rejects.toMatchObject({
+            name: 'RasterizationError',
+            code: 'S3_UPLOAD_FAILED',
+            retryable: true,
+            cause: error,
+        })
     })
 })
 

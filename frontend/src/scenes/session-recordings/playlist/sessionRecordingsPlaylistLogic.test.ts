@@ -1011,6 +1011,121 @@ describe('sessionRecordingsPlaylistLogic', () => {
         })
     })
 
+    describe('onRecordingSelected', () => {
+        // Under autoPlay the player also picks recordings with no explicit selection — it shows
+        // whatever is at the top of the list, and follows it across reloads. Embedding surfaces
+        // count opens off this callback, so those implicit moves must be reported too, exactly
+        // once each (the experiment recordings tab under-reported opens without this).
+        let onRecordingSelected: jest.Mock
+
+        beforeEach(() => {
+            onRecordingSelected = jest.fn()
+        })
+
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
+        it('reports the autoplayed top recording on load, and again only when a reload changes it', async () => {
+            logic = sessionRecordingsPlaylistLogic({
+                logicKey: 'selection-reporting',
+                autoPlay: true,
+                onRecordingSelected,
+            })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess'])
+            expect(onRecordingSelected.mock.calls).toEqual([[aRecording.id]])
+
+            // A reload that keeps the same recording on top doesn't move the player, so it must
+            // not be reported as another open.
+            const listSpy = jest
+                .spyOn(api.recordings, 'list')
+                .mockResolvedValueOnce({ results: listOfSessionRecordings, has_next: false } as Awaited<
+                    ReturnType<typeof api.recordings.list>
+                >)
+            logic.actions.loadSessionRecordings()
+            await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess'])
+            expect(onRecordingSelected.mock.calls).toEqual([[aRecording.id]])
+
+            // A reload that changes the top (the way an embedding surface's filter change does,
+            // with nothing explicitly selected) moves the player to the new top recording.
+            const newestRecording = {
+                ...aRecording,
+                id: 'newest',
+                start_time: '2023-12-12T16:55:36.404000Z',
+                end_time: '2023-12-12T16:55:46.404000Z',
+            }
+            listSpy.mockResolvedValueOnce({ results: [newestRecording], has_next: false } as Awaited<
+                ReturnType<typeof api.recordings.list>
+            >)
+            logic.actions.loadSessionRecordings()
+            await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess'])
+            expect(onRecordingSelected.mock.calls).toEqual([[aRecording.id], ['newest']])
+        })
+
+        it('skips re-selecting the recording already shown, but reports every move — including back', async () => {
+            logic = sessionRecordingsPlaylistLogic({
+                logicKey: 'selection-reporting-dedupe',
+                autoPlay: true,
+                onRecordingSelected,
+            })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess'])
+            expect(onRecordingSelected.mock.calls).toEqual([[aRecording.id]])
+
+            // Clicking the recording the autoplay fallback is already showing opens nothing new.
+            logic.actions.setSelectedRecordingId(aRecording.id)
+            expect(onRecordingSelected.mock.calls).toEqual([[aRecording.id]])
+
+            logic.actions.setSelectedRecordingId(bRecording.id)
+            logic.actions.setSelectedRecordingId(aRecording.id)
+            expect(onRecordingSelected.mock.calls).toEqual([[aRecording.id], [bRecording.id], [aRecording.id]])
+        })
+
+        it('re-reports a recording that returns after a reload matched nothing', async () => {
+            logic = sessionRecordingsPlaylistLogic({
+                logicKey: 'selection-reporting-empty-gap',
+                autoPlay: true,
+                onRecordingSelected,
+            })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess'])
+            expect(onRecordingSelected.mock.calls).toEqual([[aRecording.id]])
+
+            // A facet can match nothing: the player unloads into the empty state. When the next
+            // reload brings the same recording back, it autoplays afresh — a new open, not a
+            // re-select of something still on screen.
+            const listSpy = jest
+                .spyOn(api.recordings, 'list')
+                .mockResolvedValueOnce({ results: [], has_next: false } as Awaited<
+                    ReturnType<typeof api.recordings.list>
+                >)
+            logic.actions.loadSessionRecordings()
+            await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess'])
+            expect(onRecordingSelected.mock.calls).toEqual([[aRecording.id]])
+
+            listSpy.mockResolvedValueOnce({ results: listOfSessionRecordings, has_next: false } as Awaited<
+                ReturnType<typeof api.recordings.list>
+            >)
+            logic.actions.loadSessionRecordings()
+            await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess'])
+            expect(onRecordingSelected.mock.calls).toEqual([[aRecording.id], [aRecording.id]])
+        })
+
+        it('reports nothing on load without autoPlay — only explicit selection', async () => {
+            logic = sessionRecordingsPlaylistLogic({
+                logicKey: 'selection-reporting-no-autoplay',
+                onRecordingSelected,
+            })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess'])
+            expect(onRecordingSelected).not.toHaveBeenCalled()
+
+            logic.actions.setSelectedRecordingId(aRecording.id)
+            expect(onRecordingSelected.mock.calls).toEqual([[aRecording.id]])
+        })
+    })
+
     describe('person specific logic', () => {
         beforeEach(() => {
             logic = sessionRecordingsPlaylistLogic({
@@ -1197,6 +1312,33 @@ describe('sessionRecordingsPlaylistLogic', () => {
         })
     })
 
+    describe('rehydrating persisted filters', () => {
+        const props = { logicKey: 'persist_regression', personUUID: 'persist_regression', updateSearchParams: false }
+
+        it('resets a malformed persisted filters value to defaults on mount', async () => {
+            // A first mount writes the persist key. Discover its exact name rather than hardcoding
+            // kea-localstorage's prefix/path format.
+            const seed = sessionRecordingsPlaylistLogic(props)
+            seed.mount()
+            const filtersKey = Object.keys(localStorage).find(
+                (k) => k.includes('persist_regression') && k.endsWith('.filters')
+            )
+            expect(typeof filtersKey).toBe('string')
+            seed.unmount()
+
+            // Poison the persisted entry, then reset the kea context so the reducer rehydrates from
+            // storage on the next build - exactly what a stale localStorage entry does in production.
+            localStorage.setItem(filtersKey!, JSON.stringify({ filter_group: 'not-a-group', duration: 'nope' }))
+            initKeaTests()
+            featureFlagLogic.mount()
+
+            logic = sessionRecordingsPlaylistLogic(props)
+            logic.mount()
+
+            expect(logic.values.filters).toEqual(getDefaultFilters('persist_regression'))
+        })
+    })
+
     describe('set filters', () => {
         beforeEach(() => {
             logic = sessionRecordingsPlaylistLogic({
@@ -1217,6 +1359,75 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     date_from: '-7d',
                 })
             }).toMatchValues({ filters: expect.objectContaining({ date_from: '-7d', date_to: null }) })
+        })
+    })
+
+    describe('superseding or unmounting an in-flight load', () => {
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
+        it('abandons the load instead of failing on unmounted values reads', async () => {
+            let resolveList: (value: unknown) => void = () => {}
+            const pendingList = new Promise((resolve) => {
+                resolveList = resolve
+            })
+            const listSpy = jest
+                .spyOn(api.recordings, 'list')
+                .mockImplementation(() => pendingList as ReturnType<typeof api.recordings.list>)
+
+            const embeddedLogic = sessionRecordingsPlaylistLogic({ logicKey: 'unmount-mid-load' })
+            embeddedLogic.mount()
+
+            // afterMount kicks off a load; wait for it to get past the debounce and issue the request
+            while (listSpy.mock.calls.length === 0) {
+                await new Promise((resolve) => setTimeout(resolve, 25))
+            }
+
+            embeddedLogic.unmount()
+            resolveList({ results: [], has_next: false })
+
+            await expectLogic(embeddedLogic)
+                .toFinishAllListeners()
+                .toNotHaveDispatchedActions(['loadSessionRecordingsFailure'])
+        })
+
+        it('still reports a superseded fetch, with the filters the request was built from', async () => {
+            let resolveList: (value: unknown) => void = () => {}
+            const pendingList = new Promise((resolve) => {
+                resolveList = resolve
+            })
+            const listSpy = jest
+                .spyOn(api.recordings, 'list')
+                .mockImplementationOnce(() => pendingList as ReturnType<typeof api.recordings.list>)
+                .mockImplementation(
+                    () =>
+                        Promise.resolve({ results: [], has_next: false } as unknown) as ReturnType<
+                            typeof api.recordings.list
+                        >
+                )
+
+            const supersededLogic = sessionRecordingsPlaylistLogic({ logicKey: 'superseded-mid-load' })
+            supersededLogic.mount()
+
+            // afterMount kicks off a load; wait for it to get past the debounce and issue the request
+            while (listSpy.mock.calls.length === 0) {
+                await new Promise((resolve) => setTimeout(resolve, 25))
+            }
+
+            // supersede the in-flight load, then let its stale response land
+            supersededLogic.actions.setFilters({ filter_test_accounts: true })
+            resolveList({ results: [], has_next: false })
+
+            await expectLogic(supersededLogic)
+                .toDispatchActions([
+                    (action) =>
+                        action.type === supersededLogic.actionTypes.reportRecordingsListFetched &&
+                        action.payload.filters.filter_test_accounts !== true,
+                ])
+                .toFinishAllListeners()
+
+            supersededLogic.unmount()
         })
     })
 

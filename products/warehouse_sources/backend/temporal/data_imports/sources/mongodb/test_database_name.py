@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import patch
 
-from pymongo.errors import InvalidURI, OperationFailure, ServerSelectionTimeoutError
+from pymongo.errors import ConfigurationError, InvalidURI, OperationFailure, ServerSelectionTimeoutError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mongodb import (
     MongoDBSourceConfig,
@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.so
     _MONGO_AUTHENTICATION_FAILED_MESSAGE,
     _MONGO_CONNECT_FAILED_MESSAGE,
     _MONGO_HOST_UNRESOLVED_MESSAGE,
+    _MONGO_INVALID_CONNECTION_STRING_MESSAGE,
     _MONGO_NO_COLLECTIONS_MESSAGE,
     _MONGO_NOT_AUTHORIZED_MESSAGE,
     _MONGO_UNESCAPED_CREDENTIALS_MESSAGE,
@@ -45,6 +46,21 @@ class TestParseConnectionStringDatabaseOverride:
 
 
 class TestMongoValidateCredentialsDatabaseName:
+    @pytest.mark.parametrize(
+        "connection_string",
+        [
+            "https://cluster.example.com/db",  # wrong scheme, rejected by our own check
+            "mongodb+srv://host:not-a-port/db",  # urlparse rejects the non-numeric port
+        ],
+    )
+    def test_unparseable_connection_string_returns_actionable_error(self, connection_string):
+        config = MongoDBSourceConfig.from_dict({"connection_string": connection_string})
+
+        ok, err = MongoDBSource().validate_credentials(config, team_id=1)
+
+        assert ok is False
+        assert err == _MONGO_INVALID_CONNECTION_STRING_MESSAGE
+
     def test_missing_database_everywhere_returns_actionable_error(self):
         config = MongoDBSourceConfig.from_dict({"connection_string": _SRV_NO_DB})
 
@@ -179,6 +195,20 @@ class TestMongoValidateCredentialsErrorTrackingNoise:
                 ),
                 _MONGO_UNREACHABLE_MESSAGE,
                 False,
+            ),
+            (
+                # dnspython's NXDOMAIN, wrapped by pymongo as ConfigurationError, when a
+                # mongodb+srv:// URI's SRV DNS record doesn't exist at all.
+                ConfigurationError("The DNS query name does not exist: _mongodb._tcp.cluster.abc.mongodb.net."),
+                _MONGO_HOST_UNRESOLVED_MESSAGE,
+                False,
+            ),
+            (
+                # An unrecognized ConfigurationError still falls back to capturing, same as any
+                # other unexpected exception.
+                ConfigurationError("some-unrecognized-configuration-problem"),
+                _MONGO_CONNECT_FAILED_MESSAGE,
+                True,
             ),
             (Exception("some-internal-driver-detail"), _MONGO_CONNECT_FAILED_MESSAGE, True),
         ],

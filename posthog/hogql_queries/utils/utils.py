@@ -1,0 +1,93 @@
+from collections.abc import Sequence
+from copy import deepcopy
+from typing import Optional
+
+from posthog.schema import (
+    ActionsNode,
+    BaseMathType,
+    DataWarehouseNode,
+    EventsNode,
+    GroupNode,
+    HogQLQueryModifiers,
+    IntervalType,
+    TrendsQuery,
+)
+
+from posthog.hogql import ast
+from posthog.hogql.database.database import Database
+from posthog.hogql.printer import to_printed_hogql
+from posthog.hogql.timings import HogQLTimings
+
+from posthog.hogql_queries.utils.query_date_range import compare_interval_length
+from posthog.interval_specs import get_trunc_func
+from posthog.models.team.team import Team, WeekStartDay
+
+
+def get_start_of_interval_hogql(interval: str, *, team: Team, source: Optional[ast.Expr] = None) -> ast.Expr:
+    trunc_func = get_trunc_func(interval)
+    trunc_func_args: list[ast.Expr] = [source] if source else [ast.Field(chain=["timestamp"])]
+    if trunc_func == "toStartOfWeek":
+        trunc_func_args.append(ast.Constant(value=int((WeekStartDay(team.week_start_day or 0)).clickhouse_mode)))
+    return ast.Call(name=trunc_func, args=trunc_func_args)
+
+
+def get_start_of_interval_hogql_str(interval: str, *, team: Team, source: str) -> str:
+    trunc_func = get_trunc_func(interval)
+    return f"{trunc_func}({source}{f', {int((WeekStartDay(team.week_start_day or 0)).clickhouse_mode)}' if trunc_func == 'toStartOfWeek' else ''})"
+
+
+def series_should_be_set_to_dau(
+    interval: IntervalType, series: EventsNode | ActionsNode | DataWarehouseNode | GroupNode
+):
+    return (
+        series.math == BaseMathType.WEEKLY_ACTIVE and compare_interval_length(interval, ">=", IntervalType.WEEK)
+    ) or (series.math == BaseMathType.MONTHLY_ACTIVE and compare_interval_length(interval, ">=", IntervalType.MONTH))
+
+
+def convert_active_user_math_based_on_interval(query: TrendsQuery) -> TrendsQuery:
+    """
+    Convert WAU to DAU for week or longer intervals
+    Convert MAU to DAU for month or longer intervals
+
+    Works for both TrendsQuery and StickinessQuery
+
+    Args:
+        query: Either a TrendsQuery or StickinessQuery instance
+
+    Returns:
+        The same type of query that was passed in, with appropriate math conversions
+    """
+    modified_query = deepcopy(query)
+
+    interval = modified_query.interval or IntervalType.DAY
+
+    for series in modified_query.series:
+        # Convert WAU to DAU for week or longer intervals
+        # Convert MAU to DAU for month or longer intervals
+        if series_should_be_set_to_dau(interval, series):
+            series.math = BaseMathType.DAU
+
+    return modified_query
+
+
+def get_response_hogql(
+    queries: Sequence[ast.SelectQuery | ast.SelectSetQuery],
+    *,
+    team: Team,
+    timings: HogQLTimings,
+    modifiers: Optional[HogQLQueryModifiers] = None,
+    database: Optional[Database] = None,
+) -> str:
+    if len(queries) == 0:
+        return ""
+
+    response_hogql_query = ast.SelectSetQuery.create_from_queries(queries, "UNION ALL")
+
+    # This only prints the query for the response payload — it never executes — and access to the
+    # underlying warehouse tables is already enforced on the insight's executed query. Bypass warehouse
+    # access control so building the printer's database doesn't fail closed in userless contexts.
+    # When the caller already built a database for the executed query, `database` reuses it here.
+    with timings.measure("printing_hogql_for_response"):
+        return to_printed_hogql(
+            response_hogql_query, team, modifiers, bypass_warehouse_access_control=True, database=database
+        )

@@ -2,10 +2,9 @@
 //! caller vouches for where that input came from.
 //!
 //! The mirror replaces each inlined image with an `image:<pseudo_team>:<hash>` ref and ships the
-//! bytes out of band, so that ref is the only join key back to them. Scrubbing that output a second
-//! time used to destroy the key: a canvas blob's ref was reassembled into a data URI that cannot
-//! decode and failed safe to a blank pixel, and a ref in a media-source attribute took the
-//! remote-URL branch and was redacted into the placeholder.
+//! bytes out of band, so that ref is the only join key back to them. Remote images keep a media
+//! placeholder and carry an `imageurl:<hash>` ref in a namespaced sibling attribute.
+//! Scrubbing mirrored output a second time must not destroy either join key.
 //!
 //! The ref format is not a secret, though, so preserving anything `image:`-shaped found in a
 //! payload would hand a captured page a way to copy arbitrary text into anonymized output. Two
@@ -20,6 +19,9 @@ use serde_json::{json, Value};
 
 const TS0: f64 = 1_700_000_000_000.0;
 const REF: &str = "image:0123456789abcdef0123456789abcdef:AAAAAAAAAAAAAAAAAAAAAA";
+const URL_REF: &str = "imageurl:AAAAAAAAAAAAAAAAAAAAAA";
+const LEGACY_URL_REF: &str = "imageurl:0123456789abcdef0123456789abcdef:AAAAAAAAAAAAAAAAAAAAAA";
+const NUMBERED_PLACEHOLDER: &str = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 80 80'><rect width='80' height='80' fill='%23f3f4f6'/><rect x='6' y='6' width='68' height='68' fill='none' stroke='%23d1d5db' stroke-width='2' rx='6'/><circle cx='26' cy='26' r='6' fill='%239ca3af'/><path d='M14 60 L34 40 L48 50 L66 32 L66 66 L14 66 Z' fill='%239ca3af'/><metadata id='anon-image-slot-0'/></svg>";
 
 fn img_line(value: &str, attr: &str) -> Value {
     json!(["w", { "type": 3, "timestamp": TS0, "data": {
@@ -35,6 +37,17 @@ fn canvas_line(value: &str) -> Value {
             "args": [{ "rr_type": "ImageBitmap", "args": [{
                 "rr_type": "Blob", "type": "image/png",
                 "data": [{ "rr_type": "ArrayBuffer", "base64": value }] }] }] }] } }])
+}
+
+fn css_line(reference: &str) -> Value {
+    json!(["w", { "type": 3, "timestamp": TS0, "data": {
+        "source": 0, "adds": [{ "parentId": 1, "nextId": null, "node": {
+            "type": 2, "tagName": "div", "id": 42,
+            "attributes": {
+                "style": format!("background-image:url(\"{NUMBERED_PLACEHOLDER}\")"),
+                "data-anon-image-refs-style": json!({ "0": reference }).to_string()
+            },
+            "childNodes": [] } }] } }])
 }
 
 /// What a caller of the line API actually writes out: the rewritten line, or the input verbatim
@@ -103,6 +116,37 @@ fn a_ref_survives_a_trusted_rescrub() {
 }
 
 #[test]
+fn a_namespaced_url_ref_survives_only_a_trusted_rescrub() {
+    for url_ref in [URL_REF, LEGACY_URL_REF] {
+        let line = img_line(url_ref, "data-anon-image-ref-src");
+        assert!(scrub_trusted(&line).contains(url_ref));
+        assert!(!scrub_default(&line).contains("data-anon-image-ref-src"));
+        for byte_walk in [true, false] {
+            assert!(
+                !scrub_ingestion(&line, byte_walk).contains("data-anon-image-ref-src"),
+                "a captured internal ref attribute survived ingestion (byte_walk={byte_walk})"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_css_ref_map_survives_only_a_trusted_rescrub() {
+    for reference in [REF, URL_REF, LEGACY_URL_REF] {
+        let line = css_line(reference);
+        assert!(scrub_trusted(&line).contains(reference));
+        assert!(scrub_trusted(&line).contains("anon-image-slot-0"));
+        assert!(!scrub_default(&line).contains("data-anon-image-refs-style"));
+        for byte_walk in [true, false] {
+            assert!(
+                !scrub_ingestion(&line, byte_walk).contains("data-anon-image-refs-style"),
+                "a captured CSS ref map survived ingestion (byte_walk={byte_walk})"
+            );
+        }
+    }
+}
+
+#[test]
 fn a_trusted_rescrub_leaves_a_ref_attribute_exactly_as_it_was() {
     let out = scrub_trusted(&img_line(REF, "src"));
     assert!(out.contains(REF));
@@ -155,6 +199,7 @@ fn a_well_formed_ref_is_still_scrubbed_without_the_opt_in() {
 fn a_malformed_ref_is_scrubbed_even_when_trusted() {
     let cases = [
         "image:short:AAAAAAAAAAAAAAAAAAAAAA",
+        "imageurl:short:AAAAAAAAAAAAAAAAAAAAAA",
         "image:0123456789ABCDEF0123456789ABCDEF:AAAAAAAAAAAAAAAAAAAAAA", // uppercase team
         "image:0123456789abcdef0123456789abcdef:tooshort",
         "image:0123456789abcdef0123456789abcdef:has spaces in the hash!",
@@ -162,8 +207,13 @@ fn a_malformed_ref_is_scrubbed_even_when_trusted() {
         "image:",
     ];
     for case in cases {
-        let out = scrub_trusted(&img_line(case, "src"));
-        assert!(!out.contains(case), "malformed ref preserved: {case}");
+        for attr in ["src", "data-anon-image-ref-src"] {
+            let out = scrub_trusted(&img_line(case, attr));
+            assert!(
+                !out.contains(case),
+                "malformed ref preserved in {attr}: {case}"
+            );
+        }
     }
 }
 

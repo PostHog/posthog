@@ -7,6 +7,7 @@ import { LemonButton, LemonMenu, LemonModal, Link } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -22,6 +23,9 @@ import { ProductKey } from '~/queries/schema/schema-general'
 
 import type { SubscriptionApi } from 'products/subscriptions/frontend/generated/api.schemas'
 
+import { subscriptionLogic } from '../components/Subscriptions/subscriptionLogic'
+import { SubscriptionWizard } from '../components/Subscriptions/SubscriptionWizard'
+import { requestSubscriptionWizardCancellation } from '../components/Subscriptions/utils'
 import { EditSubscription } from '../components/Subscriptions/views/EditSubscription'
 import { SubscriptionsFiltersBar } from './components/SubscriptionsFiltersBar'
 import {
@@ -118,6 +122,21 @@ export function SubscriptionsScene(): JSX.Element {
         subscriptionModalId,
         aiSubscriptionsAvailable,
     } = useValues(subscriptionsSceneLogic)
+    const subscriptionWizardExperimentEnabled = useFeatureFlag('SUBSCRIPTION_CREATION_WIZARD', 'test')
+    const isWizard = subscriptionModalId === 'new' && subscriptionWizardExperimentEnabled
+    const cancelWizard = (): void => router.actions.push(urls.subscriptions())
+    const requestWizardCancel = (): void => {
+        const wizardForm = subscriptionLogic.findMounted({ id: 'new', creationSource: 'wizard' })
+        if (!wizardForm) {
+            cancelWizard()
+            return
+        }
+        requestSubscriptionWizardCancellation({
+            onCancel: cancelWizard,
+            resetSubscription: () => wizardForm.actions.resetSubscription(),
+            subscriptionChanged: wizardForm.values.subscriptionChanged,
+        })
+    }
     const { setCurrentTab, setSubscriptionsSorting } = useActions(subscriptionsSceneLogic)
 
     const isFiltered =
@@ -206,12 +225,17 @@ export function SubscriptionsScene(): JSX.Element {
                 )}
             </div>
             {subscriptionModalId !== null && (
-                <LemonModal isOpen onClose={() => router.actions.push(urls.subscriptions())} simple={false} width={650}>
-                    <EditSubscription
-                        id={subscriptionModalId}
-                        onCancel={() => router.actions.push(urls.subscriptions())}
-                        onDelete={() => router.actions.push(urls.subscriptions())}
-                    />
+                <LemonModal
+                    isOpen
+                    onClose={isWizard ? requestWizardCancel : cancelWizard}
+                    simple={isWizard}
+                    width={isWizard ? 720 : 650}
+                >
+                    {isWizard ? (
+                        <SubscriptionWizard onCancel={cancelWizard} />
+                    ) : (
+                        <EditSubscription id={subscriptionModalId} onCancel={cancelWizard} onDelete={cancelWizard} />
+                    )}
                 </LemonModal>
             )}
         </SceneContent>

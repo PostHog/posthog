@@ -1,0 +1,37 @@
+// The three option labels total 572px and never wrap, so they stack below that.
+.ScannerSessionCoverage.LemonSegmentedButton {
+    @container (max-width: 580px) {
+        width: 100%;
+
+        > ul {
+            flex-direction: column;
+        }
+
+        .LemonSegmentedButton__option {
+            &:first-child:not(:last-child) {
+                &,
+                .LemonButton,
+                .LemonButton > .LemonButton__chrome::after,
+                .LemonButton > .LemonButton__chrome::before {
+                    border-top-right-radius: var(--radius) !important;
+                    border-bottom-left-radius: 0 !important;
+                }
+            }
+
+            &:last-child:not(:first-child) {
+                &,
+                .LemonButton,
+                .LemonButton > .LemonButton__chrome::after,
+                .LemonButton > .LemonButton__chrome::before {
+                    border-top-right-radius: 0 !important;
+                    border-bottom-left-radius: var(--radius) !important;
+                }
+            }
+
+            &:not(:first-child) .LemonButton__chrome {
+                margin-top: -1px;
+                margin-left: 0;
+            }
+        }
+    }
+}

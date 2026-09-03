@@ -6,8 +6,9 @@ delegates to, so the Postgres routing logic isn't re-derived per source.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import NamedTuple, Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
@@ -36,7 +37,7 @@ def _str_or_none(value: object) -> Optional[str]:
     return value if isinstance(value, str) else None
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class DottedNameParts:
     schema: Optional[str]
     table: Optional[str]

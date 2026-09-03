@@ -2,7 +2,7 @@ import { useValues } from 'kea'
 import { memo, useMemo, useState } from 'react'
 
 import { IconArrowRight, IconChevronDown, IconExternal } from '@posthog/icons'
-import { LemonButton, LemonSkeleton, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { pluralize } from 'lib/utils/strings'
@@ -21,7 +21,8 @@ import {
     runReportActivity,
     ScoutRunFilter,
     scoutReportActivityLabel,
-    SCOUT_RUNS_WINDOW_SPAN,
+    SCOUT_NO_RECENT_RUNS,
+    SCOUT_RUNS_PER_SCOUT_LABEL,
 } from '../../../utils/scoutRunsWindow'
 import { ScoutTimestamp } from './ScoutTimestamp'
 
@@ -88,7 +89,7 @@ const ScoutRunRow = memo(function ScoutRunRow({
     const hasBody = Boolean(run.summary) || status === 'failed' || expanded
 
     return (
-        <div className="flex flex-col rounded border border-primary bg-bg-light">
+        <div className="flex flex-col border-b border-primary last:border-b-0">
             <button
                 type="button"
                 onClick={() => {
@@ -100,7 +101,7 @@ const ScoutRunRow = memo(function ScoutRunRow({
                     })
                     setExpanded((value) => !value)
                 }}
-                className="flex items-center gap-2 px-3 py-2 text-left"
+                className="flex items-center gap-2 px-3 py-2.5 text-left transition-colors hover:bg-surface-secondary"
                 aria-expanded={expanded}
             >
                 <IconChevronDown
@@ -116,36 +117,38 @@ const ScoutRunRow = memo(function ScoutRunRow({
                 )}
                 <span className="flex-1" />
                 {emitted > 0 ? (
-                    <span className="whitespace-nowrap rounded bg-primary-highlight px-1.5 py-0.5 text-[11px] font-medium text-primary-3000">
+                    <LemonTag type="highlight" size="small">
                         {pluralize(emitted, 'signal')} emitted
-                    </span>
+                    </LemonTag>
                 ) : reportActivityLabel ? (
-                    <span className="whitespace-nowrap rounded bg-primary-highlight px-1.5 py-0.5 text-[11px] font-medium text-primary-3000">
+                    <LemonTag type="highlight" size="small">
                         {reportActivityLabel}
-                    </span>
-                ) : status === 'completed' ? (
-                    <span className="whitespace-nowrap text-[11px] text-muted">0 signals emitted</span>
+                    </LemonTag>
                 ) : null}
             </button>
 
             {hasBody && (
-                <div className="px-3 pb-2 pl-9">
+                <div className="px-3 pb-2.5 pl-9">
                     {run.summary ? (
                         <LemonMarkdown
                             disableImages
-                            className={expanded ? 'text-sm text-primary' : 'text-sm text-primary line-clamp-2'}
+                            className={
+                                expanded
+                                    ? 'text-[13px] leading-snug text-secondary'
+                                    : 'text-[13px] leading-snug text-secondary line-clamp-2'
+                            }
                         >
                             {run.summary}
                         </LemonMarkdown>
                     ) : status === 'failed' ? (
-                        <span className="text-sm italic text-muted">
+                        <span className="text-[13px] italic text-muted">
                             No summary — the run ended before writing its close-out. The task run in PostHog is the only
                             diagnostic.
                         </span>
                     ) : null}
 
                     {expanded && (
-                        <div className="flex items-center flex-wrap gap-x-3 gap-y-1 border-t pt-2 mt-2 text-xs text-tertiary">
+                        <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-primary pt-2 text-xs text-tertiary">
                             <span className="font-mono">{truncateId(run.run_id)}</span>
                             {authoredReportIds.map((reportId) => (
                                 <Link
@@ -197,11 +200,11 @@ const ScoutRunRow = memo(function ScoutRunRow({
 /**
  * The Runs section on the scout detail surface: this scout's runs in the recent window, newest
  * first, with All/Emitted/Quiet/Failed filter chips (each showing its match count). Runs come
- * from `scoutFleetLogic`'s already-polled window rollup (oldest-first timeline order, reversed
- * here) — there's no per-scout runs endpoint yet (api gap 1), so the window is filtered client-side.
+ * from `scoutFleetLogic`'s already-polled per-scout rollup (oldest-first timeline order, reversed
+ * here); the filter chips narrow that set client-side.
  */
 export function ScoutRunHistorySection({ skillName }: { skillName: string }): JSX.Element {
-    const { rollups, runsWindowLoadedOnce, runsWindowComplete } = useValues(scoutFleetLogic)
+    const { rollups, scoutRunsLoadedOnce } = useValues(scoutFleetLogic)
     const [filter, setFilter] = useState<ScoutRunFilter>('all')
 
     // Newest first for a history list; the rollup keeps runs oldest-first for the header timeline.
@@ -220,9 +223,9 @@ export function ScoutRunHistorySection({ skillName }: { skillName: string }): JS
 
     const filteredRuns = useMemo(() => runs.filter((run) => runMatchesFilter(run, filter)), [runs, filter])
 
-    // Hold the skeleton until the fleet's runs window has settled once — otherwise a fresh deep-link
-    // flashes the empty state before we know this scout's runs.
-    const loading = !runsWindowLoadedOnce
+    // Hold the skeleton until the fleet's per-scout runs have settled once — otherwise a fresh
+    // deep-link flashes the empty state before we know this scout's runs.
+    const loading = !scoutRunsLoadedOnce
 
     return (
         <div className="flex flex-col gap-2">
@@ -256,24 +259,19 @@ export function ScoutRunHistorySection({ skillName }: { skillName: string }): JS
             {loading ? (
                 <LemonSkeleton className="h-12 w-full rounded" />
             ) : filteredRuns.length === 0 ? (
-                <div className="rounded border border-dashed border-primary bg-bg-light px-4 py-6 text-center text-sm text-muted">
+                <div className="rounded border border-dashed border-primary bg-surface-primary px-4 py-6 text-center text-sm text-muted">
                     {runs.length > 0
-                        ? `No runs match this filter in the last ${SCOUT_RUNS_WINDOW_SPAN}.`
-                        : runsWindowComplete
-                          ? `No runs in the last ${SCOUT_RUNS_WINDOW_SPAN}.`
-                          : `No runs in the recent window we could load (the last ${SCOUT_RUNS_WINDOW_SPAN} is truncated).`}
+                        ? `No runs match this filter in the ${SCOUT_RUNS_PER_SCOUT_LABEL}.`
+                        : SCOUT_NO_RECENT_RUNS}
                 </div>
             ) : (
-                <>
+                // One card with attached rows, rather than a stack of separate bordered cards — a run
+                // list reads as a log, and 25 individually-bordered boxes is a lot of chrome for it.
+                <div className="overflow-hidden rounded border border-primary bg-surface-primary">
                     {filteredRuns.map((run) => (
                         <ScoutRunRow key={run.run_id} run={run} skillName={skillName} />
                     ))}
-                    {!runsWindowComplete && (
-                        <span className="text-xs text-muted">
-                            Older runs beyond the loaded {SCOUT_RUNS_WINDOW_SPAN} window aren’t shown.
-                        </span>
-                    )}
-                </>
+                </div>
             )}
         </div>
     )

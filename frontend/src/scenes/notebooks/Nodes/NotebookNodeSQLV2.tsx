@@ -13,6 +13,7 @@ import { DataVisualizationNode, HogQLQueryResponse, NodeKind } from '~/queries/s
 import { ChartDisplayType } from '~/types'
 
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
+import { NotebookCellOutputHeader } from './components/NotebookCellOutputHeader'
 import { NotebookDataframeTable } from './components/NotebookDataframeTable'
 import { getCellLabel } from './components/NotebookNodeTitle'
 import { NotebookRunDownstreamBanner } from './components/NotebookRunDownstreamBanner'
@@ -20,7 +21,7 @@ import { NotebookCodeSQLEditorSettings } from './components/NotebookSQLEditor'
 import { NotebookStaleCellBanner } from './components/NotebookStaleCellBanner'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { initialSizedRunId, outputHeightForShape } from './notebookNodeOutputHeight'
-import { SQL_V2_DEFAULT_PAGE_SIZE, collectSqlV2Refs, notebookNodeSQLV2Logic } from './notebookNodeSQLV2Logic'
+import { SQL_V2_DEFAULT_PAGE_SIZE, notebookNodeSQLV2Logic } from './notebookNodeSQLV2Logic'
 import { NotebookDataframeResult } from './pythonExecution'
 
 export type NotebookNodeSQLV2Media = { mime_type: string; data: string }
@@ -99,10 +100,40 @@ const inferTypes = (result: NotebookNodeSQLV2Result): [string, string][] =>
         return [column, typeof sample === 'number' ? 'Float64' : 'String']
     })
 
-const toCachedResults = (result: NotebookNodeSQLV2Result): HogQLQueryResponse => ({
+// A notebook stores the whole result envelope, and a cell the sandbox kernel ran can hold raw
+// pandas dtypes ('float64', 'str'). The chart layer reads ClickHouse names to decide which
+// columns can go on a numeric axis, so map those over rather than make a saved cell re-run.
+const PANDAS_DTYPE_NAMES: Record<string, string> = {
+    bool: 'Bool',
+    boolean: 'Bool',
+    category: 'String',
+    object: 'String',
+    str: 'String',
+}
+
+const toClickhouseTypeName = (type: string): string => {
+    const dtype = type.toLowerCase()
+    if (PANDAS_DTYPE_NAMES[dtype]) {
+        return PANDAS_DTYPE_NAMES[dtype]
+    }
+    if (dtype.startsWith('datetime64')) {
+        return 'DateTime'
+    }
+    if (/^u?int(8|16|32|64)$/.test(dtype)) {
+        return 'Int64'
+    }
+    if (/^float(16|32|64)$/.test(dtype)) {
+        return 'Float64'
+    }
+    return type
+}
+
+export const toCachedResults = (result: NotebookNodeSQLV2Result): HogQLQueryResponse => ({
     results: result.first_page ?? [],
     columns: result.columns ?? [],
-    types: result.types?.length ? result.types : inferTypes(result),
+    types: result.types?.length
+        ? result.types.map(([column, type]): [string, string] => [column, toClickhouseTypeName(type)])
+        : inferTypes(result),
 })
 
 const Component = ({
@@ -121,6 +152,7 @@ const Component = ({
         runId: attributes.runId ?? null,
         hasResult: !!attributes.result,
         getContent: () => notebookLogic.values.content ?? null,
+        getVariables: () => notebookLogic.values.runnableVariables,
     })
     const {
         isRunning,
@@ -131,6 +163,7 @@ const Component = ({
         pageLoading,
         operationBlockReason,
         isStale,
+        staleReason,
         isChainRunning,
         staleDownstreamCount,
         pendingKernelStart,
@@ -208,16 +241,16 @@ const Component = ({
     return (
         <div data-attr="notebook-node-sql-v2" className="flex h-full min-h-0 flex-col">
             <div
-                className="flex min-h-0 flex-1 flex-col gap-2"
+                className="flex min-h-0 flex-1 flex-col"
                 onMouseDown={(event) => event.stopPropagation()}
                 onDragStart={(event) => event.stopPropagation()}
             >
                 {isStale ? (
-                    <div className="shrink-0" onClick={(event) => event.stopPropagation()}>
-                        <NotebookStaleCellBanner />
+                    <div className="shrink-0 pb-2" onClick={(event) => event.stopPropagation()}>
+                        <NotebookStaleCellBanner reason={staleReason ?? undefined} />
                     </div>
                 ) : staleDownstreamCount > 0 && !isChainRunning ? (
-                    <div className="shrink-0" onClick={(event) => event.stopPropagation()}>
+                    <div className="shrink-0 pb-2" onClick={(event) => event.stopPropagation()}>
                         <NotebookRunDownstreamBanner
                             count={staleDownstreamCount}
                             onRun={() => runStaleChain(notebookLogic.values.content ?? null, nodeId)}
@@ -226,13 +259,13 @@ const Component = ({
                     </div>
                 ) : null}
                 {isRunning && pendingKernelStart ? (
-                    <div className="shrink-0 px-2 pt-1 text-xs text-muted">Starting compute sandbox…</div>
+                    <div className="shrink-0 px-2 pt-1 pb-2 text-xs text-muted">Starting compute sandbox…</div>
                 ) : null}
                 {runError ? (
                     <div className="p-2 text-xs font-mono text-danger whitespace-pre-wrap">{runError}</div>
                 ) : dataframeResult && cachedResults ? (
                     <>
-                        <div className="shrink-0 px-2 pt-1" onClick={(event) => event.stopPropagation()}>
+                        <NotebookCellOutputHeader>
                             <LemonTabs
                                 size="small"
                                 activeKey={activeTab}
@@ -245,13 +278,15 @@ const Component = ({
                                             : attributes.height
                                     updateAttributes({ outputTab: tab, height })
                                 }}
-                                barClassName="mb-0"
+                                // The strip already carries the bottom border, and the bar draws
+                                // its own as a ::before, so two 1px lines stack without this.
+                                barClassName="mb-0 before:hidden"
                                 tabs={[
                                     { key: OutputTab.Results, label: 'Results' },
                                     { key: OutputTab.Visualization, label: 'Visualization' },
                                 ]}
                             />
-                        </div>
+                        </NotebookCellOutputHeader>
                         {activeTab === OutputTab.Results ? (
                             <div className="min-h-0 flex-1 overflow-y-auto">
                                 <NotebookDataframeTable
@@ -279,7 +314,7 @@ const Component = ({
                             </div>
                         ) : (
                             <div
-                                className="px-2 pb-2 flex min-h-0 flex-1 flex-col overflow-hidden"
+                                className="px-2 py-2 flex min-h-0 flex-1 flex-col overflow-hidden"
                                 onClick={(event) => event.stopPropagation()}
                             >
                                 <Query
@@ -364,9 +399,10 @@ const Settings = ({
         runId: attributes.runId ?? null,
         hasResult: !!attributes.result,
         getContent: () => notebookLogic.values.content ?? null,
+        getVariables: () => notebookLogic.values.runnableVariables,
     })
-    const { isRunning, isInterrupting, operationBlockReason } = useValues(dataLogic)
-    const { runQuery, interruptRun } = useActions(dataLogic)
+    const { isRunning } = useValues(dataLogic)
+    const { runNode } = useActions(dataLogic)
 
     return (
         <NotebookCodeSQLEditorSettings
@@ -374,16 +410,12 @@ const Settings = ({
             updateAttributes={updateAttributes}
             tabIdSuffix="datav2"
             persistConnection
-            // Refs come from the notebook content, not the tiptap editor: markdown notebooks
-            // (the only surface with SQLV2 cells) have no tiptap editor at all.
-            onRunQuery={(code, connection) =>
-                runQuery(code, collectSqlV2Refs(notebookLogic.values.content, nodeId), connection)
-            }
+            // The cell runs from the notebook's own top row, so the editor keeps only its Cmd+Enter
+            // binding — which hands over what the editor holds, since the document catches up to a
+            // keystroke or a just-picked connection a render later.
+            hideRunButton
+            onRunQuery={(code, connection) => runNode({ code, ...connection })}
             runQueryLoading={isRunning}
-            runQueryDisabledReason={operationBlockReason ?? undefined}
-            runQueryTooltip="Run SQL query"
-            onCancelQuery={interruptRun}
-            cancelQueryLoading={isInterrupting}
         />
     )
 }

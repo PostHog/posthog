@@ -31,6 +31,18 @@ export const DEFAULT_CHART_COLORS: readonly string[] = [
     '#30d5c8',
 ]
 
+// Shares of the host's ink color. There is no token for these: the graph tokens carry no dash
+// pattern, and `--color-graph-axis-line` is one value doing both the grid and the axis line.
+const INK_SHARE = { grid: 6, axisLine: 35, crosshair: 22 } as const
+
+const DASH_PATTERN: readonly number[] = [3, 3]
+
+/** `color-mix` rather than a JS blend: the input is `oklch()`, which `d3.color` can't parse, and
+ *  these values only reach `ctx.strokeStyle`, where the browser resolves them. */
+function inkShare(foreground: string | undefined, percent: number): string | undefined {
+    return foreground ? `color-mix(in oklab, ${foreground} ${percent}%, transparent)` : undefined
+}
+
 export interface ThemeFromCssOptions {
     /**
      * Element whose computed styles are read. Token vars defined on `:root`
@@ -45,6 +57,27 @@ export interface ThemeFromCssOptions {
 
 function readCssVar(style: CSSStyleDeclaration, name: string): string | undefined {
     return style.getPropertyValue(name).trim() || undefined
+}
+
+/**
+ * Grid, axis-line and crosshair styling as a partial theme. {@link themeFromCssVars} already
+ * includes it — call this directly only when a host reads the palette through its own token reader
+ * and wants the same styling on top.
+ */
+export function themeDefaultsFromCssVars(options: ThemeFromCssOptions = {}): Partial<ChartTheme> {
+    const dashes = { gridDashPattern: [...DASH_PATTERN], crosshairDashPattern: [...DASH_PATTERN] }
+    if (typeof document === 'undefined' || typeof getComputedStyle !== 'function') {
+        return dashes
+    }
+    const style = getComputedStyle(options.root ?? document.body)
+    const foreground = readCssVar(style, '--foreground') ?? readCssVar(style, '--color-text-primary')
+    return {
+        ...dashes,
+        // Graph tokens as the fallback, for a host that ships them without an ink color.
+        gridColor: inkShare(foreground, INK_SHARE.grid) ?? readCssVar(style, '--color-graph-axis-line'),
+        axisLineColor: inkShare(foreground, INK_SHARE.axisLine),
+        crosshairColor: inkShare(foreground, INK_SHARE.crosshair) ?? readCssVar(style, '--color-graph-crosshair'),
+    }
 }
 
 /**
@@ -73,11 +106,10 @@ export function themeFromCssVars(options: ThemeFromCssOptions = {}): ChartTheme 
     // Prefer quill's own tokens; the app's `--color-*` names are a compat
     // fallback only, so the design-system package never depends on app naming.
     return {
+        ...themeDefaultsFromCssVars({ root }),
         colors,
         backgroundColor: readCssVar(style, '--background') ?? readCssVar(style, '--color-bg-surface-primary'),
         axisColor: readCssVar(style, '--color-graph-axis-label'),
-        gridColor: readCssVar(style, '--color-graph-axis-line'),
-        crosshairColor: readCssVar(style, '--color-graph-crosshair'),
         // Surface-styled like quill's popover, not its inverse hint tooltip — stays dark in dark mode.
         // Compat fallback matches the app's buildTheme() (--color-bg-surface-popover in lib/colors.ts).
         tooltipBackground: readCssVar(style, '--card') ?? readCssVar(style, '--color-bg-surface-popover'),

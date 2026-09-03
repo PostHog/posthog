@@ -3,6 +3,7 @@ from posthog.temporal.session_replay.rasterize_recording.activities import (
     bump_stuck_counter_activity,
     clear_stuck_counter_activity,
     finalize_rasterization,
+    record_rasterization_failure,
 )
 from posthog.temporal.session_replay.rasterize_recording.workflow import RasterizeRecordingWorkflow
 
@@ -12,4 +13,5 @@ RASTERIZE_RECORDING_ACTIVITIES = [
     finalize_rasterization,
     bump_stuck_counter_activity,
     clear_stuck_counter_activity,
+    record_rasterization_failure,
 ]

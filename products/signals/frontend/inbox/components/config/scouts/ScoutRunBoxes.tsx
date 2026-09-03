@@ -51,8 +51,12 @@ function runTooltip(run: SignalScoutRunSummary, now: Date): string {
  *
  * Laid out with `flex-row-reverse` (newest first in the DOM) so that when the
  * row is too narrow for every box the container clips the oldest runs off the
- * left edge, keeping the most recent activity — and the controls column to the
- * right — always visible.
+ * left edge, keeping the most recent activity always visible.
+ *
+ * The strip therefore hangs off the RIGHT of whatever contains it, and it should stay that way:
+ * scouts hold different numbers of runs, so right-anchoring puts every row's newest run on one
+ * vertical line. Left-aligning instead scatters the newest run across the column by run count,
+ * which is the one box a reader is scanning for.
  */
 export function ScoutRunBoxes({ runs }: { runs: SignalScoutRunSummary[] }): JSX.Element | null {
     const visible = useMemo(() => {

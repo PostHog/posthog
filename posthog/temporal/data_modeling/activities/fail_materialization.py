@@ -1,6 +1,5 @@
 import datetime as dt
 import dataclasses
-from typing import TYPE_CHECKING
 from uuid import UUID
 
 from django.db import transaction
@@ -22,42 +21,29 @@ from products.data_modeling.backend.facade.models import (
 from products.data_warehouse.backend.facade.api import pause_saved_query_schedule
 
 from ..metrics import get_node_suspended_metric
+from .notify_materialization_failure import maybe_notify_materialization_failure
 from .utils import (
     CONSECUTIVE_FAILURES_TO_SUSPEND,
     bind_data_modeling_log_context,
+    get_previous_jobs,
     maybe_suspend_node_for_engine,
     strip_hostname_from_error,
     update_node_system_properties,
 )
-
-if TYPE_CHECKING:
-    from django.db.models import QuerySet
 
 LOGGER = get_logger(__name__)
 
 CONSECUTIVE_TIMEOUTS_TO_PAUSE = 5
 
 
-def _get_previous_jobs(saved_query_id: UUID, current_job_id: UUID, count: int) -> "QuerySet[DataModelingJob]":
-    """Get the most recent jobs for a saved query, excluding the current job."""
-    return (
-        DataModelingJob.objects.filter(saved_query_id=saved_query_id, engine=DataModelingJobEngine.CLICKHOUSE)
-        .exclude(id=current_job_id)
-        # a skipped run never executed, so it is evidence of neither health nor failure. Leaving it
-        # in lets one upstream outage clear a timeout streak that is about to pause the schedule.
-        .exclude(status=DataModelingJobStatus.SKIPPED)
-        .order_by("-created_at")[:count]
-    )
-
-
-def should_pause_schedule_for_timeout(saved_query_id: UUID, current_job_id: UUID) -> tuple[bool, int]:
+def should_pause_schedule_for_timeout(saved_query_id: UUID, current_job: DataModelingJob) -> tuple[bool, int]:
     """Check if the schedule should be paused based on consecutive timeout failures.
 
     Returns True only if all of the previous CONSECUTIVE_TIMEOUTS_TO_PAUSE jobs
     failed due to query timeouts. This prevents pausing schedules for transient
     timeouts that can occur due to temporary ClickHouse load.
     """
-    previous_jobs = list(_get_previous_jobs(saved_query_id, current_job_id, CONSECUTIVE_TIMEOUTS_TO_PAUSE))
+    previous_jobs = list(get_previous_jobs(saved_query_id, current_job, CONSECUTIVE_TIMEOUTS_TO_PAUSE))
     count = 0
     for job in previous_jobs:
         if job.status != DataModelingJobStatus.FAILED:
@@ -126,7 +112,7 @@ def _maybe_pause_schedule_on_timeout(job: DataModelingJob, saved_query: DataWare
     Returns True if the schedule was paused, False otherwise. This prevents pausing
     schedules for transient timeouts that can occur due to temporary ClickHouse load.
     """
-    should_pause, _ = should_pause_schedule_for_timeout(saved_query.id, job.id)
+    should_pause, _ = should_pause_schedule_for_timeout(saved_query.id, job)
     if not should_pause:
         return False
 
@@ -168,6 +154,7 @@ async def fail_materialization_activity(inputs: FailMaterializationInputs) -> No
     if not inputs.update_node:
         return
     error = inputs.error
+    saved_query = None
     try:
         saved_query = await _get_saved_query_for_job(job)
         if saved_query is None:
@@ -203,8 +190,22 @@ async def fail_materialization_activity(inputs: FailMaterializationInputs) -> No
                 await logger.ainfo(
                     f"Suspended node {inputs.node_id} (clickhouse) after {CONSECUTIVE_FAILURES_TO_SUSPEND} consecutive failures",
                 )
+
     except Exception as e:
         capture_exception(e)
         await logger.aexception(
             f"Failed to run error-specific recovery for node {inputs.node_id}: {strip_hostname_from_error(str(e))}"
         )
+
+    # Kept out of the recovery block above: a failing pause or revert is exactly when someone most
+    # needs telling, so it must not take the notification down with it.
+    if saved_query is not None and not inputs.cancelled:
+        try:
+            notified = await maybe_notify_materialization_failure(job, saved_query, inputs.team_id)
+            if notified:
+                await logger.ainfo(f"Sent materialization failure notification for node {inputs.node_id}")
+        except Exception as e:
+            capture_exception(e)
+            await logger.aexception(
+                f"Failed to notify materialization failure for node {inputs.node_id}: {strip_hostname_from_error(str(e))}"
+            )

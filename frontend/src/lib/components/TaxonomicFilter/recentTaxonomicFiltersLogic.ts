@@ -21,6 +21,7 @@ const EXCLUDED_RECENT_FILTER_GROUP_TYPES = new Set<TaxonomicFilterGroupType>([
     ...META_GROUP_TYPES,
     TaxonomicFilterGroupType.DataWarehouse,
     TaxonomicFilterGroupType.DataWarehouseSourceTables,
+    TaxonomicFilterGroupType.DataWarehouseMaterializedViews,
     TaxonomicFilterGroupType.DataWarehouseProperties,
     TaxonomicFilterGroupType.DataWarehousePersonProperties,
 ])

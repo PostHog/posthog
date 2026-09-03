@@ -1,8 +1,11 @@
 from abc import ABC
+from collections.abc import Sequence
 from datetime import datetime
 from typing import Any, Optional
 
 import orjson
+
+from posthog.schema import PropertyOperator
 
 from posthog.caching.utils import ThresholdMode, is_stale
 
@@ -62,6 +65,35 @@ _NUMERIC_AI_PROPERTIES: frozenset[str] = frozenset(
         "$ai_time_to_first_token",
     }
 )
+
+
+# These operators express the whole condition on their own, so a filter using one is complete without a value.
+_VALUELESS_PROPERTY_OPERATORS: frozenset[PropertyOperator] = frozenset(
+    {PropertyOperator.IS_SET, PropertyOperator.IS_NOT_SET}
+)
+
+
+def _is_filled_property_filter(prop: Any) -> bool:
+    if getattr(prop, "type", None) == "hogql":
+        # A HogQL filter carries its whole expression in `key` and has no value.
+        return bool(getattr(prop, "key", None))
+
+    if not getattr(prop, "key", None):
+        return False
+
+    if getattr(prop, "operator", None) in _VALUELESS_PROPERTY_OPERATORS:
+        return True
+
+    value = getattr(prop, "value", None)
+    if isinstance(value, list | tuple):
+        return len(value) > 0
+    # `False`, `0`, and empty strings are real property values, so only a missing value is incomplete here.
+    return value is not None
+
+
+def filled_property_filters(properties: Sequence[Any] | None) -> list[Any]:
+    """Drop incomplete filters without conflating valid falsy values with missing input."""
+    return [prop for prop in (properties or []) if _is_filled_property_filter(prop)]
 
 
 def parse_ai_property_value(value: Any) -> Any:

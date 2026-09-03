@@ -7,6 +7,7 @@ import { Button, Callout, Flex, Spinner, Text } from "@radix-ui/themes";
 import { useMemo, useState } from "react";
 import { useSpendAnalysis } from "../useSpendAnalysis";
 import { ModelBreakdownCards } from "./ModelBreakdownCards";
+import { SpendAnalysisSkeleton } from "./SpendAnalysisSkeleton";
 import {
   ProductBreakdownCard,
   ToolBreakdownCard,
@@ -31,6 +32,7 @@ export function SpendAnalysisSection() {
       data.by_day.items,
       data.summary.date_from,
       data.summary.date_to,
+      data.by_day_model,
     );
   }, [data]);
 
@@ -72,14 +74,7 @@ export function SpendAnalysisSection() {
           </Callout.Text>
         </Callout.Root>
       ) : isLoading ? (
-        <Flex
-          align="center"
-          justify="center"
-          p="6"
-          className="rounded-(--radius-3) border border-(--gray-5)"
-        >
-          <Spinner size="2" />
-        </Flex>
+        <SpendAnalysisSkeleton />
       ) : data ? (
         <>
           <SpendKpiStrip data={data} filledDays={filledDays} />

@@ -36,6 +36,17 @@ export function getPreviewQueryUrl(
     return buildTableQueryUrl(tableName, accessMethod === 'direct' ? (sourceId ?? undefined) : undefined)
 }
 
+// Synced tables are exposed under a prefixed name (e.g. schema "drivers" becomes "neon_drivers"),
+// but the row only shows the friendly schema label — so users try to query the label and hit
+// "Unknown table". Surface the real queryable name, but only when it differs from the label.
+export function getQueryableTableName(schema: ExternalDataSourceSchema): string | undefined {
+    const queryableName = schema.table?.hogql_name ?? schema.table?.name
+    if (!queryableName) {
+        return undefined
+    }
+    return queryableName === (schema.label ?? schema.name) ? undefined : queryableName
+}
+
 export const SyncProgressStep = (): JSX.Element => {
     const { sourceId, isWrapped, source: wizardSource, nextButtonText } = useValues(sourceWizardLogic)
     const { cancelWizard, closeWizard } = useActions(sourceWizardLogic)
@@ -98,17 +109,30 @@ export const SyncProgressStep = (): JSX.Element => {
             title: 'Table',
             key: 'table',
             render: function RenderTable(_, schema) {
-                if (!schema.table) {
-                    return schema.label ?? schema.name
-                }
-
-                return (
+                const displayName = schema.label ?? schema.name
+                const queryableName = getQueryableTableName(schema)
+                const title = schema.table ? (
                     <Link
                         to={getPreviewQueryUrl(schema.table.name, sourceAccessMethod, sourceId)}
                         onClick={() => cancelWizard()}
                     >
-                        {schema.label ?? schema.name}
+                        {displayName}
                     </Link>
+                ) : (
+                    displayName
+                )
+
+                if (!queryableName) {
+                    return title
+                }
+
+                return (
+                    <div className="flex flex-col">
+                        {title}
+                        <Tooltip title="Query this table by this name in the SQL editor">
+                            <code className="text-xs text-muted w-fit">{queryableName}</code>
+                        </Tooltip>
+                    </div>
                 )
             },
         },

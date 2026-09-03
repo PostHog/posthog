@@ -19,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client"
+CONFIG_SETUP_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.config_setup"
 
 
 def _make_response(body: Any, status_code: int = 200, reason: str = "OK") -> Response:
@@ -98,15 +99,21 @@ class TestResponseActionClassification:
         resp._content = b""
         resp.url = "https://api.example.com/items"
         mock_session.send.return_value = resp
-        hooks = create_response_hooks([{"status_code": 404, "action": "ignore"}])
+        hooks = create_response_hooks([{"status_code": 404, "action": "ignore"}], resource_name="issue_hashes")
 
         client = RESTClient(base_url="https://api.example.com", max_retry_attempts=1)
-        pages = list(
-            client.paginate(path="/items", data_selector="results", paginator=SinglePagePaginator(), hooks=hooks)
-        )
+        with patch(f"{CONFIG_SETUP_MODULE}.logger") as mock_logger:
+            pages = list(
+                client.paginate(path="/items", data_selector="results", paginator=SinglePagePaginator(), hooks=hooks)
+            )
 
         assert pages == []
         assert mock_session.send.call_count == 1
+        # A stale fan-out parent is dropped here, so the ignore has to be countable per schema.
+        logged = mock_logger.info.call_args
+        assert logged.args[0] == "data_imports.response_action_ignored"
+        assert logged.kwargs["resource"] == "issue_hashes"
+        assert logged.kwargs["status_code"] == 404
 
     @patch("tenacity.nap.time.sleep")
     @patch(f"{MODULE}.make_tracked_session")
@@ -121,3 +128,45 @@ class TestResponseActionClassification:
         client = RESTClient(base_url="https://api.example.com", max_retry_attempts=1)
         with pytest.raises(HTTPError):
             list(client.paginate(path="/items", data_selector="results", paginator=SinglePagePaginator(), hooks=hooks))
+
+    @patch("tenacity.nap.time.sleep")
+    @patch(f"{MODULE}.make_tracked_session")
+    def test_json_field_action_matches_body_value_only(self, MockSession, _sleep) -> None:
+        mock_session = MockSession.return_value
+        mock_session.headers = {}
+        mock_session.prepare_request.return_value = MagicMock()
+        mock_session.send.side_effect = [
+            _make_response({"code": 40100, "message": "too many requests"}),
+            # A row that merely contains the same number must not be classified as an error —
+            # what substring matching on the serialized body would get wrong.
+            _make_response({"code": 0, "results": [{"id": 40100}]}),
+        ]
+        hooks = create_response_hooks([{"json_field": "code", "json_values": [40100], "action": "retry"}])
+
+        client = RESTClient(base_url="https://api.example.com")
+        pages = list(
+            client.paginate(path="/items", data_selector="results", paginator=SinglePagePaginator(), hooks=hooks)
+        )
+
+        assert pages == [[{"id": 40100}]]
+        assert mock_session.send.call_count == 2
+
+    @patch("tenacity.nap.time.sleep")
+    @patch(f"{MODULE}.make_tracked_session")
+    def test_json_field_action_reads_a_nested_path(self, MockSession, _sleep) -> None:
+        mock_session = MockSession.return_value
+        mock_session.headers = {}
+        mock_session.prepare_request.return_value = MagicMock()
+        mock_session.send.side_effect = [
+            _make_response({"error": {"type": "rate_limit"}}),
+            _make_response({"results": [{"id": 1}]}),
+        ]
+        hooks = create_response_hooks([{"json_field": "error.type", "json_values": ["rate_limit"], "action": "retry"}])
+
+        client = RESTClient(base_url="https://api.example.com")
+        pages = list(
+            client.paginate(path="/items", data_selector="results", paginator=SinglePagePaginator(), hooks=hooks)
+        )
+
+        assert pages == [[{"id": 1}]]
+        assert mock_session.send.call_count == 2

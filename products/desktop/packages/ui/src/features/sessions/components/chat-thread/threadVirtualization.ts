@@ -73,8 +73,10 @@ export interface ThreadScrollResume {
  */
 export interface FlatThreadRow {
   /**
-   * Stable list key. User messages are keyed by ordinal so the optimistic->real id swap of a
-   * just-sent message doesn't remount its row (same scheme as the non-virtualized path).
+   * Stable list key: the row's content-derived item id, so keys survive older-history prepends
+   * and the end-anchored virtualizer holds the viewport. The optimistic->real swap of a just-sent
+   * user message remounts its row, which this engine absorbs; the non-virtualized scroller cannot
+   * (see {@link keyTurnRows}).
    */
   key: string;
   item: ThreadItem;
@@ -84,6 +86,8 @@ export interface FlatThreadRow {
   isTrailingInTurn: boolean;
   /** Set on the last row of a completed turn; renders the turn's hover timestamp under it. */
   turnTimestamp?: number;
+  /** Set alongside {@link turnTimestamp}: identifies the turn its footer actions act on. */
+  turnId?: string;
   /** Set alongside {@link turnTimestamp}: the agent response as plain text, for its copy button. */
   turnCopyText?: string;
 }
@@ -103,10 +107,57 @@ export function completedTurnTimestamp(turn: AgentTurn): number | undefined {
   return undefined;
 }
 
+/** Viewport distance from the top of the loaded window that triggers an older-history page load. */
+export const OLDER_HISTORY_LOAD_THRESHOLD_PX = 800;
+
+export interface OlderHistoryLoadState {
+  /** Whether reaching the threshold should still spend a page load. */
+  armed: boolean;
+  /** Whether to request a page now. */
+  load: boolean;
+}
+
+/**
+ * Whether the older-history loader fires, and what it is armed for next.
+ *
+ * One page per gesture, where the gesture is the viewport re-entering the threshold band. A load
+ * that fails or comes back empty leaves the cursor where it was, so nothing re-arms the loader until
+ * the reader scrolls back out and in — otherwise the arming timer would retry a failing request
+ * every few hundred milliseconds for as long as the thread sat near the top.
+ *
+ * A window that does not fill the viewport is the one case with no gesture to wait for: it emits no
+ * scroll events at all, so it stays armed and keeps paging until there is something to scroll. A
+ * window that fills it but stays shorter than the band re-arms on reaching the bottom instead,
+ * since `scrollTop` there can never clear the band.
+ */
+export function nextOlderHistoryLoadState(
+  armed: boolean,
+  input: {
+    canLoad: boolean;
+    isLoading: boolean;
+    scrollTop: number;
+    /** Largest `scrollTop` the viewport can reach; 0 when the window does not fill it. */
+    maxScrollTop: number;
+  },
+): OlderHistoryLoadState {
+  if (!input.canLoad) return { armed: false, load: false };
+  if (input.scrollTop > OLDER_HISTORY_LOAD_THRESHOLD_PX) {
+    return { armed: true, load: false };
+  }
+  if (input.isLoading) return { armed, load: false };
+  if (input.maxScrollTop <= 0) return { armed: false, load: true };
+  // A window shorter than the band never lets `scrollTop` clear it, so reaching the bottom is the
+  // only gesture the reader has left. A landed page never leaves them there, so this cannot chain.
+  if (input.scrollTop >= input.maxScrollTop) {
+    return { armed: true, load: false };
+  }
+  if (!armed) return { armed, load: false };
+  return { armed: false, load: true };
+}
+
 /** Flatten turn rows into the windowed row list (see {@link FlatThreadRow}). */
 export function flattenTurnRows(rows: TurnRow[]): FlatThreadRow[] {
   const out: FlatThreadRow[] = [];
-  let userTurn = 0;
   for (const row of rows) {
     if (row.type === "agent_turn") {
       const timestamp = completedTurnTimestamp(row);
@@ -123,19 +174,75 @@ export function flattenTurnRows(rows: TurnRow[]): FlatThreadRow[] {
           inTurn: true,
           isTrailingInTurn: isTrailing,
           turnTimestamp: isTrailing ? timestamp : undefined,
+          turnId: isTrailing ? row.id : undefined,
           turnCopyText: isTrailing ? copyText : undefined,
         });
       }
       continue;
     }
     out.push({
-      key: row.type === "user_message" ? `user-turn-${userTurn++}` : row.id,
+      key: row.id,
       item: row,
       inTurn: false,
       isTrailingInTurn: false,
     });
   }
   return out;
+}
+
+/** A top-level thread row paired with the list key the non-virtualized body renders it under. */
+export interface KeyedTurnRow {
+  key: string;
+  item: TurnRow;
+}
+
+/** Key prefix per top-level row kind, or null for a kind turn grouping never emits as its own row. */
+function turnRowKeyPrefix(row: TurnRow): string | null {
+  switch (row.type) {
+    case "user_message":
+      return "user-turn";
+    case "agent_turn":
+      return "agent-turn";
+    case "git_action":
+      return "git-action";
+    case "skill_button_action":
+      return "skill-action";
+    default:
+      return null;
+  }
+}
+
+/**
+ * Assign list keys to the non-virtualized body's top-level rows.
+ *
+ * Every row is keyed by ordinal rather than by id, because a row's id moves while the row itself
+ * stays in place. A user message and a skill-button action each swap an optimistic id for the real
+ * one when the prompt echoes back, in the single commit that drops the optimistic item and appends
+ * the event. An agent turn takes the id of its first item, and that item is replaced whenever tool
+ * grouping reshapes the head of the turn: a turn that opens with a thought and then makes a second
+ * tool call folds thought plus tools into one `tool_group`, so the turn's id moves from the thought
+ * to the first tool call.
+ *
+ * Keying on those ids remounts the row. The scroller engine watches its content element for child
+ * list changes, and a remount that neither adds nor removes a row reads to it as "the row count is
+ * unchanged but here is a scroll-anchor element I have never scrolled to", which it answers by
+ * scrolling that anchor to the top of the viewport. User messages are the anchors, so the thread
+ * jumps to the oldest one the engine has not already scrolled to, which on the first such remount
+ * is the start of the conversation.
+ *
+ * Rows are only ever appended here, so an ordinal is stable for the life of the row. A transcript
+ * that can page older history renders windowed instead, precisely because a prepend would shift
+ * every ordinal after it.
+ */
+export function keyTurnRows(rows: TurnRow[]): KeyedTurnRow[] {
+  const ordinals = new Map<string, number>();
+  return rows.map((item) => {
+    const prefix = turnRowKeyPrefix(item);
+    if (prefix === null) return { key: item.id, item };
+    const ordinal = ordinals.get(prefix) ?? 0;
+    ordinals.set(prefix, ordinal + 1);
+    return { key: `${prefix}-${ordinal}`, item };
+  });
 }
 
 /** Number of rows {@link flattenTurnRows} would produce, without building them. */
@@ -154,14 +261,14 @@ export function countFlatRows(rows: TurnRow[]): number {
  */
 export const THREAD_AT_END_THRESHOLD = 100;
 /** Slack for sub-pixel scroll positions when deciding the viewport is hard against the bottom. */
-export const THREAD_AT_EXACT_END_EPSILON = 1;
+const THREAD_AT_EXACT_END_EPSILON = 1;
 /** Movement below this is measurement noise, not a direction the reader chose. */
-export const THREAD_SCROLL_DIRECTION_EPSILON = 1;
+const THREAD_SCROLL_DIRECTION_EPSILON = 1;
 /**
  * A real upward drift, not a 1-frame measure transient: the DOM bottom sits this far below the
  * viewport. Well above any single append's measure gap.
  */
-export const THREAD_FAR_DRIFT_THRESHOLD = 400;
+const THREAD_FAR_DRIFT_THRESHOLD = 400;
 
 /** Keys that move the viewport upward, so pressing them reads as leaving the end. */
 export const SCROLL_UP_KEYS = new Set(["ArrowUp", "PageUp", "Home"]);

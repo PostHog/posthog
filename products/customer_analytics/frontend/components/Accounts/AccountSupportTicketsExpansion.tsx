@@ -102,7 +102,7 @@ export function AccountSupportTicketsExpansion({ accountId }: { accountId: strin
             dataSource={tickets}
             columns={columns}
             rowKey="id"
-            pagination={{ pageSize: PAGE_SIZE }}
+            pagination={{ pageSize: PAGE_SIZE, useUrl: false }}
         />
     )
 }

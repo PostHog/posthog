@@ -22,9 +22,10 @@ from products.engineering_analytics.backend.tests._github_fixtures import (
     _run_row,
     create_github_source,
     link_schema,
+    seeding_object_storage,
 )
 from products.warehouse_sources.backend.facade.models import ExternalDataSource
-from products.warehouse_sources.backend.test.utils import create_data_warehouse_table_from_csv
+from products.warehouse_sources.backend.facade.testing import create_data_warehouse_table_from_csv
 
 # Every query module runs HogQL through this method; patch it to test row mapping without a
 # warehouse. Patching the unbound method means the mock is called without `self`, so a plain
@@ -55,6 +56,25 @@ def _dt(value: str) -> datetime:
     return datetime.fromisoformat(value).replace(tzinfo=UTC)
 
 
+_seed_clock: datetime | None = None
+
+
+def anchor_seed_clock() -> None:
+    """Pin the clock every seed in one test reads from. Called per test by the autouse fixture.
+
+    Seeds format to whole seconds, so two calls that straddle a wall-clock second land a second
+    apart even when the test asked for an exact number of days between them. Tests assert on the
+    distance between seeded rows (`merged_at` minus a `ready_for_review` event, for one), so
+    sampling the clock per call turned that distance into a coin flip on sub-second timing.
+    """
+    global _seed_clock
+    _seed_clock = timezone.now()
+
+
+def _seed_now() -> datetime:
+    return _seed_clock if _seed_clock is not None else timezone.now()
+
+
 def _ago(days: int) -> str:
     return _ago_with_duration(days, 0)[0]
 
@@ -62,7 +82,15 @@ def _ago(days: int) -> str:
 def _ago_with_duration(days: int, duration_seconds: int) -> tuple[str, str]:
     # Seed dates relative to real time: HogQL now() runs server-side and ignores
     # freezegun, so window/age assertions must share the clock the query uses.
-    started_at = timezone.now() - timedelta(days=days)
+    started_at = _seed_now() - timedelta(days=days)
+    updated_at = started_at + timedelta(seconds=duration_seconds)
+    fmt = "%Y-%m-%d %H:%M:%S"
+    return started_at.strftime(fmt), updated_at.strftime(fmt)
+
+
+def _ago_offset_with_duration(days: int, offset_seconds: int, duration_seconds: int) -> tuple[str, str]:
+    """Like ``_ago_with_duration`` but shifted forward, so several runs can share one round anchor."""
+    started_at = _seed_now() - timedelta(days=days) + timedelta(seconds=offset_seconds)
     updated_at = started_at + timedelta(seconds=duration_seconds)
     fmt = "%Y-%m-%d %H:%M:%S"
     return started_at.strftime(fmt), updated_at.strftime(fmt)
@@ -76,10 +104,19 @@ def _job_row(
     *,
     run_attempt: int = 1,
     labels: str = '["depot-ubuntu-22.04-4"]',
-    started: str = "2026-01-01 00:00:00",
-    completed: str = "2026-01-01 00:02:00",
+    started: str | None = None,
+    completed: str | None = None,
     head_branch: str = "main",
 ) -> dict[str, Any]:
+    # Default to the same relative anchor the seeded runs use, not a fixed calendar date. GitHub
+    # creates a job when its run attempt starts, so a job's created_at tracks its run's start — and
+    # the cost queries' jobs-scan floor is derived from exactly that relationship (see
+    # _workflow_filters.run_windowed_job_created_floor_constant). Jobs pinned to 2026-01-01 under runs
+    # seeded at _ago(n) modelled a shape the source cannot produce, and the floor rightly dropped them.
+    # Keeps the 2-minute duration the cost assertions are written against.
+    default_started, default_completed = _ago_with_duration(1, 120)
+    started = started if started is not None else default_started
+    completed = completed if completed is not None else default_completed
     return {
         "id": job_id,
         "run_id": run_id,
@@ -130,8 +167,7 @@ def _header(
 class _WarehouseMixin(ClickhouseTestMixin, BaseTest):
     """Seeds warehouse tables behind a connected GitHub source with a non-default prefix,
     so the full resolve -> build -> query path runs end to end against `myprefixgithub_*`
-    tables. Skips when object storage is unreachable so the suite still runs without the
-    dev stack."""
+    tables."""
 
     def setUp(self) -> None:
         super().setUp()
@@ -145,6 +181,7 @@ class _WarehouseMixin(ClickhouseTestMixin, BaseTest):
         *,
         source: ExternalDataSource | None = None,
         prefix: str = GITHUB_SOURCE_PREFIX,
+        schema_name: str | None = None,
     ) -> None:
         # Defaults to the mixin's single shared source; pass source + prefix to seed a second
         # source (e.g. one GitHub source per repository) under a distinct table prefix.
@@ -157,7 +194,7 @@ class _WarehouseMixin(ClickhouseTestMixin, BaseTest):
         df.to_csv(tmp.name, index=False)
         tmp.close()
         self.addCleanup(Path(tmp.name).unlink, missing_ok=True)
-        try:
+        with seeding_object_storage(self):
             table, _source, _credential, _df, cleanup = create_data_warehouse_table_from_csv(
                 csv_path=Path(tmp.name),
                 table_name=base_name,
@@ -167,17 +204,15 @@ class _WarehouseMixin(ClickhouseTestMixin, BaseTest):
                 source=source,
                 source_prefix=prefix,
             )
-        except PermissionError as err:
-            self.skipTest(f"object storage unavailable: {err}")
         self.addCleanup(cleanup)
-        # base_name is "github_<endpoint>"; the synced schema/endpoint is its suffix.
-        link_schema(self.team, source, name=base_name.removeprefix("github_"), table=table)
+        # base_name is "github_<endpoint>"; the synced schema/endpoint is its suffix. Non-GitHub
+        # sources (Trunk) pass their endpoint's schema name explicitly.
+        link_schema(self.team, source, name=schema_name or base_name.removeprefix("github_"), table=table)
 
 
 class _EndpointsWarehouseMixin(_WarehouseMixin):
     """End-to-end aggregates over real warehouse tables. Seeds dates relative to
-    real time (HogQL now() is server-side). Skips when object storage is
-    unreachable."""
+    real time (HogQL now() is server-side)."""
 
     def _seed(self) -> None:
         self._create_table(

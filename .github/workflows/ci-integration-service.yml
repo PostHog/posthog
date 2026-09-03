@@ -1,0 +1,93 @@
+name: Integration Service CI
+
+# Trigger-level `paths:` rather than the always-fire + in-workflow paths-filter shape
+# agent-proxy uses. This whole workflow is skippable — it covers one isolated package with
+# no cross-repo coupling — and an unscoped PR subscription spends the shared repo-wide
+# dispatch budget (see tools/hogli-commands/.../pr_event_fanout.py). If this ever becomes
+# a required status check, it needs the in-workflow filter + always-running gate instead,
+# because branch protection treats a never-dispatched check as pending forever.
+on:
+    push:
+        branches:
+            - master
+        paths:
+            - 'services/integration-service/**'
+            - '.github/workflows/ci-integration-service.yml'
+    pull_request:
+        paths:
+            - 'services/integration-service/**'
+            - '.github/workflows/ci-integration-service.yml'
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+    contents: read
+
+jobs:
+    integration-service:
+        name: Integration Service checks
+        runs-on: ubuntu-latest
+        timeout-minutes: 15
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            - name: Install pnpm
+              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
+
+            - name: Set up Node.js
+              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              with:
+                  node-version-file: .nvmrc
+                  token: ${{ github.token }}
+
+            - name: Get pnpm store path
+              id: pnpm-store
+              run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+            - name: Restore pnpm cache
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ${{ steps.pnpm-store.outputs.path }}
+                  key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+                  restore-keys: pnpm-${{ runner.os }}-
+
+            # --ignore-scripts: nothing in this package's dependency tree runs code at
+            # install time. This service reads every platform integration credential we
+            # own, so an install-time script in a transitive package is exactly the
+            # supply-chain path worth closing.
+            - name: Install dependencies
+              run: pnpm install --frozen-lockfile --ignore-scripts --filter @posthog/integration-service...
+
+            - name: Save pnpm cache
+              if: github.ref == 'refs/heads/master'
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ${{ steps.pnpm-store.outputs.path }}
+                  key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+
+            - name: Typecheck
+              working-directory: services/integration-service
+              run: pnpm typecheck
+
+            - name: Unit tests
+              working-directory: services/integration-service
+              run: pnpm test:unit
+
+            # Real Postgres via testcontainers; the ubuntu runner provides Docker.
+            - name: Integration tests
+              working-directory: services/integration-service
+              run: pnpm test:integration
+
+            - name: Lint
+              working-directory: services/integration-service
+              run: pnpm exec oxlint
+
+            - name: Format check
+              working-directory: services/integration-service
+              run: pnpm format:check
+
+            - name: Build
+              working-directory: services/integration-service
+              run: pnpm build

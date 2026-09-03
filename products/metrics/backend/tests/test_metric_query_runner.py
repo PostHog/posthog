@@ -1,5 +1,6 @@
 import datetime as dt
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
@@ -22,7 +23,9 @@ from products.metrics.backend.facade.contracts import MetricFilter, MetricGroupB
 from products.metrics.backend.facade.enums import AttributeScope, FilterOp, MetricAggregation
 from products.metrics.backend.formula import evaluate, parse_formula
 from products.metrics.backend.metric_query_runner import (
+    _INTERVAL_LADDER,
     MetricQueryRunner,
+    _align_to_interval,
     _histogram_quantile,
     _pick_interval,
     attribute_field,
@@ -44,6 +47,42 @@ class TestPickInterval:
     def test_pick_interval(self, _name: str, delta: dt.timedelta, expected: str) -> None:
         start = dt.datetime(2026, 1, 1, 0, 0, 0, tzinfo=dt.UTC)
         assert _pick_interval(start, start + delta) == expected
+
+
+class TestAlignToInterval(ClickhouseTestMixin, APIBaseTest):
+    @parameterized.expand(
+        [
+            (project_timezone, interval)
+            for project_timezone in ("UTC", "Asia/Kolkata")
+            for interval, _, _ in _INTERVAL_LADDER
+        ]
+    )
+    def test_matches_clickhouse_bucket_boundaries(self, project_timezone: str, interval: str) -> None:
+        # The runner snaps date_from onto the bucket grid before querying; if
+        # this floor ever disagrees with toStartOfInterval, first buckets go
+        # partial again. The queries read `timestamp` through the project's
+        # timezone, because HogQL wraps a DateTime column in toTimeZone, so the
+        # grid that has to match is the project's. Asia/Kolkata is +05:30, which
+        # puts every boundary from `hour` up where a UTC floor never lands.
+        awkward = dt.datetime(2026, 3, 11, 17, 47, 33, 123456, tzinfo=dt.UTC)
+        aligned = _align_to_interval(awkward, interval, tzinfo=ZoneInfo(project_timezone))
+
+        interval_call = next(expr for name, _, expr in _INTERVAL_LADDER if name == interval)
+        interval_arg = interval_call.args[0]
+        assert isinstance(interval_arg, ast.Constant)
+        interval_sql = f"{interval_call.name}({interval_arg.value})"
+        ((bucket_label,),) = sync_execute(
+            f"SELECT toString(toStartOfInterval(toTimeZone(toDateTime64(%(ts)s, 6, 'UTC'), %(tz)s), {interval_sql}))",
+            {"ts": awkward.strftime("%Y-%m-%d %H:%M:%S.%f"), "tz": project_timezone},
+        )
+        # Rendering the bucket as a string keeps the comparison free of the
+        # driver's datetime conversion, and covers the `week` interval, which
+        # ClickHouse truncates to a bare Date. Either shape names a wall-clock
+        # reading in the project's timezone.
+        clickhouse_aligned = dt.datetime.fromisoformat(bucket_label).replace(tzinfo=ZoneInfo(project_timezone))
+
+        self.assertEqual(aligned, clickhouse_aligned)
+        self.assertLessEqual(aligned, awkward)
 
 
 class TestMetricQueryRunner(ClickhouseTestMixin, APIBaseTest):
@@ -146,9 +185,15 @@ class TestMetricQueryRunner(ClickhouseTestMixin, APIBaseTest):
             metric_name="m1",
             points=[
                 (anchor - dt.timedelta(minutes=5), 2.0),
-                (anchor - dt.timedelta(minutes=5), 3.0),
                 (anchor - dt.timedelta(minutes=20), 4.0),
             ],
+            labels={"pod": "a"},
+        )
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m1",
+            points=[(anchor - dt.timedelta(minutes=5), 3.0)],
+            labels={"pod": "b"},
         )
         # Different metric — should be filtered out.
         seed_metric(
@@ -168,6 +213,127 @@ class TestMetricQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         values_by_bucket = {row["time"]: row["value"] for row in results}
         self.assertEqual(sum(values_by_bucket.values()), 9.0)
+
+    @parameterized.expand(
+        [
+            # Summing raw samples would give 66 (every sample counted), and
+            # scrape count is not constant across buckets, so the error moves.
+            ("sum", 33.0),
+            # Sample-weighted would be 11.0.
+            ("avg", 16.5),
+            # Counting raw samples would give 6.
+            ("count", 2.0),
+            # The discriminating case for min: over raw samples this is 1.0, series a's
+            # stale first sample, rather than the smallest current reading across series.
+            ("min", 3.0),
+            ("max", 30.0),
+        ]
+    )
+    def test_aggregations_run_across_series_not_samples(self, aggregation: str, expected: float):
+        anchor = timezone.now().replace(second=0, microsecond=0)
+        bucket = anchor - dt.timedelta(minutes=5)
+        for pod, values in (("a", (1.0, 2.0, 3.0)), ("b", (10.0, 20.0, 30.0))):
+            seed_metric(
+                team_id=self.team.id,
+                metric_name="m_multi",
+                points=[(bucket + dt.timedelta(seconds=10 * i), value) for i, value in enumerate(values)],
+                labels={"pod": pod},
+            )
+
+        runner = MetricQueryRunner(
+            team=self.team,
+            metric_name="m_multi",
+            aggregation=aggregation,
+            date_from=anchor - dt.timedelta(hours=1),
+            date_to=anchor,
+        )
+
+        self.assertEqual([row["value"] for row in runner.run()], [expected])
+
+    def test_unaligned_date_from_reads_the_whole_first_bucket(self):
+        # The viewer's relative presets ("-1h") resolve to now-minus-offset with
+        # second precision, so date_from usually lands inside a bucket. A series
+        # whose only report came before date_from but inside that bucket must
+        # still count — the bucket stands for its whole interval.
+        anchor = (timezone.now() - dt.timedelta(minutes=30)).replace(second=0, microsecond=0)
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m1",
+            points=[(anchor + dt.timedelta(seconds=5), 3.0)],
+            labels={"pod": "a"},
+        )
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m1",
+            points=[(anchor + dt.timedelta(seconds=40), 4.0)],
+            labels={"pod": "b"},
+        )
+
+        rows = MetricQueryRunner(
+            team=self.team,
+            metric_name="m1",
+            aggregation="sum",
+            date_from=anchor + dt.timedelta(seconds=20),
+            date_to=anchor + dt.timedelta(minutes=1),
+            interval="minute",
+        ).run()
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["value"], 7.0)
+        earliest = dt.datetime.fromisoformat(rows[0]["time"]).astimezone(dt.UTC)
+        self.assertEqual(earliest, anchor)
+
+    def test_first_bucket_is_whole_on_a_project_away_from_utc(self):
+        # A project at +05:30 has its hourly buckets at :30 past each UTC hour,
+        # so a date_from floored in UTC can start the scan after the bucket
+        # ClickHouse labels the rows with. The 07:45 sample belongs to the
+        # 07:30 bucket, and a UTC floor to 08:00 would drop it.
+        self.team.timezone = "Asia/Kolkata"
+        self.team.save()
+        bucket_start = dt.datetime(2026, 3, 17, 7, 30, tzinfo=dt.UTC)
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m1",
+            points=[(bucket_start + dt.timedelta(minutes=15), 3.0)],
+        )
+
+        rows = MetricQueryRunner(
+            team=self.team,
+            metric_name="m1",
+            aggregation="sum",
+            date_from=bucket_start + dt.timedelta(minutes=45),
+            date_to=bucket_start + dt.timedelta(hours=1),
+            interval="hour",
+        ).run()
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["value"], 3.0)
+        earliest = dt.datetime.fromisoformat(rows[0]["time"]).astimezone(dt.UTC)
+        self.assertEqual(earliest, bucket_start)
+
+    def test_synthetic_original_timestamp_does_not_split_a_series(self):
+        anchor = timezone.now().replace(second=0, microsecond=0)
+        bucket = anchor - dt.timedelta(minutes=5)
+        # Ingest stamps `$originalTimestamp` on a point whose timestamp it had to
+        # override, with a different value per sample, and excludes it from the
+        # series identity it computes. Counting it here would give 6.0.
+        for index, value in enumerate((1.0, 2.0, 3.0)):
+            seed_metric(
+                team_id=self.team.id,
+                metric_name="m_skewed",
+                points=[(bucket + dt.timedelta(seconds=10 * index), value)],
+                labels={"pod": "a", "$originalTimestamp": f"2020-01-0{index + 1}T00:00:00+00:00"},
+            )
+
+        runner = MetricQueryRunner(
+            team=self.team,
+            metric_name="m_skewed",
+            aggregation="sum",
+            date_from=anchor - dt.timedelta(hours=1),
+            date_to=anchor,
+        )
+
+        self.assertEqual([row["value"] for row in runner.run()], [3.0])
 
     def test_respects_team_isolation(self):
         anchor = timezone.now().replace(microsecond=0)
@@ -238,10 +404,14 @@ class TestMetricsQueryAPI(ClickhouseTestMixin, APIBaseTest):
         seed_metric(
             team_id=self.team.id,
             metric_name="m1",
-            points=[
-                (anchor - dt.timedelta(minutes=10), 1.0),
-                (anchor - dt.timedelta(minutes=10), 2.0),
-            ],
+            points=[(anchor - dt.timedelta(minutes=10), 1.0)],
+            labels={"pod": "a"},
+        )
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m1",
+            points=[(anchor - dt.timedelta(minutes=10), 2.0)],
+            labels={"pod": "b"},
         )
 
         response = self.client.post(
@@ -404,7 +574,14 @@ class TestRunMetricQueryFacade(ClickhouseTestMixin, APIBaseTest):
         seed_metric(
             team_id=self.team.id,
             metric_name="m1",
-            points=[(anchor - dt.timedelta(minutes=10), 1.5), (anchor - dt.timedelta(minutes=10), 2.5)],
+            points=[(anchor - dt.timedelta(minutes=10), 1.5)],
+            service_name="svc-a",
+        )
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m1",
+            points=[(anchor - dt.timedelta(minutes=10), 2.5)],
+            service_name="svc-b",
         )
 
         series = run_metric_query(team=self.team, request=self._request())
@@ -434,8 +611,14 @@ class TestRunMetricQueryFacade(ClickhouseTestMixin, APIBaseTest):
     @parameterized.expand(
         [
             (
-                "unsupported_aggregation",
-                {"clauses": (MetricQueryClause(name="a", metric_name="m1", aggregation=MetricAggregation.MIN),)},
+                "quantile_other_than_p95",
+                {
+                    "clauses": (
+                        MetricQueryClause(
+                            name="a", metric_name="m1", aggregation=MetricAggregation.QUANTILE, quantile=0.5
+                        ),
+                    )
+                },
             ),
         ]
     )
@@ -723,6 +906,77 @@ class TestRateIncrease(ClickhouseTestMixin, APIBaseTest):
         # bucket 1: first sample contributes 0, then 5+5+5; bucket 2: 5+5
         self.assertEqual(values, [15.0, 10.0])
 
+    @parameterized.expand(
+        [
+            ("increase", [10.0, 20.0]),
+            ("rate", [10.0 / 60.0, 20.0 / 60.0]),
+        ]
+    )
+    def test_first_bucket_diffs_against_the_sample_before_the_range(self, aggregation: str, expected: list[float]):
+        # Scraped about once per bucket, which is the normal case: without a
+        # predecessor from before date_from the first point is a flat 0.
+        self._seed_counter(
+            [
+                (self.anchor - dt.timedelta(seconds=90), 100.0),
+                (self.anchor - dt.timedelta(seconds=30), 110.0),
+                (self.anchor + dt.timedelta(seconds=30), 130.0),
+            ]
+        )
+        rows = self._run(aggregation)
+        for row, expected_value in zip(rows, expected):
+            self.assertAlmostEqual(row["value"], expected_value)
+        # The pre-range sample only feeds the window function; its own bucket
+        # must not widen the grid the chart plots.
+        self.assertEqual(len(rows), len(expected))
+        earliest = dt.datetime.fromisoformat(rows[0]["time"]).astimezone(dt.UTC)
+        self.assertEqual(earliest, self.anchor - dt.timedelta(minutes=1))
+
+    @parameterized.expand(
+        [
+            ("increase", [20.0, 20.0, 20.0]),
+            ("rate", [20.0 / 60.0, 20.0 / 60.0, 20.0 / 60.0]),
+        ]
+    )
+    def test_unaligned_date_from_still_charts_a_complete_first_bucket(self, aggregation: str, expected: list[float]):
+        # date_from usually lands inside a bucket (relative presets resolve to
+        # now-minus-offset with second precision). The first bucket must cover
+        # its whole interval, not just the slice after date_from.
+        self._seed_counter([(self.anchor + dt.timedelta(seconds=s), 100.0 + s / 3.0) for s in range(-60, 181, 15)])
+        rows = self._run(
+            aggregation,
+            date_from=self.anchor + dt.timedelta(seconds=20),
+            date_to=self.anchor + dt.timedelta(minutes=3),
+        )
+        for row, expected_value in zip(rows, expected):
+            self.assertAlmostEqual(row["value"], expected_value)
+        self.assertEqual(len(rows), len(expected))
+        earliest = dt.datetime.fromisoformat(rows[0]["time"]).astimezone(dt.UTC)
+        self.assertEqual(earliest, self.anchor)
+
+    def test_bucket_with_no_computable_increase_is_dropped_not_zero(self):
+        # Scraped every 10 minutes: the first in-range sample's predecessor sits
+        # beyond counter_lookback, so its increase is unknowable. Unknown must
+        # be a missing point, not a plotted 0 — the histogram path already
+        # drops such buckets.
+        start = self.anchor - dt.timedelta(minutes=self.anchor.minute % 5)
+        self._seed_counter(
+            [
+                (start - dt.timedelta(minutes=10), 100.0),
+                (start, 200.0),
+                (start + dt.timedelta(minutes=10), 300.0),
+                (start + dt.timedelta(minutes=20), 400.0),
+            ]
+        )
+        rows = self._run(
+            "increase",
+            date_from=start,
+            date_to=start + dt.timedelta(minutes=30),
+            interval="minute_5",
+        )
+        self.assertEqual([row["value"] for row in rows], [100.0, 100.0])
+        earliest = dt.datetime.fromisoformat(rows[0]["time"]).astimezone(dt.UTC)
+        self.assertEqual(earliest, start + dt.timedelta(minutes=10))
+
     def test_rate_divides_by_bucket_seconds(self):
         self._seed_counter(
             [
@@ -942,6 +1196,45 @@ class TestHistogramQuantileRunner(ClickhouseTestMixin, APIBaseTest):
         self._seed_histogram([(self.anchor, [1, 1, 1, 0])], temporality="cumulative")
         rows = self._run(0.95)
         self.assertEqual(rows, [])
+
+    def test_first_bucket_diffs_against_the_histogram_before_the_range(self):
+        # Same missing-predecessor defect as the counter functions, but here it
+        # drops the point entirely rather than plotting a zero.
+        self._seed_histogram(
+            [
+                (self.anchor - dt.timedelta(seconds=90), [100, 100, 100, 0]),
+                (self.anchor - dt.timedelta(seconds=30), [110, 110, 110, 0]),
+            ],
+            temporality="cumulative",
+        )
+        rows = self._run(0.5)
+        self.assertEqual(len(rows), 1)
+        self.assertAlmostEqual(rows[0]["value"], 0.3)
+        earliest = dt.datetime.fromisoformat(rows[0]["time"]).astimezone(dt.UTC)
+        self.assertEqual(earliest, self.anchor - dt.timedelta(minutes=1))
+
+    def test_unaligned_date_from_keeps_the_first_buckets_full_distribution(self):
+        # Growth recorded before date_from but inside the first bucket is part
+        # of that bucket's distribution; clipping at date_from skews the
+        # quantile toward whatever happened to grow last.
+        self._seed_histogram(
+            [
+                (self.anchor, [100, 100, 100, 0]),
+                (self.anchor + dt.timedelta(seconds=20), [110, 100, 100, 0]),
+                (self.anchor + dt.timedelta(seconds=40), [110, 110, 100, 0]),
+            ],
+            temporality="cumulative",
+        )
+        rows = self._run(
+            0.5,
+            date_from=self.anchor + dt.timedelta(seconds=30),
+            date_to=self.anchor + dt.timedelta(minutes=1),
+        )
+        self.assertEqual(len(rows), 1)
+        # Window contribution [10, 10, 0, 0]: p50 sits in the first bucket.
+        self.assertAlmostEqual(rows[0]["value"], 0.1)
+        earliest = dt.datetime.fromisoformat(rows[0]["time"]).astimezone(dt.UTC)
+        self.assertEqual(earliest, self.anchor)
 
     def test_mismatched_bounds_raise(self):
         self._seed_histogram([(self.anchor + dt.timedelta(seconds=0), [1, 1, 1, 0])], temporality="delta")
@@ -1274,7 +1567,7 @@ class TestMetricTypeIsolation(ClickhouseTestMixin, APIBaseTest):
 
 
 class TestNonFiniteAggregates(ClickhouseTestMixin, APIBaseTest):
-    """ClickHouse float aggregates can overflow to inf (two 1e308 samples in
+    """ClickHouse float aggregates can overflow to inf (two 1e308 series in
     one bucket). A Python `inf` leaking into the response is at best invalid
     JSON ("Infinity") and at worst a silent null downstream — the API contract
     is an explicit null gap instead."""
@@ -1287,11 +1580,15 @@ class TestNonFiniteAggregates(ClickhouseTestMixin, APIBaseTest):
         self.anchor = (timezone.now() - dt.timedelta(minutes=30)).replace(second=0, microsecond=0)
 
     def _seed_huge(self, count: int) -> None:
-        seed_metric(
-            team_id=self.team.id,
-            metric_name="m_huge",
-            points=[(self.anchor + dt.timedelta(seconds=i), 1e308) for i in range(count)],
-        )
+        # One series each: aggregation is across series, so repeated samples of
+        # a single series would collapse to one value and never overflow.
+        for index in range(count):
+            seed_metric(
+                team_id=self.team.id,
+                metric_name="m_huge",
+                points=[(self.anchor, 1e308)],
+                labels={"shard": str(index)},
+            )
 
     def _run(self, aggregation: str) -> list[dict[str, Any]]:
         return MetricQueryRunner(

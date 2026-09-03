@@ -186,6 +186,7 @@ class AnnouncementViewSet(
             "customer analytics announcement created",
             {"id": str(announcement.id), "channel_count": announcement.total_channels},
             team=self.team,
+            request=request,
         )
         return Response(AnnouncementSerializer(instance=announcement).data, status=status.HTTP_201_CREATED)
 

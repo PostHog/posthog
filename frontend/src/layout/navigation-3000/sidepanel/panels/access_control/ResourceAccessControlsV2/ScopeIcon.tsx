@@ -12,6 +12,7 @@ import {
     IconFlask,
     IconHome,
     IconList,
+    IconListCheck,
     IconLive,
     IconListTree,
     IconLlmAnalytics,
@@ -37,8 +38,15 @@ import {
     IconSupport,
 } from '@posthog/icons'
 
+import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
+import { FileSystemIconType } from '~/queries/schema/schema-general'
 import { APIScopeObject } from '~/types'
 
+/**
+ * Icon for an access-controlled resource. Resources listed here keep the icon they have had;
+ * anything else falls through to the project tree's map, which has its own default icon, so a
+ * resource added later still shows something rather than nothing.
+ */
 export function ScopeIcon(props: { scope: APIScopeObject }): JSX.Element | null {
     switch (props.scope) {
         case 'project':
@@ -59,6 +67,8 @@ export function ScopeIcon(props: { scope: APIScopeObject }): JSX.Element | null 
             return <IconWarning />
         case 'event_definition':
             return <IconApps />
+        case 'evaluation':
+            return <IconListCheck />
         case 'experiment':
             return <IconFlask />
         case 'export':
@@ -66,6 +76,8 @@ export function ScopeIcon(props: { scope: APIScopeObject }): JSX.Element | null 
         case 'external_data_source':
             return <IconDatabase />
         case 'warehouse_objects':
+        case 'warehouse_table':
+        case 'warehouse_view':
             return <IconDatabase />
         case 'feature_flag':
             return <IconToggle />
@@ -120,6 +132,6 @@ export function ScopeIcon(props: { scope: APIScopeObject }): JSX.Element | null 
         case 'toolbar':
             return <IconToolbar />
         default:
-            return null
+            return iconForType(props.scope as FileSystemIconType)
     }
 }

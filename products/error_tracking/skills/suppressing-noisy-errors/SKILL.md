@@ -338,3 +338,8 @@ preserves the rule's configuration for forensic review.
 - A suppression rule that turns out to be too narrow is harmless (some noise
   leaks through). A rule that's too broad silently destroys real data — bias
   toward narrow.
+
+## Related skills
+
+- **`grouping-noisy-errors`** — merge or regroup instead of dropping, when the events still carry signal
+- **`triaging-error-issues`** — rank what remains once the noise is muted

@@ -193,6 +193,48 @@ describe("panelLayoutStore", () => {
     });
   });
 
+  describe("openPostHogObjectTab", () => {
+    beforeEach(() => {
+      usePanelLayoutStore.getState().initializeTask("task-1");
+    });
+
+    it("opens distinct tabs for hogql queries that share a long prefix", () => {
+      // A hogql reference's id is the SQL itself, so two queries can share a
+      // long header and differ only in a trailing clause. A truncated tab id
+      // would collide and show the first query under the second reference.
+      const prefix =
+        "SELECT event, count() AS total FROM events WHERE timestamp > now() - INTERVAL 30 DAY AND event = '$pageview' GROUP BY event";
+      const first = `${prefix} ORDER BY total DESC LIMIT 10`;
+      const second = `${prefix} ORDER BY total ASC LIMIT 5`;
+
+      usePanelLayoutStore.getState().openPostHogObjectTab("task-1", {
+        kind: "hogql",
+        id: first,
+        name: "Top events",
+      });
+      usePanelLayoutStore.getState().openPostHogObjectTab("task-1", {
+        kind: "hogql",
+        id: second,
+        name: "Bottom events",
+      });
+
+      const tree = getPanelTree("task-1");
+      if (tree.type !== "leaf") throw new Error("Expected the main panel");
+      const objectTabs = tree.content.tabs.filter(
+        (tab) => tab.data.type === "posthog-object",
+      );
+      expect(objectTabs).toHaveLength(2);
+      expect(new Set(objectTabs.map((tab) => tab.id)).size).toBe(2);
+
+      const secondTab = objectTabs.at(-1);
+      expect(tree.content.activeTabId).toBe(secondTab?.id);
+      expect(secondTab?.data).toMatchObject({
+        type: "posthog-object",
+        objectId: second,
+      });
+    });
+  });
+
   describe("closeTab", () => {
     beforeEach(() => {
       usePanelLayoutStore.getState().initializeTask("task-1");

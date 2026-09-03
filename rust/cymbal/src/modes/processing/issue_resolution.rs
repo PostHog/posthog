@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::{fmt::Display, str::FromStr};
 
 use chrono::{DateTime, Utc};
 use common_kafka::kafka_producer::{
@@ -46,6 +46,7 @@ pub struct Issue {
     pub id: Uuid,
     pub team_id: i32,
     pub status: IssueStatus,
+    pub severity: Option<String>,
     pub name: Option<String>,
     pub description: Option<String>,
     pub created_at: DateTime<Utc>,
@@ -55,6 +56,7 @@ pub struct IssueWithFirstSeen {
     pub id: Uuid,
     pub team_id: i32,
     pub status: IssueStatus,
+    pub severity: Option<String>,
     pub name: Option<String>,
     pub description: Option<String>,
     pub created_at: DateTime<Utc>,
@@ -68,6 +70,7 @@ impl IssueWithFirstSeen {
                 id: self.id,
                 team_id: self.team_id,
                 status: self.status,
+                severity: self.severity,
                 name: self.name,
                 description: self.description,
                 created_at: self.created_at,
@@ -87,6 +90,51 @@ pub enum IssueStatus {
     Suppressed,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum IssueSeverity {
+    Low,
+    Medium,
+    High,
+    Critical,
+}
+
+impl FromStr for IssueSeverity {
+    type Err = ();
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        if value.eq_ignore_ascii_case("low") {
+            Ok(Self::Low)
+        } else if value.eq_ignore_ascii_case("medium") {
+            Ok(Self::Medium)
+        } else if value.eq_ignore_ascii_case("high") {
+            Ok(Self::High)
+        } else if value.eq_ignore_ascii_case("critical") {
+            Ok(Self::Critical)
+        } else {
+            Err(())
+        }
+    }
+}
+
+pub(crate) fn infer_issue_severity(
+    exception_level: Option<&str>,
+    handled: Option<bool>,
+) -> Option<IssueSeverity> {
+    match exception_level.map(str::to_ascii_lowercase).as_deref() {
+        Some("fatal" | "critical") => Some(IssueSeverity::Critical),
+        Some("warning" | "warn") => Some(IssueSeverity::Medium),
+        Some("info" | "log" | "debug" | "trace") => Some(IssueSeverity::Low),
+        Some("error") => handled.map(|handled| {
+            if handled {
+                IssueSeverity::Medium
+            } else {
+                IssueSeverity::High
+            }
+        }),
+        _ => None,
+    }
+}
+
 impl Issue {
     pub async fn load_by_fingerprint<'c, E>(
         executor: E,
@@ -99,7 +147,7 @@ impl Issue {
         let res = sqlx::query_as!(
             IssueWithFirstSeen,
             r#"
-            SELECT i.id, i.team_id, i.status, i.name, i.description, i.created_at, f.first_seen as fingerprint_first_seen
+            SELECT i.id, i.team_id, i.status, i.severity, i.name, i.description, i.created_at, f.first_seen as fingerprint_first_seen
             FROM posthog_errortrackingissue i
             JOIN posthog_errortrackingissuefingerprintv2 f ON i.id = f.issue_id
             WHERE f.team_id = $1 AND f.fingerprint = $2
@@ -124,7 +172,7 @@ impl Issue {
         let res = sqlx::query_as!(
             Issue,
             r#"
-            SELECT id, team_id, status, name, description, created_at FROM posthog_errortrackingissue
+            SELECT id, team_id, status, severity, name, description, created_at FROM posthog_errortrackingissue
             WHERE team_id = $1 AND id = $2
             "#,
             team_id,
@@ -136,10 +184,11 @@ impl Issue {
         Ok(res)
     }
 
-    pub async fn insert_new<'c, E>(
+    pub(crate) async fn insert_new<'c, E>(
         team_id: i32,
         name: String,
         description: String,
+        severity: Option<IssueSeverity>,
         executor: E,
     ) -> Result<Issue, UnhandledError>
     where
@@ -158,6 +207,7 @@ impl Issue {
             id: Uuid::now_v7(),
             team_id,
             status: IssueStatus::Active,
+            severity: severity.map(|severity| severity.to_string()),
             name: Some(name),
             description: Some(description),
             created_at: Utc::now(),
@@ -165,12 +215,13 @@ impl Issue {
 
         sqlx::query!(
             r#"
-            INSERT INTO posthog_errortrackingissue (id, team_id, status, name, description, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6)
+            INSERT INTO posthog_errortrackingissue (id, team_id, status, severity, name, description, created_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
             "#,
             issue.id,
             issue.team_id,
             issue.status.to_string(),
+            issue.severity,
             issue.name,
             issue.description,
             issue.created_at
@@ -179,6 +230,23 @@ impl Issue {
         .await?;
 
         Ok(issue)
+    }
+
+    pub async fn apply_initial_severity<'c, E>(
+        &mut self,
+        severity: String,
+        executor: E,
+    ) -> Result<(), sqlx::Error>
+    where
+        E: sqlx::Executor<'c, Database = sqlx::Postgres>,
+    {
+        sqlx::query("UPDATE posthog_errortrackingissue SET severity = $1 WHERE id = $2")
+            .bind(&severity)
+            .bind(self.id)
+            .execute(executor)
+            .await?;
+        self.severity = Some(severity);
+        Ok(())
     }
 
     pub async fn maybe_reopen<'c, E>(&mut self, executor: E) -> Result<bool, UnhandledError>
@@ -243,6 +311,7 @@ pub struct FingerprintIssueState {
     pub issue_name: Option<String>,
     pub issue_description: Option<String>,
     pub issue_status: String,
+    pub issue_severity: Option<String>,
     pub assigned_user_id: Option<i64>,
     pub assigned_role_id: Option<String>,
     pub first_seen: String,
@@ -281,6 +350,7 @@ impl FingerprintIssueState {
             issue_name: issue.name.clone(),
             issue_description: issue.description.clone(),
             issue_status: issue.status.to_string(),
+            issue_severity: issue.severity.clone(),
             assigned_user_id,
             assigned_role_id,
             first_seen: first_seen.format("%Y-%m-%d %H:%M:%S%.3f").to_string(),
@@ -308,6 +378,29 @@ pub async fn send_fingerprint_issue_state(
     .collect::<Result<Vec<_>, KafkaProduceError>>()
     .map_err(UnhandledError::KafkaProduceError)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fingerprint_issue_state_serializes_severity() {
+        let issue = Issue {
+            id: Uuid::now_v7(),
+            team_id: 1,
+            status: IssueStatus::Active,
+            severity: Some("high".to_string()),
+            name: Some("Issue".to_string()),
+            description: None,
+            created_at: Utc::now(),
+        };
+
+        let state = FingerprintIssueState::new(&issue, "fingerprint", None, Utc::now());
+        let payload = serde_json::to_value(state).unwrap();
+
+        assert_eq!(payload["issue_severity"], "high");
+    }
 }
 
 impl IssueFingerprintOverride {
@@ -558,6 +651,7 @@ fn issue_snapshot(issue: &Issue) -> IssueSnapshot {
         name: issue.name.clone(),
         description: issue.description.clone(),
         status: issue.status.to_string(),
+        severity: issue.severity.clone(),
         created_at: issue.created_at,
     }
 }
@@ -613,6 +707,17 @@ impl Display for IssueStatus {
     }
 }
 
+impl Display for IssueSeverity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            IssueSeverity::Low => write!(f, "low"),
+            IssueSeverity::Medium => write!(f, "medium"),
+            IssueSeverity::High => write!(f, "high"),
+            IssueSeverity::Critical => write!(f, "critical"),
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use common_redis::{MockRedisClient, MockRedisValue};
@@ -644,6 +749,56 @@ mod test {
             super::error_tracking_event_properties_key(42, event_uuid),
             "error_tracking:event_properties:v1:42:01982721-5e00-7000-8000-000000000001"
         );
+    }
+
+    #[test]
+    fn infers_issue_severity_only_from_confident_signals() {
+        for (level, handled, expected) in [
+            (Some("fatal"), Some(true), Some("critical")),
+            (Some("critical"), Some(false), Some("critical")),
+            (Some("error"), Some(false), Some("high")),
+            (Some("error"), Some(true), Some("medium")),
+            (Some("error"), None, None),
+            (Some("warning"), Some(false), Some("medium")),
+            (Some("warn"), None, Some("medium")),
+            (Some("info"), Some(false), Some("low")),
+            (Some("log"), Some(true), Some("low")),
+            (Some("debug"), None, Some("low")),
+            (Some("trace"), Some(true), Some("low")),
+            (None, Some(false), None),
+            (None, Some(true), None),
+            (Some("custom"), Some(false), None),
+            (Some("CUSTOM"), Some(true), None),
+        ] {
+            assert_eq!(
+                super::infer_issue_severity(level, handled).map(|severity| severity.to_string()),
+                expected.map(str::to_string)
+            );
+        }
+    }
+
+    #[sqlx::test(migrations = "./tests/test_migrations")]
+    async fn initial_severity_update_reaches_state_and_notification_payloads(pool: sqlx::PgPool) {
+        let mut issue = super::Issue::insert_new(
+            1,
+            "TypeError".to_string(),
+            "Example".to_string(),
+            None,
+            &pool,
+        )
+        .await
+        .unwrap();
+
+        issue
+            .apply_initial_severity("critical".to_string(), &pool)
+            .await
+            .unwrap();
+
+        let state =
+            super::FingerprintIssueState::new(&issue, "fingerprint", None, chrono::Utc::now());
+        let snapshot = super::issue_snapshot(&issue);
+        assert_eq!(state.issue_severity.as_deref(), Some("critical"));
+        assert_eq!(snapshot.severity.as_deref(), Some("critical"));
     }
 
     #[tokio::test]

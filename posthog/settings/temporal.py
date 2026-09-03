@@ -25,6 +25,9 @@ MAX_CONCURRENT_WORKFLOW_TASKS: int | None = get_from_env(
     "MAX_CONCURRENT_WORKFLOW_TASKS", None, optional=True, type_cast=int
 )
 MAX_CONCURRENT_ACTIVITIES: int | None = get_from_env("MAX_CONCURRENT_ACTIVITIES", None, optional=True, type_cast=int)
+# Batch trace summarization model; overridable so a fleet-wide model rollback is a config change
+# plus a worker restart, not a deploy.
+LLMA_SUMMARIZATION_MODEL: str = get_from_env("LLMA_SUMMARIZATION_MODEL", "gpt-5-nano")
 TARGET_MEMORY_USAGE: float | None = get_from_env("TARGET_MEMORY_USAGE", None, optional=True, type_cast=float)
 TARGET_CPU_USAGE: float | None = get_from_env("TARGET_CPU_USAGE", None, optional=True, type_cast=float)
 
@@ -48,6 +51,14 @@ SANDBOX_PROVIDER: str | None = get_from_env(
     "SANDBOX_PROVIDER", None, optional=True
 )  # When not set: defaults to "docker" in DEBUG mode, "modal" in production
 SANDBOX_API_URL: str | None = get_from_env("SANDBOX_API_URL", None, optional=True)
+# Hogland (Firecracker microVM sandbox service) control plane. Deliberately not
+# SANDBOX_*-prefixed: agentsh folds SANDBOX_* URL settings into the in-box egress
+# allowlist, and the box never needs to reach the hogland control plane.
+HOGLAND_API_URL: str | None = get_from_env("HOGLAND_API_URL", None, optional=True)
+HOGLAND_API_TOKEN: str | None = get_from_env("HOGLAND_API_TOKEN", None, optional=True)
+# Projected ServiceAccount token file (rotating JWT). When set and readable it wins
+# over the static HOGLAND_API_TOKEN, which stays as a local-dev/bake-only fallback.
+HOGLAND_API_TOKEN_FILE: str | None = get_from_env("HOGLAND_API_TOKEN_FILE", None, optional=True)
 SANDBOX_LLM_GATEWAY_URL: str | None = get_from_env("SANDBOX_LLM_GATEWAY_URL", None, optional=True)
 # The Go ai-gateway runs on its own host (ai-gateway.*, vs the Python gateway.*), so the
 # base URL is what selects it: no product slug on the path, attribution as one
@@ -56,6 +67,26 @@ SANDBOX_LLM_GATEWAY_URL: str | None = get_from_env("SANDBOX_LLM_GATEWAY_URL", No
 # Both must be set; clearing either rolls back to the Python gateway.
 SANDBOX_AI_GATEWAY_URL: str | None = get_from_env("SANDBOX_AI_GATEWAY_URL", None, optional=True)
 SANDBOX_AI_GATEWAY_PRODUCTS: str | None = get_from_env("SANDBOX_AI_GATEWAY_PRODUCTS", None, optional=True)
+# Gateway credential (phs_) the worker uses to mint per-run phe_ scoped tokens for
+# gateway-routed sandbox runs. Unset: runs get no token and the agent server keeps them
+# on the Python gateway, so the routing allowlist above is inert without it.
+SANDBOX_AI_GATEWAY_MINT_KEY: str | None = get_from_env("SANDBOX_AI_GATEWAY_MINT_KEY", None, optional=True)
+# Per-run spend cap and token lifetime for minted scoped tokens. The cap bounds one
+# runaway run; the daily bound per team is cap x the scheduler's runs-per-day limit.
+# The cap must fit a run's real spend plus its in-flight admission holds: a cap near
+# typical spend ends runs after the work is written and before it is committed.
+# TTL 0 (the default) derives TASKS_MAX_RUN_DURATION_SECONDS + 1h so a capped run
+# never outlives its token; a positive value overrides.
+SANDBOX_AI_GATEWAY_TOKEN_CAP_USD: str = get_from_env("SANDBOX_AI_GATEWAY_TOKEN_CAP_USD", "10")
+# Per-team per-run cap overrides as a JSON object of team id to dollars, e.g. {"2": "10"}.
+SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_OVERRIDES: str = get_from_env("SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_OVERRIDES", "")
+# Per-product per-run cap overrides as a JSON object of ai_product to dollars. A product
+# entry beats the team override and the default: run cost tracks the kind of work, and
+# implementation runs regularly outspend every other stage.
+SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_PRODUCT_OVERRIDES: str = get_from_env(
+    "SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_PRODUCT_OVERRIDES", '{"signals_implementation": "15"}'
+)
+SANDBOX_AI_GATEWAY_TOKEN_TTL_SECONDS: int = get_from_env("SANDBOX_AI_GATEWAY_TOKEN_TTL_SECONDS", 0, type_cast=int)
 SANDBOX_MCP_URL: str | None = get_from_env("SANDBOX_MCP_URL", None, optional=True)
 
 # OTLP destinations for agent-server run telemetry (PostHog Logs/APM).
@@ -91,6 +122,12 @@ TASKS_CONTINUE_AS_NEW_ENABLED: bool = get_from_env(
     type_cast=str_to_bool,
 )
 
+TASKS_COMPUTE_QUOTA_ENFORCEMENT_ENABLED: bool = get_from_env(
+    "TASKS_COMPUTE_QUOTA_ENFORCEMENT_ENABLED",
+    False,
+    type_cast=str_to_bool,
+)
+
 # Event-count threshold for the above; 0 relies on Temporal's is_continue_as_new_suggested().
 TASKS_CONTINUE_AS_NEW_HISTORY_THRESHOLD: int = get_from_env(
     "TASKS_CONTINUE_AS_NEW_HISTORY_THRESHOLD", 4000, type_cast=int
@@ -108,6 +145,15 @@ TASKS_INACTIVITY_TIMEOUT_SECONDS: int = get_from_env("TASKS_INACTIVITY_TIMEOUT_S
 # site. Set low (e.g. 60) for local testing; 0 or negative disables the cap entirely,
 # matching TASKS_INACTIVITY_TIMEOUT_SECONDS above.
 TASKS_MAX_RUN_DURATION_SECONDS: int = get_from_env("TASKS_MAX_RUN_DURATION_SECONDS", 3 * 60 * 60, type_cast=int)
+
+# Wall-clock cap for *interactive* signals-origin runs (Inbox "Create PR" / "Discuss", scout
+# chat), which are exempt from TASKS_MAX_RUN_DURATION_SECONDS above. Their inference is unbilled,
+# so without this their only time bound is the heartbeat-reset inactivity timer. Defaults to the
+# sandbox TTL: it never ends a conversation the sandbox wouldn't have ended anyway, but it does
+# bound snapshot-resume chains and wedged-but-heartbeating agents. 0 or negative disables.
+TASKS_INTERACTIVE_SIGNALS_MAX_RUN_DURATION_SECONDS: int = get_from_env(
+    "TASKS_INTERACTIVE_SIGNALS_MAX_RUN_DURATION_SECONDS", 6 * 60 * 60, type_cast=int
+)
 
 # Override the delay before the first in-sandbox credential refresh (default 20
 # minutes). Set this low (e.g. 30) for local testing so the refresh loop fires
@@ -132,6 +178,8 @@ TASK_RUN_LOGS_MIRROR_ORIGIN_PRODUCTS: list[str] = get_list(
 # in /logs. Unset disables the direct leg (stdout emission for the collector remains).
 TASK_RUN_LOGS_MIRROR_OTLP_URL: str | None = get_from_env("TASK_RUN_LOGS_MIRROR_OTLP_URL", None, optional=True)
 TASK_RUN_LOGS_MIRROR_OTLP_TOKEN: str | None = get_from_env("TASK_RUN_LOGS_MIRROR_OTLP_TOKEN", None, optional=True)
+
+TASK_RUN_STREAM_PRESENCE_GATED_ORIGINS: list[str] = get_list(os.getenv("TASK_RUN_STREAM_PRESENCE_GATED_ORIGINS", ""))
 
 TEMPORAL_LOG_LEVEL_PRODUCE: str = os.getenv("TEMPORAL_LOG_LEVEL_PRODUCE", "DEBUG")
 TEMPORAL_EXTERNAL_LOGS_QUEUE_SIZE: int = get_from_env("TEMPORAL_EXTERNAL_LOGS_QUEUE_SIZE", 0, type_cast=int)
@@ -175,10 +223,24 @@ GENERAL_PURPOSE_TASK_QUEUE = _set_temporal_task_queue("general-purpose-task-queu
 SIGNUP_ENRICHMENT_TASK_QUEUE = _set_temporal_task_queue(
     os.getenv("SIGNUP_ENRICHMENT_TASK_QUEUE", "general-purpose-task-queue")
 )
+# Defaults to the general-purpose fleet so dispatch always has a live worker. Routing canvas
+# builds to a dedicated, separately-scalable worker takes two steps in order: deploy a worker
+# fleet polling "canvas-build-task-queue" (a charts change), then set this env on the
+# dispatching services. Setting it first strands builds on a pollerless queue until the
+# workflow execution timeout closes them.
+CANVAS_BUILD_TASK_QUEUE = _set_temporal_task_queue(os.getenv("CANVAS_BUILD_TASK_QUEUE", "general-purpose-task-queue"))
 EXPERIMENTS_RECALCULATION_TASK_QUEUE = _set_temporal_task_queue("experiments-recalculation-task-queue")
 HEALTH_CHECK_TASK_QUEUE = _set_temporal_task_queue("health-check-task-queue")
 DUCKLAKE_TASK_QUEUE = _set_temporal_task_queue("ducklake-task-queue")
 TASKS_TASK_QUEUE = _set_temporal_task_queue("tasks-task-queue")
+TASKS_DISPATCHER_BATCH_SIZE = get_from_env("TASKS_DISPATCHER_BATCH_SIZE", 50, type_cast=int)
+TASKS_DISPATCHER_CONCURRENCY = get_from_env("TASKS_DISPATCHER_CONCURRENCY", 20, type_cast=int)
+TASKS_DISPATCHER_LEASE_SECONDS = get_from_env("TASKS_DISPATCHER_LEASE_SECONDS", 60, type_cast=int)
+TASKS_DISPATCHER_POLL_INTERVAL_SECONDS = get_from_env("TASKS_DISPATCHER_POLL_INTERVAL_SECONDS", 1.0, type_cast=float)
+TASKS_DISPATCHER_RPC_TIMEOUT_SECONDS = get_from_env("TASKS_DISPATCHER_RPC_TIMEOUT_SECONDS", 10, type_cast=int)
+TASKS_DISPATCHER_MAX_DISPATCH_AGE_SECONDS = get_from_env(
+    "TASKS_DISPATCHER_MAX_DISPATCH_AGE_SECONDS", 6 * 60 * 60, type_cast=int
+)
 STAMPHOG_TASK_QUEUE = _set_temporal_task_queue("stamphog-task-queue")
 TEST_TASK_QUEUE = _set_temporal_task_queue("test-task-queue")
 BILLING_TASK_QUEUE = _set_temporal_task_queue("billing-task-queue")
@@ -203,6 +265,11 @@ ERROR_TRACKING_TASK_QUEUE = _set_temporal_task_queue("error-tracking-task-queue"
 ERROR_TRACKING_LIFECYCLE_TASK_QUEUE = _set_temporal_task_queue("error-tracking-lifecycle-task-queue")
 EVENT_SCREENSHOTS_TASK_QUEUE = _set_temporal_task_queue("event-screenshots-task-queue")
 LOGS_ALERTING_TASK_QUEUE = _set_temporal_task_queue("logs-alerting-task-queue")
+# Dedicated queue: the tick becomes the scan-heavy rollup writer, and it must not
+# share pods with the latency-sensitive alerting workers.
+LOGS_VOLUME_TICK_TASK_QUEUE = _set_temporal_task_queue(
+    os.getenv("LOGS_VOLUME_TICK_TASK_QUEUE", "logs-volume-tick-task-queue")
+)
 RASTERIZATION_TASK_QUEUE = "rasterization-task-queue"  # Not collapsed in dev — separate Node.js worker process
 
 # Error tracking

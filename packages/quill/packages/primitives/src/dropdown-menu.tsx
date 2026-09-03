@@ -99,19 +99,13 @@ function DropdownMenuItem({
             data-variant={variant}
             className={cn(
                 "group/dropdown-menu-item relative flex cursor-default items-center text-xs/relaxed outline-hidden select-none data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
-                // Destructive menu items are transparent at rest (red text only) and get a red
-                // tint on hover/highlight — Button's standalone `destructive` variant (filled at
-                // rest) is wrong inside a menu, so the inner Button always stays `default`.
-                // Disabled destructive mirrors the disabled destructive Button: 50%-mix red fill
-                // under the item-level opacity-50.
-                'data-[variant=destructive]:text-destructive-foreground data-[variant=destructive]:hover:text-destructive-foreground data-[variant=destructive]:[&_svg]:text-destructive-foreground data-[variant=destructive]:hover:bg-destructive/10 data-[variant=destructive]:focus:bg-destructive/10 data-[variant=destructive]:data-highlighted:bg-destructive/10 dark:data-[variant=destructive]:hover:bg-destructive/20 dark:data-[variant=destructive]:focus:bg-destructive/20 dark:data-[variant=destructive]:data-highlighted:bg-destructive/20 data-[variant=destructive]:data-disabled:bg-destructive/50',
                 inset && 'quill-menu-item--inset',
                 className
             )}
             // The default render is a real <button>; only declare nativeButton when the
             // caller hasn't overridden render (their element may not be a button).
             nativeButton={!('render' in props)}
-            render={<Button variant="default" className="w-full font-normal [&_kbd]:ml-auto" left />}
+            render={<Button variant={variant} className="w-full font-normal [&_kbd]:ml-auto" left />}
             {...props}
         />
     )

@@ -39,6 +39,22 @@ export interface PatchedReviewPerspectiveConfigUpdateApi {
     enabled?: boolean
 }
 
+export interface ReviewResolutionConfigApi {
+    /** Name of the `review-hog-resolution-*` skill this row represents (the criteria's identity). */
+    skill_name: string
+    /** Whether these criteria drive the resolution stage on the requesting user's PRs on this project. */
+    active: boolean
+    /** The resolution skill's description, for display in the config UI. */
+    description: string
+    /** The resolution skill's SKILL.md body, for the read-only skill viewer. */
+    body: string
+}
+
+export interface PatchedReviewResolutionConfigSelectApi {
+    /** Set true to make these the single resolution criteria applied on the user's PRs. Only true is accepted — resolution criteria are single-active, so you switch by selecting a different skill, not by deactivating the current one. */
+    active?: boolean
+}
+
 /**
  * * `fetching` - fetching
  * * `chunking` - chunking
@@ -81,6 +97,33 @@ export interface ReviewProgressApi {
      * @nullable
      */
     total: number | null
+}
+
+/**
+ * * `resolving` - resolving
+ * * `stopped` - stopped
+ */
+export type ResolutionStatusEnumApi = (typeof ResolutionStatusEnumApi)[keyof typeof ResolutionStatusEnumApi]
+
+export const ResolutionStatusEnumApi = {
+    Resolving: 'resolving',
+    Stopped: 'stopped',
+} as const
+
+export interface ReviewResolutionStatusApi {
+    /** Where the run stands: `resolving` while threads are being settled, `stopped` when the run died partway (went quiet with no closing summary).
+     *
+     * * `resolving` - resolving
+     * * `stopped` - stopped */
+    resolution_status: ResolutionStatusEnumApi
+    /** Queued threads settled so far this run. */
+    done: number
+    /** Threads queued for this run. */
+    total: number
+    /** Settled threads that were fixed with a commit to the branch. */
+    fixed: number
+    /** Settled threads left for the author: judged worth doing but not safe to fix unattended. */
+    needs_attention: number
 }
 
 export interface ReviewRecentReviewApi {
@@ -131,10 +174,12 @@ export interface ReviewRecentReviewApi {
     last_run_at: string | null
     /** Whether a review has been published back to GitHub. */
     published: boolean
-    /** Whether a review turn is running on this report right now (activity within the last 30 minutes). */
+    /** Whether a run is on this report right now: a review turn or a resolution run (activity within the last 30 minutes). */
     in_progress: boolean
-    /** The in-flight turn's stage and counters; null unless `in_progress`. */
+    /** The in-flight review turn's stage and counters; null unless a review turn is running (a resolving report carries `resolution` instead). */
     progress: ReviewProgressApi | null
+    /** The report's latest resolution run (settling the PR's review threads): live progress while it runs, or where it stopped when it died partway. Null when there is none, it completed, or a newer review turn superseded it. */
+    resolution: ReviewResolutionStatusApi | null
     /** The latest turn's valid findings at must_fix effective priority. */
     must_fix_count: number
     /** The latest turn's valid findings at should_fix effective priority. */
@@ -344,10 +389,12 @@ export interface ReviewDetailApi {
     last_run_at: string | null
     /** Whether a review has been published back to GitHub. */
     published: boolean
-    /** Whether a review turn is running on this report right now (activity within the last 30 minutes). */
+    /** Whether a run is on this report right now: a review turn or a resolution run (activity within the last 30 minutes). */
     in_progress: boolean
-    /** The in-flight turn's stage and counters; null unless `in_progress`. */
+    /** The in-flight review turn's stage and counters; null unless a review turn is running (a resolving report carries `resolution` instead). */
     progress: ReviewProgressApi | null
+    /** The report's latest resolution run (settling the PR's review threads): live progress while it runs, or where it stopped when it died partway. Null when there is none, it completed, or a newer review turn superseded it. */
+    resolution: ReviewResolutionStatusApi | null
     /** The latest turn's valid findings at must_fix effective priority. */
     must_fix_count: number
     /** The latest turn's valid findings at should_fix effective priority. */
@@ -422,15 +469,35 @@ export interface ReviewPerspectiveStatsApi {
     perspectives: ReviewPerspectiveStatItemApi[]
 }
 
+/**
+ * * `review` - review
+ * * `review_only` - review_only
+ * * `resolve_only` - resolve_only
+ */
+export type ReviewTriggerRequestRunModeEnumApi =
+    (typeof ReviewTriggerRequestRunModeEnumApi)[keyof typeof ReviewTriggerRequestRunModeEnumApi]
+
+export const ReviewTriggerRequestRunModeEnumApi = {
+    Review: 'review',
+    ReviewOnly: 'review_only',
+    ResolveOnly: 'resolve_only',
+} as const
+
 export interface ReviewTriggerRequestApi {
     /** GitHub pull request URL to review, e.g. 'https://github.com/PostHog/posthog.com/pull/123'. The repository must be accessible to the project's GitHub App installation. */
     pr_url: string
+    /** What to run on the pull request. 'review' (default) reviews it and, when the requesting user's resolve_comments setting is on, chains the resolution stage; 'review_only' reviews without resolving regardless of that setting; 'resolve_only' skips the review and only runs the resolution stage on the PR's existing unresolved review threads.
+     *
+     * * `review` - review
+     * * `review_only` - review_only
+     * * `resolve_only` - resolve_only */
+    run_mode?: ReviewTriggerRequestRunModeEnumApi
 }
 
 export interface ReviewTriggerResponseApi {
     /** Temporal workflow id for the started review run; empty when no run was started. */
     workflow_id: string
-    /** Run lifecycle marker: 'started' when the review was queued, 'already_reviewed' when the pull request's current commit already has a published review (no new run starts). */
+    /** Run lifecycle marker: 'started' when the review was queued, 'already_reviewed' when the pull request's current commit already has a published review (no new run starts), 'joined_running_review' when a review was already in flight (no new run starts; a report in a cheaper tier is lifted to human strength for the rest of that review and every later one). */
     status: string
 }
 
@@ -444,9 +511,10 @@ export interface ReviewTriggerErrorApi {
  * * `should_fix` - Should Fix
  * * `must_fix` - Must Fix
  */
-export type UrgencyThresholdEnumApi = (typeof UrgencyThresholdEnumApi)[keyof typeof UrgencyThresholdEnumApi]
+export type ReviewUserSettingsUrgencyThresholdEnumApi =
+    (typeof ReviewUserSettingsUrgencyThresholdEnumApi)[keyof typeof ReviewUserSettingsUrgencyThresholdEnumApi]
 
-export const UrgencyThresholdEnumApi = {
+export const ReviewUserSettingsUrgencyThresholdEnumApi = {
     Consider: 'consider',
     ShouldFix: 'should_fix',
     MustFix: 'must_fix',
@@ -459,13 +527,15 @@ export interface ReviewUserSettingsApi {
     stamphog_review_inbox_prs?: boolean
     /** Review the user's pull requests when the trigger label is added on GitHub. On by default; turning it off makes the label trigger skip PRs this user authored. */
     review_labeled_prs?: boolean
+    /** After a review of the user's pull requests is published, run the resolution stage: triage the PR's unresolved review threads, implement the worth-and-safe fixes on the PR branch, and reply on every thread. On by default; turning it off makes reviews stop at publishing. */
+    resolve_comments?: boolean
     /** Minimum priority a validated finding needs to be published: 'consider' (default) publishes everything, 'should_fix' drops consider-level findings, 'must_fix' publishes only blocking issues.
      *
      * * `consider` - Consider
      * * `should_fix` - Should Fix
      * * `must_fix` - Must Fix */
-    urgency_threshold?: UrgencyThresholdEnumApi
-    /** Whether reviews can be started from this project's Code review page (the UI trigger is limited to the designated ReviewHog team while the product is in alpha). */
+    urgency_threshold?: ReviewUserSettingsUrgencyThresholdEnumApi
+    /** Whether reviews can be started from this project's Code review page (the UI trigger is limited to the designated ReviewHog teams while the product is in alpha). */
     readonly can_trigger_reviews: boolean
     /** Whether this project has at least one synced, enabled Stamphog repository. When false, the stamphog_review_inbox_prs toggle has nothing to act on and the UI renders it disabled with a pointer to connect the Stamphog GitHub App. */
     readonly stamphog_connected: boolean
@@ -478,13 +548,15 @@ export interface PatchedReviewUserSettingsApi {
     stamphog_review_inbox_prs?: boolean
     /** Review the user's pull requests when the trigger label is added on GitHub. On by default; turning it off makes the label trigger skip PRs this user authored. */
     review_labeled_prs?: boolean
+    /** After a review of the user's pull requests is published, run the resolution stage: triage the PR's unresolved review threads, implement the worth-and-safe fixes on the PR branch, and reply on every thread. On by default; turning it off makes reviews stop at publishing. */
+    resolve_comments?: boolean
     /** Minimum priority a validated finding needs to be published: 'consider' (default) publishes everything, 'should_fix' drops consider-level findings, 'must_fix' publishes only blocking issues.
      *
      * * `consider` - Consider
      * * `should_fix` - Should Fix
      * * `must_fix` - Must Fix */
-    urgency_threshold?: UrgencyThresholdEnumApi
-    /** Whether reviews can be started from this project's Code review page (the UI trigger is limited to the designated ReviewHog team while the product is in alpha). */
+    urgency_threshold?: ReviewUserSettingsUrgencyThresholdEnumApi
+    /** Whether reviews can be started from this project's Code review page (the UI trigger is limited to the designated ReviewHog teams while the product is in alpha). */
     readonly can_trigger_reviews?: boolean
     /** Whether this project has at least one synced, enabled Stamphog repository. When false, the stamphog_review_inbox_prs toggle has nothing to act on and the UI renders it disabled with a pointer to connect the Stamphog GitHub App. */
     readonly stamphog_connected?: boolean

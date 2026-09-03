@@ -1,5 +1,6 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { ApiError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
@@ -294,26 +295,6 @@ describe('saveToDatasetButtonLogic', () => {
                 expect(logic.values.searchForm.search).toBe('')
                 expect(logic.values.searchForm.datasetId).toBeNull()
             })
-
-            it('resets search form when beforeUnmount is called', async () => {
-                const logic = saveToDatasetButtonLogic({ partialDatasetItem: mockPartialDatasetItem })
-                logic.mount()
-
-                logic.actions.setSearchFormValue('search', 'test search')
-                expect(logic.values.searchForm.search).toBe('test search')
-
-                // Wait for any async operations to complete before unmounting
-                await expectLogic(logic).toFinishAllListeners()
-
-                // The beforeUnmount listener should reset the form
-                await expectLogic(logic, () => {
-                    logic.unmount()
-                }).toFinishAllListeners()
-
-                // Since the logic is unmounted, we can't check the values after unmount
-                // The test is really about ensuring the beforeUnmount listener is called
-                // which happens automatically during unmount
-            })
         })
 
         describe('dataset item creation', () => {
@@ -525,6 +506,26 @@ describe('saveToDatasetButtonLogic', () => {
                     limit: DATASETS_PER_PAGE,
                     offset: 0,
                 })
+            })
+
+            it('drops an in-flight load that resolves after unmount', async () => {
+                const captureException = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined)
+                let resolveListDatasets: (response: PaginatedDatasetReadListApi) => void = () => {}
+                mockDatasetsApi.listDatasets.mockReturnValue(
+                    new Promise((resolve) => {
+                        resolveListDatasets = resolve
+                    })
+                )
+
+                const logic = saveToDatasetButtonLogic({ partialDatasetItem: mockPartialDatasetItem })
+                logic.mount()
+                logic.unmount()
+
+                resolveListDatasets(mockDatasetsResponse)
+                await new Promise((resolve) => setTimeout(resolve, 0))
+
+                expect(captureException).not.toHaveBeenCalled()
+                captureException.mockRestore()
             })
 
             it('uses debounce when loading datasets', async () => {

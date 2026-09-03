@@ -1,3 +1,7 @@
+button.collapsible-frame-header[aria-expanded='true']:not(:hover) {
+    background-color: transparent;
+}
+
 .collapsible-frame-header {
     .frame-function {
         display: flex;

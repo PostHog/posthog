@@ -11,6 +11,8 @@ export interface AlertSummaryParts {
     cadence: string
     /** Who it notifies — e.g. "2 people" or "2 people + Slack". Empty when none configured. */
     notifies: string
+    /** What the alert matches before it evaluates the trigger. Empty when all data matches. */
+    filters?: string
 }
 
 const ALERT_KIND_LABELS: Partial<Record<AlertConfig['type'], string>> = {

@@ -144,16 +144,17 @@ async def test_split_chunks_activity_routes_llm_chunking_by_oneshot_gate(additio
 
 @pytest.mark.asyncio
 async def test_review_chunk_activity_runs_on_the_reports_persisted_arm() -> None:
-    # The change's core contract: the perspective-review sandbox turn runs on the REPORT's persisted
-    # experiment arm. The pin kwargs default to None, so dropping them at this one call site would
+    # The arm plumbing's core contract: the perspective-review sandbox turn runs on the REPORT's
+    # persisted arm. The pin kwargs default to None, so dropping them at this one call site would
     # silently fall back to the sandbox default with every plumbing-level test still passing — and a
-    # site that re-reads the module pins instead of the arm would run every Codex-assigned report on
-    # Sonnet while its analytics claim Sol.
+    # site that re-reads the module pins instead of the arm would run every Claude-assigned report
+    # on the Codex default while its analytics claim Sonnet. The arm here deliberately differs from
+    # the default pins on every field so either regression fails the kwargs assertion.
     arm = ReviewArm(
-        runtime_adapter=RuntimeAdapter.CODEX,
-        model="gpt-5.6-sol",
+        runtime_adapter=RuntimeAdapter.CLAUDE,
+        model="claude-sonnet-5",
         reasoning_effort=ReasoningEffort.XHIGH,
-        initial_permission_mode="full-access",
+        initial_permission_mode=None,
     )
     mock_review = AsyncMock(return_value=IssuesReview(issues=[]))
     env = ActivityEnvironment()

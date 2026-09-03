@@ -13,6 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.
     ANTHROPIC_VERSION,
     DEFAULT_CLAUDE_CODE_START,
     MAX_RETRY_ATTEMPTS,
+    REPORT_MAX_RETRY_ATTEMPTS,
     AnthropicResumeConfig,
     ClaudeCodeDayPaginator,
     _claude_code_start_day,
@@ -31,6 +32,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.
     USAGE_REPORT_PAGE_BUCKETS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.source import AnthropicSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -500,6 +502,25 @@ class TestWorkspaceMembersFanOut:
 
         assert [(r["workspace_id"], r["user_id"]) for r in rows] == [("wrkspc_1", "u1")]
 
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_workspace_that_does_not_serve_the_sub_resource_is_skipped(self, MockSession) -> None:
+        # A workspace can 404 on the fan-out child (it does not serve that sub-resource, or was
+        # archived between enumeration and the fetch). Skip only that workspace instead of failing
+        # the whole schema, and still deliver the workspaces that do serve it.
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _entity_page([{"id": "wrkspc_1"}, {"id": "wrkspc_2"}], has_more=False, last_id="wrkspc_2"),
+                _response({"error": "not_found"}, status=404),
+                _entity_page([{"user_id": "u2", "workspace_id": "wrkspc_2"}], has_more=False, last_id="u2"),
+            ],
+        )
+
+        rows = _rows(_source("workspace_members", _make_manager()))
+
+        assert [(r["workspace_id"], r["user_id"]) for r in rows] == [("wrkspc_2", "u2")]
+
     def test_saved_state_shapes_still_parse(self) -> None:
         # ResumableSourceManager._load_json does dataclass(**saved) — every historical shape must
         # keep parsing after the migration.
@@ -561,6 +582,26 @@ class TestRetries:
 
         assert [r["id"] for r in rows] == ["user_1"]
         assert session.send.call_count == MAX_RETRY_ATTEMPTS
+
+    @mock.patch("tenacity.nap.time.sleep")
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_report_endpoint_gets_a_wider_retry_budget(self, MockSession, _mock_sleep) -> None:
+        # The report endpoints share one organization rate limit and 429 without a Retry-After, so
+        # they need more attempts than the entity lists to outlast the window. A burst that would
+        # exhaust the entity budget still resolves for a report endpoint.
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                *[_response({}, status=429) for _ in range(REPORT_MAX_RETRY_ATTEMPTS - 1)],
+                _report_page([{"starting_at": "2024-01-01", "results": []}], has_more=False, next_page=None),
+            ],
+        )
+
+        _rows(_source("cost_report", _make_manager()))
+
+        assert session.send.call_count == REPORT_MAX_RETRY_ATTEMPTS
+        assert REPORT_MAX_RETRY_ATTEMPTS > MAX_RETRY_ATTEMPTS
 
 
 class TestUsageReportGroupByFallback:
@@ -886,19 +927,11 @@ class TestClaudeCodeDayFanOut:
         assert params[0]["params"]["starting_at"] == today.isoformat()
 
 
-class TestServiceAccountsFanOut:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_emits_one_row_per_service_account_with_composite_key(self, MockSession) -> None:
-        session = MockSession.return_value
-        # Service account objects here don't carry workspace_id, so the fan-out must inject it or the
-        # composite key's workspace_id lands null.
-        _wire(
-            session,
-            [
-                _entity_page([{"id": "wrkspc_1"}, {"id": "wrkspc_2"}], has_more=False, last_id="wrkspc_2"),
-                _entity_page([{"id": "svac_1", "type": "service_account"}], has_more=False, last_id="svac_1"),
-                _entity_page([{"id": "svac_2", "type": "service_account"}], has_more=False, last_id="svac_2"),
-            ],
-        )
-        rows = _rows(_source("service_accounts", _make_manager()))
-        assert [(r["workspace_id"], r["id"]) for r in rows] == [("wrkspc_1", "svac_1"), ("wrkspc_2", "svac_2")]
+class TestRetiredEndpoint:
+    def test_a_dropped_endpoint_fails_non_retryably(self) -> None:
+        # A schema row discovered before an endpoint was dropped still names it, and its schedule
+        # keeps firing. The run must fail with a message the source classifies as non-retryable, so
+        # it disables the schema and pauses the schedule instead of retrying a KeyError forever.
+        with pytest.raises(ValueError) as exc:
+            _source("service_accounts", _make_manager())
+        assert error_message_matches(str(exc.value), AnthropicSource().get_non_retryable_errors().keys())

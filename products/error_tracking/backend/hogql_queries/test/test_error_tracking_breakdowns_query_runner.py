@@ -9,7 +9,16 @@ from posthog.test.base import (
 
 from rest_framework.exceptions import ValidationError
 
-from posthog.schema import BreakdownValue, DateRange, ErrorTrackingBreakdownsQuery
+from posthog.schema import (
+    BreakdownValue,
+    DateRange,
+    ErrorTrackingBreakdownsQuery,
+    EventPropertyFilter,
+    FilterLogicalOperator,
+    PropertyGroupFilter,
+    PropertyGroupFilterValue,
+    PropertyOperator,
+)
 
 from products.error_tracking.backend.hogql_queries.error_tracking_breakdowns_query_runner import (
     ErrorTrackingBreakdownsQueryRunner,
@@ -80,6 +89,29 @@ class TestErrorTrackingBreakdownsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert browser_data.values[2].value == "C"
         assert browser_data.values[2].count == 6
 
+    @freeze_time("2024-01-10T12:00:00Z")
+    def test_breakdown_with_special_character_property_name(self):
+        self.create_issue(self.issue_id, self.fingerprint)
+        self.create_exception_event("user_1", {"completion%": "50%"})
+        flush_persons_and_events()
+
+        runner = ErrorTrackingBreakdownsQueryRunner(
+            team=self.team,
+            query=ErrorTrackingBreakdownsQuery(
+                kind="ErrorTrackingBreakdownsQuery",
+                issueId=self.issue_id,
+                breakdownProperties=["completion%"],
+                dateRange=DateRange(date_from="-7d"),
+                maxValuesPerProperty=3,
+            ),
+        )
+
+        response = runner.calculate()
+
+        property_data = response.results["completion%"]
+        assert property_data.total_count == 1
+        assert property_data.values == [BreakdownValue(value="50%", count=1)]
+
     def test_rejects_malformed_issue_id(self):
         with self.assertRaises(ValidationError):
             ErrorTrackingBreakdownsQueryRunner(
@@ -134,6 +166,49 @@ class TestErrorTrackingBreakdownsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert [BreakdownValue(value="Windows", count=5), BreakdownValue(value="macOS", count=5)] == sorted(
             os_data.values, key=lambda x: x.value
         )
+
+    @freeze_time("2024-01-10T12:00:00Z")
+    def test_breakdown_respects_property_filters(self) -> None:
+        self.create_issue(self.issue_id, self.fingerprint)
+
+        for _ in range(5):
+            self.create_exception_event("chrome_user", {"$browser": "Chrome", "$os": "Windows"})
+        for _ in range(3):
+            self.create_exception_event("firefox_user", {"$browser": "Firefox", "$os": "macOS"})
+
+        flush_persons_and_events()
+
+        runner = ErrorTrackingBreakdownsQueryRunner(
+            team=self.team,
+            query=ErrorTrackingBreakdownsQuery(
+                kind="ErrorTrackingBreakdownsQuery",
+                issueId=self.issue_id,
+                breakdownProperties=["$browser", "$os"],
+                dateRange=DateRange(date_from="-7d"),
+                filterGroup=PropertyGroupFilter(
+                    type=FilterLogicalOperator.AND_,
+                    values=[
+                        PropertyGroupFilterValue(
+                            type=FilterLogicalOperator.AND_,
+                            values=[
+                                EventPropertyFilter(
+                                    key="$browser",
+                                    value=["Chrome"],
+                                    operator=PropertyOperator.EXACT,
+                                )
+                            ],
+                        )
+                    ],
+                ),
+            ),
+        )
+
+        response = runner.calculate()
+
+        assert response.results["$browser"].total_count == 5
+        assert response.results["$browser"].values == [BreakdownValue(value="Chrome", count=5)]
+        assert response.results["$os"].total_count == 5
+        assert response.results["$os"].values == [BreakdownValue(value="Windows", count=5)]
 
     @freeze_time("2024-01-10T12:00:00Z")
     @snapshot_clickhouse_queries

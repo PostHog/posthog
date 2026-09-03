@@ -4,12 +4,8 @@ import { recordMessagesDroppedByRestrictions } from './otel-metrics'
 
 const BUCKETS_KB_WRITTEN = [0, 128, 512, 1024, 5120, 10240, 20480, 51200, 102400, 204800, Infinity]
 
-/** Which anonymizer produced the output; the label makes the flag rollout a direct A/B. */
-export type MlAnonymizeImpl = 'rust' | 'ts'
-/** Rust engine that produced the output (tree = the parse fallback fired). `''` when not applicable. */
-export type MlAnonymizeRoute = 'stream' | 'tree' | ''
-
-export type MlImageLaneStage = 'collected' | 'deduped' | 'queued' | 'produced' | 'produce_failed'
+/** Whether the sender device clock reads ahead of or behind the server-stamped message time. */
+export type ClockSkewDirection = 'device_ahead' | 'device_behind'
 
 export class SessionRecordingIngesterMetrics {
     private static readonly sessionsHandled = new Gauge({
@@ -62,39 +58,36 @@ export class SessionRecordingIngesterMetrics {
         labelNames: ['content_encoding'],
     })
 
-    private static readonly mlAnonymizeDuration = new Histogram({
-        name: 'recording_blob_ingestion_v2_ml_anonymize_duration_ms',
-        help: 'Per-message ML mirror anonymize time in ms, by implementation and route',
-        labelNames: ['impl', 'route'],
-        // The measured interval includes libuv threadpool queue wait, which under backpressure
-        // reaches tens of seconds — the tail buckets exist so quantiles don't clamp at 10s.
-        buckets: [0, 1, 2, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 30000, 60000, 120000, Infinity],
+    private static readonly messageClockSkew = new Histogram({
+        name: 'recording_blob_ingestion_v2_message_clock_skew_seconds',
+        help: 'Absolute offset between the sender device clock at upload (sent_at) and the server clock at receipt (now), by direction. Replay skips the skew correction every other event gets, so a large offset means the recording start_time — the default playlist sort — disagrees with the corrected event time.',
+        labelNames: ['direction'],
+        buckets: [1, 5, 30, 60, 300, 900, 1800, 3600, 7200, 21600, 43200, 86400],
     })
 
-    private static readonly mlAnonymizeFailed = new Counter({
-        name: 'recording_blob_ingestion_v2_ml_anonymize_failed',
-        help: 'Messages dropped because ML mirror anonymization failed (fail-closed), by implementation',
-        labelNames: ['impl'],
+    private static readonly messageClockSkewUnmeasured = new Counter({
+        name: 'recording_blob_ingestion_v2_message_clock_skew_unmeasured',
+        help: 'Replay messages whose clock offset could not be measured because capture recorded no usable sent_at/now pair. Counted separately so an absent measurement is not read as zero skew',
     })
 
-    private static readonly mlImagesCollected = new Counter({
-        name: 'recording_blob_ingestion_v2_ml_images_collected',
-        help: 'Images through the out-of-band scrub lane, by stage: collected (returned by the addon), deduped (suppressed by the cross-message cache), queued (handed to the producer), produced (delivery acked), produce_failed (delivery failed; refs un-marked for natural retry)',
-        labelNames: ['outcome'],
+    private static readonly clockSkewCorrection = new Histogram({
+        name: 'recording_blob_ingestion_v2_clock_skew_correction_seconds',
+        help: 'Absolute clock skew correction actually applied to rrweb timestamps, per message. Quantized, so it differs from the raw offset in message_clock_skew_seconds',
+        buckets: [300, 900, 3600, 21600, 43200, 604800, Infinity],
     })
 
-    private static readonly mlImageBytesProduced = new Counter({
-        name: 'recording_blob_ingestion_v2_ml_image_bytes_produced',
-        help: 'Bytes of collected images delivered to the scrub topic (acked)',
-    })
-
-    private static readonly mlImagePseudoTeamInvalid = new Counter({
-        name: 'recording_blob_ingestion_v2_ml_image_pseudo_team_invalid',
-        help: 'Messages whose derived team pseudonym failed the consumer ref-shape check; collection disabled for them (inline blur instead)',
+    private static readonly unbilledNewSession = new Counter({
+        name: 'recording_blob_ingestion_v2_unbilled_new_session',
+        help: 'New sessions whose first message failed before the usage step, so a later message for the same session bills nothing while the report still counts the recording',
+        labelNames: ['reason'],
     })
 
     public static incrementMessageReceived(partition: number): void {
         this.messageReceived.labels(partition.toString()).inc()
+    }
+
+    public static incrementUnbilledNewSession(reason: string): void {
+        this.unbilledNewSession.labels(reason).inc()
     }
 
     public static observeDroppedByRestrictions(count: number): void {
@@ -108,6 +101,18 @@ export class SessionRecordingIngesterMetrics {
 
     public static incrementMessagesByEncoding(encoding: string): void {
         this.messagesByEncoding.labels(encoding).inc()
+    }
+
+    public static incrementMessageClockSkewUnmeasured(): void {
+        this.messageClockSkewUnmeasured.inc()
+    }
+
+    public static observeMessageClockSkew(direction: ClockSkewDirection, seconds: number): void {
+        this.messageClockSkew.labels(direction).observe(seconds)
+    }
+
+    public static observeClockSkewCorrection(skewMs: number): void {
+        this.clockSkewCorrection.observe(Math.abs(skewMs) / 1000)
     }
 
     public static resetSessionsRevoked(): void {
@@ -128,25 +133,5 @@ export class SessionRecordingIngesterMetrics {
 
     public static observeKafkaBatchSizeKb(sizeKb: number): void {
         this.kafkaBatchSizeKb.observe(sizeKb)
-    }
-
-    public static observeMlAnonymizeDuration(impl: MlAnonymizeImpl, ms: number, route: MlAnonymizeRoute = ''): void {
-        this.mlAnonymizeDuration.labels(impl, route).observe(ms)
-    }
-
-    public static incrementMlAnonymizeFailed(impl: MlAnonymizeImpl): void {
-        this.mlAnonymizeFailed.labels(impl).inc()
-    }
-
-    public static incrementMlImagesCollected(outcome: MlImageLaneStage, count: number): void {
-        this.mlImagesCollected.labels(outcome).inc(count)
-    }
-
-    public static incrementMlImageBytesProduced(bytes: number): void {
-        this.mlImageBytesProduced.inc(bytes)
-    }
-
-    public static incrementMlImagePseudoTeamInvalid(): void {
-        this.mlImagePseudoTeamInvalid.inc()
     }
 }

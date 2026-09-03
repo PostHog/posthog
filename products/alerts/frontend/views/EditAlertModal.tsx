@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useCallback, useMemo } from 'react'
 
+import { ProjectTimezoneNotice } from 'lib/components/ScheduledRunStatus'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -19,7 +20,7 @@ import { isFunnelsQuery, isInsightVizNode } from '~/queries/utils'
 import { FunnelVizType, InsightLogicProps, InsightShortId, QueryBasedInsightModel } from '~/types'
 
 import { AlertAdvancedOptionsSection } from 'products/alerts/frontend/components/AlertAdvancedOptionsSection'
-import { AlertStateIndicator, AlertTimezoneNotice } from 'products/alerts/frontend/components/AlertDefinition'
+import { AlertErrorBanner, AlertStateIndicator } from 'products/alerts/frontend/components/AlertDefinition'
 import { AlertDefinitionSection } from 'products/alerts/frontend/components/AlertDefinitionSection'
 import {
     AlertEditor,
@@ -45,8 +46,9 @@ import { supportsAnomalyDetection, supportsOngoingInterval } from '../types'
 import type { AlertType } from '../types'
 import { AlertHistorySection } from './AlertHistorySection'
 import { AlertEnabledAction, AlertLeadingActions } from './EditAlertModal/AlertLeadingActions'
+import { AlertNotFoundModal } from './EditAlertModal/AlertNotFoundModal'
 import { buildWizardSteps } from './EditAlertModal/buildWizardSteps'
-import { EditAlertTabs } from './EditAlertModal/EditAlertTabs'
+import { defaultAlertTabs, EditAlertTabs } from './EditAlertModal/EditAlertTabs'
 
 interface AlertModalCommonProps {
     isOpen: boolean | undefined
@@ -141,6 +143,7 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
         (node, index) => getDisplayNameFromEntityNode(node) ?? `Step ${index + 1}`
     )
     const insightAlertKind = insightAlertKindForQuery(query)
+    const anomalyAlertGuidanceEnabled = useFeatureFlag('ANOMALY_ALERT_GUIDANCE_EXPERIMENT', 'anomaly_guidance')
 
     const formLogicProps = {
         alert,
@@ -164,6 +167,7 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
         simulationResult,
         simulationResultLoading,
         simulationDateFrom,
+        clearSnoozeLoading,
         thresholdBoundsFormError,
         hogqlAlertPreview,
         funnelAlertPreview,
@@ -185,7 +189,6 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const projectTimezone = currentTeam?.timezone ?? 'UTC'
     const inlineNotificationsEnabled = useFeatureFlag('ALERTS_INLINE_NOTIFICATIONS')
-    const investigationAgentEnabled = useFeatureFlag('ALERTS_INVESTIGATION_AGENT')
 
     const notificationLogic = alertNotificationLogic({ alertId })
     const { existingHogFunctions, pendingNotifications, testDeliveryResultLoading } = useValues(notificationLogic)
@@ -261,17 +264,8 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
         ) {
             n += 1
         }
-        if ((alertForm.schedule_restriction?.blocked_windows?.length ?? 0) > 0) {
-            n += 1
-        }
         return n
-    }, [
-        alertForm.calculation_interval,
-        alertForm.config,
-        alertForm.schedule_restriction?.blocked_windows?.length,
-        alertForm.skip_weekend,
-        can_check_ongoing_interval,
-    ])
+    }, [alertForm.calculation_interval, alertForm.config, alertForm.skip_weekend, can_check_ongoing_interval])
 
     const subscribedCount = alertForm.subscribed_users?.length ?? 0
     const destinationCount = existingHogFunctions.length + pendingNotifications.length
@@ -313,6 +307,7 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
             onDeleteAlert={deleteAlert}
             onSnoozeAlert={snoozeAlert}
             onClearSnooze={clearSnooze}
+            clearSnoozeLoading={clearSnoozeLoading}
             onSendTestDelivery={sendTestDelivery}
             testDeliveryLoading={testDeliveryResultLoading}
             testDeliveryDisabledReason={
@@ -344,8 +339,8 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
                 labelColumnOptions: hogqlLabelColumnOptions,
             }}
             supportsAnomalyDetection={!isNonTimeSeriesDisplay && supportsAnomalyDetection(alertForm.config)}
+            showAnomalyGuidance={creatingNewAlert && anomalyAlertGuidanceEnabled}
             twoColumnLayout
-            investigationAgentEnabled={investigationAgentEnabled}
             simulationResult={simulationResult}
             simulationResultLoading={simulationResultLoading}
             simulationDateFrom={simulationDateFrom}
@@ -369,7 +364,7 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
                 canCheckOngoingInterval={can_check_ongoing_interval}
                 onSetAlertFormValue={setAlertFormValue}
             />
-            <AlertTimezoneNotice
+            <ProjectTimezoneNotice
                 timezone={projectTimezone}
                 settingsUrl={urls.settings('environment-customization', 'date-and-time')}
             />
@@ -415,6 +410,10 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
     )
     const nameError = alertFormSubmitAttempted && !alertForm.name ? 'Enter an alert name.' : undefined
     const scheduleRestrictionFormError = quietHoursFormError(alertForm.schedule_restriction)
+
+    if (alertId && !alertLoading && !alert) {
+        return <AlertNotFoundModal isOpen={Boolean(isOpen)} onClose={handleClose} />
+    }
 
     return (
         <LemonModal onClose={handleClose} isOpen={isOpen} width={900} simple title="">
@@ -464,41 +463,56 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
                             trailingActions={<AlertEnabledAction alertForm={alertForm} />}
                         >
                             <div className="space-y-3">
-                                <EditAlertTabs
-                                    summary={summary}
-                                    summaryHeader={
-                                        alert ? (
-                                            <div className="flex items-center justify-between gap-3">
-                                                <span className="font-medium">Current status</span>
-                                                <AlertStateIndicator alert={alert} />
+                                {(() => {
+                                    const tabs = defaultAlertTabs({
+                                        monitorContent: (
+                                            <div className="space-y-3 pt-3">
+                                                <AlertEditorFormDetails
+                                                    nameError={nameError}
+                                                    activity={
+                                                        alert?.created_by ? (
+                                                            <UserActivityIndicator
+                                                                at={alert.created_at}
+                                                                by={alert.created_by}
+                                                                prefix="Created"
+                                                            />
+                                                        ) : undefined
+                                                    }
+                                                />
+                                                {previewNode}
+                                                {definitionNode}
                                             </div>
-                                        ) : undefined
-                                    }
-                                    nameNode={
-                                        <AlertEditorFormDetails
-                                            nameError={nameError}
-                                            activity={
-                                                alert?.created_by ? (
-                                                    <UserActivityIndicator
-                                                        at={alert.created_at}
-                                                        by={alert.created_by}
-                                                        prefix="Created"
-                                                    />
+                                        ),
+                                        scheduleContent: (
+                                            <div className="space-y-3 pt-3">
+                                                {scheduleNode}
+                                                {advancedNode}
+                                            </div>
+                                        ),
+                                        notifyContent: <div className="pt-3">{notifyNode}</div>,
+                                        historyContent:
+                                            alertId && alert ? (
+                                                <div className="pt-3">
+                                                    <AlertHistorySection alertId={alert.id} showCurrentStatus={false} />
+                                                </div>
+                                            ) : undefined,
+                                    })
+                                    return (
+                                        <EditAlertTabs
+                                            summary={summary}
+                                            summaryHeader={
+                                                alert ? (
+                                                    <div className="flex items-center justify-between gap-3">
+                                                        <span className="font-medium">Current status</span>
+                                                        <AlertStateIndicator alert={alert} />
+                                                    </div>
                                                 ) : undefined
                                             }
+                                            statusNode={alert ? <AlertErrorBanner alert={alert} /> : undefined}
+                                            tabs={tabs}
                                         />
-                                    }
-                                    previewNode={previewNode}
-                                    definitionNode={definitionNode}
-                                    scheduleNode={scheduleNode}
-                                    advancedNode={advancedNode}
-                                    notifyNode={notifyNode}
-                                    historyNode={
-                                        alertId && alert ? (
-                                            <AlertHistorySection alertId={alert.id} showCurrentStatus={false} />
-                                        ) : null
-                                    }
-                                />
+                                    )
+                                })()}
                             </div>
                         </AlertEditor>
                     )}

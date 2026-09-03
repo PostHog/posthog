@@ -37,6 +37,23 @@ describe("canvasToHostMessageSchema", () => {
     );
   });
 
+  // The bridge dispatches on `method` after this schema parse, so a method
+  // missing from the enum is a bridge verb the host silently drops.
+  it.each(["stateGet", "stateSet", "stateList", "actionInvoke"])(
+    "accepts %s data requests",
+    (method) => {
+      expect(
+        canvasToHostMessageSchema.safeParse({
+          channel: "posthog-canvas",
+          type: "data-request",
+          id: "request-1",
+          method,
+          payload: {},
+        }).success,
+      ).toBe(true);
+    },
+  );
+
   it("accepts a bounded text selection and rejects oversized selected text", () => {
     const selection = {
       channel: "posthog-canvas",

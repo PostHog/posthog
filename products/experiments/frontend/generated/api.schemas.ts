@@ -59,7 +59,7 @@ export const FeatureFlagFilterPropertyGenericSchemaOperatorEnumApi = {
 export interface FeatureFlagFilterPropertyGenericSchemaApi {
     /** Property key used in this feature flag condition. */
     key: string
-    /** Property filter type. Common values are 'person' and 'cohort'.
+    /** Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.
      *
      * * `cohort` - cohort
      * * `person` - person
@@ -71,7 +71,7 @@ export interface FeatureFlagFilterPropertyGenericSchemaApi {
      */
     cohort_name?: string | null
     /**
-     * Group type index when using group-based filters.
+     * Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.
      * @nullable
      */
     group_type_index?: number | null
@@ -110,7 +110,7 @@ export const ExistenceOperatorEnumApi = {
 export interface FeatureFlagFilterPropertyExistsSchemaApi {
     /** Property key used in this feature flag condition. */
     key: string
-    /** Property filter type. Common values are 'person' and 'cohort'.
+    /** Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.
      *
      * * `cohort` - cohort
      * * `person` - person
@@ -122,7 +122,7 @@ export interface FeatureFlagFilterPropertyExistsSchemaApi {
      */
     cohort_name?: string | null
     /**
-     * Group type index when using group-based filters.
+     * Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.
      * @nullable
      */
     group_type_index?: number | null
@@ -151,7 +151,7 @@ export const DateOperatorEnumApi = {
 export interface FeatureFlagFilterPropertyDateSchemaApi {
     /** Property key used in this feature flag condition. */
     key: string
-    /** Property filter type. Common values are 'person' and 'cohort'.
+    /** Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.
      *
      * * `cohort` - cohort
      * * `person` - person
@@ -163,7 +163,7 @@ export interface FeatureFlagFilterPropertyDateSchemaApi {
      */
     cohort_name?: string | null
     /**
-     * Group type index when using group-based filters.
+     * Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.
      * @nullable
      */
     group_type_index?: number | null
@@ -206,7 +206,7 @@ export const FeatureFlagFilterPropertySemverSchemaOperatorEnumApi = {
 export interface FeatureFlagFilterPropertySemverSchemaApi {
     /** Property key used in this feature flag condition. */
     key: string
-    /** Property filter type. Common values are 'person' and 'cohort'.
+    /** Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.
      *
      * * `cohort` - cohort
      * * `person` - person
@@ -218,7 +218,7 @@ export interface FeatureFlagFilterPropertySemverSchemaApi {
      */
     cohort_name?: string | null
     /**
-     * Group type index when using group-based filters.
+     * Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.
      * @nullable
      */
     group_type_index?: number | null
@@ -253,7 +253,7 @@ export const FeatureFlagFilterPropertyMultiContainsSchemaOperatorEnumApi = {
 export interface FeatureFlagFilterPropertyMultiContainsSchemaApi {
     /** Property key used in this feature flag condition. */
     key: string
-    /** Property filter type. Common values are 'person' and 'cohort'.
+    /** Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.
      *
      * * `cohort` - cohort
      * * `person` - person
@@ -265,7 +265,7 @@ export interface FeatureFlagFilterPropertyMultiContainsSchemaApi {
      */
     cohort_name?: string | null
     /**
-     * Group type index when using group-based filters.
+     * Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.
      * @nullable
      */
     group_type_index?: number | null
@@ -313,7 +313,7 @@ export interface FeatureFlagFilterPropertyCohortInSchemaApi {
      */
     cohort_name?: string | null
     /**
-     * Group type index when using group-based filters.
+     * Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.
      * @nullable
      */
     group_type_index?: number | null
@@ -359,7 +359,7 @@ export interface FeatureFlagFilterPropertyFlagEvaluatesSchemaApi {
      */
     cohort_name?: string | null
     /**
-     * Group type index when using group-based filters.
+     * Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.
      * @nullable
      */
     group_type_index?: number | null
@@ -1201,6 +1201,61 @@ export interface WorkflowVariablePropertyFilterApi {
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
 
+export type BehavioralEventSourceApi = (typeof BehavioralEventSourceApi)[keyof typeof BehavioralEventSourceApi]
+
+export const BehavioralEventSourceApi = {
+    Events: 'events',
+    Actions: 'actions',
+} as const
+
+export type TimeUnitTypeApi = (typeof TimeUnitTypeApi)[keyof typeof TimeUnitTypeApi]
+
+export const TimeUnitTypeApi = {
+    Day: 'day',
+    Week: 'week',
+    Month: 'month',
+    Year: 'year',
+} as const
+
+export type InlineBehavioralTypeApi = (typeof InlineBehavioralTypeApi)[keyof typeof InlineBehavioralTypeApi]
+
+export const InlineBehavioralTypeApi = {
+    PerformedEvent: 'performed_event',
+    PerformedEventMultiple: 'performed_event_multiple',
+} as const
+
+export interface BehavioralPropertyFilterApi {
+    /** Extra property filters the matching events must satisfy. Deliberately excludes nested behavioral/cohort filters and groups */
+    event_filters?:
+        | (
+              | EventPropertyFilterApi
+              | PersonPropertyFilterApi
+              | ElementPropertyFilterApi
+              | FeaturePropertyFilterApi
+              | HogQLPropertyFilterApi
+          )[]
+        | null
+    event_type: BehavioralEventSourceApi
+    /** Absolute or relative (e.g. -30d) lower date bound — alternative to time_value/time_interval */
+    explicit_datetime?: string | null
+    explicit_datetime_to?: string | null
+    /** Event name, or action id when event_type is 'actions' */
+    key: string
+    label?: string | null
+    /** Match persons who did NOT satisfy the criterion. Not the same as a low count — zero-occurrence persons never match count operators */
+    negation?: boolean | null
+    /** Count comparison for performed_event_multiple, defaults to exact */
+    operator?: PropertyOperatorApi | null
+    /** Count threshold for performed_event_multiple */
+    operator_value?: number | null
+    time_interval?: TimeUnitTypeApi | null
+    /** Relative time window size, paired with time_interval */
+    time_value?: number | null
+    /** Person performed (or didn't perform) an event in a time window. ClickHouse-only — not evaluable by flags or CDP */
+    type?: 'behavioral'
+    value: InlineBehavioralTypeApi
+}
+
 export interface ExperimentApiExposureConfigApi {
     /** Custom exposure event name. Required when kind is 'ExperimentEventExposureConfig'. */
     event?: string | null
@@ -1233,6 +1288,7 @@ export interface ExperimentApiExposureConfigApi {
         | RevenueAnalyticsPropertyFilterApi
         | AccountCustomPropertyFilterApi
         | WorkflowVariablePropertyFilterApi
+        | BehavioralPropertyFilterApi
     )[]
 }
 
@@ -1979,19 +2035,24 @@ export interface ExperimentFlagCleanupTaskApi {
  * * `cold_run` - Cold Run
  * * `stale_refresh` - Stale Refresh
  * * `auto_refresh` - Auto Refresh
+ * * `experiment_config_change` - Experiment Config Change
+ * * `metric_config_change` - Metric Config Change
  * * `config_change` - Config Change
  * * `experiment_launch` - Experiment Launch
  * * `experiment_stop` - Experiment Stop
  * * `experiment_update` - Experiment Update
  */
-export type TriggerEnumApi = (typeof TriggerEnumApi)[keyof typeof TriggerEnumApi]
+export type ExperimentMetricsRecalculationTriggerEnumApi =
+    (typeof ExperimentMetricsRecalculationTriggerEnumApi)[keyof typeof ExperimentMetricsRecalculationTriggerEnumApi]
 
-export const TriggerEnumApi = {
+export const ExperimentMetricsRecalculationTriggerEnumApi = {
     Manual: 'manual',
     AgentMcp: 'agent_mcp',
     ColdRun: 'cold_run',
     StaleRefresh: 'stale_refresh',
     AutoRefresh: 'auto_refresh',
+    ExperimentConfigChange: 'experiment_config_change',
+    MetricConfigChange: 'metric_config_change',
     ConfigChange: 'config_change',
     ExperimentLaunch: 'experiment_launch',
     ExperimentStop: 'experiment_stop',
@@ -2009,11 +2070,13 @@ export interface RecalculateMetricsRequestApi {
      * * `cold_run` - Cold Run
      * * `stale_refresh` - Stale Refresh
      * * `auto_refresh` - Auto Refresh
+     * * `experiment_config_change` - Experiment Config Change
+     * * `metric_config_change` - Metric Config Change
      * * `config_change` - Config Change
      * * `experiment_launch` - Experiment Launch
      * * `experiment_stop` - Experiment Stop
      * * `experiment_update` - Experiment Update */
-    trigger?: TriggerEnumApi
+    trigger?: ExperimentMetricsRecalculationTriggerEnumApi
 }
 
 /**
@@ -2125,11 +2188,13 @@ export interface ExperimentMetricsRecalculationApi {
      * * `cold_run` - Cold Run
      * * `stale_refresh` - Stale Refresh
      * * `auto_refresh` - Auto Refresh
+     * * `experiment_config_change` - Experiment Config Change
+     * * `metric_config_change` - Metric Config Change
      * * `config_change` - Config Change
      * * `experiment_launch` - Experiment Launch
      * * `experiment_stop` - Experiment Stop
      * * `experiment_update` - Experiment Update */
-    readonly trigger: TriggerEnumApi
+    readonly trigger: ExperimentMetricsRecalculationTriggerEnumApi
     /** When the job was created */
     readonly created_at: string
     /**
@@ -2256,6 +2321,7 @@ export interface ExperimentSessionBucketResponseApi {
 /**
  * * `behavior` - behavior
  * * `friction` - friction
+ * * `variant_only` - variant_only
  * * `metric` - metric
  */
 export type ExperimentWatchCardKindEnumApi =
@@ -2264,6 +2330,7 @@ export type ExperimentWatchCardKindEnumApi =
 export const ExperimentWatchCardKindEnumApi = {
     Behavior: 'behavior',
     Friction: 'friction',
+    VariantOnly: 'variant_only',
     Metric: 'metric',
 } as const
 
@@ -2284,6 +2351,16 @@ export const ExperimentWatchCardStrengthEnumApi = {
 } as const
 
 /**
+ * One recording a card names first, and the phrase that says why.
+ */
+export interface ExperimentWatchHighlightApi {
+    /** The recording to open. Always one of the card's own session_ids. */
+    session_id: string
+    /** Everything this recording carries that earned it the place, ready to render as-is, for example '6 rage clicks, 6 errors' or '1 error, did this 4 times'. Every signal the session shows is listed, so the phrase is the whole picture rather than the single strongest part of it. Friction counts cover the whole session; 'did this N times' counts the card's own event. Not a comparison and not a reason the card exists. */
+    reason: string
+}
+
+/**
  * One group of recordings worth opening, and the sentence that justifies it.
  *
  * Deliberately no rate, no ratio and no person count: a precise number next to an event name is
@@ -2292,10 +2369,11 @@ export const ExperimentWatchCardStrengthEnumApi = {
  * card can actually show.
  */
 export interface ExperimentWatchCardApi {
-    /** What the card is: 'behavior' for an event this variant did clearly more than the other variants together, 'friction' for the same finding on an error or rage signal, 'metric' for a shortcut to recordings around one of the experiment's own metric events. Metric cards claim nothing about how the metric moved: that is the experiment results' answer.
+    /** What the card is: 'behavior' for an event this variant did clearly more than the other variants together, 'friction' for the same finding on an error or rage signal, 'variant_only' for an event no other variant fired at all, and 'metric' for a shortcut to recordings around one of the experiment's own metric events. A 'variant_only' card shows the variant rendering its own change rather than a behavior difference, so present it as confirmation the change is live and never as a finding. Metric cards claim nothing about how the metric moved: that is the experiment results' answer.
      *
      * * `behavior` - behavior
      * * `friction` - friction
+     * * `variant_only` - variant_only
      * * `metric` - metric */
     kind: ExperimentWatchCardKindEnumApi
     /** The event behind the card. */
@@ -2310,14 +2388,16 @@ export interface ExperimentWatchCardApi {
      * * `slightly_more` - slightly_more */
     strength: ExperimentWatchCardStrengthEnumApi | null
     /**
-     * The metric whose event this card shortcuts to. Null outside metric cards.
+     * The metric this card's event belongs to, on a comparison card as well as on a shortcut card. When set, the experiment's results measure this event over the whole run window with the statistics that go with a result, so say the card points there and never present the card as a second answer about that metric. Null when no metric counts the event.
      * @nullable
      */
     metric_name: string | null
-    /** How many recordings the card carries, at most 20. Every card is backed by recordings that actually exist: a finding whose sessions were never recorded is dropped rather than promised. */
+    /** How many recordings the card carries, at most max_card_recordings (20). Every card is backed by recordings that actually exist: a finding whose sessions were never recorded is dropped rather than promised. A count sitting on the ceiling means at least that many, so say 'at least' and never compare two such counts: how often the event happened is the experiment's results, and this only counts what replay kept. */
     recording_count: number
     /** The recordings themselves, most recent first, ready to hand to the recordings list as-is. */
     session_ids: string[]
+    /** Which of the card's recordings to open first, at most 3, ranked by how much each one carries: recordings showing several kinds of signal at once come before recordings showing more of a single kind. Offer these before the full list: the recordings list orders by its own sort, so session_ids order never reaches the viewer, and twenty recordings that share an event are otherwise indistinguishable in it. Empty when no recording the viewer can open carries a signal, which is worth saying rather than hiding. */
+    highlights: ExperimentWatchHighlightApi[]
 }
 
 /**
@@ -2352,7 +2432,7 @@ export const ExperimentWatchMultipleVariantHandlingEnumApi = {
  * state the magnitudes. Nothing here says a variant is winning.
  */
 export interface ExperimentSessionEventDeltaResponseApi {
-    /** The shelf, strongest comparison first, then metric shortcuts. Events the variants can't be told apart on get no card at all rather than a weak one, so an empty shelf means no difference was big enough to be sure of, not that nothing was measured. The experiment's own metric events never appear as comparisons: see metric_events. */
+    /** The shelf, strongest comparison first, then the variant's own rendering, then metric shortcuts. Events the variants can't be told apart on get no card at all rather than a weak one, so an empty shelf means no difference was big enough to be sure of, not that nothing was measured. Group by kind before presenting: a 'variant_only' card outranks every real difference by construction, and reading the shelf in order would report it as the headline. */
     cards: ExperimentWatchCardApi[]
     /** Every variant's compared population, in the flag's variant order. */
     arms: ExperimentWatchArmApi[]
@@ -2363,7 +2443,7 @@ export interface ExperimentSessionEventDeltaResponseApi {
      * * `exclude` - exclude
      * * `first_seen` - first_seen */
     multiple_variant_handling: ExperimentWatchMultipleVariantHandlingEnumApi
-    /** The experiment's own metric events, which never enter the behavior comparison. They are the events it was built to move, so they would top the ranking on nearly every experiment, and the experiment's results already say what happened to them with the statistics that go with a result. They can appear as 'metric' shortcut cards, which claim nothing. */
+    /** The events the experiment's own metrics count. A card on one of these carries metric_name and must be read as pointing at the experiment's results, which measure the same event over the whole run window with the statistics that go with a result. Cards state no magnitude for exactly this reason, so never turn one into a claim about how the metric moved. */
     metric_events: string[]
     /** Start of what was actually compared. The requested window is the experiment's run window clamped to its most recent 14 days (2 when sessions are matched on the stamped flag property, which no event name can prune a scan on), but a busy experiment reaches the session ceiling long before that, and this reports where the compared sessions really begin - often hours rather than days back. Display this, not the experiment's own dates. */
     date_from: string
@@ -2379,6 +2459,10 @@ export interface ExperimentSessionEventDeltaResponseApi {
     events_truncated: boolean
     /** How many exposed people a variant needs before it can be compared at all. Below it a variant's cards would be noise whatever the evidence bar allows. */
     min_arm_persons: number
+    /** The most recordings one card can carry. A card whose recording_count equals this hit the ceiling, so report it as 'at least this many' rather than as a count. */
+    max_card_recordings: number
+    /** How many cards were removed because their recordings were already another card's on the same shelf. Nothing was lost: the recordings are all reachable through the cards that stayed. */
+    dropped_duplicate_cards: number
     /** True when fewer than two variants have min_arm_persons exposed people, so no comparison exists and cards is empty. Say 'too early to compare' and show the arms' counts; an empty shelf presented without this would read as 'the variants behaved identically'. */
     too_early: boolean
 }

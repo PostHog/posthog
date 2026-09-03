@@ -24,12 +24,15 @@ import type {
     InsightBulkDeleteRequestApi,
     InsightBulkDeleteResponseApi,
     InsightBulkRestoreResponseApi,
+    InsightBulkSetTestAccountFilterRequestApi,
+    InsightBulkSetTestAccountFilterResponseApi,
     InsightViewedRequestApi,
     InsightsActivityRetrieveParams,
     InsightsAllActivityRetrieveParams,
     InsightsAnalyzeRetrieveParams,
     InsightsBulkDeleteCreateParams,
     InsightsBulkRestoreCreateParams,
+    InsightsBulkSetTestAccountFilterCreateParams,
     InsightsBulkUpdateTagsCreateParams,
     InsightsCancelCreateParams,
     InsightsCreateParams,
@@ -819,6 +822,45 @@ export const insightsBulkRestoreCreate = async (
     })
 }
 
+export const getInsightsBulkSetTestAccountFilterCreateUrl = (
+    projectId: string,
+    params?: InsightsBulkSetTestAccountFilterCreateParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/insights/bulk_set_test_account_filter/?${stringifiedParams}`
+        : `/api/projects/${projectId}/insights/bulk_set_test_account_filter/`
+}
+
+/**
+ * Turn 'filter out internal and test users' on or off for every existing insight in the project. Requires project admin, matching the settings UI that fronts it. The setting of the same name only decides the default for new insights; this applies it to the insights that already exist. Only insights that store a query are changed; insights still holding legacy `filters` are counted in `legacy` and left as they are. Insights with nowhere to put the toggle, such as SQL insights, are left alone, as are insights the requester cannot edit. Dashboards follow their insights unless the dashboard sets its own override. Insights are updated in batches, so a failure part way through leaves the finished batches applied. Retrying is safe and picks up the rest.
+ */
+export const insightsBulkSetTestAccountFilterCreate = async (
+    projectId: string,
+    insightBulkSetTestAccountFilterRequestApi: InsightBulkSetTestAccountFilterRequestApi,
+    params?: InsightsBulkSetTestAccountFilterCreateParams,
+    options?: RequestInit
+): Promise<InsightBulkSetTestAccountFilterResponseApi> => {
+    return apiMutator<InsightBulkSetTestAccountFilterResponseApi>(
+        getInsightsBulkSetTestAccountFilterCreateUrl(projectId, params),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(insightBulkSetTestAccountFilterRequestApi),
+        }
+    )
+}
+
 export const getInsightsBulkUpdateTagsCreateUrl = (projectId: string, params?: InsightsBulkUpdateTagsCreateParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -1019,7 +1061,7 @@ export const getInsightsViewedCreateUrl = (projectId: string, params?: InsightsV
 }
 
 /**
- * Record that the current user has just viewed one or more insights. Submitted ids that do not belong to the current project or that point at deleted insights are silently dropped. Returns 201 on success regardless of how many ids were retained.
+ * Record that the current user has just viewed one or more insights. Submitted ids that do not belong to the current project or that point at deleted insights are silently dropped, as are views from impersonated staff-support sessions. Returns 201 on success regardless of how many ids were retained.
  */
 export const insightsViewedCreate = async (
     projectId: string,

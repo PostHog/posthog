@@ -19,6 +19,19 @@ export type BIQueryLimit = (typeof BI_QUERY_LIMITS)[number]
 
 export const PIVOT_TABLE_QUERY_LIMIT: BIQueryLimit = 1000
 
+export type BISortDirection = 'asc' | 'desc'
+
+export interface BISort {
+    key: string
+    direction: BISortDirection
+}
+
+export interface BISortOption {
+    key: string
+    label: string
+    expression: string
+}
+
 export type BIFilterOperator =
     | 'equals'
     | 'not_equals'
@@ -73,6 +86,8 @@ export interface BIConfig {
     values: BIValue[]
     filters: BIFilter[]
     limit: BIQueryLimit
+    /** null sorts automatically: newest date or highest value first, so top rows survive the LIMIT. */
+    sort?: BISort | null
 }
 
 export interface BIEditorState {
@@ -95,14 +110,21 @@ export const DEFAULT_BI_CONFIG: BIConfig = {
     values: [],
     filters: [],
     limit: 1000,
+    sort: null,
 }
 
 export function normalizeBIConfig(config: BIConfig): BIConfig {
-    if (config.chartType !== ChartDisplayType.TwoDimensionalHeatmap || config.limit <= PIVOT_TABLE_QUERY_LIMIT) {
-        return config
+    let normalized = config
+    if (normalized.chartType === ChartDisplayType.TwoDimensionalHeatmap && normalized.limit > PIVOT_TABLE_QUERY_LIMIT) {
+        normalized = { ...normalized, limit: PIVOT_TABLE_QUERY_LIMIT }
     }
 
-    return { ...config, limit: PIVOT_TABLE_QUERY_LIMIT }
+    const sort = normalized.sort
+    if (sort && !getBISortOptions(normalized).some((option) => option.key === sort.key)) {
+        normalized = { ...normalized, sort: null }
+    }
+
+    return normalized
 }
 
 const BI_AGGREGATIONS = new Set<BIAggregation>([
@@ -310,9 +332,20 @@ export function parseBIEditorState(editorViewValue: unknown, configValue: unknow
               }
           })
         : null
+    const sortCandidate = candidate.sort
+    // undefined tolerates states persisted before sort existed
+    const sort: BISort | null | undefined =
+        sortCandidate === undefined || sortCandidate === null
+            ? null
+            : typeof sortCandidate === 'object' &&
+                typeof sortCandidate.key === 'string' &&
+                (sortCandidate.direction === 'asc' || sortCandidate.direction === 'desc')
+              ? { key: sortCandidate.key, direction: sortCandidate.direction }
+              : undefined
 
     if (
         source === undefined ||
+        sort === undefined ||
         !Object.values(ChartDisplayType).includes(candidate.chartType as ChartDisplayType) ||
         !rows ||
         rows.some((field) => !field) ||
@@ -335,6 +368,7 @@ export function parseBIEditorState(editorViewValue: unknown, configValue: unknow
         values: values as BIValue[],
         filters: filters as BIFilter[],
         limit: candidate.limit as BIQueryLimit,
+        sort,
     }
     const fields = [
         ...config.rows,
@@ -470,17 +504,131 @@ function filterExpression(filter: BIFilter): string | null {
     }
 }
 
-export function buildBIQuery(config: BIConfig): BIQueryBuildResult | null {
-    if (!config.source) {
-        return null
-    }
+interface BIConfiguredValue {
+    value: BIValue
+    expression: string
+}
 
+interface BIQueryParts {
+    rowDimensions: BIDimension[]
+    columnDimensions: BIDimension[]
+    configuredValues: BIConfiguredValue[]
+}
+
+function computeBIQueryParts(config: BIConfig): BIQueryParts {
     const rowDimensions = config.rows
         .map((field, index) => ({ alias: dimensionAlias('row', field, index), field }))
         .filter(({ field }) => field.expression.trim() || field.name.trim())
     const columnDimensions = config.columns
         .map((field, index) => ({ alias: dimensionAlias('column', field, index), field }))
         .filter(({ field }) => field.expression.trim() || field.name.trim())
+    const configuredValues = config.values
+        .map((value) => ({ value, expression: aggregationExpression(value) }))
+        .filter((configuredValue): configuredValue is BIConfiguredValue => !!configuredValue.expression)
+
+    return { rowDimensions, columnDimensions, configuredValues }
+}
+
+const SORT_AGGREGATION_LABELS: Record<Exclude<BIAggregation, 'custom'>, string> = {
+    count: 'Count',
+    count_distinct: 'Count distinct',
+    sum: 'Sum',
+    average: 'Average',
+    minimum: 'Minimum',
+    maximum: 'Maximum',
+}
+
+function sortValueLabel(value: BIValue): string {
+    if (value.aggregation === 'custom') {
+        return value.customExpression?.trim() || 'Custom value'
+    }
+
+    return `${SORT_AGGREGATION_LABELS[value.aggregation]} of ${value.field.name || value.field.expression}`
+}
+
+export function getBISortOptions(config: BIConfig): BISortOption[] {
+    if (!config.source) {
+        return []
+    }
+
+    const { rowDimensions, columnDimensions, configuredValues } = computeBIQueryParts(config)
+    // Without dimensions the query returns a single aggregate row, so there is nothing to sort
+    if (rowDimensions.length === 0 && columnDimensions.length === 0) {
+        return []
+    }
+
+    // The same field can back several value entries with different aggregations, so value keys
+    // carry an occurrence suffix; the first occurrence keeps the unsuffixed key persisted states use
+    const valueOccurrences = new Map<string, number>()
+    const options: BISortOption[] = [
+        ...rowDimensions.map(({ field }) => ({
+            key: `rows:${field.id}`,
+            label: field.name || field.expression,
+            expression: fieldExpression(field),
+        })),
+        ...columnDimensions.map(({ field }) => ({
+            key: `columns:${field.id}`,
+            label: field.name || field.expression,
+            expression: fieldExpression(field),
+        })),
+        ...(configuredValues.length > 0
+            ? configuredValues.map(({ value }, index) => {
+                  const occurrence = valueOccurrences.get(value.field.id) ?? 0
+                  valueOccurrences.set(value.field.id, occurrence + 1)
+                  return {
+                      key: occurrence === 0 ? `values:${value.field.id}` : `values:${value.field.id}:${occurrence + 1}`,
+                      label: sortValueLabel(value),
+                      expression: escapePropertyAsHogQLIdentifier(aggregationAlias(value, index)),
+                  }
+              })
+            : [{ key: 'values:count', label: 'Count', expression: 'count' }]),
+    ]
+
+    const seenKeys = new Set<string>()
+    return options.filter((option) => {
+        if (seenKeys.has(option.key)) {
+            return false
+        }
+        seenKeys.add(option.key)
+        return true
+    })
+}
+
+function buildOrderByExpression(
+    config: BIConfig,
+    dimensions: BIDimension[],
+    configuredValues: BIConfiguredValue[]
+): string | null {
+    if (dimensions.length === 0) {
+        return null
+    }
+
+    const sort = config.sort
+    const selectedOption = sort ? getBISortOptions(config).find((option) => option.key === sort.key) : undefined
+    if (sort && selectedOption) {
+        return `${selectedOption.expression} ${sort.direction === 'asc' ? 'ASC' : 'DESC'}`
+    }
+
+    // Auto sort keeps the most relevant rows inside the LIMIT: newest first for date
+    // dimensions, largest first otherwise
+    const firstDimension = dimensions[0]
+    if (isDateTimeBIField(firstDimension.field)) {
+        return `${fieldExpression(firstDimension.field)} DESC`
+    }
+
+    const firstValueAlias =
+        configuredValues.length > 0
+            ? escapePropertyAsHogQLIdentifier(aggregationAlias(configuredValues[0].value, 0))
+            : 'count'
+    return `${firstValueAlias} DESC`
+}
+
+export function buildBIQuery(config: BIConfig): BIQueryBuildResult | null {
+    if (!config.source) {
+        return null
+    }
+
+    const { rowDimensions, columnDimensions, configuredValues } = computeBIQueryParts(config)
     const dimensions = [...rowDimensions, ...columnDimensions]
     const dimensionExpressions = dimensions.map(({ field }) => fieldExpression(field))
     const isPivotTable = config.chartType === ChartDisplayType.TwoDimensionalHeatmap
@@ -491,11 +639,6 @@ export function buildBIQuery(config: BIConfig): BIQueryBuildResult | null {
               .filter((axis): axis is BIPivotAxis => axis !== null)
               .map(({ alias, expression }) => `${expression} AS ${alias}`)
         : dimensionExpressions
-    const configuredValues = config.values
-        .map((value) => ({ value, expression: aggregationExpression(value) }))
-        .filter(
-            (configuredValue): configuredValue is { value: BIValue; expression: string } => !!configuredValue.expression
-        )
     const valueExpressions =
         configuredValues.length > 0
             ? configuredValues.map(
@@ -523,6 +666,11 @@ export function buildBIQuery(config: BIConfig): BIQueryBuildResult | null {
     }
     if (dimensionExpressions.length > 0) {
         queryParts.push(`GROUP BY\n    ${dimensionExpressions.join(',\n    ')}`)
+    }
+
+    const orderByExpression = buildOrderByExpression(config, dimensions, configuredValues)
+    if (orderByExpression) {
+        queryParts.push(`ORDER BY\n    ${orderByExpression}`)
     }
 
     queryParts.push(`LIMIT ${normalizeBIConfig(config).limit}`)

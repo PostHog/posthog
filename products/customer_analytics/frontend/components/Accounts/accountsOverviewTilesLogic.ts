@@ -2,10 +2,19 @@ import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, redu
 import posthog from 'posthog-js'
 import { v4 as uuidv4 } from 'uuid'
 
+import { isUUIDLike } from 'lib/utils/guards'
 import { objectsEqual } from 'lib/utils/objects'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { AccountsQueryResponse, DataNode } from '~/queries/schema/schema-general'
+import {
+    AccountsTableAggregation,
+    AccountsTableCustomPropertyFilter,
+    AccountsTableCustomPropertyOperator,
+    AccountsTableMetric,
+    AccountsTableQueryResponse,
+    AccountsTableThresholdOperator,
+    DataNode,
+} from '~/queries/schema/schema-general'
 
 import type { CustomPropertyDisplayTypeEnumApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
@@ -35,9 +44,8 @@ import {
     NUMERIC_FIELD_TYPES,
 } from './constants'
 
-// Single-column scalar aggregations whose metric-type name is also the HogQL
-// aggregate function name (see tileMetricExpression). They share one shape and
-// support an optional `scale` multiplier, e.g. sum(mrr) * 12 to annualize.
+// Single-column scalar aggregations share one saved-view shape and support an
+// optional scale multiplier, such as annualizing monthly recurring revenue.
 export const COLUMN_AGGREGATE_TYPES = ['sum', 'avg', 'min', 'max', 'median'] as const
 export type ColumnAggregateType = (typeof COLUMN_AGGREGATE_TYPES)[number]
 
@@ -79,14 +87,12 @@ export interface AccountsOverviewTile {
 
 export interface TileFilter {
     tileId: string
-    expression: string
+    filter: AccountsTableCustomPropertyFilter
 }
 
-// Strip a trailing `AS alias` from a HogQL fragment — column entries in the
-// account column groups carry aliases (e.g. `accounts.health.score AS score`)
-// so the data table can address them by name, but aggregation expressions
-// must reference the bare column.
-export function stripHogqlAlias(expression: string): string {
+// Saved column expressions include an alias for table rendering, while saved
+// tile expressions identify the underlying typed custom property.
+export function stripColumnAlias(expression: string): string {
     return expression.replace(/\s+AS\s+[A-Za-z_][\w]*\s*$/i, '').trim()
 }
 
@@ -94,53 +100,68 @@ export function isNumericColumnType(type: string | undefined): boolean {
     if (!type) {
         return false
     }
-    // Regular columns carry a HogQL field type; custom-property columns carry a display type.
+    // Account fields carry schema types, while custom properties carry display types.
     return NUMERIC_FIELD_TYPES.has(type) || isNumericDisplayType(type as CustomPropertyDisplayTypeEnumApi)
 }
 
 export function numericColumnOptions(groups: AccountColumnGroup[]): AccountColumnOption[] {
-    return groups
-        .filter((group) => !group.isFreeform)
-        .flatMap((group) =>
-            group.options
-                .filter((option) => isNumericColumnType(option.type))
-                .map((option) => {
-                    const expression = stripHogqlAlias(option.expression)
-                    return {
-                        ...option,
-                        // Custom-property values are stored as coalesced strings; cast so sum/avg aggregate numerically.
-                        expression: group.key === 'custom_properties' ? `toFloatOrNull(${expression})` : expression,
-                    }
-                })
-        )
+    return groups.flatMap((group) =>
+        group.options
+            .filter((option) => isNumericColumnType(option.type))
+            .map((option) => {
+                const expression = stripColumnAlias(option.expression)
+                return {
+                    ...option,
+                    // Preserve the existing saved-tile expression shape while execution uses a typed metric.
+                    expression: group.key === 'custom_properties' ? `toFloatOrNull(${expression})` : expression,
+                }
+            })
+    )
 }
 
-// A `scale` of undefined/1 (or anything non-finite) is a no-op; otherwise the
-// aggregation is multiplied by the literal. `scale` is always a finite number
-// from the editor's numeric input, so it is safe to inline into the HogQL.
-export function applyScale(expression: string, scale: number | undefined): string {
-    if (scale === undefined || !Number.isFinite(scale) || scale === 1) {
-        return expression
-    }
-    return `${expression} * ${scale}`
-}
-
-// Human-readable multiplier suffix for tile labels/captions (e.g. " × 12").
-// Empty when the scale is a no-op, mirroring applyScale's guard.
 export function scaleSuffix(scale: number | undefined): string {
     return scale === undefined || !Number.isFinite(scale) || scale === 1 ? '' : ` × ${scale}`
 }
 
-export function tileMetricExpression(tile: AccountsOverviewTile): string {
-    const { metric } = tile
-    switch (metric.type) {
-        case 'count':
-            return 'count()'
-        case 'count_threshold':
-            return `countIf(${metric.columnExpression} ${metric.operator} ${metric.value})`
-        default:
-            // sum | avg | min | max | median: the metric type is the HogQL aggregate fn name.
-            return applyScale(`${metric.type}(${metric.columnExpression})`, metric.scale)
+const CUSTOM_PROPERTY_METRIC_REGEX = /^(?:toFloatOrNull\()?accounts\.custom_properties\.values\.`([0-9a-fA-F-]+)`\)?$/
+
+function metricDefinitionId(columnExpression: string): string | null {
+    const definitionId = stripColumnAlias(columnExpression).match(CUSTOM_PROPERTY_METRIC_REGEX)?.[1]
+    return definitionId && isUUIDLike(definitionId) ? definitionId : null
+}
+
+export function tileQueryMetric(tile: AccountsOverviewTile): AccountsTableMetric | null {
+    if (tile.metric.type === 'count') {
+        return { kind: 'count' }
+    }
+    const definitionId = metricDefinitionId(tile.metric.columnExpression)
+    if (!definitionId) {
+        return null
+    }
+    const column = { kind: 'custom_property' as const, definitionId }
+    if (tile.metric.type === 'count_threshold') {
+        const operator = {
+            '>': AccountsTableThresholdOperator.GreaterThan,
+            '>=': AccountsTableThresholdOperator.GreaterThanOrEqual,
+            '<': AccountsTableThresholdOperator.LessThan,
+            '<=': AccountsTableThresholdOperator.LessThanOrEqual,
+            '=': AccountsTableThresholdOperator.Equal,
+            '!=': AccountsTableThresholdOperator.NotEqual,
+        }[tile.metric.operator]
+        return operator ? { kind: 'count_threshold', column, operator, value: tile.metric.value } : null
+    }
+    const aggregation = {
+        sum: AccountsTableAggregation.Sum,
+        avg: AccountsTableAggregation.Average,
+        min: AccountsTableAggregation.Minimum,
+        max: AccountsTableAggregation.Maximum,
+        median: AccountsTableAggregation.Median,
+    }[tile.metric.type]
+    return {
+        kind: 'aggregate',
+        aggregation,
+        column,
+        scale: Number.isFinite(tile.metric.scale) ? tile.metric.scale : undefined,
     }
 }
 
@@ -165,15 +186,25 @@ export function tileCaption(tile: AccountsOverviewTile): string | undefined {
     return custom ? custom : autoCaption(tile)
 }
 
-// A tile only acts as a row-level predicate when it represents an
-// inherently row-level condition. `count_threshold` does; `count` and the
-// column aggregations describe the whole set, not a subset.
-export function tileToRowFilter(tile: AccountsOverviewTile): string | null {
-    if (tile.metric.type !== 'count_threshold') {
+export function tileToRowFilter(tile: AccountsOverviewTile): AccountsTableCustomPropertyFilter | null {
+    const metric = tileQueryMetric(tile)
+    if (!metric || metric.kind !== 'count_threshold') {
         return null
     }
-    const { columnExpression, operator, value } = tile.metric
-    return `${columnExpression} ${operator} ${value}`
+    const operator = {
+        [AccountsTableThresholdOperator.GreaterThan]: AccountsTableCustomPropertyOperator.GreaterThan,
+        [AccountsTableThresholdOperator.GreaterThanOrEqual]: AccountsTableCustomPropertyOperator.GreaterThanOrEqual,
+        [AccountsTableThresholdOperator.LessThan]: AccountsTableCustomPropertyOperator.LessThan,
+        [AccountsTableThresholdOperator.LessThanOrEqual]: AccountsTableCustomPropertyOperator.LessThanOrEqual,
+        [AccountsTableThresholdOperator.Equal]: AccountsTableCustomPropertyOperator.Exact,
+        [AccountsTableThresholdOperator.NotEqual]: AccountsTableCustomPropertyOperator.IsNot,
+    }[metric.operator]
+    return {
+        kind: 'custom_property',
+        definitionId: metric.column.definitionId,
+        operator,
+        values: [metric.value],
+    }
 }
 
 export function isTileClickable(tile: AccountsOverviewTile): boolean {
@@ -181,8 +212,8 @@ export function isTileClickable(tile: AccountsOverviewTile): boolean {
 }
 
 export function tileFilterFor(tile: AccountsOverviewTile): TileFilter | null {
-    const expression = tileToRowFilter(tile)
-    return expression ? { tileId: tile.id, expression } : null
+    const filter = tileToRowFilter(tile)
+    return filter ? { tileId: tile.id, filter } : null
 }
 
 function readNumeric(raw: unknown): number | null {
@@ -194,7 +225,7 @@ function readNumeric(raw: unknown): number | null {
 }
 
 export function parseTileValues(
-    response: AccountsQueryResponse | null,
+    response: AccountsTableQueryResponse | null,
     tiles: AccountsOverviewTile[]
 ): Record<string, number | null> {
     const values: Record<string, number | null> = {}
@@ -214,7 +245,7 @@ function reconcileTilesAgainstSchema(
         if (tile.metric.type === 'count') {
             return true
         }
-        return numericExpressions.has(tile.metric.columnExpression)
+        return numericExpressions.has(tile.metric.columnExpression) && tileQueryMetric(tile) !== null
     })
 }
 
@@ -278,7 +309,7 @@ export interface accountsOverviewTilesLogicValues {
         | null // dataNodeLogic
     accountsResponseLoading: boolean // dataNodeLogic
     editorVisible: boolean
-    metrics: string[]
+    metrics: AccountsTableMetric[]
     numericColumnExpressions: Set<string>
     numericColumns: AccountColumnOption[]
     reconciledTiles: AccountsOverviewTile[]
@@ -346,7 +377,7 @@ export interface accountsOverviewTilesLogicMeta {
             tiles: AccountsOverviewTile[],
             numericColumnExpressions: Set<string>
         ) => AccountsOverviewTile[]
-        metrics: (reconciledTiles: AccountsOverviewTile[]) => string[]
+        metrics: (reconciledTiles: AccountsOverviewTile[]) => AccountsTableMetric[]
         tileValues: (
             accountsResponse:
                 | ErrorTrackingQueryResponse
@@ -461,12 +492,15 @@ export const accountsOverviewTilesLogic = kea<accountsOverviewTilesLogicType>([
         ],
         metrics: [
             (s) => [s.reconciledTiles],
-            (tiles: AccountsOverviewTile[]): string[] => tiles.map(tileMetricExpression),
+            (tiles: AccountsOverviewTile[]): AccountsTableMetric[] =>
+                tiles.map(tileQueryMetric).filter((metric): metric is AccountsTableMetric => metric !== null),
         ],
         tileValues: [
             (s) => [s.accountsResponse, s.reconciledTiles],
-            (response: AccountsQueryResponse | null, tiles: AccountsOverviewTile[]): Record<string, number | null> =>
-                parseTileValues(response, tiles),
+            (
+                response: AccountsTableQueryResponse | null,
+                tiles: AccountsOverviewTile[]
+            ): Record<string, number | null> => parseTileValues(response, tiles),
         ],
         tilesLoading: [(s) => [s.accountsResponseLoading], (loading: boolean): boolean => loading],
         selectedTileId: [(s) => [s.tileFilter], (filter: TileFilter | null): string | null => filter?.tileId ?? null],

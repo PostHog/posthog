@@ -183,6 +183,22 @@ tools:
             Update a saved insight by numeric `id` or `short_id`. Can update name, description, query, tags, favorited
             status, and dashboards. Returns insight metadata only — after updating the query, call the insight-query
             tool with the same identifier if you want to see the recomputed results.
+        agent_note:
+            If this update added the insight to a dashboard through the `dashboards` field, consider offering the user a
+            recurring delivery of that dashboard as a next step. `dashboards` is a full replacement, so only offer when
+            the dashboard id you just added was not already on the insight before this call. Offer at most once per
+            dashboard in a conversation, however many insights you attach to it. First call subscriptions-list with
+            `dashboard` set to that dashboard's id, and do not offer a second subscription when it returns one. Say
+            nothing when this update left `dashboards` alone or only removed the insight from a dashboard. Describe it
+            the way a person would recognize it, for example a weekly email every Monday morning with these charts
+            attached, or the same thing posted to a Slack channel. To create it, use subscriptions-create. It needs
+            `dashboard` set to the dashboard's id, `dashboard_export_insights` listing up to 10 charts, `target_type` of
+            `email` or `slack`, and `target_value`, `frequency`, `interval` and `start_date`. For a Slack delivery, also
+            set `integration_id`. Find the connected Slack workspace with integrations-list (filter kind=slack) and the
+            channel for `target_value` with integrations-channels-retrieve. Ask the user for the recipients and the
+            cadence rather than choosing them, since this creates a recurring outbound delivery. If either
+            subscriptions-create or subscriptions-list is not available to you in this session, say nothing about
+            subscriptions. If the user already declined a subscription earlier in this conversation, do not offer again.
         exclude_params:
             - query
         include_params:
@@ -273,6 +289,9 @@ tools:
         enabled: false
     insights-bulk-restore-create:
         operation: insights_bulk_restore_create
+        enabled: false
+    insights-bulk-set-test-account-filter-create:
+        operation: insights_bulk_set_test_account_filter_create
         enabled: false
     insights-bulk-update-tags-create:
         operation: insights_bulk_update_tags_create

@@ -19,8 +19,9 @@ from posthog.models.oauth import (
     normalize_cimd_url,
     revoke_application_sessions,
     revoke_oauth_session,
+    revoke_oauth_token_session,
 )
-from posthog.models.oauth_provisioning import ProvisioningConfig
+from posthog.models.oauth_provisioning import UNLIMITED_OVERRIDE, ProvisioningConfig
 
 
 class TestOAuthModels(TestCase):
@@ -46,6 +47,28 @@ class TestOAuthModels(TestCase):
         self.assertEqual(app.scopes, [])
         app.refresh_from_db()
         self.assertEqual(app.scopes, [])
+
+    @parameterized.expand(
+        [
+            ("whole_token", "openid  llm_gateway:read query:read", True, True),
+            ("substring", "openid llm_gateway:reader query:read", True, False),
+            ("different_case", "openid LLM_GATEWAY:READ query:read", True, False),
+            ("no_application", "llm_gateway:read", False, False),
+        ]
+    )
+    def test_access_tokens_with_scope(
+        self, name: str, stored_scopes: str, application_bound: bool, expected: bool
+    ) -> None:
+        app = self._make_app(f"Scope lookup {name}", f"scope_lookup_{name}")
+        access_token = OAuthAccessToken.objects.create(
+            application=app if application_bound else None,
+            user=self.user,
+            token=f"scope_lookup_token_{name}",
+            expires=timezone.now() + timedelta(minutes=5),
+            scope=stored_scopes,
+        )
+
+        self.assertEqual(OAuthAccessToken.with_scope("llm_gateway:read").filter(pk=access_token.pk).exists(), expected)
 
     @parameterized.expand(
         [
@@ -86,7 +109,6 @@ class TestOAuthModels(TestCase):
             "CIMD Split",
             "cimd_split_client",
             is_cimd_client=True,
-            cimd_metadata_url="https://example.com/oauth-client",
             scopes=["insight:read"],
             optional_scopes=["dashboard:read"],
         )
@@ -482,8 +504,7 @@ class TestOAuthModels(TestCase):
 
         self.assertEqual(OAuthAccessToken.objects.filter(user=self.user, application=app).count(), 0)
         self.assertEqual(OAuthGrant.objects.filter(user=self.user, application=app).count(), 0)
-        refresh_token.refresh_from_db()
-        self.assertIsNotNone(refresh_token.revoked)
+        self.assertFalse(OAuthRefreshToken.objects.filter(pk=refresh_token.pk).exists())
 
     def test_revoke_oauth_session_with_null_user_still_revokes_specific_token(self):
         app = OAuthApplication.objects.create(
@@ -507,6 +528,90 @@ class TestOAuthModels(TestCase):
         revoke_oauth_session(access_token=access_token)
 
         self.assertFalse(OAuthAccessToken.objects.filter(id=token_id).exists())
+
+    def test_revoke_oauth_token_session_revokes_only_the_paired_tokens(self):
+        app = OAuthApplication.objects.create(
+            name="Narrow Revoke Test App",
+            client_id="narrow_revoke_test_client_id",
+            client_secret="narrow_revoke_test_client_secret",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            organization=self.organization,
+            algorithm="RS256",
+        )
+        refresh_token = OAuthRefreshToken.objects.create(application=app, user=self.user, token="narrow_refresh_1")
+        access_token = OAuthAccessToken.objects.create(
+            application=app,
+            user=self.user,
+            token="narrow_access_1",
+            expires=timezone.now() + timedelta(minutes=5),
+            source_refresh_token=refresh_token,
+        )
+        # A second, unrelated session for the same user+application - must survive.
+        other_access_token = OAuthAccessToken.objects.create(
+            application=app,
+            user=self.user,
+            token="narrow_access_2",
+            expires=timezone.now() + timedelta(minutes=5),
+        )
+        grant = OAuthGrant.objects.create(
+            application=app,
+            user=self.user,
+            code="narrow_grant_code",
+            code_challenge="challenge",
+            code_challenge_method="S256",
+            expires=timezone.now() + timedelta(minutes=5),
+        )
+
+        revoke_oauth_token_session(access_token=access_token)
+
+        self.assertFalse(OAuthAccessToken.objects.filter(id=access_token.id).exists())
+        refresh_token.refresh_from_db()
+        self.assertIsNotNone(refresh_token.revoked)
+
+        self.assertTrue(OAuthAccessToken.objects.filter(id=other_access_token.id).exists())
+        self.assertTrue(OAuthGrant.objects.filter(id=grant.id).exists())
+
+    def test_revoke_oauth_token_session_sweeps_all_access_tokens_for_non_rotating_refresh(self):
+        # DCR/CIMD clients get non-rotating refreshes: _save_bearer_token inserts a new,
+        # unlinked OAuthAccessToken row per refresh instead of updating one in place, so
+        # source_refresh_token stays None on every one of them and there's no queryable
+        # link back to the refresh token that minted them. A per-token revoke can't find
+        # tokens it has no link to, so this must fall back to the full sweep instead.
+        app = OAuthApplication.objects.create(
+            name="DCR Non-Rotating Test App",
+            client_id="dcr_non_rotating_client_id",
+            client_secret="dcr_non_rotating_client_secret",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            organization=self.organization,
+            algorithm="RS256",
+            is_dcr_client=True,
+        )
+        refresh_token = OAuthRefreshToken.objects.create(application=app, user=self.user, token="dcr_refresh_1")
+        first_access_token = OAuthAccessToken.objects.create(
+            application=app, user=self.user, token="dcr_access_1", expires=timezone.now() + timedelta(minutes=5)
+        )
+        second_access_token = OAuthAccessToken.objects.create(
+            application=app, user=self.user, token="dcr_access_2", expires=timezone.now() + timedelta(minutes=5)
+        )
+        grant = OAuthGrant.objects.create(
+            application=app,
+            user=self.user,
+            code="dcr_grant_code",
+            code_challenge="challenge",
+            code_challenge_method="S256",
+            expires=timezone.now() + timedelta(minutes=5),
+        )
+
+        revoke_oauth_token_session(refresh_token=refresh_token)
+
+        self.assertFalse(OAuthAccessToken.objects.filter(id=first_access_token.id).exists())
+        self.assertFalse(OAuthAccessToken.objects.filter(id=second_access_token.id).exists())
+        self.assertFalse(OAuthGrant.objects.filter(id=grant.id).exists())
+        self.assertFalse(OAuthRefreshToken.objects.filter(pk=refresh_token.pk).exists())
 
     @freeze_time("2026-01-01 00:00:00")
     def test_revoke_application_sessions_revokes_across_all_users_and_leaves_other_apps(self):
@@ -571,7 +676,7 @@ class TestCarriesProvisioningConfig(SimpleTestCase):
             ),
             (
                 "quota_recorded",
-                {"is_provisioning_partner": False, "config": ProvisioningConfig(rate_limit_source="admin")},
+                {"is_provisioning_partner": False, "config": ProvisioningConfig(rate_limits={"account_requests": 5})},
                 True,
             ),
         ]
@@ -582,6 +687,25 @@ class TestCarriesProvisioningConfig(SimpleTestCase):
             _provisioning_config=fields["config"].model_dump(mode="json"),
         )
         assert app.carries_provisioning_config is expected
+
+
+class TestNormalizeRateLimits(SimpleTestCase):
+    @parameterized.expand(
+        [
+            # The old fixed-field shape stored these two for "no override" and "unlimited".
+            ("null_is_no_override", {"account_requests": None}, {}),
+            ("zero_becomes_unlimited", {"account_requests": 0}, {"account_requests": UNLIMITED_OVERRIDE}),
+            ("negative_stays_unlimited", {"account_requests": -1}, {"account_requests": UNLIMITED_OVERRIDE}),
+            ("value_is_kept", {"account_requests": 5}, {"account_requests": 5}),
+            # The config is re-parsed on every read, so a value the validator cannot coerce has
+            # to drop out rather than raise and fail every request for that partner.
+            ("unreadable_value_is_dropped", {"account_requests": {}}, {}),
+            ("unreadable_text_is_dropped", {"account_requests": "many"}, {}),
+            ("readable_value_survives_an_unreadable_sibling", {"a": [], "b": 5}, {"b": 5}),
+        ]
+    )
+    def test_normalize_rate_limits(self, _name: str, stored: dict, expected: dict) -> None:
+        assert ProvisioningConfig(rate_limits=stored).rate_limits == expected
 
 
 class TestNormalizeCimdUrl(SimpleTestCase):

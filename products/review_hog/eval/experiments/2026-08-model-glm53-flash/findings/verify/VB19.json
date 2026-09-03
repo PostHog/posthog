@@ -1,0 +1,6 @@
+{
+    "id": "VB19",
+    "real": true,
+    "source": "fresh",
+    "reasoning": "Confirmed. connected_by_user_id is a plain cross-DB BigIntegerField (stamphog models.py:48), so user deactivation never clears it. has_reviewable_repo_config (facade/api.py:112-127) filters only connected_by_user_id__isnull=False, so settings.py:78 reports stamphog_connected=true and the UI enables the toggle. The inbox review path uses the same weak filter (tasks/tasks.py:1143), queues runs, and every hosted run then hits _mint_reviewer_gateway_token (temporal/activities.py:128-133), which raises RuntimeError unless User is_active. The mint docstring even acknowledges 'the connecting user is gone' fails closed, yet the connected flag whose stated purpose is 'reviews can actually run' never checks liveness. Reachable via a deactivated connector; no auto re-sync fixes it. Not covered by prior LB4/MA2 verdicts."
+}

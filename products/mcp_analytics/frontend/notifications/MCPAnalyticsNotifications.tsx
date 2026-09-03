@@ -13,6 +13,7 @@ import { urlForHogFunction } from 'scenes/hog-functions/list/HogFunctionsList'
 import { NewNotificationDialog } from 'scenes/hog-functions/list/NewNotificationDialog'
 import { newNotificationDialogLogic } from 'scenes/hog-functions/list/newNotificationDialogLogic'
 import { getNotificationDescription } from 'scenes/hog-functions/list/notificationDescription'
+import { NotificationSlackPreview } from 'scenes/hog-functions/sub-templates/NotificationSlackPreview'
 import {
     MCP_NOTIFICATION_BUTTON_LABELS,
     MCPMessageField,
@@ -29,7 +30,6 @@ import {
     MCPNotificationUseCase,
 } from './mcpAnalyticsNotificationsLogic'
 import { MCPNotificationExample, mcpNotificationExamplesLogic } from './mcpNotificationExamplesLogic'
-import { MCPNotificationPreview } from './MCPNotificationPreview'
 import { MCPRecurringReports } from './MCPRecurringReports'
 
 interface MCPUseCaseConfig {
@@ -141,7 +141,7 @@ function UseCaseCard({ config, notifications, onAdd, addDisabledReason, example 
                 </LemonButton>
             </div>
 
-            <MCPNotificationPreview
+            <NotificationSlackPreview
                 message={mcpNotificationPreviewMessage(example ?? config.sample)}
                 buttonLabel={MCP_NOTIFICATION_BUTTON_LABELS[config.subTemplateId]}
                 caption={example ? config.realCaption : 'Example'}

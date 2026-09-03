@@ -1,7 +1,6 @@
 import type { AssistantMessage, UserMessage } from "@earendil-works/pi-ai";
-import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
-import type { PiRpcClient } from "./rpc-client";
+import type { PiRpcClient, PiRpcEvent } from "./rpc-client";
 import { PiRuntime } from "./runtime";
 
 function assistant(text: string): AssistantMessage {
@@ -25,7 +24,7 @@ function assistant(text: string): AssistantMessage {
 }
 
 function createClient() {
-  let listener: (event: AgentSessionEvent) => void = () => {};
+  let listener: (event: PiRpcEvent) => void = () => {};
   const send = vi.fn();
   const client = {
     onEvent: vi.fn((nextListener) => {
@@ -39,7 +38,7 @@ function createClient() {
 
   return {
     client,
-    emit: (event: AgentSessionEvent) => listener(event),
+    emit: (event: PiRpcEvent) => listener(event),
     send,
   };
 }
@@ -257,13 +256,13 @@ describe("PiRuntime", () => {
       id: "extension-1",
       method: "notify",
       message: "Done",
-    } as unknown as AgentSessionEvent);
+    });
     emit({
       type: "extension_error",
       extensionPath: "/extensions/example.ts",
       event: "tool_call",
       error: "boom",
-    } as unknown as AgentSessionEvent);
+    });
 
     expect(extensionListener).toHaveBeenCalledTimes(2);
     expect(conversationListener).not.toHaveBeenCalled();

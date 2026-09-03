@@ -273,4 +273,12 @@ def validate_credentials(api_key: str, account_id: str, api_version: str) -> tup
             "FirstPromoter rejected these credentials. Check the API key and account ID under "
             "Settings > Integrations > Manage API keys.",
         )
+    # The key was accepted (else 401/403), so a 404 on the fixed v2 path means the account id
+    # doesn't resolve to a company — point the user at the account id rather than a raw status.
+    if response.status_code == 404:
+        return (
+            False,
+            "FirstPromoter couldn't find an account for that account ID. Check the account ID "
+            "under Settings > Integrations > Manage API keys, then try again.",
+        )
     return False, f"FirstPromoter API returned an unexpected status code: {response.status_code}"

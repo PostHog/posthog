@@ -6,6 +6,7 @@ import { getAppContext } from 'lib/utils/getAppContext'
 import { ProductAnalyticsInsightNodeKind } from '~/queries/nodes/InsightQuery/defaults'
 import {
     AccountsQuery,
+    AccountsTableQuery,
     ActionsNode,
     ActorsQuery,
     AnyDataWarehouseNode,
@@ -161,6 +162,12 @@ export function isDataTableNodeWithHogQLQuery(node?: Record<string, any> | null)
 
 export function isDataVisualizationNode(node?: Record<string, any> | null): node is DataVisualizationNode {
     return node?.kind === NodeKind.DataVisualizationNode
+}
+
+export function isDataVisualizationNodeWithHogQLQuery(
+    node?: Record<string, any> | null
+): node is DataVisualizationNode & { source: HogQLQuery } {
+    return isDataVisualizationNode(node) && isHogQLQuery(node.source)
 }
 
 export function convertDataTableNodeToDataVisualizationNode(node: Node | null): Node | null {
@@ -473,7 +480,7 @@ export const getInterval = (query: InsightQueryNode): IntervalType | undefined =
 // For trends/stickiness, ActionsStackedBar is a deprecated alias of ActionsBar (which renders stacked):
 // the UI never emits it, but the API and MCP accept it. Normalizing here — the point all `display`
 // selectors derive from — makes such insights behave exactly like their UI-created equivalents.
-const normalizeDisplay = (display: ChartDisplayType | undefined): ChartDisplayType | undefined =>
+export const normalizeDisplay = (display: ChartDisplayType | undefined): ChartDisplayType | undefined =>
     display === ChartDisplayType.ActionsStackedBar ? ChartDisplayType.ActionsBar : display
 
 export const getDisplay = (query: InsightQueryNode): ChartDisplayType | undefined => {
@@ -497,10 +504,12 @@ const CANVAS_CHART_DISPLAY_TYPES = new Set<ChartDisplayType>([
     ChartDisplayType.ActionsStackedBar,
     ChartDisplayType.ActionsBarValue,
     ChartDisplayType.ActionsPie,
+    ChartDisplayType.ActionsDonut,
     ChartDisplayType.Metric,
     ChartDisplayType.BoxPlot,
     ChartDisplayType.SlopeGraph,
     ChartDisplayType.TwoDimensionalHeatmap,
+    ChartDisplayType.ScatterPlot,
 ])
 
 type QueryVizCanvasClassification = 'canvas' | 'non-canvas' | 'unknown'
@@ -825,6 +834,13 @@ export function escapePropertyAsHogQLIdentifier(identifier: string): string {
     if (isQuoted(identifier)) {
         return identifier // This identifier is already quoted
     }
+    return escapeRawPropertyAsHogQLIdentifier(identifier)
+}
+
+export function escapeRawPropertyAsHogQLIdentifier(identifier: string): string {
+    if (identifier.match(/^[A-Za-z_$][A-Za-z0-9_$]*$/)) {
+        return identifier
+    }
     // Escape backslashes and control chars, then wrap; double an inner backtick (the parser rejects a backslash-escaped delimiter). The double-quote path needs no quote escaping since it is only taken when the identifier has no `"`.
     const escaped = Array.from(identifier, (c) => HOGQL_IDENTIFIER_ESCAPE_MAP[c] || c).join('')
     return !identifier.includes('"') ? `"${escaped}"` : `\`${escaped.replaceAll('`', '``')}\``
@@ -874,6 +890,24 @@ export function taxonomicPersonFilterToHogQL(
     if (groupType === TaxonomicFilterGroupType.HogQLExpression && value) {
         return String(value)
     }
+    return null
+}
+
+export function taxonomicSessionFilterToHogQL(
+    groupType: TaxonomicFilterGroupType,
+    value: TaxonomicFilterValue
+): string | null {
+    if (groupType === TaxonomicFilterGroupType.SessionProperties) {
+        return `session.${escapePropertyAsHogQLIdentifier(String(value))}`
+    }
+    if (groupType === TaxonomicFilterGroupType.PersonProperties) {
+        return `person.properties.${escapePropertyAsHogQLIdentifier(String(value))}`
+    }
+    if (groupType === TaxonomicFilterGroupType.HogQLExpression && value) {
+        return String(value)
+    }
+    // Event-scoped picks (e.g. a suggested or recent event property) have no
+    // equivalent on the sessions table — adding one would fail resolution.
     return null
 }
 
@@ -1032,6 +1066,10 @@ export function isGroupsQuery(node?: Record<string, any> | null): node is Groups
 
 export function isAccountsQuery(node?: Record<string, any> | null): node is AccountsQuery {
     return node?.kind === NodeKind.AccountsQuery
+}
+
+export function isAccountsTableQuery(node?: Record<string, any> | null): node is AccountsTableQuery {
+    return node?.kind === NodeKind.AccountsTableQuery
 }
 
 export const TRAILING_MATH_TYPES = new Set<MathType>([BaseMathType.WeeklyActiveUsers, BaseMathType.MonthlyActiveUsers])

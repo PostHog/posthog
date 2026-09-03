@@ -44,8 +44,8 @@ class BitbucketAuth:
     or a workspace/repository access token (Bearer)."""
 
     email: str | None = None
-    api_token: str | None = None
-    access_token: str | None = None
+    api_token: str | None = dataclasses.field(default=None, repr=False)
+    access_token: str | None = dataclasses.field(default=None, repr=False)
 
 
 def _make_session(auth: BitbucketAuth) -> requests.Session:

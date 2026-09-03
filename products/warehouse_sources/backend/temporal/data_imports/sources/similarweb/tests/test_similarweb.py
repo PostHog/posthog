@@ -11,10 +11,16 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.similarweb.settings import (
+    API_VERSION_LEGACY,
+    API_VERSION_V5,
+    BASE_URL,
     GLOBAL_RANK,
     PAGE_LIMIT,
+    PAGE_VIEWS,
     TRAFFIC_BY_COUNTRY,
     TRAFFIC_SOURCES,
+    V5_ENGAGEMENT_PATH,
+    V5_WORLDWIDE_COUNTRY,
     VISITS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.similarweb.similarweb import (
@@ -83,6 +89,7 @@ def _run(
     start_date: Optional[str] = None,
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
+    api_version: str = API_VERSION_LEGACY,
 ) -> list[list[dict[str, Any]]]:
     with mock.patch(f"{MODULE}.make_tracked_session", return_value=session):
         response = similarweb_source(
@@ -94,10 +101,20 @@ def _run(
             endpoint=endpoint,
             logger=mock.MagicMock(),
             resumable_source_manager=manager if manager is not None else FakeResumeManager(),
+            api_version=api_version,
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
         )
         return list(cast(Iterable[Any], response.items()))
+
+
+def _v5_series_body(metric: str, points: list[dict[str, Any]]) -> dict[str, Any]:
+    # V5 wraps every metric's series under a standardized `data` key; each row carries the metric.
+    return {"meta": {"status": "Success"}, "data": points}
+
+
+def _headers(session: mock.MagicMock, index: int = 0) -> Optional[dict[str, str]]:
+    return session.get.call_args_list[index].kwargs["headers"]
 
 
 def _params(session: mock.MagicMock, index: int = 0) -> dict[str, Any]:
@@ -193,6 +210,59 @@ class TestSimilarwebTransport:
         ]
         assert _params(session)["country"] == "gb"
         assert _params(session)["granularity"] == "weekly"
+
+    @parameterized.expand([("visits", VISITS, "visits"), ("page_views", PAGE_VIEWS, "page_views")])
+    def test_v5_engagement_hits_the_multimetric_endpoint_with_header_auth(
+        self, _name: str, endpoint: str, metric: str
+    ) -> None:
+        session = _session(_response(json_body=_v5_series_body(metric, [{"date": "2024-01-01", metric: 9}])))
+
+        rows = _run(endpoint, session, domains="a.com", api_version=API_VERSION_V5)[0]
+
+        # One `/v5/website-analysis` endpoint serves every metric; the table selects its own via
+        # `metrics`, the key moves to the `api-key` header, and rows come from the `data` envelope.
+        assert _urls(session) == [f"{BASE_URL}{V5_ENGAGEMENT_PATH}"]
+        assert _params(session)["metrics"] == metric
+        assert _params(session)["domain"] == "a.com"
+        assert "api_key" not in _params(session)
+        assert _headers(session) == {"api-key": "key-123"}
+        assert rows == [
+            {
+                "domain": "a.com",
+                "country": "world",
+                "granularity": "monthly",
+                "date": datetime(2024, 1, 1, tzinfo=UTC),
+                metric: 9,
+            }
+        ]
+
+    def test_v5_pin_leaves_non_engagement_tables_on_the_legacy_wire(self) -> None:
+        # Only the engagement family has a documented V5 wire; rank keeps its legacy path and
+        # query-param key even under the V5 pin, so a new V5 source still syncs it.
+        session = _session(_response(json_body=_series_body("global_rank", [{"date": "2024-01", "global_rank": 86}])))
+
+        _run(GLOBAL_RANK, session, domains="a.com", api_version=API_VERSION_V5)
+
+        assert _urls(session) == [f"{BASE_URL}/v1/website/a.com/global-rank/global-rank"]
+        assert _params(session)["api_key"] == "key-123"
+        assert _headers(session) is None
+
+    @parameterized.expand(
+        [
+            # V5 rejects the legacy `world` sentinel and documents `ww`; legacy keeps sending `world`.
+            ("legacy_worldwide_stays_world", API_VERSION_LEGACY, None, "world"),
+            ("v5_worldwide_becomes_ww", API_VERSION_V5, None, V5_WORLDWIDE_COUNTRY),
+            ("v5_explicit_country_passes_through", API_VERSION_V5, "gb", "gb"),
+        ]
+    )
+    def test_worldwide_country_is_translated_only_for_v5(
+        self, _name: str, api_version: str, country: Optional[str], expected_param: str
+    ) -> None:
+        session = _session(_response(json_body={"visits": [], "data": []}))
+
+        _run(VISITS, session, domains="a.com", country=country, api_version=api_version)
+
+        assert _params(session)["country"] == expected_param
 
     def test_global_rank_takes_no_filters_and_parses_month_dates(self) -> None:
         session = _session(_response(json_body=_series_body("global_rank", [{"date": "2024-01", "global_rank": 86}])))
@@ -358,6 +428,7 @@ class TestSimilarwebTransport:
                         endpoint=VISITS,
                         logger=mock.MagicMock(),
                         resumable_source_manager=FakeResumeManager(),
+                        api_version=API_VERSION_LEGACY,
                     ).items(),
                 )
             )

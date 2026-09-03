@@ -7,6 +7,13 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.constants import AvailableFeature
+from posthog.models.organization import OrganizationMembership
+from posthog.models.user import User
+
+from products.access_control.backend.models.access_control import AccessControl
+from products.ai_observability.backend.models.evaluations import Evaluation
+
 
 class TestOfflineEvaluationItemsEndpoint(APIBaseTest):
     URL: str = ""
@@ -19,6 +26,38 @@ class TestOfflineEvaluationItemsEndpoint(APIBaseTest):
         response = MagicMock()
         response.results = rows
         return response
+
+    def test_requires_resource_level_evaluation_access(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        evaluation = Evaluation.objects.create(
+            team=self.team,
+            name="Visible Eval",
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "test"},
+            output_type="boolean",
+            created_by=self.user,
+        )
+        other_user = User.objects.create_and_join(self.organization, "offline-viewer@posthog.com", "testtest")
+        membership = OrganizationMembership.objects.get(user=other_user, organization=self.organization)
+        AccessControl.objects.create(
+            team=self.team, resource="evaluation", access_level="none", organization_member=membership
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="evaluation",
+            resource_id=str(evaluation.id),
+            access_level="viewer",
+            organization_member=membership,
+        )
+        self.client.force_login(other_user)
+
+        response = self.client.post(self.URL, {"experiment_id": "unrelated"}, format="json")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def _preflight_row(
         self,

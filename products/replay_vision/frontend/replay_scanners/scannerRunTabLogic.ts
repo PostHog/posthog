@@ -29,6 +29,15 @@ export interface RowObservation {
 
 export const IN_PROGRESS_STATUSES = new Set<string>(['pending', 'running'])
 
+type BulkSkipOutcome = 'skipped_limit' | 'skipped_quota' | 'skipped_scanner_limit'
+
+const BULK_SKIP_MESSAGES: Record<BulkSkipOutcome, string> = {
+    skipped_limit: 'No scans started. Too many scans are already running. Wait for some to finish, then try again.',
+    skipped_quota:
+        "No scans started. Your organization's Replay vision credit limit for this billing period is used up.",
+    skipped_scanner_limit: 'No scans started. This scanner reached its credit limit for this billing period.',
+}
+
 // Headroom per visible session for the observations a retry stacks on top of the original scan.
 const OBSERVATIONS_PER_SESSION_ALLOWANCE = 4
 
@@ -223,9 +232,18 @@ export const scannerRunTabLogic = kea<scannerRunTabLogicType>([
                     const started = response.started
                     // The backend scans what fits and reports the rest — surface the split so the user
                     // knows a partial run happened rather than assuming everything started.
-                    const limited = results.filter(
-                        (r) => r.scan_outcome === 'skipped_limit' || r.scan_outcome === 'skipped_quota'
-                    ).length
+                    const skipCounts: Record<BulkSkipOutcome, number> = {
+                        skipped_limit: 0,
+                        skipped_quota: 0,
+                        skipped_scanner_limit: 0,
+                    }
+                    for (const r of results) {
+                        if (r.scan_outcome && r.scan_outcome in skipCounts) {
+                            skipCounts[r.scan_outcome as BulkSkipOutcome] += 1
+                        }
+                    }
+                    const limited =
+                        skipCounts.skipped_limit + skipCounts.skipped_quota + skipCounts.skipped_scanner_limit
                     const failed = results.filter((r) => r.scan_outcome === 'failed').length
                     const extras = [
                         limited ? `${limited} skipped (limit reached)` : null,
@@ -238,7 +256,11 @@ export const scannerRunTabLogic = kea<scannerRunTabLogicType>([
                             `Started ${started} scan${started === 1 ? '' : 's'}${extras ? ` — ${extras}` : ''}`
                         )
                     } else if (limited > 0) {
-                        lemonToast.warning("No scans started — you've hit the in-flight or monthly credit limit.")
+                        // Ties break toward the most specific reason, matching the backend's headroom tie-break.
+                        const dominant = (
+                            ['skipped_scanner_limit', 'skipped_quota', 'skipped_limit'] as BulkSkipOutcome[]
+                        ).reduce((a, b) => (skipCounts[b] > skipCounts[a] ? b : a))
+                        lemonToast.warning(BULK_SKIP_MESSAGES[dominant])
                     } else {
                         lemonToast.error('No scans started. Please try again.')
                     }

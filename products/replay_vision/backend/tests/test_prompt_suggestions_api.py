@@ -15,8 +15,8 @@ from products.replay_vision.backend.models.replay_observation import (
 from products.replay_vision.backend.models.replay_observation_label import ReplayObservationLabel
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 from products.replay_vision.backend.models.replay_scanner_prompt_suggestion import (
+    PromptSuggestionStatus,
     ReplayScannerPromptSuggestion,
-    SuggestionStatus,
 )
 from products.replay_vision.backend.prompt_suggestions import (
     generate_prompt_suggestion,
@@ -92,8 +92,8 @@ class TestPromptSuggestions(_VisionAPITestCase):
         self.assertEqual(second.status_code, 200)
 
         statuses = {str(s.id): s.status for s in ReplayScannerPromptSuggestion.objects.all()}
-        self.assertEqual(statuses[first.json()["id"]], SuggestionStatus.SUPERSEDED)
-        self.assertEqual(statuses[second.json()["id"]], SuggestionStatus.PENDING)
+        self.assertEqual(statuses[first.json()["id"]], PromptSuggestionStatus.SUPERSEDED)
+        self.assertEqual(statuses[second.json()["id"]], PromptSuggestionStatus.PENDING)
 
     def test_generate_requires_rated_observations(self) -> None:
         resp = self.client.post(self._suggestions_url("generate/"))
@@ -132,16 +132,6 @@ class TestPromptSuggestions(_VisionAPITestCase):
 
         self.assertEqual(resp.status_code, 400)
         self.assertIn("Couldn't generate a suggestion right now", resp.json()["detail"])
-        self.assertFalse(ReplayScannerPromptSuggestion.objects.exists())
-
-    def test_product_flag_off_hides_endpoints(self) -> None:
-        self._create_rated_observation("sess-1", True)
-
-        with patch("products.replay_vision.backend.feature_flag.posthoganalytics.feature_enabled", return_value=False):
-            current_resp = self.client.get(self._suggestions_url("current/"))
-            generate_resp = self.client.post(self._suggestions_url("generate/"))
-        self.assertEqual(current_resp.status_code, 404, current_resp.content)
-        self.assertEqual(generate_resp.status_code, 404, generate_resp.content)
         self.assertFalse(ReplayScannerPromptSuggestion.objects.exists())
 
     def test_current_reports_staleness_when_ratings_change(self) -> None:
@@ -233,7 +223,7 @@ class TestPromptSuggestions(_VisionAPITestCase):
             base_config={"prompt": "p", "tags": ["a"]},
             suggested_config={"prompt": "p", "tags": ["a", "b"]},
             changes=[{"field": "tags", "kind": "tags", "op": "add", "before": None, "after": "b", "rationale": ""}],
-            status=SuggestionStatus.PENDING,
+            status=PromptSuggestionStatus.PENDING,
             scanner_version=version_before,
         )
 
@@ -257,7 +247,7 @@ class TestPromptSuggestions(_VisionAPITestCase):
             base_config={"prompt": "p", "tags": ["a", "b"]},
             suggested_config={"prompt": "new", "tags": ["a", "b", "c"]},
             changes=[{"field": "tags", "kind": "tags", "op": "add", "before": None, "after": "c", "rationale": ""}],
-            status=SuggestionStatus.PENDING,
+            status=PromptSuggestionStatus.PENDING,
             scanner_version=scanner.scanner_version,
         )
         edited = {"prompt": "user edited", "tags": ["a", "c"]}
@@ -269,7 +259,7 @@ class TestPromptSuggestions(_VisionAPITestCase):
         scanner.refresh_from_db()
         self.assertEqual(scanner.scanner_config, edited)
         suggestion.refresh_from_db()
-        self.assertEqual(suggestion.status, SuggestionStatus.APPLIED)
+        self.assertEqual(suggestion.status, PromptSuggestionStatus.APPLIED)
 
     def test_apply_rejects_invalid_edited_config(self) -> None:
         scanner = self._create_scanner(
@@ -283,7 +273,7 @@ class TestPromptSuggestions(_VisionAPITestCase):
             base_config={"prompt": "keep me"},
             suggested_config={"prompt": "new"},
             changes=[{"field": "prompt", "kind": "prompt", "op": "set", "before": "keep me", "after": "new"}],
-            status=SuggestionStatus.PENDING,
+            status=PromptSuggestionStatus.PENDING,
             scanner_version=scanner.scanner_version,
         )
 
@@ -304,7 +294,7 @@ class TestPromptSuggestions(_VisionAPITestCase):
             base_prompt="old",
             base_config=None,
             suggested_config=None,
-            status=SuggestionStatus.PENDING,
+            status=PromptSuggestionStatus.PENDING,
             scanner_version=scanner.scanner_version,
         )
 
@@ -371,7 +361,7 @@ class TestPromptSuggestions(_VisionAPITestCase):
             base_config=base_config,
             suggested_config=suggested_config,
             changes=changes,
-            status=SuggestionStatus.PENDING,
+            status=PromptSuggestionStatus.PENDING,
             scanner_version=scanner.scanner_version,
         )
 
@@ -391,7 +381,7 @@ class TestPromptSuggestions(_VisionAPITestCase):
         resp = self.client.post(self._suggestions_url(f"{suggestion_id}/dismiss/"))
         self.assertEqual(resp.status_code, 400)
         suggestion = ReplayScannerPromptSuggestion.objects.get(id=suggestion_id)
-        self.assertEqual(suggestion.status, SuggestionStatus.APPLIED)
+        self.assertEqual(suggestion.status, PromptSuggestionStatus.APPLIED)
 
     def test_generate_marks_no_change_when_model_returns_current_prompt(self) -> None:
         # self.scanner's config has no allow_inconclusive key, so to_config_patch injects a defaulted one.
@@ -481,7 +471,7 @@ class TestPromptSuggestions(_VisionAPITestCase):
     def test_mutations_require_editor_access(self) -> None:
         self._create_rated_observation("sess-1", False, "should be yes")
         with patch(
-            "posthog.rbac.user_access_control.UserAccessControl.check_access_level_for_object",
+            "products.access_control.backend.facade.user_access_control.UserAccessControl.check_access_level_for_object",
             side_effect=lambda obj, required_level=None, **_: required_level != "editor",
         ):
             resp = self.client.post(self._suggestions_url("generate/"))

@@ -1,1 +1,1 @@
-0020_logsretentionrule
+0023_teamlogsconfig_logs_pattern_message_keys

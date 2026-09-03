@@ -34,15 +34,7 @@ const CHOICE_HINTS: Record<TestAccountFilterChoice, string> = {
  * breakdown color override.
  */
 export function DashboardEditBarAdvancedFilters(): JSX.Element {
-    const {
-        dashboard,
-        dashboardMode,
-        placement,
-        canEditDashboard,
-        effectiveEditBarFilters,
-        effectiveBreakdownColors,
-        dataColorThemeId,
-    } = useValues(dashboardLogic)
+    const { dashboard, dashboardMode, placement, canEditDashboard, effectiveEditBarFilters } = useValues(dashboardLogic)
     const { setFilterTestAccounts, setDashboardMode } = useActions(dashboardLogic)
     const { showInsightColorsModal } = useActions(dashboardInsightColorsModalLogic)
     const { currentTeam } = useValues(teamLogic)
@@ -56,10 +48,9 @@ export function DashboardEditBarAdvancedFilters(): JSX.Element {
     // Only the full dashboard scene mounts DashboardInsightColorsModal, so elsewhere the button would no-op.
     const showColors =
         hasDashboardColors && canEditDashboard && !!dashboard && placement === DashboardPlacement.Dashboard
-    // Auto-assigned colors aren't an override — only pinned values and a picked theme are.
-    const hasColorOverrides =
-        effectiveBreakdownColors.some((config) => config.source !== 'auto') || dataColorThemeId != null
-    const overrideCount = (choice === 'inherit' ? 0 : 1) + (showColors && hasColorOverrides ? 1 : 0)
+    // Color customizations don't count towards the badge: they are visible on the charts
+    // themselves, while a forced test account filter changes the data with no other visible cue.
+    const overrideCount = choice === 'inherit' ? 0 : 1
 
     return (
         <Popover

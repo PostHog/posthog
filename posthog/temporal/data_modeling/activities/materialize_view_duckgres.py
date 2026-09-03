@@ -26,6 +26,7 @@ from products.managed_warehouse.backend.facade.api import (
     has_provisioned_warehouse,
     is_dev_mode,
 )
+from products.managed_warehouse.backend.facade.contracts import DuckLakeCompiledQuery, DuckLakeS3Secret
 
 from ..metrics import get_node_suspended_metric
 from .utils import (
@@ -97,19 +98,18 @@ def _is_duckgres_shadow_enabled(team: Team) -> bool:
         return False
 
 
-def _compile_hogql_to_postgres_sql(hogql_query: str, team_id: int) -> tuple[str, dict[str, object]]:
+def _compile_hogql_for_ducklake(hogql_query: str, team_id: int) -> DuckLakeCompiledQuery:
     from posthog.schema import HogQLQuery
 
     from products.managed_warehouse.backend.facade.client import compile_hogql_to_ducklake_sql
 
-    postgres_sql, values, _ = compile_hogql_to_ducklake_sql(
+    return compile_hogql_to_ducklake_sql(
         team_id,
         HogQLQuery(query=hogql_query),
         # Userless shadow materialization; mirror ClickHouse materialization so the
         # model query can resolve its warehouse source tables/views.
         bypass_warehouse_access_control=True,
     )
-    return postgres_sql, values
 
 
 @database_sync_to_async_pool
@@ -183,17 +183,21 @@ async def materialize_view_duckgres_activity(inputs: DuckgresShadowInputs) -> Du
     start_time = time.monotonic()
     sql: str = ""
     values: dict[str, object] = {}
+    s3_secrets: tuple[DuckLakeS3Secret, ...] = ()
     try:
         if inputs.dangerously_execute_raw_sql:
             sql = hogql_query
         else:
-            sql, values = await database_sync_to_async_pool(_compile_hogql_to_postgres_sql)(hogql_query, team.pk)
+            compiled = await database_sync_to_async_pool(_compile_hogql_for_ducklake)(hogql_query, team.pk)
+            sql = compiled.sql
+            values = compiled.values
+            s3_secrets = compiled.s3_secrets
         await logger.adebug("Duckgres shadow SQL generated", sql=sql)
 
         from products.managed_warehouse.backend.facade.client import execute_ducklake_create_table
 
         result = await database_sync_to_async_pool(execute_ducklake_create_table)(
-            team.pk, sql, schema_name, table_name, values
+            team.pk, sql, schema_name, table_name, values, s3_secrets=s3_secrets
         )
         duration = time.monotonic() - start_time
 

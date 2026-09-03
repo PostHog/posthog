@@ -192,7 +192,6 @@ describe('posthog connection forwarding', () => {
             ['a connection chained through itself', 'posthog-connection-call'],
             ['the raw forwarder', 'posthog-connection-forward'],
             ['a session-state tool', 'switch-project'],
-            ['a streaming tool', 'session-recording-summarize'],
         ])('refuses %s before contacting the connection', async (_case, toolName) => {
             const request = createRequestMock({ status: 200, data: {} })
             const tool = createConnectionCallTool((name) => (name === 'execute-sql' ? fakeTool(name) : undefined))

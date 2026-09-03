@@ -64,6 +64,11 @@ export const userGithubIntegrationKeys = {
     ] as const,
 };
 
+export const githubInstallRequestKeys = {
+  all: ["github-install-requests"] as const,
+  list: () => [...githubInstallRequestKeys.all, "list"] as const,
+};
+
 export interface RepositoryRefetchKey {
   queryKey: ReadonlyArray<unknown>;
   exact: boolean;

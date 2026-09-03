@@ -1,6 +1,6 @@
 import type { PiRemoteRpcClient } from "@posthog/agent/pi/remote-rpc-client";
 import type {
-  PiExtensionEvent,
+  PiExtensionSessionEvent,
   PiNativeModelInfo,
   PiPersistedSessionConfig,
   PiQueueSnapshot,
@@ -22,12 +22,15 @@ import type { AuthService } from "../auth/auth";
 import { AUTH_SERVICE } from "../auth/auth.module";
 import { AuthServiceEvent } from "../auth/schemas";
 import { parseCommandLine } from "../message-editor/commands";
+import {
+  AGENT_SESSION_NOTIFIER,
+  type AgentSessionNotifier,
+} from "../notification/agentSessionNotifications";
 import { TASK_SERVICE, type TaskService } from "../task-detail/taskService";
 import {
   createEmptyPiControllerSession,
   createPiSessionStore,
   type PiControllerSessionState,
-  type PiProjectTrustState,
   type PiSessionError,
   type PiSessionStore,
 } from "./piSessionStore";
@@ -45,6 +48,15 @@ export interface PiDeferredConfig {
   thinkingLevel?: PiThinkingLevel;
 }
 
+export interface PiSessionNotificationContext {
+  taskTitle: string;
+  isTaskAuthor?: boolean;
+}
+
+export interface PiConversationEventContext {
+  isLive: boolean;
+}
+
 export const PI_SESSION_PROVIDER = Symbol.for("posthog.pi.sessionProvider");
 export const LOCAL_PI_SESSION_FACTORY = Symbol.for(
   "posthog.pi.localSessionFactory",
@@ -59,8 +71,6 @@ export interface PiSession {
   retry?(): Promise<void>;
   getQueue(): Promise<PiQueueSnapshot>;
   clearQueue(): Promise<PiQueueSnapshot>;
-  getProjectTrust?(): Promise<PiProjectTrustState>;
-  setProjectTrusted?(trusted: boolean): Promise<void>;
   sendUserMessage?(
     type: "prompt" | "steer" | "follow_up",
     message: string,
@@ -70,7 +80,10 @@ export interface PiSession {
   health(): Promise<PiRuntimeHealth>;
   getConversation(): Promise<AgentConversationEvent[]>;
   onConversationEvent(
-    onEvent: (event: AgentConversationEvent) => void,
+    onEvent: (
+      event: AgentConversationEvent,
+      context?: PiConversationEventContext,
+    ) => void,
     onError: (error: unknown) => void,
     onCloudStatus?: (status: TaskRunStatus) => void,
   ): () => void;
@@ -83,7 +96,7 @@ export interface PiSession {
     decision: McpToolPermissionDecision,
   ): Promise<void>;
   onExtensionEvent?(
-    onEvent: (event: PiExtensionEvent) => void,
+    onEvent: (event: PiExtensionSessionEvent) => void,
     onError: (error: unknown) => void,
     onComplete?: () => void,
   ): () => void;
@@ -101,6 +114,10 @@ export type PiSessionProvider = PiSessionFactory;
 
 export type PiSubmitResult = "prompt" | "steer" | "followUp" | "compact";
 
+type PiTurnState =
+  | { phase: "active"; startedAt?: number; stopReason?: string }
+  | { phase: "completed" };
+
 type PiOperation =
   | "prompt"
   | "compact"
@@ -109,7 +126,6 @@ type PiOperation =
   | "bash"
   | "cancel"
   | "queue"
-  | "trust"
   | "retry"
   | "restart";
 
@@ -137,16 +153,20 @@ function normalizeSessionError(error: unknown): {
   };
 }
 
+function isResumableCloudSendError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return (
+    message.includes("No active sandbox") ||
+    message.includes("Task run workflow has ended")
+  );
+}
+
 @injectable()
 export class PiSessionController {
   readonly store: PiSessionStore = createPiSessionStore();
 
   private readonly sessions = new Map<string, Promise<PiSession>>();
   private readonly subscriptions = new Map<string, () => void>();
-  private readonly projectTrustTransitions = new Map<
-    string,
-    { trusted: boolean; promise: Promise<void> }
-  >();
   private readonly liveEvents = new Map<string, AgentConversationEvent[]>();
   private readonly connections = new Map<string, Promise<void>>();
   private readonly readiness = new Map<string, Promise<void>>();
@@ -156,6 +176,11 @@ export class PiSessionController {
   private readonly cancelAuthRestoration = new Map<string, () => void>();
   private readonly taskRunIds = new Map<string, string>();
   private readonly activeTaskIds = new Set<string>();
+  private readonly notificationContexts = new Map<
+    string,
+    PiSessionNotificationContext
+  >();
+  private readonly turnStates = new Map<string, PiTurnState>();
 
   constructor(
     @inject(PI_SESSION_PROVIDER) private readonly provider: PiSessionProvider,
@@ -163,7 +188,23 @@ export class PiSessionController {
     @inject(AUTH_SERVICE)
     @optional()
     private readonly authService?: AuthService,
-  ) {}
+    @inject(AGENT_SESSION_NOTIFIER)
+    @optional()
+    private readonly notifier?: AgentSessionNotifier,
+  ) {
+    this.authService?.on(AuthServiceEvent.StateChanged, (state) => {
+      if (state.status === "anonymous") {
+        this.disconnectAll();
+      }
+    });
+  }
+
+  setNotificationContext(
+    taskId: string,
+    context: PiSessionNotificationContext,
+  ): void {
+    this.notificationContexts.set(taskId, context);
+  }
 
   ensureConnected(taskId: string, taskRunId?: string): Promise<void> {
     this.activeTaskIds.add(taskId);
@@ -199,6 +240,7 @@ export class PiSessionController {
         if (this.readiness.get(taskId) === readiness) {
           this.readiness.delete(taskId);
         }
+        this.disposeInactiveSessionIfIdle(taskId);
       });
     this.readiness.set(taskId, readiness);
     return readiness;
@@ -208,7 +250,10 @@ export class PiSessionController {
     this.activeTaskIds.add(taskId);
     this.bindTaskRun(taskId, taskRunId);
     this.ensureSubscription(taskId);
+    return this.connectSession(taskId);
+  }
 
+  private connectSession(taskId: string): Promise<void> {
     const existing = this.connections.get(taskId);
     if (existing) {
       return existing;
@@ -225,15 +270,26 @@ export class PiSessionController {
     return connection;
   }
 
-  disconnect(taskId: string): void {
-    this.cancelAuthRestoration.get(taskId)?.();
-    this.resetTransport(taskId);
-    this.taskRunIds.delete(taskId);
-    this.liveEvents.delete(taskId);
-    this.queueRevisions.delete(taskId);
-    this.queuesToRestore.delete(taskId);
+  release(taskId: string): void {
     this.activeTaskIds.delete(taskId);
-    this.updateSession(taskId, { mcpToolPermissionRequests: new Map() });
+    this.disposeInactiveSessionIfIdle(taskId);
+  }
+
+  disconnect(taskId: string): void {
+    this.activeTaskIds.delete(taskId);
+    this.disposeTask(taskId);
+  }
+
+  disconnectAll(): void {
+    const taskIds = new Set([
+      ...this.activeTaskIds,
+      ...this.sessions.keys(),
+      ...this.subscriptions.keys(),
+      ...this.notificationContexts.keys(),
+    ]);
+    for (const taskId of taskIds) {
+      this.disconnect(taskId);
+    }
   }
 
   async retry(taskId: string): Promise<void> {
@@ -280,71 +336,6 @@ export class PiSessionController {
       return queue;
     } catch (error) {
       throw this.recordOperationFailure(taskId, "queue", error);
-    }
-  }
-
-  setProjectTrusted(taskId: string, trusted: boolean): Promise<void> {
-    const existing = this.projectTrustTransitions.get(taskId);
-    if (existing) {
-      return existing.trusted === trusted
-        ? existing.promise
-        : Promise.reject(
-            new Error("A repository trust change is already in progress"),
-          );
-    }
-
-    const promise = this.setProjectTrustedInternal(taskId, trusted).finally(
-      () => {
-        if (this.projectTrustTransitions.get(taskId)?.promise === promise) {
-          this.projectTrustTransitions.delete(taskId);
-        }
-      },
-    );
-    this.projectTrustTransitions.set(taskId, { trusted, promise });
-    return promise;
-  }
-
-  private async setProjectTrustedInternal(
-    taskId: string,
-    trusted: boolean,
-  ): Promise<void> {
-    const current = this.getSession(taskId);
-    if (
-      current.connectionState !== "connected" ||
-      current.status?.isStreaming ||
-      current.isBashRunning
-    ) {
-      throw this.recordOperationFailure(
-        taskId,
-        "trust",
-        new Error(
-          "Wait for Pi to connect and finish before changing repository trust",
-        ),
-      );
-    }
-
-    const taskRunId = this.taskRunIds.get(taskId);
-    this.captureQueueForRestore(taskId);
-    this.updateSession(taskId, {
-      connectionState: "connecting",
-      error: undefined,
-    });
-    try {
-      const session = await this.getPiSession(taskId);
-      if (!session.setProjectTrusted) {
-        throw new Error("Pi session does not support repository trust");
-      }
-      await session.setProjectTrusted(trusted);
-      this.resetTransport(taskId);
-      await this.ensureConnected(taskId, taskRunId);
-    } catch (error) {
-      this.resetTransport(taskId);
-      try {
-        await this.ensureConnected(taskId, taskRunId);
-      } catch {
-        // Preserve the original trust-transition failure.
-      }
-      throw this.recordOperationFailure(taskId, "trust", error);
     }
   }
 
@@ -533,7 +524,13 @@ export class PiSessionController {
         }
         this.setTurnStreaming(taskId, wasStreaming);
         const operation = queuesMessage ? "queue" : "prompt";
-        throw this.recordOperationFailure(taskId, operation, error);
+        throw this.recordOperationFailure(
+          taskId,
+          operation,
+          error,
+          undefined,
+          message,
+        );
       }
     }
 
@@ -585,6 +582,10 @@ export class PiSessionController {
   }
 
   async abort(taskId: string): Promise<void> {
+    const turn = this.turnStates.get(taskId);
+    if (turn?.phase === "active") {
+      this.turnStates.set(taskId, { ...turn, stopReason: "cancelled" });
+    }
     try {
       const session = await this.getPiSession(taskId);
       await session.client.abort();
@@ -622,9 +623,7 @@ export class PiSessionController {
       this.ensureSubscription(taskId);
     }
 
-    if (this.activeTaskIds.has(taskId)) {
-      await this.connect(taskId);
-    }
+    await this.connectSession(taskId);
   }
 
   private ensureSubscription(taskId: string): void {
@@ -643,19 +642,31 @@ export class PiSessionController {
         this.applyPersistedConfig(taskId, session);
         this.updateSession(taskId, { cloudStatus: session.cloudStatus });
         unsubscribeConversation = session.onConversationEvent(
-          (event) => this.handleEvent(taskId, event),
+          (event, context) => this.handleEvent(taskId, event, context),
           (error) => this.applySessionError(taskId, error),
-          (cloudStatus) => this.updateSession(taskId, { cloudStatus }),
+          (cloudStatus) => this.handleCloudStatus(taskId, cloudStatus),
         );
         unsubscribePermission = session.onMcpToolPermissionRequest?.(
           (request) => {
             const requests = new Map(
               this.getSession(taskId).mcpToolPermissionRequests,
             );
+            if (requests.has(request.requestId)) {
+              return;
+            }
             requests.set(request.requestId, request);
             this.updateSession(taskId, {
               mcpToolPermissionRequests: requests,
             });
+            const context = this.notificationContexts.get(taskId);
+            if (context) {
+              this.notifier?.notify({
+                kind: "needs_input",
+                taskId,
+                taskTitle: context.taskTitle,
+                isTaskAuthor: context.isTaskAuthor,
+              });
+            }
           },
           (error) => this.applySessionError(taskId, error),
         );
@@ -708,12 +719,11 @@ export class PiSessionController {
       const session = await this.getPiSession(taskId);
       const queueRevision = this.queueRevisions.get(taskId) ?? 0;
       const retainedStats = this.getSession(taskId).stats;
-      const [events, status, queue, stats, projectTrust] = await Promise.all([
+      const [events, status, queue, stats] = await Promise.all([
         session.getConversation(),
         session.client.getState(),
         session.getQueue(),
         session.client.getSessionStats().catch(() => retainedStats),
-        session.getProjectTrust?.(),
       ]);
       if (this.getSessionVersion(taskId) !== connectedSessionVersion) {
         return;
@@ -758,6 +768,12 @@ export class PiSessionController {
           resolvedQueue.steering.length + resolvedQueue.followUp.length,
       };
 
+      this.reconcileTurnState(
+        taskId,
+        reconciledEvents,
+        resolvedStatus.isStreaming,
+      );
+
       this.setSession(taskId, {
         connectionState: "connected",
         events: reconciledEvents,
@@ -776,7 +792,6 @@ export class PiSessionController {
         authRestoring: currentSession.authRestoring,
         isBashRunning: false,
         mcpToolPermissionRequests: currentSession.mcpToolPermissionRequests,
-        projectTrust,
       });
 
       await this.restoreQueueIfNeeded(taskId, session, resolvedStatus);
@@ -817,6 +832,8 @@ export class PiSessionController {
           }
         }),
       ]);
+
+      this.disposeInactiveSessionIfIdle(taskId);
     } catch (error) {
       if (this.getSessionVersion(taskId) === connectedSessionVersion) {
         this.applySessionError(taskId, error);
@@ -825,7 +842,11 @@ export class PiSessionController {
     }
   }
 
-  private handleEvent(taskId: string, event: AgentConversationEvent): void {
+  private handleEvent(
+    taskId: string,
+    event: AgentConversationEvent,
+    context?: PiConversationEventContext,
+  ): void {
     if (event.type === "queue_update") {
       const queue = {
         steering: event.steering,
@@ -842,6 +863,9 @@ export class PiSessionController {
     ) {
       return;
     }
+
+    const isLive = context?.isLive ?? true;
+    this.applyTurnEvent(taskId, event, isLive);
 
     if (event.type === "runtime_error") {
       this.recordOperationFailure(
@@ -918,7 +942,107 @@ export class PiSessionController {
 
     if (event.type === "turn_completed") {
       void this.refreshStats(taskId);
+      this.disposeInactiveSessionIfIdle(taskId);
     }
+  }
+
+  private reconcileTurnState(
+    taskId: string,
+    events: AgentConversationEvent[],
+    isStreaming: boolean,
+  ): void {
+    this.turnStates.delete(taskId);
+    for (const event of events) {
+      this.applyTurnEvent(taskId, event, false);
+    }
+    if (isStreaming && this.turnStates.get(taskId)?.phase !== "active") {
+      this.turnStates.set(taskId, { phase: "active" });
+    }
+  }
+
+  private applyTurnEvent(
+    taskId: string,
+    event: AgentConversationEvent,
+    isLive: boolean,
+  ): void {
+    const current = this.turnStates.get(taskId);
+    const activeTurn = current?.phase === "active" ? current : undefined;
+    const isDirectBash =
+      (event.type === "tool_call_started" ||
+        event.type === "tool_call_updated") &&
+      event.toolCall.origin === "user_shell";
+    const hasTurnActivity =
+      event.type === "user_message" ||
+      event.type === "assistant_message_chunk" ||
+      event.type === "assistant_thought_chunk" ||
+      (!isDirectBash &&
+        (event.type === "tool_call_started" ||
+          event.type === "tool_call_updated"));
+
+    if (hasTurnActivity) {
+      this.turnStates.set(taskId, {
+        phase: "active",
+        startedAt:
+          activeTurn?.startedAt ??
+          (event.type === "user_message" ? event.timestamp : undefined),
+      });
+      return;
+    }
+
+    if (event.type === "runtime_error") {
+      this.turnStates.set(taskId, {
+        phase: "active",
+        startedAt: activeTurn?.startedAt,
+        stopReason: "failed",
+      });
+      return;
+    }
+
+    if (event.type !== "turn_completed") {
+      return;
+    }
+
+    this.turnStates.set(taskId, { phase: "completed" });
+    if (!isLive || current?.phase === "completed") {
+      return;
+    }
+
+    const notificationContext = this.notificationContexts.get(taskId);
+    if (!notificationContext) {
+      return;
+    }
+
+    const stopReason = this.normalizeStopReason(
+      event.stopReason ?? activeTurn?.stopReason,
+    );
+    const durationMs = activeTurn?.startedAt
+      ? Math.max(0, event.timestamp - activeTurn.startedAt)
+      : undefined;
+    this.notifier?.notify({
+      kind: "turn_completed",
+      taskId,
+      taskTitle: notificationContext.taskTitle,
+      stopReason,
+      durationMs,
+      isTaskAuthor: notificationContext.isTaskAuthor,
+    });
+  }
+
+  private normalizeStopReason(stopReason: string | undefined): string {
+    if (stopReason === "stop" || stopReason === undefined) {
+      return "end_turn";
+    }
+    if (stopReason === "aborted") {
+      return "cancelled";
+    }
+    if (stopReason === "error") {
+      return "failed";
+    }
+    return stopReason;
+  }
+
+  private handleCloudStatus(taskId: string, cloudStatus: TaskRunStatus): void {
+    this.updateSession(taskId, { cloudStatus });
   }
 
   private async refreshStats(taskId: string): Promise<void> {
@@ -1069,7 +1193,6 @@ export class PiSessionController {
       bash: "Failed to run Pi bash command",
       cancel: "Failed to stop Pi",
       queue: "Failed to update queued message",
-      trust: "Failed to change repository trust",
       retry: "Failed to reconnect to Pi",
       restart: "Failed to restart Pi",
     };
@@ -1178,6 +1301,10 @@ export class PiSessionController {
   }
 
   private markTurnPending(taskId: string): void {
+    const current = this.turnStates.get(taskId);
+    const startedAt =
+      current?.phase === "active" ? current.startedAt : Date.now();
+    this.turnStates.set(taskId, { phase: "active", startedAt });
     this.setTurnStreaming(taskId, true);
   }
 
@@ -1259,9 +1386,8 @@ export class PiSessionController {
       await session.sendUserMessage(type, content, artifactIds, messageId);
       return;
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
       const taskRunId = this.taskRunIds.get(taskId) ?? session.taskRunId;
-      if (!taskRunId || !message.includes("No active sandbox")) {
+      if (!taskRunId || !isResumableCloudSendError(error)) {
         throw error;
       }
 
@@ -1316,6 +1442,45 @@ export class PiSessionController {
       this.liveEvents.delete(taskId);
     }
     this.taskRunIds.set(taskId, taskRunId);
+  }
+
+  private disposeInactiveSessionIfIdle(taskId: string): void {
+    if (
+      this.activeTaskIds.has(taskId) ||
+      this.shouldRetainInactiveSession(taskId)
+    ) {
+      return;
+    }
+    this.disposeTask(taskId);
+  }
+
+  private shouldRetainInactiveSession(taskId: string): boolean {
+    const session = this.getSession(taskId);
+    if (
+      session.connectionState === "connecting" ||
+      session.status?.isStreaming ||
+      this.turnStates.get(taskId)?.phase === "active"
+    ) {
+      return true;
+    }
+    return (
+      session.cloudStatus !== undefined &&
+      session.cloudStatus !== "completed" &&
+      session.cloudStatus !== "failed" &&
+      session.cloudStatus !== "cancelled"
+    );
+  }
+
+  private disposeTask(taskId: string): void {
+    this.cancelAuthRestoration.get(taskId)?.();
+    this.resetTransport(taskId);
+    this.taskRunIds.delete(taskId);
+    this.liveEvents.delete(taskId);
+    this.queueRevisions.delete(taskId);
+    this.queuesToRestore.delete(taskId);
+    this.turnStates.delete(taskId);
+    this.notificationContexts.delete(taskId);
+    this.updateSession(taskId, { mcpToolPermissionRequests: new Map() });
   }
 
   private resetTransport(taskId: string): void {

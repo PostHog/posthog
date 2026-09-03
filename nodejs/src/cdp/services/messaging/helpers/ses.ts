@@ -1,4 +1,5 @@
 import crypto from 'node:crypto'
+import { Counter } from 'prom-client'
 import { z } from 'zod'
 
 import { MinimalAppMetric } from '~/cdp/types'
@@ -76,6 +77,8 @@ const SesClickEventSchema = SesCommonEventBase.extend({
     click: z.object({
         ipAddress: z.string().optional(),
         link: z.string(),
+        // Echoes the `ses:tags` we set on each anchor at send time, as {name: [value]}.
+        linkTags: z.record(z.string(), z.array(z.string())).optional(),
         userAgent: z.string().optional(),
         timestamp: z.string(),
     }),
@@ -168,6 +171,9 @@ const EVENT_TYPE_TO_METRIC_NAME: Partial<Record<SesEventRecord['eventType'], Min
     Click: 'email_link_clicked',
     Delivery: 'email_delivered',
     Bounce: 'email_bounced',
+    // A Complaint is a recipient's "report spam" relayed through the provider's feedback loop.
+    // It stays recorded under email_blocked because complaint counts have always been stored
+    // there; the UI surfaces the metric as "Marked as spam".
     Complaint: 'email_blocked',
     RenderingFailure: 'email_failed',
     Reject: 'email_failed',
@@ -177,6 +183,123 @@ export type SesEventLogLine = {
     level: 'warn' | 'error'
     message: string
 }
+
+// Records with no usable tracking code can't be attributed to a workflow, so they're dropped. A
+// silent drop hides systemic loss, so count what's dropped, by event type and reason. `reason`
+// separates two different failures with different owners: `missing` (no carrier value at all, for
+// example a configuration set that stops emitting the original headers or tags) from `invalid` (a
+// carrier value was present but did not parse, for example a signed header left over after a
+// signing key rotated out).
+const sesUnattributedEventsCounter = new Counter({
+    name: 'email_tracking_unattributed_total',
+    help: 'SES webhook records dropped because their tracking code was missing or unparseable',
+    labelNames: ['event_type', 'reason'],
+})
+
+// SES link tag naming an anchor's ordinal position in the email body. Set on each `<a>` at send
+// time and echoed back on the Click event, which is what lets two anchors pointing at the same URL
+// (a header logo and a footer link, say) be counted separately. SES restricts tag names and values
+// to alphanumerics, hyphens and underscores, so an integer index is the only stable identifier
+// cheap enough to carry here.
+export const SES_LINK_INDEX_TAG = 'phl'
+
+// Path of our own click-tracking redirect, which used to wrap every anchor before SES saw it.
+const TRACKING_REDIRECT_PATH = '/public/m/redirect'
+
+/**
+ * The destination the recipient actually asked for.
+ *
+ * SES reports the link as it appeared in the HTML, before SES rewrote it. Messages sent while we
+ * still wrapped anchors in our own redirect therefore report that wrapper, whose `ph_id` differs on
+ * every send, so the raw value is both unaggregatable and a carrier for a signed tracking code that
+ * should not be stored on an event. Unwrap it back to `target`. Anything else is passed through.
+ */
+export const resolveClickDestination = (link: string): string => {
+    try {
+        const url = new URL(link)
+        if (!url.pathname.endsWith(TRACKING_REDIRECT_PATH)) {
+            return link
+        }
+        return url.searchParams.get('target') || link
+    } catch {
+        return link
+    }
+}
+
+// Bounds how much of a URL rides in the app_metrics2 sort key. Long enough to stay recognizable in
+// the UI, short enough that a pathological query-less URL can't bloat the index.
+const MAX_LINK_URL_LENGTH = 200
+
+/**
+ * Collapses a clicked URL to the identity we count by.
+ *
+ * The query string and fragment are dropped because merge tags and per-recipient UTM values make
+ * them differ on every send, which would scatter one link's clicks across thousands of buckets. Two
+ * anchors that genuinely point at the same path stay distinguishable through the link index, which
+ * is carried alongside this value.
+ */
+// Templates routinely build hrefs like `/unsubscribe/{{token}}` or `/users/12345`, so a path segment
+// is often a per-recipient identifier rather than part of the page's identity. Collapsing those is
+// what keeps the metrics sort key bounded by pages rather than by audience size, and keeps recipient
+// tokens out of a store the whole team can read.
+//
+// A token is recognized by its runs of unbroken alphanumerics rather than by the segment as a whole,
+// because tokens arrive glued together with punctuation: a JWT is dot-separated, and base64url
+// tokens carry `-` and `_`. Testing runs also stops long slugs from being mistaken for tokens, since
+// `how-to-set-up-feature-flags` is only ever short words once split.
+const UUID_SEGMENT = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const TOKEN_RUN_SEPARATORS = /[.\-_~]/
+const HEX_RUN = /^[0-9a-f]{12,}$/i
+const NUMERIC_RUN = /^[0-9]{6,}$/
+const SINGLE_CASE_WORD = /^([a-z]+|[A-Z]+)$/
+// Below this, mixed-case runs are still plausibly words (`Introduction`, `CHANGELOG`).
+const MIN_RANDOM_RUN_LENGTH = 16
+const OPAQUE_PATH_SEGMENT_PLACEHOLDER = '*'
+
+const isOpaqueRun = (run: string): boolean =>
+    HEX_RUN.test(run) || NUMERIC_RUN.test(run) || (run.length >= MIN_RANDOM_RUN_LENGTH && !SINGLE_CASE_WORD.test(run))
+
+const isOpaquePathSegment = (segment: string): boolean => {
+    // Percent-encoding would otherwise hide a token's shape behind `%`, which none of the runs match.
+    let decoded = segment
+    try {
+        decoded = decodeURIComponent(segment)
+    } catch {
+        // Malformed escapes are left as-is; the raw segment is still worth testing.
+    }
+    return UUID_SEGMENT.test(decoded) || decoded.split(TOKEN_RUN_SEPARATORS).some(isOpaqueRun)
+}
+
+const redactOpaquePathSegments = (pathname: string): string =>
+    pathname
+        .split('/')
+        .map((segment) => (isOpaquePathSegment(segment) ? OPAQUE_PATH_SEGMENT_PLACEHOLDER : segment))
+        .join('/')
+
+export const normalizeClickUrl = (link: string): string => {
+    try {
+        const url = new URL(link)
+        // `new URL` also parses hostless schemes (mailto:, tel:, sms:), where `host` is empty and
+        // rebuilding as `scheme://host+path` would invent an authority — `mailto:x` becoming
+        // `mailto://x`. Only http(s)-shaped links have a host to normalize; the rest pass through.
+        if (!url.host) {
+            return link.slice(0, MAX_LINK_URL_LENGTH)
+        }
+        const path = redactOpaquePathSegments(url.pathname)
+        return `${url.protocol}//${url.host}${path}`.replace(/\/$/, '').slice(0, MAX_LINK_URL_LENGTH)
+    } catch {
+        return link.slice(0, MAX_LINK_URL_LENGTH)
+    }
+}
+
+// Separator between the parts of a per-link metric's `instance_id`. The frontend splits on this to
+// recover (action id, link index, url); see LINK_INSTANCE_SEPARATOR in workflowMetricsSummaryLogic.
+// A URL may legitimately contain this character, so parsers must limit themselves to the first two
+// separators and treat the remainder as the URL.
+export const LINK_INSTANCE_SEPARATOR = '|'
+
+export const buildLinkInstanceId = (actionId: string, linkIndex: string, normalizedUrl: string): string =>
+    [actionId, linkIndex, normalizedUrl].join(LINK_INSTANCE_SEPARATOR)
 
 const MAX_SES_FIELD_LENGTH = 1024
 
@@ -419,7 +542,11 @@ export class SesWebhookHandler {
             actionId?: string
             parentRunId?: string
             distinctId?: string
+            teamId?: string
             metricName: MinimalAppMetric['metric_name']
+            // Replaces the instance_id trackMetric would derive, for metrics keyed by something
+            // other than the action or invocation (see buildLinkInstanceId).
+            instanceIdOverride?: string
             properties?: Record<string, any>
             timestamp?: string
             workflowVersion?: number
@@ -445,6 +572,14 @@ export class SesWebhookHandler {
             teamId?: string
             emailAddresses: string[]
             diagnostic?: string
+        }[]
+        // Spam complaints — recorded in the suppression list so future sends to the address are
+        // blocked. A complaint is the recipient asking us to stop, and provider complaint-rate
+        // thresholds are far tighter than bounce thresholds.
+        complainedRecipients?: {
+            teamId?: string
+            emailAddresses: string[]
+            feedbackType?: string
         }[]
         // Successful deliveries — reset the suppression counter so transient outages don't accumulate.
         // Timestamp is threaded through so the reset ignores an out-of-order delivery from an older send
@@ -517,7 +652,9 @@ export class SesWebhookHandler {
             actionId?: string
             parentRunId?: string
             distinctId?: string
+            teamId?: string
             metricName: MinimalAppMetric['metric_name']
+            instanceIdOverride?: string
             properties?: Record<string, any>
             timestamp?: string
             workflowVersion?: number
@@ -541,6 +678,11 @@ export class SesWebhookHandler {
             emailAddresses: string[]
             diagnostic?: string
         }[] = []
+        const complainedRecipients: {
+            teamId?: string
+            emailAddresses: string[]
+            feedbackType?: string
+        }[] = []
         const deliveredRecipients: {
             teamId?: string
             emailAddresses: string[]
@@ -556,7 +698,8 @@ export class SesWebhookHandler {
                 (h) => h.name.toLowerCase() === TRACKING_CODE_HEADER_NAME.toLowerCase()
             )?.value
             const tagValue = rec.mail.tags?.ph_id?.[0]
-            const parsedCode = this.trackingCodeSigner.parse(headerValue ?? tagValue ?? '')
+            const rawCode = headerValue ?? tagValue ?? ''
+            const parsedCode = this.trackingCodeSigner.parse(rawCode)
             if (parsedCode) {
                 trackingCodeFormatCounter.inc({ format: parsedCode.format, source: 'ses' })
             }
@@ -564,6 +707,10 @@ export class SesWebhookHandler {
                 parsedCode || {}
 
             if (!functionId && !invocationId) {
+                // A present but unparseable code is a different incident from a wholly absent one, so
+                // record which occurred. An empty `rawCode` means neither carrier held a value.
+                const reason = rawCode === '' ? 'missing' : 'invalid'
+                sesUnattributedEventsCounter.inc({ event_type: rec.eventType, reason })
                 logger.error('[SesWebhookHandler] handleWebhook: No functionId or invocationId found', { rec })
                 continue
             }
@@ -586,13 +733,21 @@ export class SesWebhookHandler {
                     timestamp = rec.open.timestamp
                 } else if ('click' in rec && rec.click) {
                     timestamp = rec.click.timestamp
-                    properties.$link_url = rec.click.link
+                    properties.$link_url = resolveClickDestination(rec.click.link)
+                    const linkIndex = rec.click.linkTags?.[SES_LINK_INDEX_TAG]?.[0]
+                    if (linkIndex !== undefined) {
+                        properties.$link_index = linkIndex
+                    }
                 } else if ('delivery' in rec && rec.delivery) {
                     timestamp = rec.delivery.timestamp
                 } else if ('bounce' in rec && rec.bounce) {
                     timestamp = rec.bounce.timestamp
                 } else if ('complaint' in rec && rec.complaint) {
                     timestamp = rec.complaint.timestamp
+                    if (rec.complaint.complaintFeedbackType) {
+                        // The provider's classification of the report (e.g. "abuse", "fraud").
+                        properties.$complaint_feedback_type = rec.complaint.complaintFeedbackType
+                    }
                 }
                 timestamp = timestamp ?? rec.mail.timestamp
 
@@ -602,11 +757,36 @@ export class SesWebhookHandler {
                     actionId,
                     parentRunId,
                     distinctId,
+                    teamId,
                     metricName,
                     properties,
                     timestamp,
                     workflowVersion,
                 })
+
+                // Per-link companion row for the workflow Metrics tab's link breakdown. Emitted only
+                // when the send came from a workflow step: without an action id the key would fall
+                // back to the invocation id, producing a row per send per link rather than an
+                // aggregate, and the breakdown is per-action anyway. It carries its own metric name
+                // so the existing `email_link_clicked` totals and trends can't double-count it.
+                if (rec.eventType === 'Click' && actionId) {
+                    metrics.push({
+                        functionId,
+                        invocationId,
+                        actionId,
+                        parentRunId,
+                        distinctId,
+                        teamId,
+                        metricName: 'email_link_clicked_by_link',
+                        instanceIdOverride: buildLinkInstanceId(
+                            actionId,
+                            rec.click.linkTags?.[SES_LINK_INDEX_TAG]?.[0] ?? '',
+                            normalizeClickUrl(resolveClickDestination(rec.click.link))
+                        ),
+                        timestamp,
+                        workflowVersion,
+                    })
+                }
 
                 // email_bounced stays the catch-all rollup; each bounce additionally emits a
                 // per-type sub-metric (hard + transient + undetermined = email_bounced). AWS's
@@ -620,6 +800,7 @@ export class SesWebhookHandler {
                         actionId,
                         parentRunId,
                         distinctId,
+                        teamId,
                         metricName: BOUNCE_TYPE_TO_METRIC_NAME[rec.bounce.bounceType],
                         properties,
                         timestamp,
@@ -672,6 +853,25 @@ export class SesWebhookHandler {
                 transientBounceRecipients.push({ teamId, emailAddresses: emails, diagnostic })
             }
 
+            // Record complaints in the suppression list so future sends to the address are blocked.
+            // The recipient reported the message as spam — one complaint suppresses immediately,
+            // like a hard bounce. Skip a "not-spam" feedback type, because that is a correction:
+            // the recipient or their provider states the message is not spam, so it must not
+            // suppress (and would otherwise resurrect a manually removed row). The value comes from
+            // an external provider, so compare case-insensitively.
+            if (
+                suppressionAllowed &&
+                rec.eventType === 'Complaint' &&
+                rec.complaint.complaintFeedbackType?.toLowerCase() !== 'not-spam'
+            ) {
+                const emails = rec.complaint.complainedRecipients.map((r) => r.emailAddress)
+                complainedRecipients.push({
+                    teamId,
+                    emailAddresses: emails,
+                    feedbackType: rec.complaint.complaintFeedbackType,
+                })
+            }
+
             // Successful delivery resets an address's soft-bounce counter — but only if newer than the
             // last-recorded bounce (checked at the SQL layer), so an out-of-order delivery from an
             // older send can't erase a fresh bounce.
@@ -690,6 +890,7 @@ export class SesWebhookHandler {
             logEntries,
             transientBounceRecipients,
             hardBounceRecipients,
+            complainedRecipients,
             deliveredRecipients,
         }
     }

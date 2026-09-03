@@ -340,6 +340,79 @@ class TestGetRows:
         assert manager.saved == [VercelResumeConfig(until=200)]
 
 
+def _collect_fanout(monkeypatch: Any, responses: list[dict], team_id: str | None = None):
+    calls = _patch_fetch(monkeypatch, responses)
+    rows: list[dict] = []
+    for table in vercel.get_fanout_rows(access_token="t", endpoint="check_runs", team_id=team_id, logger=MagicMock()):
+        rows.extend(table.to_pylist())
+    return rows, calls
+
+
+class TestGetFanoutRows:
+    def test_fans_out_one_child_request_per_parent_deployment(self, monkeypatch: Any) -> None:
+        responses: list[dict] = [
+            {
+                "deployments": [{"uid": "d1", "created": 200}, {"uid": "d2", "created": 100}],
+                "pagination": {"next": None},
+            },
+            {"runs": [{"id": "r1", "deploymentId": "d1"}]},
+            {"runs": [{"id": "r2", "deploymentId": "d2"}, {"id": "r3", "deploymentId": "d2"}]},
+        ]
+        rows, calls = _collect_fanout(monkeypatch, responses, team_id="team_1")
+
+        assert [r["id"] for r in rows] == ["r1", "r2", "r3"]
+        # The parent is paged from the deployments endpoint; each child request fills the deployment
+        # id into the check-runs path and carries teamId.
+        assert "/v6/deployments" in calls[0]
+        assert "/v2/deployments/d1/check-runs" in calls[1]
+        assert "/v2/deployments/d2/check-runs" in calls[2]
+        assert "teamId=team_1" in calls[1]
+        # The check-runs endpoint documents no limit/pagination params, so the shared `limit` must
+        # not be appended to the child request.
+        assert "limit=" not in calls[1]
+
+    def test_deployment_with_no_check_runs_still_visits_every_parent(self, monkeypatch: Any) -> None:
+        responses: list[dict] = [
+            {
+                "deployments": [{"uid": "d1", "created": 200}, {"uid": "d2", "created": 100}],
+                "pagination": {"next": None},
+            },
+            {"runs": []},
+            {"runs": [{"id": "r2", "deploymentId": "d2"}]},
+        ]
+        rows, calls = _collect_fanout(monkeypatch, responses)
+
+        assert [r["id"] for r in rows] == ["r2"]
+        assert len(calls) == 3
+
+    def test_parent_row_missing_the_fan_out_field_is_skipped(self, monkeypatch: Any) -> None:
+        # A deployment row without `uid` can't seed a child path; skip it rather than crash the sync.
+        responses: list[dict] = [
+            {"deployments": [{"uid": "d1", "created": 200}, {"created": 100}], "pagination": {"next": None}},
+            {"runs": [{"id": "r1", "deploymentId": "d1"}]},
+        ]
+        rows, calls = _collect_fanout(monkeypatch, responses)
+
+        assert [r["id"] for r in rows] == ["r1"]
+        # Only the uid-bearing parent issues a child request.
+        assert len(calls) == 2
+
+    def test_fans_out_across_every_parent_page(self, monkeypatch: Any) -> None:
+        # The parent deployments list paginates; the fan-out must visit deployments from every page,
+        # not silently cap the child table at the first page of parents.
+        responses: list[dict] = [
+            {"deployments": [{"uid": "d1", "created": 300}], "pagination": {"next": 300}},
+            {"runs": [{"id": "r1", "deploymentId": "d1"}]},
+            {"deployments": [{"uid": "d2", "created": 100}], "pagination": {"next": None}},
+            {"runs": [{"id": "r2", "deploymentId": "d2"}]},
+        ]
+        rows, calls = _collect_fanout(monkeypatch, responses)
+
+        assert [r["id"] for r in rows] == ["r1", "r2"]
+        # Page two of the parent is requested with the first page's cursor.
+        assert "until=300" in calls[2]
+
+
 class TestVercelSource:
     @parameterized.expand(
         [
@@ -349,6 +422,7 @@ class TestVercelSource:
             ("teams", "id"),
             ("domains", "id"),
             ("aliases", "uid"),
+            ("check_runs", "id"),
         ]
     )
     def test_source_response_primary_key_and_sort(self, endpoint: str, expected_pk: str) -> None:

@@ -1,13 +1,14 @@
 import time
 import uuid
 import datetime as dt
+import threading
 from typing import Any
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.conf import settings
-from django.db import IntegrityError
+from django.db import IntegrityError, OperationalError, connections, transaction
 from django.utils import timezone
 
 import httpx
@@ -81,6 +82,7 @@ from products.replay_vision.backend.temporal.activities.observation_state import
 from products.replay_vision.backend.temporal.activities.upload_video_to_gemini import upload_video_to_gemini_activity
 from products.replay_vision.backend.temporal.errors import (
     INELIGIBLE_SESSION_ERROR_TYPE,
+    SCANNER_ADMISSION_BUSY_ERROR_TYPE,
     SCANNER_FAILURE_ERROR_TYPE,
     ConsentWithdrawnError,
     FailureKind,
@@ -137,7 +139,10 @@ from products.replay_vision.backend.temporal.workflow import (
     _failure_type,
     _root_cause_message,
 )
-from products.replay_vision.backend.tests.helpers import snapshot_for as _snapshot_for
+from products.replay_vision.backend.tests.helpers import (
+    seed_scanner_spend,
+    snapshot_for as _snapshot_for,
+)
 from products.signals.backend.contracts import ReplayVisionScannerFindingSignalInput
 from products.signals.backend.models import SignalSourceConfig
 
@@ -167,7 +172,7 @@ def _make_scanner(**overrides) -> ReplayScanner:
         "name": "t",
         "scanner_type": ScannerType.MONITOR,
         "scanner_config": {"prompt": "p"},
-        "model": ScannerModel.GEMINI_3_6_FLASH,
+        "model": ScannerModel.GEMINI_3_7_FLASH,
     }
     defaults.update(overrides)
     return ReplayScanner.objects.create(**defaults)
@@ -194,7 +199,7 @@ class TestCountInFlightAppliesActivity:
             name="sibling",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "p"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
         )
         other_team_scanner = _make_scanner()  # fresh org+team
         _make_observation(scanner, session_id="s1", status=ObservationStatus.PENDING)
@@ -259,6 +264,10 @@ class TestCreateObservationActivity:
         assert observation.scanner_snapshot["provider"] == str(scanner.provider)
         assert observation.scanner_snapshot["emits_signals"] == scanner.emits_signals
         assert observation.scanner_snapshot["scanner_config"] == scanner.scanner_config
+        # Without these the config-versions history can't explain a sampling- or filter-only bump.
+        assert observation.scanner_snapshot["query"] == scanner.query
+        assert observation.scanner_snapshot["sampling_rate"] == scanner.sampling_rate
+        assert observation.scanner_snapshot["sampling_mode"] == str(scanner.sampling_mode)
         assert observation.started_at is None  # set when transitioning to running, not here
         assert observation.completed_at is None
 
@@ -447,7 +456,7 @@ class TestCreateObservationActivity:
     def test_skips_insert_when_monthly_quota_exhausted(self) -> None:
         scanner = _make_scanner()
         with patch(
-            "products.replay_vision.backend.temporal.activities.create_observation.compute_quota_snapshot"
+            "products.replay_vision.backend.temporal.activities.create_observation.quota_state"
         ) as mock_snapshot:
             mock_snapshot.return_value = QuotaSnapshot(
                 credit_limit=5,
@@ -491,6 +500,327 @@ class TestCreateObservationActivity:
             observation_id=None, was_created=False, scanner_type=scanner.scanner_type
         )
         assert not ReplayObservation.objects.filter(scanner=scanner, session_id="sess-no-consent").exists()
+
+    @parameterized.expand(
+        [
+            (None, 0, True),
+            (None, 10_000, True),
+            (100, 0, True),
+            (100, 80, True),
+            (100, 90, False),
+            (100, 100, False),
+            (15, 0, True),
+            (14, 0, False),
+        ]
+    )
+    def test_scanner_credit_limit_gates_observation_creation(
+        self, limit: int | None, already_spent_credits: int, expect_created: bool
+    ) -> None:
+        scanner = _make_scanner(credit_limit=limit)
+        seed_scanner_spend(scanner, already_spent_credits)
+
+        # This test isolates the scanner gate; keep the unsynced-org fallback quota out of the way.
+        with patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", 1_000_000):
+            result = create_observation_activity(
+                CreateObservationInputs(
+                    scanner_id=scanner.id,
+                    team_id=scanner.team_id,
+                    session_id="sess-scanner-limit",
+                    triggered_by=ObservationTrigger.SCHEDULE,
+                    triggered_by_user_id=None,
+                    workflow_id="wf-scanner-limit",
+                )
+            )
+
+        assert result.was_created is expect_created
+        exists = ReplayObservation.objects.filter(scanner=scanner, session_id="sess-scanner-limit").exists()
+        assert exists is expect_created
+
+    def _admit(self, scanner: ReplayScanner, session_id: str) -> CreateObservationOutput:
+        return create_observation_activity(
+            CreateObservationInputs(
+                scanner_id=scanner.id,
+                team_id=scanner.team_id,
+                session_id=session_id,
+                triggered_by=ObservationTrigger.SCHEDULE,
+                triggered_by_user_id=None,
+                workflow_id=f"wf-{session_id}",
+            )
+        )
+
+    def test_fresh_admission_cache_admits_without_running_the_budget_aggregates(self) -> None:
+        # The fast path is the point of the cache: an admission inside the TTL must not re-run
+        # compute_scanner_budget, or every capped admission pays the aggregate queries again.
+        scanner = _make_scanner(credit_limit=1_000)
+        with patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", 1_000_000):
+            assert self._admit(scanner, "sess-cache-warmup").was_created
+            with patch(
+                "products.replay_vision.backend.temporal.activities.create_observation.compute_scanner_budget",
+                side_effect=AssertionError("aggregates ran on a fresh cache"),
+            ):
+                assert self._admit(scanner, "sess-cache-fast").was_created
+
+    def test_warm_cache_admission_still_refuses_at_the_limit(self) -> None:
+        # The cold path refuses via fresh aggregates (covered above); this pins the warm path: the
+        # first admission's cached spend must refuse the second, not just the next refresh.
+        credits = observation_credits_for_model(ScannerModel.GEMINI_3_7_FLASH.value)
+        scanner = _make_scanner(credit_limit=credits)
+        with patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", 1_000_000):
+            assert self._admit(scanner, "sess-warm-a").was_created
+            assert not self._admit(scanner, "sess-warm-b").was_created
+        assert ReplayObservation.objects.filter(scanner=scanner, status=ObservationStatus.PENDING).count() == 1
+
+    def test_admission_cache_from_a_previous_period_does_not_block_a_new_period(self) -> None:
+        # A period rollover must invalidate the cache: a scanner that exhausted last period's cap
+        # admits again once the period turns, even while the stale cache still reads as exhausted.
+        scanner = _make_scanner(credit_limit=100)
+        ReplayScanner.all_origins.filter(pk=scanner.pk).update(
+            admission_budget_used=100,
+            admission_credits_since_refresh=50,
+            admission_budget_refreshed_at=timezone.now(),
+            admission_budget_period_start=timezone.now() - dt.timedelta(days=400),
+        )
+        with patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", 1_000_000):
+            assert self._admit(scanner, "sess-rollover").was_created
+
+    def test_failed_insert_refunds_its_cached_admission(self) -> None:
+        # The cached counter must stay transactional with the insert: an increment that survived a
+        # rolled-back insert would make a cap that fits one observation refuse the retry forever.
+        credits = observation_credits_for_model(ScannerModel.GEMINI_3_7_FLASH.value)
+        scanner = _make_scanner(credit_limit=credits)
+        with patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", 1_000_000):
+            with (
+                patch.object(ReplayObservation.objects, "create", side_effect=RuntimeError("insert failed")),
+                pytest.raises(RuntimeError),
+            ):
+                self._admit(scanner, "sess-refund")
+            assert self._admit(scanner, "sess-refund").was_created
+
+    def test_concurrent_admissions_cannot_exceed_scanner_credit_limit(self) -> None:
+        # Two applies for different sessions race with a cap that fits exactly one observation. Without the
+        # per-scanner lock both read a used=0 budget, both pass, and both reserve a PENDING row (overshoot).
+        credits = observation_credits_for_model(ScannerModel.GEMINI_3_7_FLASH.value)
+        scanner = _make_scanner(credit_limit=credits)
+        barrier = threading.Barrier(2)
+        created: dict[str, bool] = {}
+
+        def admit(session_id: str) -> None:
+            barrier.wait()
+            try:
+                created[session_id] = create_observation_activity(
+                    CreateObservationInputs(
+                        scanner_id=scanner.id,
+                        team_id=scanner.team_id,
+                        session_id=session_id,
+                        triggered_by=ObservationTrigger.SCHEDULE,
+                        triggered_by_user_id=None,
+                        workflow_id=f"wf-{session_id}",
+                    )
+                ).was_created
+            except ApplicationError as e:
+                if e.type != SCANNER_ADMISSION_BUSY_ERROR_TYPE:
+                    raise
+                # The lock timeout refused the loser; in production Temporal retries it and the
+                # re-run reads the winner's spend. Either way the cap held: nothing was admitted.
+                created[session_id] = False
+            finally:
+                # Dropping the worker's own connection avoids stranding its lock transaction past teardown.
+                connections.close_all()
+
+        threads = [threading.Thread(target=admit, args=(s,)) for s in ("race-a", "race-b")]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            # A lock regression must fail the test, not hang the suite.
+            thread.join(timeout=30)
+        assert not any(thread.is_alive() for thread in threads)
+
+        assert sorted(created.values()) == [False, True]
+        assert ReplayObservation.objects.filter(scanner=scanner, status=ObservationStatus.PENDING).count() == 1
+
+    def test_concurrent_admissions_for_an_uncapped_scanner_both_succeed(self) -> None:
+        # The admission lock is capped-only: two uncapped applies must not serialize or skip.
+        scanner = _make_scanner(credit_limit=None)
+        barrier = threading.Barrier(2)
+        created: dict[str, bool] = {}
+
+        def admit(session_id: str) -> None:
+            barrier.wait()
+            try:
+                created[session_id] = create_observation_activity(
+                    CreateObservationInputs(
+                        scanner_id=scanner.id,
+                        team_id=scanner.team_id,
+                        session_id=session_id,
+                        triggered_by=ObservationTrigger.SCHEDULE,
+                        triggered_by_user_id=None,
+                        workflow_id=f"wf-{session_id}",
+                    )
+                ).was_created
+            finally:
+                connections.close_all()
+
+        threads = [threading.Thread(target=admit, args=(s,)) for s in ("free-a", "free-b")]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=30)
+        assert not any(thread.is_alive() for thread in threads)
+
+        assert sorted(created.values()) == [True, True]
+        assert ReplayObservation.objects.filter(scanner=scanner, status=ObservationStatus.PENDING).count() == 2
+
+    def test_contended_admission_fails_fast_as_retryable_busy_and_keeps_its_claim(self) -> None:
+        # A held scanner row must map to a retryable ScannerAdmissionBusy, not surface as a raw
+        # OperationalError (which nothing marks retryable-by-design) — and the enqueue claim must
+        # survive so the in-flight caps keep counting the retrying apply.
+        scanner = _make_scanner(credit_limit=100)
+        lock_taken = threading.Event()
+        release_lock = threading.Event()
+
+        def hold_scanner_lock() -> None:
+            try:
+                with transaction.atomic():
+                    ReplayScanner.all_origins.select_for_update().filter(pk=scanner.pk).first()
+                    lock_taken.set()
+                    release_lock.wait(timeout=30)
+            finally:
+                connections.close_all()
+
+        holder = threading.Thread(target=hold_scanner_lock)
+        holder.start()
+        assert lock_taken.wait(timeout=30)
+        try:
+            with (
+                patch(
+                    "products.replay_vision.backend.temporal.activities.create_observation.release_enqueue_claim"
+                ) as release,
+                pytest.raises(ApplicationError) as err,
+            ):
+                create_observation_activity(
+                    CreateObservationInputs(
+                        scanner_id=scanner.id,
+                        team_id=scanner.team_id,
+                        session_id="sess-busy",
+                        triggered_by=ObservationTrigger.SCHEDULE,
+                        triggered_by_user_id=None,
+                        workflow_id="wf-busy",
+                    )
+                )
+        finally:
+            release_lock.set()
+            holder.join(timeout=30)
+
+        assert err.value.type == SCANNER_ADMISSION_BUSY_ERROR_TYPE
+        assert err.value.non_retryable is False
+        release.assert_not_called()
+        assert not ReplayObservation.objects.filter(scanner=scanner, session_id="sess-busy").exists()
+
+    def test_non_lock_operational_error_propagates_and_releases_the_claim(self) -> None:
+        # The busy guard keys on LockNotAvailable alone: a statement timeout must still fail the
+        # attempt as an OperationalError (and give the claim back), not masquerade as retry-forever busy.
+        scanner = _make_scanner(credit_limit=100)
+        error = OperationalError("canceling statement due to statement timeout")
+        error.__cause__ = psycopg.errors.QueryCanceled()
+
+        with (
+            patch(
+                "products.replay_vision.backend.temporal.activities.create_observation.compute_scanner_budget",
+                side_effect=error,
+            ),
+            patch(
+                "products.replay_vision.backend.temporal.activities.create_observation.release_enqueue_claim"
+            ) as release,
+            pytest.raises(OperationalError),
+        ):
+            create_observation_activity(
+                CreateObservationInputs(
+                    scanner_id=scanner.id,
+                    team_id=scanner.team_id,
+                    session_id="sess-timeout",
+                    triggered_by=ObservationTrigger.SCHEDULE,
+                    triggered_by_user_id=None,
+                    workflow_id="wf-timeout",
+                )
+            )
+        release.assert_called_once()
+
+    def test_concurrent_admissions_for_two_capped_scanners_do_not_serialize_each_other(self) -> None:
+        # The admission lock is per scanner row: two different capped scanners on one team must both
+        # admit their own observation, with no cross-scanner budget bleed or lock coupling.
+        credits = observation_credits_for_model(ScannerModel.GEMINI_3_7_FLASH.value)
+        scanner_a = _make_scanner(credit_limit=credits)
+        scanner_b = ReplayScanner.objects.create(
+            team=scanner_a.team,
+            name="capped-sibling",
+            scanner_type=ScannerType.MONITOR,
+            scanner_config={"prompt": "p"},
+            model=ScannerModel.GEMINI_3_7_FLASH,
+            credit_limit=credits,
+        )
+        barrier = threading.Barrier(2)
+        created: dict[str, bool] = {}
+
+        def admit(scanner: ReplayScanner, session_id: str) -> None:
+            barrier.wait()
+            try:
+                created[session_id] = create_observation_activity(
+                    CreateObservationInputs(
+                        scanner_id=scanner.id,
+                        team_id=scanner.team_id,
+                        session_id=session_id,
+                        triggered_by=ObservationTrigger.SCHEDULE,
+                        triggered_by_user_id=None,
+                        workflow_id=f"wf-{session_id}",
+                    )
+                ).was_created
+            finally:
+                connections.close_all()
+
+        threads = [
+            threading.Thread(target=admit, args=(scanner_a, "sibling-a")),
+            threading.Thread(target=admit, args=(scanner_b, "sibling-b")),
+        ]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=30)
+        assert not any(thread.is_alive() for thread in threads)
+
+        assert created == {"sibling-a": True, "sibling-b": True}
+
+    def test_retry_near_the_cap_reclaims_its_own_pending_row(self) -> None:
+        # A Temporal retry whose first attempt committed the insert but lost the result must get its
+        # row back: that row's own reservation fills the budget, so a plain refusal would strand it
+        # PENDING forever while the workflow gives up.
+        credits = observation_credits_for_model(ScannerModel.GEMINI_3_7_FLASH.value)
+        scanner = _make_scanner(credit_limit=credits)
+        first_attempt = create_observation_activity(
+            CreateObservationInputs(
+                scanner_id=scanner.id,
+                team_id=scanner.team_id,
+                session_id="sess-retry",
+                triggered_by=ObservationTrigger.SCHEDULE,
+                triggered_by_user_id=None,
+                workflow_id="wf-retry",
+            )
+        )
+        assert first_attempt.was_created is True
+
+        second_attempt = create_observation_activity(
+            CreateObservationInputs(
+                scanner_id=scanner.id,
+                team_id=scanner.team_id,
+                session_id="sess-retry",
+                triggered_by=ObservationTrigger.SCHEDULE,
+                triggered_by_user_id=None,
+                workflow_id="wf-retry",
+            )
+        )
+
+        assert second_attempt.observation_id == first_attempt.observation_id
+        assert second_attempt.was_created is True
+        assert ReplayObservation.objects.filter(scanner=scanner).count() == 1
 
 
 @pytest.mark.django_db(transaction=True)
@@ -583,7 +913,7 @@ class TestKnownFreeformTags:
             name="sibling",
             scanner_type=ScannerType.CLASSIFIER,
             scanner_config={"prompt": "categorize", "tags": ["checkout"], "allow_freeform_tags": True},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
         )
         self._succeeded(sibling, "s1", ["sibling_tag"])
         stale = self._succeeded(scanner, "s2", ["stale_tag"])
@@ -820,6 +1150,7 @@ class TestObservationStateActivities:
         assert receipt.observation_created_at == observation.created_at
         assert receipt.model == observation.scanner_snapshot["model"]
         assert receipt.credits == observation_credits_for_model(observation.scanner_snapshot["model"])
+        assert receipt.scanner_id == scanner.id
 
     def test_mark_succeeded_usage_receipt_is_idempotent(self) -> None:
         scanner = _make_scanner()
@@ -893,6 +1224,78 @@ class TestEmitObservationEventActivity:
 
         properties = capture.call_args.kwargs["properties"]
         assert properties["credits"] == observation_credits_for_model(observation.scanner_snapshot["model"])
+
+    def test_event_carries_indexed_and_named_group_keys(self) -> None:
+        # `$group_N` is what group analytics filters and breaks down on; `$groups` is what a webhook or alert
+        # consumer reads. Ingestion derives one from the other only when it processes a person profile, which
+        # this event doesn't, so both have to be written here.
+        scanner = _make_scanner()
+        observation = _make_observation(scanner, session_group_keys={"0": "acme-inc", "2": "proj-9"})
+        inputs = EmitObservationEventInputs(
+            observation_id=observation.id,
+            model_output=MonitorOutput(verdict="yes", reasoning="ok", confidence=0.9),
+        )
+
+        with (
+            patch(
+                "products.replay_vision.backend.temporal.activities.emit_observation_event.capture_internal"
+            ) as capture,
+            patch(
+                "products.replay_vision.backend.temporal.activities.emit_observation_event.get_group_types_for_project",
+                return_value=[
+                    {"group_type_index": 0, "group_type": "organization"},
+                    {"group_type_index": 2, "group_type": "project"},
+                ],
+            ),
+        ):
+            _emit_event(inputs)
+
+        properties = capture.call_args.kwargs["properties"]
+        assert properties["$group_0"] == "acme-inc"
+        assert properties["$group_2"] == "proj-9"
+        assert properties["$groups"] == {"organization": "acme-inc", "project": "proj-9"}
+
+    def test_event_omits_group_properties_when_the_session_carried_none(self) -> None:
+        # Observations scanned before group keys were resolved leave the column null; they must still emit.
+        scanner = _make_scanner()
+        observation = _make_observation(scanner, session_group_keys=None)
+        inputs = EmitObservationEventInputs(
+            observation_id=observation.id,
+            model_output=MonitorOutput(verdict="yes", reasoning="ok", confidence=0.9),
+        )
+
+        with patch(
+            "products.replay_vision.backend.temporal.activities.emit_observation_event.capture_internal"
+        ) as capture:
+            _emit_event(inputs)
+
+        properties = capture.call_args.kwargs["properties"]
+        assert "$groups" not in properties
+        assert not [key for key in properties if key.startswith("$group_")]
+
+    def test_event_keeps_indexed_group_keys_when_group_types_are_unavailable(self) -> None:
+        # Losing the names costs a nicety; losing `$group_N` would cost the group attribution entirely.
+        scanner = _make_scanner()
+        observation = _make_observation(scanner, session_group_keys={"0": "acme-inc"})
+        inputs = EmitObservationEventInputs(
+            observation_id=observation.id,
+            model_output=MonitorOutput(verdict="yes", reasoning="ok", confidence=0.9),
+        )
+
+        with (
+            patch(
+                "products.replay_vision.backend.temporal.activities.emit_observation_event.capture_internal"
+            ) as capture,
+            patch(
+                "products.replay_vision.backend.temporal.activities.emit_observation_event.get_group_types_for_project",
+                side_effect=RuntimeError("personhog down"),
+            ),
+        ):
+            _emit_event(inputs)
+
+        properties = capture.call_args.kwargs["properties"]
+        assert properties["$group_0"] == "acme-inc"
+        assert "$groups" not in properties
 
 
 def _counter_value(metric_name: str, **labels: str) -> float:
@@ -1805,7 +2208,9 @@ class _WorkflowMocks:
         return None
 
 
-async def _run_workflow(inputs: ApplyScannerInputs, mocks: _WorkflowMocks, workflow_id: str = "wf-test") -> None:
+async def _run_workflow(
+    inputs: ApplyScannerInputs, mocks: _WorkflowMocks, workflow_id: str = "wf-test", patched: bool = True
+) -> None:
     workflow_info = MagicMock()
     workflow_info.workflow_id = workflow_id
     with (
@@ -1814,6 +2219,9 @@ async def _run_workflow(inputs: ApplyScannerInputs, mocks: _WorkflowMocks, workf
         patch("temporalio.workflow.execute_child_workflow", side_effect=mocks.execute_child_workflow),
         # `wf.logger` requires a real workflow event loop, which this direct-call harness skips.
         patch("temporalio.workflow.logger"),
+        # `wf.patched` also needs that loop; True models a fresh execution, False a history that
+        # already ran past this point before the patch existed.
+        patch("temporalio.workflow.patched", return_value=patched),
     ):
         await ApplyScannerWorkflow().run(inputs)
 
@@ -1893,21 +2301,28 @@ async def test_apply_scanner_workflow_marks_failed_when_fetch_raises() -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "rasterizer_type,expect_ineligible,expected_kind",
+    "rasterizer_type,patched,expect_ineligible,expected_kind",
     [
         # An unrenderable recording is a gate, so it must not land on the failed path telling the user to retry.
-        ("NO_SNAPSHOTS", True, "no_snapshots"),
-        ("CAPTURE_ABORTED", False, "rasterization_failed"),
-        (None, False, "rasterization_failed"),
+        ("NO_SNAPSHOTS", True, True, "no_snapshots"),
+        # An oversized recording is a permanent gate too, not a broken render.
+        ("RECORDING_TOO_LARGE", True, True, "too_large"),
+        # A history that reached this point before the patch keeps the old path, which is the whole
+        # point of the guard: the two marks are different activity types, so switching mid-run is
+        # non-deterministic.
+        ("RECORDING_TOO_LARGE", False, False, "rasterization_failed"),
+        ("CAPTURE_ABORTED", True, False, "rasterization_failed"),
+        (None, True, False, "rasterization_failed"),
     ],
 )
 async def test_apply_scanner_workflow_splits_rasterizer_failures_by_cause(
-    rasterizer_type: str | None, expect_ineligible: bool, expected_kind: str
+    rasterizer_type: str | None, patched: bool, expect_ineligible: bool, expected_kind: str
 ) -> None:
     new_observation_id = uuid.uuid4()
     leaf = (
-        # `non_retryable=False` is the real arrival shape: the rasterizer keeps NO_SNAPSHOTS retryable while blocks may
-        # still be landing, so it only reaches us once the attempts are spent. Classification keys off the type alone.
+        # NO_SNAPSHOTS stays retryable while blocks may still be landing, so it reaches us only once the
+        # attempts are spent; RECORDING_TOO_LARGE arrives non-retryable. Classification keys off the type
+        # alone, so one shape covers both here.
         ApplicationError("No snapshots after processing", type=rasterizer_type, non_retryable=False)
         if rasterizer_type
         else RuntimeError("browser pod vanished")
@@ -1926,7 +2341,7 @@ async def test_apply_scanner_workflow_splits_rasterizer_failures_by_cause(
     )
 
     with pytest.raises(Exception):
-        await _run_workflow(_build_inputs(session_id="sess-raster"), mocks)
+        await _run_workflow(_build_inputs(session_id="sess-raster"), mocks, patched=patched)
 
     called = {fn for fn, _ in mocks.activity_calls}
     terminal = mark_observation_ineligible_activity if expect_ineligible else mark_observation_failed_activity

@@ -1,6 +1,7 @@
 import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
 
-import { StepDefinition } from '../steps'
+import { PROSE_LANGUAGE, StepDefinition } from '../steps'
+import { getOtelSessionIdStep } from './_snippets/otel-session-id'
 
 export const getAWSBedrockSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { CodeBlock, CalloutBox, Markdown, Blockquote, dedent, snippets } = ctx
@@ -32,6 +33,11 @@ export const getAWSBedrockSteps = (ctx: OnboardingComponentsContext): StepDefini
                                 code: dedent`
                                     npm install @aws-sdk/client-bedrock-runtime @opentelemetry/instrumentation-aws-sdk @opentelemetry/sdk-node @opentelemetry/resources @posthog/ai
                                 `,
+                            },
+                            {
+                                language: PROSE_LANGUAGE,
+                                file: 'Go',
+                                code: "There are no Go instrumentation libraries for the AWS SDK yet. Register PostHog's span processor and set the `gen_ai.*` attributes on a span around each Bedrock call, as shown in the Go tab of the [OpenTelemetry integration](https://posthog.com/docs/ai-observability/installation/opentelemetry).",
                             },
                         ]}
                     />
@@ -91,7 +97,7 @@ export const getAWSBedrockSteps = (ctx: OnboardingComponentsContext): StepDefini
                                       }),
                                       spanProcessors: [
                                         new PostHogSpanProcessor({
-                                          apiKey: '<ph_project_token>',
+                                          projectToken: '<ph_project_token>',
                                           host: '<ph_client_api_host>',
                                         }),
                                       ],
@@ -201,6 +207,7 @@ export const getAWSBedrockSteps = (ctx: OnboardingComponentsContext): StepDefini
                 </>
             ),
         },
+        getOtelSessionIdStep(ctx, { languages: ['Python', 'Node'] }),
     ]
 }
 

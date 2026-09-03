@@ -49,8 +49,6 @@ pub enum CookielessManagerError {
 pub struct CookielessConfig {
     /// Whether cookieless mode is disabled
     pub disabled: bool,
-    /// Whether to force stateless mode
-    pub force_stateless_mode: bool,
     /// TTL for identifies (in seconds)
     pub identifies_ttl_seconds: u64,
     /// TTL for salts (in seconds)
@@ -61,7 +59,6 @@ impl Default for CookielessConfig {
     fn default() -> Self {
         Self {
             disabled: false,
-            force_stateless_mode: false,
             identifies_ttl_seconds: IDENTIFIES_TTL_SECONDS,
             salt_ttl_seconds: SALT_TTL_SECONDS,
         }
@@ -113,24 +110,16 @@ pub struct EventData<'a> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CookielessServerHashMode {
     Disabled = 0,
-    Stateless = 1,
     Stateful = 2,
 }
 
 impl From<i16> for CookielessServerHashMode {
     fn from(value: i16) -> Self {
         match value {
-            0 => Self::Disabled,
-            1 => Self::Stateless,
-            2 => Self::Stateful,
-            _ => Self::Disabled, // Default to disabled for unknown values
+            // 1 was stateless mode, now sunset: any enabled value is processed as stateful
+            1 | 2 => Self::Stateful,
+            _ => Self::Disabled,
         }
-    }
-}
-
-impl From<CookielessServerHashMode> for i16 {
-    fn from(mode: CookielessServerHashMode) -> Self {
-        mode as i16
     }
 }
 
@@ -183,7 +172,7 @@ impl CookielessManager {
         event_data: EventData<'_>,
         team_data: TeamData,
     ) -> Result<String, CookielessManagerError> {
-        // If cookieless mode is disabled or team's hash mode is Disabled, return the original distinct id
+        // If cookieless mode is globally disabled or the team hasn't enabled it, return the original distinct id
         if self.config.disabled
             || team_data.cookieless_server_hash_mode == CookielessServerHashMode::Disabled
         {
@@ -223,11 +212,6 @@ impl CookielessManager {
 
         // Compute the base hash
         let base_hash = self.do_hash_for_day(hash_params.clone()).await?;
-
-        // If we're in stateless mode, use the base hash directly
-        if self.config.force_stateless_mode {
-            return Ok(Self::hash_to_distinct_id(&base_hash));
-        }
 
         // Get the number of identify events for this hash
         let n = self
@@ -292,11 +276,6 @@ impl CookielessManager {
         hash: &[u8],
         team_id: TeamId,
     ) -> Result<u64, CookielessManagerError> {
-        // If we're in stateless mode, always return 0
-        if self.config.force_stateless_mode {
-            return Ok(0);
-        }
-
         // Get the Redis key for the identify count
         let redis_key = get_redis_identifies_key(hash, team_id);
 
@@ -571,7 +550,7 @@ mod tests {
                 TeamData {
                     team_id: 1,
                     timezone: "UTC".to_string(),
-                    cookieless_server_hash_mode: CookielessServerHashMode::Stateless,
+                    cookieless_server_hash_mode: CookielessServerHashMode::Stateful,
                 },
             )
             .await
@@ -597,7 +576,7 @@ mod tests {
                 TeamData {
                     team_id: 1,
                     timezone: "UTC".to_string(),
-                    cookieless_server_hash_mode: CookielessServerHashMode::Stateless,
+                    cookieless_server_hash_mode: CookielessServerHashMode::Stateful,
                 },
             )
             .await
@@ -650,7 +629,7 @@ mod tests {
                 TeamData {
                     team_id: 1,
                     timezone: "UTC".to_string(),
-                    cookieless_server_hash_mode: CookielessServerHashMode::Stateless,
+                    cookieless_server_hash_mode: CookielessServerHashMode::Stateful,
                 },
             )
             .await
@@ -661,7 +640,7 @@ mod tests {
                 TeamData {
                     team_id: 1,
                     timezone: "UTC".to_string(),
-                    cookieless_server_hash_mode: CookielessServerHashMode::Stateless,
+                    cookieless_server_hash_mode: CookielessServerHashMode::Stateful,
                 },
             )
             .await
@@ -703,7 +682,7 @@ mod tests {
                 TeamData {
                     team_id: 1,
                     timezone: "UTC".to_string(),
-                    cookieless_server_hash_mode: CookielessServerHashMode::Stateless,
+                    cookieless_server_hash_mode: CookielessServerHashMode::Stateful,
                 },
             )
             .await
@@ -729,7 +708,7 @@ mod tests {
                 TeamData {
                     team_id: 1,
                     timezone: "UTC".to_string(),
-                    cookieless_server_hash_mode: CookielessServerHashMode::Stateless,
+                    cookieless_server_hash_mode: CookielessServerHashMode::Stateful,
                 },
             )
             .await
@@ -737,6 +716,37 @@ mod tests {
 
         // Check that we got back the original distinct ID
         assert_eq!(result, "non_sentinel_id");
+    }
+
+    #[tokio::test]
+    async fn test_compute_cookieless_distinct_id_team_disabled() {
+        let redis_client = Arc::new(MockRedisClient::new());
+        let manager = CookielessManager::new(CookielessConfig::default(), redis_client);
+
+        let event_data = EventData {
+            ip: "127.0.0.1",
+            timestamp_ms: Utc::now().timestamp_millis() as u64,
+            host: "example.com",
+            user_agent: "Mozilla/5.0",
+            event_time_zone: None,
+            hash_extra: None,
+            distinct_id: COOKIELESS_SENTINEL_VALUE,
+        };
+
+        let result = manager
+            .compute_cookieless_distinct_id(
+                event_data,
+                TeamData {
+                    team_id: 1,
+                    timezone: "UTC".to_string(),
+                    cookieless_server_hash_mode: CookielessServerHashMode::Disabled,
+                },
+            )
+            .await
+            .unwrap();
+
+        // A team that hasn't enabled cookieless keeps the sentinel untouched
+        assert_eq!(result, COOKIELESS_SENTINEL_VALUE);
     }
 
     #[tokio::test]
@@ -764,7 +774,7 @@ mod tests {
                 TeamData {
                     team_id: 1,
                     timezone: "UTC".to_string(),
-                    cookieless_server_hash_mode: CookielessServerHashMode::Stateless,
+                    cookieless_server_hash_mode: CookielessServerHashMode::Stateful,
                 },
             )
             .await;
@@ -789,7 +799,7 @@ mod tests {
                 TeamData {
                     team_id: 1,
                     timezone: "UTC".to_string(),
-                    cookieless_server_hash_mode: CookielessServerHashMode::Stateless,
+                    cookieless_server_hash_mode: CookielessServerHashMode::Stateful,
                 },
             )
             .await;
@@ -814,7 +824,7 @@ mod tests {
                 TeamData {
                     team_id: 1,
                     timezone: "UTC".to_string(),
-                    cookieless_server_hash_mode: CookielessServerHashMode::Stateless,
+                    cookieless_server_hash_mode: CookielessServerHashMode::Stateful,
                 },
             )
             .await;
@@ -863,24 +873,6 @@ mod tests {
 
         // Get the identify count
         let count = manager.get_identify_count(&hash, team_id).await.unwrap();
-        assert_eq!(count, 0);
-    }
-
-    #[tokio::test]
-    async fn test_get_identify_count_stateless_mode() {
-        // Create a mock Redis client
-        let redis_client = Arc::new(MockRedisClient::new());
-
-        // Create a CookielessManager with force_stateless_mode=true
-        let config = CookielessConfig {
-            force_stateless_mode: true,
-            ..CookielessConfig::default()
-        };
-        let manager = CookielessManager::new(config, redis_client);
-
-        // Get the identify count
-        let hash = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
-        let count = manager.get_identify_count(&hash, 1).await.unwrap();
         assert_eq!(count, 0);
     }
 
@@ -964,51 +956,6 @@ mod tests {
         assert_eq!(result, expected_distinct_id);
     }
 
-    #[tokio::test]
-    async fn test_compute_cookieless_distinct_id_stateless_mode() {
-        // Create a mock Redis client
-        let mut mock_redis = MockRedisClient::new();
-        let salt_base64 = "AAAAAAAAAAAAAAAAAAAAAA=="; // 16 bytes of zeros
-        let today = Utc::now().format("%Y-%m-%d").to_string();
-        let redis_key = format!("cookieless_salt:{today}");
-        mock_redis = mock_redis.get_ret(&redis_key, Ok(salt_base64.to_string()));
-        let redis_client = Arc::new(mock_redis);
-
-        // Create a CookielessManager with force_stateless_mode=true
-        let config = CookielessConfig {
-            force_stateless_mode: true,
-            ..CookielessConfig::default()
-        };
-        let manager = CookielessManager::new(config, redis_client);
-
-        // Create an event
-        let event_data = EventData {
-            ip: "127.0.0.1",
-            timestamp_ms: Utc::now().timestamp_millis() as u64,
-            host: "example.com",
-            user_agent: "Mozilla/5.0",
-            event_time_zone: None,
-            hash_extra: None,
-            distinct_id: COOKIELESS_SENTINEL_VALUE,
-        };
-
-        // Process the event
-        let result = manager
-            .compute_cookieless_distinct_id(
-                event_data,
-                TeamData {
-                    team_id: 1,
-                    timezone: "UTC".to_string(),
-                    cookieless_server_hash_mode: CookielessServerHashMode::Stateless,
-                },
-            )
-            .await
-            .unwrap();
-
-        // Check that we got a distinct ID
-        assert!(result.starts_with(COOKIELESS_DISTINCT_ID_PREFIX));
-    }
-
     #[test]
     fn test_key_generation_functions() {
         // Read the test cases from the JSON file
@@ -1076,7 +1023,7 @@ mod tests {
                 TeamData {
                     team_id: 1,
                     timezone: "UTC".to_string(),
-                    cookieless_server_hash_mode: CookielessServerHashMode::Stateless,
+                    cookieless_server_hash_mode: CookielessServerHashMode::Stateful,
                 },
             )
             .await

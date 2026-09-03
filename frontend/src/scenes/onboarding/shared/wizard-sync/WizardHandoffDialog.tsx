@@ -21,6 +21,12 @@ export function WizardHandoffDialog(): JSX.Element {
             title="Setup report"
             description="The agent wrote this report about the run it just finished."
             width={640}
+            // The report is opened from inside the installation-progress modal (WizardSyncDialog),
+            // which sits at the default modal z-index, so lift the handoff above it — still below
+            // popovers/tooltips (1200+). 1167 is the only free LemonModal z-index: 1161 is shared
+            // with SessionPlayerModal, and since this dialog mounts at app boot and auto-opens, a
+            // tie there would land the report behind an open recording (later-mounted modal wins).
+            zIndex="1167"
         >
             {/* ph-no-capture: the report describes the customer's codebase (file paths, event
                 names, framework detail) and must not reach autocapture. disableImages: the text is

@@ -17,6 +17,9 @@ import { urls } from 'scenes/urls'
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { ExporterFormat, RecordingSegment, RecordingSnapshot } from '~/types'
 
+import { analysisNudgeLogic } from 'products/replay_vision/frontend/logics/analysisNudgeLogic'
+import { isUsableHeatmapUrl } from 'products/web_analytics/frontend/heatmaps/replayIframeData'
+
 import { deletedRecordingsLogic } from '../deletedRecordingsLogic'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 import {
@@ -25,7 +28,12 @@ import {
     recordingMetaJson,
     setupSessionRecordingTest,
 } from './__mocks__/test-setup'
-import { findNewEvents, findSegmentForTimestamp, stripRrwebScriptShims } from './sessionRecordingPlayerLogic'
+import {
+    findNewEvents,
+    findSegmentForTimestamp,
+    INSTANT_SKIP_INACTIVITY_THRESHOLD_MS,
+    stripRrwebScriptShims,
+} from './sessionRecordingPlayerLogic'
 import { markLoaded } from './snapshot-store/test-utils'
 import { snapshotDataLogic } from './snapshotDataLogic'
 import { deleteRecording as deleteRecordingMock } from './utils/playerUtils'
@@ -88,6 +96,19 @@ describe('findNewEvents', () => {
         const currentEvents = current.map((ts) => makeEvent(ts))
         const result = findNewEvents(allSnapshots, currentEvents)
         expect(result.map((e) => e.timestamp)).toEqual(expected)
+    })
+})
+
+describe('isUsableHeatmapUrl', () => {
+    it.each([
+        [undefined, false],
+        ['', false],
+        ['   ', false],
+        // mobile snapshots with no captured href resolve to the literal 'unknown'
+        ['unknown', false],
+        ['https://example.com/pricing', true],
+    ] as const)('isUsableHeatmapUrl(%s) → %s', (input, expected) => {
+        expect(isUsableHeatmapUrl(input)).toBe(expected)
     })
 })
 
@@ -256,6 +277,68 @@ describe('sessionRecordingPlayerLogic', () => {
         })
     })
 
+    describe('inactivity segment traversal', () => {
+        const START = 1682952380877
+        const inactiveSegment = (kind: 'gap' | 'window', durationMs: number): RecordingSegment =>
+            ({
+                kind,
+                isActive: false,
+                startTimestamp: START,
+                endTimestamp: START + durationMs,
+                durationMs,
+                windowId: kind === 'window' ? 1 : undefined,
+            }) as RecordingSegment
+
+        it.each([
+            [
+                'seeks over a gap past the threshold while playing',
+                'gap',
+                INSTANT_SKIP_INACTIVITY_THRESHOLD_MS + 1,
+                true,
+                true,
+            ],
+            ['fast-forwards a gap exactly at the threshold', 'gap', INSTANT_SKIP_INACTIVITY_THRESHOLD_MS, true, false],
+            [
+                'does not seek when paused, even over the threshold',
+                'gap',
+                INSTANT_SKIP_INACTIVITY_THRESHOLD_MS + 1,
+                false,
+                false,
+            ],
+            ['fast-forwards a dense inactive window of any length', 'window', 35 * 3600 * 1000, true, false],
+        ] as const)('%s', async (_name, kind, durationMs, playing, expectSeek) => {
+            if (!playing) {
+                logic.actions.setPause()
+            }
+            logic.actions.setCurrentTimestamp(START)
+            const segment = inactiveSegment(kind, durationMs)
+            const expectation = expectLogic(logic, () => logic.actions.setCurrentSegment(segment))
+            if (expectSeek) {
+                await expectation.toDispatchActions([logic.actionCreators.seekToTimestamp(segment.endTimestamp)])
+            } else {
+                await expectation
+                    .toDispatchActions([logic.actionCreators.setSkippingInactivity(true)])
+                    .toNotHaveDispatchedActions(['seekToTimestamp'])
+            }
+        })
+    })
+
+    describe('end of recording', () => {
+        // Reaching the end pauses the player, and currentPlayerState only reports SKIP while playing,
+        // so the rewind control already replaces the "Skipping inactivity" overlay without touching the
+        // flag. The flag also drives playerSpeed, so it must survive end-of-recording: a rewind back into
+        // a trailing inactive stretch lands in the same segment, which does not recompute it, and clearing
+        // it there would make that dead time play at 1x.
+        it('keeps the inactivity-skip flag so a rewind into a trailing inactive stretch still skips', async () => {
+            logic.actions.setSkippingInactivity(true)
+            expect(logic.values.isSkippingInactivity).toBe(true)
+
+            await expectLogic(logic, () => logic.actions.setEndReached(true)).toMatchValues({
+                isSkippingInactivity: true,
+            })
+        })
+    })
+
     describe('terminal data failures', () => {
         // Give-up signals must surface as a player error even when partial data already loaded —
         // otherwise the affected range buffers forever with no error shown.
@@ -334,11 +417,18 @@ describe('sessionRecordingPlayerLogic', () => {
             logic.unmount()
             logic = sessionRecordingPlayerLogic({ sessionRecordingId: '2', playerKey: 'test', autoPlay: true })
             logic.mount()
+            const nudgeLogic = analysisNudgeLogic.build()
+            nudgeLogic.mount()
 
             silenceKeaLoadersErrors()
 
             await expectLogic(logic).toDispatchActions([logic.actionTypes.setPlay, logic.actionTypes.markViewed])
 
+            // The analyzed mark also feeds the replay vision analysis nudge counter.
+            await expectLogic(nudgeLogic).toDispatchActions(['recordingAnalyzed'])
+            expect(nudgeLogic.values.analyzedRecordingIds).toContain('2')
+
+            nudgeLogic.unmount()
             resumeKeaLoadersErrors()
         })
 
@@ -862,6 +952,48 @@ describe('sessionRecordingPlayerLogic', () => {
                 expect(logic.values.hasLateFullSnapshot).toBe(expectedHasLate)
             }
         )
+
+        // Builds a stand-in replayer whose iframe document has (or lacks) a <head>. rrweb throws
+        // synchronously when it rebuilds a full snapshot on a document without a head, which is the
+        // WebKit failure this recovery path guards against.
+        const fakeReplayer = (head: HTMLElement | null): any => {
+            const throwWhenHeadless = (): void => {
+                if (!head) {
+                    throw new TypeError("null is not an object (evaluating 'doc.head.appendChild')")
+                }
+            }
+            return {
+                iframe: { contentDocument: { head } },
+                play: jest.fn(throwWhenHeadless),
+                pause: jest.fn(throwWhenHeadless),
+                getCurrentTime: jest.fn(() => 0),
+                setConfig: jest.fn(),
+                on: jest.fn(),
+                destroy: jest.fn(),
+                service: { state: { context: { events: [] } } },
+            }
+        }
+
+        it('re-inits the replayer instead of reporting a playback failure when the iframe has no head', async () => {
+            seedRecording([fs(START), inc(START + 1000), inc(START + 11000)], [])
+            logic.actions.setPause()
+
+            const captureSpy = jest.spyOn(posthog, 'captureException')
+            const tryInitReplayerSpy = jest.spyOn(logic.actions, 'tryInitReplayer')
+            captureSpy.mockClear()
+            tryInitReplayerSpy.mockClear()
+
+            await expectLogic(logic, () => {
+                logic.actions.setPlayer({ replayer: fakeReplayer(null), windowId: 1 })
+            }).toFinishAllListeners()
+
+            expect(tryInitReplayerSpy).toHaveBeenCalled()
+            expect(captureSpy).not.toHaveBeenCalledWith(
+                expect.anything(),
+                expect.objectContaining({ feature: 'session-recording-replayer-playback' })
+            )
+            expect(logic.values.playerError).not.toBe('replayerPlaybackFailure')
+        })
     })
 
     describe('delete session recording', () => {

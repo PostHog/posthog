@@ -181,7 +181,41 @@ export function copyPiRpcHost(): Plugin {
           `[copy-pi-rpc-host] Unable to find Pi RPC host, required at runtime by createPiRpcClient. Build @posthog/agent first. Checked:\n  ${candidates.join("\n  ")}`,
         );
       }
-      copyFileSync(source, join(__dirname, ".vite/build/rpc-host.js"));
+      const buildDirectory = join(__dirname, ".vite/build");
+      const productEngineerResources = join(
+        dirname(source),
+        "product-engineer",
+      );
+      const bundledAgents = join(dirname(source), "bundled-agents");
+      const orchestrationSkills = join(dirname(source), "skills");
+      if (!existsSync(productEngineerResources)) {
+        throw new Error(
+          `[copy-pi-rpc-host] Unable to find product engineer resources at ${productEngineerResources}. Build @posthog/agent first.`,
+        );
+      }
+      if (!existsSync(bundledAgents)) {
+        throw new Error(
+          `[copy-pi-rpc-host] Unable to find bundled agents at ${bundledAgents}. Build @posthog/agent first.`,
+        );
+      }
+      if (!existsSync(orchestrationSkills)) {
+        throw new Error(
+          `[copy-pi-rpc-host] Unable to find orchestration skills at ${orchestrationSkills}. Build @posthog/agent first.`,
+        );
+      }
+
+      copyFileSync(source, join(buildDirectory, "rpc-host.js"));
+      cpSync(
+        productEngineerResources,
+        join(buildDirectory, "product-engineer"),
+        { recursive: true },
+      );
+      cpSync(bundledAgents, join(buildDirectory, "bundled-agents"), {
+        recursive: true,
+      });
+      cpSync(orchestrationSkills, join(buildDirectory, "skills"), {
+        recursive: true,
+      });
     },
   };
 }

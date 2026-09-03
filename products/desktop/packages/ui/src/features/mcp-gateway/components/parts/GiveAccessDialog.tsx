@@ -1,5 +1,6 @@
 import { Check, Prohibit } from "@phosphor-icons/react";
 import type {
+  McpAgentGrantScope,
   McpGatewayServer,
   McpResolvedToolPolicy,
   McpServiceAccount,
@@ -11,6 +12,7 @@ import {
   defaultAgentGrantPolicy,
   isAgentPolicyState,
 } from "@posthog/core/mcp-gateway/gatewayServers";
+import { AgentScopeToggle } from "@posthog/ui/features/mcp-gateway/components/parts/AgentScopeToggle";
 import { RobotAvatar } from "@posthog/ui/features/mcp-gateway/components/parts/avatars";
 import { ToolPolicyToggle } from "@posthog/ui/features/mcp-servers/components/parts/ToolPolicyToggle";
 import {
@@ -28,13 +30,18 @@ import { useMemo, useState } from "react";
 interface GiveAccessDialogProps {
   open: boolean;
   server: McpGatewayServer;
-  /** Every service account; ones that already have access are filtered out. */
+  /** Every service account; ones the caller already shared with are filtered out. */
   accounts: McpServiceAccount[];
+  currentUserId: number | null;
   /** Team-scope rows, used for tool names and rule locks. */
   toolPolicies: McpResolvedToolPolicy[];
   pending: boolean;
   onClose: () => void;
-  onGrant: (accountId: string, policies: McpToolPolicyEntry[]) => void;
+  onGrant: (
+    accountId: string,
+    policies: McpToolPolicyEntry[],
+    scope: McpAgentGrantScope,
+  ) => void;
 }
 
 /** "Share <server> with an agent" — agent picker plus per-tool starting policies. */
@@ -48,12 +55,14 @@ function GiveAccessDialogDraft({
   open,
   server,
   accounts,
+  currentUserId,
   toolPolicies,
   pending,
   onClose,
   onGrant,
 }: GiveAccessDialogProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [scope, setScope] = useState<McpAgentGrantScope>("personal");
   const [policyMap, setPolicyMap] = useState<Record<string, AgentPolicyState>>(
     {},
   );
@@ -63,12 +72,17 @@ function GiveAccessDialogDraft({
     setPolicyMap({});
   };
 
+  // A teammate's share doesn't block the caller's own — several members may
+  // each back the same agent, so only agents the caller already shared with
+  // drop out of the picker.
   const available = useMemo(() => {
-    const withAccess = new Set(
-      server.agents.map((agent) => agent.service_account_id),
+    const sharedByYou = new Set(
+      server.agents
+        .filter((agent) => agent.user.id === currentUserId)
+        .map((agent) => agent.service_account_id),
     );
-    return accounts.filter((account) => !withAccess.has(account.id));
-  }, [accounts, server.agents]);
+    return accounts.filter((account) => !sharedByYou.has(account.id));
+  }, [accounts, server.agents, currentUserId]);
 
   const selected = available.find((account) => account.id === selectedId);
 
@@ -95,7 +109,7 @@ function GiveAccessDialogDraft({
         tool_name: policy.tool_name,
         policy_state: policyFor(policy.tool_name),
       }));
-    onGrant(selected.id, policies);
+    onGrant(selected.id, policies, scope);
   };
 
   return (
@@ -129,11 +143,24 @@ function GiveAccessDialogDraft({
               ))}
               {available.length === 0 && (
                 <Text color="gray" className="block px-3 py-2 text-sm italic">
-                  Every agent already has access to {server.name}.
+                  You've already shared {server.name} with every agent.
                 </Text>
               )}
             </Select.Content>
           </Select.Root>
+
+          {selected && (
+            <Flex align="center" justify="between" gap="3">
+              <Text color="gray" className="text-[13px]">
+                Applies to
+              </Text>
+              <AgentScopeToggle
+                value={scope}
+                disabled={pending}
+                onChange={setScope}
+              />
+            </Flex>
+          )}
 
           {selected && (
             <Flex direction="column" gap="2">

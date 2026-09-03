@@ -4,10 +4,8 @@ import { StepDefinition } from '../steps'
 import { DEFAULT_SNIPPET_METHODS, snippetFunctions } from './_snippets/js-snippet-builder'
 import { SDK_DEFAULTS_DATE } from './_snippets/sdkDefaults'
 
-export const getFramerSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
-    const { CodeBlock, Markdown, dedent, snippets } = ctx
-
-    const JSEventCapture = snippets?.JSEventCapture
+export const getFramerInstallSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+    const { CodeBlock, Markdown, dedent } = ctx
 
     return [
         {
@@ -54,11 +52,23 @@ export const getFramerSteps = (ctx: OnboardingComponentsContext): StepDefinition
                 </>
             ),
         },
-        {
-            title: 'Send events',
-            content: <>{JSEventCapture && <JSEventCapture />}</>,
-        },
     ]
 }
+
+export const getFramerEventStep = (ctx: OnboardingComponentsContext): StepDefinition => {
+    const { snippets } = ctx
+
+    const JSEventCapture = snippets?.JSEventCapture
+
+    return {
+        title: 'Send events',
+        content: <>{JSEventCapture && <JSEventCapture />}</>,
+    }
+}
+
+export const getFramerSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => [
+    ...getFramerInstallSteps(ctx),
+    getFramerEventStep(ctx),
+]
 
 export const FramerInstallation = createInstallation(getFramerSteps)

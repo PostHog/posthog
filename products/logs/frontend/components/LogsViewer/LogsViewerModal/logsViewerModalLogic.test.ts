@@ -2,6 +2,7 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
+import { FilterLogicalOperator, PropertyFilterType, PropertyOperator, UniversalFiltersGroup } from '~/types'
 
 import { logsViewerModalLogic } from './logsViewerModalLogic'
 
@@ -105,13 +106,53 @@ describe('logsViewerModalLogic', () => {
             }).toMatchValues({ initialFilters: null })
         })
 
-        it('clears initialFilters on close', async () => {
-            logic.actions.openLogsViewerModal({ initialFilters: { searchTerm: 'test' } })
+        it('keeps initialFilters on close, while the modal renders out its exit animation', async () => {
+            const filters = { searchTerm: 'test' }
+            logic.actions.openLogsViewerModal({ initialFilters: filters })
             await expectLogic(logic).toFinishAllListeners()
 
             await expectLogic(logic, () => {
                 logic.actions.closeLogsViewerModal()
-            }).toMatchValues({ initialFilters: null })
+            }).toMatchValues({ initialFilters: filters })
+        })
+    })
+
+    describe('viewer scope', () => {
+        const pinnedFilters: UniversalFiltersGroup = {
+            type: FilterLogicalOperator.And,
+            values: [
+                {
+                    key: 'trace_id',
+                    type: PropertyFilterType.Log,
+                    operator: PropertyOperator.Exact,
+                    value: ['abc'],
+                },
+            ],
+        }
+
+        it('keeps the scope the opening viewer was embedded with', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.openLogsViewerModal({ id: 'person-1', pinnedFilters, personId: 'a-person-uuid' })
+            }).toMatchValues({ pinnedFilters, personId: 'a-person-uuid' })
+        })
+
+        it('holds the scope through close, so the closing viewer never queries unscoped', async () => {
+            logic.actions.openLogsViewerModal({ id: 'person-1', pinnedFilters, personId: 'a-person-uuid' })
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.closeLogsViewerModal()
+            }).toMatchValues({ pinnedFilters, personId: 'a-person-uuid' })
+        })
+
+        it('drops the scope when reopened from an unscoped entry point', async () => {
+            logic.actions.openLogsViewerModal({ id: 'person-1', pinnedFilters, personId: 'a-person-uuid' })
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.closeLogsViewerModal()
+
+            await expectLogic(logic, () => {
+                logic.actions.openLogsViewerModal({ id: 'modal' })
+            }).toMatchValues({ pinnedFilters: null, personId: null })
         })
     })
 

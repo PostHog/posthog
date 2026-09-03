@@ -2,6 +2,8 @@ import dataclasses
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 
+import requests
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
@@ -77,6 +79,16 @@ def _format_timestamp(value: Any) -> str:
     if isinstance(value, date):
         return value.strftime("%Y-%m-%dT00:00:00Z")
     return str(value)
+
+
+def _error_details(response: requests.Response) -> str:
+    """Bounded body excerpt for API error logs.
+
+    Checkout.com 4xx bodies carry the machine-readable failure reason (`error_type` and
+    `error_codes`) that the status line hides, e.g. a 422 naming the invalid request
+    field. Bounded so an unexpected HTML error page can't flood the log.
+    """
+    return (response.text or "").strip()[:500]
 
 
 def validate_credentials(environment: str, client_id: str, client_secret: str) -> bool:

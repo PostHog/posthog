@@ -1,3 +1,4 @@
+import type { TaskUsage } from "@posthog/api-client/posthog-client";
 import {
   CONTEXT_CATEGORIES,
   formatCostUsd,
@@ -8,14 +9,14 @@ import type { ContextUsage } from "@posthog/ui/features/sessions/hooks/useContex
 
 interface ContextBreakdownPopoverProps {
   usage: ContextUsage;
-  showCost?: boolean;
+  taskUsage?: TaskUsage;
 }
 
 export function ContextBreakdownPopover({
   usage,
-  showCost = false,
+  taskUsage,
 }: ContextBreakdownPopoverProps) {
-  const { used, size, percentage, cost, breakdown } = usage;
+  const { used, size, percentage, breakdown } = usage;
   const fillColor = getOverallUsageColor(percentage);
   // The context window can be unknown (size 0) — show just the token count
   // rather than a misleading "~X / 0 tokens · 0% full".
@@ -72,14 +73,51 @@ export function ContextBreakdownPopover({
         </span>
       )}
 
-      {showCost && cost && (
-        <div className="flex items-center justify-between border-border border-t pt-2 text-[13px]">
-          <span className="text-muted-foreground">Estimated cost</span>
-          <span className="font-medium text-foreground tabular-nums">
-            {formatCostUsd(cost.amount)}
-          </span>
+      {taskUsage && (
+        <div className="border-border border-t pt-2.5">
+          <div className="overflow-hidden rounded-md border border-border/70 bg-muted/20">
+            <div className="flex items-center justify-between gap-6 px-2.5 py-1.5">
+              <span className="font-medium text-[11px] text-muted-foreground">
+                Estimated cost
+              </span>
+              <span className="font-semibold text-[15px] text-foreground tabular-nums leading-none">
+                {formatCostUsd(taskUsage.total_cost_usd)}
+              </span>
+            </div>
+            <div className="grid grid-cols-2 border-border/70 border-t bg-background/40">
+              <CostDetail label="Tokens" value={taskUsage.token_cost_usd} />
+              <CostDetail
+                label="Cloud compute"
+                value={taskUsage.compute_cost_usd}
+                divided
+              />
+            </div>
+          </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function CostDetail({
+  label,
+  value,
+  divided = false,
+}: {
+  label: string;
+  value: number;
+  divided?: boolean;
+}) {
+  return (
+    <div
+      className={`flex min-w-0 flex-col px-2.5 py-1.5 ${divided ? "border-border/70 border-l" : ""}`}
+    >
+      <span className="truncate text-[10px] text-muted-foreground">
+        {label}
+      </span>
+      <span className="font-medium text-[12px] text-foreground tabular-nums">
+        {formatCostUsd(value)}
+      </span>
     </div>
   );
 }

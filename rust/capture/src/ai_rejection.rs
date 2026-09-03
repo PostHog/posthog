@@ -41,9 +41,9 @@ enum ErrorKind {
 
 /// A request the AI endpoint refused because of something the customer sent.
 ///
-/// Server-side failures (blob storage unconfigured, S3 upload, Kafka, event
-/// serialization) are deliberately absent: they stay `CaptureError`, since they
-/// are ours to fix and must never surface as customer warnings.
+/// Server-side failures (Kafka, event serialization) are deliberately absent:
+/// they stay `CaptureError`, since they are ours to fix and must never surface
+/// as customer warnings.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AiRejection {
     // Request framing
@@ -67,17 +67,9 @@ pub enum AiRejection {
     ConflictingProperties,
     EventMissingProperties,
 
-    // Blob parts
-    BlobContentTypeMissing(String),
-    BlobContentTypeUnsupported { field: String, content_type: String },
-    BlobEmpty(String),
-    BlobPropertyNested(String),
-    BlobPropertyDuplicate(String),
-
     // Size limits
     EventPartTooBig { size: usize, max: usize },
     EventAndPropertiesTooBig { size: usize, max: usize },
-    SumOfPartsTooBig { size: usize, max: usize },
 
     // Event identity
     EventMissingName,
@@ -113,7 +105,7 @@ impl AiRejection {
             }
             Self::DuplicateEventPart => "Duplicate 'event' part found".to_string(),
             Self::UnknownField(field_name) => format!(
-                "Unknown multipart field: '{field_name}'. Expected 'event', 'event.properties', or 'event.properties.<property_name>'"
+                "Unknown multipart field: '{field_name}'. Expected 'event' or 'event.properties'"
             ),
 
             Self::EventPartNotUtf8 => "Event part must be valid UTF-8".to_string(),
@@ -128,33 +120,11 @@ impl AiRejection {
             }
             Self::EventMissingProperties => "Event missing 'properties' field".to_string(),
 
-            Self::BlobContentTypeMissing(field_name) => format!(
-                "Missing required Content-Type header for blob part '{field_name}'"
-            ),
-            Self::BlobContentTypeUnsupported {
-                field,
-                content_type,
-            } => format!(
-                "Unsupported content type for blob part '{field}': '{content_type}'. Supported types: application/octet-stream, application/json, text/plain"
-            ),
-            Self::BlobEmpty(field_name) => {
-                format!("Blob part '{field_name}' cannot be empty (0 bytes)")
-            }
-            Self::BlobPropertyNested(field_name) => format!(
-                "Blob property '{field_name}' contains nested properties (dots). Only top-level properties are allowed."
-            ),
-            Self::BlobPropertyDuplicate(field_name) => {
-                format!("Duplicate blob property: {field_name}")
-            }
-
             Self::EventPartTooBig { size, max } => format!(
                 "Event part size ({size} bytes) exceeds maximum allowed size ({max} bytes)"
             ),
             Self::EventAndPropertiesTooBig { size, max } => format!(
                 "Combined event and properties size ({size} bytes) exceeds maximum allowed size ({max} bytes)"
-            ),
-            Self::SumOfPartsTooBig { size, max } => format!(
-                "Sum of all parts ({size} bytes) exceeds maximum allowed size ({max} bytes)"
             ),
 
             Self::EventMissingName => "Event missing 'event' field".to_string(),
@@ -185,9 +155,9 @@ impl AiRejection {
             | Self::MultipartParseFailed(_)
             | Self::FieldDataUnreadable(_) => ErrorKind::Decoding,
 
-            Self::EventPartTooBig { .. }
-            | Self::EventAndPropertiesTooBig { .. }
-            | Self::SumOfPartsTooBig { .. } => ErrorKind::TooBig,
+            Self::EventPartTooBig { .. } | Self::EventAndPropertiesTooBig { .. } => {
+                ErrorKind::TooBig
+            }
 
             Self::MissingEventPart
             | Self::FirstPartNotEvent(_)
@@ -200,11 +170,6 @@ impl AiRejection {
             | Self::PropertiesPartNotJson
             | Self::ConflictingProperties
             | Self::EventMissingProperties
-            | Self::BlobContentTypeMissing(_)
-            | Self::BlobContentTypeUnsupported { .. }
-            | Self::BlobEmpty(_)
-            | Self::BlobPropertyNested(_)
-            | Self::BlobPropertyDuplicate(_)
             | Self::EventMissingName
             | Self::EventNameRequired
             | Self::EventNameEmpty
@@ -267,7 +232,7 @@ pub(crate) fn all_variants_with_messages() -> Vec<(AiRejection, &'static str)> {
             ),
             (
                 AiRejection::UnknownField("nope".to_string()),
-                "Unknown multipart field: 'nope'. Expected 'event', 'event.properties', or 'event.properties.<property_name>'",
+                "Unknown multipart field: 'nope'. Expected 'event' or 'event.properties'",
             ),
             (
                 AiRejection::EventPartNotUtf8,
@@ -295,29 +260,6 @@ pub(crate) fn all_variants_with_messages() -> Vec<(AiRejection, &'static str)> {
                 "Event missing 'properties' field",
             ),
             (
-                AiRejection::BlobContentTypeMissing("event.properties.x".to_string()),
-                "Missing required Content-Type header for blob part 'event.properties.x'",
-            ),
-            (
-                AiRejection::BlobContentTypeUnsupported {
-                    field: "event.properties.x".to_string(),
-                    content_type: "image/png".to_string(),
-                },
-                "Unsupported content type for blob part 'event.properties.x': 'image/png'. Supported types: application/octet-stream, application/json, text/plain",
-            ),
-            (
-                AiRejection::BlobEmpty("event.properties.x".to_string()),
-                "Blob part 'event.properties.x' cannot be empty (0 bytes)",
-            ),
-            (
-                AiRejection::BlobPropertyNested("event.properties.a.b".to_string()),
-                "Blob property 'event.properties.a.b' contains nested properties (dots). Only top-level properties are allowed.",
-            ),
-            (
-                AiRejection::BlobPropertyDuplicate("event.properties.x".to_string()),
-                "Duplicate blob property: event.properties.x",
-            ),
-            (
                 AiRejection::EventPartTooBig {
                     size: 40_000,
                     max: 32_768,
@@ -330,13 +272,6 @@ pub(crate) fn all_variants_with_messages() -> Vec<(AiRejection, &'static str)> {
                     max: 983_040,
                 },
                 "Combined event and properties size (1000000 bytes) exceeds maximum allowed size (983040 bytes)",
-            ),
-            (
-                AiRejection::SumOfPartsTooBig {
-                    size: 30_000_000,
-                    max: 26_214_400,
-                },
-                "Sum of all parts (30000000 bytes) exceeds maximum allowed size (26214400 bytes)",
             ),
             (
                 AiRejection::EventMissingName,
@@ -460,7 +395,7 @@ mod tests {
         );
         assert_eq!(
             listed.len(),
-            35,
+            29,
             "variant count changed — add the new variant to all_variants_with_messages \
              and update this expected count"
         );
@@ -476,12 +411,10 @@ mod tests {
     #[case::missing_event_part(AiRejection::MissingEventPart, 400)]
     #[case::unknown_field(AiRejection::UnknownField("x".to_string()), 400)]
     #[case::event_not_json(AiRejection::EventPartNotJson, 400)]
-    #[case::blob_empty(AiRejection::BlobEmpty("x".to_string()), 400)]
     #[case::event_name_not_allowed(AiRejection::EventNameNotAllowed("$pageview".to_string()), 400)]
     #[case::ai_model_missing(AiRejection::AiModelMissing, 400)]
     #[case::event_part_too_big(AiRejection::EventPartTooBig { size: 1, max: 0 }, 413)]
     #[case::combined_too_big(AiRejection::EventAndPropertiesTooBig { size: 1, max: 0 }, 413)]
-    #[case::sum_of_parts_too_big(AiRejection::SumOfPartsTooBig { size: 1, max: 0 }, 413)]
     fn rejections_keep_their_status_code(#[case] rejection: AiRejection, #[case] expected: u16) {
         let err: CaptureError = rejection.into();
         let status = err.into_response().status().as_u16();

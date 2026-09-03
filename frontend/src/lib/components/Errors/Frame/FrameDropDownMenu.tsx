@@ -30,6 +30,16 @@ export function FrameDropDownMenu({
     const { getSourceDataForFrame } = useValues(framesCodeSourceLogic)
     const sourceData = getSourceDataForFrame(raw_id)
     const lineLocation = getLineLocation(frame)
+    const hasItems = !!(frame.resolved_name || frame.source || lineLocation || sourceData)
+
+    if (!hasItems) {
+        return (
+            <ButtonPrimitive className={className} disabled>
+                {children}
+            </ButtonPrimitive>
+        )
+    }
+
     return (
         <DropdownMenu>
             <DropdownMenuTrigger asChild>

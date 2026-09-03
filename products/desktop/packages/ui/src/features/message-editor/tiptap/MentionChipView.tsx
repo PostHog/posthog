@@ -6,17 +6,19 @@ import {
   FolderIcon,
   GithubLogoIcon,
   GitPullRequestIcon,
+  PulseIcon,
   TerminalIcon,
   WarningIcon,
   XIcon,
 } from "@phosphor-icons/react";
 import { Chip, cn } from "@posthog/quill";
 import { Tooltip } from "@posthog/ui/primitives/Tooltip";
+import { getObjectKind } from "@posthog/ui/utils/objectKinds";
 import { type NodeViewProps, NodeViewWrapper } from "@tiptap/react";
 import { usePasteUndoStore } from "../pasteUndoStore";
 import type { ChipType, MentionChipAttrs } from "./MentionChipNode";
 
-const chipBase = "group/chip relative top-px active:translate-y-0 pl-1";
+const chipBase = "group/chip relative top-px active:translate-y-0";
 
 const selectedRing = "border-ring/50 ring-[1px] ring-ring/50";
 
@@ -30,32 +32,43 @@ const typeIconMap: Record<ChipType, React.ComponentType<{ size: number }>> = {
   experiment: FlaskIcon,
   insight: ChartLineIcon,
   feature_flag: FlagIcon,
+  posthog_object: PulseIcon,
 };
 
 function IconCloseButton({
   type,
+  iconSize,
+  objectKind,
   onRemove,
 }: {
   type: ChipType;
+  iconSize: number;
+  objectKind?: MentionChipAttrs["objectKind"];
   onRemove: () => void;
 }) {
-  const Icon = typeIconMap[type] || FileTextIcon;
+  const Icon =
+    type === "posthog_object" && objectKind
+      ? getObjectKind(objectKind).icon
+      : typeIconMap[type] || FileTextIcon;
 
   return (
     <button
       type="button"
       tabIndex={-1}
-      className="relative inline-flex size-3.5 shrink-0 cursor-pointer items-center justify-center border-none bg-transparent p-0"
+      className={cn(
+        "relative inline-flex shrink-0 cursor-pointer items-center justify-center border-none bg-transparent p-0",
+        iconSize > 10 ? "size-4" : "size-3.5",
+      )}
       onClick={(e) => {
         e.stopPropagation();
         onRemove();
       }}
     >
       <span className="ease pointer-events-none absolute inset-0 flex items-center justify-center opacity-50 transition-opacity duration-150 group-hover/chip:opacity-0 motion-reduce:transition-none">
-        <Icon size={10} />
+        <Icon size={iconSize} />
       </span>
       <span className="ease pointer-events-none absolute inset-0 flex items-center justify-center opacity-0 transition-opacity duration-150 group-hover/chip:opacity-100 motion-reduce:transition-none">
-        <XIcon size={10} />
+        <XIcon size={iconSize} />
       </span>
     </button>
   );
@@ -65,6 +78,7 @@ function DefaultChip({
   type,
   id,
   label,
+  objectKind,
   chipId,
   pastedText,
   selected,
@@ -73,6 +87,7 @@ function DefaultChip({
   type: string;
   id: string;
   label: string;
+  objectKind?: MentionChipAttrs["objectKind"];
   chipId: string | null;
   pastedText: boolean;
   selected: boolean;
@@ -82,10 +97,11 @@ function DefaultChip({
   const canUndoPaste =
     pastedText && chipId !== null && chipId === undoableChipId;
   const isCommand = type === "command";
-  const prefix = isCommand ? "/" : "@";
+  const prefix = isCommand ? "/" : type === "posthog_object" ? "" : "@";
   const isFile = type === "file";
   const isFolder = type === "folder";
   const isGithubRef = type === "github_issue" || type === "github_pr";
+  const isPr = type === "github_pr";
   const canOpenUrl = isGithubRef && /^https:\/\//.test(id);
 
   // A skill reads as part of the sentence being written, not as an object
@@ -112,12 +128,17 @@ function DefaultChip({
 
   const chipContent = (
     <Chip
-      size="xs"
+      size={isPr ? "sm" : "xs"}
       contentEditable={false}
       onClick={canOpenUrl ? () => window.open(id, "_blank") : undefined}
-      className={`${chipBase} max-w-full whitespace-nowrap ${isGithubRef ? "cursor-pointer!" : "cursor-default! active:translate-y-0!"} ${isCommand ? "cli-slash-command" : "cli-file-mention"} ${selected ? selectedRing : ""}`}
+      className={`${chipBase} ${isPr ? "pl-1.5" : "pl-1"} max-w-full whitespace-nowrap ${isGithubRef ? "cursor-pointer!" : "cursor-default! active:translate-y-0!"} ${isCommand ? "cli-slash-command" : "cli-file-mention"} ${selected ? selectedRing : ""}`}
     >
-      <IconCloseButton type={type as ChipType} onRemove={onRemove} />
+      <IconCloseButton
+        type={type as ChipType}
+        iconSize={isPr ? 12 : 10}
+        objectKind={objectKind}
+        onRemove={onRemove}
+      />
       {isGithubRef ? (
         <span className="min-w-0 truncate">{label}</span>
       ) : (
@@ -143,7 +164,7 @@ export function MentionChipView({
   editor,
   selected,
 }: NodeViewProps) {
-  const { type, id, label, pastedText, chipId } =
+  const { type, id, label, objectKind, pastedText, chipId } =
     node.attrs as MentionChipAttrs;
 
   const handleRemove = () => {
@@ -162,6 +183,7 @@ export function MentionChipView({
         type={type}
         id={id}
         label={label}
+        objectKind={objectKind}
         chipId={chipId ?? null}
         pastedText={pastedText}
         selected={selected}

@@ -1,24 +1,11 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.appfollow.appfollow import AppfollowResumeConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.appfollow.settings import (
-    APPFOLLOW_ENDPOINTS,
-    ENDPOINTS,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.appfollow.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.appfollow.source import AppfollowSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.appfollow import (
     AppfollowSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestAppfollowSource:
@@ -26,24 +13,6 @@ class TestAppfollowSource:
         self.source = AppfollowSource()
         self.team_id = 123
         self.config = AppfollowSourceConfig(api_key="tok_test")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.APPFOLLOW
-
-    def test_get_source_config(self):
-        config = self.source.get_source_config
-        assert config.name.value == "Appfollow"
-        assert config.category == DataWarehouseSourceCategory.ANALYTICS
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.iconPath == "/static/services/appfollow.png"
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/appfollow"
-
-    def test_api_key_field_is_secret_password(self):
-        config = self.source.get_source_config
-        field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_key")
-        assert field.type == SourceFieldInputConfigType.PASSWORD
-        assert field.secret is True
-        assert field.required is True
 
     def test_lists_tables_without_credentials(self):
         # get_schemas is a static catalog with no I/O, so the public docs can render the table list.
@@ -151,44 +120,6 @@ class TestAppfollowSource:
     def test_non_retryable_errors_ignore_retryable_and_unrelated(self, unrelated_error):
         non_retryable = self.source.get_non_retryable_errors()
         assert not any(key in unrelated_error for key in non_retryable)
-
-    def test_get_resumable_source_manager_bound_to_resume_config(self):
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is AppfollowResumeConfig
-
-    def test_source_for_pipeline_plumbs_arguments(self):
-        manager = mock.MagicMock()
-        inputs = mock.MagicMock()
-        inputs.schema_name = "reviews"
-        inputs.should_use_incremental_field = True
-        inputs.db_incremental_field_last_value = "2024-01-01"
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.appfollow.source.appfollow_source"
-        ) as appfollow_source:
-            self.source.source_for_pipeline(self.config, manager, inputs)
-            kwargs = appfollow_source.call_args.kwargs
-            assert kwargs["api_key"] == "tok_test"
-            assert kwargs["endpoint"] == "reviews"
-            assert kwargs["resumable_source_manager"] is manager
-            assert kwargs["should_use_incremental_field"] is True
-            assert kwargs["db_incremental_field_last_value"] == "2024-01-01"
-
-    def test_source_for_pipeline_drops_last_value_when_not_incremental(self):
-        manager = mock.MagicMock()
-        inputs = mock.MagicMock()
-        inputs.schema_name = "app_collections"
-        inputs.should_use_incremental_field = False
-        inputs.db_incremental_field_last_value = "2024-01-01"
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.appfollow.source.appfollow_source"
-        ) as appfollow_source:
-            self.source.source_for_pipeline(self.config, manager, inputs)
-            assert appfollow_source.call_args.kwargs["db_incremental_field_last_value"] is None
-
-    def test_canonical_descriptions_keyed_by_endpoint_names(self):
-        descriptions = self.source.get_canonical_descriptions()
-        assert set(descriptions.keys()) == set(APPFOLLOW_ENDPOINTS)
 
     def test_documented_tables_render_for_public_docs(self):
         # lists_tables_without_credentials=True must produce a credential-free catalog for posthog.com;

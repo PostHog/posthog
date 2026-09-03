@@ -5,6 +5,24 @@ import {
 } from "../claude/context-breakdown";
 import { readTokenUsage } from "./token-usage";
 
+export function mergeUsage(
+  left: Usage | undefined,
+  right: Usage | undefined,
+): Usage | undefined {
+  if (!left) return right;
+  if (!right) return left;
+  return {
+    inputTokens: left.inputTokens + right.inputTokens,
+    outputTokens: left.outputTokens + right.outputTokens,
+    cachedReadTokens:
+      (left.cachedReadTokens ?? 0) + (right.cachedReadTokens ?? 0),
+    cachedWriteTokens:
+      (left.cachedWriteTokens ?? 0) + (right.cachedWriteTokens ?? 0),
+    thoughtTokens: (left.thoughtTokens ?? 0) + (right.thoughtTokens ?? 0),
+    totalTokens: left.totalTokens + right.totalTokens,
+  };
+}
+
 /** The live `_posthog/usage_update` fields (context-window occupancy). */
 export interface UsageUpdate {
   used: number;
@@ -26,6 +44,7 @@ export interface UsageUpdate {
 export class UsageTracker {
   private baseline: ContextBreakdownBaseline = emptyBaseline();
   private lastTurn?: Usage;
+  private carried?: Usage;
   private contextUsed?: number;
 
   setBaseline(baseline: ContextBreakdownBaseline): void {
@@ -38,7 +57,13 @@ export class UsageTracker {
 
   resetForTurn(): void {
     this.lastTurn = undefined;
+    this.carried = undefined;
     this.contextUsed = undefined;
+  }
+
+  carryForNativeTurn(): void {
+    this.carried = mergeUsage(this.carried, this.lastTurn);
+    this.lastTurn = undefined;
   }
 
   /** Ingest a `thread/tokenUsage/updated` payload; returns the live usage_update, or null if unusable. */
@@ -74,7 +99,8 @@ export class UsageTracker {
   }
 
   perTurnUsage(): Usage | undefined {
-    return this.lastTurn ? { ...this.lastTurn } : undefined;
+    const merged = mergeUsage(this.carried, this.lastTurn);
+    return merged ? { ...merged } : undefined;
   }
 
   /** Live context occupancy (same derivation as the renderer gauge), or undefined pre-usage. */

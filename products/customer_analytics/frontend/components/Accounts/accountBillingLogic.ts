@@ -18,6 +18,7 @@ import { dayjs } from 'lib/dayjs'
 import { dateStringToDayJs } from 'lib/utils/dateFilters'
 import { insightsApi } from 'scenes/insights/utils/api'
 
+import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import {
     DataVisualizationNode,
     HogQLVariable,
@@ -76,6 +77,10 @@ export interface AccountBillingLogicProps {
     accountId: string
     externalId: string
     kind: AccountBillingKind
+}
+
+export function getBillingDataVisualizationKey(queryKey: string): string {
+    return `InsightViz.${queryKey}`
 }
 
 // Inject the account's org and the chosen date range into the saved insight's SQL variables, keyed by their
@@ -230,22 +235,51 @@ export const accountBillingLogic = kea<accountBillingLogicType>([
             },
         ],
     })),
-    listeners(({ props, values }) => ({
-        toggleHiddenSeriesKey: ({ shortId, seriesKey, seriesCount }) => {
-            posthog.capture(AccountsEvents.UsageSeriesToggled, {
-                kind: props.kind,
-                is_hidden: (values.ephemeralHiddenSeriesKeysByShortId[shortId] ?? []).includes(seriesKey),
-                series_count: seriesCount,
-            })
-        },
-        setAllSeriesHidden: ({ seriesKeys, hidden }) => {
-            posthog.capture(AccountsEvents.UsageSeriesBulkToggled, {
-                kind: props.kind,
-                is_hidden: hidden,
-                series_count: seriesKeys.length,
-            })
-        },
-    })),
+    listeners(({ props, values, cache }) => {
+        const preloadSavedInsights = (savedInsights: QueryBasedInsightModel[]): void => {
+            for (const insight of savedInsights) {
+                if (!insight.query || insight.query.kind !== NodeKind.DataVisualizationNode) {
+                    continue
+                }
+                const queryKey = values.queryKeyFor(insight.short_id)
+                const dataVisualizationKey = getBillingDataVisualizationKey(queryKey)
+                cache.disposables.add(
+                    () =>
+                        dataVisualizationLogic({
+                            key: dataVisualizationKey,
+                            query: insight.query as DataVisualizationNode,
+                            dataNodeCollectionId: queryKey,
+                            variablesOverride: values.variableOverridesByShortId[insight.short_id] ?? null,
+                        }).mount(),
+                    `preload-${insight.short_id}`,
+                    { pauseOnPageHidden: false }
+                )
+            }
+        }
+
+        return {
+            loadSavedInsightsSuccess: ({ savedInsights }) => {
+                preloadSavedInsights(savedInsights)
+            },
+            setDateRange: () => {
+                preloadSavedInsights(values.savedInsights ?? [])
+            },
+            toggleHiddenSeriesKey: ({ shortId, seriesKey, seriesCount }) => {
+                posthog.capture(AccountsEvents.UsageSeriesToggled, {
+                    kind: props.kind,
+                    is_hidden: (values.ephemeralHiddenSeriesKeysByShortId[shortId] ?? []).includes(seriesKey),
+                    series_count: seriesCount,
+                })
+            },
+            setAllSeriesHidden: ({ seriesKeys, hidden }) => {
+                posthog.capture(AccountsEvents.UsageSeriesBulkToggled, {
+                    kind: props.kind,
+                    is_hidden: hidden,
+                    series_count: seriesKeys.length,
+                })
+            },
+        }
+    }),
     loaders(({ props }) => ({
         savedInsights: [
             null as QueryBasedInsightModel[] | null,

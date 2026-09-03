@@ -3,11 +3,16 @@ use std::panic;
 use std::sync::Once;
 
 use envconfig::Envconfig;
-use pyroscope::pyroscope::PyroscopeAgentRunning;
+use pyroscope::backend::jemalloc::jemalloc_backend;
+use pyroscope::backend::{
+    pprof_backend, BackendConfig, BackendImpl, BackendUninitialized, PprofConfig,
+};
+use pyroscope::pyroscope::{PyroscopeAgentBuilder, PyroscopeAgentRunning};
 use pyroscope::PyroscopeAgent;
-use pyroscope_pprofrs::{pprof_backend, PprofConfig};
 
 static PANIC_HOOK_INSTALLED: Once = Once::new();
+
+const SPY_NAME: &str = "pyroscope-rs";
 
 /// K8s metadata environment variables for Pyroscope tags
 const K8S_TAG_ENV_VARS: &[(&str, &str)] = &[
@@ -19,13 +24,20 @@ const K8S_TAG_ENV_VARS: &[(&str, &str)] = &[
     ("app", "K8S_APP"),
     ("container", "K8S_CONTAINER_NAME"),
     ("controller_type", "K8S_CONTROLLER_TYPE"),
-    ("service_name", "K8S_SERVICE_NAME"),
+    // No service_name here: pyroscope 2.x already sets it from the application
+    // name, and the server rejects profiles with a duplicate label (HTTP 400).
 ];
 
 #[derive(Envconfig, Clone, Debug)]
 pub struct ContinuousProfilingConfig {
     #[envconfig(default = "false")]
     pub continuous_profiling_enabled: bool,
+
+    /// Also push jemalloc heap profiles (profile type "memory"). Requires jemalloc
+    /// profiling to be active at process start, e.g.
+    /// `_RJEM_MALLOC_CONF=prof:true,prof_active:true,lg_prof_sample:19`.
+    #[envconfig(default = "false")]
+    pub continuous_profiling_memory_enabled: bool,
 
     #[envconfig(default = "")]
     pub pyroscope_server_address: String,
@@ -40,10 +52,18 @@ pub struct ContinuousProfilingConfig {
 /// A running Pyroscope agent handle. Keep this alive for the duration of profiling.
 pub type RunningAgent = PyroscopeAgent<PyroscopeAgentRunning>;
 
+/// The running profiling agents. Keep this alive for the duration of profiling;
+/// dropping it stops all profiling.
+pub struct RunningAgents {
+    _cpu: RunningAgent,
+    _memory: Option<RunningAgent>,
+}
+
 impl Default for ContinuousProfilingConfig {
     fn default() -> Self {
         Self {
             continuous_profiling_enabled: false,
+            continuous_profiling_memory_enabled: false,
             pyroscope_server_address: String::new(),
             pyroscope_application_name: String::new(),
             pyroscope_sample_rate: 100,
@@ -107,8 +127,14 @@ fn install_panic_safe_hook() {
 impl ContinuousProfilingConfig {
     /// Initialize continuous profiling if enabled.
     ///
-    /// Returns an `Option<RunningAgent>` that should be kept alive for the
-    /// duration of the application. When dropped, the agent will stop profiling.
+    /// Returns an `Option<RunningAgents>` that should be kept alive for the
+    /// duration of the application. When dropped, the agents will stop profiling.
+    ///
+    /// A CPU profiling agent is always started. When
+    /// `continuous_profiling_memory_enabled` is set, a second agent pushes
+    /// jemalloc heap profiles; if that agent fails to start (typically because
+    /// jemalloc profiling isn't active), the error is logged and CPU profiling
+    /// continues alone.
     ///
     /// This function installs a panic hook to ensure that panics in pyroscope's
     /// internal threads don't crash the main application. The pyroscope library
@@ -119,10 +145,10 @@ impl ContinuousProfilingConfig {
     ///
     /// ```ignore
     /// let config = ContinuousProfilingConfig::init_from_env()?;
-    /// let _agent = config.start_agent()?;
-    /// // Agent runs until _agent is dropped
+    /// let _agents = config.start_agent()?;
+    /// // Agents run until _agents is dropped
     /// ```
-    pub fn start_agent(&self) -> Result<Option<RunningAgent>, ContinuousProfilingError> {
+    pub fn start_agent(&self) -> Result<Option<RunningAgents>, ContinuousProfilingError> {
         if !self.continuous_profiling_enabled {
             tracing::info!("Continuous profiling is disabled");
             return Ok(None);
@@ -145,30 +171,69 @@ impl ContinuousProfilingConfig {
             server_address = %self.pyroscope_server_address,
             app_name = %self.pyroscope_application_name,
             sample_rate = %self.pyroscope_sample_rate,
+            memory_enabled = %self.continuous_profiling_memory_enabled,
             tags = ?tags,
             "Starting continuous profiling"
         );
 
+        let cpu_backend = pprof_backend(
+            PprofConfig {
+                sample_rate: self.pyroscope_sample_rate,
+            },
+            BackendConfig::default(),
+        );
+        let cpu = self.start_backend(cpu_backend, &tags)?;
+
+        let memory = if self.continuous_profiling_memory_enabled {
+            match self.start_backend(jemalloc_backend(), &tags) {
+                Ok(agent) => Some(agent),
+                Err(e) => {
+                    tracing::error!(
+                        error = %e,
+                        "Failed to start memory profiling agent - check that jemalloc \
+                         profiling is active (_RJEM_MALLOC_CONF=prof:true,prof_active:true); \
+                         CPU profiling continues"
+                    );
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
+        tracing::info!(
+            memory_profiling = %memory.is_some(),
+            "Continuous profiling agent started successfully"
+        );
+
+        Ok(Some(RunningAgents {
+            _cpu: cpu,
+            _memory: memory,
+        }))
+    }
+
+    fn start_backend(
+        &self,
+        backend: BackendImpl<BackendUninitialized>,
+        tags: &[(String, String)],
+    ) -> Result<RunningAgent, ContinuousProfilingError> {
         // Convert tags to the format expected by pyroscope: Vec<(&str, &str)>
         let tags_refs: Vec<(&str, &str)> =
             tags.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
 
-        let agent = PyroscopeAgent::builder(
+        let agent = PyroscopeAgentBuilder::new(
             &self.pyroscope_server_address,
             &self.pyroscope_application_name,
+            self.pyroscope_sample_rate,
+            SPY_NAME,
+            env!("CARGO_PKG_VERSION"),
+            backend,
         )
-        .backend(pprof_backend(
-            PprofConfig::new().sample_rate(self.pyroscope_sample_rate),
-        ))
         .tags(tags_refs)
         .build()
         .map_err(ContinuousProfilingError::Build)?;
 
-        let agent = agent.start().map_err(ContinuousProfilingError::Start)?;
-
-        tracing::info!("Continuous profiling agent started successfully");
-
-        Ok(Some(agent))
+        agent.start().map_err(ContinuousProfilingError::Start)
     }
 }
 

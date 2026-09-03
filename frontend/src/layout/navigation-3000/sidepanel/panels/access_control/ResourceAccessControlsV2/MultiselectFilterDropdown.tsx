@@ -2,6 +2,8 @@ import { useMemo, useState } from 'react'
 
 import { LemonButton, LemonCheckbox, LemonInput, Link } from '@posthog/lemon-ui'
 
+/** The option list scrolls itself, so give the dropdown that holds it `overflowHidden`. Without
+ * that prop the popover wraps this in a second scroller, and the dropdown gets two scrollbars. */
 export function MultiSelectFilterDropdown<T extends string = string>(props: {
     title: string
     placeholder: string
@@ -16,7 +18,7 @@ export function MultiSelectFilterDropdown<T extends string = string>(props: {
     }, [props.options, searchTerm])
 
     return (
-        <div className="w-96 flex flex-col min-h-0 overflow-hidden max-h-[80vh]">
+        <div className="w-96 flex flex-col min-h-0 overflow-hidden max-h-full">
             <div className="p-2 border-b space-y-2">
                 <div className="flex justify-between items-center">
                     <span className="font-bold text-xs uppercase tracking-widest text-muted-alt">{props.title}</span>

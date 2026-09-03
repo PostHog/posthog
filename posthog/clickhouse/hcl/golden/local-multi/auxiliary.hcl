@@ -83,6 +83,9 @@ database "posthog" {
     column "issue_status" {
       type = "String"
     }
+    column "issue_severity" {
+      type = "Nullable(String)"
+    }
     column "assigned_user_id" {
       type = "Nullable(Int64)"
     }
@@ -489,6 +492,9 @@ database "posthog" {
     }
     column "issue_status" {
       type = "String"
+    }
+    column "issue_severity" {
+      type = "Nullable(String)"
     }
     column "assigned_user_id" {
       type = "Nullable(Int64)"
@@ -1478,6 +1484,9 @@ database "posthog" {
     }
     column "issue_status" {
       type = "String"
+    }
+    column "issue_severity" {
+      type = "Nullable(String)"
     }
     column "assigned_user_id" {
       type = "Nullable(Int64)"
@@ -3294,6 +3303,9 @@ database "posthog" {
     column "issue_status" {
       type = "String"
     }
+    column "issue_severity" {
+      type = "Nullable(String)"
+    }
     column "assigned_user_id" {
       type = "Nullable(Int64)"
     }
@@ -3436,6 +3448,7 @@ SELECT
   issue_name,
   issue_description,
   issue_status,
+  issue_severity,
   assigned_user_id,
   assigned_role_id,
   first_seen,
@@ -3464,6 +3477,9 @@ SQL
     }
     column "issue_status" {
       type = "String"
+    }
+    column "issue_severity" {
+      type = "Nullable(String)"
     }
     column "assigned_user_id" {
       type = "Nullable(Int64)"

@@ -10,13 +10,12 @@ from rest_framework import status
 from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 
 from posthog.models import Team
-from posthog.temporal.common.logger import resolve_log_source
 
 from products.data_modeling.backend.logic.node_frequency import set_declared_target
 from products.data_modeling.backend.logic.node_suspension import mark_node_suspended, suspension_state
 from products.data_modeling.backend.models import DAG, Edge, Node, NodeType
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-from products.warehouse_sources.backend.tests.api._access_control_base import WarehouseAccessControlTestMixin
+from products.warehouse_sources.backend.facade.testing import WarehouseAccessControlTestMixin
 
 
 class TestNodeViewSet(APIBaseTest):
@@ -228,26 +227,6 @@ class TestNodeViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("table", response.json()["error"].lower())
 
-    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
-    def test_materialize_starts_workflow(self, mock_sync_connect):
-        mock_client = AsyncMock()
-        mock_sync_connect.return_value = mock_client
-
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/data_modeling_nodes/{self.view_node.id}/materialize/",
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        mock_client.start_workflow.assert_called_once()
-
-        # The workflow id must resolve back to the saved query id, or the run's log lines
-        # detach from the materialization history UI (which queries by saved query id).
-        workflow_id = mock_client.start_workflow.call_args.kwargs["id"]
-        self.assertEqual(
-            resolve_log_source("data-modeling-run", workflow_id),
-            ("data_modeling_run", str(self.saved_query.id)),
-        )
-
     def _suspend(self, node: Node) -> None:
         mark_node_suspended(node, engine="clickhouse", reason="boom", job_id=str(uuid4()), fingerprint=None)
         node.save()
@@ -303,9 +282,8 @@ class TestNodeViewSet(APIBaseTest):
         self.view_node.refresh_from_db()
         self.assertEqual(suspension_state(self.view_node), {})
 
-    @patch("products.data_modeling.backend.presentation.views.node.feature_enabled_or_false", return_value=True)
     @patch("products.data_modeling.backend.presentation.views.node.sync_connect")
-    def test_run_uses_execute_dag_when_v2_enabled(self, mock_sync_connect, mock_feature_flag):
+    def test_run_starts_the_execute_dag_workflow(self, mock_sync_connect):
         mock_client = AsyncMock()
         mock_sync_connect.return_value = mock_client
 
@@ -318,24 +296,8 @@ class TestNodeViewSet(APIBaseTest):
         call_args = mock_client.start_workflow.call_args
         self.assertEqual(call_args[0][0], "data-modeling-execute-dag")
 
-    @patch("products.data_modeling.backend.presentation.views.node.feature_enabled_or_false", return_value=False)
-    @patch("products.data_modeling.backend.presentation.views.node.sync_connect")
-    def test_run_uses_run_workflow_when_v2_disabled(self, mock_sync_connect, mock_feature_flag):
-        mock_client = AsyncMock()
-        mock_sync_connect.return_value = mock_client
-
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/data_modeling_nodes/{self.view_node.id}/run/",
-            {"direction": "upstream"},
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        call_args = mock_client.start_workflow.call_args
-        self.assertEqual(call_args[0][0], "data-modeling-run")
-
-    @patch("products.data_modeling.backend.presentation.views.node.feature_enabled_or_false", return_value=True)
     @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
-    def test_materialize_uses_materialize_view_when_v2_enabled(self, mock_sync_connect, mock_feature_flag):
+    def test_materialize_starts_the_materialize_view_workflow(self, mock_sync_connect):
         mock_client = AsyncMock()
         mock_sync_connect.return_value = mock_client
 
@@ -349,20 +311,6 @@ class TestNodeViewSet(APIBaseTest):
         self.assertEqual(call_args.kwargs["id"], f"materialize-view-{self.view_node.id}")
         self.assertEqual(call_args.kwargs["id_conflict_policy"], WorkflowIDConflictPolicy.USE_EXISTING)
         self.assertEqual(call_args.kwargs["id_reuse_policy"], WorkflowIDReusePolicy.ALLOW_DUPLICATE)
-
-    @patch("products.data_modeling.backend.presentation.views.node.feature_enabled_or_false", return_value=False)
-    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
-    def test_materialize_uses_run_workflow_when_v2_disabled(self, mock_sync_connect, mock_feature_flag):
-        mock_client = AsyncMock()
-        mock_sync_connect.return_value = mock_client
-
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/data_modeling_nodes/{self.view_node.id}/materialize/",
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        call_args = mock_client.start_workflow.call_args
-        self.assertEqual(call_args[0][0], "data-modeling-run")
 
     def test_lineage_returns_subgraph(self):
         response = self.client.get(

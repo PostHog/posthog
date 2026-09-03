@@ -357,9 +357,12 @@ export function PersonScene(): JSX.Element | null {
                                 setQuery={(q) => setEventsQuery(q)}
                                 context={{
                                     insightProps: {
-                                        dashboardItemId: `new-${PERSON_EVENTS_CONTEXT_KEY}`,
+                                        dashboardItemId: `new-${eventsQueryLogicKey}`,
                                         dataNodeCollectionId: eventsQueryLogicKey,
                                     },
+                                    emptyStateDetail: eventsQueryIsDirty
+                                        ? 'Try changing the date range, or pick another action, event or breakdown.'
+                                        : 'This only shows events from the last 24 hours by default. Try widening the date range, or pick another action, event or breakdown.',
                                     customActions: (
                                         <LemonButton
                                             key="reset-events-filters"

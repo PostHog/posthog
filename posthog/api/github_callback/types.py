@@ -18,7 +18,9 @@ from posthog.models.instance_setting import get_instance_settings
 GITHUB_INSTALL_STATE_CACHE_PREFIX = "github_user_install_state:"
 GITHUB_INSTALL_STATE_TTL_SECONDS = 10 * 60
 
-GITHUB_INSTALLATION_ID_PATTERN = re.compile(r"\d{1,20}")
+# No leading zeros: security checks compare these ids as strings against DB-stored canonical
+# values, so "0111" must not validate and then miss an equality check against "111".
+GITHUB_INSTALLATION_ID_PATTERN = re.compile(r"[1-9]\d{0,19}")
 
 GITHUB_AUTHORIZE_STATE_CACHE_TTL_SECONDS = 60 * 15
 GITHUB_UNIFIED_AUTHORIZE_CACHE_PREFIX = "github_authorize:"
@@ -148,12 +150,18 @@ def github_oauth_redirect_uri() -> str:
     return f"{settings.SITE_URL.rstrip('/')}/complete/github-link/"
 
 
-def github_app_install_url(state: str) -> str:
+def github_app_install_url_shareable() -> str:
+    """The App's install page with no PostHog state attached, safe to hand to a GitHub org owner
+    who has no PostHog session to resume."""
     instance_settings = get_instance_settings(["GITHUB_APP_SLUG"])
     app_slug = instance_settings.get("GITHUB_APP_SLUG")
     if not app_slug:
         raise ApiValidationError("GitHub App is not configured on this instance (missing GITHUB_APP_SLUG).")
-    return f"https://github.com/apps/{app_slug}/installations/new?{urlencode({'state': state})}"
+    return f"https://github.com/apps/{app_slug}/installations/new"
+
+
+def github_app_install_url(state: str) -> str:
+    return f"{github_app_install_url_shareable()}?{urlencode({'state': state})}"
 
 
 def github_oauth_authorize_url(state: str) -> str:

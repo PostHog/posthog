@@ -4,12 +4,23 @@ from unittest.mock import patch
 from parameterized import parameterized
 
 from posthog.models import User
+from posthog.models.organization import OrganizationMembership
 
-from products.mcp_store.backend.agents import get_built_in_agent
-from products.mcp_store.backend.facade.api import get_active_installations, get_installations_for_sandbox
-from products.mcp_store.backend.facade.contracts import ActiveInstallationInfo
+from products.mcp_store.backend.agents import (
+    create_gateway_agent_token,
+    get_built_in_agent,
+    resolve_gateway_agent_token,
+)
+from products.mcp_store.backend.facade.api import (
+    get_active_installations,
+    get_installations_for_sandbox,
+    get_sandbox_mcp_server_names,
+    resolve_agent_gateway_server_ids,
+)
+from products.mcp_store.backend.facade.contracts import ActiveInstallation
 from products.mcp_store.backend.models import (
     MCPGatewayServer,
+    MCPMemberServerRevocation,
     MCPServerInstallation,
     MCPServerTemplate,
     MCPServiceAccount,
@@ -36,7 +47,7 @@ class TestGetActiveInstallations(BaseTest):
         results = get_active_installations(self.team.id, self.user.id)
 
         assert results == [
-            ActiveInstallationInfo(
+            ActiveInstallation(
                 id=str(installation.id),
                 name="Linear",
                 proxy_path=f"/api/environments/{self.team.id}/mcp_server_installations/{installation.id}/proxy/",
@@ -102,6 +113,29 @@ class TestGetActiveInstallations(BaseTest):
 
         assert results[0].name == "https://mcp.notion.com/mcp"
 
+    def test_returns_description_for_agent_discovery(self) -> None:
+        # Agents match a never-connected MCP server on this text alone, so an empty
+        # description leaves the server findable only by its exact name.
+        self._create_installation(description="Manage Linear issues, projects, teams, and workflows.")
+
+        results = get_active_installations(self.team.id, self.user.id)
+
+        assert results[0].description == "Manage Linear issues, projects, teams, and workflows."
+
+    def test_description_falls_back_to_template(self) -> None:
+        template = MCPServerTemplate.objects.create(
+            name="Described Template",
+            url="https://mcp.described-template.example.com/mcp",
+            description="Search and edit pages and databases.",
+            auth_type="oauth",
+            created_by=self.user,
+        )
+        self._create_installation(description="", template=template, url=template.url)
+
+        results = get_active_installations(self.team.id, self.user.id)
+
+        assert results[0].description == "Search and edit pages and databases."
+
     def test_only_returns_for_given_user(self) -> None:
         from posthog.models import User
 
@@ -132,6 +166,27 @@ class TestGetActiveInstallations(BaseTest):
         results = get_active_installations(self.team.id, self.user.id)
 
         assert len(results) == 0
+
+    def test_include_shared_adds_team_shared_but_not_teammates_personal(self) -> None:
+        other_user = User.objects.create_and_join(self.organization, "other@posthog.com", "password")
+        own_personal = self._create_installation()
+        shared = self._create_installation(scope="shared", user=other_user, url="https://mcp.shared.com/mcp")
+        self._create_installation(user=other_user, url="https://mcp.theirs.com/mcp")
+
+        results = get_active_installations(self.team.id, self.user.id, include_shared=True)
+
+        assert {result.id for result in results} == {str(own_personal.id), str(shared.id)}
+
+    def test_include_shared_still_applies_readiness_checks(self) -> None:
+        self._create_installation(scope="shared", is_enabled=False)
+        self._create_installation(
+            scope="shared",
+            url="https://mcp.pending.com/mcp",
+            auth_type="oauth",
+            sensitive_configuration={},
+        )
+
+        assert get_active_installations(self.team.id, self.user.id, include_shared=True) == []
 
     @parameterized.expand(
         [
@@ -196,6 +251,15 @@ class TestGetInstallationsForSandbox(BaseTest):
         assert results[0].id == str(shared.id)
         assert results[0].scope == "shared"
 
+    def test_returns_description_for_agent_discovery(self) -> None:
+        # A sandbox agent searches its MCP servers by capability before connecting to any of
+        # them, and this text is all it has to match against.
+        self._create_installation(scope="shared", description="Manage Linear issues, projects, and workflows.")
+
+        results = get_installations_for_sandbox(self.team.id)
+
+        assert results[0].description == "Manage Linear issues, projects, and workflows."
+
     def test_personal_excluded_by_default(self) -> None:
         self._create_installation(scope="personal")
 
@@ -251,6 +315,21 @@ class TestGetInstallationsForSandbox(BaseTest):
         assert {result.id for result in results} == {str(shared.id), str(personal.id)}
         assert all(result.proxy_token is None for result in results)
 
+    def test_empty_allowlist_mounts_nothing_before_the_gateway_flag_rollout(self) -> None:
+        # The rollout gate sends a mapped origin down the legacy path. An autonomous run that asked
+        # for no MCP Store servers must not pick up every shared installation on the way.
+        self.enforcement_enabled_mock.return_value = False
+        self._create_installation(scope="shared", display_name="Shared")
+
+        results = get_installations_for_sandbox(
+            self.team.id,
+            user_id=self.user.id,
+            task_origin="scout_suggestions",
+            allowed_gateway_server_ids=[],
+        )
+
+        assert results == []
+
     def test_built_in_agent_only_gets_its_explicitly_delegated_credential(self) -> None:
         account = self._support_agent()
         granted_server = self._create_gateway_server(
@@ -281,6 +360,7 @@ class TestGetInstallationsForSandbox(BaseTest):
         )
         MCPServiceAccountServerAccess.objects.for_team(self.team.id).create(
             team_id=self.team.id,
+            user=self.user,
             service_account=account,
             gateway_server=granted_server,
             installation=personal,
@@ -293,10 +373,14 @@ class TestGetInstallationsForSandbox(BaseTest):
             include_personal=True,
             task_origin="support_reply",
             task_agent_key="support",
+            credential_owner_id=self.user.id,
         )
 
         assert [result.id for result in results] == [str(personal.id)]
-        assert results[0].proxy_path == f"/api/mcp_store/gateway/servers/{granted_server.id}/proxy/"
+        assert (
+            results[0].proxy_path
+            == f"/api/mcp_store/gateway/servers/{granted_server.id}/proxy/?credential_owner={self.user.id}"
+        )
         assert results[0].proxy_token is not None
         assert results[0].proxy_token.startswith("mcp_gw_")
 
@@ -307,6 +391,7 @@ class TestGetInstallationsForSandbox(BaseTest):
                 self.team.id,
                 task_origin="support_reply",
                 task_agent_key="support",
+                credential_owner_id=self.user.id,
             )
             == []
         )
@@ -319,6 +404,7 @@ class TestGetInstallationsForSandbox(BaseTest):
             user_id=self.user.id,
             include_personal=True,
             task_origin="support_reply",
+            credential_owner_id=self.user.id,
         )
         assert unstamped_results == []
 
@@ -328,8 +414,366 @@ class TestGetInstallationsForSandbox(BaseTest):
             include_personal=True,
             task_origin="support_reply",
             task_agent_key="scout",
+            credential_owner_id=self.user.id,
         )
         assert mismatched_results == []
+
+    def test_built_in_agent_only_gets_the_run_credential_owner_s_grants(self) -> None:
+        account = self._support_agent()
+        other_user = User.objects.create_and_join(self.organization, "other-owner@posthog.com", "password")
+        server = self._create_gateway_server(name="Granted", url="https://granted.example.com/mcp")
+        delegated = self._create_installation(scope="personal", gateway_server=server, url=server.url)
+        MCPServiceAccountServerAccess.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            user=self.user,
+            service_account=account,
+            gateway_server=server,
+            installation=delegated,
+            granted_by=self.user,
+        )
+
+        def resolve(credential_owner_id: int | None) -> list[ActiveInstallation]:
+            return get_installations_for_sandbox(
+                self.team.id,
+                task_origin="support_reply",
+                task_agent_key="support",
+                credential_owner_id=credential_owner_id,
+            )
+
+        owned = resolve(self.user.id)
+        assert [result.id for result in owned] == [str(delegated.id)]
+        assert resolve(other_user.id) == []
+        assert resolve(None) == []
+
+        # The proxy token must name the same owner the grants were resolved under, or the
+        # gateway would serve the run under a different person's credentials.
+        principal = resolve_gateway_agent_token(owned[0].proxy_token or "")
+        assert principal is not None
+        assert principal.credential_owner_id == self.user.id
+
+    @parameterized.expand([("deactivated",), ("removed_from_org",)])
+    def test_built_in_agent_mounts_nothing_once_credential_owner_loses_eligibility(self, revocation: str) -> None:
+        account = self._support_agent()
+        server = self._create_gateway_server(name="Granted", url="https://granted.example.com/mcp")
+        delegated = self._create_installation(scope="personal", gateway_server=server, url=server.url)
+        MCPServiceAccountServerAccess.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            user=self.user,
+            service_account=account,
+            gateway_server=server,
+            installation=delegated,
+            granted_by=self.user,
+        )
+
+        def resolve() -> list[ActiveInstallation]:
+            return get_installations_for_sandbox(
+                self.team.id,
+                task_origin="support_reply",
+                task_agent_key="support",
+                credential_owner_id=self.user.id,
+            )
+
+        assert [result.id for result in resolve()] == [str(delegated.id)]
+
+        if revocation == "deactivated":
+            User.objects.filter(id=self.user.id).update(is_active=False)
+        else:
+            OrganizationMembership.objects.filter(user=self.user, organization=self.organization).delete()
+
+        assert resolve() == []
+
+    def test_agent_token_stops_resolving_once_credential_owner_loses_eligibility(self) -> None:
+        account = self._support_agent()
+        token = create_gateway_agent_token(account, credential_owner_id=self.user.id)
+        assert resolve_gateway_agent_token(token) is not None
+
+        User.objects.filter(id=self.user.id).update(is_active=False)
+
+        assert resolve_gateway_agent_token(token) is None
+
+    def _grant(
+        self,
+        account: MCPServiceAccount,
+        server: MCPGatewayServer,
+        *,
+        user: User | None,
+        installation: MCPServerInstallation,
+        scope: str = "personal",
+    ) -> MCPServiceAccountServerAccess:
+        return MCPServiceAccountServerAccess.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            user=user,
+            service_account=account,
+            gateway_server=server,
+            installation=installation,
+            granted_by=user,
+            scope=scope,
+        )
+
+    def _agent_results(self, credential_owner_id: int | None) -> list[ActiveInstallation]:
+        return get_installations_for_sandbox(
+            self.team.id,
+            task_origin="support_reply",
+            task_agent_key="support",
+            credential_owner_id=credential_owner_id,
+        )
+
+    def test_agent_run_mounts_its_owners_grants_plus_teammates_team_shares(self) -> None:
+        account = self._support_agent()
+        teammate = User.objects.create_and_join(self.organization, "teammate@posthog.com", "password")
+        own_server = self._create_gateway_server(name="Own", url="https://own.example.com/mcp")
+        team_server = self._create_gateway_server(name="Team", url="https://team.example.com/mcp")
+        private_server = self._create_gateway_server(name="Private", url="https://private.example.com/mcp")
+        own = self._create_installation(gateway_server=own_server, url=own_server.url)
+        team_shared = self._create_installation(user=teammate, gateway_server=team_server, url=team_server.url)
+        teammate_private = self._create_installation(
+            user=teammate, gateway_server=private_server, url=private_server.url
+        )
+        self._grant(account, own_server, user=self.user, installation=own)
+        self._grant(account, team_server, user=teammate, installation=team_shared, scope="team")
+        self._grant(account, private_server, user=teammate, installation=teammate_private)
+
+        results = self._agent_results(self.user.id)
+
+        assert {result.id for result in results} == {str(own.id), str(team_shared.id)}
+
+    def test_agent_run_without_a_credential_owner_mounts_only_team_shares(self) -> None:
+        account = self._support_agent()
+        team_server = self._create_gateway_server(name="Team", url="https://team.example.com/mcp")
+        personal_server = self._create_gateway_server(name="Personal", url="https://personal.example.com/mcp")
+        team_shared = self._create_installation(gateway_server=team_server, url=team_server.url)
+        personal = self._create_installation(gateway_server=personal_server, url=personal_server.url)
+        self._grant(account, team_server, user=self.user, installation=team_shared, scope="team")
+        self._grant(account, personal_server, user=self.user, installation=personal)
+
+        results = self._agent_results(None)
+
+        assert [result.id for result in results] == [str(team_shared.id)]
+        principal = resolve_gateway_agent_token(results[0].proxy_token or "")
+        assert principal is not None
+        assert principal.credential_owner_id is None
+
+    def test_per_scout_allowlist_gates_grants_of_every_scope(self) -> None:
+        account = self._support_agent()
+        teammate = User.objects.create_and_join(self.organization, "teammate@posthog.com", "password")
+        picked_server = self._create_gateway_server(name="Picked", url="https://picked.example.com/mcp")
+        dropped_server = self._create_gateway_server(name="Dropped", url="https://dropped.example.com/mcp")
+        picked = self._create_installation(user=teammate, gateway_server=picked_server, url=picked_server.url)
+        dropped = self._create_installation(user=teammate, gateway_server=dropped_server, url=dropped_server.url)
+        self._grant(account, picked_server, user=teammate, installation=picked, scope="team")
+        self._grant(account, dropped_server, user=teammate, installation=dropped, scope="team")
+
+        def resolve(allowed: list[str] | None) -> set[str]:
+            # No credential owner, like a scout run: only team shares are reachable, and the
+            # allowlist picks which of them mount.
+            return {
+                result.id
+                for result in get_installations_for_sandbox(
+                    self.team.id,
+                    task_origin="support_reply",
+                    task_agent_key="support",
+                    allowed_gateway_server_ids=allowed,
+                )
+            }
+
+        assert resolve([str(picked_server.id)]) == {str(picked.id)}
+        # An empty selection mounts nothing at all: team shares are gated too, so a scout
+        # with no servers selected runs without MCP servers.
+        assert resolve([]) == set()
+        assert resolve(None) == {str(picked.id), str(dropped.id)}
+
+    def test_installation_allowlist_narrows_the_member_path_only(self) -> None:
+        kept = self._create_installation(scope="shared", display_name="Kept", url="https://kept.example.com/mcp")
+        self._create_installation(scope="shared", display_name="Dropped", url="https://dropped.example.com/mcp")
+        account = self._support_agent()
+        server = self._create_gateway_server(name="Team", url="https://team.example.com/mcp")
+        team_shared = self._create_installation(gateway_server=server, url=server.url)
+        self._grant(account, server, user=self.user, installation=team_shared, scope="team")
+
+        member = get_installations_for_sandbox(self.team.id, allowed_installation_ids=[str(kept.id)])
+        member_empty = get_installations_for_sandbox(self.team.id, allowed_installation_ids=[])
+        # A workflow run's snapshot carries no installation ids, so the agent path must not be
+        # emptied by the closed member allowlist that comes with it.
+        agent = get_installations_for_sandbox(
+            self.team.id, task_origin="support_reply", task_agent_key="support", allowed_installation_ids=[]
+        )
+
+        assert [result.id for result in member] == [str(kept.id)]
+        assert member_empty == []
+        assert [result.id for result in agent] == [str(team_shared.id)]
+
+    def test_resolves_saved_connectors_to_the_servers_an_agent_run_reaches(self) -> None:
+        account = get_built_in_agent(self.team.id, "workflow")
+        assert account is not None
+        teammate = User.objects.create_and_join(self.organization, "teammate@posthog.com", "password")
+        team_server = self._create_gateway_server(name="Team", url="https://team.example.com/mcp")
+        personal_server = self._create_gateway_server(name="Personal", url="https://personal.example.com/mcp")
+        disabled_server = self._create_gateway_server(
+            name="Disabled", url="https://disabled.example.com/mcp", is_team_enabled=False
+        )
+        unshared_server = self._create_gateway_server(name="Unshared", url="https://unshared.example.com/mcp")
+        team_shared = self._create_installation(user=teammate, gateway_server=team_server, url=team_server.url)
+        personal = self._create_installation(gateway_server=personal_server, url=personal_server.url)
+        disabled = self._create_installation(user=teammate, gateway_server=disabled_server, url=disabled_server.url)
+        self._grant(account, team_server, user=teammate, installation=team_shared, scope="team")
+        self._grant(account, personal_server, user=self.user, installation=personal)
+        self._grant(account, disabled_server, user=teammate, installation=disabled, scope="team")
+        connector_ids = [
+            str(team_server.id),
+            # A selection saved before connectors were keyed by gateway server names the
+            # installation; it still resolves to the server that installation sits on.
+            str(team_shared.id),
+            str(personal_server.id),
+            str(disabled_server.id),
+            str(unshared_server.id),
+            "not-a-uuid",
+        ]
+
+        resolve = lambda owner_id: resolve_agent_gateway_server_ids(
+            self.team.id, agent_key="workflow", credential_owner_id=owner_id, connector_ids=connector_ids
+        )
+
+        assert resolve(None) == {
+            str(team_server.id): str(team_server.id),
+            str(team_shared.id): str(team_server.id),
+            str(personal_server.id): None,
+            str(disabled_server.id): None,
+            str(unshared_server.id): None,
+            "not-a-uuid": None,
+        }
+        # A run with a credential owner also reaches that owner's personal grants.
+        assert resolve(self.user.id)[str(personal_server.id)] == str(personal_server.id)
+
+    def test_sandbox_server_names_match_what_the_sandbox_mounts(self) -> None:
+        # The names projection backs prompt steering (a scout's run prompt names its mounted
+        # servers before launch). If it drifts from the mount resolution — a reimplementation
+        # with its own query that skips the allowlist or grant filtering — the prompt names
+        # servers the sandbox doesn't hold.
+        account = self._support_agent()
+        teammate = User.objects.create_and_join(self.organization, "teammate@posthog.com", "password")
+        picked_server = self._create_gateway_server(name="Picked", url="https://picked.example.com/mcp")
+        dropped_server = self._create_gateway_server(name="Dropped", url="https://dropped.example.com/mcp")
+        picked = self._create_installation(
+            user=teammate, gateway_server=picked_server, url=picked_server.url, display_name="Linear"
+        )
+        dropped = self._create_installation(
+            user=teammate, gateway_server=dropped_server, url=dropped_server.url, display_name="Notion"
+        )
+        self._grant(account, picked_server, user=teammate, installation=picked, scope="team")
+        self._grant(account, dropped_server, user=teammate, installation=dropped, scope="team")
+
+        names = get_sandbox_mcp_server_names(
+            self.team.id,
+            task_origin="support_reply",
+            task_agent_key="support",
+            allowed_gateway_server_ids=[str(picked_server.id)],
+        )
+
+        assert names == ["Linear"]
+
+    def test_per_scout_allowlist_gates_a_credential_owners_personal_grant_too(self) -> None:
+        account = self._support_agent()
+        server = self._create_gateway_server(name="Owned", url="https://owned.example.com/mcp")
+        other_server = self._create_gateway_server(name="Other", url="https://other.example.com/mcp")
+        owned = self._create_installation(gateway_server=server, url=server.url)
+        self._grant(account, server, user=self.user, installation=owned)
+
+        results = get_installations_for_sandbox(
+            self.team.id,
+            task_origin="support_reply",
+            task_agent_key="support",
+            credential_owner_id=self.user.id,
+            allowed_gateway_server_ids=[str(other_server.id)],
+        )
+
+        assert results == []
+
+    def test_owner_credential_wins_over_a_teammates_team_share_of_the_same_server(self) -> None:
+        account = self._support_agent()
+        teammate = User.objects.create_and_join(self.organization, "teammate@posthog.com", "password")
+        server = self._create_gateway_server(name="Shared server", url="https://shared.example.com/mcp")
+        own = self._create_installation(gateway_server=server, url=server.url)
+        teammate_installation = self._create_installation(user=teammate, gateway_server=server, url=server.url)
+        self._grant(account, server, user=self.user, installation=own)
+        self._grant(account, server, user=teammate, installation=teammate_installation, scope="team")
+
+        results = self._agent_results(self.user.id)
+
+        assert [result.id for result in results] == [str(own.id)]
+
+    def test_every_team_share_of_one_server_mounts_under_its_owners_id(self) -> None:
+        account = self._support_agent()
+        teammate = User.objects.create_and_join(self.organization, "teammate@posthog.com", "password")
+        server = self._create_gateway_server(name="Shared server", url="https://shared.example.com/mcp")
+        mine = self._create_installation(gateway_server=server, url=server.url, display_name="Notion")
+        theirs = self._create_installation(user=teammate, gateway_server=server, url=server.url, display_name="Notion")
+        self._grant(account, server, user=self.user, installation=mine, scope="team")
+        self._grant(account, server, user=teammate, installation=theirs, scope="team")
+
+        results = self._agent_results(None)
+
+        assert {result.id for result in results} == {str(mine.id), str(theirs.id)}
+        # Sandboxes key servers by name and the gateway resolves a credential from the
+        # proxy path, so both have to be unique per mounted grant.
+        assert {result.name for result in results} == {
+            f"Notion (#{self.user.id})",
+            f"Notion (#{teammate.id})",
+        }
+        assert {result.proxy_path for result in results} == {
+            f"/api/mcp_store/gateway/servers/{server.id}/proxy/?credential_owner={self.user.id}",
+            f"/api/mcp_store/gateway/servers/{server.id}/proxy/?credential_owner={teammate.id}",
+        }
+
+    @parameterized.expand(
+        [
+            ("credential_deleted", "deleted"),
+            ("oauth_needs_reauth", "unready_oauth"),
+            ("installation_disabled", "disabled"),
+        ]
+    )
+    def test_broken_own_grant_does_not_suppress_a_working_team_share(self, _name: str, breakage: str) -> None:
+        account = self._support_agent()
+        teammate = User.objects.create_and_join(self.organization, "teammate@posthog.com", "password")
+        server = self._create_gateway_server(name="Shared server", url="https://shared.example.com/mcp")
+        own_kwargs: dict = {"gateway_server": server, "url": server.url}
+        if breakage == "unready_oauth":
+            own_kwargs |= {"auth_type": "oauth", "sensitive_configuration": {"needs_reauth": True}}
+        if breakage == "disabled":
+            own_kwargs |= {"is_enabled": False}
+        own = self._create_installation(**own_kwargs)
+        teammate_installation = self._create_installation(user=teammate, gateway_server=server, url=server.url)
+        own_grant = self._grant(account, server, user=self.user, installation=own)
+        self._grant(account, server, user=teammate, installation=teammate_installation, scope="team")
+        if breakage == "deleted":
+            own.delete()
+            own_grant.refresh_from_db()
+            assert own_grant.installation_id is None
+
+        results = self._agent_results(self.user.id)
+
+        assert [result.id for result in results] == [str(teammate_installation.id)]
+
+    @parameterized.expand([("nobodys_run", False), ("owners_own_run", True)])
+    def test_revoked_members_team_share_is_not_mounted(self, _name: str, run_has_owner: bool) -> None:
+        account = self._support_agent()
+        server = self._create_gateway_server(name="Revoked", url="https://revoked.example.com/mcp")
+        installation = self._create_installation(gateway_server=server, url=server.url)
+        self._grant(account, server, user=self.user, installation=installation, scope="team")
+        admin = User.objects.create_and_join(self.organization, "revoking-admin@posthog.com", "password")
+        MCPMemberServerRevocation.objects.for_team(self.team.id).create(
+            team_id=self.team.id, gateway_server=server, user=self.user, revoked_by=admin
+        )
+
+        assert self._agent_results(self.user.id if run_has_owner else None) == []
+
+    def test_team_scoped_grant_without_a_user_is_never_mounted(self) -> None:
+        account = self._support_agent()
+        server = self._create_gateway_server(name="Orphaned", url="https://orphaned.example.com/mcp")
+        installation = self._create_installation(gateway_server=server, url=server.url)
+        self._grant(account, server, user=None, installation=installation, scope="team")
+
+        assert self._agent_results(None) == []
+        assert self._agent_results(self.user.id) == []
 
     def test_built_in_agent_does_not_fall_back_after_delegated_credential_is_deleted(self) -> None:
         account = self._support_agent()
@@ -351,6 +795,7 @@ class TestGetInstallationsForSandbox(BaseTest):
         )
         access = MCPServiceAccountServerAccess.objects.for_team(self.team.id).create(
             team_id=self.team.id,
+            user=self.user,
             service_account=account,
             gateway_server=server,
             installation=delegated,
@@ -366,6 +811,7 @@ class TestGetInstallationsForSandbox(BaseTest):
                 self.team.id,
                 task_origin="support_reply",
                 task_agent_key="support",
+                credential_owner_id=self.user.id,
             )
             == []
         )
@@ -376,6 +822,7 @@ class TestGetInstallationsForSandbox(BaseTest):
         delegated = self._create_installation(scope="personal", gateway_server=server, url=server.url)
         MCPServiceAccountServerAccess.objects.for_team(self.team.id).create(
             team_id=self.team.id,
+            user=self.user,
             service_account=account,
             gateway_server=server,
             installation=delegated,
@@ -386,6 +833,7 @@ class TestGetInstallationsForSandbox(BaseTest):
             self.team.id,
             task_origin="support_reply",
             task_agent_key="support",
+            credential_owner_id=self.user.id,
         )
         assert [result.id for result in results] == [str(delegated.id)]
 
@@ -397,6 +845,7 @@ class TestGetInstallationsForSandbox(BaseTest):
                 self.team.id,
                 task_origin="support_reply",
                 task_agent_key="support",
+                credential_owner_id=self.user.id,
             )
             == []
         )

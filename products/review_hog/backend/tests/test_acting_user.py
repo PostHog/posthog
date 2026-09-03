@@ -4,7 +4,7 @@ from parameterized import parameterized
 from social_django.models import UserSocialAuth
 
 from products.review_hog.backend.models import ReviewReport, ReviewUserSettings
-from products.review_hog.backend.temporal.activities import _resolve_acting_user
+from products.review_hog.backend.temporal.activities import ResolveActingUserInput, _resolve_acting_user
 from products.review_hog.backend.temporal.types import TRIGGER_LABEL, TRIGGER_MANUAL
 
 _SELF = "SELF"
@@ -28,17 +28,24 @@ class TestResolveActingUser(BaseTest):
         ]
     )
     def test_resolve_acting_user(self, _name: str, author: str, override: int | None, expected: object) -> None:
-        result = _resolve_acting_user(self.team.id, author, override)
+        result = _resolve_acting_user(
+            ResolveActingUserInput(team_id=self.team.id, author_login=author, override_user_id=override)
+        )
         assert result.acting_user_id == (self.user.id if expected == _SELF else expected)
 
     def test_settings_default_when_user_has_no_row(self) -> None:
-        # No settings row → the resolve result carries the defaults (labeled reviews on, inbox
-        # reviews off, consider), so every validated finding publishes for users who never opened
-        # the UI.
-        result = _resolve_acting_user(self.team.id, "octocat", None)
+        # No settings row → the resolve result carries the MODEL defaults (labeled reviews on, inbox
+        # reviews off, consider, resolution on), so every validated finding publishes — and reviews
+        # chain resolution — for users who never opened the UI. resolve_comments is the opposite of
+        # its DATACLASS default (False, the replay-safe skip value), so dropping its passthrough
+        # line would silently disable the resolution stage for everyone with the suite still green.
+        result = _resolve_acting_user(
+            ResolveActingUserInput(team_id=self.team.id, author_login="octocat", override_user_id=None)
+        )
         assert result.review_labeled_prs is True
         assert result.review_inbox_prs is False
         assert result.urgency_threshold == "consider"
+        assert result.resolve_comments is True
 
     def test_settings_row_flows_into_the_result(self) -> None:
         # The user's saved settings must reach the workflow — if resolve stops loading any of them,
@@ -51,40 +58,71 @@ class TestResolveActingUser(BaseTest):
             review_labeled_prs=False,
             review_inbox_prs=True,
             urgency_threshold=ReviewUserSettings.UrgencyThreshold.MUST_FIX,
+            resolve_comments=False,
         )
-        result = _resolve_acting_user(self.team.id, "octocat", None)
+        result = _resolve_acting_user(
+            ResolveActingUserInput(team_id=self.team.id, author_login="octocat", override_user_id=None)
+        )
         assert result.review_labeled_prs is False
         assert result.review_inbox_prs is True
         assert result.urgency_threshold == "must_fix"
+        # The opt-out must reach the workflow — hardwiring the snapshot on would strip users of the
+        # only lever that stops reviews from writing to their PRs.
+        assert result.resolve_comments is False
 
     def test_label_trigger_falls_back_to_the_run_user(self) -> None:
         # Unmapped author on a labeled PR → the run user the trigger already resolved, passed
         # through as default_user_id so acting and sandbox identity can never drift.
         result = _resolve_acting_user(
-            self.team.id, "ghost", None, trigger_source=TRIGGER_LABEL, default_user_id=self.user.id
+            ResolveActingUserInput(
+                team_id=self.team.id,
+                author_login="ghost",
+                override_user_id=None,
+                trigger_source=TRIGGER_LABEL,
+                default_user_id=self.user.id,
+            )
         )
         assert (result.acting_user_id, result.resolved_from) == (self.user.id, "default")
 
     def test_non_label_triggers_keep_the_author_only_contract(self) -> None:
         result = _resolve_acting_user(
-            self.team.id, "ghost", None, trigger_source=TRIGGER_MANUAL, default_user_id=self.user.id
+            ResolveActingUserInput(
+                team_id=self.team.id,
+                author_login="ghost",
+                override_user_id=None,
+                trigger_source=TRIGGER_MANUAL,
+                default_user_id=self.user.id,
+            )
         )
         assert result.acting_user_id is None
 
     def test_labeled_opt_out_protects_authors_but_never_travels_with_a_borrowed_user(self) -> None:
         # self.user is both the mapped author (octocat) and the run-user fallback.
         ReviewUserSettings.objects.for_team(self.team.id).create(
-            team_id=self.team.id, user_id=self.user.id, review_labeled_prs=False
+            team_id=self.team.id, user_id=self.user.id, review_labeled_prs=False, resolve_comments=False
         )
-        # Acting as the author: their own opt-out applies and the workflow will skip.
-        as_author = _resolve_acting_user(self.team.id, "octocat", None, trigger_source=TRIGGER_LABEL)
+        # Acting as the author: their own opt-outs apply (the workflow will skip / stop at publish).
+        as_author = _resolve_acting_user(
+            ResolveActingUserInput(
+                team_id=self.team.id, author_login="octocat", override_user_id=None, trigger_source=TRIGGER_LABEL
+            )
+        )
         assert (as_author.resolved_from, as_author.review_labeled_prs) == ("author", False)
-        # Acting as the borrowed run user on someone else's PR: the same row must NOT kill the review.
+        assert as_author.resolve_comments is False
+        # Acting as the borrowed run user on someone else's PR: the same row must NOT kill the
+        # review, nor switch off resolution for a PR that isn't theirs (the default posture applies).
         as_default = _resolve_acting_user(
-            self.team.id, "ghost", None, trigger_source=TRIGGER_LABEL, default_user_id=self.user.id
+            ResolveActingUserInput(
+                team_id=self.team.id,
+                author_login="ghost",
+                override_user_id=None,
+                trigger_source=TRIGGER_LABEL,
+                default_user_id=self.user.id,
+            )
         )
         assert (as_default.acting_user_id, as_default.resolved_from) == (self.user.id, "default")
         assert as_default.review_labeled_prs is True
+        assert as_default.resolve_comments is True
 
     def test_urgency_threshold_follows_personal_sources_but_never_a_borrowed_default_user(self) -> None:
         # The publish-gate twin of the opt-out rule above: the run user's saved must_fix threshold
@@ -93,12 +131,26 @@ class TestResolveActingUser(BaseTest):
         ReviewUserSettings.objects.for_team(self.team.id).create(
             team_id=self.team.id, user_id=self.user.id, urgency_threshold=ReviewUserSettings.UrgencyThreshold.MUST_FIX
         )
-        as_author = _resolve_acting_user(self.team.id, "octocat", None, trigger_source=TRIGGER_LABEL)
+        as_author = _resolve_acting_user(
+            ResolveActingUserInput(
+                team_id=self.team.id, author_login="octocat", override_user_id=None, trigger_source=TRIGGER_LABEL
+            )
+        )
         assert (as_author.resolved_from, as_author.urgency_threshold) == ("author", "must_fix")
-        as_override = _resolve_acting_user(self.team.id, "ghost", self.user.id, trigger_source=TRIGGER_LABEL)
+        as_override = _resolve_acting_user(
+            ResolveActingUserInput(
+                team_id=self.team.id, author_login="ghost", override_user_id=self.user.id, trigger_source=TRIGGER_LABEL
+            )
+        )
         assert (as_override.resolved_from, as_override.urgency_threshold) == ("override", "must_fix")
         as_default = _resolve_acting_user(
-            self.team.id, "ghost", None, trigger_source=TRIGGER_LABEL, default_user_id=self.user.id
+            ResolveActingUserInput(
+                team_id=self.team.id,
+                author_login="ghost",
+                override_user_id=None,
+                trigger_source=TRIGGER_LABEL,
+                default_user_id=self.user.id,
+            )
         )
         assert (as_default.resolved_from, as_default.urgency_threshold) == ("default", "consider")
 
@@ -112,6 +164,10 @@ class TestResolveActingUser(BaseTest):
             head_branch="feat",
             base_branch="main",
         )
-        _resolve_acting_user(self.team.id, "octocat", None, report_id=str(report.id))
+        _resolve_acting_user(
+            ResolveActingUserInput(
+                team_id=self.team.id, author_login="octocat", override_user_id=None, report_id=str(report.id)
+            )
+        )
         report.refresh_from_db()
         assert report.acting_user_id == self.user.id

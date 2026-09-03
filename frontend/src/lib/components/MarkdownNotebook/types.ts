@@ -144,6 +144,12 @@ export type NotebookComponentRenderProps = {
     deleteNode: () => void
 }
 
+export type NotebookComponentToolbarProps = {
+    node: NotebookComponentBlockNode
+    notebookMode: NotebookMode
+    updateProps: (props: Partial<NotebookComponentProps>) => void
+}
+
 export type NotebookComponentInsertCommand = {
     label?: string
     category?: string
@@ -163,10 +169,15 @@ export type NotebookComponentDefinition = {
     defaultProps?: NotebookComponentProps | (() => NotebookComponentProps)
     validateProps?: (props: NotebookComponentProps) => string[]
     getTitle?: (node: NotebookComponentBlockNode) => string | null | undefined
+    editableTitle?: boolean
     /** Canonical PostHog URL the block points at (e.g. the insight, recording, or person it renders), opened in a new tab from the toolbar. */
     getHref?: (node: NotebookComponentBlockNode) => string | null | undefined
     ViewComponent: (props: NotebookComponentRenderProps) => JSX.Element
     EditComponent?: (props: NotebookComponentRenderProps) => JSX.Element
+    /** Rendered in the block's toolbar, in view mode as well as edit mode. The shell mounts it
+     * outside the panels, so it stays live while the block is collapsed and while the editing
+     * panel is closed — for a control a reader needs with no editor on screen, like Run. */
+    ToolbarComponent?: (props: NotebookComponentToolbarProps) => JSX.Element | null
     exclusiveEditPanel?: boolean
     hideModeActions?: boolean
     /** Show the filters toggle in view mode too, when the host opts in via `allowViewModeFilters`

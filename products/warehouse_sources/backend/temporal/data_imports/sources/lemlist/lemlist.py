@@ -22,6 +22,15 @@ LEMLIST_BASE_URL = "https://api.lemlist.com/api"
 # lemlist caps list pages at 100 rows and rate-limits to 20 requests / 2s per API key.
 PAGE_SIZE = 100
 
+# lemlist selects an API version per endpoint via a `version` query param (not a header or path).
+# The framework labels are opaque: v1 preserves the wire this source has always sent, v2 opts every
+# version-aware endpoint into lemlist's current shape. campaigns/activities only serve v2 and so send
+# it under either pin; /team's v2 additionally returns a `users` array, sent only under a v2 pin.
+LEMLIST_API_VERSION_V1 = "v1"
+LEMLIST_API_VERSION_V2 = "v2"
+LEMLIST_SUPPORTED_VERSIONS = (LEMLIST_API_VERSION_V1, LEMLIST_API_VERSION_V2)
+LEMLIST_DEFAULT_VERSION = LEMLIST_API_VERSION_V2
+
 
 @dataclasses.dataclass
 class LemlistResumeConfig:
@@ -66,14 +75,15 @@ def lemlist_source(
     team_id: int,
     job_id: str,
     resumable_source_manager: ResumableSourceManager[LemlistResumeConfig],
+    api_version: str,
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = LEMLIST_ENDPOINTS[endpoint]
 
     params: dict[str, Any] = {}
-    if config.requires_version_v2:
-        params["version"] = "v2"
+    if config.requires_version_v2 or (config.version_v2_enriches and api_version == LEMLIST_API_VERSION_V2):
+        params["version"] = LEMLIST_API_VERSION_V2
     if config.request_sort_by:
         params["sortBy"] = config.request_sort_by
     if config.request_sort_order:

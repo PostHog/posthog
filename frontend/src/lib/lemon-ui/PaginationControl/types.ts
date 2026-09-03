@@ -1,6 +1,8 @@
 export interface PaginationBase {
     /** By default pagination is only shown when there are multiple pages, but will always be if this is `false`. */
     hideOnSinglePage?: boolean
+    /** Set to false when page changes must stay local instead of adding a `page` search parameter to the URL. */
+    useUrl?: boolean
 }
 
 export interface PaginationAuto extends PaginationBase {
@@ -21,12 +23,6 @@ export interface PaginationManual extends PaginationBase {
     onForward?: () => void
     /** Previous page navigation handler. */
     onBackward?: () => void
-    /**
-     * Set to false to stop page changes from being pushed to the URL as a `page` search param.
-     * Only for tables whose page state lives entirely in their own logic: handler-less controlled
-     * tables navigate exclusively through that URL param, so they must keep the default.
-     */
-    useUrl?: boolean
 }
 
 export type PaginationState<T> = {

@@ -1,6 +1,6 @@
 import { KeyType, Logic } from 'kea'
 
-import { DataNode } from '~/queries/schema/schema-general'
+import type { DataNode, RefreshType } from '~/queries/schema/schema-general'
 
 export interface DataSourceLogic<T> extends Logic {
     values: {
@@ -11,7 +11,7 @@ export interface DataSourceLogic<T> extends Logic {
     }
     actions: {
         setQuery: (query: DataNode) => void
-        loadData: () => void
+        loadData: (refresh?: RefreshType) => void
         loadNextData: () => void
     }
 }

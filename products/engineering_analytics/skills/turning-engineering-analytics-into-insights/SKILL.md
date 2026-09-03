@@ -2,16 +2,14 @@
 name: turning-engineering-analytics-into-insights
 description: >
   Converts engineering analytics (PR / CI) data into saved PostHog insights, dashboards, and subscriptions, and
-  explains what data the product reads so it can be queried directly with SQL. The engineering analytics dashboard
-  and MCP tools run curated HogQL privately over per-team GitHub warehouse tables; this skill teaches discovering
-  those tables via engineering-analytics-sources, replicating the curated column semantics in HogQL, reading the
-  exposed engineering_analytics_* warehouse views where product logic is involved (CI cost, fingerprinted failure
-  lines, commit attribution), saving the query with insight-create, and scheduling delivery with
-  subscriptions-create. Use when asked to "save this as an insight", "put CI health / merge times on a dashboard",
-  "email me PR throughput weekly", "chart CI cost", "track time to first review", "subscribe to these numbers",
-  "alert on CI success rate", or "what data/tables/views does engineering analytics read". For ad-hoc CI and merge
-  questions use diagnosing-ci-and-merge-bottlenecks; to investigate one specific CI failure use
-  investigating-ci-failures.
+  explains how to query the product data directly with SQL. Covers discovering per-team GitHub warehouse tables via
+  engineering-analytics-sources, replicating curated column semantics in HogQL, reading exposed
+  engineering_analytics_* warehouse views where product logic is involved (CI cost, fingerprinted failure lines,
+  commit attribution), saving queries with insight-create, and scheduling delivery with subscriptions-create. Use
+  when asked to "save this as an insight", "put CI health / merge times on a dashboard", "email me PR throughput
+  weekly", "chart CI cost", "track time to first review", "subscribe to these numbers", "alert on CI success rate",
+  or "what data/tables/views does engineering analytics read". For ad-hoc CI and merge questions use
+  diagnosing-ci-and-merge-bottlenecks; to investigate one specific CI failure use investigating-ci-failures.
 ---
 
 # Turning engineering analytics into insights and subscriptions

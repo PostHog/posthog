@@ -111,6 +111,16 @@ For each run, the server sends the kernel a single execute request — `_ph.run_
 
 Python node execution uses `get_ipython().run_cell(code)` inside a capture context: full IPython semantics (last-expression value, tracebacks), stdout/stderr capture, and matplotlib figures arrive as `display_data` PNG — straight into `envelope.media`.
 
+### Notebook variables
+
+A notebook's `<Variables>` block declares named values the whole document shares. They reach a run by lane, and only one of the two lanes involves the kernel:
+
+- a **SQL** node has each `{name}` resolved at dispatch (`sql_v2_variables.py`). The ClickHouse lane substitutes through the HogQL AST; the DuckDB lane rewrites the placeholder to DuckDB's own `$name` parameter and carries the values on the node, so the driver binds them and no value is ever written into the SQL. Only placeholders in executable positions are rewritten — one inside a string, quoted identifier, dollar-quoted block, or comment is left as written;
+- a **raw connection** query refuses variables outright. Escaping is engine- and setting-specific — MySQL treats a backslash as an escape unless `NO_BACKSLASH_ESCAPES` is set — so binding there needs the driver's own parameter binding, which the direct-query path does not carry yet;
+- a **Python** node carries the values on `node.variables` and the kernel binds them into the user namespace before `run_cell`, ahead of input registration, so a dataframe still wins a name collision.
+
+Variables are rebound every run: the block is the authority on what a name holds, so a value a previous cell assigned must not survive into the next one.
+
 ## Local DuckDB (capability 4)
 
 **DuckDB nodes always execute inside the kernel process.** This is forced by DuckDB's replacement scans: `duckdb.sql("select * from my_pandas_df")` only resolves `my_pandas_df` if the frame lives in the same process. Since DuckDB nodes exist precisely to query local frames (decision 3), they run where the frames are.
@@ -156,10 +166,14 @@ products/notebooks/kernel/          # or backend/kernel_src/ — sandbox-side co
 └── envelope.py      # envelope construction shared by executor/bootstrap
 ```
 
-Dependencies (`jupyter_client`, `pyarrow`, `duckdb`, `pandas`, `requests`) are already in `Dockerfile.sandbox-notebook`; no new image deps needed. Delivery:
+Dependencies (`jupyter_client`, `pyarrow`, `duckdb`, `pandas`, `requests`) are already in `Dockerfile.sandbox-notebook`; no new image deps needed. Delivery runs on two paths, both landing on the same `python -m nb_kernel.server --port … --secret-file … --version …` launch:
 
-- **Prod**: bake the package into the sandbox image (like Code's agent-server), launched as `python -m …kernel.server --port … --secret-file …`.
-- **Dev / iteration**: keep the `write_file` bootstrap in `ensure_sql_v2_server`, but upload a tarball of the package keyed by content hash; `/health` reports the hash, and a mismatch triggers re-upload + restart. Editing kernel code then needs no image rebuild.
+- **Baked (the normal path)**: `Dockerfile.sandbox-notebook` copies the package to `/opt/nb_kernel_pkg/nb_kernel/` and stamps its content hash into `/opt/nb_kernel_pkg/VERSION`. `_launch_baked_kernel_server` compares that stamp against the hash the backend expects and launches in place when they agree. No upload, no extract.
+- **Tarball (the fallback)**: when the stamp disagrees, the backend uploads the package as a tarball and launches from `/tmp/nb_kernel_pkg` instead. This covers both the dev loop (edit `kernel/`, next run redeploys, no image rebuild) and the window in production between merging a kernel change and its image reaching the registry. A merged kernel fix therefore never waits on an image build.
+
+`kernel_package.py` owns both the destination and the hash: the image build calls it for the bake path (`--baked-root`) and for the stamp, so the Dockerfile holds no second copy of either. A stale stamp is not an outage, only a lost optimization, because the deploy degrades to the tarball path it used before.
+
+`/health` reports the running hash either way, which is what drives the redeploy decision in `ensure_sql_v2_server`. Editing `products/notebooks/backend/sandbox/kernel/**` rebuilds the image through `cd-sandbox-base-image.yml`.
 
 Because the package is plain Python with no Django imports, it gets normal unit tests in CI (auth round-trip, envelope building, run_node against a real in-process DuckDB, data-plane client against a stub Arrow server).
 

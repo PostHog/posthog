@@ -8,8 +8,9 @@ from pydantic import BaseModel, Field
 from posthog.schema import MaxRecordingUniversalFilters
 
 from posthog.models import Team, User
-from posthog.rbac.user_access_control import AccessControlLevel
 from posthog.scopes import APIScopeObject
+
+from products.access_control.backend.facade.user_access_control import AccessControlLevel
 
 from ee.hogai.chat_agent.taxonomy.agent import TaxonomyAgent
 from ee.hogai.chat_agent.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode

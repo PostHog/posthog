@@ -6,18 +6,21 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 import { billingJson } from '~/mocks/fixtures/_billing'
+import { RecordingsQuery } from '~/queries/schema/schema-general'
 import { StartupProgramLabel } from '~/types'
 
 import type {
+    DraftScannerResponseApi,
     ObservationStatsApi,
     ReplayObservationApi,
     ReplayScannerApi,
     ReplayScannerPromptSuggestionApi,
     ScannerStatsResponseApi,
     UserBasicApi,
-    VisionActionApi,
     VisionQuotaApi,
 } from '../generated/api.schemas'
+import { replayScannerLogic } from './replayScannerLogic'
+import type { SamplingMode, ScannerConfig, ScannerType } from './types'
 
 const alice: UserBasicApi = {
     id: 1,
@@ -41,12 +44,16 @@ const scanner = (overrides: Partial<ReplayScannerApi> = {}): ReplayScannerApi =>
         id: '00000000-0000-0000-0000-00000000000a',
         name: 'Scanner',
         description: '',
+        tags: [],
         scanner_type: 'monitor',
         scanner_config: { prompt: 'Did the user struggle?' },
         query: null,
         sampling_rate: 1,
+        // The API always serializes this (non-null column with a default), so a fixture without it
+        // would render the editor's form default instead of the scanner's own coverage.
+        sampling_mode: 'comprehensive',
         provider: 'google',
-        model: 'gemini-3.6-flash',
+        model: 'gemini-3.7-flash',
         enabled: true,
         emits_signals: false,
         scanner_version: 1,
@@ -57,6 +64,9 @@ const scanner = (overrides: Partial<ReplayScannerApi> = {}): ReplayScannerApi =>
         credits_this_month: 0,
         observations_this_month: 0,
         credits_per_observation: 1,
+        estimated_monthly_observations: null,
+        estimated_monthly_credits: null,
+        estimated_at: null,
         user_access_level: 'editor',
         ...overrides,
     }) as ReplayScannerApi
@@ -71,7 +81,11 @@ const scanners = {
             name: 'Confused checkout',
             credits_this_month: 1250,
             observations_this_month: 1250,
+            estimated_monthly_observations: 3100,
+            estimated_monthly_credits: 3100,
+            estimated_at: '2026-05-10T00:00:00Z',
             description: 'Flags sessions where the user hesitated at payment.',
+            tags: ['checkout', 'core flows'],
             scanner_type: 'monitor',
             sampling_rate: 1,
             created_by: alice,
@@ -91,6 +105,9 @@ const scanners = {
             name: 'Session summary',
             credits_this_month: 5,
             observations_this_month: 5,
+            estimated_monthly_observations: 40,
+            estimated_monthly_credits: 40,
+            estimated_at: '2026-05-10T00:00:00Z',
             scanner_type: 'summarizer',
             scanner_config: { prompt: 'Summarize this session.', length: 'medium' },
             sampling_rate: 0.05,
@@ -102,6 +119,9 @@ const scanners = {
             credits_this_month: 320,
             observations_this_month: 160,
             credits_per_observation: 2,
+            estimated_monthly_observations: 1000,
+            estimated_monthly_credits: 2000,
+            estimated_at: '2026-05-10T00:00:00Z',
             scanner_type: 'scorer',
             scanner_config: { prompt: 'Score this session.', scale: { min: 0, max: 10 } },
             sampling_rate: 1,
@@ -127,9 +147,23 @@ const quota: VisionQuotaApi = {
     remaining: 7600,
     exhausted: false,
     projected_monthly_credits: 5200,
+    scanners_monthly_credits: 5200,
+    backfills_committed_credits: 0,
     free_monthly_credits: 2500,
+    credits_settled: 2400,
+    credits_reserved: 0,
     period_start: '2026-05-01T00:00:00Z',
     period_end: '2026-06-01T00:00:00Z',
+}
+
+// Settled ledger spend per UTC day of the mocked period, weekends dipping, summing to `quota.credits_used`.
+const spendSeries = {
+    period_start: quota.period_start,
+    period_end: quota.period_end,
+    days: [150, 190, 230, 260, 90, 80, 250, 280, 310, 120, 440].map((credits, i) => ({
+        date: `2026-05-${String(i + 1).padStart(2, '0')}`,
+        credits,
+    })),
 }
 
 const summarizerScanner = scanners.results[2]
@@ -181,7 +215,7 @@ const observation = (overrides: Partial<ReplayObservationApi> = {}): ReplayObser
             name: summarizerScanner.name,
             scanner_type: 'summarizer',
             scanner_version: 1,
-            model: 'gemini-3.6-flash',
+            model: 'gemini-3.7-flash',
             provider: 'google',
             emits_signals: false,
             scanner_config: { prompt: 'Summarize this session.', length: 'medium' },
@@ -264,6 +298,43 @@ const observationDetail = observation({
     },
 })
 
+// A monitor observation, so the detail page renders the prompt row and the reasoning card that a
+// summarizer hides. The prompt is long on purpose: it is what the collapsed row has to clamp.
+const monitorObservationDetail = observation({
+    id: '00000000-0000-0000-0000-0000000000d2',
+    session_id: '01966b3f-70a1-7c52-a4d5-3f9b2e8c1d11',
+    recording_subject_email: 'bob@example.com',
+    distinct_id: 'user_2m1x9d',
+    previous_observation_id: '00000000-0000-0000-0000-0000000000b1',
+    next_observation_id: '00000000-0000-0000-0000-0000000000b4',
+    scanner_snapshot: {
+        name: 'Confused checkout',
+        scanner_type: 'monitor',
+        scanner_version: 3,
+        model: 'gemini-3.7-flash',
+        provider: 'google',
+        emits_signals: true,
+        scanner_config: {
+            prompt: 'Did the user struggle at checkout? Count it as struggling if they retried a coupon code more than once, resubmitted the payment form after an error, or moved back and forth between the cart and the payment step without completing the order. Ignore sessions that never reached the checkout page at all.',
+            allow_inconclusive: true,
+        },
+    },
+    scanner_result: {
+        model_output: {
+            scanner_type: 'monitor',
+            confidence: 0.82,
+            verdict: 'yes',
+            reasoning:
+                'The user entered a coupon code three times, each time getting a validation error, then switched to the payment form and submitted it twice before leaving the page. That is a retry loop at checkout rather than ordinary browsing.',
+        },
+        signals_count: 1,
+    },
+})
+
+// The pinned strip's default pins, in order: three session columns then a geo event property.
+// The values are invented.
+const sessionPropertiesRow = ['google.com', 'Paid Search', 'google', 'US']
+
 const promptSuggestion: ReplayScannerPromptSuggestionApi = {
     id: '00000000-0000-0000-0000-0000000000e1',
     status: 'pending',
@@ -305,98 +376,6 @@ const promptSuggestion: ReplayScannerPromptSuggestionApi = {
     evaluation: null,
 } as ReplayScannerPromptSuggestionApi
 
-const digestAction: VisionActionApi = {
-    id: '00000000-0000-0000-0000-0000000000f1',
-    name: 'Daily checkout digest',
-    scanner: summarizerScanner.id,
-    enabled: true,
-    is_scanner_digest: true,
-    trigger_type: 'schedule',
-    mode: 'group_summary',
-    trigger_config: { rrule: 'FREQ=DAILY;BYHOUR=9;BYMINUTE=0', timezone: 'UTC' },
-    selection: {},
-    synthesis_config: { prompt_guide: 'Lead with the most common friction point.' },
-    delivery_config: [{ type: 'webhook', url: 'https://hooks.example.com/replay-vision' }],
-    next_run_at: '2026-05-13T09:00:00Z',
-    last_run_at: '2026-05-12T09:00:00Z',
-    hog_flow_id: null,
-    created_at: '2026-05-01T00:00:00Z',
-    created_by: alice,
-    updated_at: '2026-05-01T00:00:00Z',
-} as VisionActionApi
-
-const alertAction: VisionActionApi = {
-    ...digestAction,
-    id: '00000000-0000-0000-0000-0000000000f2',
-    name: 'Coupon friction alert',
-    is_scanner_digest: false,
-    mode: 'alert',
-    alert_config: { frequency: 'on_breach', metric: 'count', threshold: 10, direction: 'above', window_days: 1 },
-    created_by: bob,
-} as VisionActionApi
-
-const actions = { count: 2, next: null, previous: null, results: [digestAction, alertAction] }
-
-const completedRun = {
-    id: '00000000-0000-0000-0000-0000000000a1',
-    status: 'completed',
-    scheduled_at: '2026-05-12T09:00:00Z',
-    observation_count: 12,
-    error_reason: null,
-    is_recovery: false,
-    created_at: '2026-05-12T09:00:05Z',
-    updated_at: '2026-05-12T09:01:10Z',
-}
-
-const actionRuns = {
-    count: 2,
-    next: null,
-    previous: null,
-    results: [
-        completedRun,
-        {
-            ...completedRun,
-            id: '00000000-0000-0000-0000-0000000000a2',
-            status: 'skipped',
-            scheduled_at: '2026-05-11T09:00:00Z',
-            observation_count: 0,
-            error_reason: 'No new observations in the window.',
-        },
-    ],
-}
-
-const actionRunDetail = {
-    ...completedRun,
-    synthesized_markdown:
-        '## Checkout friction, May 12\n\nCoupon validation failures dominated today [1][2]. Two sessions abandoned the cart after payment retries [3].',
-    observations: [
-        {
-            index: 1,
-            id: observations.results[0].id,
-            session_id: observations.results[0].session_id,
-            recording_subject_email: 'alice@example.com',
-            title: 'Checkout hesitation after coupon',
-            created_at: '2026-05-11T09:00:00Z',
-        },
-        {
-            index: 2,
-            id: observations.results[1].id,
-            session_id: observations.results[1].session_id,
-            recording_subject_email: 'very.long.customer.email.address@enterprise-customer-company-name.example.com',
-            title: 'Coupon validation loop at checkout',
-            created_at: '2026-05-11T10:00:00Z',
-        },
-        {
-            index: 3,
-            id: observations.results[3].id,
-            session_id: observations.results[3].session_id,
-            recording_subject_email: 'bob@example.com',
-            title: 'Cart abandoned after payment retry',
-            created_at: '2026-05-11T11:00:00Z',
-        },
-    ],
-}
-
 const estimate = {
     matched_sessions_in_window: 1840,
     window_days: 30,
@@ -437,6 +416,13 @@ const observationsTrend = {
     ],
 }
 
+const paginated = (names: string[]): Record<string, any> => ({
+    count: names.length,
+    next: null,
+    previous: null,
+    results: names.map((name) => ({ id: name, name, property_type: 'String' })),
+})
+
 const meta: Meta = {
     component: App,
     title: 'Scenes-App/Replay Vision',
@@ -445,15 +431,16 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2026-05-12',
         pageUrl: urls.replayVision(),
-        featureFlags: [FEATURE_FLAGS.REPLAY_VISION],
     },
     decorators: [
         mswDecorator({
             get: {
+                '/api/projects/:team_id/tags/': ['checkout', 'core flows'],
                 '/api/projects/:team_id/vision/scanners/': scanners,
                 '/api/projects/:team_id/vision/scanners/stats/': scannerStats,
                 '/api/projects/:team_id/vision/scanners/creators/': { creators: [alice, bob] },
                 '/api/projects/:team_id/vision/quota/': quota,
+                '/api/projects/:team_id/vision/quota/spend_series/': spendSeries,
                 '/api/projects/:team_id/vision/scanners/:id/': summarizerScanner,
                 '/api/projects/:team_id/vision/scanners/:id/impact/': scannerImpact,
                 '/api/projects/:team_id/vision/scanners/:id/observations/': observations,
@@ -470,14 +457,35 @@ const meta: Meta = {
                     rated_count: 12,
                     evaluation_session_cap: 25,
                 },
-                '/api/projects/:team_id/vision/actions/': actions,
-                '/api/projects/:team_id/vision/actions/:id/': digestAction,
-                '/api/projects/:team_id/vision/actions/:visionActionId/runs/': actionRuns,
-                '/api/projects/:team_id/vision/actions/:visionActionId/runs/:id/': actionRunDetail,
                 '/api/projects/:team_id/vision/observations/:id/': observationDetail,
+                '/api/projects/:team_id/signals/scout/configs/': [],
+                '/api/projects/:team_id/signals/scout/runs/recent-per-scout/': [],
+                '/api/projects/:team_id/signals/scout/runs/findings/summary/': [],
+                '/api/projects/:team_id/signals/scout/metadata/current/': {},
+                '/api/projects/:team_id/vision/scanners/:scannerId/scout_reports/': [],
+                '/api/projects/:team_id/vision/alerts/': { count: 0, next: null, previous: null, results: [] },
+                // The three namespaces the pinned-properties picker offers.
+                '/api/environments/:team_id/sessions/property_definitions/': paginated([
+                    '$entry_referring_domain',
+                    '$channel_type',
+                    '$entry_utm_source',
+                    '$entry_current_url',
+                ]),
+                '/api/projects/:team_id/property_definitions/': ({ request }) => {
+                    const type = new URL(request.url).searchParams.get('type')
+                    return type === 'person'
+                        ? paginated(['email', 'plan', 'company_size'])
+                        : paginated(['$geoip_country_code', '$browser', '$device_type', '$os'])
+                },
             },
             post: {
-                '/api/environments/:team_id/query/:query_kind/': observationsTrend,
+                '/api/environments/:team_id/query/:query_kind/': async ({ request }) => {
+                    const body = (await request.json()) as { query?: { query?: string } } | null
+                    // The observation page's pinned strip is the only query aliasing its columns this way.
+                    return body?.query?.query?.includes('as pinned_0')
+                        ? { results: [sessionPropertiesRow] }
+                        : observationsTrend
+                },
                 '/api/projects/:team_id/vision/scanners/estimate/': estimate,
             },
         }),
@@ -487,6 +495,30 @@ export default meta
 
 export const ScannersList: StoryObj = {}
 
+// A project that has never created a scanner: the surface of the empty-state experiment.
+const emptyProjectDecorators = [
+    mswDecorator({
+        get: {
+            '/api/projects/:team_id/vision/scanners/': { count: 0, next: null, previous: null, results: [] },
+            '/api/projects/:team_id/vision/scanners/stats/': {
+                total: 0,
+                enabled: 0,
+                by_type: {
+                    monitor: { enabled: 0, total: 0 },
+                    classifier: { enabled: 0, total: 0 },
+                    scorer: { enabled: 0, total: 0 },
+                    summarizer: { enabled: 0, total: 0 },
+                },
+            } satisfies ScannerStatsResponseApi,
+            '/api/projects/:team_id/vision/scanners/creators/': { creators: [] },
+        },
+    }),
+]
+
+export const ScannersListEmpty: StoryObj = {
+    decorators: emptyProjectDecorators,
+}
+
 export const UsageTab: StoryObj = {
     parameters: { pageUrl: `${urls.replayVision()}?tab=usage` },
 }
@@ -494,6 +526,55 @@ export const UsageTab: StoryObj = {
 // Nothing else renders the summarizer's friction/keyword panels, so this story is what catches regressions there.
 export const SummarizerOverview: StoryObj = {
     parameters: { pageUrl: urls.replayVision(summarizerScanner.id) },
+}
+
+// The scan-drought banner: current version 4 has no marker, and the sweep watermark sits past the
+// last config change, so the page warns that the filters matched nothing. No other story renders it.
+export const ScannerScanDrought: StoryObj = {
+    parameters: { pageUrl: urls.replayVision(summarizerScanner.id) },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/vision/scanners/:id/': scanner({
+                    id: summarizerScanner.id,
+                    name: 'Confused checkout',
+                    scanner_type: 'monitor',
+                    scanner_config: { prompt: 'Did the user struggle?' },
+                    scanner_version: 4,
+                    sampling_rate: 0.1,
+                    updated_at: '2026-05-10T00:00:00Z',
+                    last_swept_at: '2026-05-12T00:00:00Z',
+                    created_by: alice,
+                }),
+                '/api/projects/:team_id/vision/scanners/:id/observations/stats/': {
+                    ...summarizerStats,
+                    summarizer: null,
+                    monitor: { yes_total: 12, no_total: 130, inconclusive_total: 0 },
+                    labels: {
+                        ...summarizerStats.labels,
+                        version_markers: [
+                            {
+                                date: '2026-05-01',
+                                version: 3,
+                                prompt: 'Did the user struggle?',
+                                scanner_config: { prompt: 'Did the user struggle?' },
+                                scanner_type: 'monitor',
+                                model: 'gemini-3.7-flash',
+                                provider: 'google',
+                                emits_signals: false,
+                                query: null,
+                                sampling_rate: 1,
+                                sampling_mode: 'comprehensive',
+                                up: 6,
+                                down: 2,
+                                total: 142,
+                            },
+                        ],
+                    },
+                } satisfies ObservationStatsApi,
+            },
+        }),
+    ],
 }
 
 export const ScannerObservations: StoryObj = {
@@ -508,14 +589,20 @@ export const ScannerConfiguration: StoryObj = {
     parameters: { pageUrl: `${urls.replayVision(summarizerScanner.id)}?tab=configuration` },
 }
 
-// Test arm of the model tier-naming experiment: models labeled Basic/Pro/Ultra instead of provider
-// names. A per-story featureFlags replaces the meta's, so REPLAY_VISION must be re-listed.
+// Test arms of the model tier-naming experiment: models labeled by capability tier instead of
+// provider names.
 export const ScannerConfigurationTierNames: StoryObj = {
     parameters: {
         pageUrl: `${urls.replayVision(summarizerScanner.id)}?tab=configuration`,
+        featureFlags: { [FEATURE_FLAGS.REPLAY_VISION_MODEL_TIER_NAMING_EXPERIMENT]: 'test' },
+    },
+}
+
+export const ScannerConfigurationLiteStandardPro: StoryObj = {
+    parameters: {
+        pageUrl: `${urls.replayVision(summarizerScanner.id)}?tab=configuration`,
         featureFlags: {
-            [FEATURE_FLAGS.REPLAY_VISION]: true,
-            [FEATURE_FLAGS.REPLAY_VISION_MODEL_TIER_NAMING_EXPERIMENT]: 'test',
+            [FEATURE_FLAGS.REPLAY_VISION_MODEL_TIER_NAMING_EXPERIMENT]: 'lite-standard-pro',
         },
     },
 }
@@ -525,15 +612,122 @@ export const ScannerCalibration: StoryObj = {
     parameters: { pageUrl: `${urls.replayVision(summarizerScanner.id)}?tab=calibration` },
 }
 
-export const ScannerDigests: StoryObj = {
+const digestScoutConfig = {
+    id: '00000000-0000-0000-0000-0000000000c1',
+    skill_name: 'signals-scout-daily-digest-confused-checkout',
+    description: 'Daily digest of what the scanner observed since the last run.',
+    scout_origin: 'custom',
+    owners: [alice],
+    enabled: true,
+    status: 'active',
+    pause_reason: null,
+    source_product: 'replay_vision',
+    source_id: summarizerScanner.id,
+    cron_schedule: '0 9 * * *',
+    output_destinations: [],
+    created_at: '2026-05-02T09:00:00Z',
+}
+
+const trendScoutConfig = {
+    ...digestScoutConfig,
+    id: '00000000-0000-0000-0000-0000000000c2',
+    skill_name: 'signals-scout-checkout-trend-watch',
+    description: 'Watches for week-over-week movement in checkout friction themes.',
+    owners: [bob],
+    created_at: '2026-05-06T09:00:00Z',
+}
+
+const scoutReport = {
+    report_id: '00000000-0000-0000-0000-0000000000d1',
+    title: 'Daily digest confused checkout: 2026-05-12',
+    summary: '**TL;DR:** Checkout friction held steady; coupon box confusion dominated.',
+    skill_name: digestScoutConfig.skill_name,
+    created_at: '2026-05-12T09:03:00Z',
+    updated_at: '2026-05-12T09:03:00Z',
+}
+
+export const ScannerScouts: StoryObj = {
     parameters: {
-        pageUrl: `${urls.replayVision(summarizerScanner.id)}?tab=actions`,
-        featureFlags: [FEATURE_FLAGS.REPLAY_VISION, FEATURE_FLAGS.REPLAY_VISION_ACTIONS],
+        pageUrl: `${urls.replayVision(summarizerScanner.id)}?tab=scouts`,
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/signals/scout/configs/': [digestScoutConfig, trendScoutConfig],
+                '/api/projects/:team_id/vision/scanners/:scannerId/scout_reports/': [scoutReport],
+            },
+        }),
+    ],
+}
+
+export const ScannerScoutsEmpty: StoryObj = {
+    parameters: {
+        pageUrl: `${urls.replayVision(summarizerScanner.id)}?tab=scouts`,
+    },
+}
+
+const metricAlert = {
+    id: '00000000-0000-0000-0000-0000000000e1',
+    scanner_id: summarizerScanner.id,
+    name: 'Coupon friction spike',
+    enabled: true,
+    kind: 'metric',
+    selection: {},
+    metric: 'count',
+    direction: 'above',
+    threshold: 10,
+    window_days: 1,
+    check_interval_minutes: 60,
+    state: 'not_firing',
+    evaluation_periods: 1,
+    notification_config: [],
+    created_at: '2026-05-03T00:00:00Z',
+    updated_at: '2026-05-03T00:00:00Z',
+    created_by: alice,
+}
+
+const matchAlert = {
+    ...metricAlert,
+    id: '00000000-0000-0000-0000-0000000000e2',
+    name: 'Any rage click observation',
+    kind: 'match',
+    metric: null,
+    direction: null,
+    threshold: null,
+    state: 'firing',
+    created_by: bob,
+}
+
+export const ScannerAlerts: StoryObj = {
+    parameters: {
+        pageUrl: `${urls.replayVision(summarizerScanner.id)}?tab=alerts`,
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/vision/alerts/': {
+                    count: 2,
+                    next: null,
+                    previous: null,
+                    results: [metricAlert, matchAlert],
+                },
+            },
+        }),
+    ],
+}
+
+export const ScannerAlertsEmpty: StoryObj = {
+    parameters: {
+        pageUrl: `${urls.replayVision(summarizerScanner.id)}?tab=alerts`,
     },
 }
 
 export const ScannerTemplates: StoryObj = {
     parameters: { pageUrl: urls.replayVisionTemplates() },
+}
+
+export const ScannerEditorDetails: StoryObj = {
+    parameters: { pageUrl: urls.replayVisionScannerDetails(summarizerScanner.id) },
 }
 
 export const ScannerEditorConfigure: StoryObj = {
@@ -543,9 +737,15 @@ export const ScannerEditorConfigure: StoryObj = {
 export const ScannerEditorConfigureTierNames: StoryObj = {
     parameters: {
         pageUrl: urls.replayVisionScannerConfigure(summarizerScanner.id),
+        featureFlags: { [FEATURE_FLAGS.REPLAY_VISION_MODEL_TIER_NAMING_EXPERIMENT]: 'test' },
+    },
+}
+
+export const ScannerEditorConfigureLiteStandardPro: StoryObj = {
+    parameters: {
+        pageUrl: urls.replayVisionScannerConfigure(summarizerScanner.id),
         featureFlags: {
-            [FEATURE_FLAGS.REPLAY_VISION]: true,
-            [FEATURE_FLAGS.REPLAY_VISION_MODEL_TIER_NAMING_EXPERIMENT]: 'test',
+            [FEATURE_FLAGS.REPLAY_VISION_MODEL_TIER_NAMING_EXPERIMENT]: 'lite-standard-pro',
         },
     },
 }
@@ -554,30 +754,24 @@ export const ScannerEditorTriggers: StoryObj = {
     parameters: { pageUrl: urls.replayVisionScannerTriggers(summarizerScanner.id) },
 }
 
-export const ActionEditorAlert: StoryObj = {
-    parameters: {
-        pageUrl: urls.replayVisionActionNew(summarizerScanner.id, 'alert'),
-        featureFlags: [FEATURE_FLAGS.REPLAY_VISION, FEATURE_FLAGS.REPLAY_VISION_ACTIONS],
-    },
-}
-
-// Editing the digest exercises the schedule section (weekday pills, time controls).
-export const ActionEditorDigest: StoryObj = {
-    parameters: {
-        pageUrl: urls.replayVisionActionEdit(digestAction.id),
-        featureFlags: [FEATURE_FLAGS.REPLAY_VISION, FEATURE_FLAGS.REPLAY_VISION_ACTIONS],
-    },
-}
-
-export const ActionDetail: StoryObj = {
-    parameters: {
-        pageUrl: urls.replayVisionAction(digestAction.id),
-        featureFlags: [FEATURE_FLAGS.REPLAY_VISION, FEATURE_FLAGS.REPLAY_VISION_ACTIONS],
-    },
+export const ScannerEditorBudget: StoryObj = {
+    parameters: { pageUrl: urls.replayVisionScannerBudget(summarizerScanner.id) },
 }
 
 export const ObservationDetail: StoryObj = {
     parameters: { pageUrl: urls.replayVisionObservation(observationDetail.id) },
+}
+
+// The only story covering the collapsed prompt row and the pinned session properties card.
+export const ObservationDetailMonitor: StoryObj = {
+    parameters: { pageUrl: urls.replayVisionObservation(monitorObservationDetail.id) },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/vision/observations/:id/': monitorObservationDetail,
+            },
+        }),
+    ],
 }
 
 // Billing hasn't clamped this org's limit yet, so the API still reports it as uncapped.
@@ -585,11 +779,95 @@ export const StartupProgramCap: StoryObj = {
     decorators: [
         mswDecorator({
             get: {
+                '/api/projects/:team_id/tags/': ['checkout', 'core flows'],
                 '/api/projects/:team_id/vision/scanners/': scanners,
                 '/api/projects/:team_id/vision/scanners/stats/': scannerStats,
                 '/api/projects/:team_id/vision/quota/': { ...quota, credit_limit: null, remaining: null },
                 '/api/billing/': { ...billingJson, startup_program_label: StartupProgramLabel.YC },
             },
         }),
+    ],
+}
+
+// The goal-based creation flow's two questions replace the template gallery when the flag's test
+// variant is on.
+export const ScannerEditorGoalFlow: StoryObj = {
+    parameters: {
+        pageUrl: urls.replayVisionScannerTemplate('new'),
+        featureFlags: { [FEATURE_FLAGS.VISION_GOAL_BASED_CREATION_FLOW]: 'test' },
+    },
+}
+
+const goalDraft: DraftScannerResponseApi = {
+    name: 'Billing give-up monitor',
+    description: 'Flags sessions where a user reaches billing and leaves without finishing.',
+    scanner_type: 'monitor',
+    scanner_config: {
+        prompt: 'Did the user reach a billing page and leave without completing what they started there? Answer yes or no with a one-sentence reason.',
+        allow_inconclusive: true,
+    },
+    rationale:
+        'You want to catch people who give up around billing, so this watches sessions that touch your billing pages and asks a yes/no question about each one. Giving up looks unremarkable, so it watches all matching replays rather than only the eventful ones.',
+    query: {
+        kind: 'RecordingsQuery',
+        properties: [
+            {
+                type: 'recording',
+                key: 'visited_page',
+                value: ['/organization/billing/overview', '/organization/billing/plans', '/checkout'],
+                operator: 'icontains',
+            },
+        ],
+    },
+    sampling_mode: 'comprehensive',
+    sampling_rate: 0.25,
+    model: 'gemini-3-flash-preview',
+    credit_limit: 5000,
+    estimated_monthly_observations: 1000,
+}
+
+// The landing step after a goal draft: the whole config ordered by comprehension, each section
+// deep-linking into the wizard step that edits it. Seeded through the same action the loader fires.
+export const ScannerEditorGoalOverview: StoryObj = {
+    parameters: {
+        pageUrl: urls.replayVisionScannerOverview('new'),
+        featureFlags: { [FEATURE_FLAGS.VISION_GOAL_BASED_CREATION_FLOW]: 'test' },
+    },
+    decorators: [
+        (StoryFn) => {
+            const logic = replayScannerLogic({ id: 'new' })
+            logic.mount()
+            // The success listener's stale-navigation guard sees the overview URL and skips its own
+            // reset + redirect, so only the goalDraft reducer applies; the form is seeded by hand.
+            logic.actions.draftScannerFromGoalSuccess(goalDraft)
+            logic.actions.setScannerValues({
+                name: goalDraft.name,
+                description: goalDraft.description,
+                scanner_type: goalDraft.scanner_type as ScannerType,
+                scanner_config: goalDraft.scanner_config as ScannerConfig,
+                query: goalDraft.query as RecordingsQuery,
+                sampling_mode: goalDraft.sampling_mode as SamplingMode,
+                sampling_rate: goalDraft.sampling_rate ?? 1,
+            })
+            return <StoryFn />
+        },
+    ],
+}
+
+// The overview while the draft is still generating: the loading bar and skeleton the user sees
+// right after submitting the two questions.
+export const ScannerEditorGoalOverviewLoading: StoryObj = {
+    parameters: {
+        pageUrl: urls.replayVisionScannerOverview('new'),
+        featureFlags: { [FEATURE_FLAGS.VISION_GOAL_BASED_CREATION_FLOW]: 'test' },
+    },
+    decorators: [
+        (StoryFn) => {
+            const logic = replayScannerLogic({ id: 'new' })
+            logic.mount()
+            // Hold the draft loader open so the overview renders its skeleton instead of a result.
+            logic.actions.draftScannerFromGoal('find out where people give up in billing', 5000)
+            return <StoryFn />
+        },
     ],
 }

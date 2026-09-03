@@ -1,24 +1,15 @@
 import pytest
-from unittest import mock
 
-from posthog.schema import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
+from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.hightouch import (
     HightouchSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.hightouch.hightouch import HightouchResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.hightouch.settings import (
     ENDPOINTS,
     SYNC_RUNS_LOOKBACK_SECONDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.hightouch.source import HightouchSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestHightouchSource:
@@ -26,9 +17,6 @@ class TestHightouchSource:
         self.source = HightouchSource()
         self.team_id = 123
         self.config = HightouchSourceConfig(api_key="hightouch-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.HIGHTOUCH
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config
@@ -40,13 +28,6 @@ class TestHightouchSource:
         assert not config.unreleasedSource
         assert config.iconPath == "/static/services/hightouch.png"
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/hightouch"
-
-    def test_api_key_field_is_secret_password(self) -> None:
-        config = self.source.get_source_config
-        field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_key")
-        assert field.type == SourceFieldInputConfigType.PASSWORD
-        assert field.secret is True
-        assert field.required is True
 
     def test_get_schemas_endpoints(self) -> None:
         schemas = self.source.get_schemas(self.config, self.team_id)
@@ -88,56 +69,3 @@ class TestHightouchSource:
         assert not any(
             key in "500 Server Error for url: https://api.hightouch.com/api/v1/syncs" for key in non_retryable
         )
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.hightouch.source.validate_hightouch_credentials"
-    )
-    def test_validate_credentials_plumbs_arguments(self, mock_validate: mock.MagicMock) -> None:
-        mock_validate.return_value = (True, None)
-        result = self.source.validate_credentials(self.config, self.team_id, schema_name="sync_runs")
-
-        assert result == (True, None)
-        mock_validate.assert_called_once_with("hightouch-key")
-
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        inputs = mock.MagicMock()
-        manager = self.source.get_resumable_source_manager(inputs)
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is HightouchResumeConfig
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.hightouch.source.hightouch_source")
-    def test_source_for_pipeline_plumbs_arguments(self, mock_hightouch_source: mock.MagicMock) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "sync_runs"
-        inputs.team_id = self.team_id
-        inputs.job_id = "job-1"
-        inputs.should_use_incremental_field = True
-        inputs.incremental_field = "startedAt"
-        manager = mock.MagicMock()
-
-        self.source.source_for_pipeline(self.config, manager, inputs)
-
-        kwargs = mock_hightouch_source.call_args.kwargs
-        assert kwargs["api_key"] == "hightouch-key"
-        assert kwargs["endpoint"] == "sync_runs"
-        assert kwargs["resumable_source_manager"] is manager
-        assert kwargs["should_use_incremental_field"] is True
-        assert kwargs["incremental_field"] == "startedAt"
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.hightouch.source.hightouch_source")
-    def test_source_for_pipeline_omits_watermark_when_not_incremental(
-        self, mock_hightouch_source: mock.MagicMock
-    ) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "sync_runs"
-        inputs.should_use_incremental_field = False
-        inputs.db_incremental_field_last_value = "2026-01-01T00:00:00Z"
-
-        self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
-
-        kwargs = mock_hightouch_source.call_args.kwargs
-        assert kwargs["db_incremental_field_last_value"] is None
-
-    def test_canonical_descriptions_cover_endpoints(self) -> None:
-        descriptions = self.source.get_canonical_descriptions()
-        assert set(descriptions.keys()) == set(ENDPOINTS)

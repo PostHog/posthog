@@ -4,8 +4,11 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
 from django.conf import settings
-from django.db import DatabaseError
+from django.db import DatabaseError, connection
 from django.test import override_settings
+from django.test.utils import CaptureQueriesContext
+
+from parameterized import parameterized
 
 from posthog.schema import (
     HogLanguage,
@@ -19,11 +22,12 @@ from posthog.schema import (
 from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR
 from posthog.hogql.metadata import get_hogql_metadata
 from posthog.hogql.parser import parse_select
+from posthog.hogql.taxonomy_validation import MAX_SUGGESTED_NAMES
 
-from posthog.models import EventDefinition, PropertyDefinition
+from posthog.models import EventDefinition, PropertyDefinition, Team
 
 from products.cohorts.backend.models.cohort import Cohort
-from products.product_analytics.backend.models.insight_variable import InsightVariable
+from products.product_analytics.backend.facade.models import InsightVariable
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
@@ -182,6 +186,34 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             },
         )
 
+    @parameterized.expand(
+        [
+            ("SELECT tiemstamp FROM events", "tiemstamp", "timestamp"),
+            ("SELECT distnct_id FROM events", "distnct_id", "distinct_id"),
+        ]
+    )
+    def test_metadata_offers_a_quick_fix_for_a_misspelled_field(self, query: str, misspelling: str, expected_fix: str):
+        metadata = self._select(query)
+
+        self.assertFalse(metadata.isValid)
+        self.assertEqual(len(metadata.errors), 1)
+        error = metadata.errors[0]
+        self.assertIn(f"Did you mean: {expected_fix}", error.message)
+        self.assertEqual(error.fix, expected_fix)
+        # The editor substitutes `fix` for the marked range, so the range has to cover the
+        # misspelling and nothing else. A span of None marks the whole query.
+        self.assertEqual(query[error.start : error.end], misspelling)
+
+    def test_metadata_offers_no_quick_fix_when_the_misspelling_heads_a_chain(self):
+        metadata = self._select("SELECT evnt.foo FROM events")
+
+        self.assertFalse(metadata.isValid)
+        self.assertEqual(len(metadata.errors), 1)
+        # Asserting the suggestion is present keeps this pinned on the chain rule: the marked range
+        # covers `evnt.foo`, so substituting `event` for it would drop the rest of the chain.
+        self.assertIn("Did you mean: event", metadata.errors[0].message)
+        self.assertIsNone(metadata.errors[0].fix)
+
     def test_metadata_warns_for_unknown_event_literal(self):
         EventDefinition.objects.create(team=self.team, name="paid_bill")
 
@@ -261,6 +293,64 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         self.assertTrue(metadata.isValid)
         self.assertEqual(metadata.warnings, [])
 
+    @parameterized.expand([("event",), ("property",)])
+    def test_metadata_scopes_taxonomy_to_the_project(self, kind: str) -> None:
+        # Definitions are project-scoped, and so is the taxonomic filter that lists them. A
+        # team-scoped lookup here reports a name as unknown that the filter offers, for every
+        # definition ingested through a sibling environment of the same project.
+        sibling = Team.objects.create(
+            organization=self.organization, project_id=self.team.project_id, name="sibling environment"
+        )
+        other_project = Team.objects.create(organization=self.organization, name="unrelated project")
+        model = EventDefinition if kind == "event" else PropertyDefinition
+        # Without a definition owned by this team the taxonomy reads as empty under a team-scoped
+        # lookup, and the empty-taxonomy early return would satisfy the first assertion for free.
+        model.objects.create(team=self.team, name="owned_by_this_team")
+        model.objects.create(team=sibling, project_id=self.team.project_id, name="in_this_project")
+        model.objects.create(team=other_project, project_id=other_project.project_id, name="in_another_project")
+
+        def taxonomy_warnings(name: str) -> list[str]:
+            query = (
+                f"SELECT count() FROM events WHERE event = '{name}'"
+                if kind == "event"
+                else f"SELECT properties.{name} FROM events"
+            )
+            return [w.message for w in self._select(query).warnings if "project taxonomy" in w.message]
+
+        self.assertEqual(taxonomy_warnings("in_this_project"), [])
+        self.assertEqual(len(taxonomy_warnings("in_another_project")), 1)
+
+    def _select_with_unknown_properties(self, count: int) -> HogQLMetadataResponse:
+        for index in range(count):
+            PropertyDefinition.objects.create(team=self.team, name=f"suggestable_{index}")
+
+        conditions = " OR ".join(f"properties.sugestable_{index} = '1'" for index in range(count))
+        return self._select(f"SELECT count() FROM events WHERE {conditions}")
+
+    def test_metadata_caps_how_many_unknown_names_get_a_suggestion(self) -> None:
+        # One query can carry any number of unknown names. Every unknown name still warns, so only
+        # the "Did you mean" half is capped.
+        unknown_count = MAX_SUGGESTED_NAMES + 3
+
+        metadata = self._select_with_unknown_properties(unknown_count)
+
+        taxonomy_warnings = [w.message for w in metadata.warnings if "project taxonomy" in w.message]
+        self.assertEqual(len(taxonomy_warnings), unknown_count)
+        self.assertEqual(
+            len([message for message in taxonomy_warnings if "Did you mean" in message]),
+            MAX_SUGGESTED_NAMES,
+        )
+
+    def test_metadata_reads_suggestion_candidates_in_one_query(self) -> None:
+        # A candidate read per unknown name costs a round trip per name. A typical project holds a
+        # few hundred definitions, where those round trips cost more than the comparison they save.
+        with CaptureQueriesContext(connection) as captured:
+            metadata = self._select_with_unknown_properties(MAX_SUGGESTED_NAMES)
+
+        self.assertTrue(metadata.isValid)
+        candidate_reads = [q["sql"] for q in captured.captured_queries if "SIMILARITY" in q["sql"].upper()]
+        self.assertEqual(len(candidate_reads), 1, candidate_reads)
+
     def test_metadata_does_not_warn_for_dynamic_event_expression(self):
         EventDefinition.objects.create(team=self.team, name="paid_bill")
 
@@ -283,14 +373,14 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         taxonomy_warnings = [warning for warning in metadata.warnings if "project taxonomy" in warning.message]
         self.assertEqual(taxonomy_warnings, [])
 
-    def test_metadata_skips_full_taxonomy_fetch_for_known_event(self):
+    def test_metadata_skips_suggestion_lookup_for_known_event(self):
         EventDefinition.objects.create(team=self.team, name="paid_bill")
 
-        with patch("posthog.hogql.taxonomy_validation._known_names") as known_names:
+        with patch("posthog.hogql.taxonomy_validation._similar_names") as similar_names:
             metadata = self._select("SELECT count() FROM events WHERE event = 'paid_bill'")
 
         self.assertTrue(metadata.isValid)
-        known_names.assert_not_called()
+        similar_names.assert_not_called()
 
     def test_metadata_event_literal_fix_preserves_quotes(self):
         EventDefinition.objects.create(team=self.team, name="$pageview")
@@ -336,7 +426,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         EventDefinition.objects.create(team=self.team, name="paid_bill")
 
         with patch(
-            "posthog.hogql.taxonomy_validation.EventDefinition.objects.filter",
+            "posthog.hogql.taxonomy_validation.EventDefinition.objects.alias",
             side_effect=DatabaseError("boom"),
         ):
             metadata = self._select("SELECT count() FROM events WHERE event = 'purchase'")
@@ -347,14 +437,14 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
 
     def test_metadata_does_not_query_taxonomy_without_taxonomy_references(self):
         with (
-            patch("posthog.hogql.taxonomy_validation.EventDefinition.objects.filter") as event_filter,
-            patch("posthog.hogql.taxonomy_validation.PropertyDefinition.objects.filter") as property_filter,
+            patch("posthog.hogql.taxonomy_validation.EventDefinition.objects.alias") as event_alias,
+            patch("posthog.hogql.taxonomy_validation.PropertyDefinition.objects.alias") as property_alias,
         ):
             metadata = self._select("SELECT count() FROM events")
 
         self.assertTrue(metadata.isValid)
-        event_filter.assert_not_called()
-        property_filter.assert_not_called()
+        event_alias.assert_not_called()
+        property_alias.assert_not_called()
 
     def test_metadata_does_not_warn_for_event_column_outside_events_table(self):
         EventDefinition.objects.create(team=self.team, name="paid_bill")

@@ -10,7 +10,14 @@ import { componentsToDayJs, dateStringToComponents, dateStringToDayJs, isStringD
 import { Params } from 'scenes/sceneTypes'
 
 import { DateRange, ErrorTrackingIssue } from '~/queries/schema/schema-general'
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
+import { escapeHogQLString } from '~/queries/utils'
+import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    FilterLogicalOperator,
+    PropertyFilterType,
+    type UniversalFiltersGroup,
+} from '~/types'
 
 /** Reason error tracking write actions are disabled, or null when the user has editor access. */
 export function errorTrackingEditAccessDisabledReason(): string | null {
@@ -106,12 +113,53 @@ export function isThirdPartyScriptError(value: ErrorTrackingException['value']):
 
 // Recordings match on session start time, so pad past first_seen to catch a session that began
 // before the exception fired, and past last_seen so a single-occurrence issue isn't a zero-width window.
-export function getIssueReplayDateRange(firstSeen: string, lastSeen: Dayjs | null): DateRange {
-    const from = dayjs(firstSeen)
-    const to = lastSeen && lastSeen.isAfter(from) ? lastSeen : from
+// The selected event keeps the range valid when the user clicks before the last_seen query finishes.
+export function getIssueReplayDateRange(
+    firstSeen: string | null | undefined,
+    lastSeen: Dayjs | null,
+    selectedEventTimestamp?: string | null
+): DateRange {
+    const firstSeenAt = dayjs(firstSeen)
+    const selectedEventSeenAt = selectedEventTimestamp ? dayjs(selectedEventTimestamp) : null
+    // first_seen is annotated from fingerprint rows, so an issue with no ingested events
+    // (reachable via the metrics error-spike overlay) has none — anchor on another known
+    // timestamp instead of letting toISOString throw on an invalid date.
+    const from = firstSeenAt.isValid()
+        ? firstSeenAt
+        : ([lastSeen, selectedEventSeenAt].find((d): d is Dayjs => !!d?.isValid()) ?? dayjs())
+    const latestKnownSeenAt =
+        selectedEventSeenAt?.isValid() && (!lastSeen || selectedEventSeenAt.isAfter(lastSeen))
+            ? selectedEventSeenAt
+            : lastSeen
+    const to = latestKnownSeenAt?.isAfter(from) ? latestKnownSeenAt : from
+
     return {
         date_from: from.subtract(1, 'hour').toISOString(),
         date_to: to.add(1, 'hour').toISOString(),
+    }
+}
+
+export function getIssueReplayFilterGroup(issueId: string): UniversalFiltersGroup {
+    return {
+        type: FilterLogicalOperator.And,
+        values: [
+            {
+                type: FilterLogicalOperator.And,
+                values: [
+                    {
+                        id: '$exception',
+                        name: '$exception',
+                        type: 'events',
+                        properties: [
+                            {
+                                key: `issue_id = ${escapeHogQLString(issueId)}`,
+                                type: PropertyFilterType.HogQL,
+                            },
+                        ],
+                    },
+                ],
+            },
+        ],
     }
 }
 

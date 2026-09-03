@@ -40,6 +40,34 @@ export const INBOX_DISMISSED_STATUS_FILTER = "suppressed,resolved";
  */
 export const INBOX_PULL_REQUEST_STATUS_FILTER = "ready";
 
+/**
+ * Status filter for the reports inbox page (and its badges). Excludes
+ * `potential`: embryonic reports the pipeline hasn't promoted yet, which no
+ * surface has ever displayed — fetching them bloats Monitoring with rows
+ * nobody can act on and spends the page's row budget on noise. The legacy
+ * inbox keeps the broader filter for its Runs accounting.
+ */
+export const REPORTS_INBOX_STATUS_FILTER = INBOX_PIPELINE_STATUSES.filter(
+  (status) => status !== "potential",
+).join(",");
+
+/** Web Inbox's actionable report set: ready reports plus ones waiting on human input. */
+export const INBOX_ACTIONABLE_REPORT_STATUS_FILTER = "ready,pending_input";
+
+/** The two judgments that web Inbox includes in Review and merge / Needs a PR. */
+export const INBOX_ACTIONABLE_ACTIONABILITY_FILTER =
+  "immediately_actionable,requires_human_input";
+
+/**
+ * Status filter for the Reports tab's count. `isReportTabReport` keeps a report
+ * only when it is `ready` and carries no PR, because every other pipeline status
+ * is either a queued/live run that belongs to the Runs tab or a `failed` run
+ * that is filtered out. Pairing this with `has_implementation_pr: false`
+ * reproduces that predicate server-side, so the badge can be counted rather than
+ * derived from the loaded pages.
+ */
+export const INBOX_REPORTS_TAB_STATUS_FILTER = "ready";
+
 /** Polling interval for inbox queries while the Electron window is focused. */
 export const INBOX_REFETCH_INTERVAL_MS = 3000;
 
@@ -106,6 +134,46 @@ export function buildArchiveListOrdering(
   direction: "asc" | "desc",
 ): string {
   return direction === "desc" ? `-${field}` : field;
+}
+
+const PRIORITY_RANK: Record<SignalReportPriority, number> = {
+  P0: 0,
+  P1: 1,
+  P2: 2,
+  P3: 3,
+  P4: 4,
+};
+
+function reportPriorityRank(report: SignalReport): number {
+  return report.priority ? PRIORITY_RANK[report.priority] : 5;
+}
+
+export function sortInboxReports(
+  reports: SignalReport[],
+  field: Extract<
+    SignalReportOrderingField,
+    "priority" | "created_at" | "total_weight"
+  >,
+  direction: "asc" | "desc",
+): SignalReport[] {
+  const directionMultiplier = direction === "asc" ? 1 : -1;
+  return [...reports].sort((left, right) => {
+    let primary = 0;
+    if (field === "priority") {
+      primary = reportPriorityRank(left) - reportPriorityRank(right);
+    } else if (field === "total_weight") {
+      primary = left.total_weight - right.total_weight;
+    } else {
+      primary = left.created_at.localeCompare(right.created_at);
+    }
+    if (primary !== 0) return primary * directionMultiplier;
+
+    const tiebreak =
+      field === "priority"
+        ? right.created_at.localeCompare(left.created_at)
+        : reportPriorityRank(left) - reportPriorityRank(right);
+    return tiebreak || left.id.localeCompare(right.id);
+  });
 }
 
 export function buildSuggestedReviewerFilterParam(

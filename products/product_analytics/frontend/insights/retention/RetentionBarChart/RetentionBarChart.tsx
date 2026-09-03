@@ -60,10 +60,12 @@ export function RetentionBarChart({ inSharedMode = false }: RetentionBarChartPro
         filteredTrendSeries,
         labelGroupType,
         shouldShowMeanPerBreakdown,
+        timezone,
         xAxisLabels,
         getRetentionColor,
     } = useValues(retentionGraphLogic(insightProps))
     const { openModal } = useActions(retentionModalLogic(insightProps))
+    const { canOpenPersonModal } = useValues(retentionModalLogic(insightProps))
     const { aggregationLabel } = useValues(groupsModel)
 
     const selectedInterval = retentionFilter?.selectedInterval ?? null
@@ -71,7 +73,7 @@ export function RetentionBarChart({ inSharedMode = false }: RetentionBarChartPro
     const isPercentage = !retentionFilter?.aggregationType || retentionFilter.aggregationType === 'count'
     const isIntervalView = selectedInterval !== null
     // Shared (public) views don't have the persons modal mounted — disable click-to-open there.
-    const canClick = !shouldShowMeanPerBreakdown && !inSharedMode
+    const canClick = !shouldShowMeanPerBreakdown && !inSharedMode && canOpenPersonModal
 
     // Legacy parity: in-progress stroke is line-only.
     const series = useMemo(
@@ -150,8 +152,17 @@ export function RetentionBarChart({ inSharedMode = false }: RetentionBarChartPro
     const goalLines = retentionFilter?.goalLines ?? EMPTY_GOAL_LINES
 
     const barConfig = useChartConfig(
-        () => buildRetentionBarChartConfig({ isPercentage, goalLines, series, tooltip: INSIGHT_TOOLTIP_CONFIG }),
-        [isPercentage, goalLines, series]
+        () =>
+            buildRetentionBarChartConfig({
+                isPercentage,
+                goalLines,
+                series,
+                tooltip: INSIGHT_TOOLTIP_CONFIG,
+                isIntervalView,
+                period,
+                timezone,
+            }),
+        [isPercentage, goalLines, series, isIntervalView, period, timezone]
     )
 
     if (filteredTrendSeries.length === 0 && hasValidBreakdown) {

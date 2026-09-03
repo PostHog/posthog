@@ -1,6 +1,109 @@
 -- AUTO-GENERATED from the declarative HCL by ops/gen-sql.sh — do not edit.
 -- Full CREATE schema for the dev/ai_events node. Apply to a fresh ClickHouse to build it.
 
+CREATE TABLE posthog.ai_events (
+  uuid UUID,
+  event LowCardinality(String),
+  timestamp DateTime64(6, 'UTC'),
+  team_id Int64,
+  distinct_id String,
+  person_id UUID,
+  properties String,
+  retention_days Int16 DEFAULT 30,
+  drop_date Date MATERIALIZED toDate(timestamp) + toIntervalDay(retention_days),
+  trace_id String,
+  session_id Nullable(String),
+  parent_id Nullable(String),
+  span_id Nullable(String),
+  span_type LowCardinality(Nullable(String)),
+  generation_id Nullable(String),
+  experiment_id Nullable(String),
+  span_name Nullable(String),
+  trace_name Nullable(String),
+  prompt_name Nullable(String),
+  model LowCardinality(Nullable(String)),
+  provider LowCardinality(Nullable(String)),
+  framework LowCardinality(Nullable(String)),
+  total_tokens Nullable(Int64),
+  input_tokens Nullable(Int64),
+  output_tokens Nullable(Int64),
+  text_input_tokens Nullable(Int64),
+  text_output_tokens Nullable(Int64),
+  image_input_tokens Nullable(Int64),
+  image_output_tokens Nullable(Int64),
+  audio_input_tokens Nullable(Int64),
+  audio_output_tokens Nullable(Int64),
+  video_input_tokens Nullable(Int64),
+  video_output_tokens Nullable(Int64),
+  reasoning_tokens Nullable(Int64),
+  cache_read_input_tokens Nullable(Int64),
+  cache_creation_input_tokens Nullable(Int64),
+  web_search_count Nullable(Int64),
+  input_cost_usd Nullable(Float64),
+  output_cost_usd Nullable(Float64),
+  total_cost_usd Nullable(Float64),
+  request_cost_usd Nullable(Float64),
+  web_search_cost_usd Nullable(Float64),
+  audio_cost_usd Nullable(Float64),
+  image_cost_usd Nullable(Float64),
+  video_cost_usd Nullable(Float64),
+  latency Nullable(Float64),
+  time_to_first_token Nullable(Float64),
+  is_error UInt8,
+  error Nullable(String),
+  error_type LowCardinality(Nullable(String)),
+  error_normalized Nullable(String),
+  input Nullable(String),
+  output Nullable(String),
+  output_choices Nullable(String),
+  input_state Nullable(String),
+  output_state Nullable(String),
+  tools Nullable(String),
+  _timestamp DateTime,
+  _offset UInt64,
+  _partition UInt64,
+  INDEX idx_trace_id trace_id TYPE bloom_filter(0.001) GRANULARITY 1,
+  INDEX idx_session_id session_id TYPE bloom_filter(0.01) GRANULARITY 1,
+  INDEX idx_parent_id parent_id TYPE bloom_filter(0.01) GRANULARITY 1,
+  INDEX idx_span_id span_id TYPE bloom_filter(0.01) GRANULARITY 1,
+  INDEX idx_prompt_name prompt_name TYPE bloom_filter(0.01) GRANULARITY 1,
+  INDEX idx_model model TYPE bloom_filter(0.01) GRANULARITY 1,
+  INDEX idx_experiment_id experiment_id TYPE bloom_filter(0.01) GRANULARITY 1,
+  INDEX idx_event event TYPE set(20) GRANULARITY 1,
+  INDEX idx_is_error is_error TYPE set(2) GRANULARITY 1,
+  INDEX idx_provider provider TYPE set(50) GRANULARITY 1
+) ENGINE = ReplicatedMergeTree('/clickhouse/ai_events/tables/{shard}/posthog.ai_events', '{replica}') ORDER BY (team_id, trace_id, timestamp) PARTITION BY toYYYYMM(drop_date) TTL drop_date SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
+CREATE TABLE posthog.kafka_ai_events_json_ws (
+  uuid UUID,
+  event String,
+  properties String,
+  timestamp DateTime64(6, 'UTC'),
+  team_id Int64,
+  distinct_id String,
+  elements_chain String,
+  created_at DateTime64(6, 'UTC'),
+  person_id UUID,
+  person_properties String,
+  person_created_at DateTime64(3),
+  person_mode Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2)
+) ENGINE = Kafka() SETTINGS kafka_broker_list = 'warpstream_ingestion', kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'clickhouse_ai_events_ws\'', kafka_max_block_size = 5000, kafka_num_consumers = 1, kafka_poll_timeout_ms = 10000, kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_topic_list = 'kafka_topic_list = \'clickhouse_ai_events_json\'';
+CREATE TABLE posthog.person (
+  id UUID,
+  created_at DateTime64(3),
+  team_id Int64,
+  properties String,
+  is_identified Int8,
+  is_deleted Int8,
+  version UInt64,
+  last_seen_at Nullable(DateTime64(3))
+) ENGINE = Distributed('posthog', 'posthog', 'person');
+CREATE TABLE posthog.person_distinct_id2 (
+  team_id Int64,
+  distinct_id String,
+  person_id UUID,
+  is_deleted Int8,
+  version Int64
+) ENGINE = Distributed('posthog', 'posthog', 'person_distinct_id2');
 CREATE TABLE posthog.query_log_archive (
   hostname LowCardinality(String),
   user LowCardinality(String),
@@ -129,6 +232,79 @@ CREATE TABLE posthog.writable_query_log_archive (
   log_comment JSON(max_dynamic_paths=256, access_method LowCardinality(String), alert_config_id String, api_key_label String, api_key_mask String, batch_export_id String, chargeable Bool, client_query_id String, cohort_id Int64, `dagster.job_name` String, `dagster.run_id` String, `dagster.tags.owner` String, dashboard_id Int64, experiment_feature_flag_key String, experiment_id Int64, feature LowCardinality(String), id String, insight_id Int64, is_impersonated Bool, kind LowCardinality(String), name String, org_id String, person_on_events_mode LowCardinality(String), product LowCardinality(String), query_type LowCardinality(String), request_name String, route_id String, service_name String, session_id String, table_id String, team_id Int64, `temporal.activity_id` String, `temporal.activity_type` String, `temporal.attempt` Int64, `temporal.workflow_id` String, `temporal.workflow_namespace` String, `temporal.workflow_run_id` String, `temporal.workflow_type` String, user_id Int64, warehouse_query Bool, workflow LowCardinality(String), workload LowCardinality(String), SKIP cache_key, SKIP filter, SKIP hogql_features, SKIP http_referer, SKIP http_request_id, SKIP http_user_agent, SKIP query_settings, SKIP timings, SKIP user_email),
   ProfileEvents Map(String, UInt64)
 ) ENGINE = Distributed('ops', 'posthog', 'query_log_archive_buffer');
+CREATE MATERIALIZED VIEW posthog.ai_events_json_ws_mv TO posthog.ai_events (uuid UUID, event String, timestamp DateTime64(6, 'UTC'), team_id Int64, distinct_id String, person_id UUID, properties String, trace_id String, session_id Nullable(String), parent_id Nullable(String), span_id Nullable(String), span_type Nullable(String), generation_id Nullable(String), experiment_id Nullable(String), span_name Nullable(String), trace_name Nullable(String), prompt_name Nullable(String), model Nullable(String), provider Nullable(String), framework Nullable(String), total_tokens Nullable(Int64), input_tokens Nullable(Int64), output_tokens Nullable(Int64), text_input_tokens Nullable(Int64), text_output_tokens Nullable(Int64), image_input_tokens Nullable(Int64), image_output_tokens Nullable(Int64), audio_input_tokens Nullable(Int64), audio_output_tokens Nullable(Int64), video_input_tokens Nullable(Int64), video_output_tokens Nullable(Int64), reasoning_tokens Nullable(Int64), cache_read_input_tokens Nullable(Int64), cache_creation_input_tokens Nullable(Int64), web_search_count Nullable(Int64), input_cost_usd Nullable(Float64), output_cost_usd Nullable(Float64), total_cost_usd Nullable(Float64), request_cost_usd Nullable(Float64), web_search_cost_usd Nullable(Float64), audio_cost_usd Nullable(Float64), image_cost_usd Nullable(Float64), video_cost_usd Nullable(Float64), latency Nullable(Float64), time_to_first_token Nullable(Float64), is_error UInt8, error Nullable(String), error_type Nullable(String), error_normalized Nullable(String), input Nullable(String), output Nullable(String), output_choices Nullable(String), input_state Nullable(String), output_state Nullable(String), tools Nullable(String), _timestamp Nullable(DateTime), _offset UInt64, _partition UInt64) AS SELECT
+  uuid,
+  event,
+  timestamp,
+  team_id,
+  distinct_id,
+  person_id,
+  concat(
+    '{',
+    arrayStringConcat(
+      arrayMap(
+        x -> concat('"', x.1, '":', x.2),
+        arrayFilter(
+          x -> ((x.1) NOT IN ('$ai_input', '$ai_output', '$ai_output_choices', '$ai_input_state', '$ai_output_state', '$ai_tools')),
+          JSONExtractKeysAndValuesRaw(src.properties)
+        )
+      ),
+      ','
+    ),
+    '}'
+  ) AS properties,
+  JSONExtractString(src.properties, '$ai_trace_id') AS trace_id,
+  JSONExtract(src.properties, '$ai_session_id', 'Nullable(String)') AS session_id,
+  JSONExtract(src.properties, '$ai_parent_id', 'Nullable(String)') AS parent_id,
+  JSONExtract(src.properties, '$ai_span_id', 'Nullable(String)') AS span_id,
+  JSONExtract(src.properties, '$ai_span_type', 'Nullable(String)') AS span_type,
+  JSONExtract(src.properties, '$ai_generation_id', 'Nullable(String)') AS generation_id,
+  JSONExtract(src.properties, '$ai_experiment_id', 'Nullable(String)') AS experiment_id,
+  JSONExtract(src.properties, '$ai_span_name', 'Nullable(String)') AS span_name,
+  JSONExtract(src.properties, '$ai_trace_name', 'Nullable(String)') AS trace_name,
+  JSONExtract(src.properties, '$ai_prompt_name', 'Nullable(String)') AS prompt_name,
+  JSONExtract(src.properties, '$ai_model', 'Nullable(String)') AS model,
+  JSONExtract(src.properties, '$ai_provider', 'Nullable(String)') AS provider,
+  JSONExtract(src.properties, '$ai_framework', 'Nullable(String)') AS framework,
+  JSONExtract(src.properties, '$ai_total_tokens', 'Nullable(Int64)') AS total_tokens,
+  JSONExtract(src.properties, '$ai_input_tokens', 'Nullable(Int64)') AS input_tokens,
+  JSONExtract(src.properties, '$ai_output_tokens', 'Nullable(Int64)') AS output_tokens,
+  JSONExtract(src.properties, '$ai_text_input_tokens', 'Nullable(Int64)') AS text_input_tokens,
+  JSONExtract(src.properties, '$ai_text_output_tokens', 'Nullable(Int64)') AS text_output_tokens,
+  JSONExtract(src.properties, '$ai_image_input_tokens', 'Nullable(Int64)') AS image_input_tokens,
+  JSONExtract(src.properties, '$ai_image_output_tokens', 'Nullable(Int64)') AS image_output_tokens,
+  JSONExtract(src.properties, '$ai_audio_input_tokens', 'Nullable(Int64)') AS audio_input_tokens,
+  JSONExtract(src.properties, '$ai_audio_output_tokens', 'Nullable(Int64)') AS audio_output_tokens,
+  JSONExtract(src.properties, '$ai_video_input_tokens', 'Nullable(Int64)') AS video_input_tokens,
+  JSONExtract(src.properties, '$ai_video_output_tokens', 'Nullable(Int64)') AS video_output_tokens,
+  JSONExtract(src.properties, '$ai_reasoning_tokens', 'Nullable(Int64)') AS reasoning_tokens,
+  JSONExtract(src.properties, '$ai_cache_read_input_tokens', 'Nullable(Int64)') AS cache_read_input_tokens,
+  JSONExtract(src.properties, '$ai_cache_creation_input_tokens', 'Nullable(Int64)') AS cache_creation_input_tokens,
+  JSONExtract(src.properties, '$ai_web_search_count', 'Nullable(Int64)') AS web_search_count,
+  JSONExtract(src.properties, '$ai_input_cost_usd', 'Nullable(Float64)') AS input_cost_usd,
+  JSONExtract(src.properties, '$ai_output_cost_usd', 'Nullable(Float64)') AS output_cost_usd,
+  JSONExtract(src.properties, '$ai_total_cost_usd', 'Nullable(Float64)') AS total_cost_usd,
+  JSONExtract(src.properties, '$ai_request_cost_usd', 'Nullable(Float64)') AS request_cost_usd,
+  JSONExtract(src.properties, '$ai_web_search_cost_usd', 'Nullable(Float64)') AS web_search_cost_usd,
+  JSONExtract(src.properties, '$ai_audio_cost_usd', 'Nullable(Float64)') AS audio_cost_usd,
+  JSONExtract(src.properties, '$ai_image_cost_usd', 'Nullable(Float64)') AS image_cost_usd,
+  JSONExtract(src.properties, '$ai_video_cost_usd', 'Nullable(Float64)') AS video_cost_usd,
+  JSONExtract(src.properties, '$ai_latency', 'Nullable(Float64)') AS latency,
+  JSONExtract(src.properties, '$ai_time_to_first_token', 'Nullable(Float64)') AS time_to_first_token,
+  if((JSONExtractRaw(src.properties, '$ai_is_error') IN ('true', '"true"')), 1, 0) AS is_error,
+  JSONExtract(src.properties, '$ai_error', 'Nullable(String)') AS error,
+  JSONExtract(src.properties, '$ai_error_type', 'Nullable(String)') AS error_type,
+  JSONExtract(src.properties, '$ai_error_normalized', 'Nullable(String)') AS error_normalized,
+  nullIf(JSONExtractRaw(src.properties, '$ai_input'), '') AS input,
+  nullIf(JSONExtractRaw(src.properties, '$ai_output'), '') AS output,
+  nullIf(JSONExtractRaw(src.properties, '$ai_output_choices'), '') AS output_choices,
+  nullIf(JSONExtractRaw(src.properties, '$ai_input_state'), '') AS input_state,
+  nullIf(JSONExtractRaw(src.properties, '$ai_output_state'), '') AS output_state,
+  nullIf(JSONExtractRaw(src.properties, '$ai_tools'), '') AS tools,
+  _timestamp,
+  _offset,
+  _partition
+FROM posthog.kafka_ai_events_json_ws AS src;
 CREATE MATERIALIZED VIEW posthog.ops_query_log_archive_mv TO posthog.writable_query_log_archive (hostname LowCardinality(String), user LowCardinality(String), query_id String, initial_query_id String, is_initial_query UInt8, type Enum8('QueryStart'=1, 'QueryFinish'=2, 'ExceptionBeforeStart'=3, 'ExceptionWhileProcessing'=4), event_date Date, event_time DateTime, event_time_microseconds DateTime64(6), query_start_time DateTime, query_start_time_microseconds DateTime64(6), query_duration_ms UInt64, read_rows UInt64, read_bytes UInt64, written_rows UInt64, written_bytes UInt64, result_rows UInt64, result_bytes UInt64, memory_usage UInt64, peak_threads_usage UInt64, current_database LowCardinality(String), query String, formatted_query String, normalized_query_hash UInt64, query_kind LowCardinality(String), exception_code Int32, exception String, stack_trace String, team_id Int64, log_comment String, ProfileEvents Map(LowCardinality(String), UInt64)) AS SELECT
   hostname,
   user,
@@ -265,3 +441,73 @@ CREATE VIEW posthog.custom_metrics_test AS SELECT
   1 AS value,
   'Test to check that the metric endpoint is working' AS help,
   'gauge' AS type;
+CREATE VIEW posthog.custom_metrics AS SELECT * REPLACE(toFloat64(value) AS value)
+FROM posthog.custom_metrics_test
+UNION ALL
+SELECT * REPLACE(toFloat64(value) AS value)
+FROM posthog.custom_metrics_replication_queue
+UNION ALL
+SELECT * REPLACE(toFloat64(value) AS value)
+FROM posthog.custom_metrics_server_crash
+UNION ALL
+SELECT *
+FROM posthog.custom_metrics_table_sizes
+UNION ALL
+SELECT * REPLACE(toFloat64(value) AS value)
+FROM posthog.custom_metrics_part_counts
+UNION ALL
+SELECT * REPLACE(toFloat64(value) AS value)
+FROM posthog.custom_metrics_dictionaries
+UNION ALL
+SELECT
+  'ClickHouseCustomMetric_S3DiskBytesUsed' AS name,
+  map('instance', hostname(), 'disk', disk_name) AS labels,
+  toFloat64(sum(bytes_on_disk)) AS value,
+  'Bytes currently used by ClickHouse parts on S3-backed disks on this node' AS help,
+  'gauge' AS type
+FROM system.parts
+WHERE disk_name IN ('s3disk', 'cache')
+GROUP BY
+  disk_name
+UNION ALL
+SELECT
+  'ClickHouseCustomMetric_MergeFailures15m' AS name,
+  map('instance', hostname()) AS labels,
+  toFloat64(count()) AS value,
+  'Number of failed merge operations in the last 15 minutes' AS help,
+  'gauge' AS type
+FROM system.part_log
+WHERE
+  (event_time >= (now() - toIntervalMinute(15)))
+AND
+  (event_type = 'MergeParts')
+AND
+  (error > 0)
+AND
+  (merge_reason != 'NotAMerge')
+AND
+  (error != 40)
+UNION ALL
+SELECT
+  'ClickHouseCustomMetric_MergeRetriesMaxPerTable15m' AS name,
+  map('instance', hostname()) AS labels,
+  toFloat64(max(cnt)) AS value,
+  'Max failed merge retries for any single table in the last 15 minutes' AS help,
+  'gauge' AS type
+FROM
+  (
+    SELECT count() AS cnt
+    FROM system.part_log
+    WHERE
+      (event_time >= (now() - toIntervalMinute(15)))
+    AND
+      (event_type = 'MergeParts')
+    AND
+      (error > 0)
+    AND
+      (merge_reason != 'NotAMerge')
+    AND
+      (error != 40)
+    GROUP BY
+      database, `table`, partition_id
+  );

@@ -34,6 +34,7 @@ const buildAccount = (overrides: Partial<AccountApi> = {}): AccountApi => ({
     },
     tags: [],
     notebooks: [],
+    ignored_at: null,
     created_at: '2026-01-01T00:00:00Z',
     created_by: null,
     updated_at: '2026-01-01T00:00:00Z',
@@ -61,13 +62,17 @@ describe('accountLinksLogic', () => {
 
     it('openEditor pre-fills the form from the current account', async () => {
         await mountWith(
-            buildAccount({ external_id: 'ext-1', properties: { billing_id: 'cus_1', slack_channel_id: 'C1' } })
+            buildAccount({
+                external_id: 'ext-1',
+                properties: { website_domain: 'acme.example', billing_id: 'cus_1', slack_channel_id: 'C1' },
+            })
         )
         logic.actions.openEditor()
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.editorOpen).toBe(true)
         expect(logic.values.formValues).toEqual({
+            website_domain: 'acme.example',
             external_id: 'ext-1',
             billing_id: 'cus_1',
             slack_channel_id: 'C1',
@@ -89,6 +94,7 @@ describe('accountLinksLogic', () => {
 
         logic.actions.openEditor()
         logic.actions.setFormValues({
+            website_domain: 'acme.example',
             external_id: 'ext-2',
             billing_id: 'new',
             slack_channel_id: 'C9',
@@ -103,6 +109,7 @@ describe('accountLinksLogic', () => {
             external_id: 'ext-2',
             properties: {
                 hubspot_deal_id: 'deal-1',
+                website_domain: 'acme.example',
                 billing_id: 'new',
                 slack_channel_id: 'C9',
                 usage_dashboard_link: null,
@@ -119,6 +126,7 @@ describe('accountLinksLogic', () => {
         mockAccountsPartialUpdate.mockResolvedValue(buildAccount())
 
         logic.actions.setFormValues({
+            website_domain: '',
             external_id: '',
             billing_id: '',
             slack_channel_id: '   ',
@@ -133,6 +141,7 @@ describe('accountLinksLogic', () => {
             external_id: null,
             properties: {
                 billing_id: null,
+                website_domain: null,
                 slack_channel_id: null,
                 usage_dashboard_link: null,
                 metabase_link: null,

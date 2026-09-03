@@ -8,7 +8,7 @@ import { waitForPlugin } from 'kea-waitfor'
 import { windowValuesPlugin } from 'kea-window-values'
 import posthog from 'posthog-js'
 
-import { isAccessDeniedError } from 'lib/api-error'
+import { isAccessDeniedError, shouldReportApiFailure } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import {
     addProjectIdIfMissing,
@@ -47,6 +47,16 @@ const ERROR_FILTER_ALLOW_LIST = [
     'loadDatasetItemDetails', // Dataset item modals render their own retry state
     'loadDatasetItemVersions', // Dataset item modals render their own retry state
     'exportDataset', // Dataset scenes render their own retry state
+    'generateSummary', // Summary view renders its own retry state
+    'loadSelfDrivingEvaluationReports', // The self-driving eval table renders its own retry state
+    'loadToolDataEvents',
+    'loadInstallRequests', // Polled in the background on Settings → Integrations; the banner just stays hidden
+    'loadPrChecks', // Polled in the Inbox report detail; the CI checks section renders its own error state
+    'loadPrComments', // The Inbox report detail's PR comments section renders its own error state
+    'loadMonitoringSnapshot', // The managed warehouse Monitoring tab renders its own retry state
+    'loadMonitoringSeries', // The managed warehouse Monitoring tab renders its own partial/error state
+    'loadInstrumentationChecklist', // AI observability hides its checklist entirely rather than accusing a project on data it could not read
+    'loadFullEmail', // Its failure listener shows a retry toast and closes the modal
 ]
 
 /*
@@ -58,12 +68,10 @@ other failures on these actions still toast.
 const ACCESS_DENIED_SELF_HANDLED = new Set(['saveFeatureFlag'])
 
 /*
-Transient gateway/proxy errors. These are infrastructure-level failures (the gateway can't
-reach the backend), not application bugs, so we still toast the user a retryable failure but
-don't report them to error tracking — otherwise sporadic 5xxs surface as noisy code-regression
-issues. 500 is intentionally excluded: those are genuine backend exceptions worth capturing.
+Write actions whose own logic toasts the duplicate-key 400 (code `unique` on attr `key`), so the
+generic toast would be a second one. Owned by featureFlagLogic's saveFeatureFlagFailure listener.
 */
-const TRANSIENT_GATEWAY_STATUSES = [502, 503, 504]
+const DUPLICATE_KEY_SELF_HANDLED = new Set(['saveFeatureFlag'])
 
 interface InitKeaProps {
     state?: Record<string, any>
@@ -126,25 +134,19 @@ export function initKea({
                 if (error?.name === 'AbortError') {
                     return
                 }
-                // Read-only mode (`ReadOnlyModeError`) flows through this path unchanged:
-                // it extends `ApiError` with `status=403`, so the `!(isLoadAction && error.status === 403)`
-                // condition already suppresses the toast for load actions, and write actions
-                // get a toast with the read-only `detail` as the message. The
-                // `posthog.captureException` event is dropped by the central
-                // `before_send` filter in `selfReadOnlyModeLogic`.
                 // Toast if it's a fetch error or a specific API update error
                 const isLoadAction = typeof actionKey === 'string' && /^(load|get|fetch)[A-Z]/.test(actionKey)
                 // Access-denied 403s (code `permission_denied`) are suppressed only where the
                 // owning UI surfaces them itself: load actions (AccessDenied scene gates) and the
                 // self-handled write actions above. Other writes keep the generic toast, since
-                // most write flows have no failure handling of their own. Read-only mode uses
-                // distinct codes (`read_only_blocked`, `impersonation_read_only`) and still toasts.
+                // most write flows have no failure handling of their own. Read-only impersonation
+                // uses the distinct `impersonation_read_only` code and still toasts.
                 const isAccessDenied =
                     isAccessDeniedError(error) && (isLoadAction || ACCESS_DENIED_SELF_HANDLED.has(String(actionKey)))
                 if (
                     !ERROR_FILTER_ALLOW_LIST.includes(actionKey) &&
                     error?.status !== undefined &&
-                    ![200, 201, 204, 401, 409].includes(error.status) && // 401 is handled by api.ts and the userLogic, 409 is handled by approval workflow
+                    ![200, 201, 204, 401, 409].includes(error.status) && // 401 is handled by api.ts and the userLogic; 409 conflict flows surface their own UI
                     !(isLoadAction && error.status === 403) && // 403 access denied is handled by sceneLogic gates
                     !isAccessDenied
                 ) {
@@ -156,6 +158,10 @@ export function initKea({
                     // with this code is form validation (e.g. inviting an outside-domain email)
                     // and must keep the generic error toast.
                     const isVerifiedDomainError = error.code === 'verified_domain_required' && error.status === 403
+                    const isFeatureFlagDuplicateKey =
+                        error.code === 'unique' &&
+                        error.attr === 'key' &&
+                        DUPLICATE_KEY_SELF_HANDLED.has(String(actionKey))
 
                     if (!errorMessage && error.status === 404) {
                         errorMessage = 'URL not found'
@@ -168,8 +174,13 @@ export function initKea({
                     ) {
                         errorMessage = `Rate limit exceeded. Please try again ${error.formattedRetryAfter}.`
                     }
-                    if (isTwoFactorError || isSensitiveActionError || isVerifiedDomainError) {
-                        // These get their own dedicated toast in apiStatusLogic.
+                    if (
+                        isTwoFactorError ||
+                        isSensitiveActionError ||
+                        isVerifiedDomainError ||
+                        isFeatureFlagDuplicateKey
+                    ) {
+                        // These are handled by their own dedicated toasts elsewhere.
                         errorMessage = null
                     }
                     if (errorMessage) {
@@ -189,7 +200,7 @@ export function initKea({
                 if (!errorsSilenced) {
                     console.error({ error, reducerKey, actionKey })
                 }
-                if (!TRANSIENT_GATEWAY_STATUSES.includes(error?.status)) {
+                if (shouldReportApiFailure(error)) {
                     posthog.captureException(error)
                 }
             },

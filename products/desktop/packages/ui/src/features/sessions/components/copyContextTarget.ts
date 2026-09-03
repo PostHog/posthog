@@ -19,6 +19,29 @@ export function getGithubRefUrlFromEventTarget(
 }
 
 /**
+ * The selected text when the selection reaches into `container`, else `null`.
+ *
+ * Lets a context menu inside a message copy what the reader highlighted rather
+ * than the whole message, matching what right-clicking a selection does
+ * everywhere else. Read it on the `contextmenu` event: once the menu opens it
+ * owns focus, and the selection is no longer reliable.
+ *
+ * Intersection, not containment — a selection dragged across several messages
+ * still copies whole from a right-click on any one of them.
+ */
+export function getSelectionWithin(container: Node | null): string | null {
+  if (!container) return null;
+  const selection = window.getSelection();
+  if (!selection || selection.isCollapsed) return null;
+  const text = selection.toString();
+  if (!text.trim()) return null;
+  for (let i = 0; i < selection.rangeCount; i++) {
+    if (selection.getRangeAt(i).intersectsNode(container)) return text;
+  }
+  return null;
+}
+
+/**
  * Copy text to the clipboard from a context-menu selection.
  *
  * The write is deferred to a later task on purpose. When a Radix

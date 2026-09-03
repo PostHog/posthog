@@ -18,9 +18,11 @@ from posthog.helpers.email_utils import (
     ESPSuppressionReason,
     _get_esp_suppression_cache_key,
     check_esp_suppression,
+    reject_plus_addressed_email,
     sanitize_display_name,
     sanitize_email_string,
     sanitize_message_body,
+    strip_email_alias,
     validate_display_name,
     validate_message_body,
 )
@@ -93,6 +95,76 @@ class TestEmailValidationHelper(TestCase):
                 with self.subTest(email=email_variation):
                     result = EmailValidationHelper.user_exists(email_variation)
                     self.assertTrue(result)
+        finally:
+            user.delete()
+
+
+class TestStripEmailAlias(SimpleTestCase):
+    def test_strip_email_alias(self):
+        test_cases = [
+            ("someuser+someprefix@domain.com", "someuser@domain.com"),
+            ("someuser@domain.com", "someuser@domain.com"),
+            ("Someuser+Tag@Domain.com", "Someuser@Domain.com"),
+            ("a+b+c@domain.com", "a@domain.com"),
+            ("", ""),
+        ]
+
+        for input_email, expected in test_cases:
+            with self.subTest(input_email=input_email):
+                self.assertEqual(strip_email_alias(input_email), expected)
+
+
+class TestRejectPlusAddressedEmail(SimpleTestCase):
+    def test_rejects_plus_in_local_part(self):
+        with self.assertRaises(serializers.ValidationError) as ctx:
+            reject_plus_addressed_email("someuser+alias@domain.com")
+        self.assertEqual(ctx.exception.get_codes(), ["plus_addressing_not_allowed"])
+
+    def test_allows_email_without_plus(self):
+        # Should not raise.
+        reject_plus_addressed_email("someuser@domain.com")
+
+
+class TestUserExistsWithStrippedAlias(TestCase):
+    def test_no_match(self):
+        self.assertFalse(EmailValidationHelper.user_exists_with_stripped_alias("nobody@example.com"))
+
+    def test_matches_existing_plain_email(self):
+        user = User.objects.create_user(email="based@example.com", password=None, first_name="Base")
+        try:
+            self.assertTrue(EmailValidationHelper.user_exists_with_stripped_alias("based+new@example.com"))
+        finally:
+            user.delete()
+
+    def test_matches_existing_aliased_email(self):
+        user = User.objects.create_user(email="based+old@example.com", password=None, first_name="Base")
+        try:
+            self.assertTrue(EmailValidationHelper.user_exists_with_stripped_alias("based@example.com"))
+        finally:
+            user.delete()
+
+    def test_does_not_match_different_local_part(self):
+        user = User.objects.create_user(email="based@example.com", password=None, first_name="Base")
+        try:
+            self.assertFalse(EmailValidationHelper.user_exists_with_stripped_alias("basedxyz@example.com"))
+        finally:
+            user.delete()
+
+    @parameterized.expand(
+        [
+            # Guards the SQL side: the stored column is lowercased before stripping, so a legacy
+            # mixed-case row still matches.
+            ("stored_mixed_case", "Based+Old@Example.COM", "based@example.com"),
+            # Guards the Python side: the compared value is lowercased too. An equality match
+            # against the lowercased expression silently returns False without it.
+            ("looked_up_mixed_case", "based+old@example.com", "Based@Example.COM"),
+        ]
+    )
+    def test_matches_regardless_of_case(self, _name, stored_email, looked_up_email):
+        # create() rather than create_user() so the stored value keeps its original casing.
+        user = User.objects.create(email=stored_email, first_name="Base")
+        try:
+            self.assertTrue(EmailValidationHelper.user_exists_with_stripped_alias(looked_up_email))
         finally:
             user.delete()
 

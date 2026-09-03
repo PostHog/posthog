@@ -22,7 +22,6 @@ export function buildWarmTaskLeaseKey(parts: WarmTaskLeaseKeyParts): string {
     parts.branch ?? "",
     parts.runtimeAdapter ?? "",
     parts.model ?? "",
-    parts.reasoningEffort ?? "",
     parts.sandboxEnvironmentId ?? "",
     parts.customImageId ?? "",
   ].join(":");

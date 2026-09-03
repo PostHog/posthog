@@ -168,14 +168,12 @@ export function GatewayRail({
               onClick={() => onNavigate({ view: "settings" })}
             />
           )}
-          {isAdmin && (
-            <RailLink
-              icon={Rows}
-              label="Audit log"
-              active={route.view === "audit"}
-              onClick={() => onNavigate({ view: "audit" })}
-            />
-          )}
+          <RailLink
+            icon={Rows}
+            label="Audit log"
+            active={route.view === "audit"}
+            onClick={() => onNavigate({ view: "audit" })}
+          />
         </Flex>
       </ScrollArea>
     </aside>

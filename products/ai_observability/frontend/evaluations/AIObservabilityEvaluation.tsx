@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { Field, Form } from 'kea-forms'
 import { combineUrl, router } from 'kea-router'
 import { useRef } from 'react'
 
@@ -22,11 +21,13 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { DurationPicker } from 'lib/components/DurationPicker/DurationPicker'
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
+import { SceneStickyBar } from '~/layout/scenes/components/SceneStickyBar'
 import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { urls } from '~/scenes/urls'
 import { AccessControlLevel, AccessControlResourceType, ChartDisplayType, HogQLMathType } from '~/types'
@@ -39,14 +40,15 @@ import { providerKeyStateIssueDescription, providerLabel } from '../settings/pro
 import { EvaluationCodeEditor } from './components/EvaluationCodeEditor'
 import { EvaluationPromptEditor } from './components/EvaluationPromptEditor'
 import { EvaluationReportConfig } from './components/EvaluationReportConfig'
+import { EvaluationReportsCallout } from './components/EvaluationReportsCallout'
 import { EvaluationReportsTab } from './components/EvaluationReportsTab'
 import { EvaluationRunsTable } from './components/EvaluationRunsTable'
 import { EvaluationTriggers } from './components/EvaluationTriggers'
-import { EVALUATION_PASSED_HOGQL, EVALUATION_SUMMARY_MAX_RUNS } from './constants'
+import { EVALUATION_PASSED_HOGQL, EVALUATION_RUNS_QUERY_LIMIT } from './constants'
 import {
     evaluationOffersSessionTarget,
     evaluationSupportsReports,
-    evaluationSupportsRunSummary,
+    evaluationSupportsRunOutcomes,
     evaluationTypeHasEditableCriteria,
     evaluationTypeUsesModelConfiguration,
     isBooleanEvaluationOutput,
@@ -128,12 +130,12 @@ export function AIObservabilityEvaluation(): JSX.Element {
     const effectiveStrategy: EvaluationSettleStrategy =
         evaluation.target_config.strategy ?? (isSessionTarget ? 'inactivity' : 'fixed_window')
     const isReportableEvaluation = evaluationSupportsReports(evaluation)
-    const supportsRunSummary = evaluationSupportsRunSummary(evaluation)
+    const supportsRunOutcomes = evaluationSupportsRunOutcomes(evaluation)
     const isBooleanOutput = isBooleanEvaluationOutput(evaluation.output_type)
     const hasEditableCriteria = evaluationTypeHasEditableCriteria(evaluation.evaluation_type)
 
     const trendInsightUrl =
-        supportsRunSummary && !isNewEvaluation && evaluation.id
+        supportsRunOutcomes && !isNewEvaluation && evaluation.id
             ? urls.insightNew({
                   query: {
                       kind: NodeKind.InsightVizNode,
@@ -274,9 +276,11 @@ export function AIObservabilityEvaluation(): JSX.Element {
         <div className="space-y-6">
             <SceneBreadcrumbBackButton />
             {/* Header */}
-            <div className="flex justify-between items-start pb-4 border-b">
-                <div className="space-y-2">
-                    <h1 className="text-2xl font-semibold">{isNewEvaluation ? 'New evaluation' : evaluation.name}</h1>
+            <SceneStickyBar hasSceneTitleSection={false} className="flex justify-between items-start gap-2 space-y-0">
+                <div className="space-y-2 min-w-0">
+                    <h1 className="text-2xl font-semibold break-words">
+                        {isNewEvaluation ? 'New evaluation' : evaluation.name}
+                    </h1>
                     <div className="flex items-center gap-2">
                         {isNewEvaluation ? (
                             <LemonTag type="primary">New</LemonTag>
@@ -296,7 +300,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                         )}
                     </div>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex gap-2 shrink-0">
                     {trendInsightUrl ? (
                         <LemonButton
                             type="secondary"
@@ -323,8 +327,9 @@ export function AIObservabilityEvaluation(): JSX.Element {
                     </LemonButton>
                     {activeTab !== 'runs' && (
                         <AccessControlAction
-                            resourceType={AccessControlResourceType.LlmAnalytics}
+                            resourceType={AccessControlResourceType.Evaluation}
                             minAccessLevel={AccessControlLevel.Editor}
+                            userAccessLevel={evaluation.user_access_level ?? undefined}
                         >
                             <LemonButton
                                 type="primary"
@@ -337,7 +342,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                         </AccessControlAction>
                     )}
                 </div>
-            </div>
+            </SceneStickyBar>
 
             {evaluation.status === 'error' && (
                 <LemonBanner type="error">
@@ -386,12 +391,23 @@ export function AIObservabilityEvaluation(): JSX.Element {
                         content: (
                             <div className="max-w-6xl">
                                 <div className="flex justify-between items-center mb-4">
-                                    <p className="text-muted text-sm m-0">
-                                        History of when this evaluation has been executed.
-                                        {runsSummary && runsSummary.total > EVALUATION_SUMMARY_MAX_RUNS && (
-                                            <> The table below shows the latest {EVALUATION_SUMMARY_MAX_RUNS} runs.</>
+                                    <div className="min-w-0">
+                                        <p className="text-muted text-sm m-0">
+                                            History of when this evaluation has been executed.
+                                            {runsSummary && runsSummary.total > EVALUATION_RUNS_QUERY_LIMIT && (
+                                                <>
+                                                    {' '}
+                                                    The table below shows the latest {EVALUATION_RUNS_QUERY_LIMIT} runs.
+                                                </>
+                                            )}
+                                        </p>
+                                        {isReportableEvaluation && (
+                                            <EvaluationReportsCallout
+                                                evaluationId={evaluation.id}
+                                                onReportsClick={() => setActiveTab('reports')}
+                                            />
                                         )}
-                                    </p>
+                                    </div>
                                     {runsSummary && (
                                         <div className="flex flex-col items-end gap-1">
                                             <div className="flex gap-4 text-sm">
@@ -399,7 +415,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                     <div className="font-semibold text-lg">{runsSummary.total}</div>
                                                     <div className="text-muted">Total runs</div>
                                                 </div>
-                                                {supportsRunSummary && (
+                                                {supportsRunOutcomes && (
                                                     <div className="text-center">
                                                         <div className="font-semibold text-lg text-success">
                                                             {runsSummary.successRate}%
@@ -407,7 +423,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                         <div className="text-muted">Success rate</div>
                                                     </div>
                                                 )}
-                                                {supportsRunSummary && evaluation.output_config.allows_na && (
+                                                {supportsRunOutcomes && evaluation.output_config.allows_na && (
                                                     <div className="text-center">
                                                         <div className="font-semibold text-lg">
                                                             {runsSummary.applicabilityRate}%
@@ -438,6 +454,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                             content: (
                                 <EvaluationReportsTab
                                     evaluationId={evaluation.id}
+                                    userAccessLevel={evaluation.user_access_level ?? undefined}
                                     onConfigureClick={() => setActiveTab('configuration')}
                                 />
                             ),
@@ -448,34 +465,34 @@ export function AIObservabilityEvaluation(): JSX.Element {
                         'data-attr': 'llma-evaluation-configuration-tab',
                         content: (
                             <div className="max-w-4xl">
-                                <Form logic={llmEvaluationLogic} formKey="evaluation" className="space-y-6">
+                                <div className="space-y-6">
                                     {/* Basic Information */}
                                     <div className="bg-bg-light border rounded p-6">
                                         <h3 className="text-lg font-semibold mb-4">Basic information</h3>
 
                                         <div className="space-y-4">
-                                            <Field name="name" label="Name">
+                                            <LemonField.Pure label="Name">
                                                 <LemonInput
                                                     value={evaluation.name}
                                                     onChange={setEvaluationName}
                                                     placeholder="e.g., Helpfulness Check"
                                                     maxLength={100}
                                                 />
-                                            </Field>
+                                            </LemonField.Pure>
 
                                             {evaluationMethodOptions.length > 1 && (
-                                                <Field name="evaluation_type" label="Method">
+                                                <LemonField.Pure label="Method">
                                                     <LemonSelect
                                                         value={evaluation.evaluation_type}
                                                         onChange={(value) => setEvaluationType(value as EvaluationType)}
                                                         options={evaluationMethodOptions}
                                                         fullWidth
                                                     />
-                                                </Field>
+                                                </LemonField.Pure>
                                             )}
                                             <p className="text-muted text-sm -mt-2">
                                                 {isSentiment ? (
-                                                    'Classify the sentiment of only the last user message on each matching generation event with a sentiment classifier, not LLM calls.'
+                                                    'Classify the sentiment of only the last user message on each matching generation event with a sentiment classifier, not LLM calls. The classifier is trained on English, so labels are unreliable for other languages. For a multilingual agent, use an LLM judge instead.'
                                                 ) : isHog ? (
                                                     <>
                                                         Run deterministic{' '}
@@ -503,7 +520,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
 
                                             {!isSentiment && (
                                                 <>
-                                                    <Field name="target" label="Evaluate">
+                                                    <LemonField.Pure label="Evaluate">
                                                         <LemonSelect<EvaluationTarget>
                                                             value={evaluation.target ?? 'generation'}
                                                             onChange={setEvaluationTarget}
@@ -527,7 +544,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                             ]}
                                                             fullWidth
                                                         />
-                                                    </Field>
+                                                    </LemonField.Pure>
                                                     <p className="text-muted text-sm -mt-2">
                                                         {isSessionTarget
                                                             ? 'Runs once per session on every trace it contains, after the session settles. Only fires for events that carry an AI session id.'
@@ -538,7 +555,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                     {isAggregateTarget && (
                                                         <>
                                                             {settlingStrategyEnabled && (
-                                                                <Field name="settle_strategy" label="Evaluate when">
+                                                                <LemonField.Pure label="Evaluate when">
                                                                     <LemonSelect<EvaluationSettleStrategy>
                                                                         value={effectiveStrategy}
                                                                         onChange={setSettleStrategy}
@@ -556,13 +573,10 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                                         ]}
                                                                         fullWidth
                                                                     />
-                                                                </Field>
+                                                                </LemonField.Pure>
                                                             )}
                                                             {effectiveStrategy === 'fixed_window' ? (
-                                                                <Field
-                                                                    name="settle_window"
-                                                                    label="Wait before evaluating"
-                                                                >
+                                                                <LemonField.Pure label="Wait before evaluating">
                                                                     <div className="space-y-1">
                                                                         <DurationPicker
                                                                             value={
@@ -590,13 +604,10 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                                                 : "How long to wait after the first matching generation before pulling the whole trace (10s–2h). Captured when the run is scheduled — changing it won't affect trace runs already in flight."}
                                                                         </p>
                                                                     </div>
-                                                                </Field>
+                                                                </LemonField.Pure>
                                                             ) : (
                                                                 <>
-                                                                    <Field
-                                                                        name="settle_quiet_period"
-                                                                        label="Quiet period"
-                                                                    >
+                                                                    <LemonField.Pure label="Quiet period">
                                                                         <div className="space-y-1">
                                                                             <DurationPicker
                                                                                 value={
@@ -618,8 +629,8 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                                                     : 'Evaluate once the trace has had no new activity for this long (10s–30m).'}
                                                                             </p>
                                                                         </div>
-                                                                    </Field>
-                                                                    <Field name="settle_max_age" label="Evaluate by">
+                                                                    </LemonField.Pure>
+                                                                    <LemonField.Pure label="Evaluate by">
                                                                         <div className="space-y-1">
                                                                             <DurationPicker
                                                                                 value={
@@ -641,7 +652,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                                                     : "Always evaluate once the trace is this old, even if it's still active (1m–2h)."}
                                                                             </p>
                                                                         </div>
-                                                                    </Field>
+                                                                    </LemonField.Pure>
                                                                 </>
                                                             )}
                                                         </>
@@ -649,7 +660,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                 </>
                                             )}
 
-                                            <Field name="description" label="Description (optional)">
+                                            <LemonField.Pure label="Description (optional)">
                                                 <LemonTextArea
                                                     value={evaluation.description || ''}
                                                     onChange={setEvaluationDescription}
@@ -657,7 +668,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                     rows={2}
                                                     maxLength={500}
                                                 />
-                                            </Field>
+                                            </LemonField.Pure>
 
                                             <div className="flex items-center gap-2">
                                                 <Tooltip
@@ -683,8 +694,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                             </div>
 
                                             {isBooleanOutput && (
-                                                <Field
-                                                    name="allows_na"
+                                                <LemonField.Pure
                                                     label={
                                                         <div className="flex items-center gap-1">
                                                             <span>Allow N/A responses</span>
@@ -715,7 +725,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                                   : 'Evaluation returns true or false'}
                                                         </span>
                                                     </div>
-                                                </Field>
+                                                </LemonField.Pure>
                                             )}
                                         </div>
                                     </div>
@@ -748,7 +758,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                     {isNewEvaluation && isReportableEvaluation && (
                                         <EvaluationReportConfig evaluationId="new" />
                                     )}
-                                </Form>
+                                </div>
 
                                 {/* Scheduled Reports (for existing evaluations, outside the form) */}
                                 {!isNewEvaluation && isReportableEvaluation && (
@@ -786,7 +796,7 @@ function EvaluationModelPicker(): JSX.Element {
             </p>
 
             <div className="space-y-4">
-                <Field name="model" label="Model">
+                <LemonField.Pure label="Model">
                     <div>
                         <ModelPicker
                             model={selectedModel}
@@ -802,7 +812,7 @@ function EvaluationModelPicker(): JSX.Element {
                             <p className="text-sm text-danger mt-1">Select a judge model.</p>
                         )}
                     </div>
-                </Field>
+                </LemonField.Pure>
             </div>
         </div>
     )

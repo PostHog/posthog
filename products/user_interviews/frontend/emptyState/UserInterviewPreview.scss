@@ -1,0 +1,318 @@
+@import '../../../../frontend/src/lib/components/ProductEmptyState/previewMixins';
+
+.ResearchPreview {
+    --research-preview-accent: var(--empty-state-accent, var(--color-primary-500));
+    --research-preview-alt: var(--color-text-tertiary);
+
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+
+    // Hidden topic state. Direct children of .ResearchPreview so `:checked ~` reaches all cards.
+    &__radio {
+        position: absolute;
+        width: 0;
+        height: 0;
+        pointer-events: none;
+        opacity: 0;
+    }
+
+    &__panel,
+    &__interview,
+    &__spark {
+        overflow: hidden;
+        background: var(--color-bg-surface-primary);
+        border: 1px solid var(--color-border-primary);
+        border-radius: var(--radius);
+    }
+
+    // Topic variants are stacked on one grid cell and crossfaded, so switching topics
+    // never changes any element's size (no layout shift).
+    &__swap {
+        display: grid;
+    }
+
+    &__swap > * {
+        grid-area: 1 / 1;
+        min-width: 0;
+    }
+
+    &__on-a,
+    &__on-b {
+        @include preview-swap-hidden;
+    }
+
+    &__head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.5rem 0.75rem;
+        border-bottom: 1px solid var(--color-border-primary);
+    }
+
+    &__title {
+        font-size: 0.75rem;
+        font-weight: 600;
+    }
+
+    &__rows {
+        display: flex;
+        flex-direction: column;
+        padding: 0.25rem 0.5rem;
+    }
+
+    &__row {
+        display: grid;
+        grid-template-columns: auto 1fr auto auto;
+        gap: 0.5rem;
+        align-items: center;
+        padding: 0.4375rem 0.5rem;
+        cursor: pointer;
+        user-select: none;
+        border: 1px solid transparent;
+        border-radius: var(--radius);
+        transition:
+            background-color 150ms ease,
+            border-color 150ms ease;
+    }
+
+    &__row:hover {
+        background: var(--color-bg-fill-highlight-50);
+    }
+
+    // Radio dots make the rows read as selectable.
+    &__vradio {
+        position: relative;
+        flex-shrink: 0;
+        width: 12px;
+        height: 12px;
+        border: 1.5px solid var(--research-preview-accent);
+        border-radius: 50%;
+
+        &::after {
+            position: absolute;
+            inset: 2px;
+            content: '';
+            background: var(--research-preview-accent);
+            border-radius: 50%;
+            transition: transform 150ms ease;
+            transform: scale(0);
+        }
+    }
+
+    &__topic {
+        overflow: hidden;
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: var(--color-text-primary);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    &__targeting {
+        font-size: 0.625rem;
+        color: var(--color-text-tertiary);
+    }
+
+    &__questions {
+        min-width: 4.5rem;
+        font-size: 0.625rem;
+        color: var(--color-text-secondary);
+        text-align: right;
+    }
+
+    &__hint {
+        padding: 0 0.75rem 0.5rem;
+        font-size: 0.6875rem;
+        color: var(--color-text-tertiary);
+    }
+
+    // The live interview card the selected topic drives.
+    &__interview-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.5rem 0.75rem;
+        border-bottom: 1px solid var(--color-border-primary);
+    }
+
+    &__live {
+        display: inline-flex;
+        gap: 0.25rem;
+        align-items: center;
+        font-size: 0.6875rem;
+        font-weight: 600;
+        color: var(--color-green-500);
+    }
+
+    &__live-dot {
+        width: 6px;
+        height: 6px;
+        background: var(--color-green-500);
+        border-radius: 50%;
+        animation: ResearchPreview__pulse 1.8s ease-in-out infinite;
+    }
+
+    &__who {
+        font-family: var(--font-mono);
+        font-size: 0.625rem;
+        color: var(--color-text-tertiary);
+        text-align: right;
+    }
+
+    &__transcript {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+        padding: 0.75rem 0.875rem;
+    }
+
+    &__msg {
+        display: flex;
+        flex-direction: column;
+        gap: 0.1875rem;
+        max-width: 88%;
+    }
+
+    &__msg--user {
+        align-self: flex-end;
+        text-align: right;
+    }
+
+    &__speaker {
+        font-size: 0.5625rem;
+        font-weight: 700;
+        color: var(--color-text-tertiary);
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+    }
+
+    &__bubble {
+        padding: 0.375rem 0.5625rem;
+        font-size: 0.6875rem;
+        line-height: 1.35;
+        text-align: left;
+        border-radius: var(--radius);
+    }
+
+    &__bubble--ai {
+        color: var(--color-text-primary);
+        background: var(--color-bg-surface-secondary);
+        border: 1px solid var(--color-border-primary);
+    }
+
+    &__bubble--user {
+        color: var(--color-text-primary);
+        background: color-mix(in oklab, var(--research-preview-accent) 10%, transparent);
+        border: 1px solid color-mix(in oklab, var(--research-preview-accent) 30%, transparent);
+    }
+
+    // Responses stat card for the selected topic.
+    &__spark {
+        padding: 0.75rem 0.875rem 0.875rem;
+    }
+
+    &__spark-note {
+        font-size: 0.6875rem;
+        font-weight: 400;
+        color: var(--color-text-tertiary);
+    }
+
+    &__spark-chart {
+        margin-top: 0.5rem;
+    }
+
+    &__spark-g {
+        transition: opacity 250ms ease;
+    }
+
+    &__spark-area {
+        fill: color-mix(in oklab, var(--research-preview-accent) 13%, transparent);
+        stroke: none;
+    }
+
+    &__spark-line {
+        fill: none;
+        stroke: color-mix(in oklab, var(--research-preview-accent) 32%, transparent);
+        stroke-width: 2;
+    }
+
+    // The moving bit: a short bright segment cycling along the line.
+    &__spark-trace {
+        fill: none;
+        stroke: var(--research-preview-accent);
+        stroke-dasharray: 16 84;
+        stroke-linecap: round;
+        stroke-width: 2;
+        animation: ResearchPreview__trace 3.2s linear infinite;
+    }
+
+    @include preview-sparkline;
+}
+
+// Selected topic, driven purely by the hidden radios.
+
+#research-preview-a:checked ~ * .ResearchPreview__on-a,
+#research-preview-b:checked ~ * .ResearchPreview__on-b {
+    @include preview-swap-visible;
+}
+
+#research-preview-a:checked ~ .ResearchPreview__panel .ResearchPreview__row--a,
+#research-preview-b:checked ~ .ResearchPreview__panel .ResearchPreview__row--b {
+    background: color-mix(in oklab, var(--research-preview-accent) 8%, transparent);
+    border-color: color-mix(in oklab, var(--research-preview-accent) 40%, transparent);
+}
+
+#research-preview-a:checked ~ .ResearchPreview__panel .ResearchPreview__vradio--a::after,
+#research-preview-b:checked ~ .ResearchPreview__panel .ResearchPreview__vradio--b::after {
+    transform: scale(1);
+}
+
+// The radios stay keyboard-focusable while visually hidden, so the topic row they
+// label needs a visible focus indicator (WCAG 2.4.7).
+#research-preview-a:focus-visible ~ .ResearchPreview__panel .ResearchPreview__row--a,
+#research-preview-b:focus-visible ~ .ResearchPreview__panel .ResearchPreview__row--b {
+    outline: 2px solid var(--research-preview-accent);
+    outline-offset: 1px;
+}
+
+// Nudge attention at the unselected topic's radio until it's been picked.
+.ResearchPreview:not(.ResearchPreview--static)
+    #research-preview-b:not(:checked)
+    ~ .ResearchPreview__panel
+    .ResearchPreview__vradio--b {
+    animation: ResearchPreview__nudge 2.4s ease-in-out infinite;
+}
+
+@keyframes ResearchPreview__nudge {
+    0%,
+    100% {
+        box-shadow: 0 0 0 0 color-mix(in oklab, var(--research-preview-accent) 45%, transparent);
+    }
+
+    50% {
+        box-shadow: 0 0 0 4px color-mix(in oklab, var(--research-preview-accent) 20%, transparent);
+    }
+}
+
+@keyframes ResearchPreview__pulse {
+    0%,
+    100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0.35;
+    }
+}
+
+// pathLength is normalized to 100, so the dash offset loops cleanly regardless of length.
+@keyframes ResearchPreview__trace {
+    to {
+        stroke-dashoffset: -100;
+    }
+}
+
+// Storybook snapshots and reduced motion drop all ambient motion; picking a topic
+// still works (transitions only).
+@include preview-motion-guards('ResearchPreview');

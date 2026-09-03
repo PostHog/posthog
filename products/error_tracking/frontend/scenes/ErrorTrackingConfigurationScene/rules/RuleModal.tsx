@@ -128,7 +128,7 @@ export function RuleModal({
                                 disabledReason={
                                     !filtersOptional && !hasFilters ? 'Add at least one filter first' : undefined
                                 }
-                                onClick={loadMatchCount}
+                                onClick={() => loadMatchCount()}
                             >
                                 Test rule
                             </LemonButton>

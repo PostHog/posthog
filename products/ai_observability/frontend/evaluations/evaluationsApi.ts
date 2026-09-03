@@ -1,10 +1,12 @@
 import type { AnyPropertyFilter } from '~/types'
 
-import { evaluationsList, evaluationsPartialUpdate } from '../generated/api'
-import type { EvaluationApi, PatchedEvaluationApi } from '../generated/api.schemas'
+import { evaluationsList, evaluationsPartialUpdate, llmAnalyticsEvaluationReportsList } from '../generated/api'
+import type { EvaluationApi, EvaluationReportApi, PatchedEvaluationApi } from '../generated/api.schemas'
+import { listAllPages } from '../listAllPages'
 import type { EvaluationConfig, ModelConfiguration } from './types'
 
 const EVALUATIONS_PAGE_SIZE = 100
+const EVALUATION_REPORTS_PAGE_SIZE = 100
 
 function isPropertyFilter(value: unknown): value is AnyPropertyFilter {
     return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -102,18 +104,19 @@ export function evaluationFromApi(evaluation: EvaluationApi): EvaluationConfig {
 }
 
 export async function listAllEvaluations(projectId: string): Promise<EvaluationConfig[]> {
-    const evaluations: EvaluationConfig[] = []
-    let offset = 0
+    const evaluations = await listAllPages((offset) =>
+        evaluationsList(projectId, { limit: EVALUATIONS_PAGE_SIZE, offset })
+    )
+    return evaluations.map(evaluationFromApi)
+}
 
-    while (true) {
-        const response = await evaluationsList(projectId, { limit: EVALUATIONS_PAGE_SIZE, offset })
-        evaluations.push(...response.results.map(evaluationFromApi))
-
-        if (!response.next || response.results.length === 0) {
-            return evaluations
-        }
-        offset += response.results.length
-    }
+export async function listAllEvaluationReports(projectId: string): Promise<EvaluationReportApi[]> {
+    return listAllPages((offset) =>
+        llmAnalyticsEvaluationReportsList(projectId, {
+            limit: EVALUATION_REPORTS_PAGE_SIZE,
+            offset,
+        })
+    )
 }
 
 export async function patchEvaluation(

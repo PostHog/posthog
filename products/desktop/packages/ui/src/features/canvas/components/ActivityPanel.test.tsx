@@ -10,9 +10,14 @@ import {
   vi,
 } from "vitest";
 
+// Mutable so a test can render the panel mid-load. Hoisted because a plain `let`
+// is initialized after the hoisted mock factories.
+const loaded = vi.hoisted(() => ({ thread: true }));
+
 vi.mock("@posthog/ui/features/canvas/hooks/useThreadConversation", () => ({
   useThreadConversation: () => ({
     timeline: [],
+    hasLoadedThread: loaded.thread,
     agentStatus: null,
     events: [],
     isPromptPending: false,
@@ -30,6 +35,14 @@ vi.mock("@posthog/ui/features/canvas/hooks/useThreadConversation", () => ({
     onMentionInsert: vi.fn(),
   }),
 }));
+// The panel warms this from the task id before the task itself arrives, so it is mounted
+// even in the tests that never get a task.
+vi.mock("@posthog/ui/features/canvas/hooks/useTaskThread", () => ({
+  useTaskThread: () => ({ messages: [], isLoading: false, hasLoaded: true }),
+}));
+vi.mock("@posthog/ui/features/canvas/hooks/useTaskRuns", () => ({
+  useTaskRuns: () => ({ runs: [], isLoading: false, refreshRuns: vi.fn() }),
+}));
 vi.mock("@posthog/ui/features/canvas/components/ActivityTimeline", () => ({
   ActivityTimeline: () => <div>timeline body</div>,
 }));
@@ -40,7 +53,7 @@ vi.mock("@posthog/ui/features/canvas/components/TaskCommentsList", () => ({
   TaskCommentsList: () => <div>comments body</div>,
 }));
 vi.mock("@posthog/ui/features/canvas/components/ChannelFeedView", () => ({
-  TaskCard: () => <div>task card</div>,
+  TaskSummaryRow: () => <div>task summary</div>,
 }));
 vi.mock("@posthog/ui/features/canvas/components/ThreadPanel", () => ({
   AgentStatusLine: () => <div>agent status</div>,
@@ -57,12 +70,6 @@ vi.mock("@posthog/ui/shell/analytics", () => ({ track: vi.fn() }));
 
 import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
 import { ActivityPanel } from "./ActivityPanel";
-
-const commentsFlag = vi.hoisted(() => ({ enabled: true }));
-
-vi.mock("@posthog/ui/features/sessions/useCommentsEnabled", () => ({
-  useCommentsEnabled: () => commentsFlag.enabled,
-}));
 
 const task = { id: "task-1", title: "Ship it" } as unknown as Task;
 
@@ -81,7 +88,7 @@ describe("ActivityPanel", () => {
   let scrollTo: MockInstance;
 
   beforeEach(() => {
-    commentsFlag.enabled = true;
+    loaded.thread = true;
     scrollTo = vi.spyOn(Element.prototype, "scrollTo");
     useCommentNavigationStore.setState({
       focusByTask: {},
@@ -103,13 +110,6 @@ describe("ActivityPanel", () => {
     expect(screen.getByText("comments body")).toBeTruthy();
     // The composer belongs to the conversation, not to a list of threads.
     expect(screen.queryByText("composer")).toBeNull();
-  });
-
-  it("hides the comments tab while comments are disabled", () => {
-    commentsFlag.enabled = false;
-    renderPanel();
-
-    expect(screen.queryByRole("tab", { name: "Comments" })).toBeNull();
   });
 
   // A thread picked on the artifact itself lands in this tab, so the pick has
@@ -147,41 +147,24 @@ describe("ActivityPanel", () => {
     expect(screen.getByText("timeline body")).toBeTruthy();
   });
 
-  // A focus left over from an earlier visit must not hijack the panel, and the
-  // panel is reused across tasks without remounting.
-  it("does not open comments for a focus that predates the task", () => {
-    useCommentNavigationStore
-      .getState()
-      .requestCommentFocus(
-        "task-2",
-        { scope: "task_artifact", itemId: "artifact-1" },
-        "comment-1",
-      );
-    const { rerender } = renderPanel("task-1");
-
-    rerender(
-      <ActivityPanel
-        taskId="task-2"
-        channelId="channel-1"
-        task={{ ...task, id: "task-2" }}
-        showTaskSummary={false}
-      />,
-    );
-
-    expect(screen.getByText("timeline body")).toBeTruthy();
-  });
-
-  it("keeps a fresh focus request when the panel switches tasks", () => {
-    const { rerender } = renderPanel("task-1");
-    act(() =>
+  // A request nobody has shown yet is outstanding whenever it was written, and
+  // the click that picks a thread often precedes the surface that can show it.
+  it.each([
+    { name: "before the panel rendered the task", beforeMount: true },
+    { name: "while the panel was on another task", beforeMount: false },
+  ])("opens comments for a request made $name", ({ beforeMount }) => {
+    const request = () =>
       useCommentNavigationStore
         .getState()
         .requestCommentFocus(
           "task-2",
           { scope: "task_artifact", itemId: "artifact-1" },
           "comment-1",
-        ),
-    );
+        );
+
+    if (beforeMount) request();
+    const { rerender } = renderPanel("task-1");
+    if (!beforeMount) act(request);
 
     rerender(
       <ActivityPanel
@@ -193,6 +176,12 @@ describe("ActivityPanel", () => {
     );
 
     expect(screen.getByText("comments body")).toBeTruthy();
+    // Acknowledged on the way, so the request is spent rather than reopening
+    // comments over every later surface that reads it.
+    expect(
+      useCommentNavigationStore.getState().focusByTask["task-2"]
+        ?.openCommentsTab,
+    ).toBe(false);
   });
 
   // Only the timeline reads bottom-up; the thread lists put what matters on top.
@@ -204,5 +193,31 @@ describe("ActivityPanel", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Comments" }));
 
     expect(scrollTo.mock.calls.length).toBe(timelineScrolls);
+  });
+
+  it("waits for the thread, then never takes the timeline away again", () => {
+    // The loader belongs to the first paint only, never over rows already on screen.
+    loaded.thread = false;
+    // A fresh element each time: React bails out of `rerender` when handed the identical one.
+    const panel = () => (
+      <ActivityPanel
+        taskId="task-1"
+        channelId="channel-1"
+        task={task}
+        showTaskSummary={false}
+      />
+    );
+    const view = render(panel());
+    expect(screen.getByLabelText("Loading timeline")).toBeInTheDocument();
+
+    loaded.thread = true;
+    view.rerender(panel());
+    expect(screen.getByText("timeline body")).toBeInTheDocument();
+
+    // A refetch flips a query back to loading; the rows must stay put.
+    loaded.thread = false;
+    view.rerender(panel());
+    expect(screen.getByText("timeline body")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Loading timeline")).toBeNull();
   });
 });

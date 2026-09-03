@@ -149,6 +149,7 @@ describe("createPiMessageTranslator", () => {
           id: "extension-1",
           status: "completed",
           rawOutput: content,
+          details: { resultCount: 3 },
           content: [
             {
               type: "content",
@@ -188,6 +189,29 @@ describe("createPiMessageTranslator", () => {
               },
             },
           ],
+        },
+      },
+    ]);
+  });
+
+  it("classifies ls as a directory listing", () => {
+    const translator = createPiMessageTranslator();
+    const message = makeAssistant([
+      {
+        id: "ls-1",
+        type: "toolCall",
+        name: "ls",
+        arguments: { path: "src" },
+      } as never,
+    ]);
+
+    expect(translator.translate(message)).toMatchObject([
+      {
+        type: "tool_call_started",
+        toolCall: {
+          id: "ls-1",
+          kind: "list",
+          locations: [{ path: "src" }],
         },
       },
     ]);

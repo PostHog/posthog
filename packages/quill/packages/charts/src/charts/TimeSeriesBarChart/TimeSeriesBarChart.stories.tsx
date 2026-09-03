@@ -78,7 +78,11 @@ export const RotatedCategoryLabels: Story = {
                     series={LONG_CATEGORY_SERIES}
                     labels={LONG_CATEGORY_LABELS}
                     theme={theme}
-                    config={{ xAxis: { tickLabelRotation: -45 }, yAxis: { showGrid: true } }}
+                    config={{
+                        xAxis: { tickLabelRotation: -45 },
+                        yAxis: { showGrid: true },
+                        maxCategoryLabelWidth: 160,
+                    }}
                 />
             </Stage>
         )
@@ -234,6 +238,44 @@ export const MinBarSize: Story = {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, auto)', gap: 24 }}>
             <MinBarSizeCell title="default" series={MIN_BAR_SIZE_SERIES} />
             <MinBarSizeCell title="minBarSize: 6" series={MIN_BAR_SIZE_SERIES} minBarSize={6} />
+        </div>
+    ),
+}
+
+// A max of 246 nices up to 300–400 depending on plot height, so without the pin the tallest bar
+// stops well short of the plot top.
+const PINNED_DOMAIN_SERIES: Series[] = [{ key: 'volume', label: 'Volume', data: [0, 246, 0, 12, 0, 3, 0] }]
+
+function PinnedValueDomainCell({ title, pinned }: { title: string; pinned: boolean }): JSX.Element {
+    const theme = useReactiveTheme()
+    return (
+        // eslint-disable-next-line react/forbid-dom-props
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <span className="text-xs text-muted-foreground">{title}</span>
+            <Stage>
+                <TimeSeriesBarChart
+                    series={PINNED_DOMAIN_SERIES}
+                    labels={DAYS}
+                    theme={theme}
+                    config={{
+                        yAxis: { hide: true },
+                        minBarSize: 2,
+                        valueDomain: pinned ? { min: 0, max: 246 } : undefined,
+                    }}
+                />
+            </Stage>
+        </div>
+    )
+}
+
+/** A fixed `valueDomain` skips `d3.nice()`, so `[0, dataMax]` makes the tallest bar reach the plot
+ *  top — the sparkline treatment, where the hidden axis makes nice-rounded headroom pure waste. */
+export const PinnedValueDomain: Story = {
+    render: () => (
+        // eslint-disable-next-line react/forbid-dom-props
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, auto)', gap: 24 }}>
+            <PinnedValueDomainCell title="default (niced headroom)" pinned={false} />
+            <PinnedValueDomainCell title="valueDomain: { min: 0, max: dataMax }" pinned />
         </div>
     ),
 }

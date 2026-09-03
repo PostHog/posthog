@@ -1,20 +1,76 @@
 import json
 import hashlib
-from typing import Literal, get_args
+from collections.abc import Mapping
+from typing import Any, Literal, get_args
 
 import posthoganalytics
 
+# Canonical PR/CI snapshot vocabulary, as produced by the GitHub integration's
+# pull-request snapshot (`_map_pr_state` / `_map_ci_status`) and persisted on
+# ``TaskRun.output`` (``pr_state`` / ``ci_status``) for the task list filters.
+PR_STATES = ("open", "draft", "merged", "closed")
+CI_STATUSES = ("passing", "failing", "pending", "none")
+
 SANDBOX_EVENT_INGEST_FEATURE_FLAG = "tasks-cloud-runs-sandbox-event-ingest"
+WORKFLOW_DISPATCH_SHADOW_FEATURE_FLAG = "tasks-workflow-dispatch-shadow"
+WORKFLOW_DISPATCH_ASYNC_FEATURE_FLAG = "tasks-workflow-dispatch-async"
+WORKFLOW_DISPATCH_RESTART_FEATURE_FLAG = "tasks-workflow-dispatch-restart"
 AGENT_PROXY_KEEP_STREAM_OPEN_FEATURE_FLAG = "tasks-agent-proxy-keep-stream-open"
 MODAL_VM_SANDBOX_FEATURE_FLAG = "tasks-modal-vm-sandbox"
 # Gates the nightly prebaked dev-stack image bake (see logic/services/dev_stack_image.py).
 DEV_STACK_IMAGE_BAKE_FEATURE_FLAG = "tasks-dev-stack-image-bake"
 MODAL_NETWORK_ALLOWLIST_FEATURE_FLAG = "tasks-modal-network-allowlist"
+# Routes a plain default-template run onto the hogland (Firecracker) sandbox backend.
+HOGLAND_SANDBOX_FEATURE_FLAG = "tasks-hogland-sandbox"
 AGENT_RUN_OTEL_TELEMETRY_FEATURE_FLAG = "tasks-agent-run-otel-telemetry"
 PI_CLOUD_RUNTIME_FEATURE_FLAG = "pi-harness"
+# Gates agent-to-agent peer messaging between cloud runs. v1 additionally requires the Pi
+# runtime, so the effective audience is teams with both this flag and
+# PI_CLOUD_RUNTIME_FEATURE_FLAG enabled.
+AGENT_PEER_MESSAGING_FEATURE_FLAG = "tasks-agent-peer-messaging"
+TASK_ANALYSIS_FEATURE_FLAG = "posthog-code-task-analysis"
+
+ANALYSIS_TARGET_TASK_ID_STATE_KEY = "analysis_target_task_id"
+ANALYSIS_TARGET_RUN_ID_STATE_KEY = "analysis_target_run_id"
+ANALYSIS_TARGET_REPOSITORY_STATE_KEY = "analysis_target_repository"
+ANALYSIS_TARGET_IMAGE_ID_STATE_KEY = "analysis_target_custom_image_id"
+ANALYSIS_TARGET_IMAGE_NAME_STATE_KEY = "analysis_target_custom_image_name"
+TASK_ANALYSIS_INSIGHTS_STATE_KEY = "task_analysis_insights"
 # Run-state key the telemetry flag decision is stamped under at dispatch (temporal/client.py).
 # Consumers read the stamp, so the decision stays stable for the run's whole lifetime.
 AGENT_OTEL_TELEMETRY_STATE_KEY = "agent_otel_telemetry_enabled"
+PR_LOOP_ENABLED_STATE_KEY = "pr_loop_enabled"
+SAME_RUN_RESUME_STATE_KEY = "same_run_resume"
+SAME_RUN_RESUME_IDLE_STATE_KEY = "same_run_resume_idle"
+_LEGACY_SAME_RUN_RESUME_STATE_KEY = "handoff_resumed"
+_LEGACY_SAME_RUN_RESUME_IDLE_STATE_KEY = "handoff_resume_idle"
+SERVER_OWNED_RESUME_STATE_KEYS = frozenset(
+    {
+        SAME_RUN_RESUME_STATE_KEY,
+        SAME_RUN_RESUME_IDLE_STATE_KEY,
+        _LEGACY_SAME_RUN_RESUME_STATE_KEY,
+        _LEGACY_SAME_RUN_RESUME_IDLE_STATE_KEY,
+    }
+)
+
+
+def is_same_run_resume_state(state: Mapping[str, Any] | None) -> bool:
+    if not state:
+        return False
+    return state.get(SAME_RUN_RESUME_STATE_KEY) is True or state.get(_LEGACY_SAME_RUN_RESUME_STATE_KEY) is True
+
+
+def is_same_run_resume_idle_state(state: Mapping[str, Any] | None) -> bool:
+    if not state:
+        return False
+    return (
+        state.get(SAME_RUN_RESUME_IDLE_STATE_KEY) is True or state.get(_LEGACY_SAME_RUN_RESUME_IDLE_STATE_KEY) is True
+    )
+
+
+DEV_STACK_PREVIEW_STATE_KEY = "dev_stack_preview"
+DEV_STACK_PREVIEW_FEATURE_FLAG = "tasks-dev-stack-preview"
+DEV_STACK_PREVIEW_PORT = 8020
 
 # Models a caller may only select while the paired flag is enabled for them. The Desktop
 # pickers already hide these client-side (`products/desktop/packages/shared/src/flags.ts`),
@@ -23,6 +79,9 @@ AGENT_OTEL_TELEMETRY_STATE_KEY = "agent_otel_telemetry_enabled"
 # entitlement is re-checked server-side. Keys are the model ids callers send.
 MODEL_ACCESS_FLAGS: dict[str, str] = {
     "moonshotai/kimi-k3": "tasks-kimi-k3",
+    "deepseek-ai/deepseek-v4-flash-0731": "posthog-code-deepseek-model",
+    "zai-org/glm-5.3": "posthog-code-glm-53-model",
+    "zai-org/glm-5.3-flash": "posthog-code-glm-53-flash-model",
 }
 
 
@@ -146,15 +205,19 @@ MAX_CUSTOM_IMAGES_PER_USER = 10
 TASK_SESSION_MAX_SIZE_BYTES = 10 * 1024 * 1024
 TASK_SESSION_UPLOAD_FORM_OVERHEAD_BYTES = 64 * 1024
 
-MODAL_DIRECTORY_RESUME_SNAPSHOTS_FEATURE_FLAG = "tasks-modal-directory-resume-snapshots"
 STREAM_VIA_PROXY_FEATURE_FLAG = "tasks-stream-via-proxy"
 OVERLAP_CLONE_BOOT_FEATURE_FLAG = "tasks-overlap-clone-boot"
+DESKTOP_WORKSPACE_WARM_FEATURE_FLAG = "task-cloud-desktop-workspace-warm"
+TASK_SIGNALS_CLONING_BLOBLESS_FEATURE_FLAG = "task-signals-cloning-blobless"
 # Kill switch: rtk command-output compression is on by default in cloud sandboxes;
 # enabling this flag disables it fleet-wide — over any per-run override — without
 # an image rebuild.
 RTK_DISABLED_FEATURE_FLAG = "tasks-rtk-disabled"
+BENJAMIN_FEATURE_FLAG = "task-cloud-run-benjamin-plus"
 # Gates whether long-running process_task runs continue-as-new to bound history/replay cost.
 CONTINUE_AS_NEW_FEATURE_FLAG = "tasks-cloud-run-continue-as-new"
+PR_BABYSIT_SNAPSHOT_FEATURE_FLAG = "tasks-pr-babysit-snapshot"
+SANDBOX_ROTATION_FEATURE_FLAG = "tasks-cloud-run-sandbox-rotation"
 
 SnapshotKind = Literal["filesystem", "directory"]
 SNAPSHOT_KIND_FILESYSTEM: SnapshotKind = "filesystem"
@@ -202,6 +265,7 @@ POSTHOG_EXEC_DESTRUCTIVE_SUB_TOOLS: tuple[str, ...] = (
     "experiment-ship-variant",
     "external-data-schemas-resync",
     "external-data-sources-repair-cdc-create",
+    "feature-requests-remove-evidence-create",
     "heatmaps-saved-regenerate",
     "inbox-reports-bulk-set-state",
     "inbox-reports-set-state",
@@ -231,6 +295,7 @@ POSTHOG_EXEC_DESTRUCTIVE_SUB_TOOLS: tuple[str, ...] = (
 # foreground streams.
 POSTHOG_EXEC_PERSIST_SUB_TOOLS: tuple[str, ...] = (
     "dashboard-create",
+    "dashboard-create-tile",
     "dashboard-create-text-tile",
     "dashboard-tile-copy",
     "dashboard-widgets-batch-add",
@@ -243,6 +308,7 @@ POSTHOG_EXEC_PERSIST_SUB_TOOLS: tuple[str, ...] = (
     "cdp-functions-create",
     "workflows-create",
     "workflows-create-email-template",
+    "llma-parser-recipe-create",
 )
 
 POSTHOG_EXEC_PERMISSION_REGEX = (
@@ -459,6 +525,7 @@ RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS: frozenset[str] = frozenset(
         "LLM_GATEWAY_URL",
         "AI_GATEWAY_URL",
         "AI_GATEWAY_PRODUCTS",
+        "AI_GATEWAY_TOKEN",
         "POSTHOG_RESUME_RUN_ID",
         "POSTHOG_AGENT_OTEL_LOGS_URL",
         "POSTHOG_AGENT_OTEL_LOGS_TOKEN",
@@ -466,6 +533,11 @@ RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS: frozenset[str] = frozenset(
         "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC",
         "DISABLE_TELEMETRY",
         "DISABLE_ERROR_REPORTING",
+        # The workflow gates the wiki mount on these being present, so a
+        # user-supplied copy would mount the org wiki for a team whose
+        # context-layer flag is off.
+        "POSTHOG_CONTEXT_LAYER_PATH",
+        "POSTHOG_CONTEXT_LAYER_COMMITS_PATH",
     }
 )
 

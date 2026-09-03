@@ -33,6 +33,7 @@ from posthog.models import OrganizationMembership, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.team.extensions import get_or_create_team_extension
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.models.action import Action
 from products.approvals.backend.exceptions import ApprovalRequired
 from products.approvals.backend.models import ApprovalPolicy, ChangeRequest
@@ -61,8 +62,6 @@ from products.experiments.backend.models.team_experiments_config import TeamExpe
 from products.feature_flags.backend.facade.api import set_flag_active, update_flag
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
-
-from ee.models.rbac.access_control import AccessControl
 
 
 # Note that we use allow_unknown_events here since allowing it was the behavior before validating it
@@ -809,6 +808,17 @@ class TestExperimentService(APIBaseTest):
                 },
                 "exposure_criteria.activation_config requires the default exposure event",
             ),
+            (
+                "unknown_top_level_properties",
+                {"properties": [{"key": "email", "value": "x"}]},
+                "exposure_criteria contains unknown key(s): properties. Property filters on the "
+                "exposure event belong at exposure_criteria.exposure_config.properties.",
+            ),
+            (
+                "unknown_top_level_key",
+                {"filterTestAccounts": True, "custom_thing": 1},
+                "exposure_criteria contains unknown key(s): custom_thing",
+            ),
         ]
     )
     def test_validate_experiment_exposure_criteria_rejects_invalid_payloads(
@@ -854,6 +864,10 @@ class TestExperimentService(APIBaseTest):
             (
                 "explicit_null_configs",
                 {"exposure_config": None, "activation_config": None},
+            ),
+            (
+                "multiple_variant_handling",
+                {"multiple_variant_handling": "exclude"},
             ),
             (
                 "null_activation_with_custom_exposure",
@@ -2503,6 +2517,26 @@ class TestExperimentService(APIBaseTest):
         # Same flag key → reuses the existing flag
         assert dup.feature_flag.id == source.feature_flag.id
 
+    def test_duplicate_experiment_strips_legacy_unknown_exposure_criteria_keys(self):
+        # Stored criteria can carry unknown keys accepted before write-side rejection;
+        # duplicating such an experiment must succeed and drop them.
+        self._create_flag(key="dup-legacy-criteria")
+        service = self._service()
+        source = service.create_experiment(
+            name="Legacy criteria",
+            feature_flag_key="dup-legacy-criteria",
+            exposure_criteria={"filterTestAccounts": True},
+        )
+        source.exposure_criteria = {"filterTestAccounts": True, "properties": [{"key": "email"}]}
+        source.save(update_fields=["exposure_criteria"])
+
+        dup = service.duplicate_experiment(source)
+
+        criteria = dup.exposure_criteria
+        assert criteria is not None
+        assert criteria.get("filterTestAccounts") is True
+        assert "properties" not in criteria
+
     def test_duplicate_experiment_generates_unique_name(self):
         self._create_flag(key="dup-unique-1")
         service = self._service()
@@ -3521,6 +3555,7 @@ class TestExperimentService(APIBaseTest):
         assert paused.end_date is None
         assert paused.is_paused is True
         assert paused.is_running is True  # status remains running while paused
+        assert ActivityLog.objects.filter(scope="Experiment", item_id=str(experiment.pk), activity="paused").exists()
 
     def test_resume_experiment_success(self):
         experiment = self._create_running_experiment(name="Resume Test", feature_flag_key="resume-flag")
@@ -3535,6 +3570,7 @@ class TestExperimentService(APIBaseTest):
         assert resumed.feature_flag.active is True
         assert resumed.start_date is not None
         assert resumed.end_date is None
+        assert ActivityLog.objects.filter(scope="Experiment", item_id=str(experiment.pk), activity="resumed").exists()
 
     def test_pause_experiment_already_paused_raises(self):
         experiment = self._create_running_experiment(name="Already Paused", feature_flag_key="already-paused-flag")
@@ -5284,6 +5320,30 @@ class TestExperimentService(APIBaseTest):
             start_date=now - timedelta(days=4),
             end_date=now - timedelta(days=1),
         )
+
+        queryset = service.filter_experiments_queryset(
+            Experiment.objects.filter(team=self.team),
+            action="list",
+            query_params={"order": order},
+        )
+
+        assert list(queryset.values_list("name", flat=True)[:3]) == expected_order
+
+    @parameterized.expand(
+        [
+            ("ascending", "conclusion", ["Won", "Lost", "No conclusion"]),
+            ("descending", "-conclusion", ["No conclusion", "Lost", "Won"]),
+        ]
+    )
+    def test_filter_experiments_queryset_orders_by_conclusion(
+        self, _: str, order: str, expected_order: list[str]
+    ) -> None:
+        service = self._service()
+        service.create_experiment(name="Won", feature_flag_key="order-conclusion-won")
+        service.create_experiment(name="Lost", feature_flag_key="order-conclusion-lost")
+        service.create_experiment(name="No conclusion", feature_flag_key="order-conclusion-none")
+        Experiment.objects.filter(team=self.team, name="Won").update(conclusion="won")
+        Experiment.objects.filter(team=self.team, name="Lost").update(conclusion="lost")
 
         queryset = service.filter_experiments_queryset(
             Experiment.objects.filter(team=self.team),

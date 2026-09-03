@@ -9,6 +9,7 @@ from rest_framework.exceptions import ValidationError as DRFValidationError
 
 from products.dashboards.backend.widget_specs.configs import (
     ACTIVITY_EVENTS_LIST_WIDGET_TYPE,
+    CONVERSATIONS_RECENT_TICKETS_WIDGET_TYPE,
     ERROR_TRACKING_LIST_WIDGET_TYPE,
     EXPERIMENT_RESULTS_WIDGET_TYPE,
     EXPERIMENTS_LIST_WIDGET_TYPE,
@@ -16,6 +17,7 @@ from products.dashboards.backend.widget_specs.configs import (
     SESSION_REPLAY_LIST_WIDGET_TYPE,
     SURVEY_RESULTS_WIDGET_TYPE,
     ActivityEventsListWidgetConfig,
+    ConversationsRecentTicketsWidgetConfig,
     ErrorTrackingListWidgetConfig,
     ExperimentResultsWidgetConfig,
     ExperimentsListWidgetConfig,
@@ -32,6 +34,7 @@ DashboardWidgetType = Literal[
     "experiment_results",
     "survey_results",
     "logs_list",
+    "conversations_recent_tickets",
 ]
 
 __all__ = [
@@ -108,6 +111,9 @@ def _load_widget_specs() -> dict[str, WidgetSpec]:
     # avoid import cycles (runners ↔ registry).
     from products.dashboards.backend.widgets.activity_events_list import (  # noqa: PLC0415
         run_activity_events_list_widget,
+    )
+    from products.dashboards.backend.widgets.conversations_recent_tickets import (  # noqa: PLC0415
+        run_conversations_recent_tickets_widget,
     )
     from products.dashboards.backend.widgets.error_tracking_list import run_error_tracking_list_widget  # noqa: PLC0415
     from products.dashboards.backend.widgets.experiment_results import run_experiment_results_widget  # noqa: PLC0415
@@ -225,6 +231,21 @@ def _load_widget_specs() -> dict[str, WidgetSpec]:
             availability_requirements=(),
             form_fields=("limit", "dateRange", "wrapLines", "timezone"),
             filter_fields=("severityLevels", "serviceNames"),
+        ),
+        CONVERSATIONS_RECENT_TICKETS_WIDGET_TYPE: WidgetSpec(
+            widget_type=CONVERSATIONS_RECENT_TICKETS_WIDGET_TYPE,
+            config_model=ConversationsRecentTicketsWidgetConfig,
+            query_fn=run_conversations_recent_tickets_widget,
+            required_scopes=("ticket:read",),
+            group_id="conversations",
+            group_label="Support",
+            label="Recent tickets",
+            description="Most recently updated support tickets.",
+            required_product_access="ticket",
+            product_access_denied_message="You do not have access to support tickets.",
+            availability_requirements=("conversations_enabled",),
+            form_fields=("limit",),
+            filter_fields=("status", "priorities", "channel", "assignees", "search"),
         ),
     }
 

@@ -41,6 +41,8 @@ from datetime import date, datetime, timedelta
 from typing import Any, Optional, Union
 from zoneinfo import ZoneInfo
 
+from posthog.dataclasses import frozen
+
 from products.cohorts.backend.models.leaf_shape import BehavioralLeafKey, behavioral_leaf_key
 from products.cohorts.backend.parity.classifier import VERDICT_FAIL, VERDICT_PASS, VERDICT_SKIP
 from products.cohorts.backend.parity.eligibility import explain_unsupported_window, resolve_behavioral_window
@@ -448,7 +450,7 @@ def _person_day_totals(matches: Sequence[DayMatch]) -> dict[tuple[date, str], in
     return totals
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class DomainCounts:
     grace: int
     seed: int

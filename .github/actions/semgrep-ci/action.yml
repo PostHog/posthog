@@ -1,0 +1,48 @@
+name: Semgrep diff-aware scan
+description: >
+    Run `semgrep ci` in the digest-pinned Semgrep image. On pull requests semgrep
+    resolves the merge-base with the base branch itself (GH_TOKEN fast path, then
+    deepening fetches) and reports only findings the PR introduces; on pushes there
+    is no baseline, so it runs a full scan. Runs logged out: nothing is uploaded to
+    semgrep.dev, and any finding fails the step via the exit code.
+
+inputs:
+    image:
+        description: Digest-pinned semgrep/semgrep Docker image
+        required: true
+    args:
+        description: >
+            Arguments for `semgrep ci` (--config, --include/--exclude, --exclude-rule,
+            --jobs, ...). Split on whitespace, so values must not contain spaces or
+            quotes. Anchor --include/--exclude patterns with a leading slash
+            (--include /bin); unanchored patterns also match same-named nested
+            directories anywhere in the tree.
+        required: true
+
+runs:
+    using: composite
+    steps:
+        - name: Run semgrep ci
+          shell: bash
+          env:
+              SEMGREP_ARGS: ${{ inputs.args }}
+              SEMGREP_IMAGE: ${{ inputs.image }}
+              # Lets semgrep resolve the PR merge-base with one API call instead of
+              # deepening fetches (cli/src/semgrep/meta.py GithubMeta._find_branchoff_point)
+              GH_TOKEN: ${{ github.token }}
+          # GithubMeta reads the GITHUB_* vars and the event payload to detect the
+          # PR context; the baseline git operations need the checkout's persisted
+          # auth from .git/config, and safe.directory because the workspace is
+          # owned by the runner user while the container runs as root.
+          run: |
+              docker run --rm \
+                -v "$GITHUB_WORKSPACE:/src" -w /src \
+                -v "$GITHUB_EVENT_PATH:/github-event.json:ro" \
+                -e SEMGREP_ENABLE_VERSION_CHECK=false \
+                -e GITHUB_ACTIONS -e GITHUB_EVENT_NAME -e GITHUB_EVENT_PATH=/github-event.json \
+                -e GITHUB_REPOSITORY -e GITHUB_SERVER_URL -e GITHUB_API_URL \
+                -e GITHUB_SHA -e GITHUB_REF -e GITHUB_HEAD_REF -e GITHUB_RUN_ID \
+                -e GITHUB_REPOSITORY_ID -e GITHUB_REPOSITORY_OWNER_ID \
+                -e GH_TOKEN \
+                "$SEMGREP_IMAGE" \
+                sh -c "git config --global --add safe.directory /src && exec semgrep ci --metrics=off --verbose --timeout 300 $SEMGREP_ARGS"

@@ -23,6 +23,7 @@ export const urls = {
     experiments: (): string => '/experiments',
     featureFlag: (id: string | number): string => `/feature_flags/${id}`,
     featureFlags: (tab?: string): string => `/feature_flags${tab ? `?tab=${tab}` : ''}`,
+    heatmap: (id: string | number): string => `/heatmaps/${id}`,
     productTour: (id: string, params?: string): string =>
         `/product_tours/${id}${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
     sessionProfile: (id: string): string => `/sessions/${id}`,

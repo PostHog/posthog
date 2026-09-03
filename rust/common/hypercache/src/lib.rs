@@ -793,6 +793,28 @@ impl HyperCacheReader {
         Ok(data)
     }
 
+    /// Fetch from Redis only — no S3 fallback and no read repair. For callers that
+    /// need to observe exactly what the Redis tier holds right now (e.g. shadow
+    /// verification comparing a fresh build against the live entry) rather than the
+    /// best available copy. Returns `Ok(None)` for the `__missing__` sentinel and
+    /// `Err(HyperCacheError::CacheMiss)` when the key is absent; a Redis timeout
+    /// surfaces as `Err(HyperCacheError::Timeout)` instead of cascading to S3.
+    pub async fn get_typed_from_redis<T: DeserializeOwned>(
+        &self,
+        key: &KeyType,
+    ) -> Result<Option<T>, HyperCacheError> {
+        let redis_cache_key = self.config.get_redis_cache_key(key);
+        match timeout(
+            self.config.redis_timeout,
+            self.try_get_typed_from_redis::<T>(&redis_cache_key),
+        )
+        .await
+        {
+            Ok(result) => result,
+            Err(_) => Err(HyperCacheError::Timeout("redis timeout".to_string())),
+        }
+    }
+
     /// Read the companion ETag string for `key` from Redis, if present.
     ///
     /// The ETag is written atomically alongside the payload by `HyperCacheWriter::set_with_etag`
@@ -1844,6 +1866,69 @@ mod tests {
     fn pickle_json(value: &impl serde::Serialize) -> Vec<u8> {
         let json_string = serde_json::to_string(value).unwrap();
         serde_pickle::to_vec(&json_string, Default::default()).unwrap()
+    }
+
+    #[tokio::test]
+    async fn test_get_typed_from_redis_hit() {
+        let expected = make_test_flags();
+        let pickled = pickle_json(&expected);
+
+        let mut mock_redis = MockRedisClient::new();
+        let cache_key = create_test_config().get_redis_cache_key(&KeyType::int(42));
+        mock_redis.get_raw_bytes_ret(&cache_key, Ok(pickled));
+
+        let reader = create_test_reader_with_mocks(mock_redis, create_dummy_s3_client());
+        let data = reader
+            .get_typed_from_redis::<TestFlags>(&KeyType::int(42))
+            .await
+            .unwrap();
+
+        assert_eq!(data, Some(expected));
+    }
+
+    #[tokio::test]
+    async fn test_get_typed_from_redis_sentinel_returns_none() {
+        let sentinel_pickled =
+            serde_pickle::to_vec(&HYPER_CACHE_EMPTY_VALUE, Default::default()).unwrap();
+
+        let mut mock_redis = MockRedisClient::new();
+        let cache_key = create_test_config().get_redis_cache_key(&KeyType::int(99));
+        mock_redis.get_raw_bytes_ret(&cache_key, Ok(sentinel_pickled));
+
+        let reader = create_test_reader_with_mocks(mock_redis, create_dummy_s3_client());
+        let data = reader
+            .get_typed_from_redis::<TestFlags>(&KeyType::int(99))
+            .await
+            .unwrap();
+
+        assert_eq!(data, None);
+    }
+
+    /// A Redis miss must surface as `CacheMiss` even when S3 holds the value —
+    /// the whole point of the Redis-only getter is that it never cascades.
+    #[cfg(feature = "mock-client")]
+    #[tokio::test]
+    async fn test_get_typed_from_redis_miss_does_not_fall_back_to_s3() {
+        let payload = serde_json::to_string(&make_test_flags()).unwrap();
+        let fixture = redis_miss_s3_hit_fixture(create_test_config(), &payload);
+
+        // First prove S3 really holds the value — the cascading read returns it —
+        // so the Redis-only miss below is a refusal to fall back, not a vacuous
+        // pass against an empty fixture.
+        let (cascaded, source) = fixture
+            .reader
+            .get_typed_with_source::<TestFlags>(&fixture.team_key)
+            .await
+            .unwrap();
+        assert_eq!(source, CacheSource::S3);
+        assert_eq!(cascaded, Some(make_test_flags()));
+
+        let result = fixture
+            .reader
+            .get_typed_from_redis::<TestFlags>(&fixture.team_key)
+            .await;
+
+        assert!(matches!(result, Err(HyperCacheError::CacheMiss)));
     }
 
     #[tokio::test]

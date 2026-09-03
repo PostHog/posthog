@@ -33,7 +33,8 @@ If the change crosses rows, update each row deliberately. Do not hide a cross-la
 - Keep fixed-grid and calendar contracts explicit instead of branching on product names.
 - Make scheduler interval assumptions explicit.
 - Preserve deterministic UUID-based sharding and stable steady-state cadence.
-- Preserve local wall-clock anchors across DST changes and evaluate restrictions in the team's timezone.
+- Preserve local wall-clock anchors across DST changes and evaluate quiet-hour restrictions in the team's timezone.
+- Reuse the normalized schedule-restriction contract for each product that supports quiet hours. Product adapters own due queries and persistence.
 - Test missed intervals, drift healing, cadence changes, DST transitions, overnight windows, and boundary times.
 - Keep due eligibility with the product unless a real cross-product model contract exists.
 
@@ -112,7 +113,7 @@ Read `frontend/src/AGENTS.md` before changing the wizard.
 
 Do not expose internal helpers merely for convenience. A facade export is a compatibility commitment.
 
-## 4. Prove backward compatibility
+## 4. Prove whole-system behavior
 
 Verify both the shared layer and reference adopters:
 
@@ -124,6 +125,13 @@ Verify both the shared layer and reference adopters:
 - `AlertWizard` logic tests and at least one adopter path when the wizard contract changes.
 - OpenAPI generation and frontend typecheck for API contract changes.
 - The alert-state semgrep rule when lifecycle mutation paths change.
+
+For every shared change, identify which lifecycle, delivery, destination, scheduling, authorization, frontend, and API
+contracts it affects. Add targeted tests for each affected adopter and management surface. Cover the new product-owned
+API and each product that still uses a generic API. Do not rely only on event-name or regex unit tests: exercise the
+real request path and the resulting visibility or delivery behavior. For ownership or authorization changes, include
+negative tests that prove unauthorized users cannot list, retrieve, create, update, delete, or dispatch destinations
+across product, project, or organization boundaries.
 
 Invoke the matching mandatory skills before editing their areas:
 

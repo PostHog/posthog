@@ -52,7 +52,7 @@ User ─────────────────────────
 
 ### PostHog API
 
-`backend/presentation/views/api.py` (thin viewsets) over `backend/facade/api.py` (behavior) — every user-triggered cloud launch path, including prewarming and task automations, checks server-side PostHog Desktop access before provisioning or activating a run. Composer prewarming carries the complete ordered repository selection, so single- and multi-repository submissions can reuse only an exact matching sandbox. Scheduled automations repeat the entitlement check at execution time so revoked access cannot launch later. `TaskViewSet.run` creates a `TaskRun` (status=QUEUED) and starts the Temporal workflow. `TaskRunViewSet.partial_update` handles status transitions and signals the Temporal workflow on terminal statuses via `signal_workflow_completion`. `TaskRunViewSet.cancel` (`POST .../runs/{id}/cancel/`) is the user-facing kill switch: `cancel_task_run` interrupts the in-flight agent turn, signals `complete_task("cancelled")` so the workflow snapshots the session and tears down the sandbox, and falls back to finalizing the run directly when no workflow is running.
+`backend/presentation/views/api.py` (thin viewsets) over `backend/facade/api.py` (behavior) — every user-triggered cloud launch path, including prewarming, checks server-side PostHog Desktop access before provisioning or activating a run. Composer prewarming carries the complete ordered repository selection, so single- and multi-repository submissions can reuse only a matching sandbox. A terminal task can also prewarm a successor through `POST .../tasks/{id}/warm/`; the source run must remain the task's latest terminal run, and the normal `run` request activates that successor with `resume_from_run_id`. Runtime, model, branch, permission mode, and sandbox configuration must match; reasoning effort may change and is applied before the warmed agent's first turn. Full-filesystem resume snapshots bundle their agent binary, so prewarming probes for the deferred-resume capability and falls back to a fresh sandbox when an old snapshot lacks it. `TaskViewSet.run` creates a `TaskRun` (status=QUEUED) and starts the Temporal workflow. `TaskRunViewSet.partial_update` handles status transitions and signals the Temporal workflow on terminal statuses via `signal_workflow_completion`. `TaskRunViewSet.cancel` (`POST .../runs/{id}/cancel/`) is the user-facing kill switch: `cancel_task_run` interrupts the in-flight agent turn, signals `complete_task("cancelled")` so the workflow snapshots the session and tears down the sandbox, and falls back to finalizing the run directly when no workflow is running.
 
 ### Temporal workflow
 
@@ -89,7 +89,7 @@ detector (`[TMPRL1101]`). Two mechanisms bound this:
 
 `backend/services/sandbox.py` — Protocol-based abstraction. `get_sandbox_class()` returns `DockerSandbox` when `SANDBOX_PROVIDER=docker` (requires `DEBUG=True`), otherwise `ModalSandbox`.
 
-- **DockerSandbox** (`backend/services/docker_sandbox.py`) — Local dev. Internal port 47821 (host port is dynamically assigned), no auth token needed. Automatically rewrites `POSTHOG_API_URL` so the container can reach the host: `localhost`/`127.0.0.1` → `host.docker.internal`, port `8010` (Caddy) → `8000` (Django direct, since Caddy returns empty responses from inside Docker). `SANDBOX_API_URL` should not be set when using Docker — the auto-transform handles it. Builds images from `backend/sandbox/images/Dockerfile.sandbox-base`.
+- **DockerSandbox** (`backend/services/docker_sandbox.py`) — Local dev. Internal port 47821 (host port is dynamically assigned), no auth token needed. Automatically rewrites `POSTHOG_API_URL` so the container can reach the host: `localhost`/`127.0.0.1` → `host.docker.internal`, port `8010` (Caddy) → `8000` (Django direct, since Caddy returns empty responses from inside Docker). `SANDBOX_API_URL` should not be set when using Docker — the auto-transform handles it. Builds the published agent from `backend/sandbox/images/Dockerfile.sandbox-base` by default. Set `LOCAL_POSTHOG_CODE_MONOREPO_ROOT` to build local agent packages in a cached image layer.
 - **ModalSandbox** (`backend/services/modal_sandbox.py`) — Production. Port 8080, gVisor isolation, Modal connect tokens for authenticated access. Images from `ghcr.io/posthog/posthog-sandbox-base`.
 
 ### Agent server and runner
@@ -204,7 +204,7 @@ Set `SANDBOX_API_URL` to the ngrok URL. `SITE_URL` stays as `http://localhost:80
 
 ## Frontend
 
-- **TaskDetailPage** (`frontend/components/TaskDetailPage.tsx`) — Task detail view with run history, "Run task" button, "Open in PostHog Desktop" link
+- **TaskDetailPage** (`frontend/components/TaskDetailPage.tsx`) — Task detail view with run history, "Run task" button, and an "Open in PostHog Desktop" link for users with Desktop access
 - **TaskSessionView** (`frontend/components/TaskSessionView.tsx`) — Live log streaming with hedgehog animation during agent execution
 - PostHog Desktop integration via `posthog-code://task/{id}` deep links
 

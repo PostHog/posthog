@@ -89,6 +89,47 @@ tools:
             the connect page, take the newest credential_id for the source type and call 'data-warehouse-source-setup'
             with {'credential_id': '<uuid>'} in the payload. Stored credentials are single-use — they are deleted as
             soon as setup consumes them — and expire after 24 hours if never used.
+    external-data-destinations-create:
+        operation: external_data_destinations_create
+        enabled: false
+    external-data-destinations-destroy:
+        operation: external_data_destinations_destroy
+        enabled: false
+    external-data-destinations-list:
+        operation: external_data_destinations_list
+        enabled: true
+        scopes:
+            - external_data_source:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List warehouse destinations
+        description: >
+            List the places this project's warehouse sources can write synced rows to. The PostHog warehouse is one of
+            them, and it is where a source writes when nothing else is configured.
+        feature_flag: warehouse-multi-destination
+    external-data-destinations-partial-update:
+        operation: external_data_destinations_partial_update
+        enabled: false
+    external-data-destinations-retrieve:
+        operation: external_data_destinations_retrieve
+        enabled: true
+        scopes:
+            - external_data_source:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Get a warehouse destination
+        description: >
+            Read one warehouse destination, including the target database or schema it writes to. Credentials live on
+            the linked integration and are never returned here.
+        feature_flag: warehouse-multi-destination
+    external-data-destinations-update:
+        operation: external_data_destinations_update
+        enabled: false
     external-data-schemas-cancel:
         operation: external_data_schemas_cancel_create
         enabled: true
@@ -115,6 +156,23 @@ tools:
         description: >
             Delete the synced table data from PostHog but keep the schema entry. The schema remains visible in the
             source and can be re-synced. Use this to clear stale or corrupt data before triggering a fresh sync.
+    external-data-schemas-destinations-partial-update:
+        operation: external_data_schemas_destinations_partial_update
+        enabled: false
+    external-data-schemas-destinations-retrieve:
+        operation: external_data_schemas_destinations_retrieve
+        enabled: true
+        scopes:
+            - external_data_source:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get a table's destinations
+        description: >
+            Read one table's destination override. `inherits_from_source` tells you whether the table follows its
+            source; `effective_destination_ids` is where it actually syncs once inheritance is resolved.
+        feature_flag: warehouse-multi-destination
     external-data-schemas-destroy:
         operation: external_data_schemas_destroy
         enabled: false
@@ -168,9 +226,14 @@ tools:
             destructive: false
             idempotent: true
         title: Update data warehouse table schema sync config
-        description: >
-            Update a table schema's sync configuration. Can change sync type, sync frequency, incremental field, primary
-            key columns, CDC table mode, and enable/disable the schema.
+        description: "Update one table schema's sync configuration: enable/disable syncing (should_sync), sync_type
+            (incremental, full_refresh, append, webhook, cdc, xmin), sync frequency and UTC time of day, incremental
+            field (plus type and lookback window), primary key columns, CDC table mode, column selection
+            (enabled_columns), row filters, and vendor API version. Changes take effect on the next sync, not
+            retroactively. Before changing incremental_field or sync_type, call
+            'external-data-schemas-incremental-fields-create' to see which fields and sync methods the source actually
+            supports; before switching to cdc, validate with 'external-data-sources-check-cdc-prerequisites-create'. To
+            run a sync immediately after reconfiguring, use 'external-data-schemas-reload'."
     external-data-schemas-reload:
         operation: external_data_schemas_reload_create
         enabled: true
@@ -274,15 +337,16 @@ tools:
             idempotent: false
         title: Create data warehouse source (advanced; prefer source setup)
         description: >
-            Low-level create for a data warehouse import source when you need to hand-pick tables and sync types. For
-            most cases prefer 'data-warehouse-source-setup', which validates credentials, discovers tables, applies
-            sensible sync defaults, and creates the source in one call. Use this advanced path only for fine-grained
-            control. The 'schemas' array is NOT a top-level argument — it goes INSIDE 'payload', alongside the
-            credential fields: payload = {<credential fields…>, "schemas": [...]}. Each schemas entry has: name,
-            should_sync (bool), sync_type (incremental/full_refresh/append), and optionally incremental_field,
-            incremental_field_type, and primary_key_columns. Build the entries from the rows returned by
-            'external-data-sources-db-schema' first. Sources back queryable warehouse tables for revenue (Stripe), CRM
-            (Hubspot, Salesforce), support (Zendesk), and your own databases (Postgres, MySQL, BigQuery).
+            Low-level create for a data warehouse import source when you need to hand-pick tables and sync types. If you
+            only have credentials and want every table, call 'data-warehouse-source-setup' instead — one call, fewer
+            ways to get it wrong. Use this path when the user asked for specific tables or sync types. The 'schemas'
+            array is NOT a top-level argument — it goes INSIDE 'payload', alongside the credential fields: payload =
+            {<credential fields…>, "schemas": [...]}. Each schemas entry has: name, should_sync (bool), sync_type
+            (incremental/full_refresh/append), and optionally incremental_field, incremental_field_type, and
+            primary_key_columns. Build the entries from the rows returned by 'external-data-sources-db-schema' first.
+            Omit 'schemas' entirely and every discovered table syncs with default settings. Sources back queryable
+            warehouse tables for revenue (Stripe), CRM (Hubspot, Salesforce), support (Zendesk), and your own databases
+            (Postgres, MySQL, BigQuery).
         exclude_params:
             - client_secret
             - account_id
@@ -334,6 +398,23 @@ tools:
             are preserved — only the webhook is removed. After deletion, schemas can be switched to a polling sync_type
             (incremental/full_refresh) via external-data-schemas-partial-update, or a new webhook can be created with
             create-webhook.
+    external-data-sources-destinations-partial-update:
+        operation: external_data_sources_destinations_partial_update
+        enabled: false
+    external-data-sources-destinations-retrieve:
+        operation: external_data_sources_destinations_retrieve
+        enabled: true
+        scopes:
+            - external_data_source:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get a source's destinations
+        description: >
+            Read the destinations every table on this source syncs to. An empty list means the source writes to the
+            PostHog warehouse only, which is the default for any source nobody configured destinations for.
+        feature_flag: warehouse-multi-destination
     external-data-sources-destroy:
         operation: external_data_sources_destroy
         enabled: true
@@ -380,27 +461,10 @@ tools:
             instead of telling the user the data isn't available. Lists every configured import source with its type
             (Postgres, Stripe, Hubspot, etc.), connection status, prefix, schemas, latest error, and last sync
             timestamp. If nothing relevant is connected, offer to set one up with 'data-warehouse-source-setup'. Each
-            schema is summarized (name, status, sync type/frequency, last sync, error, table name, row count) — column
-            definitions and full sync configuration (incremental field, primary keys, row filters, column selection) are
-            on external-data-schemas-retrieve. To look up a single table's sync status by name use
+            schema is summarized (name, label, status, sync type, last sync, error, table name, row count) — column
+            definitions and full sync configuration (sync frequency, incremental field, primary keys, row filters,
+            column selection) are on external-data-schemas-retrieve. To look up a single table's sync status by name use
             external-data-schemas-list with a search.
-        response:
-            exclude:
-                - schemas.*.table.columns
-                - schemas.*.available_columns
-                - schemas.*.label
-                - schemas.*.description
-                - schemas.*.incremental_field
-                - schemas.*.incremental_field_type
-                - schemas.*.incremental_field_lookback_seconds
-                - schemas.*.sync_time_of_day
-                - schemas.*.primary_key_columns
-                - schemas.*.cdc_table_mode
-                - schemas.*.enabled_columns
-                - schemas.*.row_filters
-                - schemas.*.source
-                - schemas.*.api_version
-                - schemas.*.api_version_deprecation
     external-data-sources-oauth-accounts-retrieve:
         operation: external_data_sources_oauth_accounts_retrieve
         enabled: false
@@ -578,3 +642,9 @@ tools:
                 - '*.unreleasedSource'
                 - '*.fields'
             selectable: true
+    warehouse-column-statistics-list:
+        operation: warehouse_column_statistics_list
+        enabled: false
+    warehouse-column-statistics-retrieve:
+        operation: warehouse_column_statistics_retrieve
+        enabled: false

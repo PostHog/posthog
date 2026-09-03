@@ -69,6 +69,7 @@ describe("GitPrService.generateCommitMessage", () => {
     expect(options.system).toContain("commit message generator");
     expect(options.posthogProperties).toEqual({
       $ai_span_name: "commit_message",
+      task_execution_environment: "local",
     });
   });
 });
@@ -104,6 +105,7 @@ describe("GitPrService.generatePrTitleAndBody", () => {
     const [, options] = (llm.prompt as ReturnType<typeof vi.fn>).mock.calls[0];
     expect(options.posthogProperties).toEqual({
       $ai_span_name: "pr_description",
+      task_execution_environment: "local",
     });
   });
 });

@@ -102,6 +102,7 @@ export function useIntegrations(options: UseIntegrationsOptions = {}) {
         isError: false,
         isRefetching: repositoriesQuery.isRefetching,
       })),
+      githubIntegrations.map((integration) => integration.id),
     ).repositoryMap,
   ).sort();
 

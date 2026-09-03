@@ -1,0 +1,47 @@
+name: ClickHouse utility UDF tests
+
+on:
+    pull_request:
+        paths:
+            - '.github/workflows/ci-clickhouse-util-udfs.yml'
+            - 'clickhouse-udfs/util/**'
+            - 'docker/clickhouse/user_defined_function.xml'
+            - 'posthog/user_scripts/json_clean_posthog_event_properties_udf*'
+            - 'posthog/user_scripts/json_drop_keys_udf*'
+            - 'posthog/user_scripts/json_strip_empty_strings_and_nulls_udf*'
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+    contents: read
+
+jobs:
+    test:
+        name: Test ClickHouse utility UDFs
+        runs-on: ubuntu-24.04
+        timeout-minutes: 10
+        defaults:
+            run:
+                working-directory: clickhouse-udfs/util
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: |
+                      clickhouse-udfs/util
+                      docker/clickhouse/user_defined_function.xml
+                      posthog/user_scripts
+                  sparse-checkout-cone-mode: false
+            - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+              with:
+                  go-version-file: clickhouse-udfs/util/go.mod
+                  cache: false
+            - name: Build and test
+              run: ./scripts/build.sh
+            - name: Verify checked binaries
+              run: git diff --exit-code -- ../../posthog/user_scripts
+            - name: Smoke benchmarks
+              run: go test -run '^$' -bench=. -benchtime=1x ./...
+            - name: Run ClickHouse integration tests
+              run: ./scripts/integration_test.sh

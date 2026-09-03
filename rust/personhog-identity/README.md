@@ -7,7 +7,7 @@ Person state spans two planes:
 - the sync plane (Postgres primary), which owns existence, identity topology, and lifecycle scalars
 - the async plane (leader + changelog), which owns person property content
 
-`GetOrCreatePersonByDistinctId` / `GetOrCreatePersonsByDistinctIds` orchestrate both planes so a single ack covers both: `created = true` means the person stub is committed in Postgres AND the initial `$set`/`$set_once` are durable in the leader's changelog. The identity service never runs a saga; person-destroying operations (merge case 3, delete) belong to the lifecycle manager.
+`GetOrCreatePersonByDistinctId` / `GetOrCreatePersonsByDistinctIds` orchestrate both planes so a single ack covers both: `created = true` means the person stub is committed in Postgres AND the initial `$set`/`$set_once` are durable in the leader's changelog. The identity service never runs a saga; person-destroying operations (two-person merges, deletes) belong to the lifecycle manager.
 
 ## How get-or-create works
 

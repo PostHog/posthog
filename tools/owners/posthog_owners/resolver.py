@@ -9,15 +9,69 @@ from __future__ import annotations
 
 import sys
 import subprocess
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TypedDict
+from typing import Literal, Protocol, TypedDict
 
 from .matcher import compile_pattern, normalize_path
-from .schema import UNSET, OwnersFile, _Unset, parse_owners_file, parse_product_yaml_as_owners
+from .schema import UNSET, OwnersFile, TeamEntry, _Unset, parse_owners_file, parse_product_yaml_as_owners
 
 OWNERS_FILENAME = "owners.yaml"
 PRODUCT_FILENAME = "product.yaml"
+
+
+@dataclass(frozen=True)
+class TeamChannel:
+    """Where a team's Slack messages go, and how that was decided.
+
+    ``declared`` separates an explicit ``teams:`` entry from the derived ``#<slug>``: a caller
+    routing real messages usually treats a declaration as a decision to honor and a derivation as
+    a guess to verify, and cannot tell them apart from ``channel`` alone.
+    """
+
+    channel: str | None
+    declared: bool
+
+
+# What a caller wants a channel for. Spelled out as a type rather than taken as a bare string, so
+# a purpose this package has never heard of is a type error at the call site instead of silently
+# resolving to the channel where people are.
+Purpose = Literal["slack", "notifications"]
+DEFAULT_PURPOSE: Purpose = "slack"
+
+
+def team_channel(slug: str, teams: Mapping[str, TeamEntry], purpose: Purpose = DEFAULT_PURPOSE) -> TeamChannel:
+    """The Slack channel for a team slug and a purpose, else the derived ``#<slug>``.
+
+    ``purpose`` is "slack" (where people are) or "notifications" (where automation posts).
+    "notifications" falls back to "slack", so a team that never separates automation from people
+    keeps one channel and one entry. A per-producer form, so a team can silence one bot without
+    silencing all of them, is an additive change here later: it widens what a key may hold, and
+    callers keep the call they already make.
+
+    A declared ``false`` means the team has no channel for that purpose, which is different from
+    having no entry. The first is an answer and stops the lookup; the second falls through.
+    """
+    entry = teams.get(slug)
+    if entry is not None:
+        candidates = (entry.notifications, entry.slack) if purpose == "notifications" else (entry.slack,)
+        for value in candidates:
+            if value is not None:
+                # Schema only admits `false`; any bool means "no channel".
+                return TeamChannel(channel=value if isinstance(value, str) else None, declared=True)
+    return TeamChannel(channel=f"#{slug}", declared=False)
+
+
+def teams_registry(text: str) -> dict[str, TeamEntry]:
+    """The root ``owners.yaml``'s ``teams:`` registry, from the file's raw contents.
+
+    For callers holding the bytes rather than a checkout; ``OwnersResolver`` reads it off disk
+    itself. An unusable document yields an empty registry rather than raising, so a malformed root
+    file degrades to derived channels instead of declaring that no team has one.
+    """
+    parsed, _errors = parse_owners_file(text, path=Path(OWNERS_FILENAME), directory="")
+    return dict(parsed.teams) if parsed is not None else {}
 
 
 @dataclass
@@ -89,40 +143,74 @@ def _git_repo_root() -> Path:
     return Path(result.stdout.strip())
 
 
-class OwnersResolver:
-    """Resolves ownership by reading ``owners.yaml`` / ``product.yaml`` from disk.
+class OwnershipSource(Protocol):
+    """An ownership file's text by repo-relative path, or None when absent. Only ``resolve`` reads
+    through this; lint and format still walk a real worktree."""
 
-    Works from any CWD by locating the repo root via ``git rev-parse`` (override
-    with ``repo_root`` for testing). Parsed files are cached per directory.
+    def read(self, path: str) -> str | None: ...
+
+
+@dataclass(frozen=True)
+class DiskSource:
+    """Ownership files read from a worktree."""
+
+    repo_root: Path
+
+    def read(self, path: str) -> str | None:
+        file = self.repo_root / path
+        return file.read_text() if file.is_file() else None
+
+
+# Names a sourceless resolver's files, so a Resolution still reports the path that decided ownership.
+VIRTUAL_ROOT = Path("/")
+
+
+class OwnersResolver:
+    """Resolves ownership by reading ``owners.yaml`` / ``product.yaml`` through an ``OwnershipSource``.
+
+    Reads a worktree by default, locating the repo root via ``git rev-parse`` (override with
+    ``repo_root`` for testing). Pass ``source`` to resolve without one. Parsed files are cached per
+    directory.
     """
 
-    def __init__(self, repo_root: Path | None = None) -> None:
-        self.repo_root = (repo_root or _git_repo_root()).resolve()
+    def __init__(
+        self,
+        repo_root: Path | None = None,
+        purpose: Purpose = DEFAULT_PURPOSE,
+        source: OwnershipSource | None = None,
+    ) -> None:
+        self.repo_root = (repo_root or (VIRTUAL_ROOT if source is not None else _git_repo_root())).resolve()
+        self.source = source if source is not None else DiskSource(self.repo_root)
+        self.purpose = purpose
         self._dir_cache: dict[str, OwnersFile | None] = {}
         # The worktree is treated as immutable for the resolver's lifetime.
         self._tracked_cache: dict[str | None, list[str]] = {}
         self._parsed_ownership: list[ParsedOwnershipFile] | None = None
-        self._teams_cache: dict[str, str | bool] | None = None
+        self._teams_cache: dict[str, TeamEntry] | None = None
 
     def _load_dir_file(self, directory: str) -> OwnersFile | None:
         """Ownership file for a repo-relative directory ("" = root), or None."""
         if directory in self._dir_cache:
             return self._dir_cache[directory]
 
-        base = self.repo_root if directory == "" else self.repo_root / directory
+        prefix = f"{directory}/" if directory else ""
         result: OwnersFile | None = None
 
-        owners_path = base / OWNERS_FILENAME
-        if owners_path.is_file():
-            parsed, _errors = parse_owners_file(owners_path.read_text(), path=owners_path, directory=directory)
+        owners_rel = f"{prefix}{OWNERS_FILENAME}"
+        owners_text = self.source.read(owners_rel)
+        if owners_text is not None:
+            parsed, _errors = parse_owners_file(owners_text, path=self.repo_root / owners_rel, directory=directory)
             result = parsed
 
         # A product.yaml alias only applies when there is no owners.yaml (a
         # directory with both is a lint error; resolve prefers owners.yaml).
         if result is None:
-            product_path = base / PRODUCT_FILENAME
-            if product_path.is_file():
-                result = parse_product_yaml_as_owners(product_path.read_text(), path=product_path, directory=directory)
+            product_rel = f"{prefix}{PRODUCT_FILENAME}"
+            product_text = self.source.read(product_rel)
+            if product_text is not None:
+                result = parse_product_yaml_as_owners(
+                    product_text, path=self.repo_root / product_rel, directory=directory
+                )
 
         self._dir_cache[directory] = result
         return result
@@ -177,6 +265,18 @@ class OwnersResolver:
             contrib.inherit = matched.inherit
         return contrib
 
+    def ownership_file_paths(self, paths: list[str]) -> list[str]:
+        """Every ownership file that could decide any of ``paths``. A source that fetches over the
+        network reads this first, so it can fetch the batch's files together."""
+        return sorted(
+            {
+                f"{directory}/{name}" if directory else name
+                for path in paths
+                for directory in self._ancestor_dirs(normalize_path(path))
+                for name in (OWNERS_FILENAME, PRODUCT_FILENAME)
+            }
+        )
+
     def resolve(self, path: str) -> Resolution:
         norm = normalize_path(path)
         merged = _Merged()
@@ -206,8 +306,8 @@ class OwnersResolver:
 
         return self._build_resolution(norm, merged)
 
-    def _teams_registry(self) -> dict[str, str | bool]:
-        """The root file's ``teams:`` Slack registry (team slug -> channel or False),
+    def _teams_registry(self) -> dict[str, TeamEntry]:
+        """The root file's ``teams:`` Slack registry (team slug -> its declared channels),
         loaded once. Empty when there is no root file or it declares none."""
         if self._teams_cache is None:
             root = self._load_dir_file("")
@@ -219,13 +319,7 @@ class OwnersResolver:
         (team slugs only), then the derived ``#<slug>``, else None. Only a team slug
         (not an ``@handle``) carries a channel."""
         if owners and not owners[0].startswith("@"):
-            primary = owners[0]
-            registry = self._teams_registry()
-            if primary in registry:
-                entry = registry[primary]
-                # Schema only admits `slack: false`; any bool means "no channel".
-                return entry if isinstance(entry, str) else None
-            return f"#{primary}"
+            return team_channel(owners[0], self._teams_registry(), self.purpose).channel
         return None
 
     def _build_resolution(self, path: str, merged: _Merged) -> Resolution:

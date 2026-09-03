@@ -24,6 +24,9 @@ The primary function is to help manage and connect to PostHog toolbox pods in a 
 - kubectl installed and configured
 - the PostHog Python SDK (`pip install -r requirements.txt`) — telemetry is skipped gracefully if it's missing
 - a Fleet-managed kubeconfig with the standard PostHog contexts
+- Tailscale installed and connected to the PostHog tailnet — the cluster endpoints are only reachable over it.
+  The CLI checks this before doing anything else and tells you how to fix it.
+  Set `TOOLBOX_SKIP_TAILSCALE_CHECK=1` to skip the check on hosts that reach the cluster some other way
 
 ## Usage
 

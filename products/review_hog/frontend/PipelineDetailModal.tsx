@@ -8,13 +8,14 @@ import { reviewHogSettingsLogic } from './reviewHogSettingsLogic'
 
 /**
  * "Detailed view" of the review pipeline, opened from the "How we review your PRs" section.
- * The diagram is a fixed 1280×720 canvas recreated from the design handoff with a hardcoded dark
- * palette — it renders identically in light and dark theme (treat it as artwork; its contrast was
- * tuned against this exact background) and scales down uniformly instead of reflowing.
+ * The diagram is a fixed 1280×780 canvas recreated from the design handoff (grown from 720 to fit
+ * the Resolve stage) with a hardcoded dark palette — it renders identically in light and dark theme
+ * (treat it as artwork; its contrast was tuned against this exact background) and scales down
+ * uniformly instead of reflowing.
  */
 
 const CANVAS_W = 1280
-const CANVAS_H = 720
+const CANVAS_H = 780
 
 /** LemonModal's vertical chrome: its max-height offset (60px + 2rem) plus its 1rem top/bottom margins. */
 const MODAL_VERTICAL_CHROME_PX = 124
@@ -214,7 +215,8 @@ export function PipelineDetailModal(): JSX.Element {
                         <div>
                             <div className="text-[15px] font-bold">How we review your PRs</div>
                             <div className="mt-0.5 text-xs text-[#b3b9c0]">
-                                Every review runs through the same steps before it's published.
+                                Every review runs through the same steps before it's published, then works through the
+                                comment threads it leaves open.
                             </div>
                         </div>
                         <button
@@ -290,6 +292,28 @@ export function PipelineDetailModal(): JSX.Element {
                                 <span className="mr-2 font-mono text-[11px] tracking-[0.1em]">08</span>Review on your PR
                             </div>
                             <span className="text-xs text-[#9aa1a9]">one review per PR, only validated findings</span>
+                        </div>
+
+                        <div className="relative my-1.5 h-8" aria-hidden="true">
+                            <DashedDrop left="50%" top={4} height={17} />
+                            <ArrowHead left="50%" />
+                        </div>
+
+                        <div
+                            className="grid items-center justify-center"
+                            style={{ gridTemplateColumns: 'auto 24px auto' }}
+                        >
+                            <StepBox
+                                number="09"
+                                title="Triage threads"
+                                caption="unresolved threads judged against your resolution criteria"
+                            />
+                            <SequenceArrow />
+                            <StepBox
+                                number="10"
+                                title="Fix & reply"
+                                caption="safe asks land on the branch, every thread gets a reply"
+                            />
                         </div>
 
                         <div className="mt-2.5 text-center text-xs text-[#9aa1a9]">

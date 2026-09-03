@@ -29,6 +29,8 @@ function innerValues(query: RecordingsQuery | null | undefined): any[] {
 
 const EVENT = { id: '$pageview', type: 'events' }
 const ACTION = { id: '5', type: 'actions' }
+const NEGATED_EVENT = { id: 'purchase', type: 'events', negation: true }
+const NEGATED_ACTION = { id: '7', type: 'actions', negation: true }
 const PERSON_PROP: AnyPropertyFilter = {
     type: PropertyFilterType.Person,
     key: 'email',
@@ -79,6 +81,8 @@ describe('recordingsQueryToUniversalFilters', () => {
         it.each<[string, Partial<RecordingsQuery>, any[]]>([
             ['events', { events: [EVENT] }, [EVENT]],
             ['actions', { actions: [ACTION] }, [ACTION]],
+            ['negated events', { events: [NEGATED_EVENT] }, [NEGATED_EVENT]],
+            ['negated actions', { actions: [NEGATED_ACTION] }, [NEGATED_ACTION]],
             ['properties', { properties: [PERSON_PROP] }, [PERSON_PROP]],
             ['console_log_filters', { console_log_filters: [CONSOLE_LOG] }, [CONSOLE_LOG]],
             ['comment_text', { comment_text: COMMENT_TEXT }, [COMMENT_TEXT]],
@@ -188,6 +192,13 @@ describe('convertUniversalFiltersToRecordingsQuery ∘ recordingsQueryToUniversa
         })
     })
 
+    it('preserves entity negation on events and actions', () => {
+        const query = rq({ events: [EVENT, NEGATED_EVENT], actions: [NEGATED_ACTION] })
+        const back = roundTrip(query)
+        expect(back.events).toEqual([EVENT, NEGATED_EVENT])
+        expect(back.actions).toEqual([NEGATED_ACTION])
+    })
+
     it('preserves the classifier events filter that was previously hidden', () => {
         const events = [{ id: 'taxonomic filter add filter clicked', type: 'events' }]
         expect(roundTrip(rq({ events })).events).toEqual(events)
@@ -218,6 +229,13 @@ describe('convertUniversalFiltersToRecordingsQuery ∘ recordingsQueryToUniversa
         expect(back.events).toEqual([])
         expect(back.actions).toEqual([])
         expect(back.properties).toEqual([])
+    })
+
+    it('preserves experiment_exposure, which no filter pill represents', () => {
+        // Dropped on the round-trip, a saved filter or scanner carrying it would silently
+        // widen from the experiment's exposed sessions to every recording.
+        const query = rq({ experiment_exposure: { experiment_id: 42, variant: 'test' } })
+        expect(roundTrip(query).experiment_exposure).toEqual({ experiment_id: 42, variant: 'test' })
     })
 })
 

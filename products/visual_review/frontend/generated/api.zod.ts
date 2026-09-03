@@ -55,24 +55,11 @@ export const VisualReviewReposQuarantineCreateBody = /* @__PURE__ */ zod.object(
  */
 export const visualReviewReposQuarantineExpireCreateBodyIdentifierMax = 512
 
-export const visualReviewReposQuarantineExpireCreateBodyReasonMax = 255
-
 export const VisualReviewReposQuarantineExpireCreateBody = /* @__PURE__ */ zod.object({
     identifier: zod
         .string()
         .max(visualReviewReposQuarantineExpireCreateBodyIdentifierMax)
-        .describe('Snapshot identifier to quarantine.'),
-    reason: zod
-        .string()
-        .max(visualReviewReposQuarantineExpireCreateBodyReasonMax)
-        .describe('Why this snapshot is being quarantined.'),
-    source_run_id: zod
-        .uuid()
-        .nullish()
-        .describe(
-            "Optional pointer to the run whose failing snapshot prompted this quarantine — used to surface a 'view the failing run' link later."
-        ),
-    expires_at: zod.iso.datetime({ offset: true }).nullish(),
+        .describe('Snapshot identifier to unquarantine'),
 })
 
 /**
@@ -121,7 +108,9 @@ export const VisualReviewRunsAddSnapshotsCreateBody = /* @__PURE__ */ zod.object
  * Mark snapshots reviewed (DB only).
  *
  * Records the per-snapshot "Accept change" decision. Does not commit the baseline
- * or change the GitHub gate — call finalize to ship the run.
+ * or change the GitHub gate — call finalize to ship the run. Works on a quarantined
+ * snapshot too: a quarantined NEW snapshot approved here is committed by finalize,
+ * which gives a quarantined story a baseline entry without lifting the quarantine.
  */
 export const VisualReviewRunsApproveCreateBody = /* @__PURE__ */ zod.object({
     snapshots: zod
@@ -145,8 +134,10 @@ export const VisualReviewRunsApproveCreateBody = /* @__PURE__ */ zod.object({
  *
  * Commits exactly the snapshots approved in the DB (tolerated ones keep their baseline)
  * and only succeeds once every changed/new snapshot is resolved. With approve_all=true,
- * any still-pending changed/new snapshot is approved first. With commit_to_github=false
- * the server returns the signed baseline YAML instead of committing it.
+ * any still-pending changed/new snapshot is approved first; quarantined snapshots are
+ * skipped, but a quarantined NEW snapshot approved by identifier is still committed.
+ * With commit_to_github=false the server returns the signed baseline YAML instead of
+ * committing it.
  */
 export const visualReviewRunsFinalizeCreateBodyApproveAllDefault = false
 export const visualReviewRunsFinalizeCreateBodyCommitToGithubDefault = true

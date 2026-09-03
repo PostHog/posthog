@@ -9,6 +9,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    AiObservabilityInstrumentationChecklistRetrieveParams,
     BatchCheckRequestApi,
     BatchCheckResponseApi,
     ClusteringConfigApi,
@@ -37,9 +38,9 @@ import type {
     EvaluationReportUpdateApi,
     EvaluationRunRequestApi,
     EvaluationRunsCreate200,
-    EvaluationSummaryRequestApi,
-    EvaluationSummaryResponseApi,
     EvaluationsListParams,
+    InstrumentationCheckActionApi,
+    InstrumentationChecklistApi,
     LLMModelsListResponseApi,
     LLMPromptApi,
     LLMPromptDuplicateApi,
@@ -164,6 +165,88 @@ export const llmAnalyticsPersonalSpendList = async (
         ...options,
         method: 'GET',
     })
+}
+
+export const getAiObservabilityInstrumentationChecklistRetrieveUrl = (
+    projectId: string,
+    params?: AiObservabilityInstrumentationChecklistRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/ai_observability/instrumentation_checklist/?${stringifiedParams}`
+        : `/api/projects/${projectId}/ai_observability/instrumentation_checklist/`
+}
+
+/**
+ * Grade every instrumentation check for this project.
+ */
+export const aiObservabilityInstrumentationChecklistRetrieve = async (
+    projectId: string,
+    params?: AiObservabilityInstrumentationChecklistRetrieveParams,
+    options?: RequestInit
+): Promise<InstrumentationChecklistApi> => {
+    return apiMutator<InstrumentationChecklistApi>(
+        getAiObservabilityInstrumentationChecklistRetrieveUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getAiObservabilityInstrumentationChecklistDismissCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/ai_observability/instrumentation_checklist/dismiss/`
+}
+
+/**
+ * Mark a check as not applicable to this project.
+ */
+export const aiObservabilityInstrumentationChecklistDismissCreate = async (
+    projectId: string,
+    instrumentationCheckActionApi: InstrumentationCheckActionApi,
+    options?: RequestInit
+): Promise<InstrumentationChecklistApi> => {
+    return apiMutator<InstrumentationChecklistApi>(
+        getAiObservabilityInstrumentationChecklistDismissCreateUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(instrumentationCheckActionApi),
+        }
+    )
+}
+
+export const getAiObservabilityInstrumentationChecklistRestoreCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/ai_observability/instrumentation_checklist/restore/`
+}
+
+/**
+ * Bring a dismissed check back into grading.
+ */
+export const aiObservabilityInstrumentationChecklistRestoreCreate = async (
+    projectId: string,
+    instrumentationCheckActionApi: InstrumentationCheckActionApi,
+    options?: RequestInit
+): Promise<InstrumentationChecklistApi> => {
+    return apiMutator<InstrumentationChecklistApi>(
+        getAiObservabilityInstrumentationChecklistRestoreCreateUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(instrumentationCheckActionApi),
+        }
+    )
 }
 
 export const getDatasetItemsListUrl = (projectId: string, params: DatasetItemsListParams) => {
@@ -1213,40 +1296,7 @@ export const llmAnalyticsEvaluationReportsRunsList = async (
     )
 }
 
-export const getLlmAnalyticsEvaluationSummaryCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/llm_analytics/evaluation_summary/`
-}
-
-/**
- *
- * Generate an AI-powered summary of evaluation results.
- *
- * This endpoint analyzes evaluation runs and identifies patterns in passing
- * and failing evaluations, providing actionable recommendations.
- *
- * Data is fetched server-side by evaluation ID to ensure data integrity.
- *
- * **Use Cases:**
- * - Understand why evaluations are passing or failing
- * - Identify systematic issues in LLM responses
- * - Get recommendations for improving response quality
- * - Review patterns across many evaluation runs at once
- *
- */
-export const llmAnalyticsEvaluationSummaryCreate = async (
-    projectId: string,
-    evaluationSummaryRequestApi: EvaluationSummaryRequestApi,
-    options?: RequestInit
-): Promise<EvaluationSummaryResponseApi> => {
-    return apiMutator<EvaluationSummaryResponseApi>(getLlmAnalyticsEvaluationSummaryCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(evaluationSummaryRequestApi),
-    })
-}
-
-export const getLlmAnalyticsModelsRetrieveUrl = (projectId: string, params: LlmAnalyticsModelsRetrieveParams) => {
+export const getLlmAnalyticsModelsRetrieveUrl = (projectId: string, params?: LlmAnalyticsModelsRetrieveParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -1263,11 +1313,11 @@ export const getLlmAnalyticsModelsRetrieveUrl = (projectId: string, params: LlmA
 }
 
 /**
- * List available models for a provider.
+ * List available models, for one provider or for every supported provider.
  */
 export const llmAnalyticsModelsRetrieve = async (
     projectId: string,
-    params: LlmAnalyticsModelsRetrieveParams,
+    params?: LlmAnalyticsModelsRetrieveParams,
     options?: RequestInit
 ): Promise<LLMModelsListResponseApi> => {
     return apiMutator<LLMModelsListResponseApi>(getLlmAnalyticsModelsRetrieveUrl(projectId, params), {

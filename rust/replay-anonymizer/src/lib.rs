@@ -52,6 +52,8 @@ pub mod json;
 pub mod scan;
 pub mod snapshot;
 #[doc(hidden)]
+pub mod srcset;
+#[doc(hidden)]
 pub mod text;
 pub mod timings;
 #[cfg(feature = "typed-parse")]
@@ -59,6 +61,10 @@ pub mod typed;
 mod unwind;
 #[doc(hidden)]
 pub mod url;
+#[doc(hidden)]
+pub mod url_collect;
+#[doc(hidden)]
+pub mod url_policy;
 #[doc(hidden)]
 pub mod value;
 
@@ -71,12 +77,14 @@ pub use event::{
 };
 pub use images::ImagePolicy;
 pub use snapshot::{
-    anonymize_kafka_payload, anonymize_kafka_payload_opts, anonymize_kafka_payload_timed,
-    AnonymizeOpts, AnonymizedMessage, FailKind, Failure, Route,
+    anonymize_kafka_payload, anonymize_kafka_payload_collecting, anonymize_kafka_payload_opts,
+    anonymize_kafka_payload_timed, AnonymizeOpts, AnonymizedMessage, FailKind, Failure, Route,
 };
 pub use timings::{PhaseTimings, PhaseTimingsSnapshot};
 #[cfg(feature = "typed-parse")]
 pub use typed::{parse_scrubbed_event, parse_scrubbed_event_with_ctx};
+pub use url_collect::{CollectedUrl, UrlCollection};
+pub use url_policy::{canonicalize, is_public_host, politeness_key, CanonicalUrl};
 
 /// Shared helpers for the image-neutralization tests across modules.
 #[cfg(test)]

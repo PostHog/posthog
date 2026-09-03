@@ -39,7 +39,7 @@ from products.alerts.backend.evaluation.contract import (
     execution_mode_for_alert,
 )
 from products.alerts.backend.models.alert import AlertConfiguration
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 
 def extract_detector_series(

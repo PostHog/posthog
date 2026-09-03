@@ -97,6 +97,16 @@ def _handle_multi_if(args: list[str]) -> str:
     return " ".join(parts)
 
 
+def _handle_case_with_expression(args: list[str]) -> str:
+    parts = [f"CASE {args[0]}"]
+    index = 1
+    while index < len(args) - 1:
+        parts.append(f"WHEN {args[index]} THEN {args[index + 1]}")
+        index += 2
+    parts.append(f"ELSE {args[-1]} END")
+    return " ".join(parts)
+
+
 def _handle_empty(args: list[str]) -> str:
     return f"({args[0]} IS NULL OR {args[0]} = '')"
 
@@ -259,6 +269,7 @@ POSTGRES_FUNCTION_HANDLERS: dict[str, Callable[[list[str]], str]] = {
     # Date diff
     "dateDiff": _handle_date_diff,
     # Conditional
+    "_caseWithExpression": _handle_case_with_expression,
     "if": _handle_if,
     "multiIf": _handle_multi_if,
     # Null/empty

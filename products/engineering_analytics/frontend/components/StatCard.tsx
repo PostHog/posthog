@@ -91,11 +91,34 @@ export function StatCard({
     /** Visible definition — only when the label alone doesn't explain the count. */
     caption?: string
     loading: boolean
-    onClick: () => void
+    /** Like HeroStat: without it the card is a plain stat, not a filter toggle. */
+    onClick?: () => void
     active?: boolean
     /** What clicking filters the list to — surfaces in the tooltip and hover icon. */
-    filterHint: string
+    filterHint?: string
 }): JSX.Element {
+    const body = loading ? (
+        <>
+            <div className={cn('text-sm font-medium', active ? 'text-accent' : 'text-secondary')}>{label}</div>
+            <LemonSkeleton className="h-9 w-20" />
+        </>
+    ) : (
+        <MetricCard
+            title={<span className={active ? 'text-accent' : undefined}>{label}</span>}
+            // Pre-formatted display string ('—' when no data yet) rides through the formatter.
+            value={0}
+            formatValue={() => value}
+            change={null}
+            subtitle={caption}
+        />
+    )
+    if (!onClick) {
+        return (
+            <div className="relative flex flex-col gap-1 rounded-lg border border-primary bg-surface-primary p-4 text-left">
+                {body}
+            </div>
+        )
+    }
     return (
         <Tooltip title={active ? 'Showing this view' : filterHint} placement="bottom">
             <button
@@ -115,23 +138,7 @@ export function StatCard({
                         active ? 'text-accent opacity-100' : 'text-tertiary opacity-0 group-hover:opacity-100'
                     )}
                 />
-                {loading ? (
-                    <>
-                        <div className={cn('text-sm font-medium', active ? 'text-accent' : 'text-secondary')}>
-                            {label}
-                        </div>
-                        <LemonSkeleton className="h-9 w-20" />
-                    </>
-                ) : (
-                    <MetricCard
-                        title={<span className={active ? 'text-accent' : undefined}>{label}</span>}
-                        // Pre-formatted display string ('—' when no data yet) rides through the formatter.
-                        value={0}
-                        formatValue={() => value}
-                        change={null}
-                        subtitle={caption}
-                    />
-                )}
+                {body}
             </button>
         </Tooltip>
     )

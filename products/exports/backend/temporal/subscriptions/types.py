@@ -6,6 +6,24 @@ from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 
 from posthog.slo.types import SloConfig
 
+# AI report query failures we never name in owner/recipient-facing copy. The recipient didn't
+# write the query, so the OOM advice is unactionable. Type still lands in diagnostics, logs, and
+# error tracking. Held as a name (not the class) so this module stays free of Django/DRF imports
+# for the Temporal sandbox; the test pins it to ClickHouseQueryMemoryLimitExceeded.__name__.
+UNDISCLOSED_QUERY_ERROR_TYPES = frozenset({"ClickHouseQueryMemoryLimitExceeded"})
+
+
+def undisclosed_query_error_type(exc: BaseException) -> typing.Optional[str]:
+    seen: set[int] = set()
+    current: typing.Optional[BaseException] = exc
+    while current is not None and id(current) not in seen:
+        type_name = type(current).__name__
+        if type_name in UNDISCLOSED_QUERY_ERROR_TYPES:
+            return type_name
+        seen.add(id(current))
+        current = current.__cause__ or (None if current.__suppress_context__ else current.__context__)
+    return None
+
 
 def safe_error_message(exc: BaseException) -> typing.Optional[str]:
     """Owner-safe snippet of an exception, or None when the text may carry team-scoped data.
@@ -87,6 +105,7 @@ AI_REPORT_DIAGNOSTICS_KEY = "ai_report_diagnostics"
 # The analysis window's end for this run, as a UTC ISO instant. The next run anchors its window here
 # (exactly gap-free); rows written before this key existed fall back to finished_at.
 AI_REPORT_WINDOW_END_KEY = "ai_report_window_end"
+AI_REPORT_CHARTS_KEY = "ai_report_charts"
 
 
 class SubscriptionTriggerType:
@@ -102,7 +121,7 @@ class SubscriptionTriggerType:
 
 
 @dataclasses.dataclass
-class SubscriptionInfo:
+class DueSubscription:
     subscription_id: int
     team_id: int
     distinct_id: str
@@ -266,7 +285,8 @@ class GenerateAIReportResult:
     def failure_error(self) -> dict[str, str]:
         # Access-safe reason recorded on a fully-degraded delivery's error column: failure counts and
         # error-type names only (query_error_types are exception class names), never raw query content.
-        detail = f" ({', '.join(self.query_error_types)})" if self.query_error_types else ""
+        disclosed_types = [t for t in self.query_error_types if t not in UNDISCLOSED_QUERY_ERROR_TYPES]
+        detail = f" ({', '.join(disclosed_types)})" if disclosed_types else ""
         subject = (
             "The query the AI generated"
             if self.total_step_count == 1
@@ -287,7 +307,7 @@ class GenerateAIReportResult:
 
 
 @dataclasses.dataclass
-class SubscriptionAbortInfo:
+class DeliveryAbort:
     """Returned by `validate_subscription_for_delivery` when the workflow should abort.
     `failed_recipient` is populated only when this run auto-disabled the sub
     (workflow records FAILED). None means already-disabled — idempotency redispatch."""

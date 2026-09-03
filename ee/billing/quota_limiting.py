@@ -19,6 +19,7 @@ import posthoganalytics
 from posthog.cache_utils import cache_for
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.constants import FlagRequestType
+from posthog.dataclasses import frozen
 from posthog.event_usage import report_organization_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models.organization import Organization, OrganizationUsageInfo
@@ -472,7 +473,7 @@ def org_quota_limited_until(
         )
         return None
 
-    _, today_end = get_current_day()
+    today_end = get_current_day().end
 
     # Set minimum grace period for specific resources
     minimum_grace_period = 0
@@ -663,18 +664,15 @@ def invalidate_llm_gateway_quota_cache(team_ids: Iterable[int]) -> None:
     Best-effort by design: the gateway TTL already bounds staleness, so a failure
     here must not fail the billing update that just committed.
     """
-    cache_keys = [
-        key
-        for team_id in team_ids
-        for key in (
-            f"quota:code_usage_billing:team:{team_id}",
-            *(f"quota:{resource.value}:team:{team_id}" for resource in QuotaResource),
-        )
-    ]
-    if not cache_keys:
+    id_set = {int(team_id) for team_id in team_ids}
+    if not id_set:
         return
     try:
-        get_client(settings.LLM_GATEWAY_REDIS_URL).delete(*cache_keys)
+        pipeline = get_client(settings.LLM_GATEWAY_REDIS_URL).pipeline(transaction=False)
+        for team_id in id_set:
+            pipeline.incr(f"quota:generation:team:{team_id}")
+            pipeline.delete(f"quota:code_usage_billing:team:{team_id}")
+        pipeline.execute()
     except Exception as e:
         capture_exception(e)
 
@@ -684,7 +682,7 @@ def update_org_billing_quotas(organization: Organization):
     This method is basically update_all_orgs_billing_quotas but for a single org. It's called more often
     when the user loads the billing page and when usage reports are run.
     """
-    _, today_end = get_current_day()
+    today_end = get_current_day().end
     if not organization.usage:
         return None
 
@@ -773,8 +771,8 @@ def refresh_org_self_driving_quota(organization_id: str) -> None:
 
     # The billing count runs outside the lock so the hot organization row is locked only for
     # the compare-and-patch; the monotonic guard below makes a stale count harmless.
-    period_start, period_end = get_current_day()
-    todays_credits = get_self_driving_credits_used_in_period_for_org(organization.id, period_start, period_end)
+    period = get_current_day()
+    todays_credits = get_self_driving_credits_used_in_period_for_org(organization.id, period.start, period.end)
 
     with transaction.atomic():
         # filter().first() like the precheck above: the org can be deleted between the two
@@ -1037,10 +1035,17 @@ def _timed_query(name, fn, *args, **kwargs):
     return result
 
 
+@frozen
+class QuotaLimitingRunResult:
+    quota_limited_orgs: dict[str, dict[str, int]]
+    quota_limiting_suspended_orgs: dict[str, dict[str, int]]
+    stats: dict[str, float | int]
+
+
 def update_all_orgs_billing_quotas(
     dry_run: bool = False,
     progress_callback: Callable[[str, str, str], None] | None = None,
-) -> tuple[dict[str, dict[str, int]], dict[str, dict[str, int]], dict[str, float | int]]:
+) -> QuotaLimitingRunResult:
     """
     This is called on a cron job every 30 minutes to update all orgs with their quotas.
     Specifically it's update quota_limited_until and quota_limiting_suspended_until in their usage
@@ -1050,49 +1055,48 @@ def update_all_orgs_billing_quotas(
     """
     total_start = time()
     period = get_current_day()
-    period_start, period_end = period
 
     tag_queries(product=Product.BILLING, feature=Feature.QUOTA_LIMITING)
     logger.info("quota_limiting_run", phase="queries", status="start")
     queries_start = time()
 
     api_queries_usage = _timed_query(
-        "api_queries_metrics", get_teams_with_api_queries_metrics, period_start, period_end
+        "api_queries_metrics", get_teams_with_api_queries_metrics, period.start, period.end
     )
     _, exception_metrics = _timed_query(
-        "exceptions_captured", get_teams_with_exceptions_captured_in_period, period_start, period_end
+        "exceptions_captured", get_teams_with_exceptions_captured_in_period, period.start, period.end
     )
     token_credits = convert_team_usage_rows_to_dict(
         _timed_query(
             "posthog_code_token_credits",
             get_teams_with_posthog_code_credits_used_in_period,
-            period_start,
-            period_end,
+            period.start,
+            period.end,
         )
     )
     sandbox_compute_usage = _timed_query(
-        "sandbox_compute", get_teams_with_billable_sandbox_compute_usage_in_period, period_start, period_end
+        "sandbox_compute", get_teams_with_billable_sandbox_compute_usage_in_period, period.start, period.end
     )
     compute_credits = convert_team_usage_rows_to_dict(sandbox_compute_usage.credits)
 
     # Clickhouse is good at counting things so we count across all teams rather than doing it one by one
     all_data = {
         "teams_with_event_count_in_period": convert_team_usage_rows_to_dict(
-            _timed_query("billable_events", get_teams_with_billable_event_count_in_period, period_start, period_end)
+            _timed_query("billable_events", get_teams_with_billable_event_count_in_period, period.start, period.end)
         ),
         "teams_with_exceptions_captured_in_period": convert_team_usage_rows_to_dict(exception_metrics),
         "teams_with_recording_count_in_period": convert_team_usage_rows_to_dict(
-            _timed_query("recordings", get_teams_with_recording_count_in_period, period_start, period_end)
+            _timed_query("recordings", get_teams_with_recording_count_in_period, period.start, period.end)
         ),
         "teams_with_rows_synced_in_period": convert_team_usage_rows_to_dict(
-            _timed_query("rows_synced", get_teams_with_rows_synced_in_period, period_start, period_end)
+            _timed_query("rows_synced", get_teams_with_rows_synced_in_period, period.start, period.end)
         ),
         "teams_with_decide_requests_count": convert_team_usage_rows_to_dict(
             _timed_query(
                 "decide_requests",
                 get_teams_with_feature_flag_requests_count_in_period,
-                period_start,
-                period_end,
+                period.start,
+                period.end,
                 FlagRequestType.DECIDE,
             )
         ),
@@ -1100,29 +1104,29 @@ def update_all_orgs_billing_quotas(
             _timed_query(
                 "local_evaluation_requests",
                 get_teams_with_feature_flag_requests_count_in_period,
-                period_start,
-                period_end,
+                period.start,
+                period.end,
                 FlagRequestType.LOCAL_EVALUATION,
             )
         ),
         "teams_with_api_queries_read_bytes": convert_team_usage_rows_to_dict(api_queries_usage["read_bytes"]),
         "teams_with_cdp_trigger_events_metrics": convert_team_usage_rows_to_dict(
-            _timed_query("cdp_invocations", get_teams_with_cdp_billable_invocations_in_period, period_start, period_end)
+            _timed_query("cdp_invocations", get_teams_with_cdp_billable_invocations_in_period, period.start, period.end)
         ),
         "teams_with_rows_exported_in_period": convert_team_usage_rows_to_dict(
-            _timed_query("rows_exported", get_teams_with_rows_exported_in_period, period_start, period_end)
+            _timed_query("rows_exported", get_teams_with_rows_exported_in_period, period.start, period.end)
         ),
         "teams_with_survey_responses_count_in_period": convert_team_usage_rows_to_dict(
-            _timed_query("survey_responses", get_teams_with_survey_responses_count_in_period, period_start, period_end)
+            _timed_query("survey_responses", get_teams_with_survey_responses_count_in_period, period.start, period.end)
         ),
         "teams_with_ai_event_count_in_period": convert_team_usage_rows_to_dict(
-            _timed_query("ai_events", get_teams_with_ai_event_count_in_period, period_start, period_end)
+            _timed_query("ai_events", get_teams_with_ai_event_count_in_period, period.start, period.end)
         ),
         "teams_with_ai_credits_used_in_period": convert_team_usage_rows_to_dict(
-            _timed_query("ai_credits", get_teams_with_ai_credits_used_in_period, period_start, period_end)
+            _timed_query("ai_credits", get_teams_with_ai_credits_used_in_period, period.start, period.end)
         ),
         "teams_with_signals_credits_used_in_period": convert_team_usage_rows_to_dict(
-            _timed_query("signals_credits", get_teams_with_signals_credits_used_in_period, period_start, period_end)
+            _timed_query("signals_credits", get_teams_with_signals_credits_used_in_period, period.start, period.end)
         ),
         "teams_with_posthog_code_credits_used_in_period": {
             team_id: combine_posthog_code_credits(token_credits.get(team_id, 0), compute_credits.get(team_id, 0))
@@ -1137,28 +1141,28 @@ def update_all_orgs_billing_quotas(
             sandbox_compute_usage.memory_mib_seconds
         ),
         "teams_with_workflow_emails_sent_in_period": convert_team_usage_rows_to_dict(
-            _timed_query("workflow_emails", get_teams_with_workflow_emails_sent_in_period, period_start, period_end)
+            _timed_query("workflow_emails", get_teams_with_workflow_emails_sent_in_period, period.start, period.end)
         ),
         "teams_with_workflow_push_sent_in_period": convert_team_usage_rows_to_dict(
-            _timed_query("workflow_push", get_teams_with_workflow_push_sent_in_period, period_start, period_end)
+            _timed_query("workflow_push", get_teams_with_workflow_push_sent_in_period, period.start, period.end)
         ),
         "teams_with_workflow_destinations_in_period": convert_team_usage_rows_to_dict(
             _timed_query(
-                "workflow_invocations", get_teams_with_workflow_billable_invocations_in_period, period_start, period_end
+                "workflow_invocations", get_teams_with_workflow_billable_invocations_in_period, period.start, period.end
             )
         ),
         "teams_with_replay_vision_credits_used_in_period": convert_team_usage_rows_to_dict(
             _timed_query(
                 "replay_vision_credits",
                 get_teams_with_replay_vision_credits_used_in_period,
-                period_start,
-                period_end,
+                period.start,
+                period.end,
             )
         ),
         "teams_with_logs_mb_in_period": {
             team_id: int(bytes_val // 1_000_000)
             for team_id, bytes_val in convert_team_usage_rows_to_dict(
-                _timed_query("logs_bytes", get_teams_with_logs_bytes_in_period, period_start, period_end)
+                _timed_query("logs_bytes", get_teams_with_logs_bytes_in_period, period.start, period.end)
             ).items()
         },
     }
@@ -1322,7 +1326,7 @@ def update_all_orgs_billing_quotas(
                         # of the current window it also keeps legitimate decreases (day
                         # rollover, refunds) intact.
                         todays_report["signals_credits"] = get_self_driving_credits_used_in_period_for_org(
-                            org_id, period_start, period_end
+                            org_id, period.start, period.end
                         )
 
                 _patch_todays_usage(org, todays_report)
@@ -1487,10 +1491,10 @@ def update_all_orgs_billing_quotas(
         orgs_suspended=orgs_suspended_count,
     )
 
-    return (
-        quota_limited_orgs,
-        quota_limiting_suspended_orgs,
-        {
+    return QuotaLimitingRunResult(
+        quota_limited_orgs=quota_limited_orgs,
+        quota_limiting_suspended_orgs=quota_limiting_suspended_orgs,
+        stats={
             "duration_s": round(total_duration_s, 1),
             "orgs_total": total_orgs,
             "orgs_processed": orgs_processed,

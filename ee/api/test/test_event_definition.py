@@ -11,7 +11,7 @@ import dateutil.parser
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.api.test.test_event_definition import EventData, capture_event
+from posthog.api.test.test_event_definition import EventFixture, capture_event
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
@@ -48,7 +48,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         for event_definition in cls.EXPECTED_EVENT_DEFINITIONS:
             EnterpriseEventDefinition.objects.create(name=event_definition["name"], team_id=cls.demo_team.pk)
             capture_event(
-                event=EventData(
+                event=EventFixture(
                     event=event_definition["name"],
                     team_id=cls.demo_team.pk,
                     distinct_id="abc",

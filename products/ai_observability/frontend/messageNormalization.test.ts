@@ -48,6 +48,44 @@ describe('messageNormalization', () => {
         })
     })
 
+    describe('thinking blocks alongside typed function blocks', () => {
+        // The Gemini SDK emits a thought summary block next to a tool call. The thinking
+        // block knocks the message off compat_array's envelope rule, so the function block
+        // must survive per-block delegation as a typed tool call, not stringified JSON.
+        it('renders the thought as thinking and keeps the sibling tool call typed', () => {
+            const { messages, recognized } = normalizeMessages(
+                [
+                    {
+                        role: 'assistant',
+                        content: [
+                            { type: 'thinking', thinking: 'Two rapid clicks, check the events.' },
+                            {
+                                type: 'function',
+                                function: { name: 'get_events_around', arguments: { rec_t: 320 } },
+                            },
+                        ],
+                    },
+                ],
+                'assistant'
+            )
+            expect(recognized).toBe(true)
+            expect(messages).toEqual([
+                { role: 'assistant (thinking)', content: 'Two rapid clicks, check the events.' },
+                {
+                    role: 'assistant',
+                    content: '',
+                    tool_calls: [
+                        {
+                            type: 'function',
+                            id: undefined,
+                            function: { name: 'get_events_around', arguments: { rec_t: 320 } },
+                        },
+                    ],
+                },
+            ])
+        })
+    })
+
     describe('offloaded media', () => {
         const HASH = 'a'.repeat(64)
         const POINTER = `phaiblob://v1/sha256/${HASH}?mime=image%2Fpng&size=332378`

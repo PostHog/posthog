@@ -1,17 +1,12 @@
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { isIgnoredSkillEntry } from "@posthog/shared";
 import { strToU8, zipSync } from "fflate";
 import type { BundleLocalSkillOutput, UploadableSkillSource } from "./schemas";
 
 const SKILL_BUNDLE_MAX_BYTES = 30 * 1024 * 1024;
 const SKILL_BUNDLE_MAX_FILES = 1000;
-const IGNORED_ENTRIES = new Set([
-  ".DS_Store",
-  ".git",
-  "node_modules",
-  "__pycache__",
-]);
 
 function toZipPath(filePath: string): string {
   return filePath.split(path.sep).join("/");
@@ -59,6 +54,68 @@ interface SkillFileAccumulator {
   totalBytes: number;
 }
 
+class SkillBundleFileLimitError extends Error {}
+
+/**
+ * Generous relative to SKILL_BUNDLE_MAX_FILES so real "too many files"
+ * skills still get an exact count; bounds the recount below so a
+ * pathologically large committed tree can't turn the error path into
+ * unbounded I/O.
+ */
+const MAX_COUNT_WALK_ENTRIES = SKILL_BUNDLE_MAX_FILES * 50;
+
+/**
+ * Counts every non-ignored file per top-level folder. The collection walk
+ * stops at the file cap, so counts derived from it reflect readdir order and
+ * could name a minor folder while omitting the real offender; this walk runs
+ * only when the cap has tripped and reads no file contents. Stops once
+ * `maxEntries` directory entries have been visited, so an oversized tree
+ * still terminates promptly.
+ */
+export async function countFilesByTopLevelDir(
+  root: string,
+  maxEntries = MAX_COUNT_WALK_ENTRIES,
+): Promise<Map<string, number>> {
+  const counts = new Map<string, number>();
+  let visited = 0;
+  const walk = async (dir: string, topLevel: string | null): Promise<void> => {
+    if (visited >= maxEntries) return;
+    const entries = await fs.promises.readdir(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (visited >= maxEntries) return;
+      visited++;
+      if (
+        isIgnoredSkillEntry(
+          entry.name,
+          entry.isDirectory() ? "directory" : "file",
+        )
+      ) {
+        continue;
+      }
+      if (entry.isDirectory()) {
+        await walk(path.join(dir, entry.name), topLevel ?? entry.name);
+      } else if (topLevel && (entry.isFile() || entry.isSymbolicLink())) {
+        counts.set(topLevel, (counts.get(topLevel) ?? 0) + 1);
+      }
+    }
+  };
+  await walk(root, null);
+  return counts;
+}
+
+async function tooManyFilesMessage(root: string): Promise<string> {
+  const counts = await countFilesByTopLevelDir(root).catch(
+    () => new Map<string, number>(),
+  );
+  const largest = [...counts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+    .map(([name, count]) => `${name} (${count} files)`)
+    .join(", ");
+  const hint = largest ? ` Largest folders: ${largest}.` : "";
+  return `Local skill bundle contains more than ${SKILL_BUNDLE_MAX_FILES} files.${hint} Remove or move files that are not part of the skill.`;
+}
+
 async function addSkillFile(
   acc: SkillFileAccumulator,
   relativePath: string,
@@ -66,9 +123,7 @@ async function addSkillFile(
   size: number,
 ): Promise<void> {
   if (Object.keys(acc.files).length >= SKILL_BUNDLE_MAX_FILES) {
-    throw new Error(
-      `Local skill bundle contains more than ${SKILL_BUNDLE_MAX_FILES} files`,
-    );
+    throw new SkillBundleFileLimitError();
   }
   if (acc.totalBytes + size > SKILL_BUNDLE_MAX_BYTES) {
     throw new Error("Local skill bundle exceeds the 30MB cloud run limit");
@@ -88,7 +143,12 @@ async function collectSkillFiles(
   });
 
   for (const entry of entries) {
-    if (IGNORED_ENTRIES.has(entry.name)) {
+    if (
+      isIgnoredSkillEntry(
+        entry.name,
+        entry.isDirectory() ? "directory" : "file",
+      )
+    ) {
       continue;
     }
 
@@ -96,7 +156,8 @@ async function collectSkillFiles(
     const relativePath = path.relative(root, absolutePath);
     if (
       !relativePath ||
-      relativePath.startsWith("..") ||
+      relativePath === ".." ||
+      relativePath.startsWith(`..${path.sep}`) ||
       path.isAbsolute(relativePath)
     ) {
       continue;
@@ -144,7 +205,14 @@ export async function bundleLocalSkill({
 }): Promise<BundleLocalSkillOutput> {
   const root = await assertSkillRoot(skillPath, allowRootSymlink);
   const acc: SkillFileAccumulator = { files: {}, totalBytes: 0 };
-  await collectSkillFiles(root, root, acc);
+  try {
+    await collectSkillFiles(root, root, acc);
+  } catch (error) {
+    if (error instanceof SkillBundleFileLimitError) {
+      throw new Error(await tooManyFilesMessage(root));
+    }
+    throw error;
+  }
   const files = acc.files;
   const fileNames = Object.keys(files).sort();
 

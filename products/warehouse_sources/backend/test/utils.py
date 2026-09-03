@@ -50,7 +50,6 @@ def create_data_warehouse_table_from_csv(
         },
     )
 
-    # Read CSV
     df = pd.read_csv(csv_path)
 
     # Append XDIST_SUFFIX to test bucket if it exists

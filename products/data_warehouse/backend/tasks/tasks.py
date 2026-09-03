@@ -1,3 +1,5 @@
+from datetime import UTC, datetime, timedelta
+from typing import TypedDict
 from uuid import UUID
 
 import structlog
@@ -47,11 +49,20 @@ EXTERNAL_DATA_FAILURE_DIGEST_DELAY_SECONDS = 15 * 60
 # Generous bound on one digest build + synchronous send; the lock auto-expires
 # after this if a worker dies mid-flight.
 EXTERNAL_DATA_FAILURE_DIGEST_LOCK_TIMEOUT_SECONDS = 120
-# Live introspection of a large catalog can far exceed the digest bound; the
-# select_for_update guards make an overlap harmless, but keep the lock long enough
-# that it stays the normal exclusion mechanism.
-MANAGED_WAREHOUSE_RECONCILE_LOCK_TIMEOUT_SECONDS = 600
+# A team can temporarily have dynamic, project-reader, and static compatibility
+# catalogs, and each metadata query has a 10-minute database timeout. Cover the
+# serial queries so another task cannot overlap catalog writes near the lock boundary.
+MANAGED_WAREHOUSE_RECONCILE_LOCK_TIMEOUT_SECONDS = 30 * 60
 MANAGED_WAREHOUSE_RECONCILE_INTERVAL_SECONDS = 60
+MANAGED_WAREHOUSE_RECONCILE_SWEEP_SECONDS = 30 * 60
+MANAGED_WAREHOUSE_RECONCILE_WAVE_SECONDS = 60
+MANAGED_WAREHOUSE_RECONCILE_EXPIRY_GRACE_SECONDS = 5 * 60
+
+
+class _ManagedWarehouseReconcileWaveItem(TypedDict):
+    team_id: int
+    organization_id: str
+    countdown: int
 
 
 @shared_task(ignore_result=True, name="products.data_warehouse.backend.tasks.reconcile_managed_warehouse_tables")
@@ -80,6 +91,24 @@ def schedule_managed_warehouse_tables_reconcile(*, team_id: int, organization_id
         raise
 
 
+@shared_task(ignore_result=True, name="products.data_warehouse.backend.tasks.reconcile_managed_warehouse_tables_wave")
+@skip_team_scope_audit
+def reconcile_managed_warehouse_tables_wave_task(
+    items: list[_ManagedWarehouseReconcileWaveItem], wave_due_at: str
+) -> None:
+    wave_due_datetime = datetime.fromisoformat(wave_due_at)
+    for item in items:
+        eta = wave_due_datetime + timedelta(seconds=item["countdown"])
+        expires = eta + timedelta(seconds=MANAGED_WAREHOUSE_RECONCILE_EXPIRY_GRACE_SECONDS)
+        if eta <= datetime.now(UTC):
+            continue
+        reconcile_managed_warehouse_tables_task.apply_async(
+            kwargs={"team_id": item["team_id"], "organization_id": item["organization_id"]},
+            eta=eta,
+            expires=expires,
+        )
+
+
 @shared_task(
     ignore_result=True,
     name="products.data_warehouse.backend.tasks.soft_delete_managed_warehouse_sources",
@@ -90,15 +119,73 @@ def schedule_managed_warehouse_tables_reconcile(*, team_id: int, organization_id
 )
 @skip_team_scope_audit
 def soft_delete_managed_warehouse_sources_task(organization_id: str) -> None:
+    from products.managed_warehouse.backend.facade.connection import (  # noqa: PLC0415
+        soft_delete_legacy_managed_warehouse_sources,
+    )
+
+    soft_delete_legacy_managed_warehouse_sources(organization_id=organization_id)
+
+
+@shared_task(
+    ignore_result=True,
+    name="products.data_warehouse.backend.tasks.soft_delete_managed_warehouse_sources_v2",
+    autoretry_for=(Exception,),
+    retry_backoff=60,
+    retry_backoff_max=3600,
+    max_retries=10,
+)
+@skip_team_scope_audit
+def soft_delete_managed_warehouse_sources_v2_task(organization_id: str, expected_generation: int) -> None:
     from products.managed_warehouse.backend.facade.connection import (
         soft_delete_managed_warehouse_sources,  # noqa: PLC0415
     )
 
-    soft_delete_managed_warehouse_sources(organization_id=organization_id)
+    soft_delete_managed_warehouse_sources(
+        organization_id=organization_id,
+        expected_generation=expected_generation,
+    )
 
 
-def schedule_soft_delete_managed_warehouse_sources(*, organization_id: str | UUID) -> None:
-    soft_delete_managed_warehouse_sources_task.delay(organization_id=str(organization_id))
+def schedule_soft_delete_managed_warehouse_sources(*, organization_id: str | UUID, expected_generation: int) -> None:
+    soft_delete_managed_warehouse_sources_v2_task.delay(
+        organization_id=str(organization_id),
+        expected_generation=expected_generation,
+    )
+
+
+@shared_task(
+    ignore_result=True,
+    name="products.data_warehouse.backend.tasks.ensure_managed_warehouse_direct_source_v2",
+    autoretry_for=(Exception,),
+    retry_backoff=60,
+    retry_backoff_max=3600,
+    max_retries=10,
+)
+@skip_team_scope_audit
+def ensure_managed_warehouse_direct_source_v2_task(
+    team_id: int,
+    organization_id: str,
+    expected_generation: int,
+) -> None:
+    from products.managed_warehouse.backend.facade.connection import (  # noqa: PLC0415
+        ensure_managed_warehouse_direct_source,
+    )
+
+    ensure_managed_warehouse_direct_source(
+        team_id=team_id,
+        organization_id=organization_id,
+        expected_generation=expected_generation,
+    )
+
+
+def schedule_managed_warehouse_direct_source_ensure(
+    *, team_id: int, organization_id: str | UUID, expected_generation: int
+) -> None:
+    ensure_managed_warehouse_direct_source_v2_task.delay(
+        team_id=team_id,
+        organization_id=str(organization_id),
+        expected_generation=expected_generation,
+    )
 
 
 @shared_task(ignore_result=True, name="products.data_warehouse.backend.tasks.reconcile_all_managed_warehouse_tables")
@@ -110,8 +197,29 @@ def reconcile_all_managed_warehouse_tables_task() -> None:
         # scheduled sweep retries.
         logger.warning("Managed warehouse reconcile sweep skipped: control plane unreachable")
         return
-    for row in rows:
-        schedule_managed_warehouse_tables_reconcile(team_id=row.team_id, organization_id=row.organization_id)
+    if not rows:
+        return
+    ordered_rows = sorted(rows, key=lambda row: (row.organization_id, row.team_id))
+    row_count = len(ordered_rows)
+    sweep_started_at = datetime.now(UTC)
+    waves: dict[int, list[_ManagedWarehouseReconcileWaveItem]] = {}
+    for index, row in enumerate(ordered_rows):
+        countdown = index * MANAGED_WAREHOUSE_RECONCILE_SWEEP_SECONDS // row_count
+        wave_countdown = countdown - countdown % MANAGED_WAREHOUSE_RECONCILE_WAVE_SECONDS
+        waves.setdefault(wave_countdown, []).append(
+            {
+                "team_id": row.team_id,
+                "organization_id": row.organization_id,
+                "countdown": countdown - wave_countdown,
+            }
+        )
+    for wave_countdown, items in waves.items():
+        wave_due_at = sweep_started_at + timedelta(seconds=wave_countdown)
+        reconcile_managed_warehouse_tables_wave_task.apply_async(
+            kwargs={"items": items, "wave_due_at": wave_due_at.isoformat()},
+            countdown=wave_countdown,
+            expires=wave_due_at + timedelta(seconds=MANAGED_WAREHOUSE_RECONCILE_EXPIRY_GRACE_SECONDS),
+        )
 
 
 def schedule_external_data_failure_digest(team_id: int, *, trigger: str = "inline") -> None:

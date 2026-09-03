@@ -14,6 +14,12 @@
 # Exact node version pinned to .nvmrc (24.13.0), matching the main Dockerfile's node stages, so the
 # build is reproducible instead of drifting with the floating major tag; renovate bumps it. -bookworm-slim
 # so glibc matches sharp's prebuilt binaries.
+#
+# ECR retention on posthog-ml-mirror-image-scrub has to outlive the gap between builds, because prod
+# pins an exact digest (PostHog/charts state/) and a master push only rebuilds this image when the
+# paths filtered in .github/workflows/ci-ml-mirror-image-scrub-container.yml change. Once a pinned
+# digest expires, running pods keep serving from their cached copy, so the loss only surfaces as new
+# nodes failing to pull.
 FROM node:24.13.0-bookworm-slim
 WORKDIR /code/app
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]

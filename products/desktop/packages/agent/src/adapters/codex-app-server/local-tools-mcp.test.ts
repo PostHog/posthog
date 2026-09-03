@@ -123,11 +123,19 @@ describe("buildLocalToolsServer", () => {
     expect(names).not.toContain("git_signed_commit");
   });
 
-  it("returns null on a desktop run with narration off (no tools pass their gate)", () => {
+  it("still exposes show_actions on a desktop run with narration off", () => {
     process.env.GH_TOKEN = "ghs_test";
 
-    expect(
-      buildLocalToolsServer({ cwd: "/repo" }, { environment: "local" }),
-    ).toBeNull();
+    const server = buildLocalToolsServer(
+      { cwd: "/repo" },
+      { environment: "local" },
+    );
+    const enabled =
+      server?.env.find((e) => e.name === "POSTHOG_LOCAL_TOOLS_ENABLED")
+        ?.value ?? "";
+    const names = enabled.split(",");
+    expect(names).toContain("show_actions");
+    expect(names).not.toContain("speak");
+    expect(names).not.toContain("git_signed_commit");
   });
 });

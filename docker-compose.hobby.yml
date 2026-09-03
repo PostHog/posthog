@@ -100,6 +100,7 @@ services:
             SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: 'any'
             OBJECT_STORAGE_ENABLED: true
             RECORDING_API_URL: http://recording-api:6738
+            INTERNAL_API_SECRET: ${INTERNAL_API_SECRET:-$POSTHOG_SECRET}
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
             POSTHOG_SKIP_MIGRATION_CHECKS: '1'
             PERSONHOG_ADDR: 'personhog-router:50052'
@@ -159,11 +160,15 @@ services:
             SESSION_RECORDING_V2_S3_ENDPOINT: http://seaweedfs:8333
             OBJECT_STORAGE_ENABLED: true
             RECORDING_API_URL: http://recording-api:6738
+            INTERNAL_API_SECRET: ${INTERNAL_API_SECRET:-$POSTHOG_SECRET}
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
             OTEL_SERVICE_NAME: 'posthog'
             OTEL_EXPORTER_OTLP_ENDPOINT: ''
             OTEL_SDK_DISABLED: 'true'
             OPT_OUT_CAPTURE: ${OPT_OUT_CAPTURE:-false}
+            # Blank sends no CSP reports. Point it at this instance's own /report/ endpoint to
+            # collect them yourself.
+            CSP_REPORT_ENDPOINT: ${CSP_REPORT_ENDPOINT:-}
             DEPLOYMENT: 'hobby'
             PERSONHOG_ADDR: 'personhog-router:50052'
             PERSONHOG_ENABLED: 'true'
@@ -205,11 +210,16 @@ services:
             OBJECT_STORAGE_ENABLED: true
             CDP_REDIS_HOST: redis7
             CDP_REDIS_PORT: 6379
+            LOGS_REDIS_HOST: redis7
+            LOGS_REDIS_PORT: 6379
+            LOGS_REDIS_TLS: 'false'
+            TRACES_REDIS_HOST: redis7
+            TRACES_REDIS_PORT: 6379
+            TRACES_REDIS_TLS: 'false'
             # Every CDP process dual-writes to Valkey and refuses to start without a host.
             CDP_VALKEY_HOST: valkey
             CDP_VALKEY_PORT: 6379
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
-            CYCLOTRON_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             PERSONS_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             OTEL_EXPORTER_OTLP_ENDPOINT: ''
@@ -242,6 +252,8 @@ services:
             - redis7
             - clickhouse
             - kafka
+            # The combined AI consumer's blob store healthchecks the ai-blobs bucket at startup
+            - objectstorage
             - personhog-router
 
     ingestion-sessionreplay:
@@ -269,11 +281,23 @@ services:
         image: ${REGISTRY_URL}-node:${POSTHOG_NODE_TAG:-latest}
         logging: *default-logging
         environment:
+            # Read side of the session recording V2 blob store. Must point at the same
+            # SeaweedFS the ingestion-sessionreplay writer uses — without these the
+            # service falls back to its localhost:8333 default, so every playback
+            # request 500s with ECONNREFUSED ("We're unable to play this recording").
+            SESSION_RECORDING_V2_S3_ACCESS_KEY_ID: 'any'
+            SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: 'any'
+            SESSION_RECORDING_V2_S3_ENDPOINT: http://seaweedfs:8333
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
+            # Must resolve to the same value as the web and worker services, which send it as
+            # X-Internal-Api-Secret. The JWT signing secret is deliberately left unset here, so hobby
+            # stays on the legacy shared secret until that scheme is rolled out.
+            INTERNAL_API_SECRET: ${INTERNAL_API_SECRET:-$POSTHOG_SECRET}
         depends_on:
             - db
             - redis7
             - clickhouse
+            - seaweedfs
 
     ingestion-error-tracking:
         extends:
@@ -295,6 +319,8 @@ services:
             service: ingestion-logs
         image: ${REGISTRY_URL}-node:${POSTHOG_NODE_TAG:-latest}
         logging: *default-logging
+        environment:
+            LOGS_REDIS_TLS: 'false'
         depends_on:
             - db
             - redis7
@@ -306,6 +332,8 @@ services:
             service: ingestion-traces
         image: ${REGISTRY_URL}-node:${POSTHOG_NODE_TAG:-latest}
         logging: *default-logging
+        environment:
+            TRACES_REDIS_TLS: 'false'
         depends_on:
             - db
             - redis7
@@ -467,28 +495,20 @@ services:
             - temporal
             - browserless
 
-    cyclotron-janitor:
-        extends:
-            file: docker-compose.base.yml
-            service: cyclotron-janitor
-        build:
-            context: ./posthog/rust
-        logging: *default-logging
-        environment:
-            DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
-            KAFKA_HOSTS: 'kafka:9092'
-        depends_on:
-            db:
-                condition: service_healthy
-            kafka:
-                condition: service_started
-
     capture:
         build:
             context: ./posthog/rust
         extends:
             file: docker-compose.base.yml
             service: capture
+        logging: *default-logging
+
+    capture-logs:
+        build:
+            context: ./posthog/rust
+        extends:
+            file: docker-compose.base.yml
+            service: capture-logs
         logging: *default-logging
 
     replay-capture:
@@ -700,6 +720,9 @@ services:
                 condition: service_healthy
             db:
                 condition: service_healthy
+
+networks:
+    otel_network:
 
 volumes:
     zookeeper-data:

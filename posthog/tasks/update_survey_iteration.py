@@ -114,7 +114,6 @@ def _get_targeting_flag(survey: Survey) -> FeatureFlag:
             "active": True,
             "filters": {"groups": user_submitted_dismissed_groups},
             "creation_context": "surveys",
-            "_should_create_usage_dashboard": False,
         },
         team=survey.team,
         user=None,

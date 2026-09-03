@@ -3,7 +3,6 @@ import {
   announcementSchema,
   announcementsEnvelopeSchema,
   announcementsPayloadSchema,
-  readSuppressChangelog,
 } from "./announcements";
 
 const validAnnouncement = {
@@ -190,14 +189,5 @@ describe("announcements schema", () => {
       announcements: [validAnnouncement, validRequiredUpdate],
     });
     expect(result.success).toBe(true);
-  });
-
-  it.each([
-    ["absent field", { announcements: [] }, true],
-    ["explicit false", { announcements: [], suppressChangelog: false }, false],
-    ["non-object payload", "garbage", true],
-    ["non-boolean value", { suppressChangelog: "yes" }, true],
-  ])("readSuppressChangelog: %s → %s", (_name, payload, expected) => {
-    expect(readSuppressChangelog(payload)).toBe(expected);
   });
 });

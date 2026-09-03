@@ -1,15 +1,24 @@
 import { delimiter, dirname } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import type { Logger } from "../../utils/logger";
-import { buildAppServerArgs, spawnCodexAppServerProcess } from "./spawn";
+import {
+  buildAppServerArgs,
+  SANDBOX_STREAM_IDLE_TIMEOUT_MS,
+  spawnCodexAppServerProcess,
+} from "./spawn";
 
 const BINARY_PATH = "/bundle/codex";
 
 const mockSpawn = vi.hoisted(() => vi.fn());
+const mockExecFileSync = vi.hoisted(() => vi.fn());
 
 vi.mock("node:child_process", async (importOriginal) => {
   const original = await importOriginal<typeof import("node:child_process")>();
-  return { ...original, spawn: mockSpawn };
+  return {
+    ...original,
+    execFileSync: mockExecFileSync,
+    spawn: mockSpawn,
+  };
 });
 
 vi.mock("node:fs", async (importOriginal) => {
@@ -118,6 +127,25 @@ describe("buildAppServerArgs", () => {
     },
   );
 
+  it("uses the machine account without gateway or user integrations", () => {
+    const args = buildAppServerArgs({
+      binaryPath: "/bundle/codex",
+      useMachineAuth: true,
+    });
+
+    expect(args).toContain('model_provider="openai"');
+    expect(args).toContain('forced_login_method="chatgpt"');
+    expect(args).toContain('history.persistence="none"');
+    expect(args).toContain("mcp_servers={}");
+    expect(args).toContain("hooks={}");
+    expect(args).toContain("notify=[]");
+    expect(args).toContain('otel.exporter="none"');
+    expect(args).not.toContain('cli_auth_credentials_store="file"');
+    expect(args.some((arg) => arg.includes("POSTHOG_GATEWAY_API_KEY"))).toBe(
+      false,
+    );
+  });
+
   it("keeps codex credential stores on files so the bundled binary never triggers keychain prompts", () => {
     const args = buildAppServerArgs({ binaryPath: "/bundle/codex" });
 
@@ -136,6 +164,19 @@ describe("buildAppServerArgs", () => {
 
     expect(args).toContain("auto_compact_token_limit=16000");
     expect(args).toContain('model_verbosity="low"');
+  });
+
+  it("shortens the gateway stream idle timeout only in cloud sandboxes", () => {
+    const idleTimeoutArg = `model_providers.posthog.stream_idle_timeout_ms=${SANDBOX_STREAM_IDLE_TIMEOUT_MS}`;
+    const options = {
+      binaryPath: "/bundle/codex",
+      apiBaseUrl: "https://gateway.example/v1",
+    };
+
+    expect(buildAppServerArgs(options, { IS_SANDBOX: "1" })).toContain(
+      idleTimeoutArg,
+    );
+    expect(buildAppServerArgs(options, {})).not.toContain(idleTimeoutArg);
   });
 
   it("pins the cloud BASH_ENV into tool shells for secondary checkouts", () => {
@@ -219,6 +260,136 @@ describe("spawnCodexAppServerProcess", () => {
       restoreEnv("ELECTRON_NO_ASAR", saved.noAsar);
       restoreEnv("PATH", saved.path);
     }
+  });
+
+  it("separates machine login variables from gateway login variables", () => {
+    const saved = {
+      access: process.env.CODEX_ACCESS_TOKEN,
+      gateway: process.env.POSTHOG_GATEWAY_API_KEY,
+      openai: process.env.OPENAI_API_KEY,
+      openaiBaseUrl: process.env.OPENAI_BASE_URL,
+      sqliteHome: process.env.CODEX_SQLITE_HOME,
+    };
+    process.env.CODEX_ACCESS_TOKEN = "old-access-token";
+    process.env.POSTHOG_GATEWAY_API_KEY = "old-gateway-key";
+    process.env.OPENAI_API_KEY = "old-openai-key";
+    process.env.OPENAI_BASE_URL = "https://api.openai.example/v1";
+    mockSpawn.mockReturnValue(fakeChild() as never);
+    try {
+      spawnCodexAppServerProcess({
+        binaryPath: BINARY_PATH,
+        codexHome: "/appdata/codex/run-1",
+        useMachineAuth: true,
+        logger: silentLogger,
+      });
+      const subscriptionEnv = mockSpawn.mock.lastCall?.[2]
+        .env as NodeJS.ProcessEnv;
+      expect(subscriptionEnv.POSTHOG_GATEWAY_API_KEY).toBeUndefined();
+      expect(subscriptionEnv.OPENAI_API_KEY).toBeUndefined();
+      expect(subscriptionEnv.CODEX_ACCESS_TOKEN).toBeUndefined();
+      expect(subscriptionEnv.CODEX_SQLITE_HOME).toBe("/appdata/codex/run-1");
+
+      spawnCodexAppServerProcess({
+        binaryPath: BINARY_PATH,
+        apiKey: "phk",
+        codexHome: "/appdata/codex/run-2",
+        logger: silentLogger,
+      });
+      const gatewayEnv = mockSpawn.mock.lastCall?.[2].env as NodeJS.ProcessEnv;
+      expect(gatewayEnv.POSTHOG_GATEWAY_API_KEY).toBe("phk");
+      expect(gatewayEnv.OPENAI_API_KEY).toBeUndefined();
+      expect(gatewayEnv.OPENAI_BASE_URL).toBeUndefined();
+      expect(gatewayEnv.CODEX_ACCESS_TOKEN).toBeUndefined();
+      expect(gatewayEnv.CODEX_HOME).toBe("/appdata/codex/run-2");
+      expect(gatewayEnv.CODEX_SQLITE_HOME).toBe("/appdata/codex/run-2");
+    } finally {
+      restoreEnv("CODEX_ACCESS_TOKEN", saved.access);
+      restoreEnv("POSTHOG_GATEWAY_API_KEY", saved.gateway);
+      restoreEnv("OPENAI_API_KEY", saved.openai);
+      restoreEnv("OPENAI_BASE_URL", saved.openaiBaseUrl);
+      restoreEnv("CODEX_SQLITE_HOME", saved.sqliteHome);
+    }
+  });
+
+  // Codex snapshots process.env at spawn time, so the per-session mount must
+  // win over conflicting global values, and a session without a publish token
+  // (impersonation) must not inherit another session's.
+  it("applies the per-session context wiki over conflicting process.env and scrubs a missing token", () => {
+    const saved = {
+      wikiPath: process.env.POSTHOG_CONTEXT_LAYER_PATH,
+      commitsPath: process.env.POSTHOG_CONTEXT_LAYER_COMMITS_PATH,
+      personalKey: process.env.POSTHOG_PERSONAL_API_KEY,
+    };
+    process.env.POSTHOG_CONTEXT_LAYER_PATH = "/stale/wiki";
+    process.env.POSTHOG_CONTEXT_LAYER_COMMITS_PATH = "/stale/commits";
+    process.env.POSTHOG_PERSONAL_API_KEY = "other-sessions-token";
+    mockSpawn.mockReturnValue(fakeChild() as never);
+    try {
+      spawnCodexAppServerProcess({
+        binaryPath: BINARY_PATH,
+        contextWiki: {
+          path: "/wiki/a",
+          commitsPath: "/api/organizations/a/context_layer/commits/",
+        },
+        logger: silentLogger,
+      });
+
+      const env = mockSpawn.mock.lastCall?.[2].env as NodeJS.ProcessEnv;
+      expect(env.POSTHOG_CONTEXT_LAYER_PATH).toBe("/wiki/a");
+      expect(env.POSTHOG_CONTEXT_LAYER_COMMITS_PATH).toBe(
+        "/api/organizations/a/context_layer/commits/",
+      );
+      expect(env.POSTHOG_PERSONAL_API_KEY).toBeUndefined();
+    } finally {
+      restoreEnv("POSTHOG_CONTEXT_LAYER_PATH", saved.wikiPath);
+      restoreEnv("POSTHOG_CONTEXT_LAYER_COMMITS_PATH", saved.commitsPath);
+      restoreEnv("POSTHOG_PERSONAL_API_KEY", saved.personalKey);
+    }
+  });
+
+  it("kills descendant processes before the Codex process on Unix", () => {
+    const child = fakeChild();
+    const killProcess = vi.spyOn(process, "kill").mockReturnValue(true);
+    mockSpawn.mockReturnValue(child as never);
+    mockExecFileSync.mockReturnValue(
+      "4242 100\n5000 4242\n6000 5000\n5001 4242\n",
+    );
+
+    try {
+      const spawned = spawnCodexAppServerProcess({
+        binaryPath: BINARY_PATH,
+        logger: silentLogger,
+      });
+
+      spawned.kill();
+
+      expect(killProcess.mock.calls).toEqual([
+        [6000, "SIGTERM"],
+        [5000, "SIGTERM"],
+        [5001, "SIGTERM"],
+        [4242, "SIGTERM"],
+      ]);
+      expect(child.kill).not.toHaveBeenCalled();
+    } finally {
+      killProcess.mockRestore();
+    }
+  });
+
+  it("falls back to the direct child when process discovery fails", () => {
+    const child = fakeChild();
+    mockSpawn.mockReturnValue(child as never);
+    mockExecFileSync.mockImplementation(() => {
+      throw new Error("ps failed");
+    });
+
+    const spawned = spawnCodexAppServerProcess({
+      binaryPath: BINARY_PATH,
+      logger: silentLogger,
+    });
+
+    spawned.kill();
+
+    expect(child.kill).toHaveBeenCalledWith("SIGTERM");
   });
 });
 

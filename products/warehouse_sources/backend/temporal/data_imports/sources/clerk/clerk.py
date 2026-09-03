@@ -7,6 +7,8 @@ from requests import Request, Response
 from requests.exceptions import HTTPError, RequestException
 from structlog.types import FilteringBoundLogger
 
+from posthog.exceptions_capture import capture_exception
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.clerk.settings import (
     CLERK_ENDPOINTS,
     RETIRED_ENDPOINTS,
@@ -224,6 +226,20 @@ def _strip_sensitive_fields(item: dict[str, Any], paths: tuple[str, ...]) -> dic
     return item
 
 
+# Curated copy shared with the sync path's non-retryable-error map in source.py, so a bad key is
+# explained the same way whether it's caught at create time or on a running sync. The previous
+# behaviour forwarded Clerk's raw response body (and requests' exception string) straight to the
+# wizard, which the user can't act on.
+_INVALID_KEY_MESSAGE = (
+    "Your Clerk secret key is invalid or has been revoked. Please update the secret key in your "
+    "Clerk dashboard and reconnect."
+)
+_FORBIDDEN_KEY_MESSAGE = (
+    "Your Clerk secret key does not have permission to access this endpoint. Please check the "
+    "key's permissions in your Clerk dashboard."
+)
+
+
 def validate_credentials(secret_key: str) -> tuple[bool, str | None]:
     """Validate Clerk API credentials by making a test request."""
     url = "https://api.clerk.com/v1/users"
@@ -234,25 +250,31 @@ def validate_credentials(secret_key: str) -> tuple[bool, str | None]:
 
     try:
         response = make_tracked_session().get(url, headers=headers, params={"limit": 1}, timeout=10)
-
-        if response.status_code == 200:
-            return True, None
-
-        try:
-            error_data = response.json()
-            if error_data.get("errors"):
-                return False, error_data["errors"][0].get("message", response.text)
-        except Exception:
-            pass
-
-        return False, response.text
     except RequestException as e:
-        return False, str(e)
+        capture_exception(e)
+        return False, "Couldn't reach Clerk to validate your secret key. Please try again in a moment."
+
+    if response.status_code == 200:
+        return True, None
+    if response.status_code == 401:
+        return False, _INVALID_KEY_MESSAGE
+    if response.status_code == 403:
+        return False, _FORBIDDEN_KEY_MESSAGE
+
+    # Any other status is unexpected for this endpoint; keep the raw detail for us instead of
+    # surfacing it to the user.
+    capture_exception(Exception(f"Unexpected Clerk credential validation response ({response.status_code})"))
+    return False, "Couldn't validate your Clerk secret key. Please check the key and try again."
 
 
 # Clerk error codes meaning "this account has not switched the feature on". Paired with the
 # statuses Clerk returns them under: 402 carries no body code, so the status alone is the signal.
 _FEATURE_DISABLED_CODES = frozenset({"billing_not_enabled", "feature_not_enabled"})
+
+# A gated list endpoint (the Restrictions allow-list and block-list) answers 404 `resource_not_found`
+# instead of a 4xx feature code when its feature is off. This check only runs for endpoints that carry
+# a `gated_feature`, so a 404 here means the feature is not on rather than a genuinely missing record.
+_FEATURE_DISABLED_NOT_FOUND_CODE = "resource_not_found"
 
 
 def _is_feature_disabled(response: Optional[Response]) -> bool:
@@ -260,7 +282,7 @@ def _is_feature_disabled(response: Optional[Response]) -> bool:
         return False
     if response.status_code == 402:
         return True
-    if response.status_code not in (400, 403):
+    if response.status_code not in (400, 403, 404):
         return False
 
     try:
@@ -271,7 +293,10 @@ def _is_feature_disabled(response: Optional[Response]) -> bool:
     errors = body.get("errors") if isinstance(body, dict) else None
     if not isinstance(errors, list):
         return False
-    return any(isinstance(error, dict) and error.get("code") in _FEATURE_DISABLED_CODES for error in errors)
+    codes = {error.get("code") for error in errors if isinstance(error, dict)}
+    if response.status_code == 404:
+        return _FEATURE_DISABLED_NOT_FOUND_CODE in codes
+    return bool(codes & _FEATURE_DISABLED_CODES)
 
 
 def _skip_when_feature_disabled(

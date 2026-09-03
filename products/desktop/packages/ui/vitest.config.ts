@@ -17,9 +17,22 @@ export default defineConfig({
       "@posthog/host-router": fileURLToPath(
         new URL("../host-router/src", import.meta.url),
       ),
+      // quill-charts' dist imports dayjs plugins without the .js extension,
+      // which Vite's browser resolution accepts but vitest's Node resolution
+      // rejects; map them so any test that loads quill-charts can run.
+      "dayjs/plugin/customParseFormat": "dayjs/plugin/customParseFormat.js",
+      "dayjs/plugin/timezone": "dayjs/plugin/timezone.js",
+      "dayjs/plugin/utc": "dayjs/plugin/utc.js",
     },
   },
   test: {
+    server: {
+      deps: {
+        // Process quill-charts through Vite instead of Node so the dayjs
+        // aliases above apply to its imports too.
+        inline: ["@posthog/quill-charts"],
+      },
+    },
     globals: true,
     ...trunkTestOptions,
     environment: "jsdom",

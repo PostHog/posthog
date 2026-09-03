@@ -1,10 +1,13 @@
 name: Storybook
 on:
     pull_request:
-        # Draft PRs run a narrowed visual-regression matrix when the Storybook module
-        # graph can safely identify affected stories. Ready PRs run the full chromium
-        # matrix as the merge gate. To force the full matrix on a draft, add the
-        # `run-ci-frontend` label. The `no-ci` label does the opposite: it silences
+        # PRs outside the merge queue run a narrowed visual-regression matrix when the
+        # Storybook module graph can safely identify affected stories. Merge-queue runs
+        # use the full matrix. To force the full matrix earlier, add the `run-ci-frontend`
+        # label. Force it also to give a story back a baseline entry it lost: the narrowed
+        # matrix renders only the stories the diff affects, so a story the diff does not
+        # touch is never captured, and a reviewer has nothing to approve into
+        # `frontend/snapshots.yml`. The `no-ci` label does the opposite: it silences
         # this workflow on a draft entirely (prototypes).
         # No labeled/unlabeled triggers: GitHub cannot filter a label trigger by name,
         # so every unrelated label re-ran the full chromium matrix against a commit CI
@@ -21,6 +24,9 @@ concurrency:
 
 permissions:
     contents: read
+
+env:
+    RUNS_ON_INTERNAL_PR: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
 
 jobs:
     # Job to decide if we should run storybook ci
@@ -75,12 +81,18 @@ jobs:
             # ./.github/actions/paths-filter steps, which must exist on disk (on
             # pull_request events they still diff via the API, not the checkout).
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: |
+                      .github/actions/paths-filter
+                      bin/frontend-exclude-filter
+                      pnpm-workspace.yaml
+                  sparse-checkout-cone-mode: false
 
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               id: app-token
               if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
+                  client-id: ${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
             - uses: ./.github/actions/paths-filter
               id: filter
@@ -213,7 +225,7 @@ jobs:
               continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  client-id: ${{ vars.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
                   skip-token-revoke: true
 
@@ -298,8 +310,8 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 5
         needs: [changes, build-storybook, select-stories]
-        # A status function is required because select-stories is skipped on ready PRs
-        # and master pushes, and GitHub would otherwise cascade that skip to this job.
+        # A status function is required because select-stories is skipped on forced-full
+        # PRs and master pushes, and GitHub would otherwise cascade that skip to this job.
         # !cancelled() rather than always() so a superseded run stops here instead of
         # creating a Visual Review run that its cancelled matrix will never complete.
         if: |
@@ -343,7 +355,7 @@ jobs:
               continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  client-id: ${{ vars.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
                   skip-token-revoke: true
 
@@ -392,8 +404,8 @@ jobs:
         name: Visual regression tests - ${{ matrix.browser }} (${{ matrix.shard }}/${{ matrix.shard_count }})
         runs-on: ${{ matrix.browser == 'webkit' && 'depot-ubuntu-24.04' || 'ubuntu-latest' }}
         needs: [changes, build-storybook, vr-setup, select-stories]
-        # A status function is required because select-stories is skipped on ready PRs
-        # and master pushes. !cancelled() rather than always() so a superseded run's
+        # A status function is required because select-stories is skipped on forced-full
+        # PRs and master pushes. !cancelled() rather than always() so a superseded run's
         # browser shards stop promptly instead of running the full 30-minute matrix.
         if: >-
             !cancelled()
@@ -408,9 +420,9 @@ jobs:
             fail-fast: false
             # Shard counts and worker config (maxWorkers in common/storybook/package.json)
             # are tuned for runner CPU — consult #team-devex before changing.
-            # Draft PRs may use chromium shards running only affected story files.
-            # Ready PRs fall back to changes.outputs.matrix (full chromium), while
-            # master pushes run chromium + webkit.
+            # PRs may use chromium shards running only affected story files.
+            # Forced-full PRs fall back to changes.outputs.matrix (full chromium),
+            # while master pushes run chromium + webkit.
             matrix: ${{ fromJson(needs.select-stories.outputs.matrix || needs.changes.outputs.matrix) }}
         env:
             NODE_OPTIONS: --max-old-space-size=16384
@@ -434,7 +446,7 @@ jobs:
               continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  client-id: ${{ vars.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
                   skip-token-revoke: true
 
@@ -527,6 +539,9 @@ jobs:
             # Capture-only: VR is the gate for visual changes, jest just captures screenshots
             - name: Run @storybook/test-runner
               id: test-runner
+              # continue-on-error so the quarantine gate below is the verdict — it passes when
+              # every failure is an already-quarantined flake, fails otherwise.
+              continue-on-error: true
               shell: bash
               env:
                   HOME: /root
@@ -586,6 +601,34 @@ jobs:
                   if-no-files-found: ignore
                   retention-days: 1
 
+            # Best-effort Trunk upload (continue-on-error); the "Fail on test-runner failure" step
+            # below is the verdict, so a Trunk outage can't red a passing shard. Internal PRs only
+            # (needs the secret).
+            # TRUNK_UPLOAD_ENABLED is the master kill-switch: when it is not 'true' this gate
+            # skips, so nothing uploads and no known flakes are quarantined. TRUNK_QUARANTINE_ENABLED
+            # splits the two — it defaults off, so set it to 'true' to let the verdict step below mask
+            # known flakes; otherwise any real failure reds the job (quarantining needs upload on too).
+            # chromium and webkit run the same stories, so each browser uploads under its own Trunk
+            # variant — one test id for both browsers would make a browser-specific failure look
+            # like a flake.
+            - name: Quarantine gate
+              id: quarantine_gate
+              continue-on-error: true
+              if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true' }}
+              uses: ./.github/actions/trunk-quarantine-gate
+              with:
+                  junit-paths: common/storybook/junit.xml
+                  variant: ${{ matrix.browser }}
+                  previous-step-outcome: ${{ steps.test-runner.outcome }}
+                  token: ${{ secrets.TRUNK_API_TOKEN }}
+
+            # Verdict: red a real failure the gate didn't clear as a quarantined flake. != 'success'
+            # also covers the skipped gate on fork/Dependabot.
+            - name: Fail on test-runner failure
+              if: ${{ !cancelled() && steps.test-runner.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate.outcome != 'success') }}
+              shell: bash
+              run: exit 1
+
     # Verify changed story files are stable by re-running them multiple times.
     # Catches flaky snapshots before they land on master.
     flake-verification:
@@ -622,7 +665,7 @@ jobs:
               continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  client-id: ${{ vars.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
                   skip-token-revoke: true
 
@@ -682,7 +725,7 @@ jobs:
 
     # Collate matrix + VR completion status for the required check
     visual_regression_tests:
-        needs: [changes, build-storybook, visual-regression, vr-setup, vr-complete]
+        needs: [changes, build-storybook, select-stories, visual-regression, vr-setup, vr-complete]
         name: Visual regression tests pass
         runs-on: ubuntu-latest
         timeout-minutes: 5
@@ -706,6 +749,11 @@ jobs:
                   # "no frontend changes" run leaves the build skipped, which still passes.
                   if [[ "${{ needs.build-storybook.result }}" != "success" && "${{ needs.build-storybook.result }}" != "skipped" ]]; then
                     echo "Storybook build did not succeed (result: ${{ needs.build-storybook.result }}) — visual regression is uncovered."
+                    exit 1
+                  fi
+
+                  if [[ "${{ needs.select-stories.result }}" != "success" && "${{ needs.select-stories.result }}" != "skipped" ]]; then
+                    echo "Story selection did not succeed (result: ${{ needs.select-stories.result }}) — visual regression is uncovered."
                     exit 1
                   fi
 
@@ -770,7 +818,7 @@ jobs:
               continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  client-id: ${{ vars.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
                   skip-token-revoke: true
 
@@ -784,26 +832,31 @@ jobs:
               run: cd vr-cli/products/visual_review/cli && npm ci && npm run build
 
             - name: Complete Visual Review run
+              # Pass the same --purpose vr-setup created the run with. The backend reports zero
+              # unresolved on an observe run however many snapshots drifted, so without the flag
+              # the CLI cannot tell a clean tracking run from a drifting one and reports neither.
+              #
+              # An observe run fails on drift. The merge-queue leg renders the merged tree that is
+              # about to land, and it is the only leg that renders every story, so drift there is
+              # the merge itself moving pictures that no reviewer approved. Quarantine an
+              # identifier that flips between runs; that excludes it from these counts.
+              #
+              # --tolerate-drift exempts master: no merge is left to stop there, and a red job
+              # would block the repair as well. Exit 2 is a CLI failure and reds CI everywhere.
               env:
                   VR_TOKEN: ${{ secrets.VR_API_TOKEN }}
-                  # Master pushes and merge-queue branches create the run with --purpose observe
-                  # (tracking-only), because neither has a PR whose reviewer could approve a diff.
+                  RUN_ID: ${{ needs.vr-setup.outputs.run_id }}
                   VR_OBSERVE: ${{ github.event_name == 'push' || needs.changes.outputs.merge_queue == 'true' }}
+                  VR_TOLERATE_DRIFT: ${{ github.event_name == 'push' }}
               run: |
-                  status=0
-                  node vr-cli/products/visual_review/cli/dist/cli/src/index.js run complete \
-                    --run-id "${{ needs.vr-setup.outputs.run_id }}" \
-                    --baseline frontend/snapshots.yml \
-                    --token "$VR_TOKEN" || status=$?
-
-                  # `vr run complete` exits 1 for unresolved visual changes and 2 when the CLI
-                  # itself failed (auth, network, timeout, backend processing). Only the former
-                  # is expected on an observe run, so exit 2 still reds CI everywhere.
-                  if [ "$status" -eq 1 ] && [ "$VR_OBSERVE" = 'true' ]; then
-                      echo "Observe run: visual changes recorded, not gating."
-                      exit 0
+                  args=(--run-id "$RUN_ID" --baseline frontend/snapshots.yml --token "$VR_TOKEN")
+                  if [ "$VR_OBSERVE" = 'true' ]; then
+                      args+=(--purpose observe)
                   fi
-                  exit "$status"
+                  if [ "$VR_TOLERATE_DRIFT" = 'true' ]; then
+                      args+=(--tolerate-drift)
+                  fi
+                  node vr-cli/products/visual_review/cli/dist/cli/src/index.js run complete "${args[@]}"
 
     calculate-running-time:
         name: Calculate running time
@@ -851,8 +904,8 @@ jobs:
         needs: [select-stories]
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        # select-stories only runs on internal draft PRs; fire only when it produced a
-        # decision. DevEx project only; continue-on-error so telemetry never reds CI.
+        # select-stories skips merge-queue and forced-full runs. Fire only when it
+        # produced a decision. DevEx project only; continue-on-error so telemetry never reds CI.
         if: |
             !cancelled() && github.run_attempt == '1'
             && github.actor != 'dependabot[bot]'
@@ -882,23 +935,19 @@ jobs:
                         "run_id": ${{ toJSON(github.run_id) }}
                       }
 
-    # Pick a narrowed visual-regression matrix for draft PRs based on which stories
-    # the Vite module graph says are affected by the diff. Ready PRs and drafts with
-    # the run-ci-frontend label skip this job and use the full chromium matrix.
-    # Selector uncertainty skips draft visual regression because the ready run is
-    # still the merge gate.
+    # Pick a narrowed visual-regression matrix for PRs based on which stories the Vite
+    # module graph says are affected by the diff. Merge-queue runs and PRs with the
+    # run-ci-frontend label skip this job and use the full chromium matrix. Selector
+    # uncertainty also falls back to the full matrix.
     select-stories:
         name: Story selection
         runs-on: ubuntu-latest
         timeout-minutes: 5
         needs: [changes, build-storybook]
-        # Trunk's merge-queue branches open as draft PRs, but their run IS the
-        # merge gate, so they must never get the narrowed selection.
         if: |
             !cancelled() && needs.changes.outputs.frontend == 'true'
             && github.event_name == 'pull_request'
-            && github.event.pull_request.draft == true
-            && !startsWith(github.head_ref, 'trunk-merge/')
+            && needs.changes.outputs.merge_queue != 'true'
             && !contains(github.event.pull_request.labels.*.name, 'run-ci-frontend')
         outputs:
             mode: ${{ steps.classify.outputs.mode }}
@@ -920,13 +969,24 @@ jobs:
                   ref: ${{ github.event.pull_request.head.sha }}
                   repository: ${{ github.event.pull_request.head.repo.full_name }}
 
+            - name: Check out trusted story selector
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  filter: blob:none
+                  fetch-depth: 1
+                  path: story-selector
+                  ref: ${{ github.event.pull_request.base.ref }}
+                  repository: ${{ github.event.pull_request.base.repo.full_name }}
+                  sparse-checkout: bin/find-affected-stories
+                  sparse-checkout-cone-mode: false
+
             - name: Mint setup-action GitHub token
               id: setup-gh-token
               if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
               continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  client-id: ${{ vars.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
                   skip-token-revoke: true
 
@@ -948,18 +1008,18 @@ jobs:
               continue-on-error: true
               env:
                   BASE_REF: ${{ github.event.pull_request.base.ref }}
+                  BASE_REPO: ${{ github.event.pull_request.base.repo.full_name }}
               run: |
-                  # Fetch the *current* tip of the base branch, not pull_request.base.sha —
-                  # base.sha is captured at webhook time and goes stale if the branch later
-                  # merges a newer master, which makes `base.sha...HEAD` balloon to include
-                  # every merged-in master change.
-                  git fetch --no-tags origin "$BASE_REF"
+                  BASE_SHA=$(git -C story-selector rev-parse HEAD)
+                  git fetch --no-tags --depth=500 --filter=blob:none \
+                      "${{ github.server_url }}/$BASE_REPO.git" \
+                      "$BASE_SHA:refs/remotes/base/$BASE_REF"
                   echo "### Changed files" >&2
-                  git diff --name-only "origin/$BASE_REF"...HEAD >&2
+                  git diff --name-only "base/$BASE_REF"...HEAD >&2
 
-                  RESULT=$(bin/find-affected-stories \
+                  RESULT=$(story-selector/bin/find-affected-stories \
                       --graph /tmp/storybook-graph/module-graph.json \
-                      --base-ref "origin/$BASE_REF")
+                      --base-ref "base/$BASE_REF")
                   echo "$RESULT" > /tmp/selection-result.json
                   # Stash compact form in step output (single line) for the summary step.
                   COMPACT=$(node -e 'const d = JSON.parse(require("fs").readFileSync("/tmp/selection-result.json", "utf8")); delete d.affected_stories; delete d.unresolved_changed_files; process.stdout.write(JSON.stringify(d))')
@@ -991,24 +1051,23 @@ jobs:
                       } >> "$GITHUB_OUTPUT"
                   }
 
-                  fall_back_to_skip() {
-                      echo "mode=skip" >> "$GITHUB_OUTPUT"
-                      echo 'matrix={"include":[]}' >> "$GITHUB_OUTPUT"
-                      echo "should_run=false" >> "$GITHUB_OUTPUT"
+                  fall_back_to_full() {
+                      echo "mode=full" >> "$GITHUB_OUTPUT"
+                      echo "should_run=true" >> "$GITHUB_OUTPUT"
                       echo "affected_files_json=[]" >> "$GITHUB_OUTPUT"
                       emit_metrics false "$1"
                   }
 
                   if [[ "$SELECT_OUTCOME" != "success" ]] || [[ ! -s /tmp/selection-result.json ]]; then
-                      echo "::warning::story selector did not produce output; skipping draft visual regression"
-                      fall_back_to_skip selector_error
+                      echo "::warning::story selector did not produce output; running the full visual regression matrix"
+                      fall_back_to_full selector_error
                       exit 0
                   fi
 
                   MODE=$(jq -r '.mode' /tmp/selection-result.json)
                   if [[ "$MODE" != "selective" ]]; then
-                      echo "Selector declined to narrow (mode=$MODE); skipping draft visual regression"
-                      fall_back_to_skip "$(jq -r '.reason // "full_requested"' /tmp/selection-result.json)"
+                      echo "Selector declined to narrow (mode=$MODE); running the full visual regression matrix"
+                      fall_back_to_full "$(jq -r '.reason // "full_requested"' /tmp/selection-result.json)"
                       exit 0
                   fi
 
@@ -1019,7 +1078,7 @@ jobs:
                       echo "should_run=false" >> "$GITHUB_OUTPUT"
                       echo "affected_files_json=[]" >> "$GITHUB_OUTPUT"
                       emit_metrics true no_affected_stories
-                      echo "Selective mode: 0 affected stories, skipping draft visual regression"
+                      echo "Selective mode: 0 affected stories, skipping visual regression"
                       exit 0
                   fi
 
@@ -1088,47 +1147,3 @@ jobs:
                   EOF
                       echo "SELECTION_METRICS: $(echo "$RESULT" | jq -c '{mode, reason, total: .total_story_count}')"
                   fi
-
-    trunk-upload:
-        name: Upload test results to Trunk
-        # visual-regression shards already emit and upload junit-results-storybook-* artifacts;
-        # this feeds them to Trunk (flaky-test detection) once. Trusted non-pull_request events
-        # only (master push), so the secret token never runs in a PR-controlled context; the
-        # uploader is a pinned external action, not a local one.
-        needs: [visual-regression]
-        runs-on: ubuntu-latest
-        continue-on-error: true
-        timeout-minutes: 10
-        # Avoid spinning a runner when visual-regression was skipped, while still
-        # uploading failed-test results (the flake signal Trunk needs) on master push.
-        # The TRUNK_UPLOAD_ENABLED repo variable is the kill-switch: when it is not 'true'
-        # this job skips, so no results upload.
-        if: always() && github.repository == 'PostHog/posthog' && github.event_name != 'pull_request' && needs.visual-regression.result != 'skipped' && vars.TRUNK_UPLOAD_ENABLED == 'true'
-        steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-              with:
-                  fetch-depth: 1
-                  persist-credentials: false
-            - name: Download JUnit artifacts
-              uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v6.0.0
-              continue-on-error: true
-              with:
-                  path: ./junit-artifacts
-                  pattern: junit-results-storybook-*
-            # chromium and webkit run the same stories, so a single upload would give one test id
-            # both browsers' outcomes and a browser-specific failure would look like a flake.
-            # Upload each browser under its own Trunk variant to keep their histories distinct.
-            - name: Upload chromium results to Trunk
-              uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
-              with:
-                  junit-paths: junit-artifacts/junit-results-storybook-chromium-*/*.xml
-                  org-slug: posthog-inc
-                  variant: chromium
-                  token: ${{ secrets.TRUNK_API_TOKEN }}
-            - name: Upload webkit results to Trunk
-              uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
-              with:
-                  junit-paths: junit-artifacts/junit-results-storybook-webkit-*/*.xml
-                  org-slug: posthog-inc
-                  variant: webkit
-                  token: ${{ secrets.TRUNK_API_TOKEN }}

@@ -3,11 +3,22 @@ from typing import Optional
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
+# Opaque vendor version labels — never parsed or ordered. Only the KnowledgeBase Vulnerability API
+# is versioned past 2.0: Qualys is retiring its 2.0 (EOS Dec 2025) in favor of 4.0, which serves the
+# same feed at `/api/4.0/fo/knowledge_base/vuln/` but requires JWT Bearer auth instead of basic auth.
+# The FO Host List / Host List Detection / VM Scan APIs are a separate versioning track and stay on
+# `/api/2.0/` with basic auth under both source-level pins.
+QUALYS_VMDR_API_VERSION_2_0 = "2.0"
+QUALYS_VMDR_API_VERSION_4_0 = "4.0"
+# Declared oldest -> newest; the default is always the last entry.
+QUALYS_VMDR_SUPPORTED_VERSIONS = (QUALYS_VMDR_API_VERSION_2_0, QUALYS_VMDR_API_VERSION_4_0)
+QUALYS_VMDR_DEFAULT_VERSION = QUALYS_VMDR_API_VERSION_4_0
+
 
 @dataclass
 class QualysVmdrEndpointConfig:
     name: str
-    path: str  # e.g. "/api/2.0/fo/asset/host/"
+    path: str  # version-independent request path, e.g. "/api/2.0/fo/asset/host/"
     item_tag: str  # element tag of one record in the XML response (e.g. "HOST")
     # Static query params sent on every request (the FO API routes on `action=list`).
     params: dict[str, str] = field(default_factory=dict)
@@ -22,6 +33,19 @@ class QualysVmdrEndpointConfig:
     # Flatten each HOST's DETECTION_LIST into one row per detection (Host List Detection only).
     flatten_host_detections: bool = False
     should_sync_default: bool = True
+    # Per-version path overrides for endpoints whose route moved between vendor versions. Absent
+    # keys fall through to `path` — that is the correct version-independent route, not silent drift,
+    # since only the KnowledgeBase endpoint diverges.
+    path_overrides: dict[str, str] = field(default_factory=dict)
+    # Source-level versions on which this endpoint authenticates with a JWT Bearer token minted at
+    # the Qualys gateway, rather than HTTP basic auth. Empty = basic auth on every version.
+    jwt_versions: frozenset[str] = frozenset()
+
+    def resolve_path(self, api_version: str) -> str:
+        return self.path_overrides.get(api_version, self.path)
+
+    def requires_jwt(self, api_version: str) -> bool:
+        return api_version in self.jwt_versions
 
 
 QUALYS_VMDR_ENDPOINTS: dict[str, QualysVmdrEndpointConfig] = {
@@ -109,6 +133,9 @@ QUALYS_VMDR_ENDPOINTS: dict[str, QualysVmdrEndpointConfig] = {
         primary_keys=["qid"],
         truncation_limit=None,
         should_sync_default=False,
+        # Qualys is sunsetting KnowledgeBase 2.0; 4.0 serves the same feed but only over JWT Bearer.
+        path_overrides={QUALYS_VMDR_API_VERSION_4_0: "/api/4.0/fo/knowledge_base/vuln/"},
+        jwt_versions=frozenset({QUALYS_VMDR_API_VERSION_4_0}),
     ),
 }
 

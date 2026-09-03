@@ -1,5 +1,7 @@
 import { act, renderHook } from '@testing-library/react'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
+
 import { WIDGET_TILE_REFRESH_DEBOUNCE_MS } from './constants'
 import { useWidgetTileConfigPersist } from './widgetTileFiltersHooks'
 
@@ -102,6 +104,7 @@ describe('useWidgetTileConfigPersist', () => {
     })
 
     it('keeps a newer queued config when an earlier update fails', async () => {
+        const errorToast = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast-id')
         let rejectFirstUpdate: ((error: Error) => void) | undefined
         const onUpdateConfig = jest
             .fn()
@@ -132,6 +135,7 @@ describe('useWidgetTileConfigPersist', () => {
         })
 
         expect(result.current.getLatestConfig()).toEqual({ status: 'resolved' })
+        expect(errorToast).toHaveBeenCalledWith('Could not update widget filters. Check your connection and try again.')
     })
 
     it('flushes a pending debounced update on unmount', async () => {

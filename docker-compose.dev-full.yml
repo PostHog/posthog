@@ -267,20 +267,6 @@ services:
             - objectstorage
             - temporal
 
-    cyclotron-janitor:
-        extends:
-            file: docker-compose.base.yml
-            service: cyclotron-janitor
-        environment:
-            DATABASE_URL: 'postgres://posthog:posthog@db:5432/cyclotron'
-            KAFKA_HOSTS: 'kafka:9092'
-            DEBUG: 1 # Add debug mode like other services
-        depends_on:
-            db:
-                condition: service_healthy
-            kafka:
-                condition: service_started
-
     otel-collector:
         extends:
             file: docker-compose.base.yml
@@ -293,10 +279,10 @@ services:
             file: docker-compose.base.yml
             service: jaeger
 
-    localstack:
+    dynamodb:
         extends:
             file: docker-compose.base.yml
-            service: localstack
+            service: dynamodb
 
 networks:
     otel_network:

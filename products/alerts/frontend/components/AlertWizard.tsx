@@ -16,7 +16,8 @@ export interface AlertWizardStep {
     canAdvance?: boolean
     /** Reason shown as a tooltip when the step can't advance. */
     cannotAdvanceReason?: string
-    content: React.ReactNode
+    content?: React.ReactNode
+    renderContent?: (showValidationErrors: boolean) => React.ReactNode
 }
 
 export interface AlertWizardProps {
@@ -163,7 +164,7 @@ export function AlertWizard({
                     <h3 className="text-base font-semibold m-0">{step?.title}</h3>
                     {step?.description ? <p className="text-xs text-secondary m-0">{step.description}</p> : null}
                 </div>
-                {step?.content}
+                {step?.renderContent ? step.renderContent(blockedAdvanceAttempted) : step?.content}
             </section>
             <footer className="flex flex-wrap items-center justify-between gap-2 border-t p-4">
                 <div className="flex-1">{leadingActions ? leadingActions : null}</div>

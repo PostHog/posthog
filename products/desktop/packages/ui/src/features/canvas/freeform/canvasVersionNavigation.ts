@@ -60,20 +60,40 @@ export function canvasVersionNavigation(args: {
 }
 
 /**
- * Whether an active browse points at a version the history no longer contains
+ * The draft to auto-open: the newest draft whose build is ready and hasn't
+ * been seen ready before. Staging a draft is the review-flow counterpart of a
+ * publish, which swaps the canvas the moment its build lands; opening the
+ * finished draft gives it the same arrival moment instead of leaving it
+ * hidden behind the Drafts menu. Returns null when nothing newly finished.
+ */
+export function freshReadyDraftId(
+  seenReady: ReadonlySet<string>,
+  drafts: readonly { versionId: string; buildStatus?: string | null }[],
+): string | null {
+  const fresh = drafts.find(
+    (draft) => draft.buildStatus === "ready" && !seenReady.has(draft.versionId),
+  );
+  return fresh?.versionId ?? null;
+}
+
+/**
+ * Whether an active browse points at a version the canvas no longer offers
  * (e.g. it was pruned server-side while the canvas was open) and should be
- * cleared. A still-loading or empty history is not evidence of absence.
+ * cleared. `browseTargetIds` is every id that is a valid browse target —
+ * published versions and staged drafts alike (drafts are a valid preview
+ * target even though they are excluded from the published history). A
+ * still-loading history is not evidence of absence.
  */
 export function shouldClearCanvasBrowse(args: {
-  versions: readonly { id: string }[];
-  versionsLoading: boolean;
+  browseTargetIds: readonly string[];
+  loading: boolean;
   browseVersionId: string | null;
 }): boolean {
-  const { versions, versionsLoading, browseVersionId } = args;
+  const { browseTargetIds, loading, browseVersionId } = args;
   return (
     !!browseVersionId &&
-    !versionsLoading &&
-    versions.length > 0 &&
-    !versions.some((v) => v.id === browseVersionId)
+    !loading &&
+    browseTargetIds.length > 0 &&
+    !browseTargetIds.includes(browseVersionId)
   );
 }

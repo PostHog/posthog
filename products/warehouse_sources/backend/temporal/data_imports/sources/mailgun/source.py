@@ -62,8 +62,14 @@ class MailgunSource(
 ):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
-    supported_versions = ("v3",)
-    default_version = "v3"
+    # Mailgun versions each resource in its own URL path (no account or header version), so the
+    # per-endpoint paths in settings.py already target the newest route Mailgun serves for each
+    # resource — /v4 for the domains listing, /v3 everywhere v4 doesn't exist. The source-level
+    # label is therefore a pin recorded on the source, not a request-layer branch: every supported
+    # version resolves to the same requests. Defaulting to v4 only stamps new sources; pinned v3
+    # rows are byte-for-byte unaffected.
+    supported_versions = ("v3", "v4")
+    default_version = "v4"
     api_docs_url = "https://documentation.mailgun.com/"
 
     @property

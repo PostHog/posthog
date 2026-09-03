@@ -3,12 +3,16 @@ import {
     aiOtelGroupsCounter,
     aiOtelOlderSpecEventsCounter,
     aiOtelSystemInstructionsCounter,
+    aiOtelUnknownPartTypeCounter,
 } from '~/ingestion/pipelines/ai/metrics'
 import { PluginEvent } from '~/plugin-scaffold'
+
+import { usableStopReason } from './middleware/stop-reason'
 
 const ATTRIBUTE_MAP: Record<string, string> = {
     'gen_ai.input.messages': '$ai_input',
     'gen_ai.output.messages': '$ai_output_choices',
+    'gen_ai.tool.definitions': '$ai_tools',
     'gen_ai.usage.input_tokens': '$ai_input_tokens',
     'gen_ai.usage.output_tokens': '$ai_output_tokens',
     'gen_ai.usage.cache_read.input_tokens': '$ai_cache_read_input_tokens',
@@ -37,7 +41,7 @@ const STRIP_ATTRIBUTES = new Set([
     'llm.request.type',
 ])
 
-const JSON_PARSE_PROPERTIES = new Set(['$ai_input', '$ai_output_choices'])
+const JSON_PARSE_PROPERTIES = new Set(['$ai_input', '$ai_output_choices', '$ai_tools'])
 
 // Older OTel GenAI spec emits messages as span events rather than
 // `gen_ai.input.messages` / `gen_ai.output.messages` attributes. Logfire
@@ -110,12 +114,70 @@ export function mapOtelAttributes(event: PluginEvent): void {
     convertOlderSpecEvents(event)
     convertSystemInstructions(event)
     normalizeGroups(event)
+    countUnknownMessageParts(event)
 
     computeLatency(event)
     promoteRootSpanToTrace(event)
 
     for (const key of STRIP_ATTRIBUTES) {
         delete event.properties[key]
+    }
+}
+
+// Part types the trace view (llm-normalizer otel recipe) and the judge input
+// flattener (posthog/temporal/ai_observability/message_utils.py) both render.
+// Anything else is invisible to users, so it is counted rather than silently
+// dropped: a spike in the counter means the semconv grew a part type (or a
+// producer invented one) before we handle it.
+const KNOWN_MESSAGE_PART_TYPES = new Set([
+    'text',
+    'reasoning',
+    'tool_call',
+    'tool_call_response',
+    'server_tool_call',
+    'server_tool_call_response',
+    'blob',
+    'file',
+    'uri',
+    'compaction',
+])
+
+// Part types real producers emit today that no renderer handles yet (the Vercel
+// AI SDK emits both). They get their own label so a volume spike is attributable.
+const EXPECTED_UNKNOWN_PART_TYPES = new Set(['tool_approval_response', 'custom'])
+
+// The part type is producer-controlled and becomes a Prometheus label value, so
+// it must map into a fixed set of buckets: a label per distinct string would let
+// one sender mint unbounded series and grow ingestion memory without limit.
+function partTypeLabel(type: unknown): string {
+    if (typeof type !== 'string' || type.length === 0) {
+        return 'invalid'
+    }
+    return EXPECTED_UNKNOWN_PART_TYPES.has(type) ? type : 'other'
+}
+
+function countUnknownMessageParts(event: PluginEvent): void {
+    for (const key of ['$ai_input', '$ai_output_choices']) {
+        const messages = event.properties![key]
+        if (!Array.isArray(messages)) {
+            continue
+        }
+        for (const message of messages) {
+            if (typeof message !== 'object' || message === null) {
+                continue
+            }
+            const parts = (message as { parts?: unknown }).parts
+            if (!Array.isArray(parts)) {
+                continue
+            }
+            for (const part of parts) {
+                const type = typeof part === 'object' && part !== null ? (part as { type?: unknown }).type : undefined
+                if (typeof type === 'string' && KNOWN_MESSAGE_PART_TYPES.has(type)) {
+                    continue
+                }
+                aiOtelUnknownPartTypeCounter.labels({ part_type: partTypeLabel(type) }).inc()
+            }
+        }
     }
 }
 
@@ -219,14 +281,19 @@ function reconstructInputMessage(entry: Record<string, unknown>, eventName: stri
 }
 
 function reconstructOutputChoice(entry: Record<string, unknown>): Record<string, unknown> | null {
-    // Emit flat messages (matching newer-spec `gen_ai.output.messages`) so the
-    // frontend renderer picks them up directly. A `{ index, message }` wrapper
-    // would only be unwrapped by `isLiteLLMChoice`, which requires a
-    // `finish_reason` field we don't have.
+    // Emit flat messages (matching newer-spec `gen_ai.output.messages`) so the frontend renderer
+    // picks them up directly. The older spec reports `finish_reason` on the choice rather than on
+    // the message, so carry it onto the flat message, which is where the middlewares' stop-reason
+    // lift reads it.
+    const finishReason = usableStopReason(entry.finish_reason)
     if (typeof entry.message === 'object' && entry.message !== null && !Array.isArray(entry.message)) {
         // Shallow-copy so the downstream $ai_output_choices array does not
         // share references with the transient parsed `events` payload.
-        return { ...(entry.message as Record<string, unknown>) }
+        const message = { ...(entry.message as Record<string, unknown>) }
+        if (finishReason !== undefined && message.finish_reason === undefined) {
+            message.finish_reason = finishReason
+        }
+        return message
     }
     if ('role' in entry || 'content' in entry || 'tool_calls' in entry) {
         const message: Record<string, unknown> = {}
@@ -238,6 +305,9 @@ function reconstructOutputChoice(entry: Record<string, unknown>): Record<string,
         }
         if ('tool_calls' in entry) {
             message.tool_calls = entry.tool_calls
+        }
+        if (finishReason !== undefined) {
+            message.finish_reason = finishReason
         }
         return message
     }

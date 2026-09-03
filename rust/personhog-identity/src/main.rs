@@ -3,9 +3,9 @@ use std::time::Duration;
 
 use axum::{routing::get, Router};
 use common_database::{get_pool_with_config, PoolConfig};
-use common_metrics::setup_metrics_routes;
 use envconfig::Envconfig;
 use lifecycle::{ComponentOptions, Manager};
+use metrics_exporter_prometheus::{Matcher, PrometheusBuilder};
 use personhog_common::grpc::{tracked_tcp_incoming, GrpcLoadShedLayer, GrpcMetricsLayer};
 use personhog_common::{spawn_pool_monitor, MonitoredPool};
 use personhog_proto::personhog::identity::v1::person_hog_identity_server::PersonHogIdentityServer;
@@ -20,9 +20,12 @@ use tracing_subscriber::EnvFilter;
 
 use personhog_common::client::RouterClient;
 use personhog_identity::config::Config;
+use personhog_identity::leader::LifecycleLeader;
 use personhog_identity::lifecycle::delete::DeleteDriver;
 use personhog_identity::lifecycle::engine::Engine;
+use personhog_identity::lifecycle::merge::{MergeDriver, MergeOpExecutor};
 use personhog_identity::lifecycle::PersonHogLifecycleService;
+use personhog_identity::service::merge::MergeEntrance;
 use personhog_identity::service::PersonHogIdentityService;
 use personhog_identity::storage::postgres::PostgresIdentityStorage;
 
@@ -43,7 +46,7 @@ fn create_storage(config: &Config) -> Arc<PostgresIdentityStorage> {
         .expect("Failed to create primary database pool");
     tracing::info!("Created primary database pool");
 
-    Arc::new(PostgresIdentityStorage::new(primary_pool))
+    Arc::new(PostgresIdentityStorage::new(primary_pool, config.tables()))
 }
 
 #[tokio::main]
@@ -64,10 +67,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .init();
 
+    config
+        .tables()
+        .validate()
+        .expect("Invalid identity table set");
+
     tracing::info!("Starting personhog-identity service");
     tracing::info!("gRPC address: {}", config.grpc_address);
     tracing::info!("Metrics port: {}", config.metrics_port);
     tracing::info!("Router URL: {}", config.router_url);
+    tracing::info!("Tables: {:?}", config.tables());
 
     // Build lifecycle manager and register components
     let mut manager = Manager::builder("personhog-identity").build();
@@ -107,7 +116,39 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }),
             )
             .route("/_liveness", get(move || async move { liveness.check() }));
-        let metrics_router = setup_metrics_routes(health_router);
+        const BUCKETS: &[f64] = &[
+            1.0, 5.0, 10.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 2000.0, 5000.0, 10000.0,
+        ];
+        // Lifecycle ops span "settled in one drive" (tens of ms) to
+        // "abandoned, parked, or leader-blocked and resumed by the sweeper"
+        // (minutes to an hour); the default latency ladder tops out at 10s
+        // and would collapse every resumed op into +Inf.
+        const OP_DURATION_BUCKETS: &[f64] = &[
+            10.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 2500.0, 5000.0, 10000.0, 30000.0, 60000.0,
+            300000.0, 1800000.0, 3600000.0,
+        ];
+        // Source counts, not latency; the request cap is 250.
+        const MERGE_SOURCES_BUCKETS: &[f64] = &[1.0, 2.0, 3.0, 5.0, 10.0, 25.0, 50.0, 100.0, 250.0];
+        let recorder_handle = PrometheusBuilder::new()
+            .add_global_label("service", "personhog-identity")
+            .set_buckets(BUCKETS)
+            .unwrap()
+            .set_buckets_for_metric(
+                Matcher::Full("personhog_lifecycle_op_duration_ms".into()),
+                OP_DURATION_BUCKETS,
+            )
+            .unwrap()
+            .set_buckets_for_metric(
+                Matcher::Full("personhog_identity_merge_sources_per_call".into()),
+                MERGE_SOURCES_BUCKETS,
+            )
+            .unwrap()
+            .install_recorder()
+            .expect("Failed to install metrics recorder");
+        let metrics_router = health_router.route(
+            "/metrics",
+            get(move || std::future::ready(recorder_handle.render())),
+        );
 
         let bind = format!("0.0.0.0:{metrics_port}");
         let listener = tokio::net::TcpListener::bind(&bind)
@@ -178,11 +219,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         RouterClient::new(&config.router_url, config.leader_request_timeout())
             .expect("Invalid router URL"),
     );
+    // Both sagas' leader surface, reached through the router like the
+    // property writes.
+    let lifecycle_leader: Arc<dyn LifecycleLeader> = property_writer.clone();
     let engine = Arc::new(Engine::new(
         storage.primary_pool.clone(),
         config.lifecycle_engine_config(),
     ));
     if let Some(sweeper_handle) = sweeper_handle {
+        let sweeper_merge_driver = MergeDriver::new(property_writer.clone(), config.tables());
+        let sweeper_delete_driver = DeleteDriver::new(lifecycle_leader.clone(), config.tables());
         let sweeper_engine = engine.clone();
         let sweep_interval = config.lifecycle_sweep_interval();
         let retention = config.lifecycle_op_retention();
@@ -203,7 +249,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     _ = sweeper_handle.shutdown_recv() => break,
                     _ = ticker.tick() => {}
                 }
-                match sweeper_engine.sweep(&[&DeleteDriver]).await {
+                match sweeper_engine
+                    .sweep(&[&sweeper_delete_driver, &sweeper_merge_driver])
+                    .await
+                {
                     Ok(resumed) if resumed > 0 => {
                         tracing::info!(resumed, "Lifecycle sweeper resumed abandoned ops")
                     }
@@ -217,10 +266,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
-    let service = PersonHogIdentityService::new(storage, property_writer, config.request_limits());
     // Separate proto service co-served on the same server so lifecycle
     // callers are insulated from any future split.
-    let lifecycle_service = PersonHogLifecycleService::new(engine);
+    let merge_entrance = MergeEntrance::new(
+        storage.clone(),
+        property_writer.clone(),
+        MergeOpExecutor::new(
+            engine.clone(),
+            MergeDriver::new(property_writer.clone(), config.tables()),
+        ),
+    );
+    let lifecycle_service =
+        PersonHogLifecycleService::new(engine, lifecycle_leader, config.tables());
+    let service = PersonHogIdentityService::new(
+        storage,
+        property_writer,
+        config.request_limits(),
+        merge_entrance,
+    );
 
     let grpc_addr = config.grpc_address;
     let keepalive_interval = config.grpc_keepalive_interval();

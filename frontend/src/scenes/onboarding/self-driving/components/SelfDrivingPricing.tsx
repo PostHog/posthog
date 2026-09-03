@@ -18,7 +18,7 @@ export function SelfDrivingPricing({ product }: { product: BillingProductV2Type 
     const perPr = pricePerPrUsd(product)
 
     return (
-        <div className="w-full flex flex-col gap-3 p-4 rounded-lg border border-accent bg-accent-highlight">
+        <div className="OnboardingProductCard w-full flex flex-col gap-3 p-4 rounded-lg border">
             <p className="m-0 text-sm font-semibold">You pay for shipped work, nothing else</p>
             {(included > 0 || perPr !== null) && (
                 <div className="flex flex-wrap items-start gap-x-10 gap-y-3">

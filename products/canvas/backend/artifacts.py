@@ -50,8 +50,13 @@ def _configured_artifact_host() -> str | None:
     return origin.netloc.lower()
 
 
+def _artifact_signing_keys() -> list[str]:
+    configured = settings.CANVAS_ARTIFACT_SIGNING_KEYS
+    return configured or [settings.SECRET_KEY, *settings.SECRET_KEY_FALLBACKS]
+
+
 def create_canvas_artifact_token(build: CanvasBuild) -> str | None:
-    keys = settings.CANVAS_ARTIFACT_SIGNING_KEYS
+    keys = _artifact_signing_keys()
     if not keys or (not settings.CANVAS_ARTIFACT_ORIGIN and not (settings.DEBUG or settings.TEST)):
         return None
     if not (settings.DEBUG or settings.TEST) and (len(keys[0]) < 32 or _configured_artifact_host() is None):
@@ -86,7 +91,7 @@ def create_canvas_artifact_url(build: CanvasBuild, artifact_path: str) -> str | 
 
 def _read_token(token: str) -> dict[str, Any]:
     current_bucket = int(time.time() // ARTIFACT_TOKEN_BUCKET_SECONDS)
-    for key in settings.CANVAS_ARTIFACT_SIGNING_KEYS:
+    for key in _artifact_signing_keys():
         try:
             value = signing.Signer(key=key, salt=ARTIFACT_TOKEN_SALT).unsign_object(token)
         except signing.BadSignature:
@@ -135,7 +140,7 @@ def canvas_artifact(request: HttpRequest, token: str, artifact_path: str) -> Htt
     if request.headers.get("If-None-Match") == etag:
         response: HttpResponse = HttpResponseNotModified()
         response["Content-Type"] = content_type
-        return _with_artifact_headers(response, etag)
+        return _with_artifact_headers(response, etag, build.manifest)
 
     try:
         content = object_storage.read_bytes(f"{build.artifact_object_prefix}/{artifact_path}")
@@ -149,10 +154,10 @@ def canvas_artifact(request: HttpRequest, token: str, artifact_path: str) -> Htt
         raise Http404
     response = HttpResponse(content, content_type=content_type)
     response["Content-Disposition"] = "inline"
-    return _with_artifact_headers(response, etag)
+    return _with_artifact_headers(response, etag, build.manifest)
 
 
-def _with_artifact_headers(response: HttpResponse, etag: str) -> HttpResponse:
+def _with_artifact_headers(response: HttpResponse, etag: str, manifest: dict) -> HttpResponse:
     response["ETag"] = etag
     response["Cache-Control"] = "private, max-age=31536000, immutable"
     response["Cross-Origin-Resource-Policy"] = "cross-origin"
@@ -165,6 +170,7 @@ def _with_artifact_headers(response: HttpResponse, etag: str) -> HttpResponse:
     response["Access-Control-Allow-Origin"] = "*"
     response["Referrer-Policy"] = "no-referrer"
     response["X-Content-Type-Options"] = "nosniff"
-    response["Content-Security-Policy"] = artifact_csp()
+    network_origins = ((manifest.get("capabilities") or {}).get("network") or {}).get("origins") or []
+    response["Content-Security-Policy"] = artifact_csp(network_origins)
     response["Permissions-Policy"] = "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
     return response

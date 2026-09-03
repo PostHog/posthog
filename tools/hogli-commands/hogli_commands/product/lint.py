@@ -7,8 +7,9 @@ from pathlib import Path
 
 import click
 
+from .baseline import check_baseline
 from .checks import CHECKS, CheckContext, ProductYamlOwnersCheck, is_isolated_product, validate_tach_toml
-from .paths import PRODUCTS_DIR, TACH_TOML, load_structure
+from .paths import ISOLATION_BASELINE, PRODUCTS_DIR, REPO_ROOT, TACH_TOML, backend_product_dirs, load_structure
 
 _IN_GH_ACTIONS = os.environ.get("GITHUB_ACTIONS") == "true"
 
@@ -82,30 +83,8 @@ def _lint_tach_toml() -> list[str]:
     return issues
 
 
-def _is_backend_product_dir(d: Path) -> bool:
-    """Identify products with backend code that should be linted.
-
-    A `backend/` directory is the load-bearing signal. Discovery
-    deliberately does NOT depend on `__init__.py` — that's the file
-    we want the lint itself to enforce, so using it as the discovery
-    signal would silently drop products that are missing it (the bug
-    that let `actions/` slip through for weeks after the model move).
-
-    Frontend-only products (no `backend/`) are skipped — they carry no
-    Python that needs `__init__.py`, `apps.py`, `backend:test`, etc.
-
-    `query_performance_ai/` is the one exception today — a local-only
-    macOS+Docker dev coordinator that lives under `products/` but isn't
-    really a product (no `apps.py`, no `manifest.tsx`, no CI). It's a
-    candidate for moving under `tools/`, not for widening discovery here.
-    """
-    if not d.is_dir() or d.name.startswith((".", "_")):
-        return False
-    return (d / "backend").is_dir()
-
-
 def lint_all_products() -> None:
-    product_dirs = sorted(d for d in PRODUCTS_DIR.iterdir() if _is_backend_product_dir(d))
+    product_dirs = backend_product_dirs()
 
     strict = [d.name for d in product_dirs if is_isolated_product(d / "backend")]
     lenient = [d.name for d in product_dirs if not is_isolated_product(d / "backend")]
@@ -113,7 +92,8 @@ def lint_all_products() -> None:
     click.echo(f"Linting {len(product_dirs)} products ({len(strict)} strict, {len(lenient)} lenient)")
     click.echo(
         "Checks: required root files, package.json scripts (presence + content), misplaced files (strict), "
-        "file/folder conflicts, tach boundaries (+ interfaces for strict), isolation progress (lenient)\n"
+        "file/folder conflicts, tach boundaries (+ interfaces for strict), isolation progress (lenient), "
+        "isolation baseline\n"
     )
 
     structure = load_structure()
@@ -136,11 +116,26 @@ def lint_all_products() -> None:
         click.echo("  ✓ ok")
     click.echo("")
 
-    if failed or tach_issues:
+    click.echo("─ isolation baseline")
+    baseline_issues = check_baseline()
+    if baseline_issues:
+        click.echo(f"  ✗ {len(baseline_issues)} issue(s)")
+        for issue in baseline_issues:
+            click.echo(f"    → {issue}")
+            _gh_annotation(
+                "error", "products", "isolation baseline", issue, file=str(ISOLATION_BASELINE.relative_to(REPO_ROOT))
+            )
+    else:
+        click.echo("  ✓ ok")
+    click.echo("")
+
+    if failed or tach_issues or baseline_issues:
         if failed:
             click.echo(f"✗ {len(failed)} product(s) failed: {', '.join(failed)}")
         if tach_issues:
             click.echo(f"✗ {len(tach_issues)} tach.toml issue(s)")
+        if baseline_issues:
+            click.echo(f"✗ {len(baseline_issues)} isolation baseline issue(s)")
         raise SystemExit(1)
 
     click.echo(f"✓ All {len(product_dirs)} products passed")

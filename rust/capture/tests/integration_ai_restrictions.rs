@@ -5,16 +5,15 @@ use async_trait::async_trait;
 use axum::http::StatusCode;
 use axum::Router;
 use axum_test_helper::TestClient;
-use capture::ai_s3::{BlobStorage, MockBlobStorage};
 use capture::api::CaptureError;
 use capture::config::CaptureMode;
 use capture::event_restrictions::{
     EventRestrictionService, Pipeline, Restriction, RestrictionManager, RestrictionScope,
     RestrictionType,
 };
+use capture::outputs::{OutputRegistry, PublishEvents};
 use capture::quota_limiters::CaptureQuotaLimiter;
 use capture::router::router;
-use capture::sinks::Event;
 use capture::time::TimeSource;
 use capture::v0_request::{DataType, OverflowReason, ProcessedEvent};
 use chrono::{DateTime, Utc};
@@ -28,16 +27,6 @@ use serde_json::{json, Value};
 use std::num::NonZeroU32;
 use std::sync::Arc;
 use std::time::Duration;
-
-const TEST_BLOB_BUCKET: &str = "test-bucket";
-const TEST_BLOB_PREFIX: &str = "llma/";
-
-fn create_mock_blob_storage() -> Arc<dyn BlobStorage> {
-    Arc::new(MockBlobStorage::new(
-        TEST_BLOB_BUCKET.to_string(),
-        TEST_BLOB_PREFIX.to_string(),
-    ))
-}
 
 struct FixedTime {
     pub time: DateTime<Utc>,
@@ -67,13 +56,8 @@ impl CapturingSink {
 }
 
 #[async_trait]
-impl Event for CapturingSink {
-    async fn send(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
-        self.events.lock().await.push(event);
-        Ok(())
-    }
-
-    async fn send_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
+impl PublishEvents for CapturingSink {
+    async fn publish_events(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
         self.events.lock().await.extend(events);
         Ok(())
     }
@@ -146,7 +130,7 @@ async fn setup_ai_router_with_restriction(
     let redis = Arc::new(MockRedisClient::new());
 
     let mut cfg = DEFAULT_CONFIG.clone();
-    cfg.capture_mode = CaptureMode::Events;
+    cfg.capture_mode = CaptureMode::Ai;
 
     let quota_limiter =
         CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60 * 60 * 24 * 7));
@@ -169,14 +153,14 @@ async fn setup_ai_router_with_restriction(
         timesource,
         readiness,
         liveness,
-        Arc::new(sink),
+        Arc::new(OutputRegistry::single(sink)),
         redis,
         None, // global_rate_limiter_token_distinctid
         quota_limiter,
         TokenDropper::default(),
         Some(service),
         None, // recorder_handle
-        CaptureMode::Events,
+        CaptureMode::Ai,
         None,
         25 * 1024 * 1024,
         false,
@@ -184,13 +168,14 @@ async fn setup_ai_router_with_restriction(
         false,
         0.0_f32,
         26_214_400,
-        Some(create_mock_blob_storage()),
+        983_040, // ai_max_event_bytes (960KB, the previous hardcoded limit)
         None,
         256,              // body_read_chunk_size_kb
         10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
         50 * 1024 * 1024, // capture_v1_max_decompressed_body_bytes
         None,             // overflow_limiter
         None,             // ai_events_overflow_limiter
+        None,             // ai_byte_rate_limiter
         None,             // replay_overflow_limiter
         None,             // v1_sink_router
         8,                // capture_v1_scatter_gather_min_batch
@@ -322,7 +307,7 @@ async fn test_ai_redirect_to_dlq_restriction() {
             token: restricted_token,
             distinct_id: "test_user",
             event_name: "$ai_generation",
-            data_type: DataType::AnalyticsMain,
+            data_type: DataType::AiEvents,
             force_overflow: false,
             skip_person_processing: false,
             redirect_to_dlq: true,
@@ -359,7 +344,7 @@ async fn test_ai_force_overflow_restriction() {
             token: restricted_token,
             distinct_id: "test_user",
             event_name: "$ai_generation",
-            data_type: DataType::AnalyticsMain,
+            data_type: DataType::AiEvents,
             force_overflow: true,
             skip_person_processing: false,
             redirect_to_dlq: false,
@@ -397,7 +382,7 @@ async fn test_ai_skip_person_processing_restriction() {
             token: restricted_token,
             distinct_id: "test_user",
             event_name: "$ai_generation",
-            data_type: DataType::AnalyticsMain,
+            data_type: DataType::AiEvents,
             force_overflow: false,
             skip_person_processing: true,
             redirect_to_dlq: false,
@@ -439,7 +424,7 @@ async fn test_ai_restriction_does_not_apply_to_other_tokens() {
             token: "phc_not_restricted_token",
             distinct_id: "test_user",
             event_name: "$ai_generation",
-            data_type: DataType::AnalyticsMain,
+            data_type: DataType::AiEvents,
             force_overflow: false,
             skip_person_processing: false,
             redirect_to_dlq: false,
@@ -467,7 +452,7 @@ async fn setup_ai_router_with_redirect_to_topic(
     let redis = Arc::new(MockRedisClient::new());
 
     let mut cfg = DEFAULT_CONFIG.clone();
-    cfg.capture_mode = CaptureMode::Events;
+    cfg.capture_mode = CaptureMode::Ai;
 
     let quota_limiter =
         CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60 * 60 * 24 * 7));
@@ -490,14 +475,14 @@ async fn setup_ai_router_with_redirect_to_topic(
         timesource,
         readiness,
         liveness,
-        Arc::new(sink),
+        Arc::new(OutputRegistry::single(sink)),
         redis,
         None, // global_rate_limiter_token_distinctid
         quota_limiter,
         TokenDropper::default(),
         Some(service),
         None, // recorder_handle
-        CaptureMode::Events,
+        CaptureMode::Ai,
         None,
         25 * 1024 * 1024,
         false,
@@ -505,13 +490,14 @@ async fn setup_ai_router_with_redirect_to_topic(
         false,
         0.0_f32,
         26_214_400,
-        Some(create_mock_blob_storage()),
+        983_040, // ai_max_event_bytes (960KB, the previous hardcoded limit)
         None,
         256,              // body_read_chunk_size_kb
         10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
         50 * 1024 * 1024, // capture_v1_max_decompressed_body_bytes
         None,             // overflow_limiter
         None,             // ai_events_overflow_limiter
+        None,             // ai_byte_rate_limiter
         None,             // replay_overflow_limiter
         None,             // v1_sink_router
         8,                // capture_v1_scatter_gather_min_batch
@@ -546,7 +532,7 @@ async fn setup_ai_router_with_force_overflow_and_limiter(
     let redis = Arc::new(MockRedisClient::new());
 
     let mut cfg = DEFAULT_CONFIG.clone();
-    cfg.capture_mode = CaptureMode::Events;
+    cfg.capture_mode = CaptureMode::Ai;
 
     let quota_limiter =
         CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60 * 60 * 24 * 7));
@@ -569,14 +555,14 @@ async fn setup_ai_router_with_force_overflow_and_limiter(
         timesource,
         readiness,
         liveness,
-        Arc::new(sink),
+        Arc::new(OutputRegistry::single(sink)),
         redis,
         None,
         quota_limiter,
         TokenDropper::default(),
         Some(service),
         None, // recorder_handle
-        CaptureMode::Events,
+        CaptureMode::Ai,
         None,
         25 * 1024 * 1024,
         false,
@@ -584,13 +570,14 @@ async fn setup_ai_router_with_force_overflow_and_limiter(
         false,
         0.0_f32,
         26_214_400,
-        Some(create_mock_blob_storage()),
+        983_040, // ai_max_event_bytes (960KB, the previous hardcoded limit)
         None,
         256,
         10 * 1024 * 1024,       // capture_v1_max_compressed_body_bytes
         50 * 1024 * 1024,       // capture_v1_max_decompressed_body_bytes
-        Some(overflow_limiter), // overflow_limiter
-        None,                   // ai_events_overflow_limiter
+        None,                   // overflow_limiter
+        Some(overflow_limiter), // ai_events_overflow_limiter
+        None,                   // ai_byte_rate_limiter
         None,                   // replay_overflow_limiter
         None,                   // v1_sink_router
         8,                      // capture_v1_scatter_gather_min_batch
@@ -641,7 +628,7 @@ async fn test_ai_force_overflow_restriction_wins_over_overflow_limiter() {
             token: restricted_token,
             distinct_id,
             event_name: "$ai_generation",
-            data_type: DataType::AnalyticsMain,
+            data_type: DataType::AiEvents,
             force_overflow: true,
             skip_person_processing: false,
             redirect_to_dlq: false,
@@ -658,12 +645,12 @@ async fn test_ai_force_overflow_restriction_wins_over_overflow_limiter() {
 }
 
 #[tokio::test]
-async fn test_ai_endpoint_keeps_events_on_analytics_main() {
-    // The AI endpoint's events are typed at the handler, not by the analytics
-    // $ai_* lane assignment: they stay on the AnalyticsMain lane and the
-    // OverflowLimiter applies by analytics rules. Catches a regression that
-    // types AI-endpoint events as DataType::AiEvents or gates their overflow
-    // on the analytics valve.
+async fn test_ai_endpoint_keeps_events_on_the_ai_lane() {
+    // The AI endpoint's events are typed at the handler, and they carry the
+    // same lane as an AI event that arrives through the batch path — so
+    // the AI overflow limiter is the one that applies. Catches a regression
+    // that types AI-endpoint events as AnalyticsMain, which would put them on
+    // the analytics topic and under analytics restrictions.
     let token = "phc_ai_endpoint_routing_leak_token";
     let distinct_id = "test_user";
     let hot_key = format!("{token}:{distinct_id}");
@@ -694,13 +681,13 @@ async fn test_ai_endpoint_keeps_events_on_analytics_main() {
     assert_eq!(events.len(), 1);
     assert_eq!(
         events[0].metadata.data_type,
-        DataType::AnalyticsMain,
-        "analytics-deployment routing config must not divert AI-endpoint events"
+        DataType::AiEvents,
+        "AI-endpoint events belong on the AI lane"
     );
     assert_eq!(
         events[0].metadata.overflow_reason,
         Some(OverflowReason::ForceLimited),
-        "the limiter must keep applying by AnalyticsMain rules, valve or not"
+        "the AI lane's own limiter must apply once the valve is armed"
     );
 }
 
@@ -730,7 +717,7 @@ async fn test_ai_redirect_to_topic_restriction() {
             token: restricted_token,
             distinct_id: "test_user",
             event_name: "$ai_generation",
-            data_type: DataType::AnalyticsMain,
+            data_type: DataType::AiEvents,
             force_overflow: false,
             skip_person_processing: false,
             redirect_to_dlq: false,

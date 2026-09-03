@@ -1,5 +1,7 @@
 from posthog.test.base import APIBaseTest
 
+from posthog.hogql.database.direct_motherduck_table import DirectMotherDuckTable
+
 from products.data_warehouse.backend.direct_virtual_tables import build_direct_table_for_schema
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
@@ -50,3 +52,39 @@ class TestBuildDirectTableForSchema(APIBaseTest):
 
         assert table is not None
         assert set(table.fields) == {"id", "email", "secret"}
+
+    def test_motherduck_virtual_table_resolves_location_and_columns(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.MOTHERDUCK,
+            access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
+            direct_query_enabled=True,
+            job_inputs={"access_token": "t", "database": "my_db"},
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="nyc.taxi",
+            team=self.team,
+            source=source,
+            enabled_columns=None,
+            sync_type_config={
+                "schema_metadata": {
+                    "source_catalog": "my_db",
+                    "source_schema": "nyc",
+                    "source_table_name": "taxi",
+                    "columns": [
+                        {"name": "id", "data_type": "BIGINT", "is_nullable": False},
+                        {"name": "fare", "data_type": "DOUBLE", "is_nullable": True},
+                    ],
+                },
+            },
+        )
+
+        table = build_direct_table_for_schema(schema, source)
+
+        assert isinstance(table, DirectMotherDuckTable)
+        assert (table.motherduck_database, table.motherduck_schema, table.motherduck_table_name) == (
+            "my_db",
+            "nyc",
+            "taxi",
+        )
+        assert set(table.fields) == {"id", "fare"}

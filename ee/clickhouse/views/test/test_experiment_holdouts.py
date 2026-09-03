@@ -4,11 +4,11 @@ from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.experiments.backend.models.experiment import Experiment, ExperimentHoldout
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 from ee.api.test.base import APILicensedTest
-from ee.models.rbac.access_control import AccessControl
 
 
 class TestExperimentHoldoutCRUD(APILicensedTest):

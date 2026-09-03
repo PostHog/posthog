@@ -23,9 +23,10 @@ def _lookup(
     parent_company: Optional[str] = None,
     parent_company_domain: Optional[str] = None,
     found: bool = True,
+    enrichment_urn: Optional[str] = None,
 ) -> ProviderLookup:
     if not found:
-        return ProviderLookup(fields=None, raw_payload=None)
+        return ProviderLookup(fields=None, raw_payload=None, enrichment_urn=enrichment_urn)
     fields = EnrichmentFields(
         company_type="STARTUP",  # a fresh-fetch field the backfill must never write back.
         ownership_status=ownership_status,
@@ -33,7 +34,7 @@ def _lookup(
         parent_company_domain=parent_company_domain,
     )
     raw_payload = {"companyType": "STARTUP", "ownershipStatus": ownership_status}
-    return ProviderLookup(fields=fields, raw_payload=raw_payload)
+    return ProviderLookup(fields=fields, raw_payload=raw_payload, enrichment_urn=enrichment_urn)
 
 
 def _mock_provider(side_effect: list[Any]) -> MagicMock:
@@ -45,15 +46,26 @@ def _mock_provider(side_effect: list[Any]) -> MagicMock:
 
 class _BackfillTestCase(BaseTest):
     def _org(
-        self, *, email: str, data: Optional[dict[str, Any]] = None, id: Optional[uuid.UUID] = None
+        self,
+        *,
+        email: str,
+        data: Optional[dict[str, Any]] = None,
+        id: Optional[uuid.UUID] = None,
+        with_fetch: bool = True,
     ) -> OrganizationEnrichment:
+        # with_fetch defaults True: every other test in this file models a work-domain org the
+        # live pipeline already enriched, which always leaves a fetch row behind. Only the
+        # personal-domain selection test needs the fetch-less shape, via with_fetch=False.
         org = Organization.objects.create(name=email)
         user = User.objects.create_user(email=email, password=None, first_name="t")
         OrganizationMembership.objects.create(organization=org, user=user)
         kwargs: dict[str, Any] = {"organization": org, "data": data if data is not None else {}}
         if id is not None:
             kwargs["id"] = id
-        return OrganizationEnrichment.objects.create(**kwargs)
+        record = OrganizationEnrichment.objects.create(**kwargs)
+        if with_fetch:
+            OrganizationEnrichmentFetch.objects.create(organization=org, provider="harmonic")
+        return record
 
 
 class TestWritePath(_BackfillTestCase):
@@ -66,6 +78,7 @@ class TestWritePath(_BackfillTestCase):
                     ownership_status="ACQUIRED_OR_MERGED",
                     parent_company="Salesforce",
                     parent_company_domain="salesforce.com",
+                    enrichment_urn="urn:harmonic:enrichment:archived",
                 )
             ]
         )
@@ -94,10 +107,13 @@ class TestWritePath(_BackfillTestCase):
             },
         )
         pha_client.shutdown.assert_called_once()
-        fetch = OrganizationEnrichmentFetch.objects.get(organization=record.organization)
+        fetch = OrganizationEnrichmentFetch.objects.get(organization=record.organization, is_recheck=True)
         assert fetch.provider == "harmonic"
-        assert fetch.is_recheck is True
-        assert fetch.payload == {"companyType": "STARTUP", "ownershipStatus": "ACQUIRED_OR_MERGED"}
+        assert fetch.payload == {
+            "companyType": "STARTUP",
+            "ownershipStatus": "ACQUIRED_OR_MERGED",
+            "enrichmentUrn": "urn:harmonic:enrichment:archived",
+        }
 
     def test_skips_the_write_but_still_counts_processed_when_ownership_status_is_none(self):
         record = self._org(email="a@acme.com", data={"company_type": "STARTUP"})
@@ -139,6 +155,40 @@ class TestSelection(_BackfillTestCase):
         target.refresh_from_db()
         assert target.data["ownership_status"] == "ACTIVE"
 
+    def test_personal_domain_orgs_without_a_fetch_row_are_excluded(self):
+        personal = self._org(email="a@gmail.com", data={"work_email": False}, with_fetch=False)
+        work = self._org(email="b@acme.com", data={"work_email": True})
+        provider_cls = _mock_provider([_lookup(ownership_status="ACTIVE")])
+
+        with (
+            patch(f"{_COMMAND_MODULE}.HarmonicEnrichmentProvider", provider_cls),
+            patch(f"{_COMMAND_MODULE}.get_client", return_value=MagicMock()),
+        ):
+            call_command("backfill_harmonic_ownership", sleep=0)
+
+        provider_cls.return_value.enrich_by_domain.assert_called_once_with("acme.com")
+        personal.refresh_from_db()
+        work.refresh_from_db()
+        assert "ownership_status" not in personal.data
+        assert work.data["ownership_status"] == "ACTIVE"
+
+    def test_orgs_flagged_work_email_false_are_excluded_even_with_a_fetch_row(self):
+        # Pins the work_email exclude as the deciding factor: this org HAS a fetch row, so
+        # only the exclude keeps it out. Deleting the exclude would pass every other test.
+        flagged = self._org(email="a@gmail.com", data={"work_email": False})
+        self._org(email="b@acme.com", data={})
+        provider_cls = _mock_provider([_lookup(ownership_status="ACTIVE")])
+
+        with (
+            patch(f"{_COMMAND_MODULE}.HarmonicEnrichmentProvider", provider_cls),
+            patch(f"{_COMMAND_MODULE}.get_client", return_value=MagicMock()),
+        ):
+            call_command("backfill_harmonic_ownership", sleep=0)
+
+        provider_cls.return_value.enrich_by_domain.assert_called_once_with("acme.com")
+        flagged.refresh_from_db()
+        assert "ownership_status" not in flagged.data
+
 
 class TestDryRun(_BackfillTestCase):
     def test_dry_run_writes_nothing_and_never_touches_the_network_client(self):
@@ -162,13 +212,15 @@ class TestDryRun(_BackfillTestCase):
         get_client_mock.assert_not_called()
         record.refresh_from_db()
         assert record.data == {}
-        assert not OrganizationEnrichmentFetch.objects.filter(organization=record.organization).exists()
+        assert not OrganizationEnrichmentFetch.objects.filter(
+            organization=record.organization, is_recheck=True
+        ).exists()
 
 
 class TestArchive(_BackfillTestCase):
     def test_archives_the_miss_payload_on_a_not_found_fetch(self):
         record = self._org(email="a@acme.com", data={})
-        provider_cls = _mock_provider([_lookup(found=False)])
+        provider_cls = _mock_provider([_lookup(found=False, enrichment_urn="urn:harmonic:enrichment:miss")])
 
         with (
             patch(f"{_COMMAND_MODULE}.HarmonicEnrichmentProvider", provider_cls),
@@ -176,10 +228,9 @@ class TestArchive(_BackfillTestCase):
         ):
             call_command("backfill_harmonic_ownership", sleep=0)
 
-        fetch = OrganizationEnrichmentFetch.objects.get(organization=record.organization)
+        fetch = OrganizationEnrichmentFetch.objects.get(organization=record.organization, is_recheck=True)
         assert fetch.provider == "harmonic"
-        assert fetch.is_recheck is True
-        assert fetch.payload == {"companyFound": False}
+        assert fetch.payload == {"companyFound": False, "enrichmentUrn": "urn:harmonic:enrichment:miss"}
 
     def test_a_fetch_failure_archives_nothing(self):
         record = self._org(email="a@acme.com", data={})
@@ -192,7 +243,9 @@ class TestArchive(_BackfillTestCase):
         ):
             call_command("backfill_harmonic_ownership", sleep=0)
 
-        assert not OrganizationEnrichmentFetch.objects.filter(organization=record.organization).exists()
+        assert not OrganizationEnrichmentFetch.objects.filter(
+            organization=record.organization, is_recheck=True
+        ).exists()
 
 
 class TestResume(_BackfillTestCase):

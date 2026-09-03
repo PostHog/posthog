@@ -58,10 +58,8 @@ class TestOAuthApplicationAdmin(BaseTest):
         # Unticked boxes stay off rather than picking up a default.
         assert granted.can_start_wizard_runs is False
 
-    def test_admin_rate_limit_override_outranks_the_verified_default(self):
-        # A CIMD refresh re-tiers the account-request limit unless the source says an admin set
-        # it, so an override typed here has to record that or the next refresh overwrites it.
-        app = OAuthApplication.objects.create(
+    def _rate_limit_app(self) -> OAuthApplication:
+        return OAuthApplication.objects.create(
             name="Rate Limit App",
             client_id="rate_limit_client_id",
             client_secret="secret",
@@ -71,13 +69,29 @@ class TestOAuthApplicationAdmin(BaseTest):
             algorithm="RS256",
         )
 
+    def test_admin_rate_limit_override_is_stored_per_endpoint(self):
+        app = self._rate_limit_app()
+
         form = self._provisioning_form(app, provisioning_rate_limit_account_requests="250")
         assert form.is_valid(), form.errors
         form.save()
 
         app.refresh_from_db()
-        assert app.provisioning.rate_limits.account_requests == 250
-        assert app.provisioning.rate_limit_source == "admin"
+        assert app.provisioning.rate_limits == {"account_requests": 250}
+
+    def test_admin_rate_limit_zero_is_rejected_and_minus_one_means_unlimited(self):
+        # 0 used to mean unlimited; an operator typing it must get an error, not infinity.
+        app = self._rate_limit_app()
+
+        form = self._provisioning_form(app, provisioning_rate_limit_account_requests="0")
+        assert not form.is_valid()
+        assert "provisioning_rate_limit_account_requests" in form.errors
+
+        form = self._provisioning_form(app, provisioning_rate_limit_account_requests="-1")
+        assert form.is_valid(), form.errors
+        form.save()
+        app.refresh_from_db()
+        assert app.provisioning.rate_limits == {"account_requests": -1}
 
     @parameterized.expand(
         [
@@ -188,3 +202,40 @@ class TestOAuthApplicationAdmin(BaseTest):
         app = OAuthApplication(is_cimd_client=is_cimd)
         readonly = self.admin.get_readonly_fields(request=None, obj=app)
         assert ("scopes" in readonly) is expected_readonly
+
+    @parameterized.expand(
+        [
+            ("cimd_url", "https://partner.example.com/.well-known/oauth-client-metadata", True),
+            ("opaque", "IqK3fT9vBs2LwQ8xNc4Zr7Hd", False),
+        ]
+    )
+    def test_new_app_cannot_take_a_cimd_shaped_client_id(self, _name, client_id, expects_error):
+        # A metadata refresh writes the document's redirect URIs and auth settings onto the row
+        # holding that URL. An operator who could type one here would point a partner's document
+        # at an app registered by hand.
+        request = RequestFactory().get("/")
+        request.user = self.user
+        form_class = self.admin.get_form(request, None, change=False)
+        form = form_class(data={"name": "Manually registered app", "client_id": client_id})
+        form.is_valid()
+        assert ("client_id" in form.errors) is expects_error
+
+    @parameterized.expand(
+        [
+            ("add_form", False),
+            ("change_form", True),
+        ]
+    )
+    def test_cimd_identity_fields_are_not_editable(self, _name, change):
+        # An operator who could turn on is_cimd_client would hand the next metadata refresh
+        # an app that no partner registered.
+        app = OAuthApplication(is_cimd_client=False) if change else None
+        request = RequestFactory().get("/")
+        # A user without change permission gets an empty change form, which would pass this
+        # assertion without proving anything.
+        self.user.is_staff = True
+        request.user = self.user
+        form_class = self.admin.get_form(request, app, change=change)
+        assert "name" in form_class.base_fields
+        editable = [name for name in ("is_cimd_client", "is_dcr_client") if name in form_class.base_fields]
+        assert editable == []

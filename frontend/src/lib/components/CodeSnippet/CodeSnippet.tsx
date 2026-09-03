@@ -46,6 +46,8 @@ export enum Language {
     Kotlin = 'kotlin',
     Groovy = 'groovy',
     CSharp = 'csharp',
+    Lua = 'lua',
+    VBNet = 'vbnet',
     TypeScript = 'typescript',
     HCL = 'terraform',
     Rust = 'rust',
@@ -101,6 +103,14 @@ export const getLanguage = (lang: string): Language => {
             return Language.Kotlin
         case 'groovy':
             return Language.Groovy
+        case 'lua':
+        case 'luau':
+            return Language.Lua
+        case 'vb':
+        case 'vbnet':
+            return Language.VBNet
+        case 'objectivecpp':
+            return Language.ObjectiveC
         case 'hcl':
             return Language.HCL
         case 'rust':

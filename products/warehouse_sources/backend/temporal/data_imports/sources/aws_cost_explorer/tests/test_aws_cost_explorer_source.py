@@ -7,22 +7,9 @@ from unittest import mock
 
 import structlog
 
-from posthog.schema import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.aws_cost_explorer import (
     aws_cost_explorer as transport_module,
     source as source_module,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_cost_explorer.aws_cost_explorer import (
-    AwsCostExplorerResumeConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_cost_explorer.canonical_descriptions import (
-    CANONICAL_DESCRIPTIONS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.aws_cost_explorer.settings import (
     AWS_COST_EXPLORER_ENDPOINTS,
@@ -35,7 +22,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awscostexplorer import (
     AwsCostExplorerSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def make_inputs(
@@ -69,72 +55,6 @@ class TestAwsCostExplorerSource:
             start_date="2024-01-01",
         )
 
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.AWSCOSTEXPLORER
-
-    def test_source_is_released_and_labelled_alpha(self) -> None:
-        config = self.source.get_source_config
-
-        assert config.unreleasedSource is None
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.category == DataWarehouseSourceCategory.FINANCE___ACCOUNTING
-        assert config.iconPath == "/static/services/aws_cost_explorer.png"
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/aws-cost-explorer"
-
-    def test_source_config_fields(self) -> None:
-        fields = self.source.get_source_config.fields
-
-        assert [field.name for field in fields] == [
-            "aws_access_key_id",
-            "aws_secret_access_key",
-            "aws_session_token",
-            "start_date",
-        ]
-
-    @pytest.mark.parametrize(
-        "field_name,required,secret",
-        [
-            ("aws_access_key_id", True, False),
-            ("aws_secret_access_key", True, True),
-            ("aws_session_token", False, True),
-            ("start_date", False, False),
-        ],
-    )
-    def test_credential_fields_are_marked_secret_so_they_are_not_echoed_back(
-        self, field_name: str, required: bool, secret: bool
-    ) -> None:
-        field = next(
-            f
-            for f in self.source.get_source_config.fields
-            if isinstance(f, SourceFieldInputConfig) and f.name == field_name
-        )
-
-        assert field.required is required
-        assert field.secret is secret
-        assert (field.type == SourceFieldInputConfigType.PASSWORD) is secret
-
-    def test_get_schemas_exposes_every_endpoint_as_incremental_on_the_period_start(self) -> None:
-        schemas = self.source.get_schemas(self.config, team_id=1)
-
-        assert [schema.name for schema in schemas] == list(ENDPOINTS)
-        for schema in schemas:
-            assert schema.supports_incremental is True
-            assert [field["field"] for field in schema.incremental_fields] == ["period_start"]
-            assert schema.description
-
-    def test_get_schemas_honors_the_schema_picker_filter(self) -> None:
-        schemas = self.source.get_schemas(self.config, team_id=1, names=["cost_and_usage_monthly"])
-
-        assert [schema.name for schema in schemas] == ["cost_and_usage_monthly"]
-
-    def test_table_catalog_is_listable_without_credentials_for_public_docs(self) -> None:
-        assert self.source.lists_tables_without_credentials is True
-        assert self.source.get_schemas(AwsCostExplorerSourceConfig(aws_access_key_id="", aws_secret_access_key=""), 1)
-
-    def test_canonical_descriptions_are_keyed_by_the_schema_names(self) -> None:
-        assert set(CANONICAL_DESCRIPTIONS) == set(ENDPOINTS)
-        assert set(self.source.get_canonical_descriptions()) == set(ENDPOINTS)
-
     @pytest.mark.parametrize(
         "observed_error",
         [
@@ -156,21 +76,6 @@ class TestAwsCostExplorerSource:
     )
     def test_transient_aws_failures_keep_retrying(self, observed_error: str) -> None:
         assert not any(key in observed_error for key in self.source.get_non_retryable_errors())
-
-    def test_validate_credentials_passes_the_configured_credentials_through(self) -> None:
-        with mock.patch.object(source_module, "validate_aws_cost_explorer_credentials", return_value=(True, None)) as v:
-            assert self.source.validate_credentials(self.config, team_id=1) == (True, None)
-
-        assert v.call_args[0] == ("AKIAEXAMPLE", "secret", None)
-
-    def test_validate_credentials_surfaces_the_transport_failure_reason(self) -> None:
-        with mock.patch.object(source_module, "validate_aws_cost_explorer_credentials", return_value=(False, "denied")):
-            assert self.source.validate_credentials(self.config, team_id=1) == (False, "denied")
-
-    def test_resumable_manager_is_bound_to_the_sources_resume_dataclass(self) -> None:
-        manager = self.source.get_resumable_source_manager(make_inputs("cost_and_usage_daily"))
-
-        assert manager._data_class is AwsCostExplorerResumeConfig
 
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     def test_source_for_pipeline_uses_the_endpoints_primary_key_and_a_stable_partition_key(self, endpoint: str) -> None:

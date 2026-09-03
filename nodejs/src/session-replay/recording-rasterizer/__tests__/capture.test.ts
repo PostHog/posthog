@@ -293,6 +293,26 @@ describe('capturePlayback', () => {
         })
     })
 
+    it('treats a stop at the trim frame limit as completion, not an abort', async () => {
+        const player = mockPlayer()
+        // ffmpeg's -t can exit before the loop observes trimFrameLimit; previously this raced into
+        // a retryable CAPTURE_ABORTED that re-rendered an already-complete video.
+        mockRecorder.waitForTimeout.mockImplementation(() => {
+            simulateFrames(30)
+            const onCall = mockRecorder.on.mock.calls.find(([event]: [string]) => event === 'captureStopped')
+            onCall?.[1]()
+        })
+
+        const result = await capturePlayback(
+            player,
+            baseCaptureConfig({ trim: 10, trimFrameLimit: 30, outputFps: 3 }),
+            outputPath,
+            jest.fn()
+        )
+        expect(result.frame_count).toBe(30)
+        expect(result.truncated).toBe(false)
+    })
+
     it('removes captureStopped listener and page listeners in finally block', async () => {
         const player = mockPlayer({ isEnded: jest.fn().mockReturnValue(true) })
 

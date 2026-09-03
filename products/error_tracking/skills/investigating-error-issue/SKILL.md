@@ -365,3 +365,10 @@ Keep the synthesis tight. The user wants the answer, not a tour of the data.
 - If `query-error-tracking-issue` returns an `external_issues` array, the issue
   is already linked to a Linear / Jira / GitHub ticket. Mention the link in the
   synthesis so the user doesn't open a duplicate.
+
+## Related skills
+
+- **`triaging-error-issues`** — step back from one issue to ranking which open issues deserve attention
+- **`finding-replay-for-issue`** — watch session recordings linked to this issue's exceptions
+- **`grouping-noisy-errors`** — when the issue is polluted by wrongly-grouped fingerprints, or its events are sprayed across duplicates
+- **`authoring-error-tracking-alerts`** — get notified when this kind of issue is created, reopens, or spikes

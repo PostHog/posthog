@@ -70,7 +70,7 @@ export function ScoutRowCard({
         <Flex align="center" gap="2" className="min-w-0 flex-1">
           {linkToDetail ? (
             <Link
-              to="/code/agents/scouts/$skillName"
+              to="/agents/scouts/$skillName"
               params={{ skillName: scoutSkillSlug(config.skill_name) }}
               className={`flex min-w-0 items-center gap-2 no-underline ${
                 settingsOpen ? "" : "after:absolute after:inset-0"

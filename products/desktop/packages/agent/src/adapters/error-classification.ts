@@ -5,9 +5,13 @@ export type AgentErrorClassification =
   | "upstream_connection_error"
   | "upstream_timeout"
   | "upstream_provider_failure"
+  | "content_block_rejection"
+  | "turn_ended_without_response"
   | "agent_error";
 
 const UPSTREAM_PROVIDER_ERROR_STATUS_PATTERN = /API Error:\s*(?:429|5\d\d)\b/i;
+const TURN_ENDED_WITHOUT_RESPONSE_PATTERN =
+  /\[ede_diagnostic\]\s+result_type=user\b/i;
 
 /**
  * Classify error strings surfaced by agent adapters. Transient upstream
@@ -39,11 +43,22 @@ export function classifyAgentError(
   if (/API Error:\s*Connection error\b/i.test(text)) {
     return "upstream_connection_error";
   }
+  // An idle cloud sandbox can be reclaimed between turns. A later follow-up
+  // reaches the old ACP transport before the host resumes a replacement run.
+  if (/^ACP connection closed$/i.test(text)) {
+    return "upstream_connection_error";
+  }
   if (/API Error:.*\b(?:timed out|timeout)\b/i.test(text)) {
     return "upstream_timeout";
   }
   if (UPSTREAM_PROVIDER_ERROR_STATUS_PATTERN.test(text)) {
     return "upstream_provider_failure";
+  }
+  if (/API Error:\s*Content block\b/i.test(text)) {
+    return "content_block_rejection";
+  }
+  if (TURN_ENDED_WITHOUT_RESPONSE_PATTERN.test(text)) {
+    return "turn_ended_without_response";
   }
   return "agent_error";
 }

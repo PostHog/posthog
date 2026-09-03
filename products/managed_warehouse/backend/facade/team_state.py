@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from products.managed_warehouse.backend.facade.contracts import (
+    DucklingTables,
     ManagedWarehouseBackfillState,
     ManagedWarehouseTeamMembership,
 )
@@ -18,7 +19,7 @@ __all__ = [
 ]
 
 
-def resolve_events_persons_tables(team_id: int) -> tuple[str, str]:
+def resolve_events_persons_tables(team_id: int) -> DucklingTables:
     from products.managed_warehouse.backend import team_state
 
     return team_state.resolve_events_persons_tables(team_id)

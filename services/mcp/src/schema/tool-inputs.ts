@@ -11,6 +11,35 @@ export const ChannelInstructionsBaseVersionSchema = z
     .max(9007199254740991)
     .describe('Version returned by channel-instructions-retrieve. Use 0 when the channel has no instructions.')
 
+const DashboardTileLayoutSchema = z.object({
+    x: z.number().int().min(0).optional(),
+    y: z.number().int().min(0).optional(),
+    w: z.number().int().min(1).optional(),
+    h: z.number().int().min(1).optional(),
+})
+
+export const DashboardTileCreateSchema = z.object({
+    id: z.number().int().positive().describe('Dashboard ID. Use dashboard-get or dashboards-get-all to find it.'),
+    type: z
+        .enum(['text', 'image'])
+        .describe('Tile type. Use text for Markdown content. Use image for a body with exactly one Markdown image.'),
+    body: z
+        .string()
+        .min(1)
+        .max(4000)
+        .describe(
+            'Markdown body. For image, provide exactly one Markdown image. For text, provide Markdown content that is not an image-only body.'
+        ),
+    layouts: z
+        .object({
+            sm: DashboardTileLayoutSchema.optional(),
+            xs: DashboardTileLayoutSchema.optional(),
+        })
+        .optional()
+        .describe('Optional dashboard-grid layout for desktop (sm) and mobile (xs).'),
+    color: z.string().max(400).nullable().optional().describe('Optional tile accent color.'),
+})
+
 export const BusinessKnowledgeUrlSourceCreateSchema = z.object({
     name: z
         .string()
@@ -47,7 +76,7 @@ export const ExternalDataJobsSchemasSchema = z
 export const ExternalDataSourcePayloadSchema = z
     .record(z.string(), z.unknown())
     .describe(
-        'Connection credentials for the source. Keys depend on source_type. For database sources: host, port, database, user, password, schema. For SaaS sources: api_key or OAuth fields. For source_type "Custom" (a user-defined REST API): `manifest_json` (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type declared in the manifest — `auth_token` (bearer), `auth_api_key` (api_key), or `auth_password` (http_basic); keep secrets in these auth_* keys, never inline in manifest_json. Use external-data-sources-wizard (pass source_type) to see required fields per source type. For the advanced external-data-sources-create flow, the per-table \'schemas\' array (built from external-data-sources-db-schema) also goes in here, e.g. {"host": ..., "password": ..., "schemas": [{"name": "orders", "should_sync": true, "sync_type": "incremental", "incremental_field": "updated_at", "incremental_field_type": "datetime"}]}. Do not pass unresolved {"secretRef": ...} objects — resolve secrets to real values first, or use a credential_id from data-warehouse-source-connect-link.'
+        'Connection credentials for the source. Keys depend on source_type. For database sources: host, port, database, user, password, schema. For SaaS sources: api_key or OAuth fields. For source_type "Custom" (a user-defined REST API): `manifest_json` (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type declared in the manifest — `auth_token` (bearer), `auth_api_key` (api_key), or `auth_password` (http_basic); keep secrets in these auth_* keys, never inline in manifest_json. Use external-data-sources-wizard (pass source_type) to see required fields per source type. For the advanced external-data-sources-create flow, the per-table \'schemas\' array (built from external-data-sources-db-schema) also goes in here, e.g. {"host": ..., "password": ..., "schemas": [{"name": "orders", "should_sync": true, "sync_type": "incremental", "incremental_field": "updated_at", "incremental_field_type": "datetime"}]}. That array is optional: omit it and every discovered table syncs with default settings. Do not pass unresolved {"secretRef": ...} objects — resolve secrets to real values first, or use a credential_id from data-warehouse-source-connect-link.'
     )
 
 export const ExternalDataSourceTypeSchema = z
@@ -177,6 +206,43 @@ export const PromptListInputSchema = z.object({
             "Controls how much prompt content is included in list results. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely."
         ),
 })
+
+export const ReportInboxInputSchema = z
+    .object({
+        view: z
+            .enum(['actionable', 'needs_input', 'monitoring', 'resolved', 'dismissed', 'not_actionable', 'all'])
+            .default('actionable')
+            .describe('Inbox section to return. Defaults to actionable reports that are ready to pick up.'),
+        scope: z
+            .enum(['for_me', 'entire_project', 'teammate'])
+            .default('entire_project')
+            .describe('Limit results by suggested reviewer, or search the entire project.'),
+        teammate_uuid: z.string().uuid().optional().describe('PostHog user UUID required when scope is teammate.'),
+        priorities: z
+            .array(z.enum(['P0', 'P1', 'P2', 'P3', 'P4']))
+            .optional()
+            .describe(
+                "Priorities to include. When omitted, uses the requesting user's personal PR-generation threshold, falling back to the project threshold."
+            ),
+        source_products: z.array(z.string()).optional(),
+        scouts: z.array(z.string()).optional().describe('Scout skill_name slugs to include.'),
+        search: z.string().optional().describe('Case-insensitive substring match against report title and summary.'),
+        sort: z.enum(['priority', 'last_updated', 'newest', 'oldest']).default('priority'),
+        limit: z.number().int().min(1).max(10).default(10),
+        offset: z.number().int().min(0).optional(),
+    })
+    .superRefine((data, context) => {
+        if (data.scope === 'teammate' && !data.teammate_uuid) {
+            context.addIssue({ code: 'custom', path: ['teammate_uuid'], message: 'Required when scope is teammate.' })
+        }
+    })
+    .transform(({ priorities, source_products, scouts, ...query }) => ({
+        ...query,
+        priority: priorities?.join(','),
+        use_priority_preference: priorities === undefined ? true : undefined,
+        source_product: source_products?.join(','),
+        scout: scouts?.join(','),
+    }))
 
 export const FeedbackSubmitSchema = z
     .object({
@@ -418,10 +484,15 @@ export const OrganizationGetAllSchema = z.object({})
 
 export const ProjectGetAllSchema = z.object({})
 
+const EventDefinitionTagSchema = z
+    .string()
+    .max(255)
+    .refine((tag) => tag.trim().toLowerCase().length <= 255, 'Tag must be at most 255 characters after normalization')
+
 export const EventDefinitionUpdateInputSchema = z.object({
     description: z.string().optional().describe('Description explaining when the event is triggered'),
     tags: z
-        .array(z.string())
+        .array(EventDefinitionTagSchema)
         .optional()
         .describe(
             'Tags to organize events by product area (e.g. "checkout", "onboarding") or user journey stage (e.g. "acquisition", "activation", "monetization", "retention")'
@@ -439,6 +510,11 @@ export const EventDefinitionUpdateInputSchema = z.object({
 export const EventDefinitionUpdateSchema = z.object({
     eventName: z.string().describe('The name of the event to update (e.g. "$pageview", "user_signed_up")'),
     data: EventDefinitionUpdateInputSchema.describe('The event definition data to update'),
+})
+
+export const EventDefinitionCreateSchema = z.object({
+    eventName: z.string().min(1).max(400).describe('The name of the event to create (e.g. "user_signed_up")'),
+    data: EventDefinitionUpdateInputSchema.optional().describe('Optional metadata for the new event definition'),
 })
 
 export const PropertyDefinitionUpdateInputSchema = z.object({
@@ -480,7 +556,7 @@ export const PropertyDefinitionUpdateSchema = z.object({
 const PathCleaningAliasField = z
     .string()
     .describe(
-        'The human-readable replacement, e.g. "/users/<id>/profile". Use angle-bracket placeholders (<id>, <uuid>, <slug>) by convention. An empty string is valid — it deletes the matched text (e.g. to strip a "?page=N" fragment). Not a regex template — backreferences are not supported.'
+        'The replacement for the matched path, e.g. "/users/<id>/profile". Default to angle-bracket placeholders (<id>, <uuid>, <slug>) by convention. An empty string is valid: it deletes the matched text (e.g. to strip a "?page=N" fragment). The alias can also reference a regex capture group with ClickHouse replaceRegexpAll syntax ("\\1" to "\\9" for a group, "\\0" for the whole match), but a rule with capture groups is roughly 3x more expensive per row, so only use one when it collapses several near-identical rules into one.'
     )
 const PathCleaningRegexField = z
     .string()
@@ -639,7 +715,7 @@ const ReadActionSamplePropertyValuesQuerySchema = z.object({
     property_name: z.string().describe('Verified property name of an action.'),
 })
 
-export const ReadDataSchemaSchema = z.object({
+const ReadDataSchemaBodySchema = z.object({
     query: z
         .discriminatedUnion('kind', [
             ReadEventsQuerySchema,
@@ -652,6 +728,42 @@ export const ReadDataSchemaSchema = z.object({
         ])
         .describe('The data schema query to execute.'),
 })
+
+// Person and session properties are read through `entity_properties`, but the two names below
+// read so naturally next to `event_properties` that callers keep sending them. Accept them:
+// the call says exactly what it wants, and a rejection costs the caller a whole round trip.
+const READ_DATA_SCHEMA_KIND_ALIASES: Record<string, { kind: string; entity: string }> = {
+    person_properties: { kind: 'entity_properties', entity: 'person' },
+    session_properties: { kind: 'entity_properties', entity: 'session' },
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+/**
+ * Accept a call that puts the query fields at the top level (`{kind, event_name}`) instead of
+ * under `query`, and an aliased `kind`. Both say exactly what they want, so a rejection only
+ * costs the caller a round trip. `query` still wins whenever it is an object, so a well-formed
+ * call is never reinterpreted.
+ *
+ * Same `z.preprocess` seam as `normalizeParamAliases`, and transparent to JSON Schema output
+ * for the same reason: the advertised shape stays the wrapped one.
+ */
+function normalizeReadDataSchemaInput(input: unknown): unknown {
+    if (!isRecord(input)) {
+        return input
+    }
+    const { query, ...topLevel } = input
+    const source = isRecord(query) ? query : typeof topLevel['kind'] === 'string' ? topLevel : query
+    if (!isRecord(source)) {
+        return input
+    }
+    const alias = typeof source['kind'] === 'string' ? READ_DATA_SCHEMA_KIND_ALIASES[source['kind']] : undefined
+    return { query: alias ? { ...source, ...alias } : source }
+}
+
+export const ReadDataSchemaSchema = z.preprocess(normalizeReadDataSchemaInput, ReadDataSchemaBodySchema)
 
 // Mirrors the Django serializer's `validate` rule so the MCP layer fails fast
 // instead of forwarding an empty/ambiguous body and waiting for a 400.

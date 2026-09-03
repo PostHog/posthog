@@ -1,10 +1,11 @@
 import type { ReadFileAsBase64 } from "@posthog/core/editor/cloud-prompt";
+import { base64ToText } from "@posthog/core/files/base64";
+import type { FileReadClient } from "@posthog/core/files/identifiers";
 import type {
   BundleLocalSkill,
   ResolveSkillBundleDependencies,
 } from "@posthog/core/sessions/cloudArtifactIdentifiers";
 import type {
-  FileReadClient,
   GithubPrTitleClient,
   TitleGeneratorLogger,
 } from "@posthog/core/sessions/titleGeneratorIdentifiers";
@@ -84,10 +85,23 @@ export const webBundleLocalSkill: BundleLocalSkill = async (ref) => {
 export const webResolveSkillBundleDependencies: ResolveSkillBundleDependencies =
   (refs) => Promise.resolve(refs);
 
-// Title generator reads referenced files to enrich the title prompt; none exist
-// locally on web.
-export const webTitleGeneratorFileReadClient: FileReadClient = {
-  readAbsoluteFile: () => Promise.resolve(null),
+// Naming a task reads the text a user pasted or dropped into the composer. Web
+// has no filesystem, but that text is already in the attachment store under the
+// same synthetic id, so decode it back from the stored bytes. Anything not in
+// the store — a real path carried by a cloud task made on desktop — stays
+// unreadable here.
+export const webFileReadClient: FileReadClient = {
+  readAbsoluteFile: (filePath: string) => {
+    const base64 = getWebAttachmentBase64(filePath);
+    if (!base64) {
+      return Promise.resolve(null);
+    }
+    try {
+      return Promise.resolve(base64ToText(base64));
+    } catch {
+      return Promise.resolve(null);
+    }
+  },
 };
 
 export function webTitleGeneratorLogger(

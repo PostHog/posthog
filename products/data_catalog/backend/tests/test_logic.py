@@ -6,12 +6,16 @@ from django.db import IntegrityError
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
+from posthog.constants import AvailableFeature
+
+from products.access_control.backend.models.access_control import AccessControl
 from products.data_catalog.backend.facade.enums import CreatedSource, MetricStatus
 from products.data_catalog.backend.logic import metrics
 from products.data_catalog.backend.logic.drift import compute_drift
 from products.data_catalog.backend.logic.exceptions import MetricDrifted, SourceInsightUnavailable
 from products.data_catalog.backend.logic.metrics import (
     approve_metric,
+    approved_metric_names_for_team,
     refresh_metric_from_insight,
     soft_delete_metric,
     update_metric,
@@ -19,7 +23,7 @@ from products.data_catalog.backend.logic.metrics import (
 )
 from products.data_catalog.backend.logic.validation import MAX_DESCRIPTION_LENGTH, validate_metric_definition
 from products.data_catalog.backend.models import Metric
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 _HOGQL_A = {"kind": "HogQLQuery", "query": "select count() from events"}
 _HOGQL_B = {"kind": "HogQLQuery", "query": "select count() from persons"}
@@ -57,17 +61,16 @@ class TestMetricUpsert(BaseTest):
         assert refined.created_source == CreatedSource.AI_GENERATED
         assert refined.ai_model == "claude"
 
-    def test_upsert_resurrects_soft_deleted_as_proposed(self) -> None:
-        metric = self._upsert("mrr")
-        Metric.objects.for_team(self.team.id).filter(pk=metric.pk).update(status=MetricStatus.APPROVED)
-        metric.refresh_from_db()
+    def test_upsert_after_delete_creates_fresh_metric(self) -> None:
+        metric = self._upsert("mrr", definition=_HOGQL_A)
         soft_delete_metric(metric)
 
-        resurrected = self._upsert("mrr", description="back")
-        assert resurrected.id == metric.id
-        assert resurrected.deleted is False
-        assert resurrected.status == MetricStatus.PROPOSED
-        assert resurrected.description == "back"
+        fresh = self._upsert("mrr", description="fresh")
+        assert fresh.id != metric.id
+        assert fresh.status == MetricStatus.PROPOSED
+        assert fresh.definition is None
+        metric.refresh_from_db()
+        assert metric.deleted is True
 
     @parameterized.expand([("bad name",), ("1leading_digit",), ("has-dash",), ("",)])
     def test_rejects_invalid_names(self, name: str) -> None:
@@ -103,10 +106,39 @@ class TestMetricUpdate(BaseTest):
         assert updated.description == "v2"
         assert updated.unit == "usd"
 
-    def test_update_rejects_name_change(self) -> None:
+    def test_rename_resets_approval(self) -> None:
+        # Agents pick a metric by matching its name, so moving an approved definition under a new
+        # name needs a fresh review. Catalog write access alone must not rebind an approved handle.
+        metric = upsert_metric(team=self.team, user=self.user, name="mrr", description="v1")
+        metric = approve_metric(metric, self.user)
+
+        renamed = update_metric(metric, team=self.team, user=self.user, name="arr")
+        assert renamed.name == "arr"
+        assert renamed.status == MetricStatus.PROPOSED
+        assert renamed.approved_by_id is None
+        assert renamed.approved_at is None
+
+    @parameterized.expand([("bad name",), ("1leading_digit",), ("has-dash",), ("",)])
+    def test_rename_rejects_invalid_names(self, name: str) -> None:
         metric = upsert_metric(team=self.team, user=self.user, name="mrr", description="v1")
         with self.assertRaises(ValidationError):
+            update_metric(metric, team=self.team, user=self.user, name=name)
+
+    def test_rename_rejects_live_taken_name(self) -> None:
+        upsert_metric(team=self.team, user=self.user, name="arr", description="taken")
+        metric = upsert_metric(team=self.team, user=self.user, name="mrr", description="v1")
+        with self.assertRaises(ValidationError) as ctx:
             update_metric(metric, team=self.team, user=self.user, name="arr")
+        assert "name" in ctx.exception.detail
+
+    def test_rename_to_soft_deleted_name_succeeds(self) -> None:
+        tombstone = upsert_metric(team=self.team, user=self.user, name="arr", description="old")
+        soft_delete_metric(tombstone)
+        metric = upsert_metric(team=self.team, user=self.user, name="mrr", description="v1")
+
+        renamed = update_metric(metric, team=self.team, user=self.user, name="arr")
+        assert renamed.name == "arr"
+        assert renamed.id == metric.id
 
     def test_update_rejects_overlong_description(self) -> None:
         metric = upsert_metric(team=self.team, user=self.user, name="mrr", description="v1")
@@ -219,7 +251,7 @@ class TestCreateFromInsight(BaseTest):
         # exfiltrate a restricted insight's query into the metric definition.
         insight = self._insight()
         with patch(
-            "posthog.rbac.user_access_control.UserAccessControl.check_access_level_for_object",
+            "products.access_control.backend.facade.user_access_control.UserAccessControl.check_access_level_for_object",
             side_effect=lambda obj=None, *a, **k: type(obj).__name__ != "Insight",
         ):
             with self.assertRaises(ValidationError):
@@ -293,6 +325,27 @@ class TestApproveMetric(BaseTest):
             approve_metric(stale, self.user)
 
 
+class TestBulkRenameRace(BaseTest):
+    @parameterized.expand(
+        [
+            ("approve", metrics.bulk_approve_metrics, MetricStatus.PROPOSED),
+            ("delete", metrics.bulk_soft_delete_metrics, MetricStatus.PROPOSED),
+        ]
+    )
+    def test_bulk_skips_a_metric_renamed_since_resolution(self, _name: str, bulk_action, expected_status: str) -> None:
+        metric = upsert_metric(team=self.team, user=self.user, name="mrr", description="d", definition=_HOGQL_A)
+        # The caller resolved "mrr" to this row; another writer renames it before the batch locks it.
+        Metric.objects.for_team(self.team.id).filter(pk=metric.pk).update(name="arr")
+
+        acted, skipped = bulk_action([metric], self.user)
+
+        assert acted == []
+        assert [(skip.name, skip.reason) for skip in skipped] == [("mrr", metrics.BULK_SKIP_NOT_FOUND)]
+        current = Metric.objects.for_team(self.team.id).get(pk=metric.pk)
+        assert current.status == expected_status
+        assert current.deleted is False
+
+
 class TestRefreshFromInsight(BaseTest):
     def _insight(self, query: dict | None = None) -> Insight:
         return Insight.objects.create(team=self.team, created_by=self.user, query=query or _HOGQL_A)
@@ -327,7 +380,7 @@ class TestRefreshFromInsight(BaseTest):
             team=self.team, user=self.user, name="mrr", description="d", source_insight_short_id=insight.short_id
         )
         with patch(
-            "posthog.rbac.user_access_control.UserAccessControl.check_access_level_for_object",
+            "products.access_control.backend.facade.user_access_control.UserAccessControl.check_access_level_for_object",
             side_effect=lambda obj=None, *a, **k: type(obj).__name__ != "Insight",
         ):
             with self.assertRaises(ValidationError):
@@ -471,3 +524,42 @@ class TestUpdateInsightLink(BaseTest):
                 definition=_HOGQL_A,
                 source_insight_short_id=self._insight().short_id,
             )
+
+
+class TestApprovedMetricSummaries(BaseTest):
+    def test_only_approved_non_drifted_metric_names_are_listed(self) -> None:
+        approved = upsert_metric(
+            team=self.team,
+            user=self.user,
+            name="mrr",
+            display_name="MRR",
+            description="Monthly recurring revenue",
+            unit="usd",
+            definition=_HOGQL_A,
+        )
+        approve_metric(approved, self.user)
+
+        upsert_metric(team=self.team, user=self.user, name="proposed_only", description="d", definition=_HOGQL_A)
+
+        removed = upsert_metric(team=self.team, user=self.user, name="removed", description="d", definition=_HOGQL_A)
+        approve_metric(removed, self.user)
+        soft_delete_metric(removed, self.user)
+
+        insight = Insight.objects.create(team=self.team, created_by=self.user, query=_HOGQL_A)
+        drifted = upsert_metric(
+            team=self.team, user=self.user, name="drifted", description="d", source_insight_short_id=insight.short_id
+        )
+        approve_metric(drifted, self.user)
+        Insight.objects.filter(pk=insight.pk).update(query=_HOGQL_B)
+
+        assert approved_metric_names_for_team(self.team, self.user) == ["mrr"]
+
+    def test_names_are_withheld_from_a_caller_without_data_catalog_access(self) -> None:
+        approved = upsert_metric(team=self.team, user=self.user, name="mrr", description="d", definition=_HOGQL_A)
+        approve_metric(approved, self.user)
+        AccessControl.objects.create(team=self.team, resource="data_catalog", access_level="none")
+        self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL, "name": "access"}]
+        self.organization.save()
+
+        assert approved_metric_names_for_team(self.team, self.user) == []
+        assert approved_metric_names_for_team(self.team, None) == ["mrr"]

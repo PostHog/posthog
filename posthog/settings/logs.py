@@ -173,6 +173,10 @@ LOGGING: dict[str, Any] = {
         },
         "posthog.auth.mfa": {"level": "INFO", "handlers": ["console"], "propagate": False},
         "posthog.security.command_exec_audit": {"level": "INFO", "handlers": ["console"], "propagate": False},
+        # The posthoganalytics SDK claims the "posthog" logger name and clamps it to WARNING
+        # at client init, so the source-registry prewarm's INFO lifecycle logs need an
+        # explicit level to be visible.
+        "posthog.warehouse_source_prewarm": {"level": "INFO", "handlers": ["console"], "propagate": False},
         "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load": {
             "level": "DEBUG",
             "handlers": ["console"],

@@ -2,9 +2,9 @@ import { MakeLogicType, kea } from 'kea'
 import { router } from 'kea-router'
 
 import api from 'lib/api'
+import { applyPathCleaning } from 'lib/components/PathCleanFilters/pathCleaningUtils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { isValidRegexp } from 'lib/utils/regexp'
 import { teamLogic } from 'scenes/teamLogic'
 
 import {
@@ -133,12 +133,7 @@ export function applyPathCleaningToFilters(
 }
 
 export function cleanPathnameForDisplay(pathname: string, filters: PathCleaningFilter[]): string {
-    return filters.reduce((cleaned, filter) => {
-        if (!filter.regex || !isValidRegexp(filter.regex)) {
-            return cleaned
-        }
-        return cleaned.replace(new RegExp(filter.regex, 'gi'), filter.alias ?? '')
-    }, pathname)
+    return applyPathCleaning(pathname, filters)
 }
 
 export function cleanPageURLForDisplay(url: string, filters: PathCleaningFilter[]): string {

@@ -10,7 +10,7 @@ import type { Task } from "@posthog/shared/domain-types";
 import type React from "react";
 import { useMemo } from "react";
 import { useHostCapabilities } from "../../../shell/useHostCapabilities";
-import { useIsWorkspaceCloudRun } from "../../workspace/useWorkspace";
+import { useIsCloudTask } from "../../workspace/useWorkspace";
 import { useTabInjection } from "../hooks/usePanelLayoutHooks";
 import type { SplitDirection } from "../panelLayoutStore";
 import type { LeafPanel } from "../panelTypes";
@@ -47,7 +47,7 @@ export const LeafNodeRenderer: React.FC<LeafNodeRendererProps> = ({
   onAddTerminal,
   onSplitPanel,
 }) => {
-  const isCloud = useIsWorkspaceCloudRun(taskId);
+  const isCloud = useIsCloudTask(task);
   const { localWorkspaces } = useHostCapabilities();
   // Hide the terminal for cloud runs, and on cloud-only hosts (web).
   const hideTerminal = isCloud || !localWorkspaces;

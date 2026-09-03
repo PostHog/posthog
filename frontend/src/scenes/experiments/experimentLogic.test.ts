@@ -279,6 +279,47 @@ describe('experimentLogic', () => {
         })
     })
 
+    describe('updateExperimentMetrics', () => {
+        it('keeps existing results when saving the metric definitions fails', async () => {
+            const existingResult = experimentMetricResultsSuccessJson.query_status
+                .results as unknown as CachedNewExperimentQueryResponse
+
+            logic.actions.setExperiment(experiment)
+            logic.actions.setPrimaryMetricsResults([existingResult])
+            logic.actions.setPrimaryMetricsResultsErrors([null])
+            jest.spyOn(api, 'update').mockRejectedValueOnce(new Error('network down'))
+
+            await expectLogic(logic, () => logic.actions.updateExperimentMetrics())
+                .toDispatchActions(['updateExperimentFailure'])
+                .toFinishAllListeners()
+
+            expect(logic.values.primaryMetricsResults).toEqual([existingResult])
+            expect(logic.values.primaryMetricsResultsErrors).toEqual([null])
+        })
+    })
+
+    describe('recalculation trigger mapping', () => {
+        // The trigger a config listener sends decides the recalc window: experiment-scoped changes advance it
+        // (recompute all), metric-scoped changes reuse it (cache unchanged metrics). A wrong trigger silently
+        // recomputes everything or skips a needed recompute, so pin each listener to its trigger.
+        beforeEach(() => {
+            logic.actions.setExperiment(experiment)
+            jest.spyOn(api, 'update').mockResolvedValue(experiment)
+        })
+
+        it('changeExperimentStartDate advances the window (experiment_config_change)', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.changeExperimentStartDate('2026-01-01T00:00:00Z')
+            })
+                .toDispatchActions([
+                    (action) =>
+                        action.type === logic.actionTypes.refreshExperimentResults &&
+                        action.payload.triggeredBy === 'experiment_config_change',
+                ])
+                .toFinishAllListeners()
+        })
+    })
+
     describe('currentRefresh tracking', () => {
         it('marks the refresh as in_progress while running and completed when it succeeds', async () => {
             logic.actions.setExperiment(experiment)
@@ -982,7 +1023,13 @@ describe('experimentLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.moveMetricsBetweenSections(false, ['primary-metric-uuid'], [], ['primary-metric-uuid'])
             })
-                .toDispatchActions(['updateExperiment', 'refreshExperimentResults'])
+                .toDispatchActions([
+                    'updateExperiment',
+                    // Moving a metric is metric-scoped: reuse the window so unchanged metrics stay cached.
+                    (action) =>
+                        action.type === logic.actionTypes.refreshExperimentResults &&
+                        action.payload.triggeredBy === 'metric_config_change',
+                ])
                 .toFinishAllListeners()
         })
     })
@@ -1322,6 +1369,54 @@ describe('experimentLogic', () => {
                 { property: '$browser', type: 'event' },
                 { property: '$os', type: 'event' },
             ])
+        })
+
+        it('should update breakdown limit on inline metric', () => {
+            const testExperiment: Experiment = {
+                ...experiment,
+                metrics: [
+                    {
+                        uuid: 'test-metric-uuid',
+                        metric_type: ExperimentMetricType.MEAN,
+                        source: { kind: NodeKind.EventsNode, event: '$pageview' },
+                        breakdownFilter: { breakdowns: [{ property: '$browser', type: 'event' }] },
+                    },
+                ] as unknown as ExperimentMetric[],
+            }
+
+            logic.actions.setExperiment(testExperiment)
+            logic.actions.updateMetricBreakdownLimit('test-metric-uuid', 10)
+
+            const updatedMetric = logic.values.experiment.metrics[0] as ExperimentMetric
+            expect(updatedMetric.breakdownFilter?.breakdown_limit).toEqual(10)
+        })
+
+        it('should update breakdown limit on shared metric metadata', () => {
+            const testExperiment: Experiment = {
+                ...experiment,
+                saved_metrics: [
+                    {
+                        id: 1,
+                        experiment: experiment.id as number,
+                        saved_metric: 123,
+                        name: 'Shared Metric',
+                        query: {
+                            uuid: 'shared-metric-uuid',
+                            kind: NodeKind.ExperimentMetric,
+                            metric_type: ExperimentMetricType.MEAN,
+                            source: { kind: NodeKind.EventsNode, event: '$pageview' },
+                        },
+                        metadata: { type: 'primary', breakdowns: [{ property: '$browser', type: 'event' }] },
+                        created_at: '2024-01-01T00:00:00Z',
+                    } satisfies ExperimentSavedMetric,
+                ],
+                metrics: [],
+            }
+
+            logic.actions.setExperiment(testExperiment)
+            logic.actions.updateMetricBreakdownLimit('shared-metric-uuid', 10)
+
+            expect(logic.values.experiment.saved_metrics[0].metadata.breakdown_limit).toEqual(10)
         })
     })
 
@@ -1926,7 +2021,7 @@ describe('experimentLogic', () => {
         it('shows approval toast and suppresses error toast on 409', async () => {
             const createSpy = jest.spyOn(api, 'create').mockRejectedValue({
                 status: 409,
-                data: { change_request_id: 'cr-123' },
+                data: { change_request_id: 'cr-123', code: 'approval_required' },
             })
             const errorMock = lemonToast.error as jest.Mock
             errorMock.mockClear()
@@ -1945,7 +2040,8 @@ describe('experimentLogic', () => {
             // Should show approval required toast with change request ID
             expect(mockShowApprovalRequiredToast).toHaveBeenCalledWith(
                 'cr-123',
-                'end this experiment and roll out the winning variant'
+                'end this experiment and roll out the winning variant',
+                'approval_required'
             )
             // Should NOT show the generic error toast
             expect(errorMock).not.toHaveBeenCalled()

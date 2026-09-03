@@ -1,3 +1,5 @@
+import { CANVAS_PLATFORM_MANIFEST } from "@posthog/shared";
+
 // The package whitelist for freeform-React canvases (Q16: curated, PostHog-
 // anchored). Every entry is a package the agent may import; anything else is
 // rejected by the static check below. Keep this list SMALL — each entry is
@@ -8,7 +10,7 @@
 // + esm.sh CDN). In published/view mode these resolve to self-hosted, frozen
 // copies instead (Phase 2: the publish/bundle step rewrites the import map); the
 // names stay the same so canvas code is identical across tiers.
-export interface WhitelistEntry {
+interface WhitelistEntry {
   /** The bare import specifier the agent writes, e.g. "recharts". */
   name: string;
   /** Pinned version. Frozen so a canvas can't drift onto a new major. */
@@ -43,7 +45,12 @@ export const FREEFORM_WHITELIST: WhitelistEntry[] = [
   {
     name: "@posthog/quill",
     version: QUILL_VERSION,
-    esm: `${ESM}/@posthog/quill@${QUILL_VERSION}?external=react,react-dom`,
+    // `deps` pins quill's Base UI to the version the canvas builder bundles.
+    // Left floating (quill declares ^1.4.0), esm.sh resolves the newest Base
+    // UI, and its 1.7.0 build emits literal `#prehydration/...` specifiers
+    // that browsers read as URL fragments — the esm.sh homepage comes back as
+    // text/html and the whole quill module graph fails to load.
+    esm: `${ESM}/@posthog/quill@${QUILL_VERSION}?external=react,react-dom&deps=@base-ui/react@1.6.0`,
   },
   // One charting library (the conventional React pick).
   {
@@ -59,6 +66,36 @@ export const FREEFORM_WHITELIST: WhitelistEntry[] = [
   },
   // One formatting/date util.
   { name: "dayjs", version: "1.11.13", esm: `${ESM}/dayjs@1.11.13` },
+  { name: "d3", version: "7.9.0", esm: `${ESM}/d3@7.9.0` },
+  { name: "three", version: "0.179.1", esm: `${ESM}/three@0.179.1` },
+  {
+    name: "framer-motion",
+    version: "12.23.12",
+    esm: `${ESM}/framer-motion@12.23.12?external=react,react-dom`,
+  },
+  { name: "zod", version: "3.25.76", esm: `${ESM}/zod@3.25.76` },
+  {
+    name: "@tanstack/react-table",
+    version: "8.21.3",
+    esm: `${ESM}/@tanstack/react-table@8.21.3?external=react,react-dom`,
+  },
+  {
+    name: "@tanstack/react-virtual",
+    version: "3.14.9",
+    esm: `${ESM}/@tanstack/react-virtual@3.14.9?external=react,react-dom`,
+  },
+  {
+    name: "react-hook-form",
+    version: "7.85.0",
+    esm: `${ESM}/react-hook-form@7.85.0?external=react`,
+  },
+  { name: "lodash-es", version: "4.18.1", esm: `${ESM}/lodash-es@4.18.1` },
+  {
+    name: "react-markdown",
+    version: "10.1.0",
+    esm: `${ESM}/react-markdown@10.1.0?external=react`,
+  },
+  { name: "papaparse", version: "5.6.0", esm: `${ESM}/papaparse@5.6.0` },
 ];
 
 // The CDN host the edit-mode import map (and Babel) load from. The iframe CSP
@@ -86,11 +123,14 @@ export const FREEFORM_BABEL_URL = `${ESM}/@babel/standalone@7.26.4`;
 // self-host it in the bundle. Pinned so a canvas can't drift onto a new major.
 export const FREEFORM_POSTHOG_JS_URL = `${ESM}/posthog-js@1.205.0`;
 
-// Names the agent is allowed to import. Subpath imports (e.g. "dayjs/plugin/x")
-// are allowed when their package root is whitelisted AND the exact subpath is
-// listed; we keep it strict (exact-match only) so a subpath can't smuggle in an
-// unreviewed entry point.
-const ALLOWED_SPECIFIERS = new Set(FREEFORM_WHITELIST.map((e) => e.name));
+// Names the agent is allowed to import, taken from the platform contract so the
+// preview admits exactly what the builder does. It is a superset of
+// FREEFORM_WHITELIST: platform-provided modules like the canvas SDK are
+// importable without a CDN pin. Subpath imports (e.g. "dayjs/plugin/x") must be
+// listed exactly, so a subpath can't smuggle in an unreviewed entry point.
+const ALLOWED_SPECIFIERS = new Set<string>(
+  CANVAS_PLATFORM_MANIFEST.allowedImportSpecifiers,
+);
 
 // The import map handed to the iframe so bare specifiers resolve to the pinned
 // modules. Edit mode -> esm.sh; view mode (Phase 2) will pass self-hosted URLs.

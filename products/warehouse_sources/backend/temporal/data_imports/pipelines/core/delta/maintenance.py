@@ -1,5 +1,6 @@
 import json
 import asyncio
+import datetime as dt
 from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
@@ -56,6 +57,11 @@ DEFAULT_COMPACT_TARGET_SIZE_BYTES = 100 * 1024 * 1024
 # can't be avoided at any reasonable bin size still surfaces to error tracking instead of looping.
 COMPACT_OFFSET_OVERFLOW_RETRIES = 3
 
+# How long a tombstoned file survives before vacuum may delete it. Readers that pin an older
+# table version must stay inside this window — see MAX_SNAPSHOT_ROLLBACK in the fan-out
+# warehouse-parent reader, which derives its bound from this value.
+VACUUM_RETENTION = dt.timedelta(hours=24)
+
 
 class DeltaMaintenance:
     """Compaction, vacuuming, and the vacuum-watermark cadence for one schema's Delta table.
@@ -77,7 +83,11 @@ class DeltaMaintenance:
         # conflict checker as merge/optimize.compact — see execute_with_conflict_retry.
         vacuum_stats = await execute_with_conflict_retry(
             table,
-            lambda: table.vacuum(retention_hours=24, enforce_retention_duration=False, dry_run=False),
+            lambda: table.vacuum(
+                retention_hours=int(VACUUM_RETENTION.total_seconds() // 3600),
+                enforce_retention_duration=False,
+                dry_run=False,
+            ),
             "vacuum_table",
             self._logger,
         )

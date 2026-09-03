@@ -481,7 +481,7 @@ async def execute_session_hog_eval_activity(inputs: ExecuteSessionEvaluationInpu
     if skip_reason or result is None:
         return build_session_skip_result(allows_na, skip_reason or "session_not_found")
 
-    return finalize_hog_eval_result(result, allows_na=allows_na, unit_label="session")
+    return finalize_hog_eval_result(result, evaluation=evaluation, allows_na=allows_na, unit_label="session")
 
 
 @dataclass
@@ -566,10 +566,10 @@ def _session_io_preview(traces: list[LLMTrace]) -> tuple[str, str]:
     output_preview = ""
     for trace in traces:
         for event in trace.events or []:
-            input_raw, output_raw = extract_event_io(event.event, event.properties)
+            io = extract_event_io(event.event, event.properties)
             if not input_preview:
-                input_preview = extract_text_from_messages(input_raw)[:200]
-            output_text = extract_text_from_messages(output_raw)[:200]
+                input_preview = extract_text_from_messages(io.input_raw)[:200]
+            output_text = extract_text_from_messages(io.output_raw)[:200]
             if output_text:
                 output_preview = output_text
     return input_preview, output_preview

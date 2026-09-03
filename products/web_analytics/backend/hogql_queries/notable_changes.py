@@ -18,6 +18,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from products.web_analytics.backend.hogql_queries.pre_aggregated.properties import STATS_TABLE_SUPPORTED_FILTERS
 from products.web_analytics.backend.hogql_queries.pre_aggregated.query_builder import (
+    PeriodFilters,
     WebAnalyticsPreAggregatedQueryBuilder,
 )
 from products.web_analytics.backend.hogql_queries.web_analytics_query_runner import WebAnalyticsQueryRunner
@@ -247,12 +248,12 @@ class _NotableChangesPreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBui
         super().__init__(runner=runner, supported_props_filters=STATS_TABLE_SUPPORTED_FILTERS)
 
     def get_query(self) -> Union[ast.SelectQuery, ast.SelectSetQuery]:
-        previous_period_filter, current_period_filter = self.get_date_ranges()
+        period_filters = self.get_date_ranges()
         table_name = self.stats_table
 
         subqueries: list[ast.SelectQuery] = []
         for dim in DIMENSIONS:
-            subquery = self._build_dimension_subquery(dim, table_name, current_period_filter, previous_period_filter)
+            subquery = self._build_dimension_subquery(dim, table_name, period_filters=period_filters)
             subqueries.append(subquery)
 
         return ast.SelectSetQuery.create_from_queries(subqueries, "UNION ALL")
@@ -261,8 +262,8 @@ class _NotableChangesPreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBui
         self,
         dim: DimensionConfig,
         table_name: str,
-        current_period_filter: ast.Expr,
-        previous_period_filter: ast.Expr,
+        *,
+        period_filters: PeriodFilters,
     ) -> ast.SelectQuery:
         label = dim["label"]
 
@@ -281,11 +282,11 @@ class _NotableChangesPreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBui
 
         current_visitors = ast.Call(
             name="uniqMergeIf",
-            args=[ast.Field(chain=["persons_uniq_state"]), current_period_filter],
+            args=[ast.Field(chain=["persons_uniq_state"]), period_filters.current_period],
         )
         previous_visitors = ast.Call(
             name="uniqMergeIf",
-            args=[ast.Field(chain=["persons_uniq_state"]), previous_period_filter],
+            args=[ast.Field(chain=["persons_uniq_state"]), period_filters.previous_period],
         )
 
         filters = self._get_filters(table_name=table_name)

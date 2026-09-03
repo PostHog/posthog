@@ -15,7 +15,7 @@ rules:
                   end: datetime
 
           If mutability is intentional, say so explicitly with `@dataclass(frozen=False, ...)`.
-          The `posthog/test/test_dataclass_defaults.py` ratchet blocks new undeclared uses;
+          The `posthog/test/repo_invariants/test_dataclass_defaults.py` ratchet blocks new undeclared uses;
           existing ones are grandfathered in its baseline and migrated over time.
           Informational, not blocking. For a genuine exception, add
           `# nosemgrep: prefer-frozen-dataclasses -- <reason>` on the class line.
@@ -31,6 +31,10 @@ rules:
           exclude:
               - '**/migrations/**'
               - '**/.semgrep/**'
+              # Standalone PEP 723 script bundle. Other repos vendor it, and it runs from a
+              # sandbox checkout. It cannot import posthog.dataclasses, so the house decorator that
+              # this rule points at is unavailable to it.
+              - '**/packages/pr-approval-agent/**'
       patterns:
           - pattern-either:
                 # Bare @dataclass is ambiguous: skip it when pydantic's decorator

@@ -468,7 +468,7 @@ class SnowflakeTable(Table):
         return self
 
 
-@dataclasses.dataclass(kw_only=True)
+@dataclasses.dataclass(frozen=False, kw_only=True)
 class SnowflakeInsertInputs(BatchExportInsertInputs):
     """Inputs for Snowflake."""
 
@@ -486,9 +486,9 @@ class SnowflakeInsertInputs(BatchExportInsertInputs):
     user: str | None = None
     account: str | None = None
     authentication_type: str = "password"
-    password: str | None = None
-    private_key: str | None = None
-    private_key_passphrase: str | None = None
+    password: str | None = dataclasses.field(default=None, repr=False)
+    private_key: str | None = dataclasses.field(default=None, repr=False)
+    private_key_passphrase: str | None = dataclasses.field(default=None, repr=False)
     role: str | None = None
 
 
@@ -634,7 +634,9 @@ class SnowflakeClient:
                     # wrap role in quotes in case it contains lowercase or special characters
                     role=f'"{self.role}"' if self.role is not None else None,
                     private_key=self.private_key,
-                    login_timeout=5,
+                    # Logins can be slow, and a login timeout raises a
+                    # non-retryable connection error, so allow extra time.
+                    login_timeout=20,
                     # Pin Snowflake's per-session statement count to 1 to block
                     # multi-statement execution. This is already the connector default,
                     # but setting it explicitly means an account-level override cannot
@@ -1013,7 +1015,7 @@ class SnowflakeClient:
         file_stream: io.BufferedReader | io.BytesIO
         if isinstance(file, BatchExportTemporaryFile):
             file.rewind()
-            file_stream = io.BufferedReader(file)  # ty: ignore[invalid-assignment]
+            file_stream = io.BufferedReader(file)
         else:
             file.seek(0)
             file_stream = file

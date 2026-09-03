@@ -17,7 +17,7 @@ from opentelemetry.trace import Status, StatusCode
 
 from posthog.models.scoping import with_team_scope
 
-from ..logic import HashIntegrityError
+from ..logic.errors import HashIntegrityError
 
 logger = structlog.get_logger(__name__)
 TRACER = trace.get_tracer(__name__)
@@ -29,9 +29,9 @@ TRACER = trace.get_tracer(__name__)
 )
 @with_team_scope()
 def emit_run_processing_metrics(team_id: int, run_id: str, outcome: str, diffed_count: int) -> None:
-    from .. import logic  # noqa: PLC0415 — avoids the logic/tasks circular import
+    from ..logic import runs  # noqa: PLC0415 — avoids the logic/tasks circular import
 
-    logic.capture_run_processing_metrics(UUID(run_id), outcome=outcome, diffed_count=diffed_count)
+    runs.capture_run_processing_metrics(UUID(run_id), outcome=outcome, diffed_count=diffed_count)
 
 
 @shared_task(
@@ -53,8 +53,8 @@ def process_run_diffs(self, team_id: int, run_id: str) -> None:
     """
     from posthog.egress.github.transport import GitHubRateLimitError
 
-    from .. import logic
     from ..diffing import count_processed_diffs, process_diffs
+    from ..logic import runs, uploads
 
     run_uuid = UUID(run_id)
     outcome = "completed"
@@ -70,18 +70,18 @@ def process_run_diffs(self, team_id: int, run_id: str) -> None:
             logger.info("visual_review.diff_processing_started", run_id=run_id, team_id=team_id)
 
             with TRACER.start_as_current_span("visual_review.verify_uploads"):
-                logic.verify_uploads_and_create_artifacts(run_uuid)
+                uploads.verify_uploads_and_create_artifacts(run_uuid)
             with TRACER.start_as_current_span("visual_review.process_diffs") as diff_span:
                 diffed_count = process_diffs(run_uuid)
                 diff_span.set_attribute("visual_review.attempt_diffed_count", diffed_count)
             with TRACER.start_as_current_span("visual_review.finish_processing"):
-                logic.finish_processing(run_uuid)
+                runs.finish_processing(run_uuid)
 
             logger.info("visual_review.diff_processing_completed", run_id=run_id, team_id=team_id)
         except HashIntegrityError as e:
             outcome = "hash_integrity_failed"
             logger.warning("visual_review.hash_integrity_failed", run_id=run_id, error=str(e))
-            logic.finish_processing(run_uuid, error_message=str(e))
+            runs.finish_processing(run_uuid, error_message=str(e))
         except GitHubRateLimitError as e:
             outcome = "rate_limited"
             logger.warning(
@@ -92,7 +92,7 @@ def process_run_diffs(self, team_id: int, run_id: str) -> None:
             )
             if self.max_retries is not None and self.request.retries >= self.max_retries:
                 outcome = "rate_limit_exhausted"
-                logic.finish_processing(run_uuid, error_message="GitHub API rate limit exceeded after retries")
+                runs.finish_processing(run_uuid, error_message="GitHub API rate limit exceeded after retries")
             else:
                 retrying = True
                 countdown = e.retry_after or 60
@@ -102,7 +102,7 @@ def process_run_diffs(self, team_id: int, run_id: str) -> None:
             span.set_status(Status(StatusCode.ERROR, str(e)))
             span.record_exception(e)
             logger.exception("visual_review.diff_processing_failed", run_id=run_id, team_id=team_id, error=str(e))
-            logic.finish_processing(run_uuid, error_message=str(e))
+            runs.finish_processing(run_uuid, error_message=str(e))
             raise
         finally:
             span.set_attribute("visual_review.outcome", outcome)
@@ -113,7 +113,7 @@ def process_run_diffs(self, team_id: int, run_id: str) -> None:
                 except Exception:
                     logger.warning("visual_review.diff_count_failed", run_id=run_id, exc_info=True)
                     cumulative_diffed_count = diffed_count
-                logic.capture_run_processing_metrics(run_uuid, outcome=outcome, diffed_count=cumulative_diffed_count)
+                runs.capture_run_processing_metrics(run_uuid, outcome=outcome, diffed_count=cumulative_diffed_count)
 
 
 @shared_task(
@@ -134,12 +134,12 @@ def post_approval_comment(self, team_id: int, run_id: str, add_images: bool = Fa
     """
     from posthog.egress.github.transport import GitHubRateLimitError
 
-    from .. import logic
+    from ..logic import comments
 
     run_uuid = UUID(run_id)
 
     try:
-        logic.post_approval_comment_for_run(run_uuid, team_id=team_id, add_images=add_images)
+        comments.post_approval_comment_for_run(run_uuid, team_id=team_id, add_images=add_images)
     except GitHubRateLimitError as e:
         logger.warning(
             "visual_review.approval_comment_rate_limited",

@@ -2,11 +2,13 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.db import OperationalError
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from ...marketplace.packaging import SPEC_DESCRIPTION_MAX_LENGTH
 from ...models.community_skills import CommunitySkill
-from ..community_skill_sync import sync_community_skills_from_github
+from ..community_skill_sync import _validate_entry_within_caps, sync_community_skills_from_github
 from ..skill_services import MAX_SKILL_BODY_BYTES
 
 
@@ -28,6 +30,22 @@ def _create_community_skill(
         install_count=install_count,
         deleted=deleted,
     )
+
+
+class TestCommunitySkillSyncValidation(SimpleTestCase):
+    def test_description_uses_spec_limit_instead_of_storage_limit(self) -> None:
+        entry = {
+            "slug": "boundary-skill",
+            "name": "Boundary skill",
+            "description": "x" * SPEC_DESCRIPTION_MAX_LENGTH,
+            "body": "# Boundary",
+        }
+
+        _validate_entry_within_caps(entry)
+
+        entry["description"] += "x"
+        with self.assertRaisesRegex(ValueError, f"exceeds the {SPEC_DESCRIPTION_MAX_LENGTH} character limit"):
+            _validate_entry_within_caps(entry)
 
 
 class TestCommunitySkillSync(APIBaseTest):
@@ -147,6 +165,7 @@ class TestCommunitySkillSync(APIBaseTest):
         [
             ("overlong_name", {"name": "n" * 65}),
             ("overlong_slug", {"slug": "s" * 65}),
+            ("overlong_description", {"description": "d" * (SPEC_DESCRIPTION_MAX_LENGTH + 1)}),
             ("overlong_source_sha", {"source_sha": "s" * 65}),
             ("overlong_file_path", {"files": [{"path": "p" * 501, "content": "x"}]}),
             ("overlong_content_type", {"files": [{"path": "a.md", "content": "x", "content_type": "t" * 101}]}),
@@ -312,6 +331,25 @@ class TestCommunitySkillSync(APIBaseTest):
         ):
             with self.assertRaises(OperationalError):
                 sync_community_skills_from_github()
+
+    @patch("products.skills.backend.api.community_skill_sync.github_request")
+    def test_sync_lowercases_tags(self, mock_get) -> None:
+        mock_get.return_value.raise_for_status.return_value = None
+        mock_get.return_value.json.return_value = {
+            "skills": [
+                {
+                    "slug": "web-analytics-triage",
+                    "name": "Web analytics triage",
+                    "description": "Investigate a change in web traffic.",
+                    "body": "# Triage",
+                    "tags": ["Web-Analytics", "SQL"],
+                }
+            ],
+        }
+
+        # Tags are stored lowercased so the case-insensitive tag/search filters match reliably.
+        sync_community_skills_from_github()
+        self.assertEqual(CommunitySkill.objects.get(slug="web-analytics-triage").tags, ["web-analytics", "sql"])
 
     @patch("products.skills.backend.api.community_skill_sync.github_request")
     def test_sync_coerces_unknown_trust_tier_to_community(self, mock_get) -> None:

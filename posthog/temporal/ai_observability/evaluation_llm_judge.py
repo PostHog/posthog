@@ -35,6 +35,7 @@ from products.ai_observability.backend.llm.errors import (
     ContextWindowExceededError,
     ModelNotFoundError,
     ModelPermissionError,
+    ProviderConnectionError,
     QuotaExceededError,
     RateLimitError,
     StructuredOutputParseError,
@@ -242,11 +243,11 @@ def _execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> EvaluationActi
     if _is_errored_trace(properties):
         return _build_errored_trace_result(allows_na)
 
-    input_raw, output_raw = extract_event_io(event_type, properties)
+    io = extract_event_io(event_type, properties)
     tools_raw = extract_event_tools(properties)
 
-    input_data = extract_text_from_messages(input_raw)
-    output_data = extract_text_from_messages(output_raw)
+    input_data = extract_text_from_messages(io.input_raw)
+    output_data = extract_text_from_messages(io.output_raw)
     tools_data = format_tool_definitions(tools_raw)
 
     system_prompt = build_system_prompt(prompt, allows_na)
@@ -308,7 +309,16 @@ def call_llm_judge(
     client = Client(
         provider_key=provider_key,
         config=config,
-        capture_analytics=False,
+        privacy_mode=True,
+        distinct_id=f"team-{team_id}",
+        properties={
+            "ai_product": "aio_evaluations",
+            "ai_feature": "llm-judge",
+            "team_id": team_id,
+            "evaluation_id": evaluation["id"],
+            "$ai_billable": not is_byok,
+            "is_byok": is_byok,
+        },
     )
 
     try:
@@ -407,6 +417,13 @@ def call_llm_judge(
         # Skip rather than raise: retrying can't fix an over-window prompt and just spams error tracking.
         increment_errors("context_window_exceeded", provider=provider)
         return _build_context_window_skip_result(allows_na, is_byok=is_byok, key_id=key_id)
+
+    except ProviderConnectionError:
+        # Transient transport failure (connection reset, read timeout). Retrying usually succeeds,
+        # so track it as a metric and re-raise for the retry policy — without the logger.exception
+        # that would clutter error tracking with a non-actionable issue.
+        increment_errors("connection_error", provider=provider)
+        raise
 
     except Exception as e:
         logger.exception(

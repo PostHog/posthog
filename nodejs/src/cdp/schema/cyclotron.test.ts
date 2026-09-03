@@ -1,5 +1,9 @@
 import { createHogExecutionGlobals } from '../_tests/fixtures'
-import { HogFunctionInvocationGlobalsSchema } from './cyclotron'
+import {
+    CyclotronInvocationQueueParametersEmailSchema,
+    HogFunctionInvocationGlobalsSchema,
+    MAX_WORKFLOW_EMAIL_SENDERS,
+} from './cyclotron'
 
 describe('cyclotron schema', () => {
     describe('HogFunctionInvocationGlobalsSchema', () => {
@@ -34,6 +38,17 @@ describe('cyclotron schema', () => {
             expect(parsed.success).toBe(true)
             expect((parsed as any).data.inputs).toEqual({ url: 'https://x' })
             expect((parsed as any).data.custom).toBe(1)
+        })
+    })
+
+    describe('CyclotronInvocationQueueParametersEmailSchema', () => {
+        it('rejects sender rotations larger than the supported limit', () => {
+            const from = {
+                integrationId: 1,
+                integrationIds: Array.from({ length: MAX_WORKFLOW_EMAIL_SENDERS + 1 }, (_, index) => index + 1),
+            }
+
+            expect(CyclotronInvocationQueueParametersEmailSchema.shape.from.safeParse(from).success).toBe(false)
         })
     })
 })

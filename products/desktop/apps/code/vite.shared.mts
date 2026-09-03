@@ -77,6 +77,10 @@ export const workspaceAliases: Alias[] = [
     replacement: path.resolve(__dirname, "../../packages/api-client/src/$1"),
   },
   {
+    find: /^@posthog\/quick-ask\/(.+)$/,
+    replacement: path.resolve(__dirname, "../../packages/quick-ask/src/$1"),
+  },
+  {
     find: /^@posthog\/ui\/(.+)$/,
     replacement: path.resolve(__dirname, "../../packages/ui/src/$1"),
   },

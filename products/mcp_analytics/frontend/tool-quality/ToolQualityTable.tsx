@@ -13,6 +13,14 @@ import {
     InputGroupAddon,
     InputGroupInput,
     InputGroupText,
+    Pagination,
+    PaginationButton,
+    PaginationContent,
+    PaginationEllipsis,
+    PaginationItem,
+    PaginationNext,
+    PaginationPrevious,
+    Spinner,
     Table,
     TableBody,
     TableCell,
@@ -20,6 +28,8 @@ import {
     TableHead,
     TableHeader,
     TableRow,
+    Text,
+    getPaginationRange,
 } from '@posthog/quill-primitives'
 
 import { TZLabel } from 'lib/components/TZLabel'
@@ -31,28 +41,16 @@ import { pluralize } from 'lib/utils/strings'
 import { formatMs, formatNumber } from '../dashboard/formatters'
 import {
     type SortState,
-    type ToolQualityRow,
+    type ToolQualitySortColumn,
+    TOOL_QUALITY_PAGE_SIZE,
     mcpAnalyticsToolQualityLogic,
     mcpToolReportUrl,
 } from '../mcpAnalyticsToolQualityLogic'
 
 const DESTRUCTIVE_ERROR_PCT = 5
 
-// LIMIT in MCPToolQualityRowsQueryRunner — when the fetched set hits this, more tools may exist.
-const TOOL_ROW_LIMIT = 200
-
-function formatToolCount(filtered: number, total: number): string {
-    if (filtered < total) {
-        return `Showing ${filtered} of ${pluralize(total, 'tool')}`
-    }
-    if (total >= TOOL_ROW_LIMIT) {
-        return `Showing first ${pluralize(total, 'tool')}`
-    }
-    return pluralize(total, 'tool')
-}
-
 interface ColumnSpec {
-    key: keyof ToolQualityRow
+    key: ToolQualitySortColumn
     label: string
     align?: 'left' | 'right'
     tooltip?: string
@@ -74,7 +72,6 @@ const SORTABLE_COLUMNS: ColumnSpec[] = [
     { key: 'last_seen', label: 'Last seen' },
 ]
 
-// Tool column + every sortable column + the trailing "Full report" action, for the skeleton-row colSpan
 const COLUMN_COUNT = SORTABLE_COLUMNS.length + 2
 
 function ErrorRateBadge({ pct }: { pct: number }): JSX.Element {
@@ -91,17 +88,20 @@ function ErrorRateBadge({ pct }: { pct: number }): JSX.Element {
 function SortableHead({
     column,
     sort,
+    loading,
     onSort,
 }: {
     column: ColumnSpec
     sort: SortState
-    onSort: (column: string, direction: 'ASC' | 'DESC') => void
+    loading: boolean
+    onSort: (column: ToolQualitySortColumn, direction: 'ASC' | 'DESC') => void
 }): JSX.Element {
     const isSorted = sort.column === column.key
     const nextDirection = isSorted && sort.direction === 'DESC' ? 'ASC' : 'DESC'
     const head = (
         <button
             type="button"
+            disabled={loading}
             onClick={() => onSort(column.key, nextDirection)}
             className="inline-flex cursor-pointer select-none items-center gap-1"
         >
@@ -110,17 +110,21 @@ function SortableHead({
         </button>
     )
     return (
-        <TableHead align={column.align}>
+        <TableHead
+            align={column.align}
+            aria-sort={isSorted ? (sort.direction === 'DESC' ? 'descending' : 'ascending') : 'none'}
+        >
             {column.tooltip ? <Tooltip title={column.tooltip}>{head}</Tooltip> : head}
         </TableHead>
     )
 }
 
 function ToolRows(): JSX.Element {
-    const { filteredRows, toolRowsLoading, selectedTool, dateFilter } = useValues(mcpAnalyticsToolQualityLogic)
+    const { toolRows, toolRowsPageLoading, selectedTool, dateFilter, pinnedInterval } =
+        useValues(mcpAnalyticsToolQualityLogic)
     const { setSelectedTool } = useActions(mcpAnalyticsToolQualityLogic)
 
-    if (toolRowsLoading && filteredRows.length === 0) {
+    if (toolRowsPageLoading && toolRows.length === 0) {
         return (
             <TableBody>
                 <TableRow>
@@ -135,12 +139,12 @@ function ToolRows(): JSX.Element {
             </TableBody>
         )
     }
-    if (filteredRows.length === 0) {
+    if (toolRows.length === 0) {
         return <TableEmpty className="py-6 text-secondary">No tool calls match the current filters.</TableEmpty>
     }
     return (
         <TableBody>
-            {filteredRows.map((row) => (
+            {toolRows.map((row) => (
                 <TableRow
                     key={row.tool}
                     data-state={row.tool === selectedTool ? 'selected' : undefined}
@@ -167,7 +171,7 @@ function ToolRows(): JSX.Element {
                         <Button
                             variant="outline"
                             size="sm"
-                            render={<LinkPrimitive to={mcpToolReportUrl(row.tool, dateFilter)} />}
+                            render={<LinkPrimitive to={mcpToolReportUrl(row.tool, dateFilter, pinnedInterval)} />}
                             onClick={(e) => e.stopPropagation()}
                             data-attr="mcp-tool-quality-full-report"
                         >
@@ -181,9 +185,20 @@ function ToolRows(): JSX.Element {
 }
 
 export function ToolQualityTable(): JSX.Element {
-    const { toolQualitySort, toolRows, filteredRows, toolRowsLoading, searchTerm } =
-        useValues(mcpAnalyticsToolQualityLogic)
-    const { setToolQualitySort, setSearchTerm } = useActions(mcpAnalyticsToolQualityLogic)
+    const {
+        toolQualitySort,
+        toolQualityPageIndex,
+        loadedToolQualityPageIndex,
+        toolRows,
+        toolRowsPageLoading,
+        toolRowsTotalCount,
+        searchTerm,
+    } = useValues(mcpAnalyticsToolQualityLogic)
+    const { setToolQualitySort, setToolQualityPageIndex, setSearchTerm } = useActions(mcpAnalyticsToolQualityLogic)
+    const pageCount = Math.max(Math.ceil(toolRowsTotalCount / TOOL_QUALITY_PAGE_SIZE), 1)
+    const pageRange = getPaginationRange(pageCount, toolQualityPageIndex)
+    const firstRow = toolRowsTotalCount === 0 ? 0 : loadedToolQualityPageIndex * TOOL_QUALITY_PAGE_SIZE + 1
+    const lastRow = Math.min(firstRow + toolRows.length - 1, toolRowsTotalCount)
 
     return (
         <Card size="sm" className="gap-0">
@@ -204,26 +219,75 @@ export function ToolQualityTable(): JSX.Element {
                     />
                 </InputGroup>
             </CardHeader>
-            <Table fullWidth stickyHeader className="max-h-[44rem]">
-                <TableHeader>
-                    <TableRow>
-                        <TableHead expand>Tool</TableHead>
-                        {SORTABLE_COLUMNS.map((column) => (
-                            <SortableHead
-                                key={column.key}
-                                column={column}
-                                sort={toolQualitySort}
-                                onSort={setToolQualitySort}
-                            />
-                        ))}
-                        <TableHead />
-                    </TableRow>
-                </TableHeader>
-                <ToolRows />
-            </Table>
-            {!toolRowsLoading && toolRows.length > 0 && (
-                <CardFooter className="border-t border-border py-2 text-xs text-secondary">
-                    {formatToolCount(filteredRows.length, toolRows.length)}
+            <div className="relative">
+                <Table fullWidth stickyHeader className="max-h-[44rem]" aria-busy={toolRowsPageLoading}>
+                    <TableHeader>
+                        <TableRow>
+                            <TableHead expand>Tool</TableHead>
+                            {SORTABLE_COLUMNS.map((column) => (
+                                <SortableHead
+                                    key={column.key}
+                                    column={column}
+                                    sort={toolQualitySort}
+                                    loading={toolRowsPageLoading}
+                                    onSort={setToolQualitySort}
+                                />
+                            ))}
+                            <TableHead />
+                        </TableRow>
+                    </TableHeader>
+                    <ToolRows />
+                </Table>
+                {toolRowsPageLoading ? (
+                    <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/60">
+                        <Spinner className="size-5" />
+                    </div>
+                ) : null}
+            </div>
+            {toolRowsTotalCount > 0 && (
+                <CardFooter className="flex flex-row flex-wrap items-center justify-between gap-2 border-t border-border">
+                    <Text size="xs" variant="muted" render={<span />} className="tabular-nums">
+                        {firstRow}-{lastRow} of {pluralize(toolRowsTotalCount, 'tool')}
+                    </Text>
+                    {pageCount > 1 ? (
+                        <Pagination className="w-auto">
+                            <PaginationContent>
+                                <PaginationItem>
+                                    <PaginationPrevious
+                                        disabled={toolRowsPageLoading || toolQualityPageIndex === 0}
+                                        onClick={() => setToolQualityPageIndex(toolQualityPageIndex - 1)}
+                                        data-attr="mcp-tool-quality-page-previous"
+                                    />
+                                </PaginationItem>
+                                {pageRange.map((item, index) =>
+                                    item === 'ellipsis' ? (
+                                        <PaginationItem key={`ellipsis-${index}`}>
+                                            <PaginationEllipsis />
+                                        </PaginationItem>
+                                    ) : (
+                                        <PaginationItem key={item}>
+                                            <PaginationButton
+                                                isActive={item === toolQualityPageIndex}
+                                                disabled={toolRowsPageLoading}
+                                                aria-label={`Go to page ${item + 1}`}
+                                                onClick={() => setToolQualityPageIndex(item)}
+                                                data-attr="mcp-tool-quality-page"
+                                            >
+                                                {item + 1}
+                                            </PaginationButton>
+                                        </PaginationItem>
+                                    )
+                                )}
+                                <PaginationItem>
+                                    <PaginationNext
+                                        disabled={toolRowsPageLoading || toolQualityPageIndex === pageCount - 1}
+                                        onClick={() => setToolQualityPageIndex(toolQualityPageIndex + 1)}
+                                        data-attr="mcp-tool-quality-page-next"
+                                    />
+                                </PaginationItem>
+                            </PaginationContent>
+                        </Pagination>
+                    ) : null}
                 </CardFooter>
             )}
         </Card>

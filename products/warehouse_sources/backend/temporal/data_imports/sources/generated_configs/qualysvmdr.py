@@ -9,3 +9,4 @@ class QualysVmdrSourceConfig(config.Config):
     api_server: str
     username: str
     password: str
+    gateway_server: str | None = None

@@ -2,23 +2,18 @@ from posthog.api import sharing
 from posthog.api.routing import RouterRegistry
 from posthog.settings import EE_AVAILABLE
 
-import products.alerts.backend.api.alert as alert
-from products.product_analytics.backend.api.insight import InsightViewSet
-from products.product_analytics.backend.api.insight_variable import InsightVariableViewSet
-from products.product_analytics.backend.api.paths_v2 import PathsV2ViewSet
+import products.alerts.backend.presentation.views.alert as alert
+from products.product_analytics.backend.presentation.insight import InsightViewSet
+from products.product_analytics.backend.presentation.insight_ee import EnterpriseInsightsViewSet
+from products.product_analytics.backend.presentation.insight_variable import InsightVariableViewSet
+from products.product_analytics.backend.presentation.paths_v2 import PathsV2ViewSet
 
 
 def register_routes(routers: RouterRegistry) -> None:
     # EE installs override the insights viewset with EnterpriseInsightsViewSet.
     # The non-EE InsightViewSet is the fallback. Either way, the route name and
     # nested sub-routes (sharing, thresholds) stay identical.
-    insights_viewset: type[InsightViewSet]
-    if EE_AVAILABLE:
-        from ee.clickhouse.views.insights import EnterpriseInsightsViewSet
-
-        insights_viewset = EnterpriseInsightsViewSet
-    else:
-        insights_viewset = InsightViewSet
+    insights_viewset: type[InsightViewSet] = EnterpriseInsightsViewSet if EE_AVAILABLE else InsightViewSet
 
     insights_router = routers.projects.register(r"insights", insights_viewset, "project_insights", ["team_id"])
 

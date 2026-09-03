@@ -42,6 +42,17 @@ describe('rollingDateRangeFilterLogic', () => {
         })
     })
 
+    it('sets a future relative date when configured', () => {
+        logic = rollingDateRangeFilterLogic({ direction: 'future' })
+        logic.mount()
+        expectLogic(logic, () => {
+            logic.actions.setCounter(10)
+            logic.actions.setDateOption('days')
+        }).toMatchValues({
+            value: '+10d',
+        })
+    })
+
     it('cannot set the date higher than the max', () => {
         logic = rollingDateRangeFilterLogic({ max: 6 })
         logic.mount()

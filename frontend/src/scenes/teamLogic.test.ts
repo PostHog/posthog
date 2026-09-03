@@ -3,7 +3,7 @@ import { MOCK_DEFAULT_PROJECT, MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.m
 import { expectLogic } from 'kea-test-utils'
 
 import { useMocks } from '~/mocks/jest'
-import { ProductKey } from '~/queries/schema/schema-general'
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { AppContext, TeamType } from '~/types'
 
@@ -135,6 +135,28 @@ describe('teamLogic', () => {
             // The stale team's intents must not be grafted onto the team that is now active.
             expect(logic.values.currentTeam?.id).toBe(MOCK_TEAM_ID)
             expect((logic.values.currentTeam as TeamType)?.product_intents).toBeUndefined()
+        })
+
+        it('forwards the intent context', async () => {
+            let requestBody: Record<string, unknown> | undefined
+            useMocks({
+                patch: {
+                    '/api/environments/:id/complete_product_onboarding': async ({ request }) => {
+                        requestBody = (await request.json()) as Record<string, unknown>
+                        return [200, { ...MOCK_DEFAULT_TEAM, product_intents: [] }]
+                    },
+                },
+            })
+
+            await logic.asyncActions.recordProductIntentOnboardingComplete({
+                product_type: ProductKey.ERROR_TRACKING,
+                intent_context: ProductIntentContext.ONBOARDING_PRODUCT_SELECTED_PRIMARY,
+            })
+
+            expect(requestBody).toEqual({
+                product_type: ProductKey.ERROR_TRACKING,
+                intent_context: ProductIntentContext.ONBOARDING_PRODUCT_SELECTED_PRIMARY,
+            })
         })
     })
 

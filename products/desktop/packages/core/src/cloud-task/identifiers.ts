@@ -7,7 +7,7 @@ export interface ICloudTaskAuth {
 }
 
 /**
- * Host-bound executor for MCP relay requests (docs/cloud-mcp-relay.md).
+ * Host-bound executor for MCP relay requests (docs/CLOUD-MCP-RELAY.md).
  * Desktop binds this to the workspace-server relay service; hosts without a
  * local workspace leave it unbound and relay events are ignored.
  */

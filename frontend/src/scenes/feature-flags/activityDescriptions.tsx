@@ -397,7 +397,6 @@ const featureFlagActionsMapping: Record<
     last_called_at: () => null,
     is_used_in_replay_settings: () => null,
     _create_in_folder: () => null,
-    _should_create_usage_dashboard: () => null,
 }
 
 const getActorName = (logItem: ActivityLogItem): JSX.Element => {

@@ -1,5 +1,6 @@
 import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
@@ -9,17 +10,12 @@ from rest_framework import status
 from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
-from posthog.rbac.user_access_control import ACCESS_CONTROL_RESOURCES, model_to_resource
 
+from products.access_control.backend.facade.user_access_control import ACCESS_CONTROL_RESOURCES, model_to_resource
+from products.access_control.backend.models.access_control import AccessControl
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
 from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule
-
-try:
-    from ee.models.rbac.access_control import AccessControl
-except ImportError:
-    pass
-
 
 TRIGGER_ACTION = {
     "id": "trigger_node",
@@ -33,6 +29,8 @@ TRIGGER_ACTION = {
 
 # Any UUID — the parent workflow's object-level check rejects before the schedule is ever looked up.
 MISSING_SCHEDULE_ID = "00000000-0000-0000-0000-000000000000"
+
+CANCEL_PROXY = "products.workflows.backend.api.hog_flow.cancel_hog_flow_invocations"
 
 
 class TestHogFlowResourceRegistration(SimpleTestCase):
@@ -256,3 +254,42 @@ class TestHogFlowAccessControl(ClickhouseTestMixin, APIBaseTest):
         self._create_access_control(self.no_access_user, resource_id=str(self.hog_flow.id), access_level="none")
         self.client.force_login(self.no_access_user)
         self.assertEqual(self.client.get(self._detail_url()).status_code, status.HTTP_200_OK)
+
+    def test_deleted_flow_cancel_requires_resource_level_editor(self):
+        # A deleted flow has no row, so the cancel fallback can't run the per-object check.
+        # A member whose editor access came only from a per-object grant must not be able to
+        # cancel a different (deleted) flow's runs by UUID.
+        other_flow = self._create_workflow(name="deleted_workflow")
+        deleted_id = str(other_flow.id)
+        other_flow.delete()
+
+        self._create_project_default(access_level="none")
+        self._create_access_control(self.editor_user, resource_id=str(self.hog_flow.id), access_level="editor")
+        self.client.force_login(self.editor_user)
+
+        with patch(CANCEL_PROXY) as mock_cancel:
+            response = self.client.post(
+                f"{self._detail_url(deleted_id)}/invocations/cancel/", data={"all": True}, format="json"
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        mock_cancel.assert_not_called()
+
+    def test_deleted_flow_cancel_allowed_with_resource_level_editor(self):
+        other_flow = self._create_workflow(name="deleted_workflow")
+        deleted_id = str(other_flow.id)
+        other_flow.delete()
+
+        self._create_project_default(access_level="editor")
+        self.client.force_login(self.editor_user)
+
+        with patch(
+            CANCEL_PROXY,
+            return_value=MagicMock(status_code=200, json=lambda: {"marked": 1, "remaining": 0, "done": True}),
+        ) as mock_cancel:
+            response = self.client.post(
+                f"{self._detail_url(deleted_id)}/invocations/cancel/", data={"all": True}, format="json"
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, getattr(response, "data", response.content))
+        mock_cancel.assert_called_once()

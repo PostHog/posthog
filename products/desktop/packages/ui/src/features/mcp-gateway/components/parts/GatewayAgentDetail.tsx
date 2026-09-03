@@ -1,14 +1,24 @@
 import { ArrowLeft, Clock, Sliders } from "@phosphor-icons/react";
 import type {
+  McpAgentGrantScope,
   McpAuditEvent,
+  McpGatewayAgentAccess,
   McpGatewayServer,
 } from "@posthog/api-client/posthog-client";
 import {
   AUDIT_DECISION_LABELS,
+  agentShareMessage,
+  credentialOwnerLabel,
   formatAgo,
   formatAuditTime,
 } from "@posthog/core/mcp-gateway/gatewayServers";
-import { RobotAvatar } from "@posthog/ui/features/mcp-gateway/components/parts/avatars";
+import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
+import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
+import { AgentScopeToggle } from "@posthog/ui/features/mcp-gateway/components/parts/AgentScopeToggle";
+import {
+  gatewayUserName,
+  RobotAvatar,
+} from "@posthog/ui/features/mcp-gateway/components/parts/avatars";
 import type { GatewayRoute } from "@posthog/ui/features/mcp-gateway/gatewayRoute";
 import { useAgentRecentCalls } from "@posthog/ui/features/mcp-gateway/hooks/useGatewayAudit";
 import { useGatewayServers } from "@posthog/ui/features/mcp-gateway/hooks/useGatewayServers";
@@ -47,6 +57,8 @@ export function GatewayAgentDetail({
   const { servers, templatesById } = useGatewayServers();
   const { events, eventsLoading } = useAgentRecentCalls(accountId);
   const [shownCalls, setShownCalls] = useState(5);
+  const apiClient = useOptionalAuthenticatedClient();
+  const { data: currentUser } = useCurrentUser({ client: apiClient });
 
   const account = serviceAccounts.accounts.find(
     (entry) => entry.id === accountId,
@@ -75,13 +87,22 @@ export function GatewayAgentDetail({
     month: "long",
     year: "numeric",
   });
+  // Several members can each share one server, so server_ids carries one
+  // entry per share and needs deduping before counting.
+  const sharedServerIds = new Set(account.server_ids);
   // Shared servers float to the top so the agent's actual reach reads first.
   const sharedServers = servers.filter((server) =>
-    account.server_ids.includes(server.id),
+    sharedServerIds.has(server.id),
   );
   const otherServers = servers.filter(
-    (server) => !account.server_ids.includes(server.id),
+    (server) => !sharedServerIds.has(server.id),
   );
+  const yourShareFor = (server: McpGatewayServer) =>
+    server.agents.find(
+      (agent) =>
+        agent.service_account_id === accountId &&
+        agent.user.id === currentUser?.id,
+    ) ?? null;
 
   return (
     <Flex direction="column" gap="4" className="min-w-0">
@@ -144,7 +165,7 @@ export function GatewayAgentDetail({
       <Flex align="center" gap="2">
         <Text className="font-medium text-base">Shared servers</Text>
         <Badge color="gray" variant="soft" size="1">
-          {account.server_ids.length} of {servers.length}
+          {sharedServerIds.size} of {servers.length}
         </Badge>
       </Flex>
       <div className="overflow-hidden rounded border border-gray-5">
@@ -154,6 +175,8 @@ export function GatewayAgentDetail({
             server={server}
             account={account}
             shared
+            yourShare={yourShareFor(server)}
+            accessPending={serviceAccounts.setAccessPending}
             iconDomain={
               server.template_id
                 ? templatesById.get(server.template_id)?.icon_domain
@@ -179,6 +202,8 @@ export function GatewayAgentDetail({
             server={server}
             account={account}
             shared={false}
+            yourShare={null}
+            accessPending={serviceAccounts.setAccessPending}
             iconDomain={
               server.template_id
                 ? templatesById.get(server.template_id)?.icon_domain
@@ -234,13 +259,23 @@ export function GatewayAgentDetail({
               <Text color="gray" className="text-xs tabular-nums">
                 {formatAuditTime(event.created_at)}
               </Text>
-              <Flex align="baseline" gap="2" className="min-w-0">
-                <Text truncate className="font-medium text-xs">
-                  {event.server_name}
-                </Text>
-                <Text color="gray" truncate className="text-xs">
-                  {event.tool_name}()
-                </Text>
+              <Flex direction="column" className="min-w-0">
+                <Flex align="baseline" gap="2" className="min-w-0">
+                  <Text truncate className="font-medium text-xs">
+                    {event.server_name}
+                  </Text>
+                  <Text color="gray" truncate className="text-xs">
+                    {event.tool_name}()
+                  </Text>
+                </Flex>
+                {event.credential_owner && (
+                  <Text color="gray" truncate className="text-[11px]">
+                    {credentialOwnerLabel(
+                      gatewayUserName(event.credential_owner),
+                      event.grant_scope,
+                    )}
+                  </Text>
+                )}
               </Flex>
               <Badge
                 color={DECISION_COLORS[event.decision]}
@@ -274,6 +309,8 @@ function ServerAccessRow({
   server,
   account,
   shared,
+  yourShare,
+  accessPending,
   iconDomain,
   onNavigate,
   onSetAccess,
@@ -281,15 +318,24 @@ function ServerAccessRow({
   server: McpGatewayServer;
   account: { id: string; name: string };
   shared: boolean;
+  /** The caller's own share of this server with the agent, when one exists. */
+  yourShare: McpGatewayAgentAccess | null;
+  accessPending: boolean;
   iconDomain: string | undefined;
   onNavigate: (route: GatewayRoute) => void;
   onSetAccess: (vars: {
     accountId: string;
     serverId: string;
     enabled: boolean;
+    scope?: McpAgentGrantScope;
     successMessage?: string;
   }) => void;
 }) {
+  const sharedByOthers = server.agents.filter(
+    (agent) =>
+      agent.service_account_id === account.id &&
+      agent.user.id !== yourShare?.user.id,
+  );
   return (
     <Flex
       align="center"
@@ -301,9 +347,13 @@ function ServerAccessRow({
         <Text truncate className="font-medium text-sm">
           {server.name}
         </Text>
-        <Text color="gray" className="text-xs">
+        <Text color="gray" truncate className="text-xs">
           {server.tool_count} tools
           {shared ? " available to this agent" : ""}
+          {sharedByOthers.length > 0 &&
+            ` · shared by ${sharedByOthers
+              .map((agent) => gatewayUserName(agent.user))
+              .join(", ")}`}
         </Text>
       </Flex>
       {shared && (
@@ -326,17 +376,39 @@ function ServerAccessRow({
           <Sliders size={11} /> Tool policies
         </Button>
       )}
+      {yourShare && (
+        <AgentScopeToggle
+          value={yourShare.scope}
+          disabled={accessPending}
+          onChange={(scope) =>
+            onSetAccess({
+              accountId: account.id,
+              serverId: server.id,
+              enabled: true,
+              scope,
+              successMessage: agentShareMessage(
+                server.name,
+                account.name,
+                scope,
+              ),
+            })
+          }
+        />
+      )}
+      {/* The mutation only creates or removes the caller's own share, so the
+          switch tracks that share, not a teammate's. */}
       <Switch
         size="1"
-        checked={shared}
+        checked={!!yourShare}
         onCheckedChange={(enabled) =>
           onSetAccess({
             accountId: account.id,
             serverId: server.id,
             enabled,
+            ...(enabled ? { scope: "personal" as const } : {}),
             successMessage: enabled
-              ? `${account.name} can now use ${server.name}`
-              : `${account.name} no longer has access to ${server.name}`,
+              ? agentShareMessage(server.name, account.name, "personal")
+              : `${account.name} no longer has access to your ${server.name} connection`,
           })
         }
       />

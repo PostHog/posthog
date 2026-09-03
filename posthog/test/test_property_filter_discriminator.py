@@ -5,6 +5,7 @@ from pydantic import ValidationError
 
 from posthog.schema import (
     AccountCustomPropertyFilter,
+    BehavioralPropertyFilter,
     CohortPropertyFilter,
     DashboardFilter,
     DataWarehousePersonPropertyFilter,
@@ -114,6 +115,18 @@ class TestPropertyFilterDiscriminator(SimpleTestCase):
                 "workflow_variable",
                 {"type": "workflow_variable", "key": "k", "operator": "exact"},
                 WorkflowVariablePropertyFilter,
+            ),
+            (
+                "behavioral",
+                {
+                    "type": "behavioral",
+                    "key": "$pageview",
+                    "value": "performed_event",
+                    "event_type": "events",
+                    "time_value": 30,
+                    "time_interval": "day",
+                },
+                BehavioralPropertyFilter,
             ),
         ]
     )

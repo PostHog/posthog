@@ -2,6 +2,7 @@ from pydantic import Field, field_validator
 
 from posthog.hogql import ast
 from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.metadata import get_table_names
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import find_placeholders
 
@@ -58,6 +59,10 @@ class CustomSqlSpec(CheckTypeSpec):
     config_model = CustomSqlConfig
     requires_column = False
     description = "Fails on every row the custom HogQL SELECT returns."
+
+    def referenced_table_names(self, config: CheckConfig) -> list[str]:
+        assert isinstance(config, CustomSqlConfig)
+        return get_table_names(parse_failing_rows_query(config.query))
 
     def build(
         self, subject: SubjectRef, column_name: str, config: CheckConfig, related: SubjectRef | None = None

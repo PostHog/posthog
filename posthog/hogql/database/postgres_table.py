@@ -1,5 +1,6 @@
+from datetime import datetime
 from functools import cache
-from typing import Optional, cast
+from typing import TYPE_CHECKING, Optional, cast
 
 from django.conf import settings
 
@@ -13,6 +14,9 @@ from posthog.hogql.escape_sql import escape_hogql_identifier
 from posthog.person_db_router import PERSONS_DB_MODELS
 from posthog.persons_db import persons_db_url
 from posthog.scopes import APIScopeObject
+
+if TYPE_CHECKING:
+    from posthog.models.team.team import Team
 
 
 @cache
@@ -97,10 +101,33 @@ class PostgresTable(FunctionCallTable):
     # to the foreign key pointing at that parent (e.g. system.dashboard_tiles -> "dashboard_id"),
     # so denying the parent also hides its child rows.
     access_control_id_field: Optional[str] = None
+    # Column holding the id of the user who created the access-controlled object, mirroring REST's
+    # creator exemption in `filter_queryset_by_access_level`: a creator keeps access to their own
+    # object even when object-level rules deny it.
+    access_control_creator_id_field: Optional[str] = None
+    # Set when object-level grants under `access_scope` can never key this table's rows: it holds
+    # team-level definitions shared across every object of that resource and is gated at resource
+    # level only (e.g. system.message_categories under "hog_flow"). Grant ids then live in a
+    # different space than this table's ids, so its rows can't be narrowed to a grant and
+    # resource-level access is required to query it at all.
+    resource_level_access_only: bool = False
+    # Column the entitlement-derived retention floor filters on, for tables whose rows are only
+    # readable back as far as the organization's plan allows. The floor is pushed into the federated
+    # read next to the team guard (see ClickHousePrinter._print_table_ref), so it prunes in Postgres
+    # rather than after the rows have been copied out. None means the table has no retention window.
+    retention_field: Optional[str] = None
     predicates: list[Expr] = []
 
-    def get_predicates(self) -> list[Expr]:
+    def get_predicates(self, context: Optional[HogQLContext] = None) -> list[Expr]:
         return self.predicates
+
+    def retention_start(self, team: Optional["Team"], team_id: Optional[int]) -> Optional[datetime]:
+        """Oldest `retention_field` value this team may read, or None when unrestricted.
+
+        Each table owns its own window, so two tables that declare `retention_field` can never end
+        up sharing one. Tables with no window inherit this default and are never floored.
+        """
+        return None
 
     @property
     def primary_key(self) -> Optional[str]:
@@ -108,7 +135,21 @@ class PostgresTable(FunctionCallTable):
 
     @property
     def access_control_id(self) -> Optional[str]:
+        if self.resource_level_access_only:
+            return None
         return self.access_control_id_field or self.primary_key
+
+    @property
+    def access_control_creator_id(self) -> Optional[str]:
+        """Creator column to exempt from object-level filtering, or None when there is nothing to exempt.
+
+        Only meaningful when the rows ARE the access-controlled object: a child row's own creator
+        says nothing about who created the parent the grant is keyed on, so the exemption is dropped
+        for child tables rather than applied to the wrong person.
+        """
+        if self.access_control_id_field is not None or self.resource_level_access_only:
+            return None
+        return self.access_control_creator_id_field
 
     def to_printed_hogql(self):
         return escape_hogql_identifier(self.name)

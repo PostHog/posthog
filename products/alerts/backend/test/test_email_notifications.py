@@ -59,3 +59,30 @@ def test_alert_firing_email_labels_test_delivery_without_claiming_the_alert_is_f
 
     assert "This is a test delivery" in html
     assert "alert is firing" not in html
+
+
+def test_alert_evaluation_failure_email_includes_the_reason_and_next_check_timing() -> None:
+    html = render_to_string(
+        "email/alert_check_failed_to_evaluate.html",
+        {
+            "alert_error": "The query could not run.",
+            "alert_url": "/project/1/insights/example?alert_id=1",
+            "alert_name": "Example alert",
+            "insight_url": "/project/1/insights/example",
+            "insight_name": "Example insight",
+        },
+    )
+
+    assert "The query could not run." in html
+    assert "PostHog could not evaluate this alert." in html
+    assert "PostHog has a temporary problem" in html
+    assert "Insight" in html
+    assert "Error" in html
+    assert "Review the alert settings" in html
+    assert "PostHog will try again" in html
+    assert "next scheduled check" in html
+    assert "contact" in html
+    assert "support" in html
+    assert "Review alert" in html
+    assert "alert_id=1" in html
+    assert "Example insight" in html

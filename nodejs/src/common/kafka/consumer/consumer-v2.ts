@@ -6,8 +6,10 @@ import {
     LibrdKafkaError,
     Message,
     Metadata,
+    PartitionMetadata,
     KafkaConsumer as RdKafkaConsumer,
     TopicPartitionOffset,
+    WatermarkOffsets,
 } from 'node-rdkafka'
 import { hostname } from 'os'
 
@@ -31,6 +33,7 @@ import {
     consumerBatchUtilization,
     consumerDrainDuration,
     consumerDrainTimeouts,
+    consumerPolls,
     consumerStaleStoreOffsetsSkipped,
     kafkaConsumerAssignment,
 } from './metrics'
@@ -51,6 +54,9 @@ export type KafkaConsumerV2Config = {
     autoOffsetStore?: boolean
     autoCommit?: boolean
     enablePartitionEof?: boolean
+    fetchBatchSize?: number
+    maxBackgroundTasks?: number
+    rebalanceTimeoutMs?: number
 }
 
 export type RdKafkaConsumerOverrides = Omit<
@@ -68,16 +74,17 @@ type RebalanceEvent =
 
 type TaskEntry = {
     settled: Promise<void>
-    generation: number
 }
+
+const partitionKey = (tp: { topic: string; partition: number }): string => `${tp.topic}/${tp.partition}`
 
 /**
  * Single-coroutine Kafka consumer. The loop is the only mutator; the rebalance callback
  * just enqueues events. On REVOKE the loop synchronously drains in-flight settle promises
- * (post-storeOffsets, not raw user tasks), bumps `generation` so any laggard task skips
- * its now-invalid storeOffsets, runs the optional onPartitionsRevoked hook while the
- * partitions are still assigned (so a flush there can store offsets that get committed
- * on the unassign), then calls incrementalUnassign.
+ * (post-storeOffsets, not raw user tasks), bumps the epoch of each partition it is giving up so
+ * any laggard task skips its now-invalid storeOffsets for those partitions, runs the optional
+ * onPartitionsRevoked hook while the partitions are still assigned (so a flush there can store
+ * offsets that get committed on the unassign), then calls incrementalUnassign.
  */
 export class KafkaConsumerV2 {
     private rdKafkaConsumer: RdKafkaConsumer
@@ -87,6 +94,10 @@ export class KafkaConsumerV2 {
 
     // Loop iterates while running; disconnect() flips it false.
     private running = true
+    // Bumped for a partition each time we give it up, so a task that settles after that point
+    // cannot store an offset for it. Keyed by `topic/partition`; absent means never revoked.
+    private partitionEpochs = new Map<string, number>()
+    // Rebalance counter, kept for log continuity only — the fence reads partitionEpochs.
     private generation = 0
     private rebalanceQueue: RebalanceEvent[] = []
     private inFlight: TaskEntry[] = []
@@ -128,11 +139,11 @@ export class KafkaConsumerV2 {
             .toString(36)
             .substring(2, 8)}`
 
-        this.fetchBatchSize = defaultConfig.CONSUMER_BATCH_SIZE
+        this.fetchBatchSize = config.fetchBatchSize ?? defaultConfig.CONSUMER_BATCH_SIZE
         this.batchTimeoutMs = this.config.batchTimeoutMs ?? DEFAULT_BATCH_TIMEOUT_MS
-        this.maxBackgroundTasks = defaultConfig.CONSUMER_MAX_BACKGROUND_TASKS
+        this.maxBackgroundTasks = config.maxBackgroundTasks ?? defaultConfig.CONSUMER_MAX_BACKGROUND_TASKS
         this.backgroundTaskTimeoutMs = defaultConfig.CONSUMER_BACKGROUND_TASK_TIMEOUT_MS
-        this.drainTimeoutMs = defaultConfig.CONSUMER_REBALANCE_TIMEOUT_MS
+        this.drainTimeoutMs = config.rebalanceTimeoutMs ?? defaultConfig.CONSUMER_REBALANCE_TIMEOUT_MS
         this.loopStallThresholdMs = defaultConfig.CONSUMER_LOOP_STALL_THRESHOLD_MS || LOOP_STALL_THRESHOLD_MS_DEFAULT
         this.logStatsLevel = defaultConfig.CONSUMER_LOG_STATS_LEVEL
 
@@ -198,6 +209,46 @@ export class KafkaConsumerV2 {
 
     public assignments(): Assignment[] {
         return this.rdKafkaConsumer.isConnected() ? this.rdKafkaConsumer.assignments() : []
+    }
+
+    public async queryWatermarkOffsets(topic: string, partition: number, timeout = 10000): Promise<[number, number]> {
+        if (!this.rdKafkaConsumer.isConnected()) {
+            throw new Error('Not connected')
+        }
+
+        const offsets = await promisifyCallback<WatermarkOffsets>((cb) =>
+            this.rdKafkaConsumer.queryWatermarkOffsets(topic, partition, timeout, cb)
+        ).catch((err) => {
+            captureException(err)
+            logger.error('🔥', 'Failed to query kafka watermark offsets', err)
+            throw err
+        })
+
+        return [offsets.lowOffset, offsets.highOffset]
+    }
+
+    public async committedOffsets(timeout = 10000): Promise<TopicPartitionOffset[]> {
+        if (!this.rdKafkaConsumer.isConnected()) {
+            return []
+        }
+
+        return await promisifyCallback<TopicPartitionOffset[]>((cb) => this.rdKafkaConsumer.committed(timeout, cb))
+    }
+
+    public async getPartitionsForTopic(topic: string): Promise<PartitionMetadata[]> {
+        if (!this.rdKafkaConsumer.isConnected()) {
+            throw new Error('Not connected')
+        }
+
+        const meta = await promisifyCallback<Metadata>((cb) => this.rdKafkaConsumer.getMetadata({ topic }, cb)).catch(
+            (err) => {
+                captureException(err)
+                logger.error('🔥', 'Failed to get partition metadata', err)
+                throw err
+            }
+        )
+
+        return meta.topics.find((entry) => entry.name === topic)?.partitions ?? []
     }
 
     public offsetsStore(offsets: TopicPartitionOffset[]): void {
@@ -294,6 +345,41 @@ export class KafkaConsumerV2 {
         } finally {
             // Drain whatever is left before letting the caller's disconnect() return.
             await this.drainAll('shutdown')
+            this.answerPendingRebalances()
+        }
+    }
+
+    /**
+     * Answer rebalance events that were queued but never handled because the loop stopped.
+     * librdkafka blocks disconnect() until the application responds to a pending cooperative
+     * rebalance, so leaving one unanswered hangs shutdown. Nothing polls any more, so an
+     * assignment answered here delivers no messages and is released by the final REVOKE that
+     * disconnect() routes through rebalanceCallback.
+     */
+    private answerPendingRebalances(): void {
+        while (this.rebalanceQueue.length > 0) {
+            const event = this.rebalanceQueue.shift()!
+            if (event.type === 'ERROR') {
+                continue
+            }
+            try {
+                if (this.rdKafkaConsumer.rebalanceProtocol() === 'COOPERATIVE') {
+                    if (event.type === 'ASSIGN') {
+                        this.rdKafkaConsumer.incrementalAssign(event.partitions)
+                    } else {
+                        this.rdKafkaConsumer.incrementalUnassign(event.partitions)
+                    }
+                } else if (event.type === 'ASSIGN') {
+                    this.rdKafkaConsumer.assign(event.partitions)
+                } else {
+                    this.rdKafkaConsumer.unassign()
+                }
+            } catch (error) {
+                logger.warn('🔁', 'kafka_consumer_v2_pending_rebalance_answer_failed', {
+                    type: event.type,
+                    error: String(error),
+                })
+            }
         }
     }
 
@@ -302,6 +388,7 @@ export class KafkaConsumerV2 {
             promisifyCallback<Message[]>((cb) => this.rdKafkaConsumer.consume(this.fetchBatchSize, cb))
         )
 
+        consumerPolls.labels(this.config.topic, this.config.groupId).inc()
         consumerBatchSize.observe(messages.length)
         consumerBatchSizeKb.observe(messages.reduce((acc, m) => (m.value?.length ?? 0) + acc, 0) / 1024)
         consumerBatchUtilization.labels({ groupId: this.config.groupId }).set(messages.length / this.fetchBatchSize)
@@ -322,15 +409,15 @@ export class KafkaConsumerV2 {
         const result: EachBatchResult = await eachBatch(messages)
         consumedBatchDuration.labels(this.config.topic, this.config.groupId).observe(Date.now() - startMs)
 
-        // We always track. If a REVOKE arrived while eachBatch ran, the generation tag in
-        // trackTask makes the storeOffsets a no-op, but inFlight still holds the entry so
-        // drainAll waits for it.
+        // We always track. If a partition backing this batch is revoked while eachBatch runs, the
+        // epoch captured in trackTask makes that partition's storeOffsets a no-op, but inFlight
+        // still holds the entry so drainAll waits for it.
         const offsets = findOffsetsToCommit(messages)
-        this.trackTask(result, offsets, this.generation)
+        this.trackTask(result, offsets)
         await this.applyBackpressure()
     }
 
-    private trackTask(result: EachBatchResult, offsets: TopicPartitionOffset[], gen: number): void {
+    private trackTask(result: EachBatchResult, offsets: TopicPartitionOffset[]): void {
         const raw = result?.backgroundTask ?? Promise.resolve()
         const stopBackgroundTimer = result?.backgroundTask
             ? consumedBatchBackgroundDuration.startTimer({
@@ -338,6 +425,11 @@ export class KafkaConsumerV2 {
                   groupId: this.config.groupId,
               })
             : undefined
+
+        // The epoch each partition held when this batch was dispatched. At store time an unchanged
+        // epoch means we have held the partition continuously since, so the offset is still ours
+        // to advance.
+        const dispatchEpochs = new Map(offsets.map((o) => [partitionKey(o), this.epochOf(o)]))
 
         // Serialize store decisions in batch order: without this a faster later batch
         // could store its (higher) offset before an earlier failed batch latches fatalError.
@@ -367,17 +459,22 @@ export class KafkaConsumerV2 {
             }
 
             if (this.config.autoCommit && this.config.autoOffsetStore) {
-                if (gen !== this.generation) {
-                    // The partitions backing these offsets were revoked between dispatch and now.
-                    // Skip the store — librdkafka would reject it anyway after unassign.
-                    consumerStaleStoreOffsetsSkipped.labels(this.config.topic, this.config.groupId).inc(offsets.length)
-                    return
+                // Fence per partition, not per rebalance. A partition we still hold is safe to
+                // advance even if a sibling partition was revoked in the meantime; one that was
+                // revoked is not, because it may have passed through another member since — and
+                // storing our older offset would rewind the group and redeliver.
+                const storable = offsets.filter((o) => this.epochOf(o) === dispatchEpochs.get(partitionKey(o)))
+                const fenced = offsets.length - storable.length
+                if (fenced > 0) {
+                    consumerStaleStoreOffsetsSkipped.labels(this.config.topic, this.config.groupId).inc(fenced)
                 }
-                this.storeOffsetsInternal(offsets)
+                if (storable.length > 0) {
+                    this.storeOffsetsInternal(storable)
+                }
             }
         })()
 
-        const entry: TaskEntry = { settled, generation: gen }
+        const entry: TaskEntry = { settled }
         this.inFlight.push(entry)
         // Self-cleanup so steady-state inFlight doesn't grow unbounded.
         void settled.finally(() => {
@@ -435,6 +532,9 @@ export class KafkaConsumerV2 {
         }
 
         if (event.type === 'REVOKE') {
+            // Ticks as the rebalance starts so both log lines below carry the same number. This
+            // counter is only ever read by those two lines — the fence is the partitionEpochs bump
+            // after the drain, and it deliberately does not happen this early.
             this.generation++
             logger.info('🔁', 'kafka_consumer_v2_revoke_starting', {
                 inFlight: this.inFlight.length,
@@ -445,7 +545,18 @@ export class KafkaConsumerV2 {
             // hook gets the remainder, so CONSUMER_REBALANCE_TIMEOUT_MS bounds the total hold
             // on the rebalance — not each phase separately.
             const revokeDeadline = Date.now() + this.drainTimeoutMs
+            // Drain before fencing. A batch that settles inside the budget has already run its
+            // side effects and still holds its partitions, so its offset store is valid and
+            // librdkafka commits it on the unassign below. Fencing first discarded those offsets,
+            // so the next owner replayed work that was already done — for a CDP destination that
+            // is a second outbound request (duplicate Slack message, webhook, CRM write).
             await this.drainAll('revoke')
+            // Whatever is still unsettled missed the budget: fence the partitions we are giving up
+            // so a late settle can't store offsets for them. Partitions we keep are untouched, so
+            // a laggard task can still commit the progress it made on those.
+            for (const tp of event.partitions) {
+                this.partitionEpochs.set(partitionKey(tp), this.epochOf(tp) + 1)
+            }
 
             if (this.onPartitionsRevoked) {
                 const hookBudgetMs = Math.max(revokeDeadline - Date.now(), 0)
@@ -508,6 +619,10 @@ export class KafkaConsumerV2 {
         } else {
             logger.warn('🔥', 'kafka_consumer_v2_rebalance_error_while_disconnected', { err: event.err })
         }
+    }
+
+    private epochOf(tp: { topic: string; partition: number }): number {
+        return this.partitionEpochs.get(partitionKey(tp)) ?? 0
     }
 
     private async drainAll(cause: 'revoke' | 'shutdown'): Promise<void> {

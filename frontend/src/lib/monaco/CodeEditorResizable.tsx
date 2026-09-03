@@ -53,7 +53,9 @@ export function CodeEditorResizeable({
             // eslint-disable-next-line react/forbid-dom-props
             style={{
                 minHeight,
-                maxHeight,
+                // `maxHeight` caps how tall the editor grows on its own. A drag is a deliberate
+                // choice, so it overrides the cap instead of being clamped by it.
+                maxHeight: manualHeight ?? maxHeight,
                 height: manualHeight ?? height,
             }}
         >

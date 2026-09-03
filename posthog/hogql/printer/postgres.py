@@ -1,7 +1,6 @@
 import re
 import hashlib
 from collections.abc import Callable
-from datetime import date, datetime
 from typing import ClassVar
 from uuid import UUID
 
@@ -245,16 +244,21 @@ class PostgresPrinter(BasePrinter):
         # through the HogQL string escape path would produce ClickHouse-style ``\'`` escape
         # sequences that Postgres and DuckDB do not recognize (``standard_conforming_strings``
         # defaults to ``on``), allowing statement-terminator SQL injection.
-        if (
-            node.value is None
-            or isinstance(node.value, bool)
-            or isinstance(node.value, (int, float, UUID, UUIDT, datetime, date))
-        ):
+        if node.value is None or isinstance(node.value, (bool, int, float)):
             value = self._print_escaped_string(node.value)
             if "%" in value:
                 # ``%`` would be interpreted as the start of a parameter placeholder by psycopg.
                 raise QueryError(f"Invalid character '%' in constant: {value}")
             return value
+        # Temporal and UUID values have to be bound for the same reason. ``SQLValueEscaper`` only
+        # models the `hogql` and `clickhouse` dialects, so the escape path renders them as
+        # `toDate(...)`, `toDateTime(...)`, and `toUUID(...)`, which do not exist in any engine
+        # below this printer. Binding lets each driver emit its own literal, and matches how the
+        # function translations already handle an explicit `toDate(...)` call.
+        if isinstance(node.value, (UUID, UUIDT)):
+            # Every dialect here models a UUID as a string (see the `toUUID` translations), and the
+            # MySQL and Snowflake drivers will not bind a UUID object.
+            return self.context.add_value(str(node.value))
         return self.context.add_value(node.value)
 
     def visit_lambda(self, node: ast.Lambda):

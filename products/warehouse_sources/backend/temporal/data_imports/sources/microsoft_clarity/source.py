@@ -57,6 +57,7 @@ class MicrosoftClaritySource(SimpleSource[MicrosoftClaritySourceConfig]):
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
+            "400 Client Error": "Microsoft Clarity rejected the request. Check the reporting window and breakdown dimensions on this source and reconnect.",
             "401 Client Error": "Your Microsoft Clarity API token is invalid or expired. Generate a new token in Clarity under Settings -> Data Export and reconnect.",
             "403 Client Error": "This Microsoft Clarity API token is not authorized for this project.",
             "429 Client Error": "The Microsoft Clarity daily quota (10 requests per project) has been used up. Try again after the quota resets.",

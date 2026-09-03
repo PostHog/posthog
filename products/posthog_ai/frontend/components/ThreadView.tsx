@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import { memo, useCallback, useEffect, useMemo, useState } from 'react'
+import { type ReactNode, memo, useCallback, useEffect, useMemo, useState } from 'react'
 
 import { inStorybookTestRunner } from 'lib/utils/dom'
 
@@ -7,6 +7,7 @@ import { runStreamLogic } from '../logics/runStreamLogic'
 import { ReasoningAnswer } from '../messages/ReasoningAnswer'
 import type { ThreadItem } from '../types/streamTypes'
 import { getRandomThinkingMessage } from '../utils/thinkingMessages'
+import { type TurnTrailer, computeTurnTrailers } from '../utils/turnTrailers'
 import { ContextUsageBar } from './ContextUsageBar'
 import { PullRequestCard } from './PullRequestCard'
 import { RunAlertActivity } from './RunAlertActivity'
@@ -34,6 +35,7 @@ const THREAD_ITEM_HEIGHT_ESTIMATES: Partial<Record<ThreadItem['type'], number>> 
     error: 42,
     status: 42,
     compact_boundary: 42,
+    conversation_cleared: 42,
     task_notification: 26,
     progress: 42,
     debug: 30,
@@ -55,6 +57,10 @@ interface ThreadViewProps {
      * non-scout runs.
      */
     showContextUsage?: boolean
+    /** Renders per-turn UI (e.g. feedback actions) at each completed turn's end. */
+    renderTurnTrailer?: (trailer: TurnTrailer) => JSX.Element | null
+    /** Extra footer content below the thinking / PR / context-usage rows (e.g. the feedback prompt). */
+    footerExtra?: ReactNode
     className?: string
     listClassName?: string
     rowClassName?: string
@@ -74,6 +80,8 @@ interface ThreadViewProps {
 export function ThreadView({
     virtualized = true,
     showContextUsage = false,
+    renderTurnTrailer,
+    footerExtra,
     className,
     listClassName,
     rowClassName,
@@ -97,6 +105,11 @@ export function ThreadView({
     const anchorItemKey = useMemo(
         () => threadItems.findLast((item) => item.type === 'human_message')?.id ?? null,
         [threadItems]
+    )
+    // Only computed when a trailer renderer is supplied — bare ThreadViews pay nothing.
+    const turnTrailers = useMemo(
+        () => (renderTurnTrailer ? computeTurnTrailers(threadItems) : null),
+        [threadItems, renderTurnTrailer]
     )
     const hasActiveProgressItem = threadItems.some(
         (item) => item.type === 'progress' && item.progressSteps?.some((step) => step.status === 'in_progress')
@@ -133,7 +146,7 @@ export function ThreadView({
     const showContextUsageFooter = showContextUsage && !isThinking && !!contextUsage
     const footer = useMemo(
         () =>
-            showThinking || pullRequestUrl || showContextUsageFooter || showConnectionStatus ? (
+            showThinking || pullRequestUrl || showContextUsageFooter || showConnectionStatus || footerExtra ? (
                 <VirtualizedThread.Row className={rowClassName}>
                     <ThreadFooter
                         showThinking={showThinking}
@@ -142,6 +155,7 @@ export function ThreadView({
                         prBranch={branch}
                         showContextUsage={showContextUsageFooter}
                         showConnectionStatus={showConnectionStatus}
+                        extra={footerExtra}
                     />
                 </VirtualizedThread.Row>
             ) : undefined,
@@ -152,24 +166,44 @@ export function ThreadView({
             branch,
             showContextUsageFooter,
             showConnectionStatus,
+            footerExtra,
             rowClassName,
         ]
     )
 
     const renderItem = useCallback(
-        (item: ThreadItem, index: number): JSX.Element => (
-            <VirtualizedThread.Row className={rowClassName}>
-                <ThreadRow
-                    item={item}
-                    isLast={index === threadItems.length - 1}
-                    isThinking={isThinking}
-                    toolInvocations={toolInvocations}
-                    turnComplete={turnComplete}
-                    turnCancelled={turnCancelled}
-                />
-            </VirtualizedThread.Row>
-        ),
-        [threadItems.length, isThinking, toolInvocations, turnComplete, turnCancelled, rowClassName]
+        (item: ThreadItem, index: number): JSX.Element => {
+            if (item.type === 'turn_separator' && renderTurnTrailer) {
+                const trailer = turnTrailers?.get(item.id)
+                return (
+                    <VirtualizedThread.Row className={rowClassName}>
+                        {trailer ? renderTurnTrailer(trailer) : null}
+                    </VirtualizedThread.Row>
+                )
+            }
+            return (
+                <VirtualizedThread.Row className={rowClassName}>
+                    <ThreadRow
+                        item={item}
+                        isLast={index === threadItems.length - 1}
+                        isThinking={isThinking}
+                        toolInvocations={toolInvocations}
+                        turnComplete={turnComplete}
+                        turnCancelled={turnCancelled}
+                    />
+                </VirtualizedThread.Row>
+            )
+        },
+        [
+            threadItems.length,
+            isThinking,
+            toolInvocations,
+            turnComplete,
+            turnCancelled,
+            rowClassName,
+            renderTurnTrailer,
+            turnTrailers,
+        ]
     )
 
     return (
@@ -222,6 +256,7 @@ const ThreadFooter = memo(function ThreadFooter({
     prBranch,
     showContextUsage,
     showConnectionStatus,
+    extra,
 }: {
     showThinking: boolean
     thinkingPhase: 'thinking' | 'provisioning'
@@ -229,6 +264,7 @@ const ThreadFooter = memo(function ThreadFooter({
     prBranch?: string
     showContextUsage?: boolean
     showConnectionStatus?: boolean
+    extra?: ReactNode
 }): JSX.Element {
     // `runConnectionState` is self-subscribed here (like `currentProgress`) so the frequently-updating
     // reconnect attempt counter stays isolated to this leaf and never destabilizes `ThreadView`'s footer.
@@ -241,6 +277,7 @@ const ThreadFooter = memo(function ThreadFooter({
             {showThinking && <ThinkingIndicator progress={currentProgress} phase={thinkingPhase} />}
             {pullRequestUrl && <PullRequestCard prUrl={pullRequestUrl} branch={prBranch} />}
             {showContextUsage && <ContextUsageBar />}
+            {extra}
         </div>
     )
 })

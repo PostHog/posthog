@@ -77,7 +77,7 @@ impl From<GroupTypeFetchError> for FlagError {
     fn from(value: GroupTypeFetchError) -> Self {
         match value {
             GroupTypeFetchError::DatabaseUnavailable => FlagError::DatabaseUnavailable,
-            GroupTypeFetchError::QueryFailed(msg) => FlagError::Internal(msg),
+            GroupTypeFetchError::QueryFailed(msg) => FlagError::internal(anyhow::anyhow!(msg)),
         }
     }
 }
@@ -527,7 +527,9 @@ mod tests {
 
         let query_failed = GroupTypeFetchError::QueryFailed("test error".to_string());
         let flag_error: FlagError = query_failed.into();
-        assert!(matches!(flag_error, FlagError::Internal(msg) if msg == "test error"));
+        assert!(
+            matches!(flag_error, FlagError::InternalError { ref cause, .. } if cause.to_string() == "Internal error: test error")
+        );
     }
 
     #[test]

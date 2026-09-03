@@ -4,10 +4,10 @@ import type {
   McpGatewayServer,
   McpServiceAccount,
 } from "@posthog/api-client/posthog-client";
+import { UserAvatar } from "@posthog/ui/features/auth/UserAvatar";
 import {
   gatewayUserName,
   RobotAvatar,
-  UserAvatar,
 } from "@posthog/ui/features/mcp-gateway/components/parts/avatars";
 import type { GatewayRoute } from "@posthog/ui/features/mcp-gateway/gatewayRoute";
 import { useGatewayMembers } from "@posthog/ui/features/mcp-gateway/hooks/useGatewayMembers";
@@ -170,8 +170,10 @@ function AgentCard({
   onToggleStatus: (paused: boolean) => void;
 }) {
   const active = account.status === "active";
+  // server_ids carries one entry per member's share, so dedupe before counting.
+  const sharedServerIds = new Set(account.server_ids);
   const toolCount = servers
-    .filter((server) => account.server_ids.includes(server.id))
+    .filter((server) => sharedServerIds.has(server.id))
     .reduce((total, server) => total + server.tool_count, 0);
 
   return (
@@ -187,8 +189,8 @@ function AgentCard({
             {account.name}
           </Text>
           <Text color="gray" className="text-xs">
-            {account.server_ids.length} server
-            {account.server_ids.length === 1 ? "" : "s"} · {toolCount} tools
+            {sharedServerIds.size} server
+            {sharedServerIds.size === 1 ? "" : "s"} · {toolCount} tools
           </Text>
         </Flex>
       </button>
@@ -223,9 +225,9 @@ function MemberRow({
     <button
       type="button"
       onClick={onOpen}
-      className="grid w-full grid-cols-[26px_1fr_auto_auto_auto] items-center gap-3 border-gray-5 border-b px-3 py-2 text-left transition-colors last:border-b-0 hover:bg-gray-3"
+      className="grid w-full grid-cols-[24px_1fr_auto_auto_auto] items-center gap-3 border-gray-5 border-b px-3 py-2 text-left transition-colors last:border-b-0 hover:bg-gray-3"
     >
-      <UserAvatar user={member.user} />
+      <UserAvatar user={member.user} size="sm" />
       <Flex direction="column" className="min-w-0">
         <Text truncate className="font-medium text-sm">
           {gatewayUserName(member.user)}

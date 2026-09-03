@@ -8,6 +8,8 @@ import requests
 import structlog
 from structlog.types import FilteringBoundLogger
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -27,6 +29,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.metabase.s
 REQUEST_TIMEOUT_SECONDS = 60
 
 HOST_NOT_ALLOWED_ERROR = "Metabase host is not allowed"
+
+# Returned when the Instance URL responds with a 3xx. We refuse to follow redirects (an off-host
+# 3xx is an SSRF vector), so a redirecting URL can never be probed. The raw HOST_NOT_ALLOWED_ERROR
+# told the user nothing they could act on; this points them at the canonical instance URL.
+REDIRECT_NOT_FOLLOWED_ERROR = (
+    "Your Metabase instance redirected the connection, which PostHog doesn't follow. "
+    "Enter the direct https:// URL of your Metabase instance, then reconnect."
+)
 
 # Stable substring matched by MetabaseSource.get_non_retryable_errors when the session endpoint
 # returns a 2xx that isn't JSON (the Instance URL isn't a Metabase API).
@@ -55,14 +65,14 @@ class MetabaseAuthError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@frozen
 class MetabaseAuth:
     # "api_key" sends a static X-API-Key header; "session" mints a short-lived token via
     # POST /api/session and sends it as X-Metabase-Session (for instances older than v0.47).
     method: str
-    api_key: Optional[str] = None
+    api_key: Optional[str] = dataclasses.field(default=None, repr=False)
     username: Optional[str] = None
-    password: Optional[str] = None
+    password: Optional[str] = dataclasses.field(default=None, repr=False)
 
 
 def normalize_host(host: str) -> str:
@@ -235,7 +245,7 @@ def validate_credentials(
         return False, _connection_error_message(e)
 
     if response.is_redirect or response.is_permanent_redirect:
-        return False, HOST_NOT_ALLOWED_ERROR
+        return False, REDIRECT_NOT_FOLLOWED_ERROR
     if response.status_code == 200:
         return True, None
     if response.status_code == 401:

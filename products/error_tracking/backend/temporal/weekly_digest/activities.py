@@ -16,7 +16,8 @@ from posthog.tasks.email import NotificationSetting, should_send_notification
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.user_permissions import UserPermissions
 
-from products.error_tracking.backend import weekly_digest
+from products.error_tracking.backend import weekly_digest, weekly_digest_delivery
+from products.error_tracking.backend.facade.contracts import ExceptionSummary
 from products.error_tracking.backend.temporal.weekly_digest.types import (
     CleanupDigestOrgsInputs,
     GetDigestOrgsInputs,
@@ -119,7 +120,7 @@ def _send_org_digest(inputs: SendOrgDigestInputs, attempt: int) -> SendOrgDigest
     # counts: unfiltered counts can permanently enroll a user onto a project whose digest builds empty
     # (auto-select is a one-shot decision). Only computed when the org actually has a first-time user.
     setting_key = weekly_digest.DIGEST_PROJECT_SETTING_KEY
-    autoselect_counts: dict[int, dict] = {}
+    autoselect_counts: dict[int, ExceptionSummary] = {}
     # Kept for Pass 2: the 14-day row query is the most expensive thing this activity does, so a team
     # ranked here shouldn't pay for it again when its digest is built.
     daily_rows_by_team: dict[int, list] = {}
@@ -134,7 +135,7 @@ def _send_org_digest(inputs: SendOrgDigestInputs, attempt: int) -> SendOrgDigest
                 logger.exception("et_weekly_digest.autoselect_rank_failed", team_id=tid, org_id=org_id)
                 continue
             summary = weekly_digest.get_exception_summary_for_team(all_org_teams[tid], daily_rows_by_team[tid])
-            if summary and summary["exception_count"] > 0:
+            if summary and summary.exception_count > 0:
                 autoselect_counts[tid] = summary
 
     # Pass 1 — resolve each recipient's enabled teams from notification settings + project access only (no
@@ -263,7 +264,7 @@ def _send_org_digest(inputs: SendOrgDigestInputs, attempt: int) -> SendOrgDigest
         digest = {
             "recipient_email": user.email,
             "org_name": org.name,
-            "project_sections": [weekly_digest.build_team_section_payload(d) for d in user_team_sections],
+            "project_sections": [weekly_digest_delivery.build_team_section_payload(d) for d in user_team_sections],
             "disabled_project_names": disabled_team_names,
             "excluded_project_count": excluded_project_count,
             "settings_url": f"{settings.SITE_URL}/settings/user-notifications?highlight=et-weekly-digest",
@@ -293,7 +294,7 @@ def _send_org_digest(inputs: SendOrgDigestInputs, attempt: int) -> SendOrgDigest
             continue
 
         try:
-            weekly_digest.send_digest_to_workflow(digest, distinct_id)
+            weekly_digest_delivery.send_digest_to_workflow(digest, distinct_id)
         except Exception:
             logger.exception("et_weekly_digest.send_failed", user_id=str(user.uuid), org_id=org_id)
             MessagingRecord.objects.filter(pk=record.pk).update(sent_at=None)
@@ -351,5 +352,15 @@ def _send_org_digest(inputs: SendOrgDigestInputs, attempt: int) -> SendOrgDigest
 @activity.defn
 def send_org_digest_activity(inputs: SendOrgDigestInputs) -> SendOrgDigestResult:
     close_old_connections()
+    attempt = activity.info().attempt
     with HeartbeaterSync(logger=logger):
-        return _send_org_digest(inputs, attempt=activity.info().attempt)
+        try:
+            return _send_org_digest(inputs, attempt=attempt)
+        except Exception:
+            # Every other failure log sits inside the per-team build loop, so a failure before it
+            # (the org-wide exception count query, or any Postgres read) names no org anywhere.
+            # Temporal's own activity-failure log carries the activity id but not the inputs, which
+            # leaves those orgs unidentifiable after the fact. This one event names the org for
+            # every failure path: filter it on attempt == max_attempts for the orgs a run gave up on.
+            logger.exception("et_weekly_digest.org_failed", org_id=inputs.org_id, attempt=attempt)
+            raise

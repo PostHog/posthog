@@ -29,7 +29,7 @@ Which ingredient is missing points at which layer is broken:
    - **`$ip` missing** → the capture path saw no client IP — a proxy/CDN in front of PostHog not passing the client address through, or middleware explicitly deleting `$ip` before the identity is computed.
    - **timestamp missing** → server-side batching that strips timestamps.
    - **timestamp out of range** → a historical import routed through cookieless (can't work, see below), badly skewed client clocks, or offline queues flushing much later.
-3. If cookieless events produce **no warnings and no events at all**, check the project setting first: cookieless server hash mode must be enabled on the team — with it disabled, sentinel events are dropped without a warning.
+3. If cookieless events produce **no warnings and no events at all**, check the project setting first: cookieless tracking must be enabled on the team (Settings → Web analytics → Cookieless tracking, stored as `cookieless_server_hash_mode`) — with it disabled, sentinel events are dropped without a warning.
 
 ## Fix
 

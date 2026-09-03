@@ -1,14 +1,30 @@
-import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import {
+    MakeLogicType,
+    actions,
+    afterMount,
+    beforeUnmount,
+    connect,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    reducers,
+    selectors,
+} from 'kea'
 import { loaders } from 'kea-loaders'
-import { urlToAction } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
+import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { captureAccessControlEvent, pluralizeResource } from 'lib/utils/accessControlUtils'
 import { toSentenceCase } from 'lib/utils/strings'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import {
     APIScopeObject,
     AccessControlDefaultsResponse,
@@ -17,7 +33,9 @@ import {
     AccessControlResourceType,
     AccessControlRolesResponse,
     AvailableFeature,
+    ObjectRuleResource,
     OrganizationMemberType,
+    SidePanelTab,
 } from '~/types'
 
 import type { FeatureFlagsSet } from '../../../../../../lib/logic/featureFlagLogic'
@@ -26,6 +44,7 @@ import type { AccessControlResponseType, AccessControlUpdateType, RoleType } fro
 import { accessControlLogic } from '../accessControlLogic'
 import { isResourceRolledOut, resourcesAccessControlLogic } from '../resourcesAccessControlLogic'
 import { roleAccessControlLogic } from '../roleAccessControlLogic'
+import { AccessDetailSubject, AccessDetailSubjectScope, parseAccessDetailOptions } from './accessDetailLogic'
 import {
     AccessControlFilters,
     AccessControlMemberEntry,
@@ -92,7 +111,11 @@ export interface accessControlsLogicValues {
     sortedMembers: OrganizationMemberType[] | null // membersLogic
     resources: APIScopeObject[] // resourcesAccessControlLogic
     roles: RoleType[] // roleAccessControlLogic
+    selectedTab: SidePanelTab | null // sidePanelStateLogic
+    selectedTabOptions: string | null // sidePanelStateLogic
     hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
+    accessDetailPanelEnabled: boolean
+    activePanelSubject: AccessDetailSubject | null
     activeTab: AccessControlsTab
     allMembers: OrganizationMemberType[]
     availableProjectLevels: AccessControlLevel[]
@@ -102,11 +125,17 @@ export interface accessControlsLogicValues {
     defaults: AccessControlDefaultsResponse | null
     defaultsLoading: boolean
     filteredMembers: AccessControlMemberEntry[]
+    filteredResourceKeySet: Set<APIScopeObject>
     filteredRoles: AccessControlRoleEntry[]
     filters: AccessControlFilters
     loading: boolean
     membersData: AccessControlMembersResponse | null
     membersDataLoading: boolean
+    objectRuleResourceOptions: ObjectRuleResource[]
+    panelEntry: AccessControlSettingsEntry | null
+    panelEntryLoading: boolean
+    panelOptionsSubject: AccessDetailSubject | null
+    panelSubject: AccessDetailSubject | null
     resourceKeys: {
         key: APIScopeObject
         label: string
@@ -123,6 +152,15 @@ export interface accessControlsLogicValues {
         label: string
     }[]
     searchText: string
+    showAllTools: boolean
+    toolsCollapse: {
+        canCollapse: boolean
+        collapsedCount: number
+        visibleResources: {
+            key: APIScopeObject
+            label: string
+        }[]
+    }
     visibleResourceKeySet: Set<APIScopeObject>
 }
 
@@ -246,6 +284,22 @@ export interface accessControlsLogicActions {
         }
         resourceAccessControls: AccessControlResponseType | null
     } // resourcesAccessControlLogic
+    deleteRoleSuccess: (
+        roles: RoleType[],
+        payload?:
+            | {
+                  roleId: string
+              }
+            | undefined
+    ) => {
+        payload?: {
+            roleId: string
+        }
+        roles: RoleType[]
+    } // roleAccessControlLogic
+    roleMembershipsChanged: () => {
+        value: true
+    } // roleAccessControlLogic
     closeRuleModal: () => {
         value: true
     }
@@ -279,6 +333,27 @@ export interface accessControlsLogicActions {
         membersData: AccessControlMembersResponse
         payload?: any
     }
+    loadPanelEntry: (subject: AccessDetailSubject) => {
+        subject: AccessDetailSubject
+    }
+    loadPanelEntryFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadPanelEntrySuccess: (
+        panelEntry: AccessControlSettingsEntry | null,
+        payload?: {
+            subject: AccessDetailSubject
+        }
+    ) => {
+        panelEntry: AccessControlSettingsEntry | null
+        payload?: {
+            subject: AccessDetailSubject
+        }
+    }
     loadRoles: () => any
     loadRolesFailure: (
         error: string,
@@ -293,6 +368,13 @@ export interface accessControlsLogicActions {
     ) => {
         rolesData: AccessControlRolesResponse
         payload?: any
+    }
+    openAccessDetailPanel: (
+        scopeType: AccessDetailSubjectScope,
+        subjectId: string
+    ) => {
+        scopeType: AccessDetailSubjectScope
+        subjectId: string
     }
     openRuleModal: (state: GroupedAccessControlRuleModalLogicProps) => {
         state: GroupedAccessControlRuleModalLogicProps
@@ -316,6 +398,7 @@ export interface accessControlsLogicActions {
             | 'batch_export'
             | 'batch_import'
             | 'batch_import_support'
+            | 'billing'
             | 'business_knowledge'
             | 'canvas'
             | 'clickhouse_test_cluster_perf'
@@ -394,6 +477,7 @@ export interface accessControlsLogicActions {
             | 'signal_scout'
             | 'signal_scout_internal'
             | 'signal_scout_report'
+            | 'signal_scratchpad_internal'
             | 'stamphog'
             | 'streamlit_app'
             | 'subscription'
@@ -408,6 +492,7 @@ export interface accessControlsLogicActions {
             | 'user'
             | 'user_interview'
             | 'vision_action'
+            | 'vision_alert'
             | 'visual_review'
             | 'warehouse_objects'
             | 'warehouse_table'
@@ -429,6 +514,9 @@ export interface accessControlsLogicActions {
     setSearchText: (searchText: string) => {
         searchText: string
     }
+    setShowAllTools: (show: boolean) => {
+        show: boolean
+    }
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
@@ -436,6 +524,31 @@ export interface accessControlsLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         allMembers: (sortedMembers: OrganizationMemberType[] | null) => OrganizationMemberType[]
+        accessDetailPanelEnabled: (featureFlags: FeatureFlagsSet) => boolean
+        panelOptionsSubject: (
+            selectedTab: SidePanelTab | null,
+            selectedTabOptions: string | null
+        ) => AccessDetailSubject | null
+        objectRuleResourceOptions: (defaults: AccessControlDefaultsResponse | null) => ObjectRuleResource[]
+        toolsCollapse: (
+            resourceKeys: {
+                key: APIScopeObject
+                label: string
+            }[],
+            panelEntry: AccessControlSettingsEntry | null,
+            showAllTools: boolean
+        ) => {
+            canCollapse: boolean
+            collapsedCount: number
+            visibleResources: {
+                key: APIScopeObject
+                label: string
+            }[]
+        }
+        activePanelSubject: (
+            panelOptionsSubject: AccessDetailSubject | null,
+            panelSubject: AccessDetailSubject | null
+        ) => AccessDetailSubject | null
         canUseRoles: (
             hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
         ) => boolean
@@ -456,6 +569,7 @@ export interface accessControlsLogicMeta {
                 | 'batch_export'
                 | 'batch_import'
                 | 'batch_import_support'
+                | 'billing'
                 | 'business_knowledge'
                 | 'canvas'
                 | 'clickhouse_test_cluster_perf'
@@ -534,6 +648,7 @@ export interface accessControlsLogicMeta {
                 | 'signal_scout'
                 | 'signal_scout_internal'
                 | 'signal_scout_report'
+                | 'signal_scratchpad_internal'
                 | 'stamphog'
                 | 'streamlit_app'
                 | 'subscription'
@@ -548,6 +663,7 @@ export interface accessControlsLogicMeta {
                 | 'user'
                 | 'user_interview'
                 | 'vision_action'
+                | 'vision_alert'
                 | 'visual_review'
                 | 'warehouse_objects'
                 | 'warehouse_table'
@@ -576,6 +692,7 @@ export interface accessControlsLogicMeta {
                 label: string
             }[]
         ) => Set<APIScopeObject>
+        filteredResourceKeySet: (filters: AccessControlFilters) => Set<APIScopeObject>
         ruleOptions: (
             availableProjectLevels: AccessControlLevel[],
             availableResourceLevels: AccessControlLevel[]
@@ -600,6 +717,7 @@ export interface accessControlsLogicMeta {
                 | 'batch_export'
                 | 'batch_import'
                 | 'batch_import_support'
+                | 'billing'
                 | 'business_knowledge'
                 | 'canvas'
                 | 'clickhouse_test_cluster_perf'
@@ -678,6 +796,7 @@ export interface accessControlsLogicMeta {
                 | 'signal_scout'
                 | 'signal_scout_internal'
                 | 'signal_scout_report'
+                | 'signal_scratchpad_internal'
                 | 'stamphog'
                 | 'streamlit_app'
                 | 'subscription'
@@ -692,6 +811,7 @@ export interface accessControlsLogicMeta {
                 | 'user'
                 | 'user_interview'
                 | 'vision_action'
+                | 'vision_alert'
                 | 'visual_review'
                 | 'warehouse_objects'
                 | 'warehouse_table'
@@ -717,6 +837,7 @@ export interface accessControlsLogicMeta {
                 | 'batch_export'
                 | 'batch_import'
                 | 'batch_import_support'
+                | 'billing'
                 | 'business_knowledge'
                 | 'canvas'
                 | 'clickhouse_test_cluster_perf'
@@ -795,6 +916,7 @@ export interface accessControlsLogicMeta {
                 | 'signal_scout'
                 | 'signal_scout_internal'
                 | 'signal_scout_report'
+                | 'signal_scratchpad_internal'
                 | 'stamphog'
                 | 'streamlit_app'
                 | 'subscription'
@@ -809,6 +931,7 @@ export interface accessControlsLogicMeta {
                 | 'user'
                 | 'user_interview'
                 | 'vision_action'
+                | 'vision_alert'
                 | 'visual_review'
                 | 'warehouse_objects'
                 | 'warehouse_table'
@@ -859,6 +982,8 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                 'updateAccessControlRoles',
                 'updateAccessControlRolesSuccess',
             ],
+            roleAccessControlLogic,
+            ['roleMembershipsChanged', 'deleteRoleSuccess'],
         ],
         values: [
             userLogic,
@@ -871,6 +996,8 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
             ['resources'],
             featureFlagLogic,
             ['featureFlags'],
+            sidePanelStateLogic,
+            ['selectedTab', 'selectedTabOptions'],
         ],
     })),
 
@@ -880,6 +1007,9 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
         setSearchText: (searchText: string) => ({ searchText }),
         openRuleModal: (state: GroupedAccessControlRuleModalLogicProps) => ({ state }),
         closeRuleModal: true,
+        openAccessDetailPanel: (scopeType: AccessDetailSubjectScope, subjectId: string) => ({ scopeType, subjectId }),
+        loadPanelEntry: (subject: AccessDetailSubject) => ({ subject }),
+        setShowAllTools: (show: boolean) => ({ show }),
         saveGroupedRules: (params: {
             scopeType: ScopeType
             scopeId: string
@@ -908,6 +1038,27 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
             {
                 loadMembers: async () =>
                     api.get<AccessControlMembersResponse>(`api/projects/${props.projectId}/access_control_members`),
+            },
+        ],
+        /** The subject shown in the side panel, fetched alone so opening it never pays for the whole list. */
+        panelEntry: [
+            null as AccessControlSettingsEntry | null,
+            {
+                loadPanelEntry: async ({ subject }) => {
+                    const query =
+                        subject.scopeType === 'role'
+                            ? `access_control_roles?role_id=${subject.subjectId}`
+                            : `access_control_members?member_id=${subject.subjectId}`
+                    try {
+                        const response = await api.get<{ results: AccessControlSettingsEntry[] }>(
+                            `api/projects/${props.projectId}/${query}`
+                        )
+                        return response.results[0] ?? null
+                    } catch {
+                        // 404 (deleted subject, bad deep link) renders as "not found" rather than an error state
+                        return null
+                    }
+                },
             },
         ],
     })),
@@ -941,12 +1092,93 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                 closeRuleModal: () => null,
             },
         ],
+        /**
+         * Who the access detail side panel is showing. Kept here rather than in the side panel's own
+         * `selectedTabOptions`, which is cleared whenever any other panel tab is opened — switching to
+         * Support and back would otherwise lose the selection.
+         */
+        // A fresh subject invalidates the previous subject's entry while the new one loads
+        panelEntry: {
+            openAccessDetailPanel: () => null,
+        },
+        /** The Tools list starts collapsed for every newly opened subject. */
+        showAllTools: [false, { setShowAllTools: (_, { show }) => show, openAccessDetailPanel: () => false }],
+        panelSubject: [
+            null as AccessDetailSubject | null,
+            {
+                openAccessDetailPanel: (_, { scopeType, subjectId }) => ({ scopeType, subjectId }),
+                // Deliberately not cleared on setActiveTab: urlToAction re-dispatches it on every location
+                // change, including the hash changing as side panel tabs are switched, which would wipe the
+                // selection. The row highlight already ignores a subject from the other scope.
+            },
+        ],
     }),
 
     selectors({
         allMembers: [
             (s) => [s.sortedMembers],
             (sortedMembers: OrganizationMemberType[] | null): OrganizationMemberType[] => sortedMembers ?? [],
+        ],
+
+        /** The member and role detail panel is opt-in while the new UI rolls out. */
+        accessDetailPanelEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.ACCESS_CONTROL_DETAIL_PANEL],
+        ],
+
+        /** Subject carried in the side panel's own options — a deep link or a fresh open. */
+        panelOptionsSubject: [
+            (s) => [s.selectedTab, s.selectedTabOptions],
+            (selectedTab: SidePanelTab | null, selectedTabOptions: string | null): AccessDetailSubject | null =>
+                selectedTab === SidePanelTab.AccessDetail ? parseAccessDetailOptions(selectedTabOptions) : null,
+        ],
+
+        /** Picker options for object rules, served by the backend so nothing is hardcoded here. */
+        objectRuleResourceOptions: [
+            (s) => [s.defaults],
+            (defaults: AccessControlDefaultsResponse | null): ObjectRuleResource[] =>
+                defaults?.object_rule_resources ?? [],
+        ],
+
+        /**
+         * The Tools list for the panel's subject: ruled tools first, at least 3 rows visible, the
+         * rest collapsed behind a toggle when there are enough to be worth hiding.
+         */
+        toolsCollapse: [
+            (s) => [s.resourceKeys, s.panelEntry, s.showAllTools],
+            (
+                resourceKeys: { key: APIScopeObject; label: string }[],
+                panelEntry: AccessControlSettingsEntry | null,
+                showAllTools: boolean
+            ): {
+                visibleResources: { key: APIScopeObject; label: string }[]
+                collapsedCount: number
+                canCollapse: boolean
+            } => {
+                const hasRule = (key: APIScopeObject): boolean => panelEntry?.resources[key]?.access_level != null
+                const ruledCount = resourceKeys.filter((r) => hasRule(r.key)).length
+                const orderedResources = [...resourceKeys].sort(
+                    (a, b) => Number(hasRule(b.key)) - Number(hasRule(a.key))
+                )
+                const visibleCount = Math.max(ruledCount, 3)
+                const collapsedCount = orderedResources.length - visibleCount
+                const canCollapse = collapsedCount > 3
+                return {
+                    visibleResources:
+                        showAllTools || !canCollapse ? orderedResources : orderedResources.slice(0, visibleCount),
+                    collapsedCount,
+                    canCollapse,
+                }
+            },
+        ],
+
+        /** Who the access detail panel shows: fresh options win, the stored selection covers tab switches. */
+        activePanelSubject: [
+            (s) => [s.panelOptionsSubject, s.panelSubject],
+            (
+                panelOptionsSubject: AccessDetailSubject | null,
+                panelSubject: AccessDetailSubject | null
+            ): AccessDetailSubject | null => panelOptionsSubject ?? panelSubject,
         ],
 
         canUseRoles: [
@@ -1017,6 +1249,10 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                     label: string
                 }[]
             ): Set<APIScopeObject> => new Set(resourceKeys.map((r) => r.key)),
+        ],
+        filteredResourceKeySet: [
+            (s) => [s.filters],
+            (filters: AccessControlFilters): Set<APIScopeObject> => new Set(filters.resourceKeys),
         ],
 
         ruleOptions: [
@@ -1128,6 +1364,17 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
             })
         },
 
+        openAccessDetailPanel: ({ scopeType, subjectId }) => {
+            captureAccessControlEvent(
+                scopeType === 'role' ? 'access_control_role_detail_opened' : 'access_control_member_detail_opened',
+                { ui_version: 'v2' }
+            )
+            // The panel fetches its one subject, so opening it never pays for the whole member list.
+            // Load on the action rather than a subscription on activePanelSubject: re-opening the same
+            // subject nulls panelEntry without changing the subject, so a subscription would never refire.
+            actions.loadPanelEntry({ scopeType, subjectId })
+        },
+
         saveGroupedRules: async ({ scopeType, scopeId, projectLevel, resourceLevels }) => {
             // If the selected level equals the inherited level, we save null (clear override)
             // If the selected level differs from inherited, we save it as an override
@@ -1140,7 +1387,7 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                     project: {
                         access_level: values.defaults.project_access_level,
                         effective_access_level: values.defaults.project_access_level,
-                        inherited_access_level: null,
+                        inherited_access: null,
                     },
                     resources: Object.fromEntries(
                         Object.entries(values.defaults.resource_access_levels).map(([k, v]) => [
@@ -1148,7 +1395,7 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                             {
                                 access_level: v.access_level,
                                 effective_access_level: v.access_level,
-                                inherited_access_level: null,
+                                inherited_access: null,
                             },
                         ])
                     ),
@@ -1175,7 +1422,7 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
             // Process project
             const currentProjectEffective = entryData.project.effective_access_level
             const currentProjectSaved = entryData.project.access_level
-            const projectInherited = entryData.project.inherited_access_level
+            const projectInherited = entryData.project.inherited_access?.access_level ?? null
 
             if (projectLevel !== currentProjectEffective) {
                 // User changed the level - determine what to save
@@ -1198,7 +1445,7 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                 const newLevel = resourceLevels[resourceKey] ?? null
                 const currentEffective = resourceEntry?.effective_access_level ?? null
                 const currentSaved = resourceEntry?.access_level ?? null
-                const inherited = resourceEntry?.inherited_access_level ?? null
+                const inherited = resourceEntry?.inherited_access?.access_level ?? null
 
                 if (newLevel !== currentEffective) {
                     // If new level equals inherited (or both null), save null (clear override)
@@ -1247,6 +1494,9 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
             if (values.membersData) {
                 actions.loadMembers()
             }
+            if (values.activePanelSubject) {
+                actions.loadPanelEntry(values.activePanelSubject)
+            }
         },
         updateAccessControlRolesSuccess: () => {
             actions.loadRoles()
@@ -1254,9 +1504,38 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
             if (values.membersData) {
                 actions.loadMembers()
             }
+            if (values.activePanelSubject) {
+                actions.loadPanelEntry(values.activePanelSubject)
+            }
         },
         updateAccessControlMembersSuccess: () => {
             actions.loadMembers()
+            if (values.activePanelSubject) {
+                actions.loadPanelEntry(values.activePanelSubject)
+            }
+        },
+        roleMembershipsChanged: () => {
+            // A member's roles decide what they inherit, so both lists go stale at once
+            if (values.membersData) {
+                actions.loadMembers()
+            }
+            if (values.rolesData) {
+                actions.loadRoles()
+            }
+            if (values.activePanelSubject) {
+                actions.loadPanelEntry(values.activePanelSubject)
+            }
+        },
+        deleteRoleSuccess: () => {
+            if (values.membersData) {
+                actions.loadMembers()
+            }
+            if (values.rolesData) {
+                actions.loadRoles()
+            }
+            if (values.activePanelSubject) {
+                actions.loadPanelEntry(values.activePanelSubject)
+            }
         },
         updateResourceAccessControlsSuccess: () => {
             actions.loadDefaults()
@@ -1267,12 +1546,39 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
             if (values.membersData) {
                 actions.loadMembers()
             }
+            if (values.activePanelSubject) {
+                actions.loadPanelEntry(values.activePanelSubject)
+            }
+        },
+    })),
+
+    subscriptions(({ actions, values }) => ({
+        // Persist a subject that arrived through the panel options: they're cleared as soon as any other
+        // panel tab opens, and the stored copy is what survives switching to Support or Max and back.
+        panelOptionsSubject: (subject: AccessDetailSubject | null) => {
+            if (
+                subject &&
+                (subject.subjectId !== values.panelSubject?.subjectId ||
+                    subject.scopeType !== values.panelSubject?.scopeType)
+            ) {
+                actions.openAccessDetailPanel(subject.scopeType, subject.subjectId)
+            }
         },
     })),
 
     afterMount(({ actions }) => {
         // Only load defaults, roles/members are lazy loaded when their tab is opened
         actions.loadDefaults()
+    }),
+
+    beforeUnmount(() => {
+        // Settings navigation carries search params across sections, so our params would otherwise follow the
+        // user to other settings pages and re-apply the same tab and filters on their way back. Drop them on the way out.
+        const { pathname, searchParams, hashParams } = router.values.currentLocation
+        const { access_tab, access_role_id, ...rest } = searchParams
+        if (access_tab !== undefined || access_role_id !== undefined) {
+            router.actions.replace(pathname, rest, hashParams)
+        }
     }),
 
     urlToAction(({ actions }) => ({

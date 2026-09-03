@@ -3,11 +3,17 @@ import { renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const taskState = vi.hoisted(() => ({ channel: null as string | null }));
 const openTask = vi.hoisted(() =>
-  vi.fn().mockResolvedValue({
-    success: true,
-    data: { task: { id: "t1" }, workspace: null },
-  }),
+  vi.fn().mockImplementation(() =>
+    Promise.resolve({
+      success: true,
+      data: {
+        task: { id: "t1", channel: taskState.channel },
+        workspace: null,
+      },
+    }),
+  ),
 );
 const getPendingDeepLink = vi.hoisted(() => vi.fn().mockResolvedValue(null));
 const onOpenTask = vi.hoisted(() =>
@@ -21,9 +27,6 @@ const onOpenTask = vi.hoisted(() =>
 const routerOpenTask = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 const markAsViewed = vi.hoisted(() => vi.fn());
 const bluebirdState = vi.hoisted(() => ({ enabled: true }));
-const channelMapState = vi.hoisted(() => ({
-  map: new Map<string, { id: string; name: string; path: string }>(),
-}));
 
 vi.mock("@posthog/host-router/react", () => ({
   useHostTRPCClient: () => ({
@@ -55,12 +58,6 @@ vi.mock("@posthog/ui/primitives/toast", () => ({
 vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
   useFeatureFlag: () => bluebirdState.enabled,
 }));
-vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
-  useChannels: () => ({ channels: [], isLoading: false }),
-}));
-vi.mock("@posthog/ui/features/canvas/hooks/useTaskChannelMap", () => ({
-  useTaskChannelMap: () => channelMapState.map,
-}));
 
 import { useTaskDeepLink } from "./useTaskDeepLink";
 
@@ -78,10 +75,8 @@ describe("useTaskDeepLink", () => {
     vi.clearAllMocks();
     getPendingDeepLink.mockResolvedValue(null);
     bluebirdState.enabled = true;
-    channelMapState.map = new Map();
+    taskState.channel = null;
   });
-
-  const marketing = { id: "chan-1", name: "marketing", path: "/marketing" };
 
   // Both entry points (cold-start pending link, warm-start subscription event)
   // run the same routing dispatch: a channel-filed task opens in its /website
@@ -99,26 +94,26 @@ describe("useTaskDeepLink", () => {
       name: "cold-start channel-filed task → its channel view",
       trigger: "pending" as const,
       enabled: true,
-      channel: marketing,
+      channel: "chan-1",
       expected: { channelId: "chan-1" },
     },
     {
       name: "cold-start filed task with flag off → /code",
       trigger: "pending" as const,
       enabled: false,
-      channel: marketing,
+      channel: "chan-1",
       expected: undefined,
     },
     {
       name: "warm-start channel-filed task → its channel view",
       trigger: "warm" as const,
       enabled: true,
-      channel: marketing,
+      channel: "chan-1",
       expected: { channelId: "chan-1" },
     },
   ])("$name", async ({ trigger, enabled, channel, expected }) => {
     bluebirdState.enabled = enabled;
-    if (channel) channelMapState.map = new Map([["t1", channel]]);
+    taskState.channel = channel;
 
     if (trigger === "pending") {
       getPendingDeepLink.mockResolvedValue({ taskId: "t1" });
@@ -130,7 +125,10 @@ describe("useTaskDeepLink", () => {
     }
 
     await waitFor(() =>
-      expect(routerOpenTask).toHaveBeenCalledWith({ id: "t1" }, expected),
+      expect(routerOpenTask).toHaveBeenCalledWith(
+        { id: "t1", channel },
+        expected,
+      ),
     );
     expect(openTask).toHaveBeenCalledWith("t1", undefined);
     expect(markAsViewed).toHaveBeenCalledWith("t1");

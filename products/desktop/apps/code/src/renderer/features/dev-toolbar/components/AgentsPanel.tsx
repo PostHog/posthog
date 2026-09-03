@@ -55,15 +55,15 @@ export function AgentsPanel({ enabled }: AgentsPanelProps) {
           <Text size="1" weight="medium" color="gray">
             Active sessions
           </Text>
-          <div className="overflow-hidden rounded-md border border-(--gray-5) bg-(--gray-1)">
-            <div className="grid grid-cols-[1fr_90px_70px_80px_80px] gap-x-3 border-(--gray-5) border-b bg-(--gray-2) px-3 py-1.5 font-mono text-(--gray-10) text-[10px] uppercase tracking-wide">
+          <div className="overflow-hidden rounded-md border border-border bg-background">
+            <div className="grid grid-cols-[1fr_90px_70px_80px_80px] gap-x-3 border-border border-b bg-chrome px-3 py-1.5 font-mono text-[10px] text-muted-foreground uppercase tracking-wide">
               <span>Task</span>
               <span>Adapter</span>
               <span>State</span>
               <span>Activity</span>
               <span>Idle in</span>
             </div>
-            <div className="divide-y divide-(--gray-4)">
+            <div className="divide-y divide-border">
               {sessions.map((s) => (
                 <SessionRow key={s.taskRunId} session={s} now={now} />
               ))}
@@ -87,7 +87,7 @@ export function AgentsPanel({ enabled }: AgentsPanelProps) {
                   size={12}
                   className="shrink-0 text-(--amber-11)"
                 />
-                <Text size="1" className="truncate text-(--gray-12)">
+                <Text size="1" className="truncate text-foreground">
                   task={p.taskRunId.slice(0, 8)}… toolCall={p.toolCallId}
                 </Text>
                 <Button
@@ -133,7 +133,7 @@ function SessionRow({ session, now }: { session: DevSession; now: number }) {
   return (
     <div className="grid grid-cols-[1fr_90px_70px_80px_80px] items-center gap-x-3 px-3 py-1 font-mono text-[11px]">
       <Flex direction="column" className="min-w-0">
-        <Text size="1" className="truncate text-(--gray-12)">
+        <Text size="1" className="truncate text-foreground">
           {session.taskId.slice(0, 12)}
         </Text>
         <Text size="1" color="gray" className="truncate text-[10px]">
@@ -162,7 +162,7 @@ function SessionRow({ session, now }: { session: DevSession; now: number }) {
         )}
       </Flex>
       <Flex align="center" gap="1">
-        <Clock size={10} className="text-(--gray-10)" />
+        <Clock size={10} className="text-muted-foreground" />
         <Text size="1" color="gray">
           {formatDuration(ageMs)}
         </Text>

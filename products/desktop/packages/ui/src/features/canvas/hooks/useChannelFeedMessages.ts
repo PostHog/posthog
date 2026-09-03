@@ -1,7 +1,6 @@
 import { shouldPollChannelFeed } from "@posthog/core/canvas/channelFeed";
 import type {
   ChannelFeedMessage,
-  TaskChannel,
   UserBasic,
 } from "@posthog/shared/domain-types";
 import { userDisplayName } from "@posthog/ui/features/canvas/utils/userDisplay";
@@ -27,45 +26,21 @@ export function channelFeedMessagesQueryKey(channelId: string | undefined) {
   return ["channel-feed-messages", channelId ?? "none"] as const;
 }
 
-// The "created this context" row is synthesized from the channel row itself
-// (below) — the canonical creation record, available even where the feed
-// endpoint isn't. Server-emitted channel_created (and its legacy client-posted
-// context_created twin) would duplicate it, so both are dropped from the feed.
-const CREATION_EVENTS = new Set(["channel_created", "context_created"]);
+// Announcements the card feed already represents, dropped to avoid saying the
+// same thing twice: creation is the intro header's line (channel_created and
+// its legacy client-posted context_created twin), and a CONTEXT.md build is
+// its own plan-task card in the feed plus the intro card's "Creating…" state.
+const REDUNDANT_EVENTS = new Set([
+  "channel_created",
+  "context_created",
+  "context_md_building",
+]);
 
-// Render the announcement from its event + structured payload (rename-safe),
-// falling back to the freeform content.
+// Render the announcement from its freeform content, with a generic fallback
+// so an unknown future event still shows something.
 function messageText(message: ChannelFeedMessage): string {
   const actor = userDisplayName(message.author ?? null);
-  const contextName =
-    typeof message.payload?.context_name === "string"
-      ? message.payload.context_name
-      : "";
-  switch (message.event) {
-    case "context_md_building":
-      return `${actor} is building CONTEXT.md${contextName ? ` for ${contextName}` : ""}`;
-    default:
-      return message.content || `${actor} posted an update`;
-  }
-}
-
-/**
- * The feed's Slack-style "joined" opener, derived from the channel row
- * (creator + creation time) rather than a feed message: the channel predates
- * everything in its feed, so it always sorts first, and it renders even before
- * the feed-message endpoint is deployed. Personal channels are provisioned by
- * the system, so they get no creation row.
- */
-export function channelCreationMessage(
-  channel: TaskChannel | undefined,
-): ChannelFeedSystemMessage | undefined {
-  if (!channel || channel.channel_type !== "public") return undefined;
-  return {
-    id: `channel-created-${channel.id}`,
-    createdAt: channel.created_at,
-    text: `joined ${channel.name}`,
-    author: channel.created_by,
-  };
+  return message.content || `${actor} posted an update`;
 }
 
 /**
@@ -91,7 +66,7 @@ export function useChannelFeedMessages(channelId: string | undefined): {
   const messages = useMemo(
     () =>
       (query.data ?? [])
-        .filter((m) => !CREATION_EVENTS.has(m.event))
+        .filter((m) => !REDUNDANT_EVENTS.has(m.event))
         .map((m) => ({
           id: m.id,
           createdAt: m.created_at,

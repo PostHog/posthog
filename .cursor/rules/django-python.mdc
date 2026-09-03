@@ -107,7 +107,7 @@ Dataclasses
   - Use @frozen from posthog.dataclasses (frozen=True, kw_only=True, slots=True by default; every flag overridable, e.g. @frozen(slots=False) for functools.cached_property).
   - Consume results with dot notation (result.field), never by unpacking into positional locals (a, b = result.a, result.b).
   - Name dataclasses after the domain concept (BillingPeriod), never *Info/*Data/*Tuple; mark secret fields with field(repr=False).
-  - A bare @dataclass without an explicit frozen= choice fails the posthog/test/test_dataclass_defaults.py ratchet and is flagged by the prefer-frozen-dataclasses semgrep rule.
+  - A bare @dataclass without an explicit frozen= choice fails the posthog/test/repo_invariants/test_dataclass_defaults.py ratchet and is flagged by the prefer-frozen-dataclasses semgrep rule.
 
 Running commands
 - Use `uv sync` instead of `pip install -r ...`, and `uv add PACKAGE` instead of `pip install PACKAGE`. If there is an import error, first activate the venv at `.flox/cache/venv/` or alternatively `.venv/`.

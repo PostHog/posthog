@@ -1,9 +1,11 @@
 import { ExportedAssetType, ExporterFormat } from '~/types'
 
 import {
+    MAX_EXPORTABLE_RECORDING_SECONDS,
     getExportDisabledReason,
     getExportPendingLabel,
     getExportPendingStatus,
+    getVideoExportDisabledReason,
     isLongRunningExportFormat,
 } from './exportStatus'
 
@@ -32,6 +34,29 @@ describe('exportStatus', () => {
         it('returns false for missing format', () => {
             expect(isLongRunningExportFormat(undefined)).toBe(false)
             expect(isLongRunningExportFormat(null)).toBe(false)
+        })
+    })
+
+    describe('getVideoExportDisabledReason', () => {
+        // Past this length no capture rate produces a watchable video, so the API refuses the export.
+        // Disabling the option first is what stops someone spending a click to find that out.
+        it.each([
+            ['a short recording', 5 * 60 * 1000],
+            ['a recording at the limit', MAX_EXPORTABLE_RECORDING_SECONDS * 1000],
+        ])('allows %s', (_label, durationMs) => {
+            expect(getVideoExportDisabledReason(durationMs)).toBeUndefined()
+        })
+
+        it('gives a reason past the limit, and says what to do instead', () => {
+            const reason = getVideoExportDisabledReason((MAX_EXPORTABLE_RECORDING_SECONDS + 1) * 1000)
+
+            expect(reason).toContain('3 hours')
+            expect(reason).toContain('clip')
+        })
+
+        it('allows the export while the duration is unknown', () => {
+            // Loading is not the same as too long, and guessing wrong here hides a usable export.
+            expect(getVideoExportDisabledReason(undefined)).toBeUndefined()
         })
     })
 

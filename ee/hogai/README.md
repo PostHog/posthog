@@ -122,7 +122,7 @@ If you've got any requests for Max, including around tools, let us know at #team
 ### Access control
 
 MaxTools support two levels of access control: resource-level and object-level. Both raise `MaxToolAccessDeniedError` if the user lacks permission.
-The main access check logic lives in `posthog/rbac/user_access_control.py`.
+The main access check logic lives in `products/access_control/backend/facade/user_access_control.py`.
 
 #### Resource-level access control
 

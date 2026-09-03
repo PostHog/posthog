@@ -11,11 +11,12 @@ import { Tooltip } from '@posthog/lemon-ui'
  * `tone` varies for a different reason. The lock, the tooltip and the shape stay fixed, so the promise
  * is still one thing; only the colour follows whoever wrote the entry, matching the note it sits above.
  */
-export type TeamOnlyTone = 'teammate' | 'agent'
+export type TeamOnlyTone = 'teammate' | 'agent' | 'discussion'
 
 const TONE_CLASSES: Record<TeamOnlyTone, string> = {
     teammate: 'text-warning-dark bg-warning-highlight',
     agent: 'text-ai bg-ai/10',
+    discussion: 'text-accent bg-accent-highlight-secondary',
 }
 
 export function TeamOnlyBadge({ label, tone = 'teammate' }: { label: string; tone?: TeamOnlyTone }): JSX.Element {

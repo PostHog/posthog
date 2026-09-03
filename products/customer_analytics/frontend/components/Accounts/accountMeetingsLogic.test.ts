@@ -1,7 +1,13 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { OrganizationMembershipLevel } from 'lib/constants'
+import { teamLogic } from 'scenes/teamLogic'
+
 import { initKeaTests } from '~/test/init'
+import { AccessControlLevel } from '~/types'
 
 import {
     accountsMeetingsList,
@@ -88,6 +94,22 @@ describe('accountMeetingsLogic', () => {
             offset: 0,
             search: 'jane',
         })
+    })
+
+    it.each([
+        [OrganizationMembershipLevel.Admin, true],
+        [OrganizationMembershipLevel.Member, false],
+    ])('allows membership level %s to edit meeting matching: %s', async (membershipLevel, expected) => {
+        mockList.mockResolvedValue(pageOf([]))
+        teamLogic.actions.loadCurrentTeamSuccess({
+            ...MOCK_DEFAULT_TEAM,
+            effective_membership_level: membershipLevel,
+            user_access_level: AccessControlLevel.Admin,
+        })
+
+        await mount()
+
+        expect(logic.values.canEditMeetingMatching).toBe(expected)
     })
 
     it('saves normalized matching values without clobbering other account properties', async () => {

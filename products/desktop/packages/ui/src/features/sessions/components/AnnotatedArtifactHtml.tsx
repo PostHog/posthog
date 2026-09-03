@@ -41,7 +41,6 @@ function isFrameRect(value: unknown): value is ArtifactHtmlFrameRect {
 export function AnnotatedArtifactHtml({
   html,
   name,
-  commentsEnabled,
   comments,
   activeThreadId,
   locateRequest,
@@ -52,7 +51,6 @@ export function AnnotatedArtifactHtml({
 }: {
   html: string;
   name: string;
-  commentsEnabled: boolean;
   comments: ResourceComment[];
   activeThreadId: string | null;
   locateRequest: CommentLocateRequest | null;
@@ -77,22 +75,12 @@ export function AnnotatedArtifactHtml({
   );
   const [selection, setSelection] = useState<EditorSelection | null>(null);
   const previewDocument = useMemo(
-    () =>
-      scriptedArtifactHtmlDocument(
-        html,
-        commentsEnabled ? channelRef.current : undefined,
-        initialTheme,
-      ),
-    [commentsEnabled, html, initialTheme],
+    () => scriptedArtifactHtmlDocument(html, channelRef.current, initialTheme),
+    [html, initialTheme],
   );
   const fallbackDocument = useMemo(
-    () =>
-      artifactHtmlDocument(
-        html,
-        commentsEnabled ? channelRef.current : undefined,
-        initialTheme,
-      ),
-    [commentsEnabled, html, initialTheme],
+    () => artifactHtmlDocument(html, channelRef.current, initialTheme),
+    [html, initialTheme],
   );
 
   const selectionOpen = selection !== null;
@@ -115,7 +103,6 @@ export function AnnotatedArtifactHtml({
   );
 
   const messages = useMemo(() => {
-    if (!commentsEnabled) return [];
     const next: Record<string, unknown>[] = [
       {
         marker: ARTIFACT_HTML_BRIDGE_MARKER,
@@ -147,7 +134,7 @@ export function AnnotatedArtifactHtml({
       });
     }
     return next;
-  }, [bridgeItems, commentsEnabled, locateRequest, selectionOpen, theme]);
+  }, [bridgeItems, locateRequest, selectionOpen, theme]);
 
   const receive = useCallback(
     (value: unknown, frameBox: ArtifactHtmlFrameRect) => {

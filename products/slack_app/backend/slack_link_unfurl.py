@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from typing import Literal
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 from uuid import UUID
 
 from django.core.exceptions import ValidationError
@@ -14,11 +14,16 @@ from posthog.models import Team
 from posthog.models.comment import Comment
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.user_integration import UserIntegration
-from posthog.rbac.user_access_control import UserAccessControl, access_level_satisfied_for_resource
+from posthog.utils import get_instance_region
 
+from products.access_control.backend.facade.user_access_control import (
+    UserAccessControl,
+    access_level_satisfied_for_resource,
+)
 from products.conversations.backend.models.ticket import Ticket
 from products.dashboards.backend.models.dashboard import Dashboard
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
+from products.slack_app.backend.services.slack_messages import UNFURL_OPT_OUT_PARAM
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.contracts import TaskSlackUnfurlDTO
 
@@ -66,6 +71,20 @@ def _truncate(text: str, max_len: int) -> str:
     return text[: max_len - 1] + "…"
 
 
+# App hosts that name a Cloud region. `app.posthog.com` is the legacy alias for US Cloud; a bare
+# `posthog.com` link names no region at all.
+_APP_HOST_REGIONS: dict[str, str] = {
+    "us.posthog.com": "US",
+    "app.posthog.com": "US",
+    "eu.posthog.com": "EU",
+}
+
+
+def link_url_region(url: str) -> str | None:
+    """The Cloud region a link's host names, or None when the host doesn't say."""
+    return _APP_HOST_REGIONS.get(urlparse(url).hostname or "")
+
+
 def parse_posthog_resource_link(
     url: str,
 ) -> tuple[Literal["insight", "dashboard", "ticket", "task"], str | int] | None:
@@ -75,12 +94,17 @@ def parse_posthog_resource_link(
     Reference is insight short_id (str), dashboard primary key (int), or ticket ref (str — ticket
     number or UUID).
 
+    A URL carrying `?unfurl=false` is not a resource here: links we post ourselves already
+    sit beside the detail a card would add, so they opt out rather than repeat it.
+
     If the path includes `/project/:id`, that segment is ignored — lookup is always scoped to the
     Slack-connected project and the resolved PostHog user, not to any project id in the URL.
 
     Related: `removeProjectIdIfPresent` + `urlToResource` (`router-utils.ts`, `urls.ts`); legacy paths in `get_target_queryset` (`middleware.py`).
     """
     parsed = urlparse(url)
+    if "false" in parse_qs(parsed.query).get(UNFURL_OPT_OUT_PARAM, []):
+        return None
     parts = [p for p in parsed.path.split("/") if p]
     if not parts:
         return None
@@ -390,6 +414,12 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
         post_feedback=False,
     )
     if not user_context:
+        logger.info(
+            "slack_app_link_unfurl_user_unresolved",
+            team_id=integration.team_id,
+            integration_id=integration.id,
+            slack_user_id=slack_user_id,
+        )
         return
 
     user = user_context.user
@@ -397,6 +427,9 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
     uac = UserAccessControl(user, team=team)
 
     unfurls: dict[str, dict] = {}
+    # Every resource we recognized but chose not to unfurl, so a report of "no unfurl appeared"
+    # can be answered from logs instead of by re-deriving the path by hand.
+    skipped: list[dict[str, str]] = []
 
     for link_obj in links:
         raw_url = link_obj.get("url")
@@ -409,14 +442,25 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
 
         kind, ref = parsed
 
+        # Resource ids repeat across regions, so a link for the other region would otherwise resolve
+        # to whatever local resource carries the same id and unfurl the wrong thing. Routing sends
+        # single-region messages to the region that owns them; this catches the leftover case of one
+        # message carrying links for both.
+        url_region = link_url_region(raw_url)
+        if url_region is not None and url_region != get_instance_region():
+            skipped.append({"kind": kind, "ref": str(ref), "reason": "other_region"})
+            continue
+
         if kind == "insight":
             if not isinstance(ref, str):
                 continue
             insight = Insight.objects.filter(team_id=team.pk, short_id=ref).first()
             if not insight:
+                skipped.append({"kind": kind, "ref": ref, "reason": "not_found"})
                 continue
             level = uac.get_user_access_level(insight)
             if not level or not access_level_satisfied_for_resource("insight", level, "viewer"):
+                skipped.append({"kind": kind, "ref": ref, "reason": "no_access"})
                 continue
             title = insight.name or insight.derived_name or "Untitled"
             desc = (insight.description or "").strip() or None
@@ -428,9 +472,11 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
                 continue
             dashboard = Dashboard.objects.filter(pk=ref, team_id=team.pk).first()
             if not dashboard:
+                skipped.append({"kind": kind, "ref": str(ref), "reason": "not_found"})
                 continue
             level = uac.get_user_access_level(dashboard)
             if not level or not access_level_satisfied_for_resource("dashboard", level, "viewer"):
+                skipped.append({"kind": kind, "ref": str(ref), "reason": "no_access"})
                 continue
             title = dashboard.name or "Untitled"
             desc = (dashboard.description or "").strip() or None
@@ -444,9 +490,14 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
             # of the same number — refuse rather than show the wrong ticket.
             url_team_id = _url_team_id(raw_url)
             if url_team_id is not None and url_team_id != team.pk:
+                skipped.append({"kind": kind, "ref": ref, "reason": "other_project"})
                 continue
             ticket = _find_ticket(team.pk, ref)
-            if not ticket or not uac.check_access_level_for_object(ticket, required_level="viewer"):
+            if not ticket:
+                skipped.append({"kind": kind, "ref": ref, "reason": "not_found"})
+                continue
+            if not uac.check_access_level_for_object(ticket, required_level="viewer"):
+                skipped.append({"kind": kind, "ref": ref, "reason": "no_access"})
                 continue
             unfurls[raw_url] = _ticket_unfurl_payload(
                 url=raw_url,
@@ -459,9 +510,11 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
                 continue
             url_team_id = _url_team_id(raw_url)
             if url_team_id is not None and url_team_id != team.pk:
+                skipped.append({"kind": kind, "ref": ref, "reason": "other_project"})
                 continue
             task = tasks_facade.get_task_for_slack_unfurl(ref, team.pk, user.id)
             if task is None:
+                skipped.append({"kind": kind, "ref": ref, "reason": "not_found_or_no_access"})
                 continue
             label = "Task" if task.latest_run_status is None else f"Task · {task.latest_run_status}"
             unfurls[raw_url] = _unfurl_payload(resource_label=label, title=_escape_mrkdwn(task.title), description=None)
@@ -477,6 +530,15 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
                 )
             except Exception:
                 logger.exception("slack_task_reference_attach_failed", task_id=str(task.id), team_id=team.pk)
+
+    logger.info(
+        "slack_app_link_unfurl_result",
+        team_id=team.pk,
+        integration_id=integration.id,
+        channel=channel,
+        unfurled=len(unfurls),
+        skipped=skipped,
+    )
 
     if not unfurls:
         return

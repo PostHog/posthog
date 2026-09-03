@@ -1,5 +1,4 @@
 import type { Task } from "@posthog/shared/domain-types";
-import { Theme } from "@radix-ui/themes";
 import { render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
@@ -9,33 +8,21 @@ const { useWorkspace, useWorkspaceLoaded } = vi.hoisted(() => ({
   useWorkspaceLoaded: vi.fn(),
 }));
 
-vi.mock("@posthog/ui/features/workspace/useWorkspace", () => ({
-  useWorkspace,
-  useWorkspaceLoaded,
-}));
-vi.mock("@posthog/ui/features/auth/store", () => ({
-  useAuthStateValue: (selector: (state: { status: string }) => unknown) =>
-    selector({ status: "authenticated" }),
-}));
-vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
-  useFeatureFlag: () => true,
-}));
-vi.mock("@posthog/ui/features/sessions/useSession", () => ({
-  useSessionForTask: () => null,
-}));
-vi.mock("@posthog/ui/features/sessions/hooks/useSessionCallbacks", () => ({
-  useSessionCallbacks: () => ({ initiateHandoffToCloud: vi.fn() }),
-}));
-vi.mock("@posthog/ui/features/sessions/handoffDialogStore", () => ({
-  useHandoffDialogStore: (selector: (state: object) => unknown) =>
-    selector({
-      confirmOpen: false,
-      direction: null,
-      branchName: null,
-      openConfirm: vi.fn(),
-      closeConfirm: vi.fn(),
-    }),
-}));
+vi.mock(
+  "@posthog/ui/features/workspace/useWorkspace",
+  async (importOriginal) => {
+    const actual =
+      await importOriginal<
+        typeof import("@posthog/ui/features/workspace/useWorkspace")
+      >();
+    return {
+      useWorkspace,
+      useWorkspaceLoaded,
+      useIsCloudTask: (task: Task) =>
+        actual.isCloudTask(task, useWorkspace(task.id)),
+    };
+  },
+);
 vi.mock("@posthog/ui/features/code-review/hooks/useDiffStatsToggle", () => ({
   useDiffStatsToggle: () => ({
     filesChanged: 0,
@@ -55,20 +42,30 @@ vi.mock(
   }),
 );
 vi.mock(
-  "@posthog/ui/features/git-interaction/components/CloudGitInteractionHeader",
-  () => ({ CloudGitInteractionHeader: () => <div>cloud actions</div> }),
-);
-vi.mock(
   "@posthog/ui/features/git-interaction/components/TaskActionsMenu",
   () => ({
-    TaskActionsMenu: () => <div>task menu</div>,
+    // Renders the cloud verdict, which is what this row derives.
+    TaskActionsMenu: ({ isCloud }: { isCloud: boolean }) => (
+      <div data-testid="task-menu">{isCloud ? "cloud" : "local"}</div>
+    ),
   }),
 );
-vi.mock("@posthog/ui/features/sessions/components/StopCloudRunButton", () => ({
-  StopCloudRunButton: () => <div>stop cloud run</div>,
+// Reads the session store and the pi session controller from the container,
+// which these renders don't wire up.
+vi.mock("./TaskOverflowMenu", () => ({
+  TaskOverflowMenu: () => <div>task actions</div>,
 }));
 vi.mock("@posthog/ui/features/diff-stats/DiffStatsBadge", () => ({
   DiffStatsBadge: () => null,
+}));
+// Needs an authenticated client, so a TRPC provider these renders don't set up.
+vi.mock("./TaskAnalysisButton", () => ({
+  TaskAnalysisButton: () => null,
+}));
+// Reads the route, which these renders don't provide. The Code scene's answer
+// is false, and that is the row this test covers.
+vi.mock("@posthog/ui/features/navigation/useReviewInRightPanel", () => ({
+  useReviewInRightPanel: () => false,
 }));
 vi.mock("@posthog/ui/primitives/Tooltip", () => ({
   Tooltip: ({ children }: { children: ReactNode }) => children,
@@ -76,14 +73,10 @@ vi.mock("@posthog/ui/primitives/Tooltip", () => ({
 
 import { TaskHeaderActions } from "./TaskHeaderActions";
 
-const task = { id: "task-1", title: "Fix the bug" } as Task;
-
-function renderActions() {
-  render(
-    <Theme>
-      <TaskHeaderActions task={task} />
-    </Theme>,
-  );
+function renderActions(
+  task: Task = { id: "task-1", title: "Fix the bug" } as Task,
+) {
+  render(<TaskHeaderActions task={task} />);
 }
 
 describe("TaskHeaderActions", () => {
@@ -93,19 +86,26 @@ describe("TaskHeaderActions", () => {
 
     renderActions();
 
-    expect(screen.queryByText("Continue in cloud")).not.toBeInTheDocument();
-    expect(screen.queryByText("task menu")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("task-menu")).not.toBeInTheDocument();
+    // The overflow menu needs no workspace, so it is the one part that stays.
+    expect(screen.getByText("task actions")).toBeInTheDocument();
   });
 
-  it("shows cloud controls for a loaded cloud workspace", () => {
-    useWorkspace.mockReturnValue({ mode: "cloud" });
+  it.each([
+    ["a cloud workspace", { mode: "cloud" }, undefined],
+    ["a cloud run with no local workspace row", null, "cloud"],
+  ])("reads %s as a cloud task", (_case, workspace, runEnvironment) => {
+    useWorkspace.mockReturnValue(workspace);
     useWorkspaceLoaded.mockReturnValue(true);
 
-    renderActions();
+    renderActions({
+      id: "task-1",
+      title: "Fix the bug",
+      ...(runEnvironment
+        ? { latest_run: { environment: runEnvironment } }
+        : {}),
+    } as Task);
 
-    expect(screen.getByText("stop cloud run")).toBeInTheDocument();
-    expect(screen.getByText("cloud actions")).toBeInTheDocument();
-    expect(screen.getByText("task menu")).toBeInTheDocument();
-    expect(screen.queryByText("Continue in cloud")).not.toBeInTheDocument();
+    expect(screen.getByTestId("task-menu")).toHaveTextContent("cloud");
   });
 });

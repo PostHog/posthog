@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useMemo } from 'react'
 
 import { ChartLegend } from '../../components/Legend/ChartLegend'
 import type {
@@ -13,11 +13,12 @@ import type {
     Series,
     TooltipConfig,
     TooltipContext,
+    ValueDomain,
 } from '../../core/types'
 import { ReferenceLines } from '../../overlays/ReferenceLine'
 import { TrendLineOverlay } from '../../overlays/TrendLineOverlay'
 import { ValueLabels } from '../../overlays/ValueLabels'
-import type { GoalLineConfig } from '../../utils/goal-lines'
+import { mergeValueDomains, type GoalLineConfig } from '../../utils/goal-lines'
 import { useTimeSeriesTooltipConfig, type XAxisConfig, type YAxisConfig } from '../../utils/use-axis-formatters'
 import { BarChart } from '../BarChart/BarChart'
 import { useTrendLineSeries, type TrendLineConfig } from '../utils/use-derived-series'
@@ -30,6 +31,11 @@ export interface TimeSeriesBarChartConfig {
     yAxis?: YAxisConfig | YAxisConfig[]
     valueLabels?: boolean | ValueLabelsConfig
     goalLines?: GoalLineConfig[]
+    /** Value-axis domain control — omit for data-derived auto-scaling. A fixed `[min, max]` skips
+     *  `d3.nice()` and wins over the goal-line stretch (pin `[0, dataMax]` so the tallest bar
+     *  reaches the plot top on an axis-less chart); `{ include }` merges with it. See
+     *  {@link ValueDomain}. */
+    valueDomain?: ValueDomain
     /** Defaults to `stacked`. */
     barLayout?: BarChartConfig['barLayout']
     /** Defaults to `vertical`. */
@@ -58,6 +64,8 @@ export interface TimeSeriesBarChartConfig {
     minBarSize?: number
     /** Per-side overrides on the computed chart margins — see {@link ChartConfig.margins}. */
     margins?: Partial<ChartMargins>
+    /** Max pixel width for category labels before truncation. See {@link ChartConfig.maxCategoryLabelWidth}. */
+    maxCategoryLabelWidth?: number
     /** Ease the hover highlight in over this many ms (`true` = default duration). Omit to snap. */
     animateHover?: boolean | number
     /** Built-in legend with click-to-toggle series visibility. Hidden by default. */
@@ -99,6 +107,7 @@ export function TimeSeriesBarChart<Meta = unknown>({
         yAxis,
         valueLabels,
         goalLines,
+        valueDomain,
         barLayout,
         axisOrientation,
         barCornerRadius,
@@ -112,6 +121,7 @@ export function TimeSeriesBarChart<Meta = unknown>({
         bandPadding,
         minBarSize,
         margins,
+        maxCategoryLabelWidth,
         animateHover,
         legend,
         trendLines,
@@ -131,12 +141,17 @@ export function TimeSeriesBarChart<Meta = unknown>({
 
     // `axisOrientation` flows through `barChartConfig` into chart context, so `ReferenceLine`
     // reads it automatically — no need to stamp each line here.
-    const { referenceLines, valueDomain } = useGoalLines(goalLines, chartSeries)
+    const { referenceLines, valueDomain: goalLineDomain } = useGoalLines(goalLines, chartSeries)
+    const resolvedValueDomain = useMemo(
+        () => mergeValueDomains(valueDomain, goalLineDomain),
+        [valueDomain, goalLineDomain]
+    )
 
     const trendSeries = useTrendLineSeries(visibleSeries, trendLines)
 
     const barChartConfig: BarChartConfig = {
         margins,
+        maxCategoryLabelWidth,
         yScaleType: primaryYAxis?.scale,
         xTickFormatter,
         xTickLabelRotation: xAxis?.tickLabelRotation,
@@ -157,7 +172,7 @@ export function TimeSeriesBarChart<Meta = unknown>({
         barCornerRadius,
         bars: {
             divergingStack,
-            valueDomain,
+            valueDomain: resolvedValueDomain,
             fillStyle,
             bandPadding,
             minBarSize,

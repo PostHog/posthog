@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { isIgnoredSkillEntry } from "@posthog/shared";
 import { parseSkillFrontmatter } from "./parse-skill-frontmatter";
 import type { SkillFileEntry, SkillInfo, SkillSource } from "./schemas";
 
@@ -16,7 +17,7 @@ interface InstalledPluginsFile {
 }
 
 /** Sources whose directories we own on the user's behalf and may mutate. */
-export function isEditableSource(source: SkillSource): boolean {
+function isEditableSource(source: SkillSource): boolean {
   return source === "user" || source === "repo";
 }
 
@@ -47,6 +48,8 @@ export function isProbablyText(bytes: Uint8Array): boolean {
   return !bytes.subarray(0, 4096).includes(0);
 }
 
+export const DISABLED_SKILL_MD = "SKILL.md.disabled";
+
 export async function findSkillDirs(
   sourceSkillsDir: string,
 ): Promise<string[]> {
@@ -61,10 +64,10 @@ export async function findSkillDirs(
   return entries
     .filter(
       (e) =>
-        (e.isDirectory() || e.isSymbolicLink()) &&
-        // Hidden dirs are never skills (also hides install staging dirs).
-        !e.name.startsWith(".") &&
-        fs.existsSync(path.join(sourceSkillsDir, e.name, "SKILL.md")),
+        ((e.isDirectory() || e.isSymbolicLink()) &&
+          !e.name.startsWith(".") &&
+          fs.existsSync(path.join(sourceSkillsDir, e.name, "SKILL.md"))) ||
+        fs.existsSync(path.join(sourceSkillsDir, e.name, DISABLED_SKILL_MD)),
     )
     .map((e) => e.name);
 }
@@ -136,6 +139,8 @@ export async function getMarketplaceInstallPaths(): Promise<string[]> {
 /**
  * Recursively lists regular files inside a skill directory. Symlinks are
  * skipped so a crafted skill cannot expose files outside its directory.
+ * Ignored entries (dot-directories and junk like node_modules) are excluded,
+ * applying the same ignore rule as the bundlers.
  */
 export async function listSkillFiles(
   skillDir: string,
@@ -147,6 +152,14 @@ export async function listSkillFiles(
     const entries = await fs.promises.readdir(dir, { withFileTypes: true });
     for (const entry of entries) {
       if (files.length >= maxFiles) return;
+      if (
+        isIgnoredSkillEntry(
+          entry.name,
+          entry.isDirectory() ? "directory" : "file",
+        )
+      ) {
+        continue;
+      }
       const relPath = prefix ? `${prefix}/${entry.name}` : entry.name;
       const fullPath = path.join(dir, entry.name);
       if (entry.isDirectory()) {
@@ -179,10 +192,20 @@ export async function readSkillMetadataFromDir(
     skillNames.map(async (skillName): Promise<SkillInfo | null> => {
       const skillPath = path.join(skillsDir, skillName);
       try {
-        const content = await fs.promises.readFile(
-          path.join(skillPath, "SKILL.md"),
-          "utf-8",
-        );
+        let enabled = true;
+        let content: string;
+        try {
+          content = await fs.promises.readFile(
+            path.join(skillPath, "SKILL.md"),
+            "utf-8",
+          );
+        } catch {
+          content = await fs.promises.readFile(
+            path.join(skillPath, DISABLED_SKILL_MD),
+            "utf-8",
+          );
+          enabled = false;
+        }
         const frontmatter = parseSkillFrontmatter(content);
         return {
           name: frontmatter?.name ?? skillName,
@@ -195,6 +218,7 @@ export async function readSkillMetadataFromDir(
           ...(frontmatter?.disableModelInvocation
             ? { disableModelInvocation: true }
             : {}),
+          ...(enabled ? {} : { enabled: false }),
         } satisfies SkillInfo;
       } catch {
         return null;

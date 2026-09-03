@@ -38,11 +38,15 @@
  * feed(batch B) ─► beforeBatch(B) ─► [ sub-pipeline ] ─► afterBatch(B) ─► next()
  * ```
  *
- * Unlike a plain `ChunkPipeline`, `feed()` is async and returns a `FeedResult`:
- * `{ ok: true }` when accepted, or `{ ok: false, kind, reason }` when rejected.
- * `next()` returns a `BatchResult` (`{ elements, sideEffects }`) per completed
- * batch, or `null` when fully drained. Batches are returned in completion
- * order; items within a batch keep their feed order.
+ * Unlike a plain `ChunkPipeline`, `feed()` is async, takes a per-batch context
+ * alongside the elements (`{}` when the caller has nothing to attach), and
+ * returns a `FeedResult`: `{ ok: true }` when accepted, or
+ * `{ ok: false, kind, reason }` when rejected.
+ * `next()` returns a `BatchResult` (`{ elements, batchContext, sideEffects }`)
+ * per completed batch, or `null` when fully drained — `batchContext` carries
+ * the caller's feed() context back, correlating the completion to its feed.
+ * Batches are returned in completion order; items within a batch keep their
+ * feed order.
  *
  * ## Backpressure
  *
@@ -101,8 +105,14 @@ describe('Batching Pipelines', () => {
             { concurrentBatches: Infinity }
         )
 
-        await pipeline.feed([{ id: 10 }, { id: 20 }].map((e) => createOkContext(e, {})))
-        await pipeline.feed([{ id: 30 }].map((e) => createOkContext(e, {})))
+        await pipeline.feed(
+            [{ id: 10 }, { id: 20 }].map((e) => createOkContext(e, {})),
+            {}
+        )
+        await pipeline.feed(
+            [{ id: 30 }].map((e) => createOkContext(e, {})),
+            {}
+        )
 
         const messageIds: number[] = []
         let batch = await pipeline.next()
@@ -148,7 +158,10 @@ describe('Batching Pipelines', () => {
             { concurrentBatches: Infinity }
         )
 
-        await pipeline.feed([{ id: 1 }].map((e) => createOkContext(e, {})))
+        await pipeline.feed(
+            [{ id: 1 }].map((e) => createOkContext(e, {})),
+            {}
+        )
         await pipeline.next()
 
         expect(seenInAfter).toBe('store-0')
@@ -174,10 +187,18 @@ describe('Batching Pipelines', () => {
         )
 
         // First batch accepted
-        expect(await pipeline.feed([{ id: 1 }].map((e) => createOkContext(e, {})))).toEqual({ ok: true })
+        expect(
+            await pipeline.feed(
+                [{ id: 1 }].map((e) => createOkContext(e, {})),
+                {}
+            )
+        ).toEqual({ ok: true })
 
         // Second batch rejected: already at capacity
-        const rejected = await pipeline.feed([{ id: 2 }].map((e) => createOkContext(e, {})))
+        const rejected = await pipeline.feed(
+            [{ id: 2 }].map((e) => createOkContext(e, {})),
+            {}
+        )
         expect(rejected).toMatchObject({ ok: false, kind: 'at_capacity' })
 
         // Draining the in-flight batch frees the slot
@@ -186,7 +207,12 @@ describe('Batching Pipelines', () => {
         expect(drained!.elements.every((e) => isOkResult(e.result))).toBe(true)
 
         // Now a new batch is accepted again
-        expect(await pipeline.feed([{ id: 3 }].map((e) => createOkContext(e, {})))).toEqual({ ok: true })
+        expect(
+            await pipeline.feed(
+                [{ id: 3 }].map((e) => createOkContext(e, {})),
+                {}
+            )
+        ).toEqual({ ok: true })
     })
 
     /**
@@ -211,12 +237,17 @@ describe('Batching Pipelines', () => {
             { concurrentBatches: 1 }
         )
 
-        expect(await pipeline.feed([])).toEqual({ ok: true })
+        expect(await pipeline.feed([], {})).toEqual({ ok: true })
         expect(beforeBatchRan).toBe(false)
         expect(await pipeline.next()).toBeNull()
 
         // No capacity was consumed: a real batch still fits in the single slot
-        expect(await pipeline.feed([{ id: 1 }].map((e) => createOkContext(e, {})))).toEqual({ ok: true })
+        expect(
+            await pipeline.feed(
+                [{ id: 1 }].map((e) => createOkContext(e, {})),
+                {}
+            )
+        ).toEqual({ ok: true })
         expect(await pipeline.next()).not.toBeNull()
     })
 
@@ -241,8 +272,11 @@ describe('Batching Pipelines', () => {
             { concurrentBatches: 1 }
         )
 
-        await expect(pipeline.feed([{ id: 1 }, { id: 2 }].map((e) => createOkContext(e, {})))).rejects.toThrow(
-            'changed element count (2 -> 1)'
-        )
+        await expect(
+            pipeline.feed(
+                [{ id: 1 }, { id: 2 }].map((e) => createOkContext(e, {})),
+                {}
+            )
+        ).rejects.toThrow('changed element count (2 -> 1)')
     })
 })

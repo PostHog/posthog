@@ -28,6 +28,7 @@ import { isUUIDLike } from 'lib/utils/guards'
 import { markdownToHtml } from 'lib/utils/markdown'
 import { objectsEqual } from 'lib/utils/objects'
 import { fullName } from 'lib/utils/strings'
+import { commentsLogic } from 'scenes/comments/commentsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -48,11 +49,16 @@ import {
     businessKnowledgeGapSuggestionsList,
 } from 'products/business_knowledge/frontend/generated/api'
 import {
+    conversationsTicketsMessagesFullEmailRetrieve,
     conversationsTicketsNotesDestroy,
     conversationsTicketsNotesPartialUpdate,
+    conversationsTicketsPartialUpdate,
 } from 'products/conversations/frontend/generated/api'
+import type { PatchedTicketUpdateRequestApi } from 'products/conversations/frontend/generated/api.schemas'
+import { getCommentsCreateUrl } from 'products/platform_features/frontend/generated/api'
 import { signalsReportsList } from 'products/signals/frontend/generated/api'
 import type { SignalReportApi } from 'products/signals/frontend/generated/api.schemas'
+import { SignalSourceProductApi } from 'products/signals/frontend/generated/api.schemas'
 
 import type { FeatureFlagsSet } from '../../../../../frontend/src/lib/logic/featureFlagLogic'
 import type { TeamPublicType, TeamType } from '../../../../../frontend/src/types'
@@ -72,6 +78,8 @@ import { conversationsDraftModeLogic } from '../settings/conversationsDraftModeL
 import { supportTicketsSceneLogic } from '../tickets/supportTicketsSceneLogic'
 
 const MESSAGE_POLL_INTERVAL = 5000 // 5 seconds
+/** Discussions ride the message timer at 1/4 the rate, so ~20s. */
+const DISCUSSION_POLL_EVERY_N_TICKS = 4
 /** Must not exceed the server's replay window, or recovery could adopt a message from an older send. */
 const SEND_RECOVERY_WINDOW_SECONDS = 120
 
@@ -232,6 +240,7 @@ export interface supportTicketSceneLogicValues {
     breadcrumbs: Breadcrumb[]
     chatMessages: ChatMessage[]
     chatPanelWidth: (desiredSize: number | null) => number
+    discussionsEnabled: boolean
     draftContent: string | JSONContent | null
     draftIsPrivate: boolean
     draftModeEnabled: boolean
@@ -240,6 +249,9 @@ export interface supportTicketSceneLogicValues {
     eventsQuery: DataTableNode | null
     exceptionsQuery: DataTableNode | null
     feedbackByMessageId: Record<string, AiReplyFeedbackRating>
+    fullEmailContent: string | null
+    fullEmailContentLoading: boolean
+    fullEmailMessageId: string | null
     hasMoreMessages: boolean
     hasPendingWork: boolean
     hasUnsavedChanges: boolean
@@ -285,6 +297,9 @@ export interface supportTicketSceneLogicActions {
     clearEditingMessage: () => {
         value: true
     }
+    closeFullEmail: () => {
+        value: true
+    }
     deleteMessage: (messageId: string) => {
         messageId: string
     }
@@ -293,6 +308,21 @@ export interface supportTicketSceneLogicActions {
     }
     incrementUnreadCustomerCount: () => {
         value: true
+    }
+    loadFullEmail: (messageId: string) => string
+    loadFullEmailFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadFullEmailSuccess: (
+        fullEmailContent: string,
+        payload?: string
+    ) => {
+        fullEmailContent: string
+        payload?: string
     }
     loadKnowledgeGaps: () => {
         value: true
@@ -385,6 +415,9 @@ export interface supportTicketSceneLogicActions {
         }
     }
     loadTicket: () => {
+        value: true
+    }
+    pollDiscussionThread: () => {
         value: true
     }
     recordAiReplyFeedback: (
@@ -496,7 +529,8 @@ export interface supportTicketSceneLogicMeta {
             ticket: Ticket | null,
             currentTeam: TeamPublicType | TeamType | null
         ) => EmailReplyBlockedReason | null
-        sidePanelContext: (ticket: Ticket | null, featureFlags: FeatureFlagsSet) => SidePanelSceneContext | null
+        discussionsEnabled: (ticket: Ticket | null, featureFlags: FeatureFlagsSet) => boolean
+        sidePanelContext: (ticket: Ticket | null, discussionsEnabled: boolean) => SidePanelSceneContext | null
         replyRecipientDescription: (ticket: Ticket | null) => string
         unsavedTicketChanges: (
             priority: TicketPriority | null,
@@ -512,11 +546,7 @@ export interface supportTicketSceneLogicMeta {
             unsavedTicketChanges: string[]
         ) => boolean
         hasPendingWork: (hasUnsavedChanges: boolean, editingMessageId: string | null) => boolean
-        chatMessages: (
-            messages: CommentType[],
-            ticket: Ticket | null,
-            featureFlags: FeatureFlagsSet // featureFlagLogic
-        ) => ChatMessage[]
+        chatMessages: (messages: CommentType[], ticket: Ticket | null, featureFlags: FeatureFlagsSet) => ChatMessage[]
         eventsQuery: (ticket: Ticket | null) => DataTableNode | null
         exceptionsQuery: (ticket: Ticket | null) => DataTableNode | null
         latestAiMessage: (chatMessages: ChatMessage[]) => ChatMessage | null
@@ -563,6 +593,8 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         setMessages: (messages: CommentType[]) => ({ messages }),
         setMessagesLoading: (loading: boolean) => ({ loading }),
         appendMessage: (message: CommentType) => ({ message }),
+
+        pollDiscussionThread: true,
 
         loadOlderMessages: true,
         setOlderMessages: (olderMessages: CommentType[]) => ({ olderMessages }),
@@ -620,6 +652,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             messageId,
             rating,
         }),
+        closeFullEmail: true,
     }),
     loaders(({ values, props }) => ({
         person: [
@@ -658,10 +691,12 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                     try {
                         const response = await signalsReportsList(getCurrentTeamId().toString(), {
                             source_id: ticketUuid,
-                            source_product: 'conversations',
+                            source_product: SignalSourceProductApi.Conversations,
+                            // A teammate answering a customer needs to know an investigation was
+                            // dismissed just as much as that one is running.
                             include_all_statuses: true,
                         })
-                        return response.results || []
+                        return response.results
                     } catch (error) {
                         // Supplementary context: a signals or ClickHouse hiccup must not break the ticket.
                         console.error('Failed to load linked reports:', error)
@@ -734,6 +769,24 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 },
             },
         ],
+        fullEmailContent: [
+            null as string | null,
+            {
+                loadFullEmail: async (messageId: string, breakpoint): Promise<string> => {
+                    const ticket = values.ticket
+                    if (!ticket) {
+                        throw new Error('Ticket is not loaded')
+                    }
+                    const response = await conversationsTicketsMessagesFullEmailRetrieve(
+                        String(getCurrentTeamId()),
+                        ticket.id,
+                        messageId
+                    )
+                    breakpoint()
+                    return response.content
+                },
+            },
+        ],
     })),
     reducers({
         ticket: [
@@ -758,6 +811,14 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 loadTicket: () => true,
                 setTicket: () => false,
                 setTicketLoading: (_, { loading }) => loading,
+            },
+        ],
+        fullEmailMessageId: [
+            null as string | null,
+            {
+                loadFullEmail: (_, messageId) => messageId,
+                loadFullEmailFailure: () => null,
+                closeFullEmail: () => null,
             },
         ],
         status: [
@@ -912,9 +973,17 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             ): EmailReplyBlockedReason | null =>
                 getEmailReplyBlockedReason(ticket, currentTeam?.conversations_settings),
         ],
-        [SIDE_PANEL_CONTEXT_KEY]: [
+        // Whether this ticket has a discussion at all. The side-panel context, the in-thread discussion
+        // cards and the "Discuss with team" button all hang off this one gate so they can't drift into
+        // a state where one of them offers a discussion the others don't know about.
+        discussionsEnabled: [
             (s) => [s.ticket, s.featureFlags],
-            (ticket: Ticket | null, featureFlags: FeatureFlagsSet): SidePanelSceneContext | null =>
+            (ticket: Ticket | null, featureFlags: FeatureFlagsSet): boolean =>
+                !!ticket?.id && !!featureFlags[FEATURE_FLAGS.DISCUSSIONS_SLACK_SYNC],
+        ],
+        [SIDE_PANEL_CONTEXT_KEY]: [
+            (s) => [s.ticket, s.discussionsEnabled],
+            (ticket: Ticket | null, discussionsEnabled: boolean): SidePanelSceneContext | null =>
                 ticket?.id
                     ? {
                           access_control_resource: 'ticket',
@@ -922,7 +991,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                           // Scoping the discussion thread to the ticket is still flag-gated; the
                           // access control fields above are not, so the panel stays gated on
                           // ticket access either way.
-                          ...(featureFlags[FEATURE_FLAGS.DISCUSSIONS_SLACK_SYNC]
+                          ...(discussionsEnabled
                               ? {
                                     activity_scope: ActivityScope.TICKET,
                                     activity_item_id: `${ticket.id}`,
@@ -1080,6 +1149,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                             version: message.version,
                             emailDeliveryStatus: message.item_context?.email_delivery_status,
                             fromZendesk: message.item_context?.from_zendesk === true,
+                            hasFullEmailContent: message.item_context?.has_full_email_content === true,
                         }
                     })
             },
@@ -1155,9 +1225,17 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
 
                 // Start message polling using disposables pattern
                 cache.disposables.dispose('messagePolling')
+                cache.discussionPollTick = 0
                 cache.disposables.add(() => {
                     const intervalId = setInterval(() => {
                         actions.loadMessages()
+                        // A discussion is a slower conversation than the ticket itself, and a Slack
+                        // reply landing a few seconds late costs nothing — so it rides the same timer
+                        // at a fraction of the rate rather than starting a second one.
+                        cache.discussionPollTick = (cache.discussionPollTick ?? 0) + 1
+                        if (cache.discussionPollTick % DISCUSSION_POLL_EVERY_N_TICKS === 0) {
+                            actions.pollDiscussionThread()
+                        }
                     }, MESSAGE_POLL_INTERVAL)
                     return () => clearInterval(intervalId)
                 }, 'messagePolling')
@@ -1171,6 +1249,10 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             // Load previous tickets after person is loaded
             actions.loadPreviousTickets()
         },
+        loadFullEmailFailure: () => {
+            lemonToast.error("Couldn't load the full email. Try again.")
+            actions.closeFullEmail()
+        },
         updateTicket: async (_, breakpoint) => {
             if (props.id === 'new') {
                 actions.setTicketUpdating(false)
@@ -1183,13 +1265,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             }
             breakpoint()
 
-            const data: Partial<{
-                status: string
-                priority: string
-                assignee: TicketAssignee
-                tags: string[]
-                snoozed_until: string | null
-            }> = {}
+            const data: PatchedTicketUpdateRequestApi = {}
 
             if (values.status && values.status !== values.ticket?.status) {
                 data.status = values.status
@@ -1201,12 +1277,12 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             data.tags = values.tags
             data.snoozed_until = values.snoozedUntil
 
-            const request = api.conversationsTickets.update(props.id.toString(), data)
+            const request = conversationsTicketsPartialUpdate(String(getCurrentTeamId()), props.id.toString(), data)
             cache.ticketUpdateRequest = request
             try {
                 const ticket = await request
                 breakpoint()
-                actions.setTicket(ticket)
+                actions.setTicket(ticket as Ticket)
                 lemonToast.success('Ticket updated')
                 actions.loadTickets()
                 // tagsModel loads once per session and never refetches, so newly created tags need an explicit reload
@@ -1224,6 +1300,26 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                     cache.ticketUpdateRequest = null
                 }
             }
+        },
+        // Refetches the whole discussion rather than checking a count first. A count only moves when a
+        // comment is added or removed, so an edit or a task being completed would leave the card and the
+        // open side panel showing text nobody has written for a while.
+        //
+        // `refreshComments` rather than `loadComments` because refreshing must not move the reader:
+        // `loadComments` scrolls the panel to the newest comment on every success, which is right when
+        // someone opens the thread and wrong every 20 seconds while they read back through it.
+        pollDiscussionThread: async () => {
+            const ticketId = values.ticket?.id
+            if (!values.discussionsEnabled || !ticketId) {
+                return
+            }
+            // findMounted is a null guard, not an optimisation: the ticket page mounts this logic to
+            // render its discussion cards, so on a flagged team it is mounted for every open ticket
+            // whether or not that ticket has any discussion. Every such ticket therefore pays one
+            // indexed comment query per interval. That is deliberate — a teammate starting a
+            // discussion elsewhere should make the card appear here, which is the moment this whole
+            // surface exists for, and it cannot be detected without asking.
+            commentsLogic.findMounted({ scope: ActivityScope.TICKET, item_id: ticketId })?.actions.refreshComments()
         },
         loadMessages: async () => {
             if (props.id === 'new' || !values.ticket?.id) {
@@ -1326,21 +1422,21 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             const attemptStartedAt = dayjs()
             let sent: CommentType | null = null
             let unconfirmedReason: UnconfirmedSendReason = null
+            let alreadySent = false
 
             try {
-                sent = await api.comments.create(
-                    {
-                        content,
-                        rich_content: richContent,
-                        scope: 'conversations_ticket',
-                        item_id: ticketId,
-                        item_context: {
-                            author_type: 'support',
-                            is_private: isPrivate,
-                        },
+                const response = await api.createResponse(getCommentsCreateUrl(String(getCurrentTeamId())), {
+                    content,
+                    rich_content: richContent,
+                    scope: 'conversations_ticket',
+                    item_id: ticketId,
+                    item_context: {
+                        author_type: 'support',
+                        is_private: isPrivate,
                     },
-                    {}
-                )
+                })
+                alreadySent = response.status === 200
+                sent = (await response.json()) as CommentType
             } catch (error: any) {
                 unconfirmedReason = classifySendFailure(error)
                 if (unconfirmedReason === null) {
@@ -1380,6 +1476,19 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 })
                 lemonToast.error(
                     "We couldn't confirm that your message was added. Check the thread before sending it again."
+                )
+                actions.setMessageSending(false)
+                return
+            }
+
+            if (alreadySent) {
+                posthog.capture('support reply send deduplicated', { is_private: isPrivate })
+                cache.messageRevision += 1
+                actions.appendMessage(sent)
+                lemonToast.warning(
+                    isPrivate
+                        ? "You just added this note, so we didn't add it again. Edit your draft to add something different."
+                        : "You just sent this reply, so we didn't send it again. Edit your draft to send something different."
                 )
                 actions.setMessageSending(false)
                 return

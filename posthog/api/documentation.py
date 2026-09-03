@@ -3,6 +3,7 @@ import re
 from typing import Any, get_args
 
 from django.core.exceptions import ImproperlyConfigured
+from django.db import models
 
 from drf_spectacular.drainage import warn as spectacular_warn
 from drf_spectacular.extensions import OpenApiAuthenticationExtension
@@ -234,6 +235,19 @@ class _PropertyFilterBase(serializers.Serializer):
     )
 
 
+class StringMatchOperator(models.TextChoices):
+    EXACT = "exact", "exact"
+    IS_NOT = "is_not", "is_not"
+    ICONTAINS = "icontains", "icontains"
+    NOT_ICONTAINS = "not_icontains", "not_icontains"
+    STARTS_WITH = "starts_with", "starts_with"
+    NOT_STARTS_WITH = "not_starts_with", "not_starts_with"
+    ENDS_WITH = "ends_with", "ends_with"
+    NOT_ENDS_WITH = "not_ends_with", "not_ends_with"
+    REGEX = "regex", "regex"
+    NOT_REGEX = "not_regex", "not_regex"
+
+
 class StringPropertyFilterSerializer(_PropertyFilterBase):
     """Matches string values with text-oriented operators."""
 
@@ -242,18 +256,7 @@ class StringPropertyFilterSerializer(_PropertyFilterBase):
         required=True,
     )
     operator = serializers.ChoiceField(
-        choices=[
-            "exact",
-            "is_not",
-            "icontains",
-            "not_icontains",
-            "starts_with",
-            "not_starts_with",
-            "ends_with",
-            "not_ends_with",
-            "regex",
-            "not_regex",
-        ],
+        choices=StringMatchOperator.choices,
         default="exact",
         required=False,
         help_text="String comparison operator.",
@@ -291,6 +294,12 @@ class ArrayPropertyFilterSerializer(_PropertyFilterBase):
     )
 
 
+class DateOperator(models.TextChoices):
+    IS_DATE_EXACT = "is_date_exact", "is_date_exact"
+    IS_DATE_BEFORE = "is_date_before", "is_date_before"
+    IS_DATE_AFTER = "is_date_after", "is_date_after"
+
+
 class DatePropertyFilterSerializer(_PropertyFilterBase):
     """Matches date/datetime values with date-specific operators."""
 
@@ -299,18 +308,23 @@ class DatePropertyFilterSerializer(_PropertyFilterBase):
         required=True,
     )
     operator = serializers.ChoiceField(
-        choices=["is_date_exact", "is_date_before", "is_date_after"],
+        choices=DateOperator.choices,
         default="is_date_exact",
         required=False,
         help_text="Date comparison operator.",
     )
 
 
+class ExistenceOperator(models.TextChoices):
+    IS_SET = "is_set", "is_set"
+    IS_NOT_SET = "is_not_set", "is_not_set"
+
+
 class ExistencePropertyFilterSerializer(_PropertyFilterBase):
     """Checks whether a property is set or not, without comparing values."""
 
     operator = serializers.ChoiceField(
-        choices=["is_set", "is_not_set"],
+        choices=ExistenceOperator.choices,
         required=True,
         help_text="Existence check operator.",
     )
@@ -326,7 +340,7 @@ class _FeatureFlagFilterPropertyBaseSerializer(serializers.Serializer):
     type = serializers.ChoiceField(
         choices=_FEATURE_FLAG_FILTER_NON_FLAG_TYPE_CHOICES,
         required=False,
-        help_text="Property filter type. Common values are 'person' and 'cohort'.",
+        help_text="Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.",
     )
     cohort_name = serializers.CharField(
         required=False,
@@ -336,7 +350,7 @@ class _FeatureFlagFilterPropertyBaseSerializer(serializers.Serializer):
     group_type_index = serializers.IntegerField(
         required=False,
         allow_null=True,
-        help_text="Group type index when using group-based filters.",
+        help_text="Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.",
     )
 
 
@@ -369,7 +383,7 @@ class FeatureFlagFilterPropertyGenericSchemaSerializer(_FeatureFlagFilterPropert
 
 class FeatureFlagFilterPropertyExistsSchemaSerializer(_FeatureFlagFilterPropertyBaseSerializer):
     operator = serializers.ChoiceField(
-        choices=["is_set", "is_not_set"],
+        choices=ExistenceOperator.choices,
         required=True,
         help_text="Existence operator.",
     )
@@ -557,6 +571,11 @@ class FeatureFlagFiltersSchemaSerializer(serializers.Serializer):
 property_help_text = "Filter events by event property, person property, cohort, groups and more."
 
 
+class PropertyGroupOperator(models.TextChoices):
+    AND = "AND", "AND"
+    OR = "OR", "OR"
+
+
 class PropertySerializer(serializers.Serializer):
     def run_validation(self, data=fields.empty):
         if isinstance(data, list):
@@ -618,7 +637,7 @@ Or you can create more complicated queries with AND and OR:
 }
 ```
 """,
-        choices=["AND", "OR"],
+        choices=PropertyGroupOperator.choices,
         default="AND",
     )
     values = PropertyItemSerializer(many=True, required=True)
@@ -741,13 +760,25 @@ def preprocess_exclude_path_format(endpoints, **kwargs):
     projects_suffixes: set[tuple[str, str]] = set()
 
     for path, path_regex, method, callback in endpoints:
-        if getattr(callback.cls, "param_derived_from_user_current_team", None):
+        force_include = getattr(callback.cls, "force_include_in_api_docs", False)
+
+        if getattr(callback.cls, "param_derived_from_user_current_team", None) and not force_include:
+            # Root-router viewsets don't fit the /api/projects/{team_id}/... pattern; opt in via
+            # `force_include_in_api_docs = True` to surface in type-gen and MCP scaffolding.
             continue
-        if not hasattr(callback.cls, "scope_object") or getattr(callback.cls, "hide_api_docs", False):
+        has_scope_object = hasattr(callback.cls, "scope_object")
+        # A view with no scope_object is normally excluded - the schema is built around
+        # team/org-scoped resources. include_in_api_docs is the explicit opt-in for a
+        # deliberately unscoped view (e.g. a public, unauthenticated endpoint) that still
+        # wants to appear in the docs.
+        if not has_scope_object and not getattr(callback.cls, "include_in_api_docs", False):
             continue
-        scope = callback.cls.scope_object
-        if scope == "INTERNAL" and not include_internal:
+        if getattr(callback.cls, "hide_api_docs", False):
             continue
+        if has_scope_object:
+            scope = callback.cls.scope_object
+            if scope == "INTERNAL" and not include_internal:
+                continue
 
         included.append((path, path_regex, method, callback))
         suffix = _extract_root_suffix(_PROJECTS_PREFIX_RE, path)

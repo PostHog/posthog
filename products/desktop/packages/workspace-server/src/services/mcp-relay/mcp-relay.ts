@@ -41,7 +41,7 @@ function errorMessage(err: unknown): string {
 }
 
 /**
- * Desktop-side executor for the cloud MCP relay (docs/cloud-mcp-relay.md).
+ * Desktop-side executor for the cloud MCP relay (docs/CLOUD-MCP-RELAY.md).
  *
  * Owns one real MCP connection per `(runId, server)`, created lazily on the
  * first relayed request and resolved by name from the user's local

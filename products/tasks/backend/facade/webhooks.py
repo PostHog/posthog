@@ -9,6 +9,7 @@ from products.tasks.backend.loop_github_events import handle_github_event_for_lo
 from products.tasks.backend.webhooks import (
     get_github_webhook_secret,
     handle_pull_request_event,
+    handle_pull_request_review_event,
     verify_github_signature,
 )
 
@@ -16,5 +17,6 @@ __all__ = [
     "get_github_webhook_secret",
     "handle_github_event_for_loops",
     "handle_pull_request_event",
+    "handle_pull_request_review_event",
     "verify_github_signature",
 ]

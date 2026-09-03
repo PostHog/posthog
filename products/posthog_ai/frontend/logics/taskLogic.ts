@@ -134,13 +134,16 @@ export const taskLogic = kea<taskLogicType>([
                 },
                 deleteTask: async () => {
                     await api.tasks.delete(props.taskId)
-                    tasksLogic.findAllMounted().forEach((logic) => logic.actions.loadTasks())
+                    // Reload each mounted list with its own active filter — a bare `loadTasks()`
+                    // defaults to `{}`, which drops "For you"'s scout exclusion (and any other
+                    // filter) and shows the whole visible set until the next filter/search change.
+                    tasksLogic.findAllMounted().forEach((logic) => logic.actions.loadTasks(logic.values.taskListParams))
                     router.actions.push('/tasks')
                     return null
                 },
                 updateTask: async ({ data }: { data: TaskUpsertProps }) => {
                     const updatedTask = await api.tasks.update(props.taskId, data)
-                    tasksLogic.findAllMounted().forEach((logic) => logic.actions.loadTasks())
+                    tasksLogic.findAllMounted().forEach((logic) => logic.actions.loadTasks(logic.values.taskListParams))
                     return updatedTask
                 },
             },

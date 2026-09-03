@@ -162,7 +162,11 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         ),
     },
     "creative_videos": {
-        "description": "A video asset in your TikTok Ads creative library, joinable to the video used by an ad.",
+        "description": (
+            "A video asset in your TikTok Ads creative library, joinable to the video used by an ad. "
+            "Requires creative asset read access on the authorized advertiser; without it TikTok refuses "
+            "the request and this table can't sync."
+        ),
         "docs_url": "https://business-api.tiktok.com/portal/docs",
         "columns": {
             "video_id": "Unique identifier for the video asset.",
@@ -186,7 +190,11 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         },
     },
     "creative_images": {
-        "description": "An image asset in your TikTok Ads creative library, joinable to the images used by an ad.",
+        "description": (
+            "An image asset in your TikTok Ads creative library, joinable to the images used by an ad. "
+            "Requires creative asset read access on the authorized advertiser; without it TikTok refuses "
+            "the request and this table can't sync."
+        ),
         "docs_url": "https://business-api.tiktok.com/portal/docs",
         "columns": {
             "image_id": "Unique identifier for the image asset.",

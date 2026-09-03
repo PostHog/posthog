@@ -5,12 +5,12 @@ use async_trait::async_trait;
 use axum::http::StatusCode;
 use axum::Router;
 use axum_test_helper::TestClient;
-use capture::ai_s3::{BlobStorage, MockBlobStorage};
 use capture::api::CaptureError;
 use capture::config::CaptureMode;
+use capture::global_rate_limiter::GlobalRateLimiter;
+use capture::outputs::{OutputRegistry, PublishEvents};
 use capture::quota_limiters::CaptureQuotaLimiter;
 use capture::router::router;
-use capture::sinks::Event;
 use capture::time::TimeSource;
 use capture::v0_request::{OverflowReason, ProcessedEvent};
 use chrono::{DateTime, TimeZone, Utc};
@@ -28,17 +28,6 @@ use std::num::NonZeroU32;
 use std::sync::Arc;
 use std::time::Duration;
 
-// Test constants for mock blob storage
-const TEST_BLOB_BUCKET: &str = "test-bucket";
-const TEST_BLOB_PREFIX: &str = "llma/";
-
-fn create_mock_blob_storage() -> Arc<dyn BlobStorage> {
-    Arc::new(MockBlobStorage::new(
-        TEST_BLOB_BUCKET.to_string(),
-        TEST_BLOB_PREFIX.to_string(),
-    ))
-}
-
 // Fixed time source for tests
 struct FixedTime {
     pub time: DateTime<Utc>,
@@ -55,12 +44,8 @@ impl TimeSource for FixedTime {
 struct TestSink;
 
 #[async_trait]
-impl Event for TestSink {
-    async fn send(&self, _event: ProcessedEvent) -> Result<(), CaptureError> {
-        Ok(())
-    }
-
-    async fn send_batch(&self, _events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
+impl PublishEvents for TestSink {
+    async fn publish_events(&self, _events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
         Ok(())
     }
 }
@@ -84,13 +69,8 @@ impl CapturingSink {
 }
 
 #[async_trait]
-impl Event for CapturingSink {
-    async fn send(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
-        self.events.lock().await.push(event);
-        Ok(())
-    }
-
-    async fn send_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
+impl PublishEvents for CapturingSink {
+    async fn publish_events(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
         self.events.lock().await.extend(events);
         Ok(())
     }
@@ -164,7 +144,7 @@ fn setup_ai_test_router() -> Router {
     let redis = Arc::new(MockRedisClient::new());
 
     let mut cfg = DEFAULT_CONFIG.clone();
-    cfg.capture_mode = CaptureMode::Events;
+    cfg.capture_mode = CaptureMode::Ai;
 
     let quota_limiter =
         CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60 * 60 * 24 * 7));
@@ -173,34 +153,35 @@ fn setup_ai_test_router() -> Router {
         timesource,
         readiness,
         liveness,
-        Arc::new(sink),
+        Arc::new(OutputRegistry::single(sink)),
         redis,
         None,
         quota_limiter,
         TokenDropper::default(),
         None, // event_restriction_service
         None, // recorder_handle
-        CaptureMode::Events,
+        CaptureMode::Ai,
         None,
         25 * 1024 * 1024,
         false,
         1_i64,
         false,
         0.0_f32,
-        26_214_400,                       // 25MB default for AI endpoint
-        Some(create_mock_blob_storage()), // ai_blob_storage
-        None,                             // body_chunk_read_timeout_ms
-        256,                              // body_read_chunk_size_kb
-        10 * 1024 * 1024,                 // capture_v1_max_compressed_body_bytes
-        50 * 1024 * 1024,                 // capture_v1_max_decompressed_body_bytes
-        None,                             // overflow_limiter
-        None,                             // ai_events_overflow_limiter
-        None,                             // replay_overflow_limiter
-        None,                             // v1_sink_router
-        8,                                // capture_v1_scatter_gather_min_batch
-        None,                             // ai_gateway_signing_secret
-        false,                            // ai_events_overflow_enabled
-        None,                             // ingestion_warning_emitter
+        26_214_400,       // 25MB default for AI endpoint
+        983_040,          // ai_max_event_bytes (960KB, the previous hardcoded limit)
+        None,             // body_chunk_read_timeout_ms
+        256,              // body_read_chunk_size_kb
+        10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
+        50 * 1024 * 1024, // capture_v1_max_decompressed_body_bytes
+        None,             // overflow_limiter
+        None,             // ai_events_overflow_limiter
+        None,             // ai_byte_rate_limiter
+        None,             // replay_overflow_limiter
+        None,             // v1_sink_router
+        8,                // capture_v1_scatter_gather_min_batch
+        None,             // ai_gateway_signing_secret
+        false,            // ai_events_overflow_enabled
+        None,             // ingestion_warning_emitter
     )
 }
 
@@ -217,7 +198,7 @@ fn setup_ai_router_collecting_warnings() -> (Router, Arc<CollectingEmitter>) {
     let redis = Arc::new(MockRedisClient::new());
 
     let mut cfg = DEFAULT_CONFIG.clone();
-    cfg.capture_mode = CaptureMode::Events;
+    cfg.capture_mode = CaptureMode::Ai;
 
     let quota_limiter =
         CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60 * 60 * 24 * 7));
@@ -229,14 +210,14 @@ fn setup_ai_router_collecting_warnings() -> (Router, Arc<CollectingEmitter>) {
         timesource,
         readiness,
         liveness,
-        Arc::new(TestSink),
+        Arc::new(OutputRegistry::single(TestSink)),
         redis,
         None,
         quota_limiter,
         TokenDropper::default(),
         None, // event_restriction_service
         None, // recorder_handle
-        CaptureMode::Events,
+        CaptureMode::Ai,
         None,
         25 * 1024 * 1024,
         false,
@@ -244,13 +225,14 @@ fn setup_ai_router_collecting_warnings() -> (Router, Arc<CollectingEmitter>) {
         false,
         0.0_f32,
         26_214_400,
-        Some(create_mock_blob_storage()),
+        983_040, // ai_max_event_bytes (960KB, the previous hardcoded limit)
         None,
         256,
         10 * 1024 * 1024,
         50 * 1024 * 1024,
         None,
         None,
+        None, // ai_byte_rate_limiter
         None,
         None,
         8,
@@ -332,6 +314,40 @@ async fn test_ai_endpoint_no_auth_returns_401() {
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
 }
 
+#[tokio::test]
+async fn test_blob_part_is_rejected_as_unknown_field() {
+    let router = setup_ai_test_router();
+    let test_client = TestClient::new(router);
+
+    let event_data = json!({
+        "uuid": uuid::Uuid::now_v7().to_string(),
+        "event": "$ai_generation",
+        "distinct_id": "test_user",
+        "properties": {"$ai_model": "test"}
+    });
+    let form = Form::new()
+        .part(
+            "event",
+            Part::text(event_data.to_string())
+                .mime_str("application/json")
+                .unwrap(),
+        )
+        .part(
+            "event.properties.$ai_input",
+            Part::bytes(b"payload".to_vec())
+                .mime_str("application/octet-stream")
+                .unwrap(),
+        );
+
+    let response = send_multipart_request(&test_client, form, Some("phc_test_token")).await;
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let body = response.text().await;
+    assert!(
+        body.contains("Unknown multipart field"),
+        "unexpected body: {body}"
+    );
+}
+
 // ----------------------------------------------------------------------------
 // Scenario 1.1: Content Type Validation
 // ----------------------------------------------------------------------------
@@ -381,261 +397,6 @@ async fn test_ai_endpoint_empty_body_returns_400() {
 // ----------------------------------------------------------------------------
 // Scenario 1.2: Multipart Parsing
 // ----------------------------------------------------------------------------
-
-#[tokio::test]
-async fn test_multipart_parsing_with_multiple_blobs() {
-    use uuid::Uuid;
-
-    let router = setup_ai_test_router();
-    let test_client = TestClient::new(router);
-
-    let event_data = json!({
-        "uuid": Uuid::now_v7().to_string(),
-        "event": "$ai_generation",
-        "distinct_id": "test_user"
-    });
-
-    let properties = json!({
-        "$ai_model": "test-multi-blob"
-    });
-
-    let input_blob = json!({"messages": [{"role": "user", "content": "Hello"}]});
-    let output_blob = json!({"choices": [{"message": {"content": "Hi there"}}]});
-    let metadata_blob = json!({"model_version": "1.0", "temperature": 0.7});
-
-    let form = Form::new()
-        .part(
-            "event",
-            Part::bytes(serde_json::to_vec(&event_data).unwrap())
-                .mime_str("application/json")
-                .unwrap(),
-        )
-        .part(
-            "event.properties",
-            Part::bytes(serde_json::to_vec(&properties).unwrap())
-                .mime_str("application/json")
-                .unwrap(),
-        )
-        .part(
-            "event.properties.$ai_input",
-            Part::bytes(serde_json::to_vec(&input_blob).unwrap())
-                .mime_str("application/json")
-                .unwrap(),
-        )
-        .part(
-            "event.properties.$ai_output",
-            Part::bytes(serde_json::to_vec(&output_blob).unwrap())
-                .mime_str("application/json")
-                .unwrap(),
-        )
-        .part(
-            "event.properties.$ai_metadata",
-            Part::bytes(serde_json::to_vec(&metadata_blob).unwrap())
-                .mime_str("application/json")
-                .unwrap(),
-        );
-
-    let response = send_multipart_request(
-        &test_client,
-        form,
-        Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3"),
-    )
-    .await;
-    assert_eq!(response.status(), StatusCode::OK);
-
-    let response_json: serde_json::Value = response.json::<serde_json::Value>().await;
-    let accepted_parts = response_json["accepted_parts"].as_array().unwrap();
-    assert_eq!(accepted_parts.len(), 5);
-    assert_eq!(accepted_parts[0]["name"], "event");
-    assert_eq!(accepted_parts[0]["length"].as_u64().unwrap(), 98); // UUID adds ~46 bytes
-    assert_eq!(accepted_parts[1]["name"], "event.properties");
-    assert_eq!(accepted_parts[1]["length"].as_u64().unwrap(), 31);
-    assert_eq!(accepted_parts[2]["name"], "event.properties.$ai_input");
-    assert_eq!(accepted_parts[2]["length"].as_u64().unwrap(), 48);
-    assert_eq!(accepted_parts[3]["name"], "event.properties.$ai_output");
-    assert_eq!(accepted_parts[3]["length"].as_u64().unwrap(), 48);
-    assert_eq!(accepted_parts[4]["name"], "event.properties.$ai_metadata");
-    assert_eq!(accepted_parts[4]["length"].as_u64().unwrap(), 41);
-}
-
-#[tokio::test]
-async fn test_multipart_parsing_with_mixed_content_types() {
-    use uuid::Uuid;
-
-    let router = setup_ai_test_router();
-    let test_client = TestClient::new(router);
-
-    let event_data = json!({
-        "uuid": Uuid::now_v7().to_string(),
-        "event": "$ai_generation",
-        "distinct_id": "test_user"
-    });
-
-    let properties = json!({
-        "$ai_model": "test-mixed-types"
-    });
-
-    let form = Form::new()
-        .part(
-            "event",
-            Part::bytes(serde_json::to_vec(&event_data).unwrap())
-                .mime_str("application/json")
-                .unwrap(),
-        )
-        .part(
-            "event.properties",
-            Part::bytes(serde_json::to_vec(&properties).unwrap())
-                .mime_str("application/json")
-                .unwrap(),
-        )
-        .part(
-            "event.properties.$ai_json_blob",
-            Part::bytes(serde_json::to_vec(&json!({"type": "json"})).unwrap())
-                .mime_str("application/json")
-                .unwrap(),
-        )
-        .part(
-            "event.properties.$ai_text_blob",
-            Part::bytes(b"This is plain text content".to_vec())
-                .mime_str("text/plain")
-                .unwrap(),
-        )
-        .part(
-            "event.properties.$ai_binary_blob",
-            Part::bytes(vec![0x00, 0x01, 0x02, 0x03, 0x04, 0x05])
-                .mime_str("application/octet-stream")
-                .unwrap(),
-        );
-
-    let response = send_multipart_request(
-        &test_client,
-        form,
-        Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3"),
-    )
-    .await;
-    assert_eq!(response.status(), StatusCode::OK);
-
-    let response_json: serde_json::Value = response.json::<serde_json::Value>().await;
-    let accepted_parts = response_json["accepted_parts"].as_array().unwrap();
-    assert_eq!(accepted_parts.len(), 5);
-    assert_eq!(accepted_parts[0]["length"].as_u64().unwrap(), 98); // UUID adds ~46 bytes
-    assert_eq!(accepted_parts[1]["length"].as_u64().unwrap(), 32);
-    assert_eq!(accepted_parts[2]["content-type"], "application/json");
-    assert_eq!(accepted_parts[2]["length"].as_u64().unwrap(), 15);
-    assert_eq!(accepted_parts[3]["content-type"], "text/plain");
-    assert_eq!(accepted_parts[3]["length"].as_u64().unwrap(), 26);
-    assert_eq!(
-        accepted_parts[4]["content-type"],
-        "application/octet-stream"
-    );
-    assert_eq!(accepted_parts[4]["length"].as_u64().unwrap(), 6);
-}
-
-#[tokio::test]
-async fn test_multipart_parsing_with_large_blob() {
-    use uuid::Uuid;
-
-    let router = setup_ai_test_router();
-    let test_client = TestClient::new(router);
-
-    let event_data = json!({
-        "uuid": Uuid::now_v7().to_string(),
-        "event": "$ai_generation",
-        "distinct_id": "test_user"
-    });
-
-    let properties = json!({
-        "$ai_model": "test-large"
-    });
-
-    // Create a large JSON blob (100KB)
-    let large_blob = json!({
-        "messages": (0..100).map(|_| json!({"role": "user", "content": "x".repeat(1000)})).collect::<Vec<_>>()
-    });
-
-    let form = Form::new()
-        .part(
-            "event",
-            Part::bytes(serde_json::to_vec(&event_data).unwrap())
-                .mime_str("application/json")
-                .unwrap(),
-        )
-        .part(
-            "event.properties",
-            Part::bytes(serde_json::to_vec(&properties).unwrap())
-                .mime_str("application/json")
-                .unwrap(),
-        )
-        .part(
-            "event.properties.$ai_large_input",
-            Part::bytes(serde_json::to_vec(&large_blob).unwrap())
-                .mime_str("application/json")
-                .unwrap(),
-        );
-
-    let response = send_multipart_request(
-        &test_client,
-        form,
-        Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3"),
-    )
-    .await;
-    assert_eq!(response.status(), StatusCode::OK);
-
-    let response_json: serde_json::Value = response.json::<serde_json::Value>().await;
-    let accepted_parts = response_json["accepted_parts"].as_array().unwrap();
-    assert_eq!(accepted_parts.len(), 3);
-    assert_eq!(accepted_parts[0]["length"].as_u64().unwrap(), 98); // UUID adds ~46 bytes
-    assert_eq!(accepted_parts[1]["length"].as_u64().unwrap(), 26);
-    assert_eq!(accepted_parts[2]["length"].as_u64().unwrap(), 102914);
-}
-
-#[tokio::test]
-async fn test_multipart_parsing_with_empty_blob() {
-    use uuid::Uuid;
-
-    let router = setup_ai_test_router();
-    let test_client = TestClient::new(router);
-
-    let event_data = json!({
-        "uuid": Uuid::now_v7().to_string(),
-        "event": "$ai_generation",
-        "distinct_id": "test_user"
-    });
-
-    let properties = json!({
-        "$ai_model": "test-empty"
-    });
-
-    let form = Form::new()
-        .part(
-            "event",
-            Part::bytes(serde_json::to_vec(&event_data).unwrap())
-                .mime_str("application/json")
-                .unwrap(),
-        )
-        .part(
-            "event.properties",
-            Part::bytes(serde_json::to_vec(&properties).unwrap())
-                .mime_str("application/json")
-                .unwrap(),
-        )
-        .part(
-            "event.properties.$ai_empty",
-            Part::bytes(Vec::new())
-                .mime_str("application/json")
-                .unwrap(),
-        );
-
-    let response = send_multipart_request(
-        &test_client,
-        form,
-        Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3"),
-    )
-    .await;
-
-    // Empty blobs should be rejected with 400 Bad Request
-    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
-}
 
 // ----------------------------------------------------------------------------
 // Scenario 1.3: Boundary Validation
@@ -1383,53 +1144,6 @@ async fn test_combined_event_properties_exceeds_960kb_returns_413() {
 }
 
 #[tokio::test]
-async fn test_sum_of_all_parts_exceeds_25mb_returns_413() {
-    let router = setup_ai_test_router();
-    let test_client = TestClient::new(router);
-
-    let event_data = json!({
-        "event": "$ai_generation",
-        "distinct_id": "test_user"
-    });
-
-    let properties = json!({
-        "$ai_model": "test"
-    });
-
-    // Create a blob that, combined with event and properties, exceeds 25MB
-    // Event ~52 bytes + properties ~24 bytes + blob ~25MB = exceeds limit
-    let large_blob = vec![0u8; 25 * 1024 * 1024];
-
-    let form = Form::new()
-        .part(
-            "event",
-            Part::bytes(serde_json::to_vec(&event_data).unwrap())
-                .mime_str("application/json")
-                .unwrap(),
-        )
-        .part(
-            "event.properties",
-            Part::bytes(serde_json::to_vec(&properties).unwrap())
-                .mime_str("application/json")
-                .unwrap(),
-        )
-        .part(
-            "event.properties.$ai_input",
-            Part::bytes(large_blob)
-                .mime_str("application/octet-stream")
-                .unwrap(),
-        );
-
-    let response = send_multipart_request(
-        &test_client,
-        form,
-        Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3"),
-    )
-    .await;
-    assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
-}
-
-#[tokio::test]
 async fn test_request_body_exceeds_110_percent_limit_returns_413() {
     let router = setup_ai_test_router();
     let test_client = TestClient::new(router);
@@ -1482,136 +1196,6 @@ async fn test_request_body_exceeds_110_percent_limit_returns_413() {
 // ----------------------------------------------------------------------------
 // Content Type Validation Tests
 // ----------------------------------------------------------------------------
-
-#[tokio::test]
-async fn test_blob_with_application_octet_stream_content_type() {
-    let router = setup_ai_test_router();
-    let test_client = TestClient::new(router);
-
-    let properties = json!({
-        "$ai_model": "test"
-    });
-
-    let blob_data = vec![0u8, 1u8, 2u8, 3u8];
-
-    let form = create_ai_event_form("$ai_generation", "test_user", properties).part(
-        "event.properties.$ai_binary_data",
-        Part::bytes(blob_data)
-            .mime_str("application/octet-stream")
-            .unwrap(),
-    );
-
-    let response = send_multipart_request(
-        &test_client,
-        form,
-        Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3"),
-    )
-    .await;
-    assert_eq!(response.status(), StatusCode::OK);
-}
-
-#[tokio::test]
-async fn test_blob_with_application_json_content_type() {
-    let router = setup_ai_test_router();
-    let test_client = TestClient::new(router);
-
-    let properties = json!({
-        "$ai_model": "test"
-    });
-
-    let blob_data = json!({"key": "value"}).to_string();
-
-    let form = create_ai_event_form("$ai_generation", "test_user", properties).part(
-        "event.properties.$ai_input",
-        Part::bytes(blob_data.into_bytes())
-            .mime_str("application/json")
-            .unwrap(),
-    );
-
-    let response = send_multipart_request(
-        &test_client,
-        form,
-        Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3"),
-    )
-    .await;
-    assert_eq!(response.status(), StatusCode::OK);
-}
-
-#[tokio::test]
-async fn test_blob_with_text_plain_content_type() {
-    let router = setup_ai_test_router();
-    let test_client = TestClient::new(router);
-
-    let properties = json!({
-        "$ai_model": "test"
-    });
-
-    let blob_data = "This is plain text data";
-
-    let form = create_ai_event_form("$ai_generation", "test_user", properties).part(
-        "event.properties.$ai_output",
-        Part::bytes(blob_data.as_bytes().to_vec())
-            .mime_str("text/plain")
-            .unwrap(),
-    );
-
-    let response = send_multipart_request(
-        &test_client,
-        form,
-        Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3"),
-    )
-    .await;
-    assert_eq!(response.status(), StatusCode::OK);
-}
-
-#[tokio::test]
-async fn test_blob_with_invalid_content_type_returns_400() {
-    let router = setup_ai_test_router();
-    let test_client = TestClient::new(router);
-
-    let properties = json!({
-        "$ai_model": "test"
-    });
-
-    let blob_data = vec![0u8, 1u8, 2u8, 3u8];
-
-    let form = create_ai_event_form("$ai_generation", "test_user", properties).part(
-        "event.properties.$ai_data",
-        Part::bytes(blob_data).mime_str("application/xml").unwrap(),
-    );
-
-    let response = send_multipart_request(
-        &test_client,
-        form,
-        Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3"),
-    )
-    .await;
-    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
-}
-
-#[tokio::test]
-async fn test_blob_without_content_type_returns_400() {
-    let router = setup_ai_test_router();
-    let test_client = TestClient::new(router);
-
-    let properties = json!({
-        "$ai_model": "test"
-    });
-
-    let blob_data = vec![0u8, 1u8, 2u8, 3u8];
-
-    // Create a part without Content-Type (reqwest doesn't set it if we don't call mime_str)
-    let form = create_ai_event_form("$ai_generation", "test_user", properties)
-        .part("event.properties.$ai_data", Part::bytes(blob_data));
-
-    let response = send_multipart_request(
-        &test_client,
-        form,
-        Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3"),
-    )
-    .await;
-    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
-}
 
 // ----------------------------------------------------------------------------
 // Compression Tests
@@ -1687,7 +1271,7 @@ fn setup_ai_test_router_with_capturing_sink() -> (Router, CapturingSink) {
     let redis = Arc::new(MockRedisClient::new());
 
     let mut cfg = DEFAULT_CONFIG.clone();
-    cfg.capture_mode = CaptureMode::Events;
+    cfg.capture_mode = CaptureMode::Ai;
 
     let quota_limiter =
         CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60 * 60 * 24 * 7));
@@ -1696,34 +1280,35 @@ fn setup_ai_test_router_with_capturing_sink() -> (Router, CapturingSink) {
         timesource,
         readiness,
         liveness,
-        Arc::new(sink),
+        Arc::new(OutputRegistry::single(sink)),
         redis,
         None,
         quota_limiter,
         TokenDropper::default(),
         None, // event_restriction_service
         None, // recorder_handle
-        CaptureMode::Events,
+        CaptureMode::Ai,
         None,
         25 * 1024 * 1024,
         false,
         1_i64,
         false,
         0.0_f32,
-        26_214_400,                       // 25MB default for AI endpoint
-        Some(create_mock_blob_storage()), // ai_blob_storage
-        None,                             // body_chunk_read_timeout_ms
-        256,                              // body_read_chunk_size_kb
-        10 * 1024 * 1024,                 // capture_v1_max_compressed_body_bytes
-        50 * 1024 * 1024,                 // capture_v1_max_decompressed_body_bytes
-        None,                             // overflow_limiter
-        None,                             // ai_events_overflow_limiter
-        None,                             // replay_overflow_limiter
-        None,                             // v1_sink_router
-        8,                                // capture_v1_scatter_gather_min_batch
-        None,                             // ai_gateway_signing_secret
-        false,                            // ai_events_overflow_enabled
-        None,                             // ingestion_warning_emitter
+        26_214_400,       // 25MB default for AI endpoint
+        983_040,          // ai_max_event_bytes (960KB, the previous hardcoded limit)
+        None,             // body_chunk_read_timeout_ms
+        256,              // body_read_chunk_size_kb
+        10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
+        50 * 1024 * 1024, // capture_v1_max_decompressed_body_bytes
+        None,             // overflow_limiter
+        None,             // ai_events_overflow_limiter
+        None,             // ai_byte_rate_limiter
+        None,             // replay_overflow_limiter
+        None,             // v1_sink_router
+        8,                // capture_v1_scatter_gather_min_batch
+        None,             // ai_gateway_signing_secret
+        false,            // ai_events_overflow_enabled
+        None,             // ingestion_warning_emitter
     );
 
     (router, sink_clone)
@@ -1786,254 +1371,6 @@ async fn test_ai_event_published_to_kafka() {
     // Verify properties
     let props = event_json["properties"].as_object().unwrap();
     assert_eq!(props["$ai_model"], "gpt-4");
-}
-
-#[tokio::test]
-async fn test_ai_event_with_blobs_published_with_s3_placeholders() {
-    let (router, sink) = setup_ai_test_router_with_capturing_sink();
-    let test_client = TestClient::new(router);
-
-    let event_uuid = "650e8400-e29b-41d4-a716-446655440001";
-    let event_data = json!({
-        "uuid": event_uuid,
-        "event": "$ai_generation",
-        "distinct_id": "test_user"
-    });
-
-    let properties = json!({
-        "$ai_model": "gpt-4"
-    });
-
-    let input_blob = json!({"messages": [{"role": "user", "content": "Hello"}]});
-    let output_blob = json!({"choices": [{"message": {"content": "Hi there"}}]});
-
-    let form = Form::new()
-        .part(
-            "event",
-            Part::bytes(serde_json::to_vec(&event_data).unwrap())
-                .mime_str("application/json")
-                .unwrap(),
-        )
-        .part(
-            "event.properties",
-            Part::bytes(serde_json::to_vec(&properties).unwrap())
-                .mime_str("application/json")
-                .unwrap(),
-        )
-        .part(
-            "event.properties.$ai_input",
-            Part::bytes(serde_json::to_vec(&input_blob).unwrap())
-                .mime_str("application/json")
-                .unwrap(),
-        )
-        .part(
-            "event.properties.$ai_output",
-            Part::bytes(serde_json::to_vec(&output_blob).unwrap())
-                .mime_str("application/json")
-                .unwrap(),
-        );
-
-    let response = send_multipart_request(
-        &test_client,
-        form,
-        Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3"),
-    )
-    .await;
-    assert_eq!(response.status(), StatusCode::OK);
-
-    // Verify event was published to Kafka
-    let events = sink.get_events().await;
-    assert_eq!(
-        events.len(),
-        1,
-        "Expected exactly one event to be published"
-    );
-
-    let event = &events[0];
-    let event_json: serde_json::Value = serde_json::from_str(&event.event.data).unwrap();
-
-    // Verify properties contain S3 URLs from mock blob storage
-    let props = event_json["properties"].as_object().unwrap();
-
-    // Both blobs should have S3 URLs
-    let input_url = props["$ai_input"].as_str().unwrap();
-    let output_url = props["$ai_output"].as_str().unwrap();
-
-    // Verify S3 URLs point to same file with different ranges
-    // URL format: s3://test-bucket/llma/<token_hash>/<uuid>?range=...
-    // Token is hashed (first 16 chars of SHA-256) to prevent path traversal attacks
-    let token_hash = "896566b02a7f7462"; // SHA-256 of "phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3"
-    let expected_prefix = format!("s3://{TEST_BLOB_BUCKET}/{TEST_BLOB_PREFIX}{token_hash}/");
-    assert!(
-        input_url.starts_with(&expected_prefix),
-        "Input URL should start with {expected_prefix}, got {input_url}"
-    );
-    assert!(
-        output_url.starts_with(&expected_prefix),
-        "Output URL should start with {expected_prefix}, got {output_url}"
-    );
-
-    // Extract UUIDs from both URLs (should be the same)
-    // URL format: s3://test-bucket/llma/<token_hash>/<uuid>?range=...
-    let input_uuid = input_url
-        .split('/')
-        .nth(5)
-        .unwrap()
-        .split('?')
-        .next()
-        .unwrap();
-    let output_uuid = output_url
-        .split('/')
-        .nth(5)
-        .unwrap()
-        .split('?')
-        .next()
-        .unwrap();
-    assert_eq!(
-        input_uuid, output_uuid,
-        "Both blobs should point to same file"
-    );
-    assert_eq!(input_uuid, event_uuid, "UUID should match event UUID");
-
-    // Verify ranges are sequential
-    assert!(
-        input_url.contains("range="),
-        "Input URL should have range parameter"
-    );
-    assert!(
-        output_url.contains("range="),
-        "Output URL should have range parameter"
-    );
-
-    // Extract range values and verify they are non-overlapping and sequential
-    let input_range = input_url.split("range=").nth(1).unwrap();
-    let output_range = output_url.split("range=").nth(1).unwrap();
-
-    // Parse ranges: format is "start-end"
-    let input_parts: Vec<usize> = input_range.split('-').map(|s| s.parse().unwrap()).collect();
-    let output_parts: Vec<usize> = output_range
-        .split('-')
-        .map(|s| s.parse().unwrap())
-        .collect();
-
-    let (input_start, input_end) = (input_parts[0], input_parts[1]);
-    let (output_start, output_end) = (output_parts[0], output_parts[1]);
-
-    // Verify ranges are valid (end > start)
-    assert!(input_end > input_start, "Input range should be valid");
-    assert!(output_end > output_start, "Output range should be valid");
-
-    // Verify ranges don't overlap (output starts after input ends)
-    assert!(
-        output_start > input_end,
-        "Output blob range should start after input blob range ends"
-    );
-}
-
-#[tokio::test]
-async fn test_ai_event_with_multiple_blobs_sequential_ranges() {
-    let (router, sink) = setup_ai_test_router_with_capturing_sink();
-    let test_client = TestClient::new(router);
-
-    let event_uuid = "750e8400-e29b-41d4-a716-446655440002";
-    let event_data = json!({
-        "uuid": event_uuid,
-        "event": "$ai_generation",
-        "distinct_id": "test_user"
-    });
-
-    let properties = json!({
-        "$ai_model": "claude-3"
-    });
-
-    // Create blobs of different sizes
-    let blob1 = "A".repeat(100); // 100 bytes
-    let blob2 = "B".repeat(200); // 200 bytes
-    let blob3 = "C".repeat(150); // 150 bytes
-
-    let form = Form::new()
-        .part(
-            "event",
-            Part::bytes(serde_json::to_vec(&event_data).unwrap())
-                .mime_str("application/json")
-                .unwrap(),
-        )
-        .part(
-            "event.properties",
-            Part::bytes(serde_json::to_vec(&properties).unwrap())
-                .mime_str("application/json")
-                .unwrap(),
-        )
-        .part(
-            "event.properties.$ai_blob1",
-            Part::bytes(blob1.into_bytes())
-                .mime_str("text/plain")
-                .unwrap(),
-        )
-        .part(
-            "event.properties.$ai_blob2",
-            Part::bytes(blob2.into_bytes())
-                .mime_str("text/plain")
-                .unwrap(),
-        )
-        .part(
-            "event.properties.$ai_blob3",
-            Part::bytes(blob3.into_bytes())
-                .mime_str("text/plain")
-                .unwrap(),
-        );
-
-    let response = send_multipart_request(
-        &test_client,
-        form,
-        Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3"),
-    )
-    .await;
-    assert_eq!(response.status(), StatusCode::OK);
-
-    // Verify event was published to Kafka
-    let events = sink.get_events().await;
-    assert_eq!(events.len(), 1);
-
-    let event = &events[0];
-    let event_json: serde_json::Value = serde_json::from_str(&event.event.data).unwrap();
-    let props = event_json["properties"].as_object().unwrap();
-
-    // Extract all URLs
-    let url1 = props["$ai_blob1"].as_str().unwrap();
-    let url2 = props["$ai_blob2"].as_str().unwrap();
-    let url3 = props["$ai_blob3"].as_str().unwrap();
-
-    // Verify all point to same file
-    // URL format: s3://test-bucket/llma/<token>/<uuid>?range=...
-    let uuid1 = url1.split('/').nth(5).unwrap().split('?').next().unwrap();
-    let uuid2 = url2.split('/').nth(5).unwrap().split('?').next().unwrap();
-    let uuid3 = url3.split('/').nth(5).unwrap().split('?').next().unwrap();
-    assert_eq!(uuid1, uuid2);
-    assert_eq!(uuid2, uuid3);
-    assert_eq!(uuid1, event_uuid);
-
-    // Extract and parse ranges
-    let range1 = url1.split("range=").nth(1).unwrap();
-    let range2 = url2.split("range=").nth(1).unwrap();
-    let range3 = url3.split("range=").nth(1).unwrap();
-
-    let parts1: Vec<usize> = range1.split('-').map(|s| s.parse().unwrap()).collect();
-    let parts2: Vec<usize> = range2.split('-').map(|s| s.parse().unwrap()).collect();
-    let parts3: Vec<usize> = range3.split('-').map(|s| s.parse().unwrap()).collect();
-
-    let (start1, end1) = (parts1[0], parts1[1]);
-    let (start2, end2) = (parts2[0], parts2[1]);
-    let (start3, end3) = (parts3[0], parts3[1]);
-
-    // Verify ranges are valid
-    assert!(end1 > start1, "First range should be valid");
-    assert!(end2 > start2, "Second range should be valid");
-    assert!(end3 > start3, "Third range should be valid");
-
-    // Verify ranges are sequential (non-overlapping)
-    assert!(start2 > end1, "Second blob should start after first ends");
-    assert!(start3 > end2, "Third blob should start after second ends");
 }
 
 #[tokio::test]
@@ -2604,7 +1941,7 @@ fn setup_ai_test_router_with_token_dropper(token_dropper: TokenDropper) -> (Rout
     let redis = Arc::new(MockRedisClient::new());
 
     let mut cfg = DEFAULT_CONFIG.clone();
-    cfg.capture_mode = CaptureMode::Events;
+    cfg.capture_mode = CaptureMode::Ai;
 
     let quota_limiter =
         CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60 * 60 * 24 * 7));
@@ -2613,37 +1950,155 @@ fn setup_ai_test_router_with_token_dropper(token_dropper: TokenDropper) -> (Rout
         timesource,
         readiness,
         liveness,
-        Arc::new(sink),
+        Arc::new(OutputRegistry::single(sink)),
         redis,
         None,
         quota_limiter,
         token_dropper,
         None, // event_restriction_service
         None, // recorder_handle
-        CaptureMode::Events,
-        None,                             // concurrency_limit
-        25 * 1024 * 1024,                 // event_size_limit
-        false,                            // enable_historical_rerouting
-        1,                                // historical_rerouting_threshold_days
-        false,                            // is_mirror_deploy
-        0.0,                              // verbose_sample_percent
-        26_214_400,                       // ai_max_sum_of_parts_bytes
-        Some(create_mock_blob_storage()), // ai_blob_storage
-        None,                             // body_chunk_read_timeout_ms
-        256,                              // body_read_chunk_size_kb
-        10 * 1024 * 1024,                 // capture_v1_max_compressed_body_bytes
-        50 * 1024 * 1024,                 // capture_v1_max_decompressed_body_bytes
-        None,                             // overflow_limiter
-        None,                             // ai_events_overflow_limiter
-        None,                             // replay_overflow_limiter
-        None,                             // v1_sink_router
-        8,                                // capture_v1_scatter_gather_min_batch
-        None,                             // ai_gateway_signing_secret
-        false,                            // ai_events_overflow_enabled
-        None,                             // ingestion_warning_emitter
+        CaptureMode::Ai,
+        None,             // concurrency_limit
+        25 * 1024 * 1024, // event_size_limit
+        false,            // enable_historical_rerouting
+        1,                // historical_rerouting_threshold_days
+        false,            // is_mirror_deploy
+        0.0,              // verbose_sample_percent
+        26_214_400,       // ai_max_sum_of_parts_bytes
+        983_040,          // ai_max_event_bytes (960KB, the previous hardcoded limit)
+        None,             // body_chunk_read_timeout_ms
+        256,              // body_read_chunk_size_kb
+        10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
+        50 * 1024 * 1024, // capture_v1_max_decompressed_body_bytes
+        None,             // overflow_limiter
+        None,             // ai_events_overflow_limiter
+        None,             // ai_byte_rate_limiter
+        None,             // replay_overflow_limiter
+        None,             // v1_sink_router
+        8,                // capture_v1_scatter_gather_min_batch
+        None,             // ai_gateway_signing_secret
+        false,            // ai_events_overflow_enabled
+        None,             // ingestion_warning_emitter
     );
 
     (router, sink_clone)
+}
+
+/// A real limiter whose local cache admits a key's first charge and limits
+/// every one after it. A threshold of `0` is what makes the second charge
+/// exceed the window with no Redis round trip and no clock, the same seam
+/// `integration_person_processing_matrix` uses for the event limiter; the tick
+/// is parked well past the requests so no background sync can race them.
+fn setup_ai_test_router_with_byte_limiter() -> (Router, CapturingSink) {
+    let (readiness, liveness, _monitor) = test_lifecycle_handlers();
+
+    let sink = CapturingSink::new();
+    let sink_clone = sink.clone();
+    let timesource = FixedTime {
+        time: DateTime::parse_from_rfc3339(DEFAULT_TEST_TIME)
+            .expect("Invalid fixed time format")
+            .with_timezone(&Utc),
+    };
+    let redis = Arc::new(MockRedisClient::new());
+
+    let mut cfg = DEFAULT_CONFIG.clone();
+    cfg.capture_mode = CaptureMode::Ai;
+    cfg.ai_byte_limit_per_second = 0;
+    cfg.global_rate_limit_tick_interval_ms = 600_000;
+
+    let quota_limiter =
+        CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60 * 60 * 24 * 7));
+    let byte_limiter = Arc::new(
+        GlobalRateLimiter::new_ai_bytes(&cfg, vec![redis.clone()])
+            .expect("failed to build the AI byte limiter"),
+    );
+
+    let router = router(
+        timesource,
+        readiness,
+        liveness,
+        Arc::new(OutputRegistry::single(sink)),
+        redis,
+        None,
+        quota_limiter,
+        TokenDropper::default(),
+        None, // event_restriction_service
+        None, // recorder_handle
+        CaptureMode::Ai,
+        None,             // concurrency_limit
+        25 * 1024 * 1024, // event_size_limit
+        false,            // enable_historical_rerouting
+        1,                // historical_rerouting_threshold_days
+        false,            // is_mirror_deploy
+        0.0,              // verbose_sample_percent
+        26_214_400,       // ai_max_sum_of_parts_bytes
+        983_040,          // ai_max_event_bytes (960KB, the previous hardcoded limit)
+        None,             // body_chunk_read_timeout_ms
+        256,              // body_read_chunk_size_kb
+        10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
+        50 * 1024 * 1024, // capture_v1_max_decompressed_body_bytes
+        None,             // overflow_limiter
+        None,             // ai_events_overflow_limiter
+        Some(byte_limiter),
+        None,  // replay_overflow_limiter
+        None,  // v1_sink_router
+        8,     // capture_v1_scatter_gather_min_batch
+        None,  // ai_gateway_signing_secret
+        false, // ai_events_overflow_enabled
+        None,  // ingestion_warning_emitter
+    );
+
+    (router, sink_clone)
+}
+
+/// The byte budget reaches this endpoint. It builds its event at the handler and
+/// never enters either analytics pipeline, so the charge has to be wired here or
+/// a sender could spend unbounded bytes on `/i/v0/ai` while the same bytes are
+/// capped on `/i/v0/ai/batch`.
+///
+/// An over-budget event answers 200 with no accepted parts, the shape this
+/// handler already uses for the token dropper and for a `DropEvent` restriction:
+/// a rate drop is ops-imposed and never surfaces as a request failure.
+#[tokio::test]
+async fn test_ai_endpoint_byte_budget_drops_the_over_budget_event() {
+    let (router, sink) = setup_ai_test_router_with_byte_limiter();
+    let test_client = TestClient::new(router);
+    let token = "phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3";
+
+    let send = async |client: &TestClient| {
+        let form =
+            create_ai_event_form("$ai_generation", "test_user", json!({"$ai_model": "gpt-4"}));
+        send_multipart_request(client, form, Some(token)).await
+    };
+
+    // The limiter reads a cache miss as no prior data and fails open, so the
+    // first event for a token is always admitted.
+    let first = send(&test_client).await;
+    assert_eq!(first.status(), StatusCode::OK);
+    let accepted: serde_json::Value = first.json().await;
+    assert!(
+        !accepted["accepted_parts"].as_array().unwrap().is_empty(),
+        "the first event is admitted and reports the parts it took"
+    );
+    assert_eq!(sink.get_events().await.len(), 1);
+
+    let second = send(&test_client).await;
+    assert_eq!(
+        second.status(),
+        StatusCode::OK,
+        "a rate drop is not a request failure"
+    );
+    let refused: serde_json::Value = second.json().await;
+    assert_eq!(
+        refused["accepted_parts"].as_array().unwrap().len(),
+        0,
+        "an over-budget event reports that nothing was accepted"
+    );
+    assert_eq!(
+        sink.get_events().await.len(),
+        1,
+        "the over-budget event must not reach the sink"
+    );
 }
 
 #[tokio::test]
@@ -2816,7 +2271,7 @@ fn setup_ai_test_router_with_llm_quota_limited(token: &str) -> (Router, Capturin
         Arc::new(MockRedisClient::new().zrangebyscore_ret(&llm_key, vec![token.to_string()]));
 
     let mut cfg = DEFAULT_CONFIG.clone();
-    cfg.capture_mode = CaptureMode::Events;
+    cfg.capture_mode = CaptureMode::Ai;
 
     let quota_limiter = CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60))
         .add_scoped_limiter(QuotaResource::LLMEvents, is_llm_event);
@@ -2825,14 +2280,14 @@ fn setup_ai_test_router_with_llm_quota_limited(token: &str) -> (Router, Capturin
         timesource,
         readiness,
         liveness,
-        Arc::new(sink),
+        Arc::new(OutputRegistry::single(sink)),
         redis,
         None,
         quota_limiter,
         TokenDropper::default(),
         None, // event_restriction_service
         None, // recorder_handle
-        CaptureMode::Events,
+        CaptureMode::Ai,
         None,
         25 * 1024 * 1024,
         false,
@@ -2840,19 +2295,20 @@ fn setup_ai_test_router_with_llm_quota_limited(token: &str) -> (Router, Capturin
         false,
         0.0_f32,
         26_214_400,
-        Some(create_mock_blob_storage()), // ai_blob_storage
-        None,                             // body_chunk_read_timeout_ms
-        256,                              // body_read_chunk_size_kb
-        10 * 1024 * 1024,                 // capture_v1_max_compressed_body_bytes
-        50 * 1024 * 1024,                 // capture_v1_max_decompressed_body_bytes
-        None,                             // overflow_limiter
-        None,                             // ai_events_overflow_limiter
-        None,                             // replay_overflow_limiter
-        None,                             // v1_sink_router
-        8,                                // capture_v1_scatter_gather_min_batch
-        None,                             // ai_gateway_signing_secret
-        false,                            // ai_events_overflow_enabled
-        None,                             // ingestion_warning_emitter
+        983_040,          // ai_max_event_bytes (960KB, the previous hardcoded limit)
+        None,             // body_chunk_read_timeout_ms
+        256,              // body_read_chunk_size_kb
+        10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
+        50 * 1024 * 1024, // capture_v1_max_decompressed_body_bytes
+        None,             // overflow_limiter
+        None,             // ai_events_overflow_limiter
+        None,             // ai_byte_rate_limiter
+        None,             // replay_overflow_limiter
+        None,             // v1_sink_router
+        8,                // capture_v1_scatter_gather_min_batch
+        None,             // ai_gateway_signing_secret
+        false,            // ai_events_overflow_enabled
+        None,             // ingestion_warning_emitter
     );
 
     (router, sink_clone)
@@ -2956,10 +2412,11 @@ async fn test_ai_endpoint_quota_limiter_returns_billing_limit_error_message() {
 const AI_OVERFLOW_TEST_TOKEN: &str = "phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3";
 
 /// Variant of `setup_ai_test_router_with_capturing_sink` that wires a real
-/// `OverflowLimiter` into the router. Existing helpers still pass `None`; this
+/// `OverflowLimiter` into the router's AI lane — where AI-endpoint events land,
+/// so it is the limiter they consult. Existing helpers still pass `None`; this
 /// one opts in to exercise the governor path.
 fn setup_ai_test_router_with_overflow_limiter(
-    overflow_limiter: Arc<OverflowLimiter>,
+    ai_events_overflow_limiter: Arc<OverflowLimiter>,
 ) -> (Router, CapturingSink) {
     let (readiness, liveness, _monitor) = test_lifecycle_handlers();
 
@@ -2973,7 +2430,7 @@ fn setup_ai_test_router_with_overflow_limiter(
     let redis = Arc::new(MockRedisClient::new());
 
     let mut cfg = DEFAULT_CONFIG.clone();
-    cfg.capture_mode = CaptureMode::Events;
+    cfg.capture_mode = CaptureMode::Ai;
 
     let quota_limiter =
         CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60 * 60 * 24 * 7));
@@ -2982,14 +2439,14 @@ fn setup_ai_test_router_with_overflow_limiter(
         timesource,
         readiness,
         liveness,
-        Arc::new(sink),
+        Arc::new(OutputRegistry::single(sink)),
         redis,
         None,
         quota_limiter,
         TokenDropper::default(),
         None, // event_restriction_service
         None, // recorder_handle
-        CaptureMode::Events,
+        CaptureMode::Ai,
         None,
         25 * 1024 * 1024,
         false,
@@ -2997,19 +2454,20 @@ fn setup_ai_test_router_with_overflow_limiter(
         false,
         0.0_f32,
         26_214_400,
-        Some(create_mock_blob_storage()),
+        983_040, // ai_max_event_bytes (960KB, the previous hardcoded limit)
         None,
         256,
         10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
         50 * 1024 * 1024, // capture_v1_max_decompressed_body_bytes
-        Some(overflow_limiter),
-        None,  // ai_events_overflow_limiter
-        None,  // replay_overflow_limiter
-        None,  // v1_sink_router
-        8,     // capture_v1_scatter_gather_min_batch
-        None,  // ai_gateway_signing_secret
-        false, // ai_events_overflow_enabled
-        None,  // ingestion_warning_emitter
+        None,             // overflow_limiter
+        Some(ai_events_overflow_limiter),
+        None, // ai_byte_rate_limiter
+        None, // replay_overflow_limiter
+        None, // v1_sink_router
+        8,    // capture_v1_scatter_gather_min_batch
+        None, // ai_gateway_signing_secret
+        true, // ai_events_overflow_enabled
+        None, // ingestion_warning_emitter
     );
 
     (router, sink_clone)
@@ -3123,14 +2581,14 @@ fn ai_router(
         timesource,
         readiness,
         liveness,
-        Arc::new(sink),
+        Arc::new(OutputRegistry::single(sink)),
         redis,
         None,
         quota_limiter,
         TokenDropper::default(),
         None,
         None, // recorder_handle
-        CaptureMode::Events,
+        CaptureMode::Ai,
         None,
         25 * 1024 * 1024,
         false,
@@ -3138,13 +2596,14 @@ fn ai_router(
         false,
         0.0_f32,
         26_214_400,
-        Some(create_mock_blob_storage()),
+        983_040, // ai_max_event_bytes (960KB, the previous hardcoded limit)
         None,
         256,
         10 * 1024 * 1024,
         50 * 1024 * 1024,
         None,
         None, // ai_events_overflow_limiter
+        None, // ai_byte_rate_limiter
         None,
         None,
         8,
@@ -3166,7 +2625,7 @@ fn setup_ai_router_quota_limited_with_secret(token: &str) -> (Router, CapturingS
     let redis =
         Arc::new(MockRedisClient::new().zrangebyscore_ret(&llm_key, vec![token.to_string()]));
     let mut cfg = DEFAULT_CONFIG.clone();
-    cfg.capture_mode = CaptureMode::Events;
+    cfg.capture_mode = CaptureMode::Ai;
     let quota_limiter = CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60))
         .add_scoped_limiter(QuotaResource::LLMEvents, is_llm_event);
     ai_router(redis, quota_limiter)
@@ -3177,7 +2636,7 @@ fn setup_ai_router_quota_limited_with_secret(token: &str) -> (Router, CapturingS
 fn setup_ai_router_with_secret() -> (Router, CapturingSink) {
     let redis = Arc::new(MockRedisClient::new());
     let mut cfg = DEFAULT_CONFIG.clone();
-    cfg.capture_mode = CaptureMode::Events;
+    cfg.capture_mode = CaptureMode::Ai;
     let quota_limiter =
         CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60 * 60 * 24 * 7));
     ai_router(redis, quota_limiter)
@@ -3294,7 +2753,7 @@ fn setup_ai_router_global_quota_limited_with_secret(token: &str) -> (Router, Cap
     let redis =
         Arc::new(MockRedisClient::new().zrangebyscore_ret(&events_key, vec![token.to_string()]));
     let mut cfg = DEFAULT_CONFIG.clone();
-    cfg.capture_mode = CaptureMode::Events;
+    cfg.capture_mode = CaptureMode::Ai;
     let quota_limiter = CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60));
     ai_router(redis, quota_limiter)
 }

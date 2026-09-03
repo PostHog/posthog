@@ -36,7 +36,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_ana
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.settings import (
     GOOGLE_ANALYTICS_INCREMENTAL_FIELD,
-    GOOGLE_ANALYTICS_REPORT_SCHEMAS,
+    CustomReportError,
+    build_report_schemas,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -78,7 +79,13 @@ class GoogleAnalyticsSource(ResumableSource[GoogleAnalyticsSourceConfig, GoogleA
         # still exhausted once those retries run out, the property's token quota refills over
         # time and the resumable source picks up from the last saved chunk, so let Temporal
         # retry the activity without paging it as a bug.
-        return {"(retryable)"}
+        #
+        # "Connection aborted"/"Connection reset by peer"/"Read timed out" are transport-level blips
+        # from `requests` raised directly by `session.post()` in `_run_report`, outside its own retry
+        # loop (which only handles `RefreshError` and HTTP-level failures). The resumable source picks
+        # up from the last saved chunk on the next Temporal retry, same as ClickHouse's source
+        # classifies this text.
+        return {"(retryable)", "Connection aborted", "Connection reset by peer", "Read timed out"}
 
     def get_schemas(
         self,
@@ -98,7 +105,7 @@ class GoogleAnalyticsSource(ResumableSource[GoogleAnalyticsSourceConfig, GoogleA
                 description=schema["description"],
                 should_sync_default=schema["should_sync_default"],
             )
-            for name, schema in GOOGLE_ANALYTICS_REPORT_SCHEMAS.items()
+            for name, schema in build_report_schemas(config.custom_reports).items()
         ]
 
         if names is not None:
@@ -134,6 +141,11 @@ class GoogleAnalyticsSource(ResumableSource[GoogleAnalyticsSourceConfig, GoogleA
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
+        try:
+            build_report_schemas(config.custom_reports)
+        except CustomReportError as e:
+            return False, str(e)
+
         property_id = normalize_property_id(config.property_id)
         if not property_id.isdigit():
             # Name the two IDs users most often paste by mistake — both are non-numeric and
@@ -239,6 +251,24 @@ class GoogleAnalyticsSource(ResumableSource[GoogleAnalyticsSourceConfig, GoogleA
                             "The numeric GA4 property ID, found in Google Analytics under "
                             "Admin → Property settings → Property details. This is not the "
                             "'G-XXXXXXX' Measurement ID from your website tag."
+                        ),
+                        secret=False,
+                    ),
+                    SourceFieldInputConfig(
+                        name="custom_reports",
+                        label="Custom reports (optional)",
+                        type=SourceFieldInputConfigType.TEXTAREA,
+                        required=False,
+                        placeholder=(
+                            '[{"name": "paid_campaigns", '
+                            '"dimensions": ["sessionCampaignName", "sessionSource"], '
+                            '"metrics": ["sessions", "totalUsers", "purchaseRevenue"]}]'
+                        ),
+                        caption=(
+                            "Define your own report tables as a JSON array, on top of the built-in ones. "
+                            "Each report needs a name, GA4 dimensions, and GA4 metrics. PostHog always adds "
+                            "the date dimension and syncs each report daily. GA4 allows up to 9 dimensions "
+                            "(including date) and 10 metrics per report."
                         ),
                         secret=False,
                     ),

@@ -14,7 +14,7 @@ from posthog.schema import (
     TrendsQuery,
 )
 
-from posthog.hogql_queries.insights.utils.utils import series_should_be_set_to_dau
+from posthog.hogql_queries.utils.utils import series_should_be_set_to_dau
 from posthog.types import InsightQueryNode
 
 
@@ -100,6 +100,9 @@ def to_dict(query: BaseModel) -> dict:
                         "showMean",
                         "meanRetentionCalculation",
                         "yAxisScaleType",
+                        "yAxisStartAtZero",
+                        "yAxisMin",
+                        "yAxisMax",
                         "hiddenLegendIndexes",
                         "hiddenLegendBreakdowns",
                         "resultCustomizations",
@@ -174,6 +177,7 @@ def grouped_chart_display_types(display: ChartDisplayType) -> ChartDisplayType:
             | ChartDisplayType.ACTIONS_UNSTACKED_BAR
             | ChartDisplayType.ACTIONS_STACKED_BAR
             | ChartDisplayType.TWO_DIMENSIONAL_HEATMAP
+            | ChartDisplayType.SCATTER_PLOT
             | ChartDisplayType.METRIC
         ):
             # standard time series
@@ -187,6 +191,7 @@ def grouped_chart_display_types(display: ChartDisplayType) -> ChartDisplayType:
             ChartDisplayType.ACTIONS_BAR_VALUE
             | ChartDisplayType.BOLD_NUMBER
             | ChartDisplayType.ACTIONS_PIE
+            | ChartDisplayType.ACTIONS_DONUT
             | ChartDisplayType.ACTIONS_TABLE
         ):
             # total value

@@ -26,7 +26,15 @@ export function useChannelFeed(channelId: string | undefined): {
   const query = useAuthenticatedQuery<Task[]>(
     channelFeedQueryKey(channelId),
     (client) =>
-      client.getTasks({ channel: channelId }) as unknown as Promise<Task[]>,
+      // Order the server page by activity, not creation. The feed is capped
+      // server-side, so a long-running but old session would fall off a
+      // created-first page before the activity sort could surface it. The rows
+      // are still shown oldest-first below; this only decides which tasks make
+      // the page.
+      client.getTasks({
+        channel: channelId,
+        ordering: "-last_activity_at",
+      }) as unknown as Promise<Task[]>,
     {
       enabled: !!channelId,
       gcTime: SPACE_QUERY_GC_TIME_MS,

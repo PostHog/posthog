@@ -1,6 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
-import { LemonButton, LemonModal, LemonTable, LemonTableColumns, LemonTag, LemonTagType } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable, LemonTableColumns, LemonTag, LemonTagType } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
@@ -15,29 +15,10 @@ import {
     LogsAlertConfigurationApi,
     LogsAlertEventApi,
     LogsAlertEventKindEnumApi,
-    LogsAlertThresholdOperatorEnumApi,
+    LogsAlertConfigurationThresholdOperatorEnumApi,
 } from 'products/logs/frontend/generated/api.schemas'
 
 import { LogsAlertEventHistoryLogicProps, logsAlertEventHistoryLogic } from './logsAlertEventHistoryLogic'
-
-interface LogsAlertEventHistoryModalProps {
-    alert: LogsAlertConfigurationApi | null
-    onClose: () => void
-}
-
-export function LogsAlertEventHistoryModal({ alert, onClose }: LogsAlertEventHistoryModalProps): JSX.Element {
-    return (
-        <LemonModal
-            isOpen={alert !== null}
-            onClose={onClose}
-            width={960}
-            title={alert ? `Alert history · ${alert.name}` : 'Alert history'}
-            description="Evaluations, transitions, errors, and user actions."
-        >
-            {alert ? <LogsAlertEventHistoryContent alert={alert} /> : null}
-        </LemonModal>
-    )
-}
 
 export function LogsAlertEventHistoryContent({ alert }: { alert: LogsAlertConfigurationApi }): JSX.Element {
     const logicProps: LogsAlertEventHistoryLogicProps = { alertId: alert.id }
@@ -51,7 +32,7 @@ export function LogsAlertEventHistoryContent({ alert }: { alert: LogsAlertConfig
 
 function getHistoryThresholds(alert: LogsAlertConfigurationApi): AlertEvaluationThreshold[] {
     const thresholdValue = alert.threshold_count ?? 100
-    if (alert.threshold_operator === LogsAlertThresholdOperatorEnumApi.Below) {
+    if (alert.threshold_operator === LogsAlertConfigurationThresholdOperatorEnumApi.Below) {
         return [{ direction: 'lower', value: thresholdValue, label: `Below (${thresholdValue})` }]
     }
     return [{ direction: 'upper', value: thresholdValue, label: `Above (${thresholdValue})` }]
@@ -111,18 +92,20 @@ function LogsAlertEventTimeline({ alert }: { alert: LogsAlertConfigurationApi })
                     evaluationNoun="evaluation"
                 />
             ) : null}
-            <LemonTable
-                columns={columns}
-                dataSource={eventsPage.results}
-                rowKey="id"
-                loading={eventsPageLoading}
-                emptyState="No events yet. Evaluations, transitions, and user actions will appear here."
-                size="small"
-                expandable={{
-                    rowExpandable: () => true,
-                    expandedRowRender: (event) => <LogsAlertEventDetails event={event} />,
-                }}
-            />
+            <div className="max-h-96 overflow-y-auto">
+                <LemonTable
+                    columns={columns}
+                    dataSource={eventsPage.results}
+                    rowKey="id"
+                    loading={eventsPageLoading}
+                    emptyState="No events yet. Evaluations, transitions, and user actions will appear here."
+                    size="small"
+                    expandable={{
+                        rowExpandable: () => true,
+                        expandedRowRender: (event) => <LogsAlertEventDetails event={event} />,
+                    }}
+                />
+            </div>
             {hasMore ? (
                 <div className="flex justify-center">
                     <LemonButton type="secondary" size="small" onClick={loadMore} loading={eventsPageLoading}>

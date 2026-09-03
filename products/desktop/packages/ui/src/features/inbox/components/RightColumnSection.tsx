@@ -1,43 +1,13 @@
-import type { IconProps } from "@phosphor-icons/react";
-import { Flex, Text } from "@radix-ui/themes";
-import type { ComponentType, ReactNode } from "react";
-
-interface RightColumnSectionProps {
-  Icon: ComponentType<IconProps>;
-  title: string;
-  rightSlot?: ReactNode;
-  children: ReactNode;
-}
+import {
+  DetailSection,
+  type DetailSectionProps,
+} from "@posthog/ui/features/inbox/components/DetailSection";
 
 /**
- * Slim caption header used by every section in the detail-view right column.
- * Smaller and lighter than `DetailSection` (no spanning divider) so the
- * side column reads as supporting detail rather than competing with the
- * main Summary on the left.
+ * Right-column sections share the main column's card chrome so the detail
+ * view reads as one card system. Kept as its own export so the two columns
+ * can diverge again without touching every consumer.
  */
-export function RightColumnSection({
-  Icon,
-  title,
-  rightSlot,
-  children,
-}: RightColumnSectionProps) {
-  return (
-    <Flex direction="column" gap="2">
-      <Flex
-        align="center"
-        justify="between"
-        gap="2"
-        className="cursor-default select-none text-gray-10"
-      >
-        <Flex align="center" gap="2">
-          <Icon size={12} className="shrink-0" />
-          <Text className="font-medium text-[11px] uppercase tracking-[0.06em]">
-            {title}
-          </Text>
-        </Flex>
-        {rightSlot && <div className="shrink-0">{rightSlot}</div>}
-      </Flex>
-      <div>{children}</div>
-    </Flex>
-  );
+export function RightColumnSection(props: DetailSectionProps) {
+  return <DetailSection {...props} />;
 }

@@ -273,6 +273,43 @@ describe('TimeSeriesBarChart', () => {
         })
     })
 
+    describe('config.valueDomain', () => {
+        // 246 nices past the data max at every tick count (e.g. → 300 or 400), so a tick above
+        // 246 is the observable signature of the default un-pinned domain.
+        const SPIKY_SERIES: Series[] = [{ key: 'a', label: 'A', data: [10, 246, 30] }]
+        const maxTick = (chart: { yTicks: () => string[] }): number =>
+            Math.max(...chart.yTicks().map((t) => Number(t.replace(/,/g, ''))))
+
+        it('pins the value axis to a fixed domain instead of nicing past the data max', () => {
+            const unpinned = renderHogChart(
+                <TimeSeriesBarChart series={SPIKY_SERIES} labels={LABELS} theme={THEME} />
+            ).chart
+            expect(maxTick(unpinned)).toBeGreaterThan(246)
+
+            const pinned = renderHogChart(
+                <TimeSeriesBarChart
+                    series={SPIKY_SERIES}
+                    labels={LABELS}
+                    theme={THEME}
+                    config={{ valueDomain: { min: 0, max: 246 } }}
+                />
+            ).chart
+            expect(maxTick(pinned)).toBeLessThanOrEqual(246)
+        })
+
+        it('a fixed domain wins over the goal-line stretch', () => {
+            const { chart } = renderHogChart(
+                <TimeSeriesBarChart
+                    series={SPIKY_SERIES}
+                    labels={LABELS}
+                    theme={THEME}
+                    config={{ valueDomain: { min: 0, max: 246 }, goalLines: [{ value: 1000, label: 'Target' }] }}
+                />
+            )
+            expect(maxTick(chart)).toBeLessThanOrEqual(246)
+        })
+    })
+
     describe('config.barLayout', () => {
         it.each(['stacked', 'grouped', 'percent'] as const)('renders ticks for %s layout', (barLayout) => {
             const series: Series[] = [
@@ -351,9 +388,7 @@ describe('TimeSeriesBarChart', () => {
             const { chart: widenedChart } = renderHogChart(
                 <TimeSeriesBarChart series={SERIES} labels={LABELS} theme={THEME} config={{ margins: { left: 200 } }} />
             )
-            const widenedTick = widenedChart.element.querySelector<HTMLElement>(
-                '[data-attr="hog-chart-axis-tick-y"]'
-            )
+            const widenedTick = widenedChart.element.querySelector<HTMLElement>('[data-attr="hog-chart-axis-tick-y"]')
             expect(defaultTick).not.toBeNull()
             expect(widenedTick).not.toBeNull()
             // Left-side tick position is `right: box.width - box.plotLeft + gap` — widening the left

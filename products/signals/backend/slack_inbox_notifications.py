@@ -187,6 +187,18 @@ def _resolve_suggested_reviewer_user_ids(report: SignalReport) -> set[int]:
     if not logins:
         return set()
     login_map = resolve_org_github_login_to_users(report.team_id, logins)
+    unmapped_count = len(logins - login_map.keys())
+    if unmapped_count:
+        # These reviewers can't get a personal-channel notification; when the whole list is
+        # unmapped the report falls back to the team channel despite being "assigned".
+        # Counts only: GitHub logins are member PII and must not reach logs.
+        logger.info(
+            "slack routing for report %s (team %d): %d of %d suggested reviewer login(s) map to no PostHog user",
+            report.id,
+            report.team_id,
+            unmapped_count,
+            len(logins),
+        )
     if not login_map:
         return set()
 
@@ -387,6 +399,7 @@ _SIGNAL_SOURCE_LINES: dict[tuple[str, str], str] = {
     ("session_replay", "session_problem"): "Session replay · Session problem",
     ("session_replay", "session_segment_cluster"): "Session replay · Session segment cluster",
     ("session_replay", "session_analysis_cluster"): "Session replay · Session analysis cluster",
+    ("replay_vision", "scanner_finding"): "Replay Vision · Scanner finding",
     ("llm_analytics", "evaluation"): "AI observability · Evaluation",
     ("llm_analytics", "evaluation_report"): "AI observability · Evaluation report",
     ("zendesk", "ticket"): "Zendesk · Ticket",

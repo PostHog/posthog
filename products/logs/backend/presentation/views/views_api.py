@@ -1,13 +1,25 @@
 from typing import Any
 
+from django.db import models
+
 from rest_framework import serializers, viewsets
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
-from posthog.permissions import PostHogFeatureFlagPermission
 
 from products.logs.backend.models import LogsView
+
+
+class LogsViewColumnType(models.TextChoices):
+    TIMESTAMP = "timestamp", "timestamp"
+    LEVEL = "level", "level"
+    SOURCE = "source", "source"
+    TRACE_ID = "trace_id", "trace_id"
+    SPAN_ID = "span_id", "span_id"
+    PATTERN = "pattern", "pattern"
+    MESSAGE = "message", "message"
+    CUSTOM = "custom", "custom"
 
 
 class LogsViewColumnSerializer(serializers.Serializer):
@@ -15,8 +27,11 @@ class LogsViewColumnSerializer(serializers.Serializer):
         help_text="Client-generated stable identity for list operations (React keys, reorder). Never interpreted by the server.",
     )
     type = serializers.ChoiceField(
-        choices=["timestamp", "level", "source", "trace_id", "span_id", "message", "custom"],
-        help_text="Column type. Built-in types resolve client-side from log row fields; `custom` columns are computed server-side from `expression`.",
+        choices=LogsViewColumnType.choices,
+        help_text=(
+            "Column type. Most built-in types resolve client-side from log row fields; `pattern` and `custom` "
+            "columns are computed server-side, the latter from `expression`."
+        ),
     )
     # Optional keys are omitted (not null) so the stored JSON round-trips the client shape exactly
     name = serializers.CharField(
@@ -98,8 +113,6 @@ class LogsViewViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     queryset = LogsView.objects.all().order_by("-created_at")
     serializer_class = LogsViewSerializer
     lookup_field = "short_id"
-    posthog_feature_flag = "logs-saved-views"
-    permission_classes = [PostHogFeatureFlagPermission]
 
     def safely_get_queryset(self, queryset: Any) -> Any:
         queryset = queryset.filter(team_id=self.team_id)

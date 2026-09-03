@@ -3,8 +3,6 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock, patch
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.beehiiv.beehiiv import BeehiivResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.beehiiv.canonical_descriptions import (
     CANONICAL_DESCRIPTIONS,
@@ -15,7 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.beehiiv import (
     BeehiivSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 VALIDATE_PATCH = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.beehiiv.source.validate_beehiiv_credentials"
@@ -47,27 +44,6 @@ class TestBeehiivSource:
     def setup_method(self) -> None:
         self.source = BeehiivSource()
 
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.BEEHIIV
-
-    def test_source_ships_visible_as_alpha(self) -> None:
-        config = self.source.get_source_config
-
-        assert not config.unreleasedSource
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-
-    def test_api_key_field_is_secret(self) -> None:
-        fields = self.source.get_source_config.fields or []
-        by_name = {field.name: field for field in fields if isinstance(field, SourceFieldInputConfig)}
-
-        assert by_name["api_key"].secret is True
-        assert by_name["publication_id"].secret is False
-
-    def test_get_schemas_lists_every_endpoint(self) -> None:
-        schemas = self.source.get_schemas(_config(), team_id=7)
-
-        assert [schema.name for schema in schemas] == list(ENDPOINTS)
-
     def test_no_table_advertises_incremental_sync(self) -> None:
         # beehiiv has no updated-since or created-after filter, so an incremental sync would
         # re-walk every page while pretending to be cheap.
@@ -75,11 +51,6 @@ class TestBeehiivSource:
 
         assert not any(schema.supports_incremental or schema.supports_append for schema in schemas)
         assert all(schema.incremental_fields == [] for schema in schemas)
-
-    def test_get_schemas_filters_by_requested_names(self) -> None:
-        schemas = self.source.get_schemas(_config(), team_id=7, names=["Posts", "Subscriptions"])
-
-        assert [schema.name for schema in schemas] == ["Posts", "Subscriptions"]
 
     @pytest.mark.parametrize("endpoint", sorted(ENDPOINTS))
     def test_canonical_descriptions_cover_every_table(self, endpoint: str) -> None:

@@ -1,3 +1,4 @@
+import re
 import ipaddress
 import urllib.parse as urlparse
 from collections.abc import Iterable, Mapping
@@ -11,10 +12,19 @@ import dns.resolver
 import dns.exception
 
 from posthog.cloud_utils import is_dev_mode
+from posthog.dataclasses import frozen
 
 logger = structlog.get_logger(__name__)
 
 ResolvedIPs = set[ipaddress.IPv4Address | ipaddress.IPv6Address]
+
+
+@frozen
+class PinnedUrlVerdict:
+    allowed: bool
+    reason: str | None
+    pinned_ips: ResolvedIPs
+
 
 DNS_RESOLUTION_LIFETIME_SECONDS = 2.0
 DNS_RESOLUTION_BATCH_TIMEOUT_SECONDS = 2.5
@@ -113,8 +123,19 @@ def resolve_hosts_ips(hosts: Iterable[str]) -> dict[str, ResolvedIPs]:
     return resolved
 
 
+# Carrier-grade NAT space (RFC 6598). ipaddress classifies it as neither private nor
+# global, so none of the attribute flags in _is_internal_ip catch it, yet it is routable
+# inside VPCs and overlay networks (e.g. Kubernetes pod ranges, Tailscale). It is
+# special-use per RFC 6890, which the CIMD spec requires blocking, so block it explicitly.
+_CGNAT_NETWORK = ipaddress.ip_network("100.64.0.0/10")
+
+
 def _is_internal_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
     """Check if an IP address is internal/private and should be blocked."""
+    # An IPv4-mapped IPv6 address (::ffff:a.b.c.d) reaches the IPv4 host it embeds, and
+    # network membership does not cross IP versions, so judge the embedded address.
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
+        ip = ip.ipv4_mapped
     return any(
         [
             ip.is_private,
@@ -123,6 +144,7 @@ def _is_internal_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
             ip.is_multicast,
             ip.is_reserved,
             ip.is_unspecified,
+            ip in _CGNAT_NETWORK,
         ]
     )
 
@@ -221,6 +243,49 @@ def strip_userinfo(url: str) -> str:
     return urlparse.urlunparse(parsed._replace(netloc=netloc))
 
 
+# Hosts that hand out a Microsoft Teams incoming webhook. Dots are escaped and the host is anchored
+# at both ends, so a registrable lookalike such as `evilpowerautomate.com` cannot match. The CDP
+# Teams template matches the same hosts with unescaped dots, so its patterns are not reusable here.
+_TEAMS_LOGIC_APPS_HOST = re.compile(r"^(?:[a-z0-9-]+\.)+logic\.azure\.com$")
+_TEAMS_CONNECTOR_HOST = re.compile(r"^(?:[a-z0-9-]+\.)+webhook\.office\.com$")
+_TEAMS_POWER_AUTOMATE_HOST = re.compile(r"^(?:[a-z0-9-]+\.)+(?:powerautomate\.com|flow\.microsoft\.com)$")
+_TEAMS_POWER_PLATFORM_HOST = re.compile(r"^(?:[a-z0-9-]+\.)+environment\.api\.powerplatform\.com$")
+
+
+def is_microsoft_teams_webhook_url(url: str) -> bool:
+    """Whether a URL is one of the Microsoft Teams webhook shapes we are willing to post to.
+
+    Checks the scheme, host and path only, with no name resolution, so it is cheap enough for a
+    save path. Anything that then delivers to the URL must still run the full SSRF validation,
+    because DNS can change between the save and the send.
+    """
+    if has_authority_bypass_chars(url):
+        return False
+    try:
+        parsed = urlparse.urlparse(url)
+        port = parsed.port
+    except ValueError:
+        return False
+    # `requests` turns userinfo into a Basic `Authorization` header on the outbound POST, and the
+    # credential would sit in the stored URL for as long as the subscription lives.
+    if parsed.username is not None or parsed.password is not None:
+        return False
+    if parsed.scheme != "https" or port not in (None, 443):
+        return False
+
+    host = (parsed.hostname or "").lower()
+    path = parsed.path
+    if _TEAMS_LOGIC_APPS_HOST.match(host):
+        return path.startswith("/workflows/") and "/triggers/manual/paths/invoke" in path
+    if _TEAMS_CONNECTOR_HOST.match(host):
+        return path.startswith("/webhookb2/") and "/IncomingWebhook/" in path
+    if _TEAMS_POWER_AUTOMATE_HOST.match(host):
+        return bool(path.strip("/"))
+    if _TEAMS_POWER_PLATFORM_HOST.match(host):
+        return path.startswith("/powerautomate/automations/direct/") and "/workflows/" in path
+    return False
+
+
 def _dev_bypass_enabled() -> bool:
     """Dev mode short-circuits is_url_allowed.
 
@@ -271,13 +336,11 @@ def is_url_allowed(
     - Host must not be localhost, metadata service, or internal domain
     - Resolved IPs must not be private/internal
     """
-    allowed, reason, _ips = _validate_url_with_ips(raw_url, resolved_ips_by_host=resolved_ips_by_host)
-    return allowed, reason
+    verdict = _validate_url_with_ips(raw_url, resolved_ips_by_host=resolved_ips_by_host)
+    return verdict.allowed, verdict.reason
 
 
-def validate_url_and_pin_ips(
-    raw_url: str,
-) -> tuple[bool, str | None, set[ipaddress.IPv4Address | ipaddress.IPv6Address]]:
+def validate_url_and_pin_ips(raw_url: str) -> PinnedUrlVerdict:
     """
     Like ``is_url_allowed`` but also returns the validated IP set.
 
@@ -292,17 +355,15 @@ def _validate_url_with_ips(
     raw_url: str,
     *,
     resolved_ips_by_host: Mapping[str, ResolvedIPs] | None = None,
-) -> tuple[bool, str | None, set[ipaddress.IPv4Address | ipaddress.IPv6Address]]:
-    empty: set[ipaddress.IPv4Address | ipaddress.IPv6Address] = set()
+) -> PinnedUrlVerdict:
+    empty: ResolvedIPs = set()
 
     if _dev_bypass_enabled():
-        return True, None, empty
+        return PinnedUrlVerdict(allowed=True, reason=None, pinned_ips=empty)
 
-    def _blocked(
-        reason: str, **log_kwargs: object
-    ) -> tuple[bool, str, set[ipaddress.IPv4Address | ipaddress.IPv6Address]]:
+    def _blocked(reason: str, **log_kwargs: object) -> PinnedUrlVerdict:
         logger.warning("url_validation.blocked", reason=reason, **log_kwargs)
-        return False, reason, empty
+        return PinnedUrlVerdict(allowed=False, reason=reason, pinned_ips=empty)
 
     if has_authority_bypass_chars(raw_url):
         return _blocked("Invalid URL: ambiguous authority")
@@ -335,7 +396,7 @@ def _validate_url_with_ips(
     for ip in ips:
         if _is_internal_ip(ip):
             return _blocked(f"Disallowed target IP: {ip}", host=host, ip=str(ip))
-    return True, None, ips
+    return PinnedUrlVerdict(allowed=True, reason=None, pinned_ips=ips)
 
 
 def should_block_url(u: str) -> bool:

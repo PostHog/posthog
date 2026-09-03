@@ -273,6 +273,10 @@ function handleToolUseChunk(
   }
 
   if (alreadyEmitted) {
+    // Replaying the raw input would overwrite the plan resolved by the permission handler.
+    if (chunk.name === "ExitPlanMode") {
+      return null;
+    }
     return {
       _meta: meta,
       toolCallId: chunk.id,

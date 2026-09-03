@@ -21,9 +21,23 @@ describe("classifyAgentError", () => {
     ],
     ["socket connection closed", "upstream_stream_terminated"],
     ["API Error: Connection error.", "upstream_connection_error"],
+    ["ACP connection closed", "upstream_connection_error"],
     ["API Error: Request timed out.", "upstream_timeout"],
     ["API Error: 429 rate limited", "upstream_provider_failure"],
     ["API Error: 529 overloaded", "upstream_provider_failure"],
+    ["API Error: Content block not found", "content_block_rejection"],
+    [
+      "API Error: Content block is not a thinking block",
+      "content_block_rejection",
+    ],
+    [
+      "[ede_diagnostic] result_type=user last_content_type=n/a stop_reason=null",
+      "turn_ended_without_response",
+    ],
+    [
+      "[ede_diagnostic] result_type=assistant last_content_type=text stop_reason=null",
+      "agent_error",
+    ],
     ["API Error: 400 invalid request", "agent_error"],
     // 413 is a hard client rejection, never a transient upstream failure.
     ["API Error: 413 Payload Too Large", "agent_error"],

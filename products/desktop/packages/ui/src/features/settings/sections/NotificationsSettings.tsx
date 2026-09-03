@@ -1,4 +1,4 @@
-import { Play, Plus, Trash } from "@phosphor-icons/react";
+import { CaretDown, Play, Plus, Trash } from "@phosphor-icons/react";
 import { useServiceOptional } from "@posthog/di/react";
 import {
   type INotifications,
@@ -6,15 +6,39 @@ import {
 } from "@posthog/platform/notifications";
 import { type ISpeech, SPEECH_SERVICE } from "@posthog/platform/speech";
 import {
-  ANALYTICS_EVENTS,
-  PROJECT_BLUEBIRD_FLAG,
-  SPOKEN_NARRATION_FLAG,
-} from "@posthog/shared";
+  Button,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  Input,
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectGroupLabel,
+  SelectItem,
+  SelectSeparator,
+  SelectTrigger,
+  SelectValue,
+  Slider,
+  Switch,
+  ToggleGroup,
+  ToggleGroupItem,
+} from "@posthog/quill";
+import { ANALYTICS_EVENTS, SPOKEN_NARRATION_FLAG } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { NotificationBus } from "@posthog/ui/features/notifications/notifications";
-import { SettingRow } from "@posthog/ui/features/settings/SettingRow";
+import { NotificationDeliveryCard } from "@posthog/ui/features/settings/components/NotificationDeliveryCard";
+import {
+  SettingsCard,
+  SettingsCardRow,
+  SettingsSection,
+} from "@posthog/ui/features/settings/components/SettingsCard";
+import { settingsToggleItemClassName } from "@posthog/ui/features/settings/components/SettingsSegmented";
+import { SettingsSelect } from "@posthog/ui/features/settings/components/SettingsSelect";
 import { AddCustomSoundDialog } from "@posthog/ui/features/settings/sections/AddCustomSoundDialog";
+import { TipsSection } from "@posthog/ui/features/settings/sections/TipsSettings";
 import {
   type CompletionSound,
   type CustomSound,
@@ -33,17 +57,25 @@ import { track } from "@posthog/ui/shell/analytics";
 import { useHostCapabilities } from "@posthog/ui/shell/useHostCapabilities";
 import { formatDurationSeconds } from "@posthog/ui/utils/customSound";
 import { playCompletionSound } from "@posthog/ui/utils/sounds";
-import {
-  Button,
-  Flex,
-  IconButton,
-  Select,
-  Slider,
-  Switch,
-  Text,
-  TextField,
-} from "@radix-ui/themes";
 import { useCallback, useEffect, useState } from "react";
+
+const BUILT_IN_SOUND_OPTIONS: { value: CompletionSound; label: string }[] = [
+  { value: "guitar", label: "Guitar solo" },
+  { value: "danilo", label: "I'm ready" },
+  { value: "revi", label: "Cute noise" },
+  { value: "meep", label: "Meep" },
+  { value: "meep-smol", label: "Meep (smol)" },
+  { value: "bubbles", label: "Bubbles" },
+  { value: "drop", label: "Drop" },
+  { value: "knock", label: "Knock" },
+  { value: "ring", label: "Ring" },
+  { value: "shoot", label: "Shoot" },
+  { value: "slide", label: "Slide" },
+  { value: "switch", label: "Switch" },
+  { value: "wilhelm", label: "Wilhelm scream" },
+  { value: "icq", label: "ICQ" },
+  { value: "msn", label: "MSN Messenger" },
+];
 
 export function NotificationsSettings() {
   const {
@@ -69,19 +101,13 @@ export function NotificationsSettings() {
   const [addSoundOpen, setAddSoundOpen] = useState(false);
 
   // Optional so non-desktop hosts (web) that don't bind these simply disable the
-  // native test buttons instead of throwing.
+  // native test actions instead of throwing.
   const bus = useServiceOptional<NotificationBus>(NotificationBus);
   const notifications = useServiceOptional<INotifications>(
     NOTIFICATIONS_SERVICE,
   );
   // Dock badge/bounce are macOS desktop-dock features.
   const { localWorkspaces } = useHostCapabilities();
-
-  // Canvases only exist behind the bluebird flag, so only mention them when on.
-  const canvasEnabled = useFeatureFlag(
-    PROJECT_BLUEBIRD_FLAG,
-    import.meta.env.DEV,
-  );
 
   // Spoken narration is behind a flag for a staged rollout; always on in dev.
   const spokenNarrationEnabled = useFeatureFlag(
@@ -184,248 +210,257 @@ export function NotificationsSettings() {
     setScaleSoundWithTaskLength,
   ]);
 
+  const soundItems = [
+    { value: "none", label: "None" },
+    { value: "random-all", label: "Random (all)" },
+    ...(customSounds.length > 0
+      ? [{ value: "random-custom", label: "Random (custom)" }]
+      : []),
+    ...BUILT_IN_SOUND_OPTIONS,
+    ...customSounds.map((sound) => ({
+      value: `custom:${sound.id}`,
+      label: sound.name,
+    })),
+  ];
+
   return (
-    <Flex direction="column">
+    <div className="flex flex-col gap-7">
       {notificationsDenied && (
-        <Text color="yellow" className="mb-2 text-[13px]">
-          Notifications are blocked in your system settings. Enable
-          notifications for PostHog to receive them.
-        </Text>
+        <div className="rounded-(--radius-3) border border-(--amber-6) bg-(--amber-2) px-3.5 py-2.5 text-[12.5px] text-amber-11">
+          Notifications are blocked in your system settings. Allow them for
+          PostHog to receive alerts.
+        </div>
       )}
 
-      <Flex align="center" justify="between" className="mb-2 pt-2">
-        <Text className="font-medium text-sm">Defaults</Text>
-        <Button variant="soft" size="1" onClick={resetToDefaults}>
-          Reset to defaults
-        </Button>
-      </Flex>
-
-      <SettingRow
-        label="Push notifications"
-        description="Receive a native OS notification when the app is in the background and an agent finishes or needs your input"
-      >
-        <Switch
-          checked={desktopNotifications}
-          onCheckedChange={handleDesktopNotificationsChange}
-          disabled={notificationsDenied}
-          size="1"
-        />
-      </SettingRow>
-
-      {localWorkspaces && (
-        <>
-          <SettingRow
-            label="Dock badge"
-            description="Display a badge on the dock icon when the agent finishes a task or needs your input"
+      <SettingsSection
+        label="Alerts"
+        description="How agents get your attention when they finish or need you"
+        action={
+          <Button
+            type="button"
+            variant="link-muted"
+            size="sm"
+            onClick={resetToDefaults}
           >
-            <Switch
-              checked={dockBadgeNotifications}
-              onCheckedChange={setDockBadgeNotifications}
-              size="1"
-            />
-          </SettingRow>
-
-          <SettingRow
-            label="Bounce dock icon"
-            description="Bounce the dock icon when the agent finishes a task or needs your input"
-          >
-            <Switch
-              checked={dockBounceNotifications}
-              onCheckedChange={setDockBounceNotifications}
-              size="1"
-            />
-          </SettingRow>
-        </>
-      )}
-
-      <SettingRow
-        label="In-app toasts"
-        description="Show an in-app toast when the agent finishes a task or needs your input, and for other in-app confirmations. Error messages always show."
-      >
-        <Switch
-          checked={toastNotifications}
-          onCheckedChange={handleToastNotificationsChange}
-          size="1"
-        />
-      </SettingRow>
-
-      <SettingRow
-        label="Sound effect"
-        description="Play a sound when the agent finishes a task or needs your input"
-        noBorder={completionSound === "none"}
-      >
-        <Flex align="center" gap="2">
-          <Select.Root
-            value={completionSound}
-            onValueChange={(value) =>
-              handleCompletionSoundChange(value as CompletionSound)
-            }
-            size="1"
-          >
-            <Select.Trigger className="min-w-[100px]" />
-            <Select.Content>
-              <Select.Item value="none">None</Select.Item>
-              <Select.Item value="random-all">Random (all)</Select.Item>
-              {customSounds.length > 0 && (
-                <Select.Item value="random-custom">Random (custom)</Select.Item>
-              )}
-              <Select.Item value="guitar">Guitar solo</Select.Item>
-              <Select.Item value="danilo">I'm ready</Select.Item>
-              <Select.Item value="revi">Cute noise</Select.Item>
-              <Select.Item value="meep">Meep</Select.Item>
-              <Select.Item value="meep-smol">Meep (smol)</Select.Item>
-              <Select.Item value="bubbles">Bubbles</Select.Item>
-              <Select.Item value="drop">Drop</Select.Item>
-              <Select.Item value="knock">Knock</Select.Item>
-              <Select.Item value="ring">Ring</Select.Item>
-              <Select.Item value="shoot">Shoot</Select.Item>
-              <Select.Item value="slide">Slide</Select.Item>
-              <Select.Item value="switch">Switch</Select.Item>
-              <Select.Item value="wilhelm">Wilhelm scream</Select.Item>
-              <Select.Item value="icq">ICQ</Select.Item>
-              <Select.Item value="msn">MSN Messenger</Select.Item>
-              {customSounds.length > 0 && (
-                <Select.Group>
-                  <Select.Label>Custom</Select.Label>
-                  {customSounds.map((sound) => (
-                    <Select.Item key={sound.id} value={`custom:${sound.id}`}>
-                      {sound.name}
-                    </Select.Item>
-                  ))}
-                </Select.Group>
-              )}
-            </Select.Content>
-          </Select.Root>
-          {completionSound !== "none" && (
-            <Tooltip content="Test sound">
-              <IconButton
-                variant="soft"
-                size="1"
-                aria-label="Test sound"
-                onClick={() =>
-                  playCompletionSound(
-                    completionSound,
-                    completionVolume,
-                    customSounds,
-                  )
-                }
-              >
-                <Play weight="fill" />
-              </IconButton>
-            </Tooltip>
-          )}
-        </Flex>
-      </SettingRow>
-
-      <SettingRow
-        label="Custom sounds"
-        description={
-          customSounds.length > 0
-            ? "Sounds you recorded or imported. Rename or remove them here."
-            : "Record or import your own sound to play when an agent finishes a task or needs your input."
+            Reset to defaults
+          </Button>
         }
       >
-        <Flex direction="column" gap="2" className="w-full max-w-[260px]">
-          {customSounds.map((sound) => (
-            <CustomSoundRow
-              key={sound.id}
-              sound={sound}
-              volume={completionVolume}
-              onRename={renameCustomSound}
-              onRemove={removeCustomSound}
-            />
-          ))}
-          <Button
-            variant="soft"
-            size="1"
-            className="self-start"
-            onClick={() => setAddSoundOpen(true)}
+        <div className="grid grid-cols-2 gap-2">
+          <NotificationDeliveryCard
+            title="System notifications"
+            caption="When the app is in the background"
+            illustration="push"
+            checked={desktopNotifications}
+            onCheckedChange={(checked) =>
+              void handleDesktopNotificationsChange(checked)
+            }
+            disabled={notificationsDenied}
+          />
+          <NotificationDeliveryCard
+            title="In-app toasts"
+            caption="While you're elsewhere in the app"
+            illustration="toast"
+            checked={toastNotifications}
+            onCheckedChange={handleToastNotificationsChange}
+          />
+          {localWorkspaces && (
+            <>
+              <NotificationDeliveryCard
+                title="Dock badge"
+                caption="Unread dot on the app icon"
+                illustration="dock-badge"
+                checked={dockBadgeNotifications}
+                onCheckedChange={setDockBadgeNotifications}
+              />
+              <NotificationDeliveryCard
+                title="Dock bounce"
+                caption="Bounce the app icon once"
+                illustration="dock-bounce"
+                checked={dockBounceNotifications}
+                onCheckedChange={setDockBounceNotifications}
+              />
+            </>
+          )}
+        </div>
+      </SettingsSection>
+
+      <SettingsSection
+        label="Sound"
+        description="What plays when an agent finishes or needs you"
+      >
+        <SettingsCard>
+          <SettingsCardRow
+            label="Completion sound"
+            description="Plays when an agent finishes or needs your input"
           >
-            <Plus /> Add
-          </Button>
-        </Flex>
-      </SettingRow>
+            <div className="flex items-center gap-1.5">
+              <Select
+                value={completionSound}
+                onValueChange={(value: string | null) => {
+                  if (value)
+                    handleCompletionSoundChange(value as CompletionSound);
+                }}
+                items={soundItems}
+              >
+                <SelectTrigger
+                  size="sm"
+                  aria-label="Completion sound"
+                  className="w-[150px]"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent align="end" side="bottom" sideOffset={6}>
+                  <SelectItem value="none">None</SelectItem>
+                  <SelectItem value="random-all">Random (all)</SelectItem>
+                  {customSounds.length > 0 && (
+                    <SelectItem value="random-custom">
+                      Random (custom)
+                    </SelectItem>
+                  )}
+                  <SelectSeparator />
+                  {BUILT_IN_SOUND_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                  {customSounds.length > 0 && (
+                    <>
+                      <SelectSeparator />
+                      <SelectGroup>
+                        <SelectGroupLabel>Custom</SelectGroupLabel>
+                        {customSounds.map((sound) => (
+                          <SelectItem
+                            key={sound.id}
+                            value={`custom:${sound.id}`}
+                          >
+                            {sound.name}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    </>
+                  )}
+                </SelectContent>
+              </Select>
+              {completionSound !== "none" && (
+                <Tooltip content="Preview">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon-sm"
+                    aria-label="Preview sound"
+                    onClick={() =>
+                      playCompletionSound(
+                        completionSound,
+                        completionVolume,
+                        customSounds,
+                      )
+                    }
+                  >
+                    <Play weight="fill" size={12} />
+                  </Button>
+                </Tooltip>
+              )}
+              <Tooltip content="Record or import your own sound">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon-sm"
+                  aria-label="Add a custom sound"
+                  onClick={() => setAddSoundOpen(true)}
+                >
+                  <Plus size={12} />
+                </Button>
+              </Tooltip>
+            </div>
+          </SettingsCardRow>
+
+          {customSounds.length > 0 && (
+            <SettingsCardRow
+              label="Custom sounds"
+              description="Your own sound files, available in the completion sound list"
+              stacked
+            >
+              <div className="flex w-full flex-col gap-1.5">
+                {customSounds.map((sound) => (
+                  <CustomSoundRow
+                    key={sound.id}
+                    sound={sound}
+                    volume={completionVolume}
+                    onRename={renameCustomSound}
+                    onRemove={removeCustomSound}
+                  />
+                ))}
+              </div>
+            </SettingsCardRow>
+          )}
+
+          {completionSound !== "none" && (
+            <>
+              <SettingsCardRow
+                label="Volume"
+                description="How loud alert sounds play"
+              >
+                <div className="flex items-center gap-3">
+                  <Slider
+                    aria-label="Sound volume"
+                    value={[completionVolume]}
+                    onValueChange={(next: number | readonly number[]) => {
+                      const raw = Array.isArray(next) ? next[0] : next;
+                      if (typeof raw === "number") setCompletionVolume(raw);
+                    }}
+                    min={0}
+                    max={100}
+                    step={1}
+                    className="w-[120px]"
+                  />
+                  <span className="w-8 text-right text-[12px] text-muted-foreground tabular-nums">
+                    {completionVolume}%
+                  </span>
+                </div>
+              </SettingsCardRow>
+
+              <SettingsCardRow
+                label="Match speed to task length"
+                description="Quick tasks play the sound faster, long ones slower"
+              >
+                <Switch
+                  size="sm"
+                  checked={scaleSoundWithTaskLength}
+                  onCheckedChange={handleScaleSoundChange}
+                />
+              </SettingsCardRow>
+            </>
+          )}
+        </SettingsCard>
+      </SettingsSection>
 
       <AddCustomSoundDialog
         open={addSoundOpen}
         onOpenChange={setAddSoundOpen}
       />
 
-      {completionSound !== "none" && (
-        <SettingRow label="Sound volume">
-          <Flex align="center" gap="3">
-            <Slider
-              value={[completionVolume]}
-              onValueChange={([value]) => setCompletionVolume(value)}
-              min={0}
-              max={100}
-              step={1}
-              size="1"
-              className="w-[120px]"
-            />
-            <Text color="gray" className="text-[13px]">
-              {completionVolume}%
-            </Text>
-          </Flex>
-        </SettingRow>
-      )}
+      {spokenNarrationEnabled && <VoiceSection />}
 
-      {completionSound !== "none" && (
-        <SettingRow
-          label="Scale sound speed with task length"
-          description="Play the sound faster for quick tasks and slower for long ones"
-          noBorder
-        >
-          <Switch
-            checked={scaleSoundWithTaskLength}
-            onCheckedChange={handleScaleSoundChange}
-            size="1"
-          />
-        </SettingRow>
-      )}
+      <TipsSection />
 
-      {spokenNarrationEnabled && <SpokenNotificationsSection />}
-
-      <NotificationTestHarness
+      <TestSection
         bus={bus}
         notifications={notifications}
         deepLinkTask={deepLinkTask}
-        canvasEnabled={canvasEnabled}
+        localWorkspaces={localWorkspaces}
       />
-    </Flex>
+    </div>
   );
 }
 
-function SpeechSwitchRow({
-  label,
-  description,
-  checked,
-  onCheckedChange,
-  disabled,
-}: {
-  label: string;
-  description: string;
-  checked: boolean;
-  onCheckedChange: (checked: boolean) => void;
-  disabled?: boolean;
-}) {
-  return (
-    <SettingRow label={label} description={description}>
-      <Switch
-        checked={checked}
-        onCheckedChange={onCheckedChange}
-        disabled={disabled}
-        size="1"
-      />
-    </SettingRow>
-  );
-}
+type SpeakAboutKey = "needs_input" | "completion" | "progress";
 
 // Voice narration: the agent speaks a short line when it needs the user or
-// finishes. The master toggle gates the whole feature; sub-controls disable
-// when it's off. The ElevenLabs key is written to encrypted host storage via an
-// injected capability (never kept in packages/ui or the persisted blob).
-function SpokenNotificationsSection() {
+// finishes. The master toggle reveals the sub-controls. The ElevenLabs key is
+// written to encrypted host storage via an injected capability (never kept in
+// packages/ui or the persisted blob).
+function VoiceSection() {
   const {
     spokenNotifications,
     spokenNotifyNeedsInput,
@@ -448,7 +483,24 @@ function SpokenNotificationsSection() {
   const [keyDraft, setKeyDraft] = useState("");
   const [savingKey, setSavingKey] = useState(false);
 
-  const disabled = !spokenNotifications;
+  const speakAbout: SpeakAboutKey[] = [
+    ...(spokenNotifyNeedsInput ? (["needs_input"] as const) : []),
+    ...(spokenNotifyCompletion ? (["completion"] as const) : []),
+    ...(spokenNotifyProgress ? (["progress"] as const) : []),
+  ];
+
+  const handleSpeakAboutChange = useCallback(
+    (next: string[]) => {
+      setSpokenNotifyNeedsInput(next.includes("needs_input"));
+      setSpokenNotifyCompletion(next.includes("completion"));
+      setSpokenNotifyProgress(next.includes("progress"));
+    },
+    [
+      setSpokenNotifyNeedsInput,
+      setSpokenNotifyCompletion,
+      setSpokenNotifyProgress,
+    ],
+  );
 
   const saveKey = useCallback(async () => {
     if (!keyStore || !keyDraft.trim()) return;
@@ -483,141 +535,160 @@ function SpokenNotificationsSection() {
   }, [speech, elevenLabsVoiceId]);
 
   return (
-    <>
-      <Text className="mt-4 mb-1 block border-gray-6 border-t pt-4 font-medium text-sm">
-        Spoken notifications
-      </Text>
-      <Text color="gray" className="mb-1 text-[13px]">
-        Have the agent say a short line out loud when it needs you or finishes,
-        so you hear it across parallel tasks without watching the screen. Lines
-        are serialized so agents never talk over each other.
-      </Text>
-
-      <SpeechSwitchRow
-        label="Enable spoken notifications"
-        description="Let the agent speak up out loud when it decides it's worth interrupting you."
-        checked={spokenNotifications}
-        onCheckedChange={setSpokenNotifications}
-      />
-
-      <SpeechSwitchRow
-        label="Speak when I'm needed"
-        description="Blocked on a question, decision, or confirmation. Always spoken — even for the task you're viewing."
-        checked={spokenNotifyNeedsInput}
-        onCheckedChange={setSpokenNotifyNeedsInput}
-        disabled={disabled}
-      />
-
-      <SpeechSwitchRow
-        label="Speak when a task finishes"
-        description="Announce completion so you can review and ship."
-        checked={spokenNotifyCompletion}
-        onCheckedChange={setSpokenNotifyCompletion}
-        disabled={disabled}
-      />
-
-      <SpeechSwitchRow
-        label="Speak on progress"
-        description="Narrate meaningful new phases too. Off by default — can get chatty."
-        checked={spokenNotifyProgress}
-        onCheckedChange={setSpokenNotifyProgress}
-        disabled={disabled}
-      />
-
-      <SettingRow
-        label="When to speak"
-        description="Choose how spoken lines behave relative to what's on screen. Needs-you lines always play."
-      >
-        <Select.Root
-          value={spokenFocusMode}
-          onValueChange={(v) => setSpokenFocusMode(v as SpokenFocusMode)}
-          disabled={disabled}
-          size="1"
+    <SettingsSection
+      label="Voice"
+      description="The agent says a short line out loud, so you catch it across parallel tasks without watching the screen"
+    >
+      <SettingsCard>
+        <SettingsCardRow
+          label="Spoken narration"
+          description="Lines are serialized so agents never talk over each other"
         >
-          <Select.Trigger className="min-w-[180px]" />
-          <Select.Content>
-            <Select.Item value="unviewed_task">
-              Quiet for the task I'm viewing
-            </Select.Item>
-            <Select.Item value="app_unfocused">
-              Only when app is in background
-            </Select.Item>
-            <Select.Item value="always">Always</Select.Item>
-          </Select.Content>
-        </Select.Root>
-      </SettingRow>
-
-      <SettingRow
-        label="ElevenLabs API key"
-        description={
-          elevenLabsKeyConfigured
-            ? "A key is saved — expressive Eleven v3 voice is on."
-            : "Optional. Add a key for an expressive Eleven v3 voice; otherwise your system voice is used."
-        }
-      >
-        {elevenLabsKeyConfigured ? (
-          <Flex align="center" gap="2">
-            <Text color="green" className="text-[13px]">
-              Key saved
-            </Text>
-            <Button
-              variant="soft"
-              size="1"
-              color="red"
-              onClick={clearKey}
-              disabled={!keyStore}
-            >
-              Remove
-            </Button>
-          </Flex>
-        ) : (
-          <Flex align="center" gap="2">
-            <TextField.Root
-              type="password"
-              placeholder="xi-…"
-              size="1"
-              className="w-[180px]"
-              value={keyDraft}
-              onChange={(e) => setKeyDraft(e.currentTarget.value)}
-              disabled={disabled || !keyStore}
-            />
-            <Button
-              variant="soft"
-              size="1"
-              onClick={saveKey}
-              disabled={disabled || !keyStore || !keyDraft.trim() || savingKey}
-            >
-              Save
-            </Button>
-          </Flex>
-        )}
-      </SettingRow>
-
-      <SettingRow
-        label="Voice"
-        description="Optional ElevenLabs voice id. Leave blank for the default voice."
-        noBorder
-      >
-        <Flex align="center" gap="2">
-          <TextField.Root
-            size="1"
-            className="w-[180px]"
-            placeholder="default"
-            value={elevenLabsVoiceId}
-            onChange={(e) => setElevenLabsVoiceId(e.currentTarget.value)}
-            disabled={disabled}
+          <Switch
+            size="sm"
+            checked={spokenNotifications}
+            onCheckedChange={setSpokenNotifications}
           />
-          <Button
-            variant="soft"
-            size="1"
-            onClick={testVoice}
-            disabled={disabled || !speech}
+        </SettingsCardRow>
+
+        {spokenNotifications && (
+          <>
+            <SettingsCardRow
+              label="Speak about"
+              description="Needing you is always spoken, even for the task on screen"
+            >
+              <ToggleGroup
+                multiple
+                value={speakAbout}
+                onValueChange={handleSpeakAboutChange}
+                aria-label="Speak about"
+              >
+                <ToggleGroupItem
+                  value="needs_input"
+                  size="sm"
+                  variant="outline"
+                  className={settingsToggleItemClassName}
+                >
+                  Needs you
+                </ToggleGroupItem>
+                <ToggleGroupItem
+                  value="completion"
+                  size="sm"
+                  variant="outline"
+                  className={settingsToggleItemClassName}
+                >
+                  Task finished
+                </ToggleGroupItem>
+                <ToggleGroupItem
+                  value="progress"
+                  size="sm"
+                  variant="outline"
+                  className={settingsToggleItemClassName}
+                >
+                  Progress
+                </ToggleGroupItem>
+              </ToggleGroup>
+            </SettingsCardRow>
+
+            <SettingsCardRow
+              label="When to speak"
+              description="Which sessions get spoken narration"
+            >
+              <SettingsSelect
+                ariaLabel="When to speak"
+                value={spokenFocusMode}
+                options={[
+                  {
+                    value: "unviewed_task",
+                    label: "Quiet for the task I'm viewing",
+                  },
+                  {
+                    value: "app_unfocused",
+                    label: "Only when app is in background",
+                  },
+                  { value: "always", label: "Always" },
+                ]}
+                onChange={(value) => {
+                  if (value) setSpokenFocusMode(value as SpokenFocusMode);
+                }}
+                triggerClassName="w-[220px]"
+              />
+            </SettingsCardRow>
+          </>
+        )}
+
+        {(spokenNotifications || elevenLabsKeyConfigured) && (
+          <SettingsCardRow
+            label="ElevenLabs voice"
+            description={
+              elevenLabsKeyConfigured
+                ? "Key saved; the expressive Eleven v3 voice is on"
+                : "Optional; add an API key for an expressive voice; otherwise your system voice is used"
+            }
           >
-            <Play weight="fill" /> Test
-          </Button>
-        </Flex>
-      </SettingRow>
-    </>
+            {elevenLabsKeyConfigured ? (
+              <div className="flex items-center gap-1.5">
+                <Input
+                  className="h-7 w-[140px] text-[12px]"
+                  placeholder="Default voice"
+                  aria-label="ElevenLabs voice id"
+                  value={elevenLabsVoiceId}
+                  onChange={(e) => setElevenLabsVoiceId(e.currentTarget.value)}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={testVoice}
+                  disabled={!speech}
+                >
+                  <Play weight="fill" size={11} /> Test
+                </Button>
+                <Button
+                  type="button"
+                  variant="link-muted"
+                  size="sm"
+                  onClick={clearKey}
+                  disabled={!keyStore}
+                >
+                  Remove key
+                </Button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1.5">
+                <Input
+                  type="password"
+                  placeholder="xi-…"
+                  aria-label="ElevenLabs API key"
+                  className="h-7 w-[140px] text-[12px]"
+                  value={keyDraft}
+                  onChange={(e) => setKeyDraft(e.currentTarget.value)}
+                  disabled={!keyStore}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void saveKey()}
+                  disabled={!keyStore || !keyDraft.trim() || savingKey}
+                >
+                  Save
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={testVoice}
+                  disabled={!speech}
+                >
+                  <Play weight="fill" size={11} /> Test
+                </Button>
+              </div>
+            )}
+          </SettingsCardRow>
+        )}
+      </SettingsCard>
+    </SettingsSection>
   );
 }
 
@@ -647,64 +718,61 @@ function CustomSoundRow({
   };
 
   return (
-    <Flex align="center" gap="2">
-      <TextField.Root
+    <div className="flex items-center gap-1.5">
+      <Input
         key={sound.name}
-        className="flex-1"
-        size="1"
+        className="h-7 flex-1 text-[12px]"
         defaultValue={sound.name}
         maxLength={60}
+        aria-label={`Rename ${sound.name}`}
         onBlur={(event) => commitName(event.currentTarget)}
         onKeyDown={(event) => {
           if (event.key === "Enter") event.currentTarget.blur();
         }}
       />
-      <Text color="gray" className="text-[12px] tabular-nums">
+      <span className="text-[11px] text-muted-foreground tabular-nums">
         {formatDurationSeconds(sound.durationMs)}
-      </Text>
+      </span>
       <Tooltip content={`Play ${sound.name}`}>
-        <IconButton
-          variant="soft"
-          size="1"
+        <Button
+          type="button"
+          variant="outline"
+          size="icon-sm"
           aria-label={`Play ${sound.name}`}
           onClick={() =>
             playCompletionSound(`custom:${sound.id}`, volume, [sound])
           }
         >
-          <Play weight="fill" />
-        </IconButton>
+          <Play weight="fill" size={11} />
+        </Button>
       </Tooltip>
-      <IconButton
-        variant="ghost"
-        color="gray"
-        size="1"
+      <Button
+        type="button"
+        variant="link-muted"
+        size="icon-sm"
         aria-label={`Remove ${sound.name}`}
         onClick={() => onRemove(sound.id)}
       >
-        <Trash />
-      </IconButton>
-    </Flex>
+        <Trash size={13} />
+      </Button>
+    </div>
   );
 }
 
-// Fires each delivery channel directly (bypassing the focus-aware routing, since
-// you're focused on Settings) so each tier can be verified in isolation.
-function NotificationTestHarness({
+// Fires each delivery channel directly (bypassing the focus-aware routing,
+// since you're focused on Settings) so each tier can be verified in isolation.
+function TestSection({
   bus,
   notifications,
   deepLinkTask,
-  canvasEnabled,
+  localWorkspaces,
 }: {
   bus: NotificationBus | null;
   notifications: INotifications | null;
   deepLinkTask: Task | undefined;
-  canvasEnabled: boolean;
+  localWorkspaces: boolean;
 }) {
   const nativeUnavailable = !notifications;
-  // Deep links (OS URL scheme) and the dock are desktop concepts; hide those
-  // test rows on cloud-only hosts. Clicking a native notification still opens
-  // its task in-app on web.
-  const { localWorkspaces } = useHostCapabilities();
 
   const testToast = () =>
     bus?.notify({
@@ -747,113 +815,77 @@ function NotificationTestHarness({
   };
 
   return (
-    <>
-      <Text className="mt-4 mb-1 block border-gray-6 border-t pt-4 font-medium text-sm">
-        Test
-      </Text>
-      <Text color="gray" className="mb-1 text-[13px]">
-        Fire each delivery channel directly to check it works end to end.
-        {nativeUnavailable
-          ? " Native notifications aren't available on this host."
-          : ""}
-      </Text>
-
-      <SettingRow
-        label="In-app toast"
-        description={`Shows an in-app toast — the tier used when the app is focused but you're not on the relevant task${canvasEnabled ? " or canvas" : ""}.`}
-      >
-        <Button variant="soft" size="1" onClick={testToast} disabled={!bus}>
-          Send
-        </Button>
-      </SettingRow>
-
-      {localWorkspaces && (
-        <SettingRow
-          label="Deep-link toast"
+    <SettingsSection
+      label="Test"
+      description="Send yourself an alert to check the channels above"
+    >
+      <SettingsCard>
+        <SettingsCardRow
+          label="Send a test alert"
           description={
-            deepLinkTask
-              ? `Toast with a "View" action that opens "${deepLinkTask.title}".`
-              : "Run a task first to test deep-linking from a toast."
+            nativeUnavailable
+              ? "System notifications aren't available on this host"
+              : "Fire a channel directly to check it works end to end"
           }
         >
-          <Button
-            variant="soft"
-            size="1"
-            onClick={testToastDeepLink}
-            disabled={!bus || !deepLinkTask}
-          >
-            Send
-          </Button>
-        </SettingRow>
-      )}
-
-      <SettingRow
-        label="Native OS notification"
-        description="Shows a system notification — the tier used when the app is in the background."
-        noBorder={!localWorkspaces}
-      >
-        <Button
-          variant="soft"
-          size="1"
-          onClick={testNative}
-          disabled={nativeUnavailable}
-        >
-          Send
-        </Button>
-      </SettingRow>
-
-      {localWorkspaces && (
-        <SettingRow
-          label="Deep-link notification"
-          description={
-            deepLinkTask
-              ? `Fires a native notification that opens "${deepLinkTask.title}" when clicked.`
-              : "Run a task first to test deep-linking from a notification."
-          }
-        >
-          <Button
-            variant="soft"
-            size="1"
-            onClick={testNativeDeepLink}
-            disabled={nativeUnavailable || !deepLinkTask}
-          >
-            Send
-          </Button>
-        </SettingRow>
-      )}
-
-      {localWorkspaces && (
-        <SettingRow
-          label="Dock badge"
-          description="Adds the unread dot to the dock icon (clears on next focus)."
-        >
-          <Button
-            variant="soft"
-            size="1"
-            onClick={() => notifications?.showUnreadIndicator()}
-            disabled={nativeUnavailable}
-          >
-            Show
-          </Button>
-        </SettingRow>
-      )}
-
-      {localWorkspaces && (
-        <SettingRow
-          label="Dock bounce"
-          description="Bounces the dock icon once to request attention."
-          noBorder
-        >
-          <Button
-            variant="soft"
-            size="1"
-            onClick={() => notifications?.requestAttention()}
-            disabled={nativeUnavailable}
-          >
-            Bounce
-          </Button>
-        </SettingRow>
-      )}
-    </>
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={
+                <Button type="button" variant="outline" size="sm">
+                  Send test
+                  <CaretDown size={10} weight="bold" />
+                </Button>
+              }
+            />
+            <DropdownMenuContent
+              align="end"
+              side="bottom"
+              sideOffset={6}
+              className="w-max"
+            >
+              <DropdownMenuItem onClick={testToast} disabled={!bus}>
+                In-app toast
+              </DropdownMenuItem>
+              {localWorkspaces && (
+                <DropdownMenuItem
+                  onClick={testToastDeepLink}
+                  disabled={!bus || !deepLinkTask}
+                >
+                  Toast that opens the latest task
+                </DropdownMenuItem>
+              )}
+              <DropdownMenuItem
+                onClick={testNative}
+                disabled={nativeUnavailable}
+              >
+                System notification
+              </DropdownMenuItem>
+              {localWorkspaces && (
+                <>
+                  <DropdownMenuItem
+                    onClick={testNativeDeepLink}
+                    disabled={nativeUnavailable || !deepLinkTask}
+                  >
+                    Notification that opens the latest task
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => notifications?.showUnreadIndicator()}
+                    disabled={nativeUnavailable}
+                  >
+                    Dock badge
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => notifications?.requestAttention()}
+                    disabled={nativeUnavailable}
+                  >
+                    Dock bounce
+                  </DropdownMenuItem>
+                </>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </SettingsCardRow>
+      </SettingsCard>
+    </SettingsSection>
   );
 }

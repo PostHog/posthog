@@ -5,9 +5,17 @@
             "description": "Optional. Restrict results to alerts created by the user with this UUID.",
             "type": "string"
         },
+        "has_detector": {
+            "description": "Optional. Restrict results by whether the alert uses anomaly detection.",
+            "type": "boolean"
+        },
         "insight_id": {
             "description": "Optional. Restrict results to alerts on this insight ID.",
             "type": "number"
+        },
+        "insight_tag": {
+            "description": "Optional. Restrict results to alerts whose insight has this tag.",
+            "type": "string"
         },
         "limit": {
             "description": "Number of results to return per page.",

@@ -53,6 +53,14 @@ _WRONG_KEY_PASSPHRASE_MESSAGE = (
     "Enter the passphrase that decrypts your private key (or paste an unencrypted key), then {action}"
 )
 
+# The inverse of `_WRONG_KEY_PASSPHRASE_MESSAGE`: `load_pem_private_key` raises
+# TypeError "Password was given but private key is not encrypted." when a passphrase is supplied
+# for an unencrypted key-pair private key. Same `{action}` placeholder convention.
+_UNENCRYPTED_KEY_WITH_PASSPHRASE_MESSAGE = (
+    "You entered a passphrase, but the Snowflake key-pair private key you pasted is not encrypted. "
+    "Remove the passphrase, or paste your encrypted private key, then {action}"
+)
+
 SnowflakeErrors = {
     "No active warehouse selected in the current session": "No active warehouse is available for this connection. Check that the configured warehouse exists, is running, and that the connecting role has USAGE on it, then try again.",
     "or attempt to login with another role": "Role specified doesn't exist or is not authorized",
@@ -276,6 +284,12 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
             "Password was not given but private key is encrypted": _WRONG_KEY_PASSPHRASE_MESSAGE.format(
                 action="resync."
             ),
+            # See `_UNENCRYPTED_KEY_WITH_PASSPHRASE_MESSAGE`: a passphrase was supplied for an
+            # unencrypted key-pair private key, which fails to parse before we reach Snowflake, so
+            # retrying can never succeed until the user removes the passphrase or pastes an encrypted key.
+            "Password was given but private key is not encrypted": _UNENCRYPTED_KEY_WITH_PASSPHRASE_MESSAGE.format(
+                action="resync."
+            ),
             # Snowflake error 002003 (SQLSTATE 42S02 for tables / 02000 for schemas): a table or
             # schema the source syncs was dropped or renamed in Snowflake, or the role's grant on it
             # was revoked, after the schema was discovered. The driver raises "<object> does not exist
@@ -323,6 +337,12 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
             # self-recovering failure it is. The request id in brackets is volatile, so we match the
             # stable phrase.
             "Internal error:",
+            # Snowflake error 250001 (08001): the connector exhausted its internal login retry budget
+            # (default 11 attempts) because an HTTP proxy returned 502 Bad Gateway when tunneling to
+            # the Snowflake login endpoint. A recovered proxy or transient network blip resolves it,
+            # so Temporal-level retries will eventually succeed. The attempt count is volatile, so we
+            # match the stable prefix.
+            "Could not connect to Snowflake backend after",
         }
 
     def reconcile_schema_metadata(
@@ -377,6 +397,9 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
                 or "Password was not given but private key is encrypted" in error_str
             ):
                 return False, _WRONG_KEY_PASSPHRASE_MESSAGE.format(action="try again.")
+            # The inverse: a passphrase was supplied for an unencrypted private key (TypeError).
+            if "Password was given but private key is not encrypted" in error_str:
+                return False, _UNENCRYPTED_KEY_WITH_PASSPHRASE_MESSAGE.format(action="try again.")
             capture_exception(e)
             return False, "Could not connect to Snowflake. Please check all connection details are valid."
         except Exception as e:

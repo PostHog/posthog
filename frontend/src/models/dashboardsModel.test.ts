@@ -186,6 +186,51 @@ describe('the dashboards model', () => {
         })
     })
 
+    describe('updating folders after a move', () => {
+        beforeEach(async () => {
+            await expectLogic(logic, () => logic.actions.loadDashboards()).toFinishAllListeners()
+        })
+
+        it('files a dashboard at its new path, and derives the folder from it', async () => {
+            logic.actions.patchDashboardFolders({ 1: 'Revenue/Q3/Growth', 2: 'At the root' })
+            expect(logic.values.rawDashboards[1].file_system_path).toEqual('Revenue/Q3/Growth')
+            expect(logic.values.rawDashboards[1].folder).toEqual('Revenue/Q3')
+            // A dashboard at the project root has no folder above it
+            expect(logic.values.rawDashboards[2].folder).toEqual('')
+        })
+
+        it('ignores ids it does not hold', async () => {
+            const before = logic.values.rawDashboards
+            logic.actions.patchDashboardFolders({ 99999: 'Revenue/Missing' })
+            expect(logic.values.rawDashboards).toBe(before)
+        })
+
+        it('re-parents everything under a moved folder, sparing similarly named siblings', async () => {
+            logic.actions.patchDashboardFolders({
+                1: 'Revenue/One',
+                2: 'Revenue/Q3/Two',
+                3: 'Revenue archive/Three',
+            })
+            logic.actions.reparentDashboardFolders('Revenue', 'Finance/Revenue')
+            expect(logic.values.rawDashboards[1].folder).toEqual('Finance/Revenue')
+            expect(logic.values.rawDashboards[2].folder).toEqual('Finance/Revenue/Q3')
+            // 'Revenue archive' merely starts with the moved folder's name, so it stays put
+            expect(logic.values.rawDashboards[3].folder).toEqual('Revenue archive')
+        })
+
+        it('keeps the path in step with the folder, so a second move starts from the right place', async () => {
+            logic.actions.patchDashboardFolders({ 1: 'Revenue/Growth' })
+            logic.actions.reparentDashboardFolders('Revenue', 'Finance/Revenue')
+            expect(logic.values.rawDashboards[1].file_system_path).toEqual('Finance/Revenue/Growth')
+        })
+
+        it('leaves the map alone when nothing sits under the moved folder', async () => {
+            const before = logic.values.rawDashboards
+            logic.actions.reparentDashboardFolders('Nowhere', 'Elsewhere')
+            expect(logic.values.rawDashboards).toBe(before)
+        })
+    })
+
     it('clears primary_dashboard from team when deleting the primary dashboard', async () => {
         const primaryDashboardId = 42
         initKeaTests(true, { ...MOCK_DEFAULT_TEAM, primary_dashboard: primaryDashboardId })

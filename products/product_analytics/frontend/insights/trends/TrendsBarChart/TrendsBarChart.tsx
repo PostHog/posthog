@@ -13,6 +13,7 @@ import {
 import type { BarChartConfig, PointClickData, TimeSeriesBarChartConfig, TooltipContext } from '@posthog/quill-charts'
 
 import { useChartTheme, useChartConfig, useDateRangeZoom } from 'lib/charts/hooks'
+import { AnnotationsLayer } from 'lib/components/AnnotationsOverlay/AnnotationsLayer'
 import { percentage } from 'lib/utils/numbers'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
@@ -34,7 +35,6 @@ import { ChartDisplayType } from '~/types'
 import { hasTrendsChartData } from '../../shared/hasTrendsChartData'
 import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
 import { INSIGHT_TOOLTIP_CONFIG } from '../../shared/tooltipConfig'
-import { AnnotationsLayer } from '../shared/AnnotationsLayer'
 import { makeChartErrorHandler } from '../shared/chartErrorHandler'
 import { getTrendsSeriesDisplayLabel } from '../shared/getTrendsSeriesDisplayLabel'
 import { goalLinesToReferenceLines } from '../shared/goalLinesAdapter'
@@ -174,9 +174,14 @@ export function TrendsBarChart({
             buildMeta: buildTrendsSeriesMeta,
             showMultipleYAxes: applyMultipleYAxes,
         })
+        // Bands are keyed by these strings, so they must be unique per point. Display labels
+        // are not (week and hour labels omit the year), which folds a multi-year range's bars
+        // onto each other. Use the ISO days; ticks and tooltips format from them. Stickiness
+        // x values are interval counts rather than dates, so it keeps its labels.
+        const days = currentPeriodResult?.days
         return {
             series: timeSeries,
-            labels: currentPeriodResult?.labels ?? EMPTY_LABELS,
+            labels: (!isStickiness && days?.length ? days : currentPeriodResult?.labels) ?? EMPTY_LABELS,
             displayLabels: undefined,
         }
     }, [
@@ -184,6 +189,8 @@ export function TrendsBarChart({
         indexedResults,
         getTrendsColor,
         getTrendsHidden,
+        isStickiness,
+        currentPeriodResult?.days,
         currentPeriodResult?.labels,
         stackBreakdowns,
         getAggregatedDisplayLabel,

@@ -20,7 +20,8 @@ from products.tasks.backend.facade import api as tasks_facade
 from ee.api.agentic_provisioning import github_grants
 from ee.api.agentic_provisioning.analytics import capture_provisioning_event
 from ee.api.agentic_provisioning.exceptions import ProvisioningError
-from ee.api.agentic_provisioning.throttling import enforce_partner_rate_limit, enforce_wizard_run_user_rate_limit
+from ee.api.agentic_provisioning.ratelimits import charge_partner_by_name
+from ee.api.agentic_provisioning.throttling import enforce_wizard_run_user_rate_limit
 
 
 def _drf_validation_error_code(exc: DRFValidationError) -> str | None:
@@ -157,7 +158,13 @@ def create_wizard_run(
         )
 
     enforce_wizard_run_user_rate_limit(user_id, resource_id=str(team.id))
-    enforce_partner_rate_limit(partner, "wizard_runs")
+    # By registry name because the budget is declared on WizardRunsView, and this
+    # function is also reached by the bundled account-request wizard block, which
+    # runs outside any view dispatch.
+    # Not refunded past this point: the repository check below is an authenticated
+    # GitHub call, so a partner cycling inaccessible repository names would otherwise
+    # generate unbounded egress for free.
+    charge_partner_by_name("wizard_runs", partner, resource_id=str(team.id))
 
     # Verifying the grant user owns the installation doesn't prove the installation can
     # reach the requested repo — a valid grant for one installation could otherwise report

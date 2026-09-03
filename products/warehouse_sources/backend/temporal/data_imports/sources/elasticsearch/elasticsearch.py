@@ -1,11 +1,13 @@
 import dataclasses
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from typing import Any, Optional
 from urllib.parse import quote, urlparse
 
 import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -34,11 +36,11 @@ class ElasticsearchRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@frozen
 class ElasticsearchAuth:
     username: Optional[str] = None
-    password: Optional[str] = None
-    api_key: Optional[str] = None
+    password: Optional[str] = dataclasses.field(default=None, repr=False)
+    api_key: Optional[str] = dataclasses.field(default=None, repr=False)
 
 
 def normalize_host(host: str) -> str:
@@ -167,16 +169,9 @@ def coerce_float_fields(doc: dict[str, Any], float_paths: set[str]) -> None:
         _coerce_path(doc, path.split("."))
 
 
-def get_rows(
-    host: str,
-    auth: ElasticsearchAuth,
-    index: str,
-    logger: FilteringBoundLogger,
-) -> Iterator[list[dict[str, Any]]]:
-    session = _get_session(auth)
-    base_url = normalize_host(host)
-    float_paths = get_float_field_paths(session, base_url, index)
-
+def _build_post_fn(
+    session: requests.Session, logger: FilteringBoundLogger
+) -> Callable[[str, dict[str, Any]], dict[str, Any]]:
     @retry(
         retry=retry_if_exception_type((ElasticsearchRetryableError, requests.ReadTimeout, requests.ConnectionError)),
         stop=stop_after_attempt(MAX_RETRY_ATTEMPTS),
@@ -197,6 +192,38 @@ def get_rows(
 
         return response.json()
 
+    return post
+
+
+def _page_items(data: dict[str, Any], float_paths: set[str]) -> tuple[list, list[dict[str, Any]]]:
+    """Split a scroll response into its raw hits and the coerced `_source` rows."""
+    hits = ((data.get("hits") or {}).get("hits")) or []
+    items = [{**(hit.get("_source") or {}), "_id": hit["_id"]} for hit in hits]
+    if float_paths:
+        for item in items:
+            coerce_float_fields(item, float_paths)
+    return hits, items
+
+
+def _clear_scroll(session: requests.Session, base_url: str, scroll_id: str) -> None:
+    # Best-effort: free the server-side scroll context early.
+    try:
+        session.delete(f"{base_url}/_search/scroll", json={"scroll_id": [scroll_id]}, timeout=10)
+    except Exception:
+        pass
+
+
+def get_rows(
+    host: str,
+    auth: ElasticsearchAuth,
+    index: str,
+    logger: FilteringBoundLogger,
+) -> Iterator[list[dict[str, Any]]]:
+    session = _get_session(auth)
+    base_url = normalize_host(host)
+    float_paths = get_float_field_paths(session, base_url, index)
+    post = _build_post_fn(session, logger)
+
     # The scroll API gives a stable snapshot of the index for the duration of
     # the walk; scroll ids expire after SCROLL_KEEPALIVE of inactivity, so the
     # walk restarts from scratch on retry rather than persisting state.
@@ -208,12 +235,7 @@ def get_rows(
 
     try:
         while True:
-            hits = ((data.get("hits") or {}).get("hits")) or []
-            items = [{**(hit.get("_source") or {}), "_id": hit["_id"]} for hit in hits]
-
-            if float_paths:
-                for item in items:
-                    coerce_float_fields(item, float_paths)
+            hits, items = _page_items(data, float_paths)
 
             if items:
                 yield items
@@ -225,15 +247,7 @@ def get_rows(
             scroll_id = data.get("_scroll_id", scroll_id)
     finally:
         if scroll_id:
-            # Best-effort: free the server-side scroll context early.
-            try:
-                session.delete(
-                    f"{base_url}/_search/scroll",
-                    json={"scroll_id": [scroll_id]},
-                    timeout=10,
-                )
-            except Exception:
-                pass
+            _clear_scroll(session, base_url, scroll_id)
 
 
 def elasticsearch_source(

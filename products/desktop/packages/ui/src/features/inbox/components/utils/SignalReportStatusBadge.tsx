@@ -13,7 +13,7 @@ const STATUS_TOOLTIPS: Record<string, string> = {
   potential:
     "Gathering signals. The report will be queued once enough evidence accumulates.",
   failed: "Research failed. The report may be retried automatically.",
-  suppressed: "This report has been suppressed and is out of your inbox.",
+  suppressed: "This report has been suppressed and is out of Self-driving.",
   deleted: "This report has been deleted.",
 };
 

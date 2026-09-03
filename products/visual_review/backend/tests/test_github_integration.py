@@ -19,8 +19,8 @@ from unittest.mock import MagicMock
 import yaml
 import responses
 
-from products.visual_review.backend import logic
 from products.visual_review.backend.facade.enums import RunStatus, SnapshotResult
+from products.visual_review.backend.logic import approvals, errors, toleration
 from products.visual_review.backend.models import Artifact, Repo, Run, RunSnapshot
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
 
@@ -370,7 +370,7 @@ class TestGitHubCommitOnApprove:
         """
         run = run_with_changes
 
-        result = logic.finalize_run(
+        result = approvals.finalize_run(
             run_id=run.id,
             user_id=user.id,
             approve_all=True,
@@ -415,17 +415,17 @@ class TestGitHubCommitOnApprove:
         run = run_with_changes
 
         # Mark each snapshot reviewed in a separate DB-only call, then finalize with no list.
-        logic.approve_snapshots(
+        approvals.approve_snapshots(
             run_id=run.id,
             user_id=user.id,
             approved_snapshots=[{"identifier": "button--primary", "new_hash": "abc123hash"}],
         )
-        logic.approve_snapshots(
+        approvals.approve_snapshots(
             run_id=run.id,
             user_id=user.id,
             approved_snapshots=[{"identifier": "card--default", "new_hash": "def456hash"}],
         )
-        logic.finalize_run(run_id=run.id, user_id=user.id, commit_to_github=True)
+        approvals.finalize_run(run_id=run.id, user_id=user.id, commit_to_github=True)
 
         parsed = yaml.safe_load((local_git_repo / ".snapshots.yml").read_text())
         # Both land — the old explicit-list path would have dropped the one not in the final call.
@@ -445,9 +445,9 @@ class TestGitHubCommitOnApprove:
         current hash into snapshots.yml (and approve_all must not flip it to approved)."""
         run = run_with_changes
         card = run.snapshots.get(identifier="card--default")
-        logic.mark_snapshot_as_tolerated(run.id, card.id, user.id, run.team_id)
+        toleration.mark_snapshot_as_tolerated(run.id, card.id, user.id, run.team_id)
 
-        logic.finalize_run(run_id=run.id, user_id=user.id, approve_all=True, commit_to_github=True)
+        approvals.finalize_run(run_id=run.id, user_id=user.id, approve_all=True, commit_to_github=True)
 
         parsed = yaml.safe_load((local_git_repo / ".snapshots.yml").read_text())
         assert "abc123hash" in parsed["snapshots"]["button--primary"]["hash"]
@@ -493,7 +493,7 @@ class TestGitHubCommitOnApprove:
             result=SnapshotResult.REMOVED,
         )
 
-        result = logic.finalize_run(run_id=run.id, user_id=user.id, commit_to_github=True)
+        result = approvals.finalize_run(run_id=run.id, user_id=user.id, commit_to_github=True)
 
         assert result.approved is True
         parsed = yaml.safe_load(snapshots_file.read_text())
@@ -527,7 +527,7 @@ class TestGitHubCommitOnApprove:
         run.commit_sha = _get_head_sha(local_git_repo)
         run.save()
 
-        logic.finalize_run(
+        approvals.finalize_run(
             run_id=run.id,
             user_id=user.id,
             approve_all=True,
@@ -561,8 +561,8 @@ class TestGitHubCommitOnApprove:
         subprocess.run(["git", "commit", "-m", "new commit"], cwd=local_git_repo, check=True)
 
         # Now the run's commit_sha doesn't match HEAD
-        with pytest.raises(logic.PRSHAMismatchError) as exc_info:
-            logic.finalize_run(
+        with pytest.raises(errors.PRSHAMismatchError) as exc_info:
+            approvals.finalize_run(
                 run_id=run.id,
                 user_id=user.id,
                 approve_all=True,
@@ -604,7 +604,7 @@ class TestGitHubCommitOnApprove:
                 sensitive_config={"user_access_token": "ghu_fake"},
             )
 
-        logic.finalize_run(
+        approvals.finalize_run(
             run_id=run_with_changes.id,
             user_id=user.id,
             approve_all=True,
@@ -633,7 +633,7 @@ class TestGitHubCommitOnApprove:
         run = run_with_changes
 
         # This should succeed without GitHub mocks
-        result = logic.finalize_run(
+        result = approvals.finalize_run(
             run_id=run.id,
             user_id=user.id,
             approve_all=True,
@@ -681,7 +681,7 @@ class TestGitHubCommitOnApprove:
         )
 
         # Should succeed without GitHub interaction
-        result = logic.finalize_run(
+        result = approvals.finalize_run(
             run_id=run.id,
             user_id=user.id,
             approve_all=True,
@@ -712,7 +712,7 @@ class TestGitHubCommitOnApprove:
             assert s.reviewed_by_id is None
             assert s.approved_hash == ""
 
-        logic.finalize_run(
+        approvals.finalize_run(
             run_id=run.id,
             user_id=user.id,
             approve_all=True,
@@ -770,8 +770,8 @@ class TestGitHubIntegrationErrors:
             result=SnapshotResult.CHANGED,
         )
 
-        with pytest.raises(logic.GitHubIntegrationNotFoundError):
-            logic.finalize_run(
+        with pytest.raises(errors.GitHubIntegrationNotFoundError):
+            approvals.finalize_run(
                 run_id=run.id,
                 user_id=user.id,
                 approve_all=True,

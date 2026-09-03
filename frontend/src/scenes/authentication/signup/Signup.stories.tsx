@@ -1,5 +1,6 @@
-import { Meta, StoryObj } from '@storybook/react'
+import type { Meta, StoryFn } from '@storybook/react'
 import { HttpResponse, delay } from 'msw'
+import { useEffect } from 'react'
 
 import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { userLogic } from 'scenes/userLogic'
@@ -7,10 +8,29 @@ import { userLogic } from 'scenes/userLogic'
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 
-import { SignupContainer } from './SignupContainer'
+import { Signup } from './Signup'
+import { signupLogic } from './signupForm/signupLogic'
 
-const meta: Meta = {
+type PanelOption = '1: Email' | '2: Password' | '3: Profile'
+
+const PANEL_INDEX: Record<PanelOption, 0 | 1 | 2> = {
+    '1: Email': 0,
+    '2: Password': 1,
+    '3: Profile': 2,
+}
+
+type StoryArgs = {
+    cloud: boolean
+    region: 'US' | 'EU'
+    googleOAuth: boolean
+    github: boolean
+    gitlab: boolean
+    panel: PanelOption
+}
+
+const meta: Meta<StoryArgs> = {
     title: 'Scenes-Other/Signup',
+    tags: ['test-skip'],
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
@@ -26,74 +46,69 @@ const meta: Meta = {
             },
         }),
     ],
+    argTypes: {
+        cloud: { control: 'boolean', name: 'Cloud' },
+        region: { control: 'select', options: ['US', 'EU'], name: 'Region', if: { arg: 'cloud' } },
+        googleOAuth: { control: 'boolean', name: 'Google OAuth' },
+        github: { control: 'boolean', name: 'GitHub' },
+        gitlab: { control: 'boolean', name: 'GitLab' },
+        panel: {
+            control: 'select',
+            name: 'Step',
+            options: ['1: Email', '2: Password', '3: Profile'] satisfies PanelOption[],
+        },
+    },
+    args: {
+        cloud: true,
+        region: 'US',
+        googleOAuth: true,
+        github: true,
+        gitlab: true,
+        panel: '1: Email',
+    },
 }
 export default meta
 
-type Story = StoryObj<{}>
-
-export const SelfHosted: Story = {
-    render: () => {
-        useStorybookMocks({
-            get: {
-                '/_preflight': {
-                    ...preflightJson,
-                    cloud: false,
-                    realm: 'hosted-clickhouse',
-                    available_social_auth_providers: {
-                        github: false,
-                        gitlab: false,
-                        'google-oauth2': false,
-                        saml: false,
-                    },
+const Template: StoryFn<StoryArgs> = ({ cloud, region, googleOAuth, github, gitlab, panel: panelOption }) => {
+    const panel = PANEL_INDEX[panelOption]
+    useStorybookMocks({
+        get: {
+            '/_preflight': {
+                ...preflightJson,
+                cloud,
+                region: cloud ? region : undefined,
+                realm: cloud ? 'cloud' : 'hosted-clickhouse',
+                is_debug: cloud,
+                can_create_org: cloud,
+                available_social_auth_providers: {
+                    'google-oauth2': googleOAuth,
+                    github,
+                    gitlab,
+                    saml: false,
                 },
             },
-        })
+        },
+    })
 
-        useDelayedOnMountEffect(() => userLogic.actions.loadUserSuccess(null))
+    useDelayedOnMountEffect(() => userLogic.actions.loadUserSuccess(null))
 
-        return <SignupContainer />
-    },
+    useEffect(() => {
+        signupLogic.actions.setPanel(panel)
+        if (panel > 0) {
+            signupLogic.actions.setSignupPanelEmailValue('email', 'test@posthog.com')
+        }
+    }, [panel])
+
+    return <Signup />
 }
 
-export const SelfHostedSSO: Story = {
-    render: () => {
-        useStorybookMocks({
-            get: {
-                '/_preflight': {
-                    ...preflightJson,
-                    cloud: false,
-                    realm: 'hosted-clickhouse',
-                    available_social_auth_providers: { github: true, gitlab: true, 'google-oauth2': true, saml: true },
-                },
-            },
-        })
+export const Default: StoryFn<StoryArgs> = Template.bind({})
 
-        useDelayedOnMountEffect(() => userLogic.actions.loadUserSuccess(null))
+export const SelfHosted: StoryFn<StoryArgs> = Template.bind({})
+SelfHosted.args = { cloud: false, googleOAuth: false, github: false, gitlab: false }
 
-        return <SignupContainer />
-    },
-}
+export const PasswordStep: StoryFn<StoryArgs> = Template.bind({})
+PasswordStep.args = { panel: '2: Password' }
 
-export const Cloud: Story = {
-    render: () => {
-        useStorybookMocks({
-            get: {
-                '/_preflight': {
-                    ...preflightJson,
-                    cloud: true,
-                    realm: 'cloud',
-                    available_social_auth_providers: {
-                        github: false,
-                        gitlab: false,
-                        'google-oauth2': false,
-                        saml: false,
-                    },
-                },
-            },
-        })
-
-        useDelayedOnMountEffect(() => userLogic.actions.loadUserSuccess(null))
-
-        return <SignupContainer />
-    },
-}
+export const ProfileStep: StoryFn<StoryArgs> = Template.bind({})
+ProfileStep.args = { panel: '3: Profile' }

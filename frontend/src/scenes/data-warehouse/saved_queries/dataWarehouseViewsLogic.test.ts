@@ -13,7 +13,7 @@ import { dataWarehouseViewsLogic } from './dataWarehouseViewsLogic'
 const rejection = {
     type: 'validation_error',
     code: 'invalid_input',
-    detail: "Can't refresh every 1 day: a view or endpoint built on this one needs data no older than 15 minutes. Pick 15 minutes instead.",
+    detail: "Can't refresh every 1 day: a view or endpoint built on this one refreshes every 15 minutes. Pick 15 minutes instead.",
     attr: null,
 }
 
@@ -72,6 +72,33 @@ describe('dataWarehouseViewsLogic', () => {
         // Row leaves via the loader's optimistic filter, and the list is not reloaded (no flash).
         expect(logic.values.dataWarehouseSavedQueries).toEqual([])
         expect(listCalls).toBe(1)
+    })
+
+    // Regression: deleting a view that's already gone (double DELETE, stale list, double-click) is
+    // the outcome the user asked for, so a 404 must resolve as success — not throw an error toast.
+    it('treats a 404 on delete as success', async () => {
+        await expectLogic(logic).toDispatchActions(['loadDataWarehouseSavedQueriesSuccess'])
+
+        useMocks({
+            get: {
+                '/api/environments/:team_id/warehouse_saved_queries/': () => [
+                    200,
+                    { results: [{ id: 'view-404', name: 'v' }] },
+                ],
+            },
+            delete: { '/api/environments/:team_id/warehouse_saved_queries/:id/': [404, { detail: 'Not found.' }] },
+        })
+
+        logic.actions.loadDataWarehouseSavedQueries()
+        await expectLogic(logic).toDispatchActions(['loadDataWarehouseSavedQueriesSuccess'])
+
+        await expectLogic(logic, () => {
+            logic.actions.deleteDataWarehouseSavedQuery('view-404')
+        })
+            .toDispatchActions(['deleteDataWarehouseSavedQuerySuccess'])
+            .toNotHaveDispatchedActions(['deleteDataWarehouseSavedQueryFailure'])
+
+        expect(logic.values.dataWarehouseSavedQueries).toEqual([])
     })
 
     // Regression: a freshly materialized view showed as a plain view in the sidebar until a manual
@@ -202,5 +229,79 @@ describe('dataWarehouseViewsLogic', () => {
         expect(logic.values.materializingViewIds).toEqual(['B'])
 
         jest.useRealTimers()
+    })
+
+    // Regression: the config must be stored before materialization is enabled, or the first run
+    // (triggered by the materialize call) rebuilds the table as a full refresh and ignores the
+    // incremental settings the user picked.
+    it('persists the incremental config before enabling materialization', async () => {
+        const calls: string[] = []
+        let patchBody: Record<string, any> | undefined
+        useMocks({
+            patch: {
+                '/api/environments/:team_id/warehouse_saved_queries/:id/': async ({ request }) => {
+                    calls.push('update')
+                    patchBody = (await request.json()) as Record<string, any>
+                    return [200, { id: 'view-1', name: 'v1' }]
+                },
+            },
+            post: {
+                '/api/projects/:team_id/warehouse_saved_queries/:id/materialize/': () => {
+                    calls.push('materialize')
+                    return [200]
+                },
+            },
+        })
+
+        const incremental = {
+            enabled: true,
+            incremental_key: 'timestamp',
+            unique_key: ['event', 'timestamp'],
+            lookback_seconds: 3600,
+        }
+        await expectLogic(logic, () => {
+            logic.actions.materializeDataWarehouseSavedQuery('view-1', '24hour', incremental)
+        }).toFinishAllListeners()
+
+        expect(calls).toEqual(['update', 'materialize'])
+        expect(patchBody?.incremental).toEqual(incremental)
+    })
+
+    // Regression: when the config write is rejected (the server re-checks eligibility), the view
+    // must not be materialized anyway - that would silently start full-refresh runs the user did
+    // not ask for. The server's reason has to reach the user.
+    it('does not enable materialization when saving the incremental config fails', async () => {
+        const toastErrorSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => ({ id: 'x' }) as any)
+        let materializeCalls = 0
+        const incrementalRejection = {
+            type: 'validation_error',
+            code: 'invalid_input',
+            detail: 'LIMIT cannot be incremental. A window cannot be recomputed on its own.',
+            attr: 'incremental',
+        }
+        useMocks({
+            patch: {
+                '/api/environments/:team_id/warehouse_saved_queries/:id/': [400, incrementalRejection],
+            },
+            post: {
+                '/api/projects/:team_id/warehouse_saved_queries/:id/materialize/': () => {
+                    materializeCalls += 1
+                    return [200]
+                },
+            },
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.materializeDataWarehouseSavedQuery('view-1', '24hour', {
+                enabled: true,
+                incremental_key: 'timestamp',
+                unique_key: ['id'],
+                lookback_seconds: 0,
+            })
+        }).toFinishAllListeners()
+
+        expect(materializeCalls).toBe(0)
+        expect(toastErrorSpy).toHaveBeenCalledWith(incrementalRejection.detail)
+        toastErrorSpy.mockRestore()
     })
 })

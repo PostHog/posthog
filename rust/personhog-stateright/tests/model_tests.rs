@@ -129,7 +129,9 @@ fn base() -> HandoffModel {
         rejoins: 0,
         router_joins: 0,
         zombie_window: 0,
+        hold_pods: 0,
         cancels: 0,
+        chunked_plans: false,
         probes: false,
     }
 }
@@ -842,4 +844,81 @@ fn prompt_detection_is_what_makes_the_read_gate_hold() {
             .is_none(),
         "dropping the claim with the registration must close them"
     );
+}
+
+/// Rollout quota mode: pod-0 is a departing-generation Hold member and
+/// the incoming pods are capped at their final share, the membership
+/// the coordinator derives mid-rollout. The checker drives the quota
+/// planner through every interleaving with a crash and a rejoin
+/// available — pinning that quota-mode plans never double-plan a
+/// partition, never strand one, and converge (the frozen-placement
+/// failure shape is a liveness violation here). The rejoin covers the
+/// capped pod that comes back at zero partitions and must be leveled
+/// from its siblings, including when the crashed-and-returned pod is
+/// the Hold member and phase-4 forcing pushed a survivor over cap.
+#[test]
+fn rollout_quota_mode_is_safe_and_live() {
+    HandoffModel {
+        pods: 3,
+        partitions: 2,
+        crashes: 1,
+        rejoins: 1,
+        hold_pods: 1,
+        ..base()
+    }
+    .explore("rollout_quota_mode_is_safe_and_live")
+    .assert_properties();
+}
+
+/// Chunked plan application (production: `apply_plan` past the etcd txn
+/// budget): a plan's later units land against a world that kept moving —
+/// phase advances, crashes, cancellations, competing rebalances — each
+/// guarded on its plan-time snapshot. Every safety property must hold
+/// across those interleavings and every full run must still converge.
+#[test]
+fn chunked_plan_application_is_safe_and_live() {
+    HandoffModel {
+        partitions: 2,
+        chunked_plans: true,
+        crashes: 1,
+        cancels: 1,
+        writes: 1,
+        reads: 0,
+        ..base()
+    }
+    .explore("chunked_plan_application_is_safe_and_live")
+    .assert_properties();
+}
+
+/// Both fates of a pending unit are genuinely reachable — applied after
+/// other actions interleaved, and dropped by a failed plan-time guard —
+/// and no interleaving that reaches them loses an acked write or
+/// double-plans a partition.
+#[test]
+fn probe_chunked_pending_units_reach_both_fates_safely() {
+    let checker = HandoffModel {
+        partitions: 2,
+        chunked_plans: true,
+        crashes: 1,
+        cancels: 1,
+        writes: 1,
+        reads: 0,
+        probes: true,
+        ..base()
+    }
+    .explore("probe_chunked_pending_units_reach_both_fates_safely");
+    assert!(
+        checker.discovery("chunked_pending_unit_applied").is_some(),
+        "a pending unit must be able to land after its plan's first transaction"
+    );
+    assert!(
+        checker.discovery("chunked_pending_unit_dropped").is_some(),
+        "a failed plan-time guard must be able to stand a pending unit down"
+    );
+    for safety in ["no_lost_acked_write", "no_double_planned_handoff"] {
+        assert!(
+            checker.discovery(safety).is_none(),
+            "{safety} must hold across chunked application"
+        );
+    }
 }

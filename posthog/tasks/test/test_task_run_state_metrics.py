@@ -34,6 +34,8 @@ class TestCaptureTaskRunStateMetrics(TestCase):
         status: "TaskRun.Status",
         environment: "Optional[TaskRun.Environment]" = None,
         created_at: Optional[datetime] = None,
+        updated_at: Optional[datetime] = None,
+        queued_at: Optional[datetime] = None,
     ) -> "TaskRun":
         Task = apps.get_model("tasks", "Task")
         TaskRun = apps.get_model("tasks", "TaskRun")
@@ -51,8 +53,14 @@ class TestCaptureTaskRunStateMetrics(TestCase):
             status=status,
             environment=environment,
         )
-        if created_at is not None:
-            TaskRun.objects.filter(pk=run.pk).update(created_at=created_at)
+        # .update() bypasses auto_now, so an explicit updated_at sticks.
+        overrides = {
+            field: value
+            for field, value in (("created_at", created_at), ("updated_at", updated_at), ("queued_at", queued_at))
+            if value is not None
+        }
+        if overrides:
+            TaskRun.objects.filter(pk=run.pk).update(**overrides)
             run.refresh_from_db()
         return run
 
@@ -142,6 +150,41 @@ class TestCaptureTaskRunStateMetrics(TestCase):
         assert age is not None
         # Oldest run was ~30 minutes ago; allow generous slack for test timing.
         assert 1500 < age < 2400
+
+    @parameterized.expand(
+        [
+            # A cloud handoff re-queues an existing run without resetting created_at, so anchoring
+            # the queue wait on created_at would report the whole pre-handoff lifetime as backlog.
+            ("requeued_by_handoff", apps.get_model("tasks", "TaskRun").Status.QUEUED, 30, 1500, 2400),
+            # An unrelated write to a still-queued run advances updated_at, so anchoring on
+            # updated_at would make a genuinely stranded run look newly queued.
+            ("written_while_still_queued", apps.get_model("tasks", "TaskRun").Status.QUEUED, 360, 20000, 23000),
+            # Rows queued before queued_at existed fall back to created_at.
+            ("queued_before_the_field_existed", apps.get_model("tasks", "TaskRun").Status.QUEUED, None, 20000, 23000),
+            ("in_progress_reports_lifetime", apps.get_model("tasks", "TaskRun").Status.IN_PROGRESS, 30, 20000, 23000),
+        ]
+    )
+    def test_oldest_age_anchors_queued_runs_on_queued_at(
+        self, _name: str, status: "TaskRun.Status", queued_minutes_ago: Optional[int], low: int, high: int
+    ) -> None:
+        Task = apps.get_model("tasks", "Task")
+        now = timezone.now()
+        self._make_task_run(
+            origin=Task.OriginProduct.SLACK,
+            status=status,
+            created_at=now - timedelta(hours=6),
+            updated_at=now - timedelta(minutes=30),
+            queued_at=None if queued_minutes_ago is None else now - timedelta(minutes=queued_minutes_ago),
+        )
+
+        registry = self._run_with_registry()
+
+        age = registry.get_sample_value(
+            "posthog_tasks_oldest_open_run_age_seconds",
+            {"status": status.value, "origin_product": "slack", "run_environment": "cloud"},
+        )
+        assert age is not None
+        assert low < age < high
 
     def test_emits_runs_created_1h_by_origin_and_environment(self) -> None:
         Task = apps.get_model("tasks", "Task")

@@ -24,7 +24,10 @@ GOLDEN="$HCL/golden"
 
 known_drift_skip() {
   case "$1" in
-    prod-us) echo "query_log_archive_old_ops" ;;
+    # writable_error_tracking_issue_fingerprint_embeddings proxies a storage table
+    # migration 0155 dropped on DATA; the ingestion-side objects survived because
+    # 0155 targeted the wrong role, and 0253's cleanup is cloud-only.
+    local-multi|local-single) echo "writable_error_tracking_issue_fingerprint_embeddings" ;;
     *)       echo "" ;;
   esac
 }

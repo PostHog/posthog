@@ -10,7 +10,7 @@ from posthog.temporal.session_replay.count_playlist_items.activities import (
     count_recordings_for_playlist,
     fetch_playlists_to_count,
 )
-from posthog.temporal.session_replay.count_playlist_items.types import CountPlaylistInput, PlaylistInfo
+from posthog.temporal.session_replay.count_playlist_items.types import CountPlaylistInput, PlaylistToCount
 
 
 @temporalio.workflow.defn(name="count-all-playlists")
@@ -19,7 +19,7 @@ class CountAllPlaylistsWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, input: None = None) -> None:
-        playlist_infos: list[PlaylistInfo] = await temporalio.workflow.execute_activity(
+        playlist_infos: list[PlaylistToCount] = await temporalio.workflow.execute_activity(
             fetch_playlists_to_count,
             start_to_close_timeout=timedelta(minutes=5),
             retry_policy=temporalio.common.RetryPolicy(

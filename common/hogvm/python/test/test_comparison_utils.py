@@ -152,8 +152,11 @@ class TestUnifyComparisonTypesTemporalOrdering(unittest.TestCase):
     # wraps the RHS in toDateTime, so the VM ends up unifying a plain ISO string against a HogDateTime
     # dict. Before this fix, HogDateTime dicts fell through unify_comparison_types unchanged and the
     # ordering operators tried to compare a str to a dict, raising a TypeError.
-    later_datetime = to_hog_datetime(1782988689)  # 2026-06-28
-    earlier_datetime = to_hog_datetime(1782518400)  # 2026-06-23 00:00:00 UTC
+    # These must be the exact instants the labels claim: the equality cases below compare them
+    # against the ISO strings, so an approximate value would silently pass the ordering cases (which
+    # only need later > earlier) while making the equality cases unprovable.
+    later_datetime = to_hog_datetime(1782604800)  # 2026-06-28 00:00:00 UTC
+    earlier_datetime = to_hog_datetime(1782172800)  # 2026-06-23 00:00:00 UTC
     later_iso_timestamp = "2026-06-28T00:00:00.000Z"  # same instant as later_datetime
     earlier_iso_timestamp = "2026-06-23T00:00:00.000Z"  # same instant as earlier_datetime
 
@@ -172,6 +175,24 @@ class TestUnifyComparisonTypesTemporalOrdering(unittest.TestCase):
         left, right = unify_comparison_types("not-a-date", self.later_datetime)
         self.assertEqual(left, "not-a-date")
         self.assertEqual(right, self.later_datetime)
+
+    # The EQ/NOT_EQ opcodes call unify_comparison_types too, so a bare-field `timestamp ==
+    # toDateTime('…')` coerces just like the ordering ops. Pinned here because the Rust VM had to be
+    # taught the same thing separately (its `eq_op` only handled the both-temporal case, so it
+    # answered false where this answers true) — all six opcodes must agree across the three VMs.
+    @parameterized.expand(
+        [
+            ("string vs HogDateTime", later_iso_timestamp, later_datetime),
+            ("HogDateTime vs string", later_datetime, later_iso_timestamp),
+        ]
+    )
+    def test_compares_equal_when_the_same_instant(self, _label, left, right):
+        left, right = unify_comparison_types(left, right)
+        self.assertEqual(left, right)
+
+    def test_string_and_temporal_at_different_instants_are_not_equal(self):
+        left, right = unify_comparison_types(self.earlier_iso_timestamp, self.later_datetime)
+        self.assertNotEqual(left, right)
 
 
 if __name__ == "__main__":

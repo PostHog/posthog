@@ -15,15 +15,28 @@
  * makes the route un-navigable when the fetch hangs. Cold-miss fetches belong
  * in the component.
  */
+const FRAME_WAIT_TIMEOUT_MS = 100;
+
 export function yieldToPaint(): Promise<void> {
+  if (
+    typeof document !== "undefined" &&
+    document.visibilityState === "hidden"
+  ) {
+    return Promise.resolve();
+  }
   return new Promise((resolve) => {
+    const timer = setTimeout(resolve, FRAME_WAIT_TIMEOUT_MS);
+    const settle = (): void => {
+      clearTimeout(timer);
+      resolve();
+    };
     // Double rAF: the first fires before the next frame paints, the second
     // before the frame after — so exactly one frame (the one showing the
     // pending skeleton) is guaranteed to reach the screen in between. A single
     // rAF can resolve before the pending state ever commits, letting the
     // router skip straight to the heavy mount with nothing painted.
     requestAnimationFrame(() => {
-      requestAnimationFrame(() => setTimeout(resolve, 0));
+      requestAnimationFrame(() => setTimeout(settle, 0));
     });
   });
 }

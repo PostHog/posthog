@@ -1,21 +1,26 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
+from django.utils import timezone
+
 from parameterized import parameterized
 from rest_framework import serializers, status
+from rest_framework.response import Response
 
 from posthog.api.test.test_team import create_team
+from posthog.constants import AvailableFeature
 from posthog.models import User
 from posthog.models.organization import OrganizationMembership
 
+from products.access_control.backend.models.access_control import AccessControl
+from products.approvals.backend.models import ApprovalPolicy, ChangeRequest, ChangeRequestState
 from products.feature_flags.backend.api.scheduled_change import ScheduledChangeSerializer
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.scheduled_change import ScheduledChange
-
-from ee.api.rbac.test.test_access_control import BaseAccessControlTest
-from ee.models.rbac.access_control import AccessControl
 
 
 class TestScheduledChange(APIBaseTest):
@@ -48,6 +53,7 @@ class TestScheduledChange(APIBaseTest):
         assert response_data["record_id"] == str(feature_flag.id)
         assert response_data["payload"] == payload
         assert response_data["created_by"]["id"] == self.user.id
+        assert response_data["change_request"] is None
 
     def test_cannot_create_scheduled_change_without_feature_flag_edit_permission(self):
         """Test that users without edit permissions cannot create scheduled changes for feature flags"""
@@ -668,6 +674,88 @@ class TestScheduledChange(APIBaseTest):
         )
 
 
+class TestScheduledChangeApprovalVisibility(APIBaseTest):
+    def _gated_schedule(self, key: str, state: str) -> ScheduledChange:
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key=key, name=key, active=False)
+        change_request = ChangeRequest.objects.create(
+            team=self.team,
+            organization=self.organization,
+            action_key="feature_flag.enable",
+            resource_type="feature_flag",
+            resource_id=str(flag.id),
+            intent={},
+            intent_display={},
+            policy_snapshot={},
+            state=state,
+            expires_at=timezone.now() + timedelta(days=14),
+            created_by=self.user,
+        )
+        return ScheduledChange.objects.create(
+            team=self.team,
+            record_id=str(flag.id),
+            model_name="FeatureFlag",
+            payload={"operation": "update_status", "value": True},
+            scheduled_at=datetime(2030, 1, 15, 9, 0, 0, tzinfo=UTC),
+            created_by=self.user,
+            change_request=change_request,
+        )
+
+    @patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True)
+    def test_gated_create_returns_pending_change_request_summary(self, _mock_enabled):
+        ApprovalPolicy.objects.create(
+            organization=self.organization,
+            team=self.team,
+            action_key="feature_flag.enable",
+            conditions={},
+            approver_config={"quorum": 1, "users": [self.user.id]},
+            created_by=self.user,
+        )
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="gated-create-flag",
+            filters={"groups": [{"properties": [], "rollout_percentage": 50}]},
+            active=False,
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/scheduled_changes/",
+            data={
+                "record_id": str(flag.id),
+                "model_name": "FeatureFlag",
+                "payload": {"operation": "update_status", "value": True},
+                "scheduled_at": "2030-01-15T09:00:00Z",
+            },
+        )
+
+        response_data = response.json()
+        assert response.status_code == status.HTTP_201_CREATED, response_data
+        bound = ScheduledChange.objects.get(id=response_data["id"]).change_request
+        assert bound is not None
+        assert response_data["change_request"] == {"id": str(bound.id), "state": ChangeRequestState.PENDING}
+
+    def test_list_serializes_change_request_states_without_per_row_queries(self):
+        self._gated_schedule("gated-0", ChangeRequestState.EXPIRED)
+        url = f"/api/projects/{self.team.id}/scheduled_changes/"
+
+        self.client.get(url)  # warm per-session caches so both captures compare like for like
+        with CaptureQueriesContext(connection) as one_row:
+            assert self.client.get(url).status_code == status.HTTP_200_OK
+
+        self._gated_schedule("gated-1", ChangeRequestState.REJECTED)
+        self._gated_schedule("gated-2", ChangeRequestState.PENDING)
+        with CaptureQueriesContext(connection) as three_rows:
+            response = self.client.get(url)
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        states = {row["change_request"]["state"] for row in response.json()["results"]}
+        assert states == {"expired", "rejected", "pending"}
+        assert len(three_rows) == len(one_row), (
+            f"listing 3 gated schedules ran {len(three_rows)} queries vs {len(one_row)} for 1: "
+            "the change_request summary is querying per row instead of using select_related"
+        )
+
+
 class TestScheduledChangePersonalAPIKeyAccess(APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -791,11 +879,16 @@ class TestScheduledChangePersonalAPIKeyAccess(APIBaseTest):
         assert retrieve_response.status_code == status.HTTP_404_NOT_FOUND, retrieve_response.json()
 
 
-class TestScheduledChangeAccessControl(BaseAccessControlTest):
+class TestScheduledChangeAccessControl(APIBaseTest):
     """Scheduled changes inherit the feature_flag resource, so feature-flag access controls gate reads."""
 
     def setUp(self):
         super().setUp()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
         self.feature_flag = FeatureFlag.objects.create(
             team=self.team, created_by=self.user, key="ac-flag", name="AC Flag"
         )
@@ -807,6 +900,16 @@ class TestScheduledChangeAccessControl(BaseAccessControlTest):
             scheduled_at=datetime(2023, 12, 8, 12, 0, 0, tzinfo=UTC),
             created_by=self.user,
         )
+
+    def _put_global_access_control(self, data: dict[str, str] | None = None) -> Response:
+        payload = {"access_level": "editor"}
+        if data:
+            payload.update(data)
+        return self.client.put("/api/projects/@current/resource_access_controls", payload)
+
+    def _org_membership(self, level: OrganizationMembership.Level = OrganizationMembership.Level.ADMIN) -> None:
+        self.organization_membership.level = level
+        self.organization_membership.save()
 
     def test_member_with_default_access_can_read(self):
         self._org_membership(OrganizationMembership.Level.MEMBER)

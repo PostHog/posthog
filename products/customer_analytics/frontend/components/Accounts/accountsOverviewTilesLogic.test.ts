@@ -11,10 +11,10 @@ import {
     isTileClickable,
     numericColumnOptions,
     parseTileValues,
-    stripHogqlAlias,
+    stripColumnAlias,
     tileCaption,
     tileFilterFor,
-    tileMetricExpression,
+    tileQueryMetric,
     tileToRowFilter,
 } from './accountsOverviewTilesLogic'
 import {
@@ -24,17 +24,17 @@ import {
     MAX_ACCOUNTS_OVERVIEW_TILES,
 } from './constants'
 
-describe('stripHogqlAlias', () => {
+describe('stripColumnAlias', () => {
     it('strips a trailing AS alias', () => {
-        expect(stripHogqlAlias('accounts.health.score AS score')).toBe('accounts.health.score')
+        expect(stripColumnAlias('accounts.health.score AS score')).toBe('accounts.health.score')
     })
 
     it('leaves a plain expression untouched', () => {
-        expect(stripHogqlAlias('health_score')).toBe('health_score')
+        expect(stripColumnAlias('health_score')).toBe('health_score')
     })
 
     it('does not strip AS in the middle', () => {
-        expect(stripHogqlAlias("toString(JSONExtract(properties, 'score', 'Nullable(Int64)'))")).toBe(
+        expect(stripColumnAlias("toString(JSONExtract(properties, 'score', 'Nullable(Int64)'))")).toBe(
             "toString(JSONExtract(properties, 'score', 'Nullable(Int64)'))"
         )
     })
@@ -78,7 +78,6 @@ describe('numericColumnOptions', () => {
                 label: 'health',
                 options: [{ name: 'score', expression: 'accounts.health.score AS score', type: 'float' }],
             },
-            { key: 'sql_expression', label: 'SQL expression', options: [], isFreeform: true },
         ])
         expect(options).toEqual([
             { name: 'health_score', expression: 'health_score', type: 'integer' },
@@ -107,50 +106,47 @@ describe('numericColumnOptions', () => {
     })
 })
 
-describe('tileMetricExpression', () => {
-    // Each column-aggregation metric type must emit its own HogQL aggregate function
-    // (the type name is the function name); a regression collapsing them to one fn
-    // would silently query the wrong statistic.
+describe('tileQueryMetric', () => {
+    const columnExpression = 'toFloatOrNull(accounts.custom_properties.values.`11111111-2222-3333-4444-555555555555`)'
+
     it.each([
-        [{ type: 'count' as const }, 'count()'],
-        [{ type: 'sum' as const, columnExpression: 'health_score', columnLabel: 'Health score' }, 'sum(health_score)'],
-        [{ type: 'avg' as const, columnExpression: 'health_score', columnLabel: 'Health score' }, 'avg(health_score)'],
-        [{ type: 'min' as const, columnExpression: 'health_score', columnLabel: 'Health score' }, 'min(health_score)'],
-        [{ type: 'max' as const, columnExpression: 'health_score', columnLabel: 'Health score' }, 'max(health_score)'],
+        [{ type: 'count' as const }, { kind: 'count' }],
         [
-            { type: 'median' as const, columnExpression: 'health_score', columnLabel: 'Health score' },
-            'median(health_score)',
+            { type: 'sum' as const, columnExpression, columnLabel: 'Health score', scale: 12 },
+            {
+                kind: 'aggregate',
+                aggregation: 'sum',
+                column: { kind: 'custom_property', definitionId: '11111111-2222-3333-4444-555555555555' },
+                scale: 12,
+            },
         ],
         [
             {
                 type: 'count_threshold' as const,
-                columnExpression: 'health_score',
+                columnExpression,
                 columnLabel: 'Health score',
                 operator: '<' as const,
                 value: 6,
             },
-            'countIf(health_score < 6)',
+            {
+                kind: 'count_threshold',
+                column: { kind: 'custom_property', definitionId: '11111111-2222-3333-4444-555555555555' },
+                operator: 'lt',
+                value: 6,
+            },
         ],
-    ])('produces the right HogQL fragment for %o', (metric, expected) => {
-        expect(tileMetricExpression({ id: 'x', label: 'l', metric })).toBe(expected)
+    ])('produces the typed metric for %o', (metric, expected) => {
+        expect(tileQueryMetric({ id: 'x', label: 'l', metric })).toEqual(expected)
     })
 
-    // The optional scale multiplier wraps the aggregation; no-op values (1, missing,
-    // non-finite) must not append a stray `* n` that would change or break the query.
-    it.each([
-        [12, 'sum(mrr) * 12'],
-        [0.5, 'sum(mrr) * 0.5'],
-        [1, 'sum(mrr)'],
-        [undefined, 'sum(mrr)'],
-        [NaN, 'sum(mrr)'],
-    ])('applies scale %p to a column aggregation', (scale, expected) => {
+    it('rejects columns outside the typed Postgres query', () => {
         expect(
-            tileMetricExpression({
+            tileQueryMetric({
                 id: 'x',
                 label: 'l',
-                metric: { type: 'sum', columnExpression: 'mrr', columnLabel: 'MRR', scale },
+                metric: { type: 'sum', columnExpression: 'warehouse.mrr', columnLabel: 'MRR' },
             })
-        ).toBe(expected)
+        ).toBeNull()
     })
 })
 
@@ -184,7 +180,8 @@ describe('tileCaption', () => {
                 label: 'At risk',
                 metric: {
                     type: 'count_threshold',
-                    columnExpression: 'health_score',
+                    columnExpression:
+                        'toFloatOrNull(accounts.custom_properties.values.`11111111-2222-3333-4444-555555555555`)',
                     columnLabel: 'Health score',
                     operator: '<',
                     value: 6,
@@ -203,7 +200,7 @@ describe('tileToRowFilter / isTileClickable', () => {
         label: 'At risk',
         metric: {
             type: 'count_threshold',
-            columnExpression: 'health_score',
+            columnExpression: 'toFloatOrNull(accounts.custom_properties.values.`11111111-2222-3333-4444-555555555555`)',
             columnLabel: 'Health score',
             operator: '<',
             value: 6,
@@ -211,7 +208,12 @@ describe('tileToRowFilter / isTileClickable', () => {
     }
 
     it('maps a threshold tile to its row predicate', () => {
-        expect(tileToRowFilter(thresholdTile)).toBe('health_score < 6')
+        expect(tileToRowFilter(thresholdTile)).toEqual({
+            kind: 'custom_property',
+            definitionId: '11111111-2222-3333-4444-555555555555',
+            operator: 'lt',
+            values: [6],
+        })
         expect(isTileClickable(thresholdTile)).toBe(true)
     })
 
@@ -230,13 +232,22 @@ describe('tileFilterFor', () => {
                 label: 'At risk',
                 metric: {
                     type: 'count_threshold',
-                    columnExpression: 'health_score',
+                    columnExpression:
+                        'toFloatOrNull(accounts.custom_properties.values.`11111111-2222-3333-4444-555555555555`)',
                     columnLabel: 'Health score',
                     operator: '<',
                     value: 6,
                 },
             })
-        ).toEqual({ tileId: 'b', expression: 'health_score < 6' })
+        ).toEqual({
+            tileId: 'b',
+            filter: {
+                kind: 'custom_property',
+                definitionId: '11111111-2222-3333-4444-555555555555',
+                operator: 'lt',
+                values: [6],
+            },
+        })
     })
 
     it('returns null when the tile is not a row-level predicate', () => {
@@ -250,17 +261,20 @@ describe('parseTileValues', () => {
         {
             id: 'b',
             label: 'Sum',
-            metric: { type: 'sum', columnExpression: 'health_score', columnLabel: 'Health score' },
+            metric: {
+                type: 'sum',
+                columnExpression:
+                    'toFloatOrNull(accounts.custom_properties.values.`11111111-2222-3333-4444-555555555555`)',
+                columnLabel: 'Health score',
+            },
         },
     ]
 
     function responseWith(metricsResults: (number | null)[] | undefined): any {
         return {
-            kind: NodeKind.AccountsQuery,
+            kind: NodeKind.AccountsTableQuery,
             results: [],
-            columns: [],
-            types: [],
-            hogql: '',
+            hasMore: false,
             limit: 0,
             offset: 0,
             metricsResults,

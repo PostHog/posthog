@@ -1,5 +1,6 @@
 import './MCPToolCallPreview.scss'
 
+import { sparkPaths } from 'lib/components/ProductEmptyState/previewSparkline'
 import type { ProductEmptyStateMode } from 'lib/components/ProductEmptyState/types'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
@@ -42,26 +43,12 @@ const FILTERS: { id: string; label: string; logo?: string }[] = [
     { id: 'openai', label: 'Codex', logo: openaiLogo },
 ]
 
-// Clients shown under the sparkline (the PostHog Code link is rendered separately, first).
+// Clients shown under the sparkline (the PostHog Desktop link is rendered separately, first).
 const CLIENT_LOGOS = [claudeLogo, openaiLogo, cursorLogo, windsurfLogo]
 
 // A hand-authored series for the sparkline — abstract, just enough to read as a rising trend.
 const SPARK = [4, 6, 5, 7, 6, 9, 8, 10, 9, 12, 11, 14]
-
-function sparkPaths(): { line: string; area: string } {
-    const width = 100
-    const height = 40
-    const pad = 3
-    const min = Math.min(...SPARK)
-    const max = Math.max(...SPARK)
-    const points = SPARK.map((value, i) => {
-        const x = (i / (SPARK.length - 1)) * width
-        const y = height - pad - ((value - min) / (max - min || 1)) * (height - 2 * pad)
-        return `${x.toFixed(1)} ${y.toFixed(1)}`
-    })
-    const line = 'M ' + points.join(' L ')
-    return { line, area: `${line} L ${width} ${height} L 0 ${height} Z` }
-}
+const { line, area } = sparkPaths(SPARK)
 
 /**
  * Example-data preview for the MCP analytics empty state. All interaction and motion
@@ -70,7 +57,6 @@ function sparkPaths(): { line: string; area: string } {
  */
 export function MCPToolCallPreview({ mode }: { mode: ProductEmptyStateMode }): JSX.Element {
     const isStatic = inStorybook() || inStorybookTestRunner()
-    const { line, area } = sparkPaths()
 
     return (
         <div className="flex flex-col gap-3">
@@ -151,11 +137,11 @@ export function MCPToolCallPreview({ mode }: { mode: ProductEmptyStateMode }): J
                 <div className="MCPSpark__clients">
                     <Link
                         className="MCPSpark__code"
-                        to="https://posthog.com/code?utm_medium=in-product&utm_campaign=mcp-analytics-empty-state"
+                        to="https://posthog.com/desktop?utm_medium=in-product&utm_campaign=mcp-analytics-empty-state"
                         target="_blank"
-                        title="PostHog Code"
+                        title="PostHog Desktop"
                     >
-                        <img src={posthogCodeLogo} alt="PostHog Code" />
+                        <img src={posthogCodeLogo} alt="PostHog Desktop" />
                     </Link>
                     {CLIENT_LOGOS.map((logo, i) => (
                         <img key={i} src={logo} alt="" />

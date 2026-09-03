@@ -29,6 +29,21 @@ export function getExportPendingLabel(asset: ExportedAssetType): string | null {
     return null
 }
 
+// A whole-session video longer than this cannot render inside the rasterizer's time budget. The
+// backend does not refuse such exports, so this check is what stops a doomed render from starting.
+export const MAX_EXPORTABLE_RECORDING_SECONDS = 3 * 60 * 60
+
+export function getVideoExportDisabledReason(recordingDurationMs: number | undefined): string | undefined {
+    if (recordingDurationMs === undefined) {
+        return undefined
+    }
+    if (recordingDurationMs / 1000 <= MAX_EXPORTABLE_RECORDING_SECONDS) {
+        return undefined
+    }
+    const hours = MAX_EXPORTABLE_RECORDING_SECONDS / 3600
+    return `This recording is longer than ${hours} hours, which is too long to export as one video. Use the clip button to export part of it.`
+}
+
 export function getExportDisabledReason(asset: ExportedAssetType): string | undefined {
     if (asset.exception) {
         return asset.exception

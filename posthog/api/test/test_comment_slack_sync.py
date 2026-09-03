@@ -317,6 +317,7 @@ class TestCommentReplySlackSignal(APIBaseTest):
             ("from_slack_reply_not_echoed", "parent", "Insight", {"from_slack": True}, False),
             ("emoji_reaction_not_mirrored", "parent", "Insight", {"is_emoji": True}, False),
             ("conversations_ticket_excluded", "parent", "conversations_ticket", None, False),
+            ("email_thread_excluded", "parent", "EmailThread", None, False),
             ("top_level_comment", None, "Insight", None, False),
         ]
     )
@@ -378,6 +379,30 @@ class TestReplyMirror(APIBaseTest):
     def test_noop_when_thread_has_no_mirror(self, mock_slack):
         reply = Comment.objects.create(
             team=self.team, scope="Insight", item_id="42", content="reply", source_comment=self.parent
+        )
+
+        mirror_comment_reply_to_slack.apply(kwargs={"comment_id": str(reply.id)})
+
+        mock_slack.assert_not_called()
+
+    @patch("posthog.tasks.comment_slack_sync.SlackIntegration")
+    def test_email_thread_reply_is_not_mirrored(self, mock_slack):
+        parent = Comment.objects.create(team=self.team, scope="EmailThread", item_id="thread-42", content="root")
+        CommentSlackThread.objects.for_team(self.team.id).create(
+            team=self.team,
+            scope="EmailThread",
+            item_id="thread-42",
+            source_comment=parent,
+            integration=self.integration,
+            slack_channel_id="C1",
+            slack_thread_ts="100.1",
+        )
+        reply = Comment.objects.create(
+            team=self.team,
+            scope="EmailThread",
+            item_id="thread-42",
+            content="reply",
+            source_comment=parent,
         )
 
         mirror_comment_reply_to_slack.apply(kwargs={"comment_id": str(reply.id)})

@@ -37,10 +37,9 @@ function FeedbackEditor({
     onBlur,
 }: ObservationLabelProps & { compact: boolean; onBlur?: () => void }): JSX.Element {
     const logic = observationLabelLogic({ observationId, initialLabel, onChange })
-    const { label, saving, feedbackDraft } = useValues(logic)
+    const { saving, saveFailed, feedbackDraft, feedbackSynced } = useValues(logic)
     const { setFeedbackDraft } = useActions(logic)
     const canEdit = !useEditAccess(scannerUserAccessLevel)
-    const feedbackSynced = feedbackDraft === (label?.feedback ?? '')
 
     return (
         <div className="space-y-1">
@@ -56,8 +55,11 @@ function FeedbackEditor({
             />
             {canEdit && (
                 <div className="flex justify-end">
-                    <span className="text-xs text-muted" data-attr="replay-vision-label-feedback-status">
-                        {saving || !feedbackSynced ? 'Saving…' : 'Saved'}
+                    <span
+                        className={`text-xs ${saveFailed ? 'text-danger' : 'text-muted'}`}
+                        data-attr="replay-vision-label-feedback-status"
+                    >
+                        {saveFailed ? 'Not saved' : saving || !feedbackSynced ? 'Saving…' : 'Saved'}
                     </span>
                 </div>
             )}

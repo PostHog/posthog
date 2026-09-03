@@ -34,7 +34,7 @@ def extend_api_router() -> None:
         router as root_router,
     )
 
-    from ee.api import hands_free, max_tools, session_summaries
+    from ee.api import hands_free, max_tools
 
     root_router.register(r"billing", billing.BillingViewset, "billing")
     root_router.register(r"license", license.LicenseViewSet)
@@ -70,10 +70,6 @@ def extend_api_router() -> None:
     projects_router.register(r"max_tools", max_tools.MaxToolsViewSet, "project_max_tools", ["team_id"])
 
     projects_router.register(r"max_hands_free", hands_free.MaxHandsFreeViewSet, "project_max_hands_free", ["team_id"])
-
-    projects_router.register(
-        r"session_summaries", session_summaries.SessionSummariesViewSet, "project_session_summaries", ["team_id"]
-    )
 
 
 # The admin interface is disabled on self-hosted instances, as its misuse can be unsafe
@@ -244,29 +240,29 @@ urlpatterns: list[Any] = [
         vercel_connect.VercelConnectLinkViewSet.as_view({"get": "session_info"}),
     ),
     path("webhooks/vercel", csrf_exempt(vercel_webhooks.vercel_webhook), name="vercel_webhooks"),
-    path("scim/v2/<uuid:domain_id>/Users", csrf_exempt(scim_views.SCIMUsersView.as_view()), name="scim_users"),
+    path("scim/v2/<str:scim_slug>/Users", csrf_exempt(scim_views.SCIMUsersView.as_view()), name="scim_users"),
     path(
-        "scim/v2/<uuid:domain_id>/Users/<int:user_id>",
+        "scim/v2/<str:scim_slug>/Users/<int:user_id>",
         csrf_exempt(scim_views.SCIMUserDetailView.as_view()),
         name="scim_user_detail",
     ),
-    path("scim/v2/<uuid:domain_id>/Groups", csrf_exempt(scim_views.SCIMGroupsView.as_view()), name="scim_groups"),
+    path("scim/v2/<str:scim_slug>/Groups", csrf_exempt(scim_views.SCIMGroupsView.as_view()), name="scim_groups"),
     path(
-        "scim/v2/<uuid:domain_id>/Groups/<uuid:group_id>",
+        "scim/v2/<str:scim_slug>/Groups/<uuid:group_id>",
         csrf_exempt(scim_views.SCIMGroupDetailView.as_view()),
         name="scim_group_detail",
     ),
     path(
-        "scim/v2/<uuid:domain_id>/ServiceProviderConfig",
+        "scim/v2/<str:scim_slug>/ServiceProviderConfig",
         csrf_exempt(scim_views.SCIMServiceProviderConfigView.as_view()),
         name="scim_service_provider_config",
     ),
     path(
-        "scim/v2/<uuid:domain_id>/ResourceTypes",
+        "scim/v2/<str:scim_slug>/ResourceTypes",
         csrf_exempt(scim_views.SCIMResourceTypesView.as_view()),
         name="scim_resource_types",
     ),
-    path("scim/v2/<uuid:domain_id>/Schemas", csrf_exempt(scim_views.SCIMSchemasView.as_view()), name="scim_schemas"),
+    path("scim/v2/<str:scim_slug>/Schemas", csrf_exempt(scim_views.SCIMSchemasView.as_view()), name="scim_schemas"),
     # Stripe Projects provisioning (APP 0.1d)
     path("api/partners/stripe/", include("ee.partners.stripe.api.provisioning.urls")),
     # Agentic provisioning (partner account/resource provisioning + deep-link login)

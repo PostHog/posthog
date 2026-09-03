@@ -1,4 +1,4 @@
-import { NodeKind } from '~/queries/schema/schema-general'
+import { AccountsTableQuery, NodeKind } from '~/queries/schema/schema-general'
 
 import { QueryFeature, getQueryFeatures } from './queryFeatures'
 
@@ -29,6 +29,15 @@ describe('getQueryFeatures', () => {
             if (features.has(QueryFeature.columnConfigurator)) {
                 expect(features.has(QueryFeature.displayResponseError)).toBe(true)
             }
+        })
+    })
+
+    describe('resultIsArrayOfArrays', () => {
+        it('uses keyed rendering for Accounts table rows', () => {
+            const query: AccountsTableQuery = { kind: NodeKind.AccountsTableQuery, columns: [], filters: [] }
+            const features = getQueryFeatures(query)
+
+            expect(features.has(QueryFeature.resultIsArrayOfArrays)).toBe(false)
         })
     })
 

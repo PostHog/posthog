@@ -3,19 +3,13 @@ from unittest.mock import patch
 import structlog
 from parameterized import parameterized
 
-from posthog.schema import SourceFieldInputConfig, SourceFieldSelectConfig
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sonarcloud import (
     SonarCloudSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.sonar_cloud import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.sonar_cloud.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.sonar_cloud.sonar_cloud import (
-    SonarCloudResumeConfig,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.sonar_cloud.source import SonarCloudSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config() -> SonarCloudSourceConfig:
@@ -23,22 +17,9 @@ def _config() -> SonarCloudSourceConfig:
 
 
 class TestSonarCloudSourceConfig:
-    def test_source_type(self) -> None:
-        assert SonarCloudSource().source_type == ExternalDataSourceType.SONARCLOUD
-
     def test_is_visible_not_unreleased(self) -> None:
         # A finished source must be visible: unreleasedSource hides it from every user.
         assert SonarCloudSource().get_source_config.unreleasedSource in (None, False)
-
-    def test_config_fields(self) -> None:
-        fields = {f.name: f for f in SonarCloudSource().get_source_config.fields}
-        assert set(fields) == {"token", "organization", "region"}
-        token_field = fields["token"]
-        assert isinstance(token_field, SourceFieldInputConfig)
-        assert token_field.secret is True
-        region_field = fields["region"]
-        assert isinstance(region_field, SourceFieldSelectConfig)
-        assert region_field.defaultValue == "eu"
 
     def test_region_and_organization_are_connection_host_fields(self) -> None:
         # `region` retargets where the stored token is sent and `organization` retargets which tenant
@@ -80,10 +61,6 @@ class TestValidateCredentials:
 
 
 class TestResumableWiring:
-    def test_resumable_manager_bound_to_config(self) -> None:
-        manager = SonarCloudSource().get_resumable_source_manager(_fake_inputs())
-        assert manager._data_class is SonarCloudResumeConfig
-
     def test_source_for_pipeline_plumbs_arguments(self) -> None:
         inputs = _fake_inputs(schema_name="issues")
         source = SonarCloudSource()

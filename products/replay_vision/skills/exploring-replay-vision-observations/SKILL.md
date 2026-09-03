@@ -13,12 +13,15 @@ and doing something useful with it. For creating or sizing scanners, use [[creat
 
 - **Scanner → observations.** One observation = one scan of one session. There is at most one observation
   per `(scanner, session)`.
-- **The finding lives in `scanner_result`.** Its shape depends on the scanner's `scanner_type`, but it always
-  carries a `confidence`:
-  - `monitor` → a `verdict` (`yes` / `no` / `inconclusive`) plus an open-ended observation.
-  - `classifier` → one or more `tags` from the scanner's label set.
-  - `scorer` → a numeric score on the scanner's `scale`.
-  - `summarizer` → a free-text summary (optionally with facet embeddings).
+- **The finding lives in `scanner_result.model_output`.** Its shape depends on the scanner's `scanner_type`,
+  but it always carries a `confidence`:
+  - `monitor` → a `verdict` (`yes` / `no`, plus `inconclusive` only when the scanner sets
+    `allow_inconclusive`) and the `reasoning` behind it.
+  - `classifier` → one or more `tags` from the scanner's label set, plus `tags_freeform` when the scanner
+    allows freeform tags, and the `reasoning`.
+  - `scorer` → a numeric `score` on the scanner's `scale`, and the `reasoning`.
+  - `summarizer` → a `title` and free-text `summary`, plus the facets that get embedded for search
+    (`intent`, `outcome`, `friction_points`, `keywords`).
 - **Only `succeeded` observations carry a finding.** Triage the rest by `status`/`error_reason` (see below).
 - **Observations are LLM judgments, not ground truth.** One observation is one model's read of one session —
   corroborate before you act on it.
@@ -35,6 +38,11 @@ the inbox path — see _Acting on findings_ below.
 If the user gave a `/project/<id>/replay-vision/<scanner-id>` URL, that path segment is the scanner ID.
 Otherwise list them with `vision-scanners-list` and pick the relevant one.
 
+A `?tab=` on that URL tells you which surface they're looking at, which usually says what they want:
+`overview` (the default, charts and stat panels), `observations` (the list), `on-demand` (scan a session now),
+`backfills` (historical scans over a past window), `configuration`, `calibration` (ratings and the prompt
+recommendation), or `actions` (digests and alerts).
+
 Then call `vision-scanners-get` to read its configuration **before** reading results — the `scanner_type` and
 `scanner_config.prompt` tell you how to interpret `scanner_result` (a `verdict` field only makes sense once you
 know it's a monitor; a score only means something against the scorer's `scale`).
@@ -49,18 +57,24 @@ Pick the axis that matches the question:
   `order_by` (e.g. `-result_score`, `-completed_at`) to surface the strongest hits first.
 - **What did every scanner find about one session?** → `vision-observations-list` (the `session_id` query
   parameter is REQUIRED). Use this while investigating a single recording.
+- **The distribution, not the rows?** → `vision-scanners-observations-stats` gives one scanner's status mix
+  and success rate, distinct sessions covered, rating totals, and the per-type distributions (monitor verdict
+  counts, classifier tag rankings, scorer score summary and histogram) without paging through observations.
+- **Has something already summarized this?** → if the scanner has scout digests attached, read their inbox
+  reports instead of re-deriving the pattern (`inbox-reports-list`, filtered to the scout named after the
+  scanner).
 - **The full detail of one finding** → `vision-scanners-observations-get` or `vision-observations-retrieve` —
   returns the frozen `scanner_snapshot` (config at run time) and the complete `scanner_result`, including any
   event citations that link the finding back to specific events in the recording.
 
 Triage `status` so you don't mistake a non-result for "nothing wrong":
 
-| status                | meaning                                                       | typical `error_reason`                                                                                   |
-| --------------------- | ------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| `succeeded`           | has a `scanner_result`                                        | —                                                                                                        |
-| `ineligible`          | session couldn't be analysed — a normal outcome, not an error | `too_short`, `no_recording`, `too_inactive`, `too_long`, `no_events`                                     |
-| `failed`              | the scan errored                                              | `provider_rejected`, `validation_failed`, `rasterization_failed`, `provider_transient`, `internal_error` |
-| `pending` / `running` | still in flight                                               | —                                                                                                        |
+| status                | meaning                                                       | typical `error_reason`                                                                                               |
+| --------------------- | ------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `succeeded`           | has a `scanner_result`                                        | —                                                                                                                    |
+| `ineligible`          | session couldn't be analysed — a normal outcome, not an error | `too_short`, `no_recording`, `too_inactive`, `too_long`, `no_events`                                                 |
+| `failed`              | the scan errored                                              | `provider_rejected`, `validation_failed`, `rasterization_failed`, `provider_transient`, `internal_error`, `orphaned` |
+| `pending` / `running` | still in flight                                               | —                                                                                                                    |
 
 A scanner that looks like it "found nothing" is often producing mostly `ineligible` observations — check the
 mix before concluding.
@@ -102,13 +116,26 @@ Match the action to the user's intent, and **corroborate before you create work*
 
 - **Summarize a pattern.** Report the finding back with the numbers and a few representative `session_id`s
   (e.g. "12 of 40 succeeded observations flagged checkout confusion; sessions A, B, C"). Cite, don't assert.
+- **Size it.** `vision-scanners-impact-retrieve` counts the sessions and users a scanner hit over a trailing
+  window, so the finding lands as "this affected N users", not "here are some sessions". Monitors take no
+  qualifier, classifiers need `tag`, scorers need `min_score`/`max_score`. Watch `sessions_without_user`:
+  sessions with no distinct ID are why the user count can trail the session count.
 - **Make it trackable.** When a finding is corroborated across several sessions (not one low-confidence
   hit), capture it durably with the tools that exist: create an `insight` or `notebook` to track its
   frequency, bundle the supporting recordings into a session-recording playlist so a human can watch the
-  evidence, and add an `annotation` if it marks a regression. There is **no MCP tool to open a PostHog
+  evidence, and add an `annotation` if it marks a regression. To act on the affected people rather than the
+  sessions, `vision-scanners-affected-cohort-create` snapshots them into a static cohort (dated, not
+  live-updating) you can use for funnels, retention, surveys, or experiment exclusion. There is **no MCP tool to open a PostHog
   task directly** — to route a finding into tracked work, use the Inbox path below (for signal-emitting
   scanners) or hand the summary to a human or coding agent to act on. Group by distinct issue, not per
   observation.
+- **Fix the scanner instead.** When the findings are wrong rather than interesting, rate the observations
+  with `vision-observations-label-create` (thumbs up/down plus written feedback; team-wide, last write wins,
+  clearable with `vision-observations-label-destroy`). Then check
+  `vision-scanners-prompt-suggestions-current` — it returns the newest suggestion, whether it's `stale`, and
+  the `rated_count` behind it — before spending a `vision-scanners-prompt-suggestions-generate` call. Apply
+  the rewrite with `vision-scanners-prompt-suggestions-apply`, or leave it with
+  `vision-scanners-prompt-suggestions-dismiss`. Applying is team-wide and takes effect from the next sweep.
 - **Work the Inbox.** If the scanner emits signals, its findings may already be clustered into signal reports —
   read and act on those with `inbox-reports-list` + `inbox-report-artefacts-list` (the report's work log is the
   evidence). See the [[inbox-exploration]] skill; that path also records your work against the report.
@@ -126,5 +153,6 @@ claim — the same rigor the signals pipeline applies before it promotes observa
   (even ineligible/failed) is a no-op.
 - **Findings are snapshotted.** Each observation keeps the `scanner_snapshot` it ran under, so older
   observations may reflect a previous prompt/config (`scanner_version`).
-- **Quota is shared.** On-demand scans count against the org's monthly budget — check `vision-quota-retrieve`
-  before triggering a batch of them.
+- **Quota is shared and priced in credits.** Every observation spends credits (1 credit = $0.01) by model,
+  from one org-wide budget for the billing period. An on-demand scan over budget is rejected outright, so
+  check `vision-quota-retrieve` before triggering a batch of them.

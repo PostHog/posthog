@@ -27,16 +27,9 @@ export interface SummaryViewDisplayProps {
     autoGenerate?: boolean
 }
 
-interface SummaryViewLogicValues {
-    summaryData: { summary: any; text_repr: string } | null
-    summaryDataLoading: boolean
-    summaryMode: 'minimal' | 'detailed'
-    summaryDataFailure?: Error | string | unknown
-}
-
 export function SummaryViewDisplay({ trace, event, tree, autoGenerate }: SummaryViewDisplayProps): JSX.Element {
     const logic = summaryViewLogic({ trace, event, tree, autoGenerate })
-    const { summaryData, summaryDataLoading, summaryMode } = useValues(logic)
+    const { summaryData, summaryDataLoading, summaryMode, summaryError } = useValues(logic)
     const { generateSummary, setSummaryMode, regenerateSummary } = useActions(logic)
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
@@ -66,19 +59,9 @@ export function SummaryViewDisplay({ trace, event, tree, autoGenerate }: Summary
         return <div className="p-4 text-muted">Summary is only available for traces, generations, and spans.</div>
     }
 
-    // Extract error message from loader failure if any
-    const logicValues = logic.values as SummaryViewLogicValues
-    const errorMessage = logicValues.summaryDataFailure
-        ? logicValues.summaryDataFailure instanceof Error
-            ? logicValues.summaryDataFailure.message
-            : typeof logicValues.summaryDataFailure === 'string'
-              ? logicValues.summaryDataFailure
-              : 'An unexpected error occurred'
-        : null
-
     return (
         <div className="p-4 flex flex-col gap-4 h-full overflow-hidden">
-            {!summaryData && !summaryDataLoading && !errorMessage && (
+            {!summaryData && !summaryDataLoading && !summaryError && (
                 <div className="flex flex-col items-center gap-4 py-8">
                     <div className="text-muted text-center">
                         <p>Generate an AI-powered summary of this {eventTypeName}.</p>
@@ -148,10 +131,10 @@ export function SummaryViewDisplay({ trace, event, tree, autoGenerate }: Summary
                 </div>
             )}
 
-            {errorMessage && (
+            {summaryError && (
                 <div className="bg-danger-highlight border border-danger rounded p-4">
                     <div className="font-semibold text-danger">Failed to generate summary</div>
-                    <div className="text-sm mt-2">{errorMessage}</div>
+                    <div className="text-sm mt-2">{summaryError}</div>
                     {!dataProcessingAccepted ? (
                         <AIConsentPopoverWrapper
                             showArrow

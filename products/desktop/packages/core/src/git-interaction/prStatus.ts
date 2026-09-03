@@ -9,6 +9,12 @@ export interface PrAction {
 
 export interface PrVisualConfig {
   color: "gray" | "green" | "red" | "purple";
+  /**
+   * Draw the badge as a solid, brand-coloured control rather than a tinted one.
+   * Only a draft takes it: every other state reports what happened to the PR,
+   * while a draft is the one waiting on someone to press "Ready for review".
+   */
+  solid?: boolean;
   icon: PrVisualIcon;
   label: string;
   actions: PrAction[];
@@ -38,6 +44,7 @@ export function getPrVisualConfig(
   if (draft) {
     return {
       color: "gray",
+      solid: true,
       icon: "pull-request",
       label: "Draft",
       actions: [

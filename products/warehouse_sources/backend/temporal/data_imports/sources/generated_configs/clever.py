@@ -6,4 +6,4 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 
 @config.config
 class CleverSourceConfig(config.Config):
-    pass
+    bearer_token: str

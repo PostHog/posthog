@@ -1,3 +1,4 @@
+import { parseObjectTags } from "@posthog/core/inbox/objectTags";
 import { useMemo } from "react";
 import { ScrollView, Text, View } from "react-native";
 import { getCloudUrlFromRegion, useAuthStore } from "@/features/auth";
@@ -10,11 +11,12 @@ import { useThemeColors } from "@/lib/theme";
 import { CopyButton } from "./CopyButton";
 import { GithubRefChip } from "./GithubRefChip";
 import { MarkdownImage } from "./MarkdownImage";
+import { ObjectTagChip, ObjectTagPreviewProvider } from "./ObjectTagChip";
 import { PostHogRefChip } from "./PostHogRefChip";
 
 const IMAGE_LINE_PATTERN = /^!\[([^\]]*)\]\(([^)\s]+)\)\s*$/;
 const BARE_POSTHOG_REF_PATTERN =
-  /(https?:\/\/(?:app\.posthog\.com|(?:us|eu)\.posthog\.com|code\.posthog\.com|(?:www\.)?posthog\.com|localhost(?::\d+)?)\/[^\s<>()\]]+|\/(?:insights|project|organization|settings|feature_flags|experiments|dashboard|dashboards|replay|session_replay|recordings|error_tracking|task|inbox|automation)\b[^\s<>()\]]*)/g;
+  /(https?:\/\/(?:app\.posthog\.com|(?:us|eu)\.posthog\.com|code\.posthog\.com|(?:www\.)?posthog\.com|localhost(?::\d+)?)\/[^\s<>()\]]+|\/(?:insights|project|organization|settings|feature_flags|experiments|dashboard|dashboards|replay|session_replay|recordings|error_tracking|task|inbox)\b[^\s<>()\]]*)/g;
 
 interface MarkdownTextProps {
   content: string;
@@ -77,6 +79,7 @@ interface Block {
   level?: number;
   items?: string[];
   ordered?: boolean;
+  start?: number;
   rows?: string[][];
   url?: string;
   alt?: string;
@@ -159,13 +162,20 @@ function parseBlocks(text: string): Block[] {
     }
 
     // Ordered list (consecutive 1. 2. lines)
-    if (/^\s*\d+[.)]\s/.test(line)) {
+    const orderedMatch = line.match(/^\s*(\d+)[.)]\s/);
+    if (orderedMatch) {
       const items: string[] = [];
       while (i < lines.length && /^\s*\d+[.)]\s/.test(lines[i])) {
         items.push(lines[i].replace(/^\s*\d+[.)]\s+/, ""));
         i++;
       }
-      blocks.push({ type: "list", content: "", items, ordered: true });
+      blocks.push({
+        type: "list",
+        content: "",
+        items,
+        ordered: true,
+        start: Number(orderedMatch[1]),
+      });
       continue;
     }
 
@@ -245,6 +255,23 @@ function splitTrailingPunctuation(text: string): {
 }
 
 function renderPlainText(
+  text: string,
+  posthogUrlOptions: ParsePostHogUrlOptions,
+  keyBase: string,
+): React.ReactNode[] {
+  const nodes: React.ReactNode[] = [];
+  for (const [i, segment] of parseObjectTags(text).entries()) {
+    const key = `${keyBase}-${i}`;
+    if (segment.type === "tag") {
+      nodes.push(<ObjectTagChip key={key} tag={segment.ref} />);
+    } else {
+      nodes.push(...renderUrlText(segment.value, posthogUrlOptions, key));
+    }
+  }
+  return nodes;
+}
+
+function renderUrlText(
   text: string,
   posthogUrlOptions: ParsePostHogUrlOptions,
   keyBase: string,
@@ -340,9 +367,10 @@ function renderInline(
       const githubRef = parseGithubIssueUrl(url);
       if (githubRef) {
         const isAutoLink = linkText === url;
-        const label = isAutoLink
-          ? `${githubRef.owner}/${githubRef.repo}#${githubRef.number}`
-          : linkText;
+        const autoLinkLabel = githubRef.isReviewComment
+          ? `Comment on PR #${githubRef.number}`
+          : `${githubRef.owner}/${githubRef.repo}#${githubRef.number}`;
+        const label = isAutoLink ? autoLinkLabel : linkText;
         nodes.push(
           <GithubRefChip
             key={match.index}
@@ -438,7 +466,7 @@ export function MarkdownText({
     [cloudRegion],
   );
 
-  return (
+  const rendered = (
     <View style={{ gap: 8 }}>
       {blocks.map((block, i) => {
         const key = `block-${i}`;
@@ -519,7 +547,7 @@ export function MarkdownText({
                         </Text>
                       ) : (
                         <Text className="mr-2 text-[13px] text-gray-9">
-                          {block.ordered ? `${idx + 1}.` : "•"}
+                          {block.ordered ? `${(block.start ?? 1) + idx}.` : "•"}
                         </Text>
                       )}
                       <Text
@@ -641,4 +669,6 @@ export function MarkdownText({
       })}
     </View>
   );
+
+  return <ObjectTagPreviewProvider>{rendered}</ObjectTagPreviewProvider>;
 }

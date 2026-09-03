@@ -23,6 +23,8 @@ function auditEvent(id: string): MCPAuditEventApi {
         actor_user: null,
         actor_service_account: null,
         actor_label: 'member@example.com',
+        credential_owner: null,
+        grant_scope: '',
     }
 }
 

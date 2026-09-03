@@ -61,12 +61,18 @@ export function TestAccountFilterSwitch({
             label={
                 <div className="flex items-center">
                     <span>Filter out internal and test users</span>
+                    {/* Opens in a new tab: this switch sits inside forms that hold unsaved work (a
+                        half-built scanner, an unsaved cohort, an insight in progress), and the
+                        disabledReason below actively sends people here when no filters are set up. */}
                     <LemonButton
                         icon={<IconGear />}
                         size="small"
                         noPadding
                         className="ml-1"
                         to={urls.settings('environment-customization', 'internal-user-filtering')}
+                        targetBlank
+                        hideExternalLinkIcon
+                        tooltip="Configure internal and test users. Opens in a new tab."
                     />
                 </div>
             }

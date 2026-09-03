@@ -43,9 +43,11 @@ to pin a specific failure to a boundary and author.
 
 `blocking_merge_queue` is the one shape the manual table below does not cover, because it looks like
 a single-branch failure and is not. The merge queue runs the full suite on a gate branch
-(`trunk-merge/pr-<n>/…`) carrying the PR rebased onto trunk, so a failure there is on a commit that
-already passed the PR's own CI: a conflict with what landed in between, not that PR's own bug. Read
-it as "this stopped a merge", and diff the PR against trunk rather than reading the PR alone.
+(`trunk-merge/pr-<n>/…`) carrying master, the PR, and every PR queued ahead of it with overlapping
+impacted targets (in practice most of the queue), so a failure there is on a commit that already
+passed the PR's own CI: a conflict with what landed or queued in between, or a queue-mate's own
+break, not that PR's bug by default. Read it as "this stopped a merge", list what the gate branch
+ran (query 8), and diff it against trunk rather than reading the PR alone.
 
 ## The four failure shapes
 
@@ -55,7 +57,7 @@ falls out of three columns:
 | Shape                                   | Reading                         | Next step                                            |
 | --------------------------------------- | ------------------------------- | ---------------------------------------------------- |
 | 1 branch, any window                    | That PR's own problem           | Read its failure lines; done                         |
-| 1 `trunk-merge/pr-<n>/…` gate branch    | Conflict with what landed since | Diff the PR against trunk, not the PR alone          |
+| 1 `trunk-merge/pr-<n>/…` gate branch    | Queue-mate, or landed since     | Query 8, then diff the gate branch against trunk     |
 | Many branches, dense burst, hits master | Trunk break (master is/was red) | Boundary query → culprit (below)                     |
 | Many branches, sporadic over days/weeks | Flaky                           | Corroborate with `engineering-analytics-flaky-tests` |
 
@@ -86,6 +88,11 @@ different problems sharing a test.
 
 ## Flaky → corroborate, don't guess
 
+**Read the sibling attempts before you say "flaky".** One run cannot separate a flake from a
+deterministic failure, and `ci_job_history` already carries every attempt's `conclusion` for the
+branch. If every run on a branch is red, there is no flake to find, and offering a re-run wastes a
+run: a retry changes none of the inputs.
+
 Sporadic shape alone is suggestive, not proof. The `engineering-analytics-flaky-tests` MCP tool reads per-test CI spans
 (rerun-pass signal — a test that failed then passed on retry in the same job) and is the stronger
 signal where it has coverage. Counts only, never rates: passing runs below the emitter's duration
@@ -97,8 +104,20 @@ threshold aren't recorded, so there is no honest denominator.
   fingerprint is weak evidence (the job may simply not have run). Greens come from
   `ci_job_history` only.
 - **Fingerprints are pytest-only (v1).** Jest / playwright / cargo failures appear in the raw
-  failure logs but are not in `ci_failures`. For those, fall back to grouped triage via the
-  `engineering-analytics-master-failures` / `engineering-analytics-ci-failure-logs` MCP tools.
+  failure logs but are not in `ci_failures`. For those, fall back to the raw failure logs via the
+  `engineering-analytics-ci-failure-logs` (PR-scoped) / `engineering-analytics-run-failure-logs`
+  (run-scoped) MCP tools.
+- **A job that failed before its tests ran is invisible to every test-level surface.** No `FAILED`
+  line means no fingerprint, no span, nothing for the flaky-tests tool to read — the failure is real
+  but the test-level answer is silence, not "fine". Setup, docker, and runner failures are only
+  visible as job conclusions (query 7), which is also the one surface here that yields an honest
+  rate, since it records greens.
+- **Check `runs-on` before blaming a cache.** Jobs on `depot-*` runners resolve `actions/cache`
+  against Depot Cache, which the GitHub Actions cache API cannot see, so an empty result there is
+  not evidence of eviction. Read the job's own `Cache not found for input keys:` line for the keys
+  actually requested. Both steps stay green either way: `actions/cache/restore` succeeds on a miss,
+  and a failed `actions/cache/save` is only a warning, so a green producer job may have stored
+  nothing.
 - **Freshness differs per source.** Logs stream in near-real-time; the warehouse jobs/runs tables
   arrive via webhook sync and can lag. During a live incident, start from `ci_failures` and check
   the warehouse's `max(created_at)` before trusting a boundary (query 5). A boundary computed
@@ -118,15 +137,17 @@ threshold aren't recorded, so there is no honest denominator.
 
 ## Choosing a surface
 
-| Question                               | Use                                                                    |
-| -------------------------------------- | ---------------------------------------------------------------------- |
-| "What's broken across CI right now?"   | `engineering-analytics-broken-tests` MCP tool (triaged, classified)    |
-| "Why did MY PR's CI fail?"             | `engineering-analytics-ci-failure-logs` MCP tool (PR-scoped, grouped)  |
-| "Who broke master / when did X start?" | The two views, workflow above                                          |
-| "Is X flaky?"                          | Shape from `ci_failures` + the flaky-tests tool                        |
-| "What's failing on master right now?"  | `engineering-analytics-master-failures` MCP tool (grouped triage feed) |
-| "Is CI slow / expensive / PRs stuck?"  | The `diagnosing-ci-and-merge-bottlenecks` skill                        |
-| "Save this as a dashboard/insight"     | The `turning-engineering-analytics-into-insights` skill                |
+| Question                               | Use                                                                        |
+| -------------------------------------- | -------------------------------------------------------------------------- |
+| "What's broken across CI right now?"   | `engineering-analytics-broken-tests` MCP tool (triaged, classified)        |
+| Same, but from a terminal              | `hogli ci:insights` — these endpoints, scoped to the checkout's repo       |
+| "Why did MY PR's CI fail?"             | `engineering-analytics-ci-failure-logs` MCP tool (PR-scoped, grouped)      |
+| "Who broke master / when did X start?" | The two views, workflow above                                              |
+| "Is X flaky?"                          | Shape from `ci_failures` + the flaky-tests tool                            |
+| "Is this setup/infra failure common?"  | Job conclusions, query 7 (no test rows exist for it)                       |
+| "What's failing on master right now?"  | `breaking_master` rows + `breaking_master_jobs` from the broken-tests tool |
+| "Is CI slow / expensive / PRs stuck?"  | The `diagnosing-ci-and-merge-bottlenecks` skill                            |
+| "Save this as a dashboard/insight"     | The `turning-engineering-analytics-into-insights` skill                    |
 
 ## Output expectations
 

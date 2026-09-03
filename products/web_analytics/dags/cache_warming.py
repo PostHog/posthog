@@ -920,24 +920,24 @@ def _warm_queries(context: dagster.OpExecutionContext, mode: str, queries: list[
                     return "skipped_duplicate"
                 seen_cache_keys.add((team.pk, cache_key))
 
-            entry = QueryCache(team_id=team.pk, cache_key=cache_key).lookup().entry
-            query_info["_was_cold"] = entry is None
+            freshness = QueryCache(team_id=team.pk, cache_key=cache_key).freshness()
+            query_info["_was_cold"] = freshness is None
 
             # The cache entry doubles as the warm/cold discriminator: a shape
             # warmed at least once has one (possibly stale); a never-warmed shape
             # doesn't. refresh keeps the warm set fresh without paying for cold
             # builds; backfill expands coverage without re-touching the warm set.
-            if mode == "refresh" and entry is None:
+            if mode == "refresh" and freshness is None:
                 WARMING_QUERIES_COUNTER.labels(outcome="skipped_cold").inc()
                 return "skipped_cold"
-            if mode == "backfill" and entry is not None:
+            if mode == "backfill" and freshness is not None:
                 WARMING_QUERIES_COUNTER.labels(outcome="skipped_already_warmed").inc()
                 return "skipped_already_warmed"
 
-            cached_data = entry.as_full_response() if entry else None
-
-            if cached_data is not None:
-                last_refresh = parse_datetime(cached_data["last_refresh"])
+            # The probe answers from Redis alone: S3-backed entries carry last_refresh in the
+            # pointer record, so no blob is fetched to make the staleness decision.
+            if freshness is not None and freshness.last_refresh is not None:
+                last_refresh = parse_datetime(freshness.last_refresh)
                 aged_refresh = (
                     last_refresh - _staleness_jitter(query_info["normalized_query_hash"], last_refresh)
                     if last_refresh

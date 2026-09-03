@@ -55,6 +55,18 @@ describe("buildPosthogProvider", () => {
     expect(config.apiKey).toBe("pha_static");
   });
 
+  it("forwards attribution headers to the provider and every routed model", () => {
+    const headers = {
+      "x-posthog-property-task_execution_environment": "local",
+    };
+    const config = buildPosthogProvider(models, { headers });
+
+    expect(config.headers).toEqual(headers);
+    expect(config.models?.every((model) => model.headers === headers)).toBe(
+      true,
+    );
+  });
+
   it("routes every provider model through an explicit gateway override", () => {
     const config = buildPosthogProvider(models, {
       region: "us",
@@ -103,16 +115,24 @@ describe("buildPosthogProvider", () => {
     await config.oauth?.login(callbacks);
     expect(loginSpy).toHaveBeenCalledWith(callbacks, "eu");
 
-    await config.oauth?.refreshToken({
-      access: "old",
-      refresh: "old-r",
-      expires: 0,
-    });
-    expect(refreshSpy).toHaveBeenCalledWith("eu", {
-      access: "old",
-      refresh: "old-r",
-      expires: 0,
-    });
+    const refreshSignal = new AbortController().signal;
+    await config.oauth?.refreshToken(
+      {
+        access: "old",
+        refresh: "old-r",
+        expires: 0,
+      },
+      refreshSignal,
+    );
+    expect(refreshSpy).toHaveBeenCalledWith(
+      "eu",
+      {
+        access: "old",
+        refresh: "old-r",
+        expires: 0,
+      },
+      refreshSignal,
+    );
 
     loginSpy.mockRestore();
     refreshSpy.mockRestore();

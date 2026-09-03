@@ -89,9 +89,10 @@ const MANAGED_WAREHOUSE_CONNECTIONS = [
         id: MANAGED_WAREHOUSE_CONNECTION_ID,
         prefix: 'managed_warehouse',
         engine: 'duckdb',
-        source_type: 'ManagedWarehouse',
+        source_type: 'Postgres',
         access_method: 'direct',
         supports_hogql: true,
+        is_builtin_managed_warehouse: true,
         description: null,
     },
 ]

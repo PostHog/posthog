@@ -16,6 +16,7 @@ export interface LemonCollapsePanel<K extends React.Key> {
     content: ReactNode
     dataAttr?: string
     className?: string
+    bodyClassName?: string
 }
 
 interface LemonCollapsePropsBase<K extends React.Key> {
@@ -110,6 +111,7 @@ interface LemonCollapsePanelProps {
     size: LemonButtonProps['size']
     onChange: (isExpanded: boolean) => void
     className?: string
+    bodyClassName?: string
     dataAttr?: string
     onHeaderClick?: () => void
 }
@@ -125,6 +127,7 @@ function LemonCollapsePanel({
     isExpanded,
     size,
     className,
+    bodyClassName,
     dataAttr,
     indexUnexpanableHeader,
     onChange,
@@ -176,7 +179,7 @@ function LemonCollapsePanel({
             {rendered && (
                 <div
                     ref={bodyRef}
-                    className="LemonCollapsePanel__body"
+                    className={clsx('LemonCollapsePanel__body', bodyClassName)}
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{ height: shown ? contentHeight : 0 }}
                     aria-busy={rendered !== shown}

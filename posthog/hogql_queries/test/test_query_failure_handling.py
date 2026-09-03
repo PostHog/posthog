@@ -1,6 +1,7 @@
 from datetime import UTC, datetime, timedelta
 
 from freezegun import freeze_time
+from unittest.mock import patch
 
 from django.test import SimpleTestCase
 
@@ -10,10 +11,12 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.hogql.constants import LimitContext
 
+from posthog.clickhouse.client.execute import KillSwitchLevel
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.errors import wrap_clickhouse_query_error
 from posthog.exceptions import (
     ClickHouseAtCapacity,
+    ClickHouseBytesLimitExceeded,
     ClickHouseEstimatedQueryExecutionTimeTooLong,
     ClickHouseQueryMemoryLimitExceeded,
     ClickHouseQuerySizeExceeded,
@@ -57,6 +60,11 @@ class TestQueryFailureHandling(SimpleTestCase):
             ("timeout", ClickHouseQueryTimeOut(), "timeout"),
             ("too_slow", ClickHouseEstimatedQueryExecutionTimeTooLong(), "too_slow"),
             ("query_size", ClickHouseQuerySizeExceeded(), "query_size"),
+            (
+                "too_many_bytes",
+                wrap_clickhouse_query_error(ServerException("Limit for bytes to read exceeded", code=307)),
+                "too_many_bytes",
+            ),
             ("at_capacity", ClickHouseAtCapacity(), None),
             ("concurrency_limit", ConcurrencyLimitExceeded("busy"), None),
             ("too_many_simultaneous", wrap_clickhouse_query_error(ServerException("busy", code=202)), None),
@@ -65,6 +73,26 @@ class TestQueryFailureHandling(SimpleTestCase):
     )
     def test_classify_failure(self, _name, error, expected):
         assert classify_failure(error) == expected
+
+    @parameterized.expand([("light", KillSwitchLevel.LIGHT), ("full", KillSwitchLevel.FULL)])
+    def test_too_many_bytes_not_classified_under_kill_switch(self, _name, level):
+        error = wrap_clickhouse_query_error(ServerException("Limit for bytes to read exceeded", code=307))
+        with patch("posthog.hogql_queries.query_failure_handling.get_kill_switch_level", return_value=level):
+            assert classify_failure(error) is None
+
+    @parameterized.expand([("light", KillSwitchLevel.LIGHT), ("full", KillSwitchLevel.FULL)])
+    def test_too_many_bytes_not_classified_under_team_kill_switch(self, _name, level):
+        error = wrap_clickhouse_query_error(ServerException("Limit for bytes to read exceeded", code=307))
+        with patch("posthog.hogql_queries.query_failure_handling.get_team_kill_switch_level", return_value=level):
+            assert classify_failure(error, team_id=42) is None
+
+    def test_too_many_bytes_classified_when_no_switch_covers_team(self):
+        error = wrap_clickhouse_query_error(ServerException("Limit for bytes to read exceeded", code=307))
+        with patch(
+            "posthog.hogql_queries.query_failure_handling.get_team_kill_switch_level",
+            return_value=KillSwitchLevel.OFF,
+        ):
+            assert classify_failure(error, team_id=42) == "too_many_bytes"
 
     @parameterized.expand(
         [
@@ -90,6 +118,15 @@ class TestQueryFailureHandling(SimpleTestCase):
             assert detail.startswith(original_detail)
             assert "This query failed the same way 3 times in a row" in detail
             assert detail.endswith("It can run again in about 2 minutes.")
+
+    def test_build_failure_exception_matches_fresh_too_many_bytes_shape(self):
+        record = _record("too_many_bytes", 1, "Limit for bytes to read exceeded: 1.10 TB, maximum: 1.00 TB")
+
+        error = build_failure_exception(record)
+        assert isinstance(error, ClickHouseBytesLimitExceeded)
+        assert error.status_code == 400
+        assert error.get_codes() == ["too_many_bytes"]
+        assert "was not run again" in str(error.detail)
 
     def test_build_failure_exception_first_failure_wording(self):
         with freeze_time("2026-01-01T00:00:00Z"):

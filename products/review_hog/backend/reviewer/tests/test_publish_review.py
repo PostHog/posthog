@@ -11,6 +11,7 @@ from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFin
 from products.review_hog.backend.reviewer.constants import published_priorities_for
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority, LineRange
 from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError
+from products.review_hog.backend.reviewer.tools.github_threads import REVIEW_HOG_FINDING_MARKER
 from products.review_hog.backend.reviewer.tools.publish_review import (
     ReviewComment,
     _build_inline_comments,
@@ -241,7 +242,7 @@ def _verdict(adjusted_priority: IssuePriority | None = None) -> ValidationVerdic
 class TestPublishReviewGate:
     def _wire_report(self, mock_report_cls: MagicMock) -> None:
         mock_report = MagicMock()
-        mock_report.report_markdown = "# ReviewHog Report"
+        mock_report.report_markdown = "# PostHog Review"
         mock_report_cls.objects.for_team.return_value.get.return_value = mock_report
 
     @patch(_POST)
@@ -403,3 +404,9 @@ class TestFormatIssueComment:
         # Problem and fix stay inside <details>, not surfaced above the first one.
         assert finding.body not in body[: body.index("<details>")]
         assert "**Priority:**" not in body and "**Lines:**" not in body
+
+    def test_carries_the_self_detection_marker_for_the_resolution_stage(self) -> None:
+        # The resolution stage's `_source_rank` recognizes ReviewHog's own threads by this hidden marker
+        # in the opening comment. Drop it here and every ReviewHog thread misfiles under the other-bot
+        # triage tier — the exact dead-code gap this guards against, now that both sides share the constant.
+        assert REVIEW_HOG_FINDING_MARKER in _format_issue_comment(_finding(), _verdict())

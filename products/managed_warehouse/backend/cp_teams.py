@@ -232,6 +232,68 @@ def _fetch_all_rows() -> list[dict] | None:
     return _fetch_rows(organization_id=None)
 
 
+def _fetch_ready_warehouse_rows() -> list[dict] | None:
+    """Read warehouses that can accept backfill connections from the discovery API."""
+    base_url = getattr(settings, "DUCKGRES_API_URL", None)
+    if not base_url:
+        logger.warning("cp_teams_request_rejected_api_not_configured (resource=warehouses)")
+        return None
+
+    headers: dict[str, str] = {}
+    token = getattr(settings, "DUCKGRES_INTERNAL_SECRET", None)
+    if token:
+        headers["X-Duckgres-Internal-Secret"] = token
+
+    try:
+        response = internal_requests.request(
+            "GET",
+            f"{base_url.rstrip('/')}/api/v1/warehouses",
+            json=None,
+            params=None,
+            headers=headers,
+            timeout=30,
+        )
+    except http_requests.Timeout:
+        logger.warning("cp_teams_list_request_timed_out (resource=warehouses)")
+        return None
+    except http_requests.ConnectionError:
+        logger.warning("cp_teams_list_request_unreachable (resource=warehouses)")
+        return None
+    except Exception:
+        logger.exception("cp_teams_list_request_failed (resource=warehouses)")
+        return None
+
+    if not 200 <= response.status_code < 300:
+        logger.warning(
+            "cp_teams_list_request_error (resource=warehouses, status_code=%s, response_body=%s)",
+            response.status_code,
+            response.text[:500],
+        )
+        return None
+    try:
+        data = response.json()
+    except ValueError:
+        return None
+    if not isinstance(data, dict) or not isinstance(data.get("warehouses"), list):
+        return None
+    return [row for row in data["warehouses"] if isinstance(row, dict) and row.get("state") == "ready"]
+
+
+def _ready_warehouse_org_ids() -> set[str] | None:
+    rows = _cached_rows(("ready_warehouses",), _fetch_ready_warehouse_rows)
+    if rows is None:
+        return None
+
+    organization_ids: set[str] = set()
+    for row in rows:
+        organization_id = row.get("org_id")
+        if isinstance(organization_id, str) and organization_id:
+            organization_ids.add(organization_id)
+        else:
+            logger.warning("cp_teams_ready_warehouse_missing_org_id")
+    return organization_ids
+
+
 def list_org_teams(organization_id: str, *, use_cache: bool = True) -> list[CPTeam] | None:
     """All CP team rows of an org, or None when the control plane can't answer."""
     org_id = str(organization_id)
@@ -265,8 +327,15 @@ def list_member_teams(*, use_cache: bool = True) -> list[CPTeam] | None:
 
 
 def list_enabled_backfills() -> list[CPTeam] | None:
-    """Every CP team row with backfill_enabled, across all orgs, or None when unreachable."""
+    """Backfill-enabled teams whose warehouses are ready, or None when either read is unavailable."""
     teams = list_member_teams()
     if teams is None:
         return None
-    return [team for team in teams if team.backfill_enabled]
+    enabled_teams = [team for team in teams if team.backfill_enabled]
+    if not enabled_teams:
+        return []
+
+    ready_organization_ids = _ready_warehouse_org_ids()
+    if ready_organization_ids is None:
+        return None
+    return [team for team in enabled_teams if team.organization_id in ready_organization_ids]

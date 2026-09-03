@@ -23,11 +23,9 @@ from posthog.settings import WAREHOUSE_SOURCES_DATABASE_URL
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.sync_teardown import teardown_run
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.batch_consumer import (
     RECOVERY_GRACE_SECONDS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer import (
-    mark_job_failed_if_not_terminal,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
     PARTITION_PRUNING_INTERVAL,
@@ -514,37 +512,43 @@ class Command(BaseCommand):
         reason: str,
         queue: QueueType,
     ) -> None:
-        """Mirror the consumer's fail path; each step isolated so one failure doesn't abort the rest."""
-        if target.run_uuid:
-            try:
-                failed = queue.fail_run_sync(conn, run_uuid=target.run_uuid, reason=reason)
-                self.stdout.write(f"  queue: marked {failed} pending batch(es) failed")
-            except Exception:
-                logger.exception("manage_warehouse_queue_fail_run_queue_write_failed", run_uuid=target.run_uuid)
-                self.stdout.write(self.style.ERROR("  queue: FAILED to write failed statuses (see logs)"))
+        """Run the shared teardown core (also used by the disable-sync Celery task) and report each step."""
+        outcome = teardown_run(
+            conn,
+            run_uuid=target.run_uuid,
+            job_id=target.job_id,
+            team_id=target.team_id,
+            schema_id=target.schema_id,
+            workflow_run_id=target.workflow_run_id,
+            reason=reason,
+            queue=queue,
+        )
 
-        try:
-            transitioned = mark_job_failed_if_not_terminal(job_id=target.job_id, team_id=target.team_id, error=reason)
-            self.stdout.write("  job: marked Failed" if transitioned else "  job: already terminal - left unchanged")
-        except Exception:
-            logger.exception("manage_warehouse_queue_fail_run_job_update_failed", job_id=target.job_id)
+        if target.run_uuid:
+            if outcome.queue_write_failed:
+                self.stdout.write(self.style.ERROR("  queue: FAILED to write failed statuses (see logs)"))
+            else:
+                self.stdout.write(f"  queue: marked {outcome.batches_failed} pending batch(es) failed")
+
+        if outcome.job_transitioned is None:
             self.stdout.write(self.style.ERROR("  job: FAILED to update status (see logs)"))
+        elif outcome.job_transitioned:
+            self.stdout.write("  job: marked Failed")
+        else:
+            self.stdout.write("  job: already terminal - left unchanged")
 
         if target.workflow_run_id and target.schema_id:
-            released = release_v3_pipeline_lock(target.team_id, target.schema_id, token=target.workflow_run_id)
-            if released:
+            if outcome.lock_released:
                 self.stdout.write("  redis lock: released")
+            elif outcome.lock_holder is None:
+                self.stdout.write("  redis lock: not held")
             else:
-                holder = get_v3_pipeline_lock_holder(target.team_id, target.schema_id)
-                if holder is None:
-                    self.stdout.write("  redis lock: not held")
-                else:
-                    self.stdout.write(
-                        self.style.WARNING(
-                            f"  redis lock: held by a different token ({holder!r}) - a newer run may own it; "
-                            "use release-locks if it is genuinely stale"
-                        )
+                self.stdout.write(
+                    self.style.WARNING(
+                        f"  redis lock: held by a different token ({outcome.lock_holder!r}) - a newer run may own it; "
+                        "use release-locks if it is genuinely stale"
                     )
+                )
 
     def _cancel_workflows(self, options: dict[str, Any], jobs: list[ExternalDataJob | None]) -> None:
         """Cancel each job's Temporal workflow over a single client connection.

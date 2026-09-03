@@ -195,23 +195,3 @@ export const SessionRecordingsBulkDeleteCreateBody = /* @__PURE__ */ zod.object(
             "Earliest start time of the recordings, as an ISO date or a relative offset like '-30d'. Providing this narrows the lookup and speeds up the request; defaults to the project's recording retention period."
         ),
 })
-
-/**
- * Generate AI individual summary for each session, without grouping.
- */
-export const createSessionSummariesIndividuallyBodySessionIdsMax = 300
-
-export const createSessionSummariesIndividuallyBodyFocusAreaMax = 500
-
-export const CreateSessionSummariesIndividuallyBody = /* @__PURE__ */ zod.object({
-    session_ids: zod
-        .array(zod.string())
-        .min(1)
-        .max(createSessionSummariesIndividuallyBodySessionIdsMax)
-        .describe('List of session IDs to summarize (max 300)'),
-    focus_area: zod
-        .string()
-        .max(createSessionSummariesIndividuallyBodyFocusAreaMax)
-        .optional()
-        .describe('Optional focus area for the summarization'),
-})

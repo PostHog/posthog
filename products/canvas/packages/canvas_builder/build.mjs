@@ -16,6 +16,10 @@ const admitted = Object.fromEntries(
 )
 const runtimeImports = contract.runtimeImports
 const csp = contract.csp
+// Platform-provided, so it is inlined here rather than admitted as a pinned
+// dependency; the preview sandbox serves the same source from a blob.
+const canvasSdkSpecifier = '@posthog/canvas-sdk'
+const canvasSdkModule = readFileSync(new URL('./canvas-sdk.mjs', import.meta.url), 'utf8')
 const builderDirectory = path.dirname(fileURLToPath(import.meta.url))
 const builderRequire = createRequire(import.meta.url)
 const htmlTag = /<(script|link)\b[^>]*>/gi
@@ -23,7 +27,19 @@ const htmlAttribute = /([a-zA-Z][\w-]*)\s*=\s*(?:"([^"]*)"|'([^']*)')/g
 const forbiddenHtml = /(?:src|href)\s*=\s*["']\s*(javascript|data:text\/html|vbscript)/i
 const extensions = ['', '.ts', '.tsx', '.js', '.jsx', '.css', '.json', '.svg', '.txt']
 const runtimePath = 'assets/canvas-runtime.js'
-const runtime = `(()=>{const channel="posthog-canvas",pending=new Map;let sequence=0,port;const post=(message)=>port?.postMessage({channel,...message});const call=(method,payload)=>new Promise((resolve,reject)=>{const id=String(++sequence);const timer=setTimeout(()=>{pending.delete(id);reject(new Error("Canvas request timed out"));},30000);pending.set(id,{resolve,reject,timer});post({type:"data-request",id,method,payload});});const applyTheme=(theme)=>{if(theme!=="dark"&&theme!=="light")return;const dark=theme==="dark";document.documentElement.classList.toggle("dark",dark);document.documentElement.style.colorScheme=dark?"dark":"light";};applyTheme(new URLSearchParams(location.hash.slice(1)).get("theme"));const receive=(event)=>{if(event.data?.channel!==channel)return;if(event.data.type==="set-theme"){applyTheme(event.data.theme);return}if(event.data.type!=="data-response")return;const request=pending.get(event.data.id);if(!request)return;pending.delete(event.data.id);clearTimeout(request.timer);event.data.ok?request.resolve(event.data.result):request.reject(new Error(event.data.error??"Canvas request failed"));};const capture=(event,properties,distinctId)=>{const normalized=properties??{};let serialized;try{serialized=JSON.stringify(normalized)}catch{throw new Error("Canvas capture properties must be serializable")};if(typeof serialized!=="string"||serialized.length>16384)throw new Error("Canvas capture properties are too large");return call("capture",{event,properties:normalized,distinctId})};const openExternal=(value)=>{const url=new URL(value);if(url.protocol!=="https:"||!(url.hostname==="posthog.com"||url.hostname.endsWith(".posthog.com")))throw new Error("Canvas external URL is not allowed");post({type:"open-external",url:url.href})};window.ph={loadInsight:(shortId,options)=>call("loadInsight",{shortId,dateRange:options?.dateRange}),query:(query,params)=>call("query",typeof query==="string"?{hogql:query,params:params??{}}:{query,params:params??{}}),capture,openExternal};addEventListener("message",(event)=>{if(port||event.source!==parent||event.data?.channel!==channel||event.data?.type!=="connect"||!event.ports[0])return;port=event.ports[0];port.addEventListener("message",receive);port.start();if(document.readyState!=="loading")post({type:"ready"});if(document.readyState==="complete")post({type:"rendered"});});addEventListener("error",(event)=>post({type:"error",message:event.message||"Canvas runtime error",stack:event.error?.stack}));addEventListener("unhandledrejection",(event)=>post({type:"error",message:event.reason instanceof Error?event.reason.message:String(event.reason),stack:event.reason instanceof Error?event.reason.stack:undefined}));addEventListener("DOMContentLoaded",()=>post({type:"ready"}));addEventListener("load",()=>post({type:"rendered"}));})();`
+const notebookFrameKeyPrefix = '__posthog_notebook_frame__:'
+// The host only delivers the MessagePort after the artifact iframe's load
+// event, which fires after the app's module scripts have already run, so any
+// ph.* call issued during mount lands before the port exists. Those messages
+// queue (bounded, in case the host never connects) and flush on connect.
+const runtime = `(()=>{const channel="posthog-canvas",pending=new Map,queued=[];let sequence=0,port;const post=(message)=>{const payload={channel,...message};if(port){port.postMessage(payload)}else if(queued.length<256){queued.push(payload)}};const call=(method,payload)=>new Promise((resolve,reject)=>{if(!port&&(method==="actionInvoke"||method==="agentRequest")){reject(new Error("Canvas actions require a user action"));return}const id=String(++sequence);const timer=setTimeout(()=>{pending.delete(id);const queuedIndex=queued.findIndex((message)=>message.type==="data-request"&&message.id===id);if(queuedIndex>-1)queued.splice(queuedIndex,1);reject(new Error("Canvas request timed out"));},30000);pending.set(id,{resolve,reject,timer});post({type:"data-request",id,method,payload});});const applyTheme=(theme)=>{if(theme!=="dark"&&theme!=="light")return;const dark=theme==="dark";document.documentElement.classList.toggle("dark",dark);document.documentElement.style.colorScheme=dark?"dark":"light";};const fragmentParams=new URLSearchParams(location.hash.slice(1));applyTheme(fragmentParams.get("theme"));let config={};try{const rawConfig=fragmentParams.get("config");if(rawConfig)config=Object.freeze(JSON.parse(rawConfig))}catch{config={}};const receive=(event)=>{if(event.data?.channel!==channel)return;if(event.data.type==="set-theme"){applyTheme(event.data.theme);return}if(event.data.type!=="data-response")return;const request=pending.get(event.data.id);if(!request)return;pending.delete(event.data.id);clearTimeout(request.timer);event.data.ok?request.resolve(event.data.result):request.reject(new Error(event.data.error??"Canvas request failed"));};const capture=(event,properties,distinctId)=>{const normalized=properties??{};let serialized;try{serialized=JSON.stringify(normalized)}catch{throw new Error("Canvas capture properties must be serializable")};if(typeof serialized!=="string"||serialized.length>16384)throw new Error("Canvas capture properties are too large");return call("capture",{event,properties:normalized,distinctId})};const openExternal=(value)=>{const url=new URL(value);if(url.protocol!=="https:"||!(url.hostname==="posthog.com"||url.hostname.endsWith(".posthog.com")))throw new Error("Canvas external URL is not allowed");post({type:"open-external",url:url.href})};window.ph={config,loadInsight:(shortId,options)=>call("loadInsight",{shortId,dateRange:options?.dateRange,variables:options?.variables,refresh:options?.refresh}),query:(query,params,options)=>call("query",typeof query==="string"?{hogql:query,params:params??{},refresh:options?.refresh}:{query,params:params??{},refresh:options?.refresh}),capture,openExternal,agent:{request:(prompt)=>call("agentRequest",{prompt})},state:{get:(key,opts)=>call("stateGet",{key,scope:opts?.scope||"user"}),set:(key,value,opts)=>call("stateSet",{key,value:value===undefined?null:value,scope:opts?.scope||"user"}),list:(opts)=>call("stateList",{scope:opts?.scope})},actions:{invoke:(verb,payload)=>call("actionInvoke",{verb,payload:payload??{}})}};addEventListener("message",(event)=>{if(port||event.source!==parent||event.data?.channel!==channel||event.data?.type!=="connect"||!event.ports[0])return;port=event.ports[0];port.addEventListener("message",receive);port.start();while(queued.length)port.postMessage(queued.shift());if(document.readyState!=="loading")post({type:"ready"});if(document.readyState==="complete")post({type:"rendered"});});addEventListener("error",(event)=>post({type:"error",message:event.message||"Canvas runtime error",stack:event.error?.stack}));addEventListener("unhandledrejection",(event)=>post({type:"error",message:event.reason instanceof Error?event.reason.message:String(event.reason),stack:event.reason instanceof Error?event.reason.stack:undefined}));const cspSeen=new Set();addEventListener("securitypolicyviolation",(event)=>{const directive=event.effectiveDirective||"unknown";if(cspSeen.has(directive))return;cspSeen.add(directive);post({type:"error",message:"SecurityPolicyViolationError: "+directive})});addEventListener("DOMContentLoaded",()=>post({type:"ready"}));addEventListener("load",()=>post({type:"rendered"}));})();`
+// Notebook source remains arbitrary JavaScript, and its separate AI review is advisory.
+// The cross-origin sandbox, CSP, host authorization, and frame allow-list are
+// load-bearing controls. Navigation interception is defense in depth: the Navigation
+// API covers Chromium, while click, submit, and window.open guards reduce accidental
+// navigation in other browsers.
+const notebookRuntime = (allowedFrameNames) =>
+    `(()=>{const channel="posthog-canvas",bridge=new MessageChannel,allowedFrames=new Set(${JSON.stringify(allowedFrameNames)}),stateGet=ph.state.get;delete ph.state;dispatchEvent(new MessageEvent("message",{data:{channel,type:"connect"},source:parent,ports:[bridge.port1]}));parent.postMessage({channel,type:"notebook-connect"},"*",[bridge.port2]);const preventDefault=Event.prototype.preventDefault;const blockNavigation=event=>preventDefault.call(event);globalThis.navigation?.addEventListener("navigate",blockNavigation);globalThis.addEventListener("click",event=>{if(event.target instanceof Element&&event.target.closest("a"))blockNavigation(event)},true);globalThis.addEventListener("submit",blockNavigation,true);Object.defineProperty(globalThis,"open",{value:()=>null,writable:false,configurable:false});Object.defineProperty(ph,"readFrame",{value:(name,options={})=>{if(typeof name!=="string"||!allowedFrames.has(name))throw new Error("Notebook dataframe is not available");return stateGet(${JSON.stringify(notebookFrameKeyPrefix)}+encodeURIComponent(name)+":"+(options.offset??0)+":"+(options.limit??100),{scope:"user"})},writable:false,configurable:false});})();`
 // A published canvas runs the runtime baked into its artifact by this builder,
 // while an unpublished one runs the desktop's sandbox document — two copies of
 // the same selection behavior. The pair below is ported from the desktop's
@@ -211,7 +227,8 @@ function installSelectionSettleGate(doc, callbacks) {
 }
 
 const selectionRuntime = `(()=>{const channel="posthog-canvas";let port,timer=0,published=false;const anchorRect=${commentActionAnchorRect.toString()};const settleGate=${installSelectionSettleGate.toString()};const post=message=>port?.postMessage({channel,...message}),clear=()=>{if(!published)return;published=false;post({type:"text-selection-cleared"})},clearNative=()=>{getSelection()?.removeAllRanges();clear()},report=()=>{clearTimeout(timer);timer=setTimeout(()=>{const selection=getSelection();if(!selection||selection.isCollapsed||selection.rangeCount===0){clear();return}const range=selection.getRangeAt(0);if(!document.body.contains(range.startContainer)||!document.body.contains(range.endContainer)){clear();return}const before=document.createRange();before.selectNodeContents(document.body);before.setEnd(range.startContainer,range.startOffset);const through=document.createRange();through.selectNodeContents(document.body);through.setEnd(range.endContainer,range.endOffset);const whole=document.createRange();whole.selectNodeContents(document.body);const text=whole.toString(),start=before.toString().length,end=through.toString().length,quote=text.slice(start,end);if(!quote.trim()||quote.length>10000){clear();return}const rect=anchorRect(range.getClientRects?range.getClientRects():[],range.getBoundingClientRect());published=true;post({type:"text-selection",selection:{quote,prefix:text.slice(Math.max(0,start-32),start),suffix:text.slice(end,end+32),start,end,rect:{top:rect.top,right:rect.right,bottom:rect.bottom,left:rect.left}}})},80)};addEventListener("message",event=>{if(port||event.source!==parent||event.data?.channel!==channel||event.data?.type!=="connect"||!event.ports[0])return;port=event.ports[0];port.addEventListener("message",event=>{if(event.data?.channel===channel&&event.data?.type==="clear-text-selection")clearNative()});port.start()});const abort=()=>{clearTimeout(timer);clear()};settleGate(document,{onGestureStart:abort,onSelectionSettled:report,onIdleSelectionChange:report,onGestureCancel:abort});document.addEventListener("scroll",abort,true)})();`
-const highlightRuntime = `(()=>{const channel="posthog-canvas",style=document.createElement("style");style.textContent="::highlight(posthog-canvas-comment){background:rgba(250,204,21,.32);color:inherit}::highlight(posthog-canvas-comment-active){background:rgba(250,204,21,.48);color:inherit}";document.head.appendChild(style);let items=[],ranges=[],port,timer=0;const indexText=()=>{const walker=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT),entries=[];let text="";for(let node=walker.nextNode();node;node=walker.nextNode()){const start=text.length;text+=node.data;entries.push({node,start,end:text.length})}return{text,entries}},rangeAt=(index,start,end)=>{const find=offset=>{let low=0,high=index.entries.length-1,match=null;while(low<=high){const middle=low+high>>1,entry=index.entries[middle];if(offset<entry.start)high=middle-1;else if(offset>entry.end)low=middle+1;else{match=entry;high=middle-1}}return match},startEntry=find(start),endEntry=find(end);if(!startEntry||!endEntry)return null;const range=document.createRange();range.setStart(startEntry.node,start-startEntry.start);range.setEnd(endEntry.node,end-endEntry.start);return range},resolve=(text,anchor)=>{if(text.slice(anchor.start,anchor.end)===anchor.quote)return{start:anchor.start,end:anchor.end};const matches=[];for(let start=text.indexOf(anchor.quote);start>=0;start=text.indexOf(anchor.quote,start+Math.max(anchor.quote.length,1))){const end=start+anchor.quote.length,prefix=text.slice(Math.max(0,start-anchor.prefix.length),start),suffix=text.slice(end,end+anchor.suffix.length);matches.push({start,end,score:(anchor.prefix&&prefix===anchor.prefix?2:0)+(anchor.suffix&&suffix===anchor.suffix?2:0)})}if(matches.length===1)return matches[0];matches.sort((a,b)=>b.score-a.score);return matches[0]?.score&&matches[0].score!==matches[1]?.score?matches[0]:null},render=next=>{items=next||[];ranges=[];if(!window.Highlight||!window.CSS||!CSS.highlights)return;const normal=new Highlight,active=new Highlight,index=indexText();for(const item of items){const hit=resolve(index.text,item.anchor),range=hit&&rangeAt(index,hit.start,hit.end);if(range){ranges.push({id:item.id,range});(item.active?active:normal).add(range)}}CSS.highlights.set("posthog-canvas-comment",normal);CSS.highlights.set("posthog-canvas-comment-active",active)};addEventListener("message",event=>{if(port||event.source!==parent||event.data?.channel!==channel||event.data?.type!=="connect"||!event.ports[0])return;port=event.ports[0];port.addEventListener("message",event=>{if(event.data?.channel===channel&&event.data?.type==="set-comment-highlights")render(event.data.highlights)});port.start()});document.addEventListener("click",event=>{const selection=getSelection();if(selection&&!selection.isCollapsed)return;for(const item of ranges)for(const rect of item.range.getClientRects())if(event.clientX>=rect.left&&event.clientX<=rect.right&&event.clientY>=rect.top&&event.clientY<=rect.bottom){event.preventDefault();event.stopPropagation();port?.postMessage({channel,type:"comment-activate",id:item.id});return}},true);new MutationObserver(()=>{if(!items.length||timer)return;timer=setTimeout(()=>{timer=0;render(items)},500)}).observe(document.body,{childList:true,characterData:true,subtree:true})})();`
+const highlightRuntime = `(()=>{const channel="posthog-canvas",style=document.createElement("style");style.textContent="::highlight(posthog-canvas-comment){background:rgba(250,204,21,.32);color:inherit}::highlight(posthog-canvas-comment-active){background:rgba(250,204,21,.48);color:inherit}";document.head.appendChild(style);let items=[],ranges=[],port,timer=0;const indexText=()=>{const walker=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT),entries=[];let text="";for(let node=walker.nextNode();node;node=walker.nextNode()){const start=text.length;text+=node.data;entries.push({node,start,end:text.length})}return{text,entries}},rangeAt=(index,start,end)=>{const find=offset=>{let low=0,high=index.entries.length-1,match=null;while(low<=high){const middle=low+high>>1,entry=index.entries[middle];if(offset<entry.start)high=middle-1;else if(offset>entry.end)low=middle+1;else{match=entry;high=middle-1}}return match},startEntry=find(start),endEntry=find(end);if(!startEntry||!endEntry)return null;const range=document.createRange();range.setStart(startEntry.node,start-startEntry.start);range.setEnd(endEntry.node,end-endEntry.start);return range},resolve=(text,anchor)=>{if(text.slice(anchor.start,anchor.end)===anchor.quote)return{start:anchor.start,end:anchor.end};const matches=[];for(let start=text.indexOf(anchor.quote);start>=0;start=text.indexOf(anchor.quote,start+Math.max(anchor.quote.length,1))){const end=start+anchor.quote.length,prefix=text.slice(Math.max(0,start-anchor.prefix.length),start),suffix=text.slice(end,end+anchor.suffix.length);matches.push({start,end,score:(anchor.prefix&&prefix===anchor.prefix?2:0)+(anchor.suffix&&suffix===anchor.suffix?2:0)})}if(matches.length===1)return matches[0];matches.sort((a,b)=>b.score-a.score);return matches[0]?.score&&matches[0].score!==matches[1]?.score?matches[0]:null},render=next=>{items=next||[];ranges=[];if(!window.Highlight||!window.CSS||!CSS.highlights)return;const normal=new Highlight,active=new Highlight,index=indexText();for(const item of items){const hit=resolve(index.text,item.anchor),range=hit&&rangeAt(index,hit.start,hit.end);if(range){ranges.push({id:item.id,range});(item.active?active:normal).add(range)}}CSS.highlights.set("posthog-canvas-comment",normal);CSS.highlights.set("posthog-canvas-comment-active",active)};addEventListener("message",event=>{if(port||event.source!==parent||event.data?.channel!==channel||event.data?.type!=="connect"||!event.ports[0])return;port=event.ports[0];port.addEventListener("message",event=>{if(event.data?.channel===channel&&event.data?.type==="set-comment-highlights")render(event.data.highlights)});port.start()});document.addEventListener("click",event=>{const selection=getSelection();if(selection&&!selection.isCollapsed)return;for(const item of ranges)for(const rect of item.range.getClientRects())if(event.clientX>=rect.left&&event.clientX<=rect.right&&event.clientY>=rect.top&&event.clientY<=rect.bottom){event.preventDefault();event.stopPropagation();port?.postMessage({channel,type:"comment-activate",id:item.id});return}},true);const observeBody=()=>new MutationObserver(()=>{if(!items.length||timer)return;timer=setTimeout(()=>{timer=0;render(items)},500)}).observe(document.body,{childList:true,characterData:true,subtree:true});document.body?observeBody():addEventListener("DOMContentLoaded",observeBody)})();`
+const keyboardRuntime = `(()=>{const channel="posthog-canvas";let port;addEventListener("message",event=>{if(port||event.source!==parent||event.data?.channel!==channel||event.data?.type!=="connect"||!event.ports[0])return;port=event.ports[0];port.start()});addEventListener("keydown",event=>{if(!port||!event.isTrusted||!event.metaKey&&!event.ctrlKey)return;port.postMessage({channel,type:"keydown",key:event.key,code:event.code,metaKey:event.metaKey,ctrlKey:event.ctrlKey,shiftKey:event.shiftKey,altKey:event.altKey})})})();`
 // Selection and highlight runtimes extend the shared canvas bridge.
 const platformStylesheet = `
 @import "tailwindcss";
@@ -235,7 +252,15 @@ function entryReferences(html) {
         }
         if (tag[1].toLowerCase() === 'script' && attributes.type === 'module' && attributes.src) {
             references.push([attributes.src, 'js'])
-        } else if (tag[1].toLowerCase() === 'link' && attributes.rel === 'stylesheet' && attributes.href) {
+        } else if (
+            tag[1].toLowerCase() === 'link' &&
+            attributes.rel === 'stylesheet' &&
+            attributes.href &&
+            !/^https:\/\//i.test(attributes.href)
+        ) {
+            // A remote HTTPS stylesheet is not a local build entry, so it stays
+            // in the emitted HTML and loads at runtime under the declared-origin
+            // style-src CSP. Only local stylesheets are bundled here.
             references.push([attributes.href, 'css'])
         }
     }
@@ -323,7 +348,9 @@ async function buildPlatformStyles(project) {
 
 function validate(project) {
     const diagnostics = []
-    if (project.canvasSdkVersion !== '0.1.0') {
+    // Sources persist the SDK version they were authored against, so every
+    // version ever scaffolded must keep building, so the list only grows.
+    if (!contract.supportedSdkVersions.includes(project.canvasSdkVersion)) {
         diagnostics.push(diagnostic('unsupported_sdk', 'Canvas SDK version is unavailable'))
     }
     for (const [name, version] of Object.entries(project.dependencies ?? {})) {
@@ -361,6 +388,9 @@ async function bundleEntry(project, entry) {
                 if (!['canvas', 'canvas-worker'].includes(args.namespace)) {
                     return undefined
                 }
+                if (args.path === canvasSdkSpecifier) {
+                    return { path: canvasSdkSpecifier, namespace: 'canvas-sdk' }
+                }
                 if (args.path.startsWith('.') || args.path.startsWith('/')) {
                     const workerImport = args.path.endsWith('?worker')
                     const requestedPath = workerImport ? args.path.slice(0, -7) : args.path
@@ -387,6 +417,10 @@ async function bundleEntry(project, entry) {
                     pluginData: { platformDependency: true },
                 })
             })
+            pluginBuild.onLoad({ filter: /.*/, namespace: 'canvas-sdk' }, () => ({
+                contents: canvasSdkModule,
+                loader: 'js',
+            }))
             pluginBuild.onLoad({ filter: /.*/, namespace: 'canvas' }, (args) => ({
                 contents: files[args.path],
                 loader: loader(args.path),
@@ -527,8 +561,26 @@ async function buildCanvas(project) {
     }
     const cssPath = `assets/canvas-platform-${sha256(platformCss).slice(0, 10)}.css`
     files.push(artifact(cssPath, platformCss))
-    files.push(artifact(runtimePath, `${runtime}\n${selectionRuntime}\n${highlightRuntime}`))
-    const head = `<meta http-equiv="Content-Security-Policy" content="${csp}" /><link rel="stylesheet" href="./${cssPath}" /><script src="./${runtimePath}"></script>`
+    const allowedNotebookFrames = project.capabilities?.posthog?.notebookFrames
+    const notebookBridge = Array.isArray(allowedNotebookFrames) ? `\n${notebookRuntime(allowedNotebookFrames)}` : ''
+    files.push(
+        artifact(
+            runtimePath,
+            `${runtime}${notebookBridge}\n${selectionRuntime}\n${highlightRuntime}\n${keyboardRuntime}`
+        )
+    )
+    const networkOrigins = project.capabilities?.network?.origins ?? []
+    const externalSources = networkOrigins.join(' ')
+    const projectCsp = externalSources
+        ? csp
+              .replace("connect-src 'none'", `connect-src ${externalSources}`)
+              .replace("style-src 'self' 'unsafe-inline'", `style-src 'self' 'unsafe-inline' ${externalSources}`)
+              .replace("img-src 'self' data: blob:", `img-src 'self' data: blob: ${externalSources}`)
+              .replace("font-src 'self' data:", `font-src 'self' data: ${externalSources}`)
+              .replace("media-src 'self' data: blob:", `media-src 'self' data: blob: ${externalSources}`)
+              .replace("frame-src 'none'", `frame-src ${externalSources}`)
+        : csp
+    const head = `<meta http-equiv="Content-Security-Policy" content="${projectCsp}" /><link rel="stylesheet" href="./${cssPath}" /><script src="./${runtimePath}"></script>`
     html = html.includes('<head>') ? html.replace('<head>', `<head>${head}`) : `${head}${html}`
     files.unshift(artifact(project.entryHtml, html))
     const manifest = {
@@ -540,6 +592,10 @@ async function buildCanvas(project) {
             posthog: { insights: [], inlineQueries: false, captureEvents: [] },
             network: { origins: [] },
         },
+        // Component-kind canvases freeze their placement contract (size,
+        // config schema) into the artifact, like capabilities: the grid host
+        // holds a placed widget to the contract its build shipped with.
+        ...(project.component ? { component: project.component } : {}),
         ...legacy,
     }
     return { contractVersion: 1, status: 'ready', diagnostics: [], manifest, files }

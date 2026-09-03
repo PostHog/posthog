@@ -2,7 +2,8 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import posthog from 'posthog-js'
 
 import { initKeaTests } from '~/test/init'
 
@@ -15,6 +16,14 @@ const availability: WidgetAvailabilityConfig = {
     unavailableReason: 'Enable exception autocapture to get started.',
     setupActionLabel: 'Enable exception autocapture',
     docsHref: 'https://posthog.com/docs/error-tracking/installation',
+}
+
+const supportAvailability: WidgetAvailabilityConfig = {
+    requirement: 'conversations_enabled',
+    unavailableTitle: 'Keep customer conversations close to your product data',
+    unavailableReason: 'Triage and respond to customer questions with the context you need to solve them.',
+    setupActionLabel: 'Enable',
+    docsHref: 'https://posthog.com/docs/support',
 }
 
 describe('WidgetRuntimeAvailabilityGuard', () => {
@@ -77,5 +86,36 @@ describe('WidgetRuntimeAvailabilityGuard', () => {
 
         expect(screen.getByText('Custom setup for exception_autocapture')).toBeInTheDocument()
         expect(screen.queryByText('Widget body')).not.toBeInTheDocument()
+    })
+
+    it('tracks Support activation from the widget setup state', () => {
+        initKeaTests(true, { ...MOCK_DEFAULT_TEAM, conversations_enabled: false })
+        jest.mocked(posthog.capture).mockClear()
+
+        render(
+            <WidgetRuntimeAvailabilityGuard
+                availability={supportAvailability}
+                widgetType="conversations_recent_tickets"
+                widgetId="widget-1"
+                dashboardId={1}
+            >
+                <div>Widget body</div>
+            </WidgetRuntimeAvailabilityGuard>
+        )
+
+        fireEvent.click(screen.getByText('Enable'))
+
+        expect(posthog.capture).toHaveBeenCalledWith('support activation started', {
+            source: 'dashboard_widget',
+            widget_type: 'conversations_recent_tickets',
+            widget_id: 'widget-1',
+            dashboard_id: 1,
+        })
+        expect(posthog.capture).toHaveBeenCalledWith('dashboard widget cross product activated', {
+            widget_type: 'conversations_recent_tickets',
+            widget_id: 'widget-1',
+            dashboard_id: 1,
+            cta: 'conversations_enabled',
+        })
     })
 })

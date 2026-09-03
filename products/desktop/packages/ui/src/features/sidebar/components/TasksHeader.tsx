@@ -14,6 +14,7 @@ import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
+  DropdownMenuItem,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuSeparator,
@@ -28,6 +29,7 @@ import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { useMeQuery } from "@posthog/ui/features/auth/useMeQuery";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useFolders } from "@posthog/ui/features/folders/useFolders";
+import { EditListItemAppearanceDialog } from "@posthog/ui/features/sidebar/components/EditListItemAppearanceDialog";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import { useHoldSidebarPeek } from "@posthog/ui/features/sidebar/useHoldSidebarPeek";
 import { Tooltip } from "@posthog/ui/primitives/Tooltip";
@@ -108,111 +110,140 @@ function TaskFilterMenu() {
   const toggleTaskType = useSidebarStore((state) => state.toggleTaskType);
   const { data: currentUser } = useMeQuery();
   const isStaff = currentUser?.is_staff === true;
+  const [appearanceDialogOpen, setAppearanceDialogOpen] = useState(false);
 
   const handleOpenChange = useHoldSidebarPeek();
+  const handleOrganizeModeChange = (value: string) => {
+    const nextMode = value as typeof organizeMode;
+    if (nextMode === organizeMode) return;
+    setOrganizeMode(nextMode);
+    track(ANALYTICS_EVENTS.TASK_LIST_GROUPING_CHANGED, {
+      group_by: nextMode === "by-project" ? "repository" : "date",
+      sort_by: sortMode,
+      surface: "sidebar",
+    });
+  };
 
   return (
-    <DropdownMenu onOpenChange={handleOpenChange}>
-      <DropdownMenuTrigger
-        render={
-          <Button type="button" aria-label="Filter tasks" size="icon-sm">
-            <FunnelSimpleIcon size={14} />
-          </Button>
-        }
-      />
-      <DropdownMenuContent
-        align="start"
-        side="bottom"
-        sideOffset={6}
-        className="min-w-fit"
-      >
-        <MenuLabel>Organize</MenuLabel>
-        <DropdownMenuRadioGroup
-          value={organizeMode}
-          onValueChange={(value) =>
-            setOrganizeMode(value as typeof organizeMode)
+    <>
+      <DropdownMenu onOpenChange={handleOpenChange}>
+        <DropdownMenuTrigger
+          render={
+            <Button type="button" aria-label="Filter tasks" size="icon-sm">
+              <FunnelSimpleIcon size={14} />
+            </Button>
           }
+        />
+        <DropdownMenuContent
+          align="start"
+          side="bottom"
+          sideOffset={6}
+          className="min-w-fit"
         >
-          <DropdownMenuRadioItem value="by-project">
-            By project
-          </DropdownMenuRadioItem>
-          <DropdownMenuRadioItem value="chronological">
-            Chronological list
-          </DropdownMenuRadioItem>
-        </DropdownMenuRadioGroup>
+          <MenuLabel>Group by</MenuLabel>
+          <DropdownMenuRadioGroup
+            value={organizeMode}
+            onValueChange={handleOrganizeModeChange}
+          >
+            <DropdownMenuRadioItem value="by-project">
+              Repository
+            </DropdownMenuRadioItem>
+            <DropdownMenuRadioItem value="chronological">
+              Date
+            </DropdownMenuRadioItem>
+          </DropdownMenuRadioGroup>
 
-        <DropdownMenuSeparator />
+          <DropdownMenuSeparator />
 
-        <MenuLabel>Sort by</MenuLabel>
-        <DropdownMenuRadioGroup
-          value={sortMode}
-          onValueChange={(value) => setSortMode(value as typeof sortMode)}
-        >
-          <DropdownMenuRadioItem value="created">Created</DropdownMenuRadioItem>
-          <DropdownMenuRadioItem value="updated">Updated</DropdownMenuRadioItem>
-        </DropdownMenuRadioGroup>
+          <MenuLabel>Sort by</MenuLabel>
+          <DropdownMenuRadioGroup
+            value={sortMode}
+            onValueChange={(value) => setSortMode(value as typeof sortMode)}
+          >
+            <DropdownMenuRadioItem value="created">
+              Created
+            </DropdownMenuRadioItem>
+            <DropdownMenuRadioItem value="updated">
+              Updated
+            </DropdownMenuRadioItem>
+          </DropdownMenuRadioGroup>
 
-        {import.meta.env.DEV && (
-          <>
-            <DropdownMenuSeparator />
+          {import.meta.env.DEV && (
+            <>
+              <DropdownMenuSeparator />
 
-            <MenuLabel>Show</MenuLabel>
-            <DropdownMenuRadioGroup
-              value={showAllUsers ? "all" : "mine"}
-              onValueChange={(value) => setShowAllUsers(value === "all")}
-            >
-              <DropdownMenuRadioItem value="mine">
-                My tasks
-              </DropdownMenuRadioItem>
-              <DropdownMenuRadioItem value="all">
-                All tasks
-              </DropdownMenuRadioItem>
-            </DropdownMenuRadioGroup>
-          </>
-        )}
+              <MenuLabel>Show</MenuLabel>
+              <DropdownMenuRadioGroup
+                value={showAllUsers ? "all" : "mine"}
+                onValueChange={(value) => setShowAllUsers(value === "all")}
+              >
+                <DropdownMenuRadioItem value="mine">
+                  My tasks
+                </DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="all">
+                  All tasks
+                </DropdownMenuRadioItem>
+              </DropdownMenuRadioGroup>
+            </>
+          )}
 
-        {isStaff && (
-          <>
-            <DropdownMenuSeparator />
+          {isStaff && (
+            <>
+              <DropdownMenuSeparator />
 
-            <MenuLabel>Task visibility</MenuLabel>
-            <DropdownMenuRadioGroup
-              value={showInternal ? "internal" : "external"}
-              onValueChange={(value) => setShowInternal(value === "internal")}
-            >
-              <DropdownMenuRadioItem value="external">
-                External
-              </DropdownMenuRadioItem>
-              <DropdownMenuRadioItem value="internal">
-                Internal
-              </DropdownMenuRadioItem>
-            </DropdownMenuRadioGroup>
-          </>
-        )}
+              <MenuLabel>Task visibility</MenuLabel>
+              <DropdownMenuRadioGroup
+                value={showInternal ? "internal" : "external"}
+                onValueChange={(value) => setShowInternal(value === "internal")}
+              >
+                <DropdownMenuRadioItem value="external">
+                  External
+                </DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="internal">
+                  Internal
+                </DropdownMenuRadioItem>
+              </DropdownMenuRadioGroup>
+            </>
+          )}
 
-        <DropdownMenuSeparator />
+          <DropdownMenuSeparator />
 
-        <DropdownMenuSub>
-          <DropdownMenuSubTrigger>Environment</DropdownMenuSubTrigger>
-          <DropdownMenuSubContent side="right" sideOffset={4}>
-            {ALL_WORKSPACE_MODES.map((mode) => {
-              const { label, icon: Icon } = ENVIRONMENT_META[mode];
-              return (
-                <DropdownMenuCheckboxItem
-                  key={mode}
-                  checked={taskTypeFilter.includes(mode)}
-                  closeOnClick={false}
-                  onCheckedChange={() => toggleTaskType(mode)}
-                >
-                  <Icon size={14} />
-                  {label}
-                </DropdownMenuCheckboxItem>
-              );
-            })}
-          </DropdownMenuSubContent>
-        </DropdownMenuSub>
-      </DropdownMenuContent>
-    </DropdownMenu>
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger>Environment</DropdownMenuSubTrigger>
+            <DropdownMenuSubContent side="right" sideOffset={4}>
+              {ALL_WORKSPACE_MODES.map((mode) => {
+                const { label, icon: Icon } = ENVIRONMENT_META[mode];
+                return (
+                  <DropdownMenuCheckboxItem
+                    key={mode}
+                    checked={taskTypeFilter.includes(mode)}
+                    closeOnClick={false}
+                    onCheckedChange={() => toggleTaskType(mode)}
+                  >
+                    <Icon size={14} />
+                    {label}
+                  </DropdownMenuCheckboxItem>
+                );
+              })}
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+
+          <DropdownMenuSeparator />
+
+          <DropdownMenuItem
+            data-attr="edit-list-item-appearance"
+            onClick={() => setAppearanceDialogOpen(true)}
+          >
+            Edit list item appearance…
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <EditListItemAppearanceDialog
+        surface="sidebar"
+        open={appearanceDialogOpen}
+        onOpenChange={setAppearanceDialogOpen}
+      />
+    </>
   );
 }
 

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import sys
 import json
+import importlib
 from dataclasses import dataclass
 from types import ModuleType
 from typing import Any
@@ -23,20 +24,41 @@ from django.core.exceptions import ValidationError
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
+from posthog.models.user import User
+from posthog.models.user_integration import UserIntegration
 
-from products.slack_app.backend.models import SlackSettings
+from products.slack_app.backend.models import (
+    SlackSettings,
+    SlackThreadTaskMapping,
+    SlackUserProfileCache,
+    UntaggedFollowupMode,
+)
+from products.slack_app.backend.services import slack_app_home
 from products.slack_app.backend.services.slack_app_home import (
     ACTION_EDIT_PERSONAL,
     ACTION_RESET_PERSONAL,
     ACTION_RESET_PROJECT_PERSONAL,
+    ACTION_SET_UNTAGGED_FOLLOWUP_MODE,
+    ACTION_TASKS_FILTER_REPO,
+    ACTION_TASKS_PAGE_NEXT,
+    ACTION_TASKS_PAGE_PREV,
+    ACTION_UNLINK_ACCOUNT,
+    BLOCK_TASKS_CONTROLS,
     EDIT_MODAL_PERSONAL_CALLBACK_ID,
+    HOME_ACTION_IDS,
     MODAL_ACTION_MODEL,
     MODAL_ACTION_REASONING_EFFORT,
     MODAL_ACTION_RUNTIME_ADAPTER,
     MODAL_BLOCK_MODEL,
     MODAL_BLOCK_REASONING_EFFORT,
     MODAL_BLOCK_RUNTIME_ADAPTER,
+    AccountState,
+    GitHubAccount,
+    GitHubState,
     PreferenceSource,
+    ProjectChoice,
+    ProjectState,
+    StatsState,
     TaskItem,
     TasksState,
     handle_ai_preferences_block_action,
@@ -48,6 +70,7 @@ from products.slack_app.backend.services.slack_app_home import (
     resolve_source,
 )
 from products.slack_app.backend.services.slack_settings import AIPreferences
+from products.tasks.backend.models import Task, TaskRun
 
 SLACK_WORKSPACE_ID = "T_HOME"
 
@@ -99,12 +122,12 @@ def admin_user():
 
 @pytest.fixture(autouse=True)
 def _stub_picker_facade():
-    """Stub `tasks.facade.run_config` and the LLM-gateway model fetch.
+    """Stub the tasks run-config facade and the LLM-gateway model fetch.
 
-    The tasks facade pulls in `tasks.temporal` on import, which the test env
-    can't satisfy. The gateway fetch would hit a real network. Both get
-    replaced with deterministic in-memory fakes covering every model the
-    renderer and handler tests reference.
+    The facade pulls in `tasks.temporal` on import, which the test env can't
+    satisfy. The gateway fetch would hit a real network. Both are replaced with
+    deterministic in-memory fakes covering every model the renderer and handler
+    tests reference.
     """
 
     class _Effort:
@@ -176,6 +199,10 @@ def _stub_picker_facade():
     # the stdlib `ModuleType` rejects them outright, and ruff B010 reverts any
     # `setattr` workaround back to attribute syntax.
     fake: Any = ModuleType(facade_name)
+    # Seed from the real module so overriding a handful of functions doesn't hide the
+    # rest of its namespace from anything else that imports it while the swap is in
+    # place — the tasks serializers pull a dozen constants from here.
+    fake.__dict__.update(vars(importlib.import_module(facade_name)))
     fake.RuntimeAdapter = _RuntimeAdapter()
     fake.get_supported_reasoning_efforts = fake_get_supported
     fake.get_reasoning_effort_error = fake_get_error
@@ -196,26 +223,31 @@ def _stub_picker_facade():
         _GatewayModel(id="gpt-5", owned_by="openai"),
         _GatewayModel(id="gpt-5.5", owned_by="openai"),
     )
-    llm_models_name = "products.slack_app.backend.services.llm_models"
-    fake_llm_models: Any = ModuleType(llm_models_name)
-    fake_llm_models.list_slack_app_models = lambda: gateway_models
-    fake_llm_models.GatewayModel = _GatewayModel
+    # The catalogue reads the run-config internals directly rather than through the facade,
+    # so those lookups are replaced one at a time. Standing the facade stub in for the whole
+    # module would blank every other name on it — the GitHub helpers `facade.api` defers to
+    # among them.
+    utils_name = "products.tasks.backend.temporal.process_task.utils"
+    model_catalogue = importlib.import_module("products.tasks.backend.logic.services.model_catalogue")
 
     saved_facade = sys.modules.get(facade_name)
-    saved_llm = sys.modules.get(llm_models_name)
     sys.modules[facade_name] = fake
-    sys.modules[llm_models_name] = fake_llm_models
+    # The provider → adapter map is cached for the process, so the fake only governs once
+    # the cache is dropped on the way in and back out.
+    model_catalogue._runtime_adapter_by_provider.cache_clear()
     try:
-        yield
+        with (
+            patch(f"{utils_name}.get_supported_reasoning_efforts", fake_get_supported),
+            patch(f"{utils_name}.get_provider_for_runtime_adapter", fake_get_provider),
+            patch.object(model_catalogue, "list_gateway_models", return_value=gateway_models),
+        ):
+            yield
     finally:
+        model_catalogue._runtime_adapter_by_provider.cache_clear()
         if saved_facade is None:
             sys.modules.pop(facade_name, None)
         else:
             sys.modules[facade_name] = saved_facade
-        if saved_llm is None:
-            sys.modules.pop(llm_models_name, None)
-        else:
-            sys.modules[llm_models_name] = saved_llm
 
 
 # ---------------------------------------------------------------------------
@@ -329,6 +361,23 @@ def _block_action_payload(
     }
 
 
+def _tasks_click_payload(action_id: str, *, value: str | None = None, repo: str | None = None) -> dict:
+    """A Home tab Tasks click: the page rides on the button's value, the filter on view state."""
+    action: dict[str, Any] = {"action_id": action_id}
+    if value is not None:
+        action["value"] = value
+    controls: dict[str, Any] = {}
+    if repo:
+        controls[ACTION_TASKS_FILTER_REPO] = {"selected_option": {"value": repo}}
+    return {
+        "type": "block_actions",
+        "team": {"id": SLACK_WORKSPACE_ID},
+        "user": {"id": "U001"},
+        "actions": [action],
+        "view": {"id": "V1", "hash": "H1", "type": "home", "state": {"values": {BLOCK_TASKS_CONTROLS: controls}}},
+    }
+
+
 def _view_submission_payload(
     *,
     callback_id: str,
@@ -390,6 +439,49 @@ class TestRenderHomeView:
         assert "Claude Opus 4.7" in text_blob
         assert "Your personal override" in _all_text(view)
 
+    def test_every_control_the_tab_renders_is_routable(self):
+        # The interactivity endpoint claims region ownership and dispatches off
+        # HOME_ACTION_IDS, so a control missing from it renders as a button that
+        # silently does nothing. Render every card at once and check the whole set.
+        view = render_home_view(
+            effective=AIPreferences(runtime_adapter="claude", model="claude-opus-4-7"),
+            user_row=_make_row(runtime_adapter="claude", model="claude-opus-4-7"),
+            is_admin=True,
+            account_state=AccountState(enabled=True, link_url="https://app/link"),
+            project_state=ProjectState(
+                candidates=(ProjectChoice(team_id=1, label="Org · Team"),),
+                personal_team_id=1,
+                workspace_team_id=1,
+                workspace_team_label="Org · Team",
+            ),
+            tasks_state=TasksState(
+                items=(
+                    TaskItem(
+                        title="Fix flaky retention test",
+                        posthog_url="https://app/project/1/tasks/abc",
+                        desktop_url=None,
+                        status="in_progress",
+                        repository="posthog/posthog",
+                        pr_url=None,
+                        thread_url=None,
+                        updated_at_label="5m ago",
+                    ),
+                ),
+                available_repos=("posthog/posthog",),
+                has_any_tasks=True,
+                page=1,
+                total_pages=3,
+                total_filtered=25,
+            ),
+            stats_state=StatsState(tasks_started=4, tasks_with_pr=2, tasks_merged=1, active_people=2),
+            untagged_followup_mode=UntaggedFollowupMode.AUTO,
+        )
+
+        # Equality both ways: an unroutable control fails on the left, and a card that
+        # stopped rendering fails on the right instead of passing a subset check trivially.
+        # Unlink only renders once an account is linked, which this fixture deliberately isn't.
+        assert set(_action_ids(view)) == HOME_ACTION_IDS - {ACTION_UNLINK_ACCOUNT}
+
     def test_source_resolution_is_atomic(self):
         # A user row missing half the pair isn't a real override.
         assert resolve_source(_make_row(reasoning_effort="medium")) == PreferenceSource.unset()
@@ -397,6 +489,168 @@ class TestRenderHomeView:
         assert (
             resolve_source(_make_row(runtime_adapter="claude", model="claude-opus-4-7")) == PreferenceSource.personal()
         )
+
+
+class TestThreadFollowupsCard:
+    def _view(self, mode) -> dict:
+        return render_home_view(
+            effective=AIPreferences(),
+            user_row=None,
+            is_admin=False,
+            untagged_followup_mode=mode,
+        )
+
+    def test_card_absent_where_untagged_followups_do_not_run(self):
+        # Nothing to configure when replies are never picked up in the first place.
+        view = self._view(None)
+        assert ACTION_SET_UNTAGGED_FOLLOWUP_MODE not in _action_ids(view)
+
+    @pytest.mark.parametrize("mode", list(UntaggedFollowupMode))
+    def test_picker_preselects_the_stored_mode(self, mode):
+        # Without the right initial option the tab misreports the setting, and picking
+        # the value already stored is a no-op click that looks broken.
+        view = self._view(mode)
+        select = next(
+            el
+            for block in view["blocks"]
+            for el in block.get("elements", []) or []
+            if el.get("action_id") == ACTION_SET_UNTAGGED_FOLLOWUP_MODE
+        )
+        assert select["initial_option"]["value"] == mode.value
+        assert {o["value"] for o in select["options"]} == set(UntaggedFollowupMode.values)
+
+
+class TestThreadFollowupsPicker:
+    def _pick(self, value: str) -> dict:
+        return {
+            "type": "block_actions",
+            "team": {"id": SLACK_WORKSPACE_ID},
+            "user": {"id": "U001"},
+            "actions": [
+                {"action_id": ACTION_SET_UNTAGGED_FOLLOWUP_MODE, "selected_option": {"value": value}},
+            ],
+        }
+
+    @pytest.mark.parametrize(
+        "picked,expected",
+        [
+            (UntaggedFollowupMode.ASK.value, UntaggedFollowupMode.ASK.value),
+            (UntaggedFollowupMode.NEVER.value, UntaggedFollowupMode.NEVER.value),
+            (UntaggedFollowupMode.AUTO.value, UntaggedFollowupMode.AUTO.value),
+            # A value the tab never rendered isn't worth persisting — it would read
+            # back as `auto` anyway, but only after a round trip through the DB.
+            ("something-else", None),
+        ],
+    )
+    def test_pick_is_persisted_against_the_clicking_user(
+        self, slack_integration, mock_slack_client, flag_on, picked, expected
+    ):
+        payload = self._pick(picked)
+        with patch("products.slack_app.backend.services.slack_app_home.is_slack_workspace_admin", return_value=False):
+            handle_ai_preferences_block_action(payload, payload["actions"][0])
+
+        row = SlackSettings.objects.filter(slack_workspace_id=SLACK_WORKSPACE_ID, slack_user_id="U001").first()
+        assert (row.untagged_followup_mode if row else None) == expected
+        assert mock_slack_client.views_publish.called
+
+
+class TestLinkedAccountsCard:
+    def _view(self, *, account_state=None, github_state=None) -> dict:
+        return render_home_view(
+            effective=AIPreferences(),
+            user_row=None,
+            is_admin=False,
+            account_state=account_state,
+            github_state=github_state,
+        )
+
+    def _rows(self, view: dict) -> list[tuple[str, dict | None]]:
+        return [
+            (block["text"]["text"], block.get("accessory"))
+            for block in view["blocks"]
+            if block.get("type") == "section" and block["text"]["text"].startswith(("*PostHog*", "*GitHub*"))
+        ]
+
+    def _row(self, view: dict, prefix: str) -> tuple[str, dict | None]:
+        return next(row for row in self._rows(view) if row[0].startswith(prefix))
+
+    @pytest.mark.parametrize(
+        "user_resolved,connected,credentials_usable,expected_button,expected_style",
+        [
+            (True, True, True, "Manage GitHub", None),
+            # A row whose tokens went stale is what the task flow refuses to run on,
+            # so the card has to ask for a reconnect rather than read as connected.
+            (True, True, False, "Reconnect GitHub", "primary"),
+            (True, False, False, "Connect GitHub", "primary"),
+            (False, False, False, None, None),
+        ],
+    )
+    def test_github_button_matches_connection_state(
+        self, user_resolved, connected, credentials_usable, expected_button, expected_style
+    ):
+        accounts = (GitHubAccount(installation_id="1", login="octocat", account_name="octocat"),) if connected else ()
+        view = self._view(
+            github_state=GitHubState(
+                user_resolved=user_resolved,
+                accounts=accounts,
+                credentials_usable=credentials_usable,
+                settings_url="https://app/project/1/settings/user-personal-integrations",
+            )
+        )
+        text, button = self._row(view, "*GitHub*")
+        if expected_button is None:
+            # Without a resolved PostHog user we can't say anything about their
+            # GitHub, so the row points at account linking instead.
+            assert button is None
+            assert "Link your PostHog account first" in _all_text(view)
+            return
+        assert button is not None
+        assert button["text"]["text"] == expected_button
+        assert button["url"] == "https://app/project/1/settings/user-personal-integrations"
+        assert button.get("style") == expected_style
+        if connected:
+            assert ("✅" in text) is credentials_usable
+
+    def test_every_connected_installation_is_listed(self):
+        view = self._view(
+            github_state=GitHubState(
+                user_resolved=True,
+                accounts=(
+                    GitHubAccount(installation_id="1", login="octocat", account_name="octocat"),
+                    GitHubAccount(installation_id="2", login="octocat", account_name="PostHog"),
+                ),
+                credentials_usable=True,
+                settings_url="https://app/settings",
+            )
+        )
+        text, _button = self._row(view, "*GitHub*")
+        assert "`octocat`" in text
+        # Installation on an org the login differs from names both sides.
+        assert "`octocat` on *PostHog*" in text
+
+    def test_each_account_carries_its_own_button(self):
+        view = self._view(
+            account_state=AccountState(enabled=True, linked_email="user@posthog.com"),
+            github_state=GitHubState(user_resolved=True, settings_url="https://app/settings"),
+        )
+        rows = self._rows(view)
+        assert [text.split("\n")[0] for text, _ in rows] == ["*PostHog*", "*GitHub*"]
+        # Disconnect belongs to the PostHog row, Connect GitHub to its own.
+        assert rows[0][1] is not None and rows[0][1]["action_id"] == ACTION_UNLINK_ACCOUNT
+        assert rows[1][1] is not None and rows[1][1]["text"]["text"] == "Connect GitHub"
+
+    def test_github_row_stands_alone_when_account_linking_is_off(self):
+        view = self._view(
+            account_state=AccountState(enabled=False),
+            github_state=GitHubState(user_resolved=True, settings_url="https://app/settings"),
+        )
+        rows = self._rows(view)
+        assert len(rows) == 1
+        assert rows[0][0].startswith("*GitHub*")
+        assert ACTION_UNLINK_ACCOUNT not in _all_text(view)
+
+
+_TASK_TITLES = ("Fix flaky retention test", "Refactor mention dispatcher")
 
 
 class TestTasksCard:
@@ -410,9 +664,10 @@ class TestTasksCard:
         return base
 
     def _item(self, **overrides) -> TaskItem:
-        defaults = {
+        defaults: dict[str, Any] = {
             "title": "Fix flaky retention test",
             "posthog_url": "https://app/project/1/tasks/abc",
+            "desktop_url": None,
             "status": "in_progress",
             "repository": "posthog/posthog",
             "pr_url": "https://github.com/posthog/posthog/pull/123",
@@ -435,7 +690,9 @@ class TestTasksCard:
             if (
                 block.get("type") == "section"
                 and isinstance(block.get("text"), dict)
-                and "https://app/project/" in block["text"].get("text", "")
+                and "|Fix flaky retention test>" in block["text"].get("text", "")
+                or block.get("type") == "section"
+                and "|Refactor mention dispatcher>" in block.get("text", {}).get("text", "")
             ):
                 title = block["text"]["text"]
                 neighbour = blocks[index + 1] if index + 1 < len(blocks) else None
@@ -470,10 +727,11 @@ class TestTasksCard:
         # Title is the full-size mrkdwn section; meta lives under it in a
         # context block so Slack renders it smaller/dimmer than the title.
         title, sub = items[0]
-        assert title == "*<https://app/project/1/tasks/abc|Fix flaky retention test>*"
+        # The title opens the Slack thread — the conversation this row summarises.
+        assert title == "*<https://slack.com/archives/C1/p1234567890123456|Fix flaky retention test>*"
         assert "🔄 in progress" in sub
         assert "`posthog/posthog`" in sub
-        assert "<https://slack.com/archives/C1/p1234567890123456|Thread>" in sub
+        assert "<https://app/project/1/tasks/abc|View on web>" in sub
         assert "<https://github.com/posthog/posthog/pull/123|PR>" in sub
         assert "_Updated 5m ago_" in sub
 
@@ -492,9 +750,9 @@ class TestTasksCard:
         )
         view = render_home_view(**self._kwargs(tasks_state=state))
         title, sub = self._task_items(view, expected_count=1)[0]
-        assert title == "*<https://app/project/1/tasks/abc|Fix flaky retention test>*"
+        assert title == "*<https://slack.com/archives/C1/p1234567890123456|Fix flaky retention test>*"
         # The supporting context block stacks the error message above the
-        # standard status/repo/thread/PR/updated meta. Error never replaces
+        # standard status/repo/links/PR/updated meta. Error never replaces
         # the surrounding state.
         sub_rows = sub.split("\n\n")
         assert len(sub_rows) == 2
@@ -503,9 +761,57 @@ class TestTasksCard:
         assert sub_rows[0] == "`boom: timed out waiting for runner stack trace omitted`"
         assert "❌ failed" in sub_rows[1]
         assert "`posthog/posthog`" in sub_rows[1]
-        assert "<https://slack.com/archives/C1/p1234567890123456|Thread>" in sub_rows[1]
+        assert "<https://app/project/1/tasks/abc|View on web>" in sub_rows[1]
         assert "<https://github.com/posthog/posthog/pull/123|PR>" in sub_rows[1]
         assert "_Updated 5m ago_" in sub_rows[1]
+
+    def test_both_task_links_render_for_a_viewer_who_can_open_them(self):
+        # The desktop link dead-ends for anyone without the app, so it rides alongside the
+        # web one rather than replacing it.
+        state = TasksState(
+            items=(self._item(desktop_url="https://us.posthog.com/code/task/abc"),),
+            has_any_tasks=True,
+            page=0,
+            total_pages=1,
+            total_filtered=1,
+        )
+        view = render_home_view(**self._kwargs(tasks_state=state))
+        _, sub = self._task_items(view, expected_count=1)[0]
+
+        assert "<https://app/project/1/tasks/abc|View on web>" in sub
+        assert "<https://us.posthog.com/code/task/abc|View on desktop>" in sub
+
+    def test_only_the_desktop_link_is_withheld_from_a_viewer_without_desktop_access(self):
+        # The task page enforces access itself, so the web link stays even when the
+        # desktop one is withheld — the same rule the reply footer's links follow.
+        state = TasksState(
+            items=(self._item(desktop_url=None),),
+            has_any_tasks=True,
+            page=0,
+            total_pages=1,
+            total_filtered=1,
+        )
+        view = render_home_view(**self._kwargs(tasks_state=state))
+        _, sub = self._task_items(view, expected_count=1)[0]
+
+        assert "View on web" in sub
+        assert "View on desktop" not in sub
+
+    def test_title_is_plain_text_when_neither_thread_nor_task_link_is_available(self):
+        # A row with no Slack permalink normally falls back to the task page. Withhold
+        # that too and the title has nowhere to point, so it must not render a link.
+        state = TasksState(
+            items=(self._item(thread_url=None, posthog_url=None),),
+            has_any_tasks=True,
+            page=0,
+            total_pages=1,
+            total_filtered=1,
+        )
+        view = render_home_view(**self._kwargs(tasks_state=state))
+        text = _all_text(view)
+
+        assert "*Fix flaky retention test*" in text
+        assert "|Fix flaky retention test>" not in text
 
     def test_task_with_no_repo_or_pr_skips_those_meta_parts(self):
         state = TasksState(
@@ -709,6 +1015,125 @@ class TestParseModalSubmission:
 
 
 # ---------------------------------------------------------------------------
+# Handler tests — Tasks card controls
+# ---------------------------------------------------------------------------
+
+
+class TestTasksControlsRepublishTheList:
+    """A click has to reach Slack as a different view, or the tab looks frozen.
+
+    The rest of the Tasks coverage stops at a boundary — the renderer takes a
+    hand-built `TasksState`, the decoding tests stop at the resolved view state. This
+    joins them: a real `block_actions` payload in, the `views.publish` payload out.
+    """
+
+    def _seed(self, integration) -> None:
+        # More than one page, so a Next click has somewhere to go.
+        for index in range(12):
+            task = Task.objects.create(
+                team=integration.team,
+                title=f"Task {index}",
+                description="d",
+                origin_product=Task.OriginProduct.SLACK,
+                repository="posthog/posthog" if index % 2 == 0 else "posthog/other",
+            )
+            run = TaskRun.objects.create(task=task, team=integration.team, status=TaskRun.Status.IN_PROGRESS)
+            SlackThreadTaskMapping.objects.create(
+                team=integration.team,
+                integration=integration,
+                slack_workspace_id=SLACK_WORKSPACE_ID,
+                channel="C1",
+                thread_ts=f"170000000.{index:06d}",
+                task=task,
+                task_run=run,
+                mentioning_slack_user_id="U001",
+            )
+
+    def _published_titles(self, view: dict) -> list[str]:
+        # A row's title is a bold link — to its Slack thread, so the target is not a
+        # task URL — followed by the meta line in a context block.
+        titles = []
+        for block in view["blocks"]:
+            text = (block.get("text") or {}).get("text", "")
+            if text.startswith("*<") and text.endswith(">*"):
+                titles.append(text.split("|", 1)[1].rstrip(">*"))
+        return titles
+
+    def test_next_publishes_a_different_page_and_the_filter_narrows_it(
+        self, slack_integration, mock_slack_client, flag_on
+    ):
+        self._seed(slack_integration)
+
+        with patch("products.slack_app.backend.services.slack_app_home.is_slack_workspace_admin", return_value=False):
+            first = _tasks_click_payload(ACTION_TASKS_PAGE_NEXT, value="0")
+            handle_ai_preferences_block_action(first, first["actions"][0])
+            page_one = self._published_titles(mock_slack_client.views_publish.call_args.kwargs["view"])
+
+            second = _tasks_click_payload(ACTION_TASKS_PAGE_NEXT, value="1")
+            handle_ai_preferences_block_action(second, second["actions"][0])
+            page_two = self._published_titles(mock_slack_client.views_publish.call_args.kwargs["view"])
+
+            narrowed = _tasks_click_payload(ACTION_TASKS_FILTER_REPO, repo="posthog/other")
+            handle_ai_preferences_block_action(narrowed, narrowed["actions"][0])
+            filtered = self._published_titles(mock_slack_client.views_publish.call_args.kwargs["view"])
+
+        assert len(page_one) == 10
+        assert page_two and not set(page_two) & set(page_one)
+        # Odd indices carry posthog/other, so the filter must leave only those.
+        assert filtered and all(int(title.split()[1]) % 2 == 1 for title in filtered)
+
+
+class TestTasksControlsResolveViewState:
+    """What the Tasks controls ask the resolver for, without touching the database.
+
+    The Home tab holds no server-side state: the page rides on the clicked button's
+    `value` and the filters ride on the view's input state. These lock that decoding,
+    which is otherwise only observable through a full publish.
+    """
+
+    def _resolved_state(self, monkeypatch, payload: dict):
+        captured: dict[str, Any] = {}
+        monkeypatch.setattr(slack_app_home, "_resolve_interaction_integration", lambda team_id, user_id: object())
+        monkeypatch.setattr(
+            slack_app_home,
+            "_republish_home",
+            lambda integration, slack_user_id, *, view_state=None: captured.update(state=view_state),
+        )
+        handle_ai_preferences_block_action(payload, payload["actions"][0])
+        assert "state" in captured, "the click never reached a republish"
+        return captured["state"]
+
+    @pytest.mark.parametrize(
+        "action_id,value,expected_page",
+        [
+            (ACTION_TASKS_PAGE_NEXT, "1", 1),
+            (ACTION_TASKS_PAGE_PREV, "0", 0),
+            (ACTION_TASKS_PAGE_NEXT, "7", 7),
+            # A button that somehow arrives without a usable page falls back to the first.
+            (ACTION_TASKS_PAGE_NEXT, None, 0),
+            (ACTION_TASKS_PAGE_NEXT, "not-a-number", 0),
+        ],
+    )
+    def test_page_comes_off_the_clicked_button(self, monkeypatch, action_id, value, expected_page):
+        state = self._resolved_state(monkeypatch, _tasks_click_payload(action_id, value=value))
+        assert state.tasks_page == expected_page
+
+    def test_paging_keeps_the_active_repo_filter(self, monkeypatch):
+        # Paging must not silently widen the list back to every repo.
+        state = self._resolved_state(
+            monkeypatch, _tasks_click_payload(ACTION_TASKS_PAGE_NEXT, value="1", repo="posthog/posthog")
+        )
+        assert (state.selected_repo, state.tasks_page) == ("posthog/posthog", 1)
+
+    def test_changing_the_filter_returns_to_the_first_page(self, monkeypatch):
+        # Otherwise a narrower result set leaves the viewer stranded past its last page.
+        state = self._resolved_state(
+            monkeypatch, _tasks_click_payload(ACTION_TASKS_FILTER_REPO, repo="posthog/posthog")
+        )
+        assert (state.selected_repo, state.tasks_page) == ("posthog/posthog", 0)
+
+
+# ---------------------------------------------------------------------------
 # Handler tests — app_home_opened event
 # ---------------------------------------------------------------------------
 
@@ -724,6 +1149,55 @@ class TestHandleAppHomeOpened:
     def test_noop_when_user_missing(self, slack_integration, mock_slack_client, flag_on):
         handle_app_home_opened({}, SLACK_WORKSPACE_ID, integration=slack_integration)
         assert not mock_slack_client.views_publish.called
+
+    def _github_row(self, user: User, login: str) -> UserIntegration:
+        return UserIntegration.objects.create(
+            user=user,
+            kind=UserIntegration.IntegrationKind.GITHUB,
+            integration_id=f"install-{login}",
+            config={"github_user": {"login": login}, "account": {"name": login}},
+            sensitive_config={"user_access_token": "gho_x", "user_refresh_token": "ghr_x"},
+        )
+
+    def test_github_card_lists_only_the_opening_users_installations(
+        self, slack_integration, mock_slack_client, flag_on, admin_user
+    ):
+        organization = slack_integration.team.organization
+        opener = User.objects.create_and_join(organization, "opener@posthog.com", None)
+        colleague = User.objects.create_and_join(organization, "colleague@posthog.com", None)
+        self._github_row(opener, "opener-gh")
+        self._github_row(colleague, "colleague-gh")
+        SlackUserProfileCache.objects.create(
+            integration=slack_integration,
+            slack_user_id="U001",
+            email=opener.email,
+        )
+
+        handle_app_home_opened({"user": "U001"}, SLACK_WORKSPACE_ID, integration=slack_integration)
+
+        text = _all_text(mock_slack_client.views_publish.call_args.kwargs["view"])
+        assert "opener-gh" in text
+        assert "colleague-gh" not in text
+
+    def test_deactivated_user_is_not_resolved_from_their_slack_identity(
+        self, slack_integration, mock_slack_client, flag_on, admin_user
+    ):
+        organization = slack_integration.team.organization
+        offboarded = User.objects.create_and_join(organization, "offboarded@posthog.com", None)
+        self._github_row(offboarded, "offboarded-gh")
+        SlackUserProfileCache.objects.create(
+            integration=slack_integration,
+            slack_user_id="U001",
+            email=offboarded.email,
+        )
+        offboarded.is_active = False
+        offboarded.save(update_fields=["is_active"])
+
+        handle_app_home_opened({"user": "U001"}, SLACK_WORKSPACE_ID, integration=slack_integration)
+
+        text = _all_text(mock_slack_client.views_publish.call_args.kwargs["view"])
+        assert "offboarded-gh" not in text
+        assert "Link your PostHog account first" in text
 
 
 # ---------------------------------------------------------------------------
@@ -918,3 +1392,105 @@ class TestRetiredWorkspaceModal:
         response = handle_app_home_view_submission(payload)
         assert response.status_code == 200
         assert not SlackSettings.objects.exists()
+
+
+class TestInteractionResolvesTheViewersIntegration:
+    """A workspace connected to two organizations must answer clicks for the right one.
+
+    Everything the tab is keyed on hangs off the resolved integration — the rollout flag
+    is scoped to an organization, and the task list, project card and account link are all
+    scoped to its team. Answering a click against an arbitrary row of the workspace makes
+    the tab disagree with itself, which reads as a control that does nothing.
+    """
+
+    def _second_org_integration(self) -> Integration:
+        organization = Organization.objects.create(name="Other Org")
+        team = Team.objects.create(organization=organization, name="Other Team")
+        return Integration.objects.create(
+            team=team,
+            kind="slack",
+            integration_id=SLACK_WORKSPACE_ID,
+            sensitive_config={"access_token": "xoxb-other"},
+        )
+
+    # Personal pick and workspace default are separate rungs of the ladder; both must beat
+    # row order, since `slack_integration` is created first and any unordered lookup wins with it.
+    @pytest.mark.parametrize("pick_owner", ["U001", None])
+    def test_the_saved_project_pick_beats_row_order(self, slack_integration, pick_owner):
+        preferred = self._second_org_integration()
+        SlackSettings.objects.create(
+            slack_workspace_id=SLACK_WORKSPACE_ID,
+            slack_user_id=pick_owner,
+            default_integration=preferred,
+        )
+
+        resolved = slack_app_home._resolve_interaction_integration(SLACK_WORKSPACE_ID, "U001")
+
+        assert resolved is not None and resolved.id == preferred.id
+
+    def test_unknown_workspace_resolves_to_nothing(self, db):
+        assert slack_app_home._resolve_interaction_integration("T_NOT_CONNECTED", "U001") is None
+
+    def test_no_pick_falls_back_to_the_same_install_regardless_of_candidate_order(self, slack_integration):
+        # The auth filter hands back candidates freshest-verdict-first, so the fallback
+        # can't take the front of that list and stay put across cache expiries.
+        newer = self._second_org_integration()
+        oldest = min(slack_integration.id, newer.id)
+
+        first = slack_app_home._resolve_interaction_integration(SLACK_WORKSPACE_ID, "U001")
+        with patch(
+            "products.slack_app.backend.services.slack_auth.check_integrations_auth_and_filter",
+            side_effect=lambda candidates, **_: list(reversed(candidates)),
+        ):
+            reordered = slack_app_home._resolve_interaction_integration(SLACK_WORKSPACE_ID, "U001")
+
+        assert first is not None and reordered is not None
+        assert first.id == reordered.id == oldest
+
+
+class TestNoProjectAccessCard:
+    """What someone sees when no PostHog project connected here is visible to them.
+
+    Without this the tab draws its normal cards against nothing: no project picker, and a
+    Tasks card inviting them to mention @PostHog — which won't run either, for the same
+    reason. The regression to catch is a card reappearing in that state.
+    """
+
+    def _view(self, **overrides) -> dict:
+        kwargs: dict[str, Any] = {
+            "effective": AIPreferences(),
+            "user_row": None,
+            "is_admin": True,
+            "has_project_access": False,
+            "tasks_state": TasksState(),
+            "stats_state": StatsState(tasks_started=4),
+            "account_state": AccountState(enabled=True, link_url="https://app/link"),
+            "project_state": ProjectState(candidates=(ProjectChoice(team_id=1, label="Org · Team"),)),
+        }
+        kwargs.update(overrides)
+        return render_home_view(**kwargs)
+
+    def test_explains_the_dead_end_and_links_to_the_settings_page(self):
+        text = _all_text(self._view())
+
+        assert "No project to show yet" in text
+        assert "ask an admin" in text
+        urls = [
+            element["url"]
+            for block in self._view()["blocks"]
+            for element in block.get("elements", []) or []
+            if "url" in element
+        ]
+        assert urls == ["http://localhost:8010/settings/project-integrations"]
+
+    def test_suppresses_every_card_that_needs_a_project(self):
+        # Each of these would otherwise render from the states passed above.
+        text = _all_text(self._view())
+
+        assert "🦔 Tasks" not in text
+        assert "Workspace activity" not in text
+        assert "Project routing" not in text
+        assert not _action_ids(self._view())
+
+    def test_normal_tab_is_untouched_when_a_project_is_reachable(self):
+        assert "No project to show yet" not in _all_text(self._view(has_project_access=True))

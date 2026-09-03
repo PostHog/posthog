@@ -18,6 +18,7 @@ use async_trait::async_trait;
 use futures::stream::{self, StreamExt};
 use metrics::{counter, gauge, histogram};
 use personhog_proto::personhog::types::v1::Person;
+use tokio::sync::Semaphore;
 use tokio::task::{JoinError, JoinSet};
 use tracing::error;
 
@@ -37,13 +38,15 @@ pub trait PersonDb: Send + Sync {
 
 /// Outcome of a batch upsert. Reports which chunks (if any) need retry,
 /// grouped by failure class so the caller picks the right strategy:
-/// transient chunks are retried as batches after backoff, data-failed
+/// transient chunks are retried as batches after backoff, saturated chunks
+/// are retried without counting toward failure escalation, data-failed
 /// chunks fall through to per-row inserts to isolate bad records.
 #[derive(Debug)]
 pub enum BatchOutcome {
     Success,
     Partial {
         transient: Vec<Person>,
+        saturated: Vec<Person>,
         data_failed: Vec<Person>,
     },
     /// A chunk task panicked. The persons in that chunk are unrecoverable;
@@ -70,6 +73,9 @@ pub struct RowViolation {
 pub struct RowFallbackOutcome {
     /// Rows that failed transiently; the caller retries them with backoff.
     pub transient: Vec<Person>,
+    /// Rows that hit local pool saturation; the caller retries them
+    /// without counting the round toward failure escalation.
+    pub saturated: Vec<Person>,
     /// Rows PG cannot apply — invariant violations that must halt the
     /// flush without committing.
     pub violations: Vec<RowViolation>,
@@ -91,18 +97,26 @@ pub struct StoreConfig {
 /// Production person write store. Splits batches into chunks, runs them in
 /// parallel against a `PersonDb`, partitions outcomes by failure class, and
 /// handles per-row fallback.
+///
+/// Every statement — chunk or row — first takes a permit from `permits`,
+/// which main shares across all lanes' stores. That makes the permit count
+/// the pod-wide ceiling on in-flight statements: a backlogged flush queues
+/// at the semaphore (an unbounded, cheap wait) instead of oversubscribing
+/// the pool and converting its own burst into acquire timeouts.
 pub struct PersonWriteStore<D: PersonDb> {
     db: Arc<D>,
     chunk_size: usize,
     row_fallback_concurrency: usize,
+    permits: Arc<Semaphore>,
 }
 
 impl<D: PersonDb + 'static> PersonWriteStore<D> {
-    pub fn new(db: D, cfg: StoreConfig) -> Self {
+    pub fn new(db: D, cfg: StoreConfig, permits: Arc<Semaphore>) -> Self {
         Self {
             db: Arc::new(db),
             chunk_size: cfg.chunk_size.max(1),
             row_fallback_concurrency: cfg.row_fallback_concurrency.max(1),
+            permits,
         }
     }
 
@@ -119,6 +133,7 @@ impl<D: PersonDb + 'static> PersonWriteStore<D> {
         // here since chunk_size is tuned to match the aggregator flush size.
         let outcome = if chunks.len() == 1 {
             let chunk = chunks.into_iter().next().unwrap();
+            let _permit = self.acquire_permit().await;
             match self.db.execute_chunk(&chunk).await {
                 Ok(()) => BatchOutcome::Success,
                 Err(e) => partial_from_failed_chunk(chunk, e.kind),
@@ -134,13 +149,22 @@ impl<D: PersonDb + 'static> PersonWriteStore<D> {
     }
 
     pub async fn upsert_row(&self, person: &Person) -> Result<(), WriteError> {
+        let _permit = self.acquire_permit().await;
         self.db.execute_row(person).await
+    }
+
+    async fn acquire_permit(&self) -> tokio::sync::SemaphorePermit<'_> {
+        self.permits
+            .acquire()
+            .await
+            .expect("upsert permit semaphore is never closed")
     }
 
     /// Run per-row upserts for a batch of persons with bounded concurrency,
     /// isolating which rows a data-failed chunk actually cannot apply.
-    /// pgbouncer handles PG-side backpressure; our bound is to keep sqlx
-    /// pool turnover reasonable and cap memory of in-flight futures.
+    /// The effective bound is min(`row_fallback_concurrency`, free permits):
+    /// each row also takes an upsert permit, so fallback traffic counts
+    /// against the same pod-wide statement ceiling as chunks.
     ///
     /// Transient failures are returned for retry. Non-transient failures
     /// are invariant violations (the leader admitted an unapplyable
@@ -167,6 +191,9 @@ impl<D: PersonDb + 'static> PersonWriteStore<D> {
                 Ok(()) => {}
                 Err(e) if matches!(e.kind, WriteErrorKind::Transient) => {
                     outcome.transient.push(person);
+                }
+                Err(e) if matches!(e.kind, WriteErrorKind::Saturation) => {
+                    outcome.saturated.push(person);
                 }
                 Err(e) => {
                     counter!(
@@ -197,13 +224,19 @@ impl<D: PersonDb + 'static> PersonWriteStore<D> {
         let mut set: JoinSet<(Vec<Person>, Result<(), WriteError>)> = JoinSet::new();
         for chunk in chunks {
             let db = Arc::clone(&self.db);
+            let permits = Arc::clone(&self.permits);
             set.spawn(async move {
+                let _permit = permits
+                    .acquire_owned()
+                    .await
+                    .expect("upsert permit semaphore is never closed");
                 let res = db.execute_chunk(&chunk).await;
                 (chunk, res)
             });
         }
 
         let mut transient = Vec::new();
+        let mut saturated = Vec::new();
         let mut data_failed = Vec::new();
 
         while let Some(joined) = set.join_next().await {
@@ -211,6 +244,7 @@ impl<D: PersonDb + 'static> PersonWriteStore<D> {
                 Ok((_chunk, Ok(()))) => {}
                 Ok((chunk, Err(e))) => match e.kind {
                     WriteErrorKind::Transient => transient.extend(chunk),
+                    WriteErrorKind::Saturation => saturated.extend(chunk),
                     WriteErrorKind::Data | WriteErrorKind::PropertiesSizeViolation => {
                         data_failed.extend(chunk);
                     }
@@ -228,16 +262,21 @@ impl<D: PersonDb + 'static> PersonWriteStore<D> {
         if !transient.is_empty() {
             counter!("personhog_writer_chunk_retry_rows_total").increment(transient.len() as u64);
         }
+        if !saturated.is_empty() {
+            counter!("personhog_writer_chunk_saturated_rows_total")
+                .increment(saturated.len() as u64);
+        }
         if !data_failed.is_empty() {
             counter!("personhog_writer_chunk_fallback_rows_total")
                 .increment(data_failed.len() as u64);
         }
 
-        if transient.is_empty() && data_failed.is_empty() {
+        if transient.is_empty() && saturated.is_empty() && data_failed.is_empty() {
             BatchOutcome::Success
         } else {
             BatchOutcome::Partial {
                 transient,
+                saturated,
                 data_failed,
             }
         }
@@ -261,6 +300,15 @@ fn partial_from_failed_chunk(chunk: Vec<Person>, kind: WriteErrorKind) -> BatchO
             counter!("personhog_writer_chunk_retry_rows_total").increment(chunk.len() as u64);
             BatchOutcome::Partial {
                 transient: chunk,
+                saturated: Vec::new(),
+                data_failed: Vec::new(),
+            }
+        }
+        WriteErrorKind::Saturation => {
+            counter!("personhog_writer_chunk_saturated_rows_total").increment(chunk.len() as u64);
+            BatchOutcome::Partial {
+                transient: Vec::new(),
+                saturated: chunk,
                 data_failed: Vec::new(),
             }
         }
@@ -268,6 +316,7 @@ fn partial_from_failed_chunk(chunk: Vec<Person>, kind: WriteErrorKind) -> BatchO
             counter!("personhog_writer_chunk_fallback_rows_total").increment(chunk.len() as u64);
             BatchOutcome::Partial {
                 transient: Vec::new(),
+                saturated: Vec::new(),
                 data_failed: chunk,
             }
         }
@@ -280,6 +329,7 @@ fn kind_label(kind: WriteErrorKind) -> &'static str {
         WriteErrorKind::PropertiesSizeViolation => "size",
         WriteErrorKind::Data => "data",
         WriteErrorKind::Transient => "transient",
+        WriteErrorKind::Saturation => "saturation",
     }
 }
 
@@ -439,6 +489,11 @@ mod tests {
         }
     }
 
+    /// Store with a permit budget large enough to never constrain a test.
+    fn test_store(db: StubDb, cfg: StoreConfig) -> PersonWriteStore<StubDb> {
+        PersonWriteStore::new(db, cfg, Arc::new(Semaphore::new(64)))
+    }
+
     // ── Split helper ────────────────────────────────────────────
 
     #[test]
@@ -472,7 +527,7 @@ mod tests {
 
     #[tokio::test]
     async fn upsert_batch_empty_returns_success() {
-        let store = PersonWriteStore::new(StubDb::new(), StoreConfig::test_default());
+        let store = test_store(StubDb::new(), StoreConfig::test_default());
         assert!(matches!(
             store.upsert_batch(Vec::new()).await,
             BatchOutcome::Success
@@ -481,7 +536,7 @@ mod tests {
 
     #[tokio::test]
     async fn upsert_batch_single_chunk_success() {
-        let store = PersonWriteStore::new(StubDb::new(), StoreConfig::test_default());
+        let store = test_store(StubDb::new(), StoreConfig::test_default());
         let persons: Vec<Person> = (0..5).map(p).collect();
         assert!(matches!(
             store.upsert_batch(persons).await,
@@ -492,7 +547,7 @@ mod tests {
     #[tokio::test]
     async fn upsert_batch_parallel_all_succeed() {
         // 6 persons, chunk_size 2 → 3 parallel chunks
-        let store = PersonWriteStore::new(
+        let store = test_store(
             StubDb::new(),
             StoreConfig {
                 chunk_size: 2,
@@ -511,14 +566,16 @@ mod tests {
     #[tokio::test]
     async fn upsert_batch_transient_routes_to_transient_bucket() {
         let db = StubDb::new().with_chunk_default(ChunkResponse::Err(WriteErrorKind::Transient));
-        let store = PersonWriteStore::new(db, StoreConfig::test_default());
+        let store = test_store(db, StoreConfig::test_default());
         let persons: Vec<Person> = (0..3).map(p).collect();
         match store.upsert_batch(persons).await {
             BatchOutcome::Partial {
                 transient,
+                saturated,
                 data_failed,
             } => {
                 assert_eq!(transient.len(), 3);
+                assert!(saturated.is_empty());
                 assert!(data_failed.is_empty());
             }
             other => panic!("expected Partial, got {other:?}"),
@@ -528,14 +585,16 @@ mod tests {
     #[tokio::test]
     async fn upsert_batch_data_error_routes_to_data_bucket() {
         let db = StubDb::new().with_chunk_default(ChunkResponse::Err(WriteErrorKind::Data));
-        let store = PersonWriteStore::new(db, StoreConfig::test_default());
+        let store = test_store(db, StoreConfig::test_default());
         let persons: Vec<Person> = (0..3).map(p).collect();
         match store.upsert_batch(persons).await {
             BatchOutcome::Partial {
                 transient,
+                saturated,
                 data_failed,
             } => {
                 assert!(transient.is_empty());
+                assert!(saturated.is_empty());
                 assert_eq!(data_failed.len(), 3);
             }
             other => panic!("expected Partial, got {other:?}"),
@@ -546,15 +605,36 @@ mod tests {
     async fn upsert_batch_size_violation_routes_to_data_bucket() {
         let db = StubDb::new()
             .with_chunk_default(ChunkResponse::Err(WriteErrorKind::PropertiesSizeViolation));
-        let store = PersonWriteStore::new(db, StoreConfig::test_default());
+        let store = test_store(db, StoreConfig::test_default());
         let persons: Vec<Person> = (0..3).map(p).collect();
         match store.upsert_batch(persons).await {
             BatchOutcome::Partial {
                 transient,
+                saturated,
                 data_failed,
             } => {
                 assert!(transient.is_empty());
+                assert!(saturated.is_empty());
                 assert_eq!(data_failed.len(), 3);
+            }
+            other => panic!("expected Partial, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn upsert_batch_saturation_routes_to_saturated_bucket() {
+        let db = StubDb::new().with_chunk_default(ChunkResponse::Err(WriteErrorKind::Saturation));
+        let store = test_store(db, StoreConfig::test_default());
+        let persons: Vec<Person> = (0..3).map(p).collect();
+        match store.upsert_batch(persons).await {
+            BatchOutcome::Partial {
+                transient,
+                saturated,
+                data_failed,
+            } => {
+                assert!(transient.is_empty());
+                assert_eq!(saturated.len(), 3);
+                assert!(data_failed.is_empty());
             }
             other => panic!("expected Partial, got {other:?}"),
         }
@@ -570,7 +650,7 @@ mod tests {
             .script_chunk_for_id(0, ChunkResponse::Ok)
             .script_chunk_for_id(2, ChunkResponse::Err(WriteErrorKind::Transient))
             .script_chunk_for_id(4, ChunkResponse::Err(WriteErrorKind::Data));
-        let store = PersonWriteStore::new(
+        let store = test_store(
             db,
             StoreConfig {
                 chunk_size: 2,
@@ -582,9 +662,11 @@ mod tests {
         match store.upsert_batch(persons).await {
             BatchOutcome::Partial {
                 transient,
+                saturated,
                 data_failed,
             } => {
                 assert_eq!(transient.len(), 2);
+                assert!(saturated.is_empty());
                 assert_eq!(transient[0].id, 2);
                 assert_eq!(transient[1].id, 3);
                 assert_eq!(data_failed.len(), 2);
@@ -598,7 +680,7 @@ mod tests {
     #[tokio::test]
     async fn upsert_batch_parallel_all_transient_returns_all_rows() {
         let db = StubDb::new().with_chunk_default(ChunkResponse::Err(WriteErrorKind::Transient));
-        let store = PersonWriteStore::new(
+        let store = test_store(
             db,
             StoreConfig {
                 chunk_size: 2,
@@ -609,9 +691,11 @@ mod tests {
         match store.upsert_batch(persons).await {
             BatchOutcome::Partial {
                 transient,
+                saturated,
                 data_failed,
             } => {
                 assert_eq!(transient.len(), 6);
+                assert!(saturated.is_empty());
                 assert!(data_failed.is_empty());
             }
             other => panic!("expected Partial, got {other:?}"),
@@ -627,7 +711,7 @@ mod tests {
             .script_chunk_for_id(0, ChunkResponse::Ok)
             .script_chunk_for_id(2, ChunkResponse::Panic)
             .script_chunk_for_id(4, ChunkResponse::Ok);
-        let store = PersonWriteStore::new(
+        let store = test_store(
             db,
             StoreConfig {
                 chunk_size: 2,
@@ -651,7 +735,7 @@ mod tests {
 
     #[tokio::test]
     async fn upsert_rows_parallel_applies_every_row_cleanly() {
-        let store = PersonWriteStore::new(StubDb::new(), StoreConfig::test_default());
+        let store = test_store(StubDb::new(), StoreConfig::test_default());
         let persons: Vec<Person> = (0..10).map(p).collect();
         let outcome = store.upsert_rows_parallel(persons).await;
         assert!(outcome.transient.is_empty());
@@ -661,7 +745,7 @@ mod tests {
     #[tokio::test]
     async fn upsert_rows_parallel_returns_transient_failures_for_retry() {
         let db = StubDb::new().with_row_default(ChunkResponse::Err(WriteErrorKind::Transient));
-        let store = PersonWriteStore::new(db, StoreConfig::test_default());
+        let store = test_store(db, StoreConfig::test_default());
         let persons: Vec<Person> = (0..5).map(p).collect();
         let outcome = store.upsert_rows_parallel(persons).await;
         assert_eq!(outcome.transient.len(), 5);
@@ -669,9 +753,68 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn upsert_rows_parallel_returns_saturated_rows_for_retry() {
+        let db = StubDb::new().with_row_default(ChunkResponse::Err(WriteErrorKind::Saturation));
+        let store = test_store(db, StoreConfig::test_default());
+        let persons: Vec<Person> = (0..5).map(p).collect();
+        let outcome = store.upsert_rows_parallel(persons).await;
+        assert!(outcome.transient.is_empty());
+        assert_eq!(outcome.saturated.len(), 5);
+        assert!(outcome.violations.is_empty());
+    }
+
+    // ── Permit bound ───────────────────────────────────────────
+
+    #[tokio::test(start_paused = true)]
+    async fn parallel_chunks_respect_the_shared_permit_bound() {
+        struct ConcurrencyDb {
+            current: Arc<AtomicUsize>,
+            max: Arc<AtomicUsize>,
+        }
+
+        #[async_trait]
+        impl PersonDb for ConcurrencyDb {
+            async fn execute_chunk(&self, _chunk: &[Person]) -> Result<(), WriteError> {
+                let now = self.current.fetch_add(1, Ordering::SeqCst) + 1;
+                self.max.fetch_max(now, Ordering::SeqCst);
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                self.current.fetch_sub(1, Ordering::SeqCst);
+                Ok(())
+            }
+
+            async fn execute_row(&self, _person: &Person) -> Result<(), WriteError> {
+                Ok(())
+            }
+        }
+
+        let current = Arc::new(AtomicUsize::new(0));
+        let max = Arc::new(AtomicUsize::new(0));
+        let store = PersonWriteStore::new(
+            ConcurrencyDb {
+                current: Arc::clone(&current),
+                max: Arc::clone(&max),
+            },
+            StoreConfig {
+                chunk_size: 1,
+                row_fallback_concurrency: 4,
+            },
+            Arc::new(Semaphore::new(2)),
+        );
+
+        // 8 persons at chunk_size 1 spawn 8 chunk tasks at once; the permit
+        // budget of 2 must be the only thing bounding them.
+        let persons: Vec<Person> = (0..8).map(p).collect();
+        assert!(matches!(
+            store.upsert_batch(persons).await,
+            BatchOutcome::Success
+        ));
+        assert_eq!(max.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
     async fn upsert_rows_parallel_surfaces_unapplyable_rows_as_violations() {
         let db = StubDb::new().with_row_default(ChunkResponse::Err(WriteErrorKind::Data));
-        let store = PersonWriteStore::new(db, StoreConfig::test_default());
+        let store = test_store(db, StoreConfig::test_default());
         let persons: Vec<Person> = (0..5).map(p).collect();
         let outcome = store.upsert_rows_parallel(persons).await;
         assert!(outcome.transient.is_empty());

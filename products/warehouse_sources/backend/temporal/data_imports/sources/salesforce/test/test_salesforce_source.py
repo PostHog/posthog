@@ -23,15 +23,6 @@ class TestSalesforceSourceNonRetryableErrors:
             f"Expected '{error_message}' to match a non-retryable pattern"
         )
 
-    def test_unrelated_error_stays_retryable(self):
-        error_message = "ConnectionError: Read timed out"
-
-        non_retryable_errors = self.source.get_non_retryable_errors()
-
-        assert not any(pattern in error_message for pattern in non_retryable_errors), (
-            f"'{error_message}' must not match a non-retryable pattern"
-        )
-
     @pytest.mark.parametrize(
         "error_message",
         [

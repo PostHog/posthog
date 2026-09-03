@@ -9,7 +9,7 @@ import { ExperimentStatsMethod } from '~/types'
 
 import { useSvgResizeObserver } from '../hooks/useSvgResizeObserver'
 import { getNiceTickValues } from '../shared/utils'
-import { SVG_EDGE_MARGIN, TICK_FONT_SIZE_NEW, TICK_PANEL_HEIGHT, VIEW_BOX_WIDTH } from './constants'
+import { SVG_EDGE_MARGIN, TICK_FONT_SIZE, TICK_PANEL_HEIGHT, VIEW_BOX_WIDTH } from './constants'
 import { TickLabels } from './TickLabels'
 import { useAxisScale } from './useAxisScale'
 
@@ -68,18 +68,23 @@ export function TableHeader({
                     {statsMethod === ExperimentStatsMethod.Frequentist ? (
                         sequentialTestingEnabled ? (
                             <span className="inline-flex items-center gap-1">
-                                P-value
+                                p-value
                                 <Tooltip title="Sequential testing is enabled. These are always-valid p-values, robust to peeking. They have a slightly different interpretation than ordinary p-values and can often be exactly 1.000 early in the experiment. The result is still statistically significant if the p-value drops below your threshold.">
                                     <IconInfo className="text-secondary text-base" />
                                 </Tooltip>
                             </span>
                         ) : (
-                            'P-value'
+                            <span className="inline-flex items-center gap-1">
+                                p-value
+                                <Tooltip title="The probability of seeing a difference at least this large if the variant had no real effect. The result is significant when the p-value drops below your threshold.">
+                                    <IconInfo className="text-secondary text-base" />
+                                </Tooltip>
+                            </span>
                         )
                     ) : (
                         <span className="inline-flex items-center gap-1">
                             Win %
-                            <Tooltip title="Probability of outperforming control, not a percentage lift.">
+                            <Tooltip title="Chance to win: the probability that this variant beats the baseline, not the size of the lift.">
                                 <IconInfo className="text-secondary text-base" />
                             </Tooltip>
                         </span>
@@ -103,7 +108,7 @@ export function TableHeader({
                                     scale={scale}
                                     y={(TICK_PANEL_HEIGHT + 13) / 2}
                                     viewBoxWidth={VIEW_BOX_WIDTH}
-                                    fontSize={TICK_FONT_SIZE_NEW}
+                                    fontSize={TICK_FONT_SIZE}
                                     fontWeight="600"
                                     dominantBaseline="middle"
                                     svgWidth={svgWidth}

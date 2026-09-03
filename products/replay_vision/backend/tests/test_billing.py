@@ -25,7 +25,7 @@ class TestReplayVisionBillingUsage(APIBaseTest):
         *,
         team_id: int | None,
         created_at: datetime,
-        model: str = ScannerModel.GEMINI_3_6_FLASH,
+        model: str = ScannerModel.GEMINI_3_7_FLASH,
         credits: int | None = None,
     ) -> None:
         receipt = ReplayObservationUsage.objects.create(
@@ -44,10 +44,10 @@ class TestReplayVisionBillingUsage(APIBaseTest):
         begin = now - timedelta(days=1)
         end = now + timedelta(days=1)
         # Two in-window at different model prices, one out-of-window, one for another team.
-        self._receipt(team_id=self.team.id, created_at=now, model=ScannerModel.GEMINI_3_6_FLASH)
+        self._receipt(team_id=self.team.id, created_at=now, model=ScannerModel.GEMINI_3_7_FLASH)
         self._receipt(team_id=self.team.id, created_at=now, model=ScannerModel.GEMINI_3_5_FLASH_LITE)
         self._receipt(team_id=self.team.id, created_at=now - timedelta(days=3))
-        self._receipt(team_id=self.team.id + 1, created_at=now, model=ScannerModel.GEMINI_3_6_FLASH)
+        self._receipt(team_id=self.team.id + 1, created_at=now, model=ScannerModel.GEMINI_3_7_FLASH)
 
         result = dict(get_replay_vision_credits_by_team(begin, end))
         assert result == {self.team.id: 15 + 2, self.team.id + 1: 15}
@@ -57,7 +57,7 @@ class TestReplayVisionBillingUsage(APIBaseTest):
         begin = now - timedelta(days=1)
         end = now + timedelta(days=1)
         # Mixed prices so a count can't be mistaken for the credit sum (15 + 2 credits, but 2 observations).
-        self._receipt(team_id=self.team.id, created_at=now, model=ScannerModel.GEMINI_3_6_FLASH)
+        self._receipt(team_id=self.team.id, created_at=now, model=ScannerModel.GEMINI_3_7_FLASH)
         self._receipt(team_id=self.team.id, created_at=now, model=ScannerModel.GEMINI_3_5_FLASH_LITE)
         self._receipt(team_id=self.team.id, created_at=now - timedelta(days=3))
         self._receipt(team_id=self.team.id + 1, created_at=now)
@@ -100,7 +100,7 @@ def test_gemini_models_config_mirrors_scanner_model_enum() -> None:
     )
 
 
-@pytest.mark.parametrize("model", [ScannerModel.GEMINI_3_FLASH_PREVIEW, ScannerModel.GEMINI_3_6_FLASH])
+@pytest.mark.parametrize("model", [ScannerModel.GEMINI_3_FLASH_PREVIEW, ScannerModel.GEMINI_3_7_FLASH])
 def test_flash_credit_price_tracks_the_margin_formula(model: str) -> None:
     # Both flash-tier prices are contractually the formula output (the budget tier is pinned below it), so a
     # token price or margin change must come with a conscious repricing, not silently stale credits.

@@ -188,6 +188,20 @@ def event_match_params(obj) -> dict:
 _EVENT_REMOVAL_TIME_PREDICATE = "team_id = %(team_id)s AND timestamp >= %(start_time)s AND timestamp < %(end_time)s"
 
 
+def portable_event_removal_where(obj) -> tuple[str, dict]:
+    """The part of an event-removal predicate every deletion target can run.
+
+    Team/timestamp bounds plus the event-name filter — columns that every table carrying event
+    rows declares. Excludes the compiled HogQL fragment, which resolves against the events schema
+    and names physical columns (``mat_*``, the property-group maps) other tables do not have.
+
+    Because it drops a narrowing clause, this matches a superset of ``event_removal_where``. That
+    makes it safe for asking "would this request strand rows here?" and unsafe for deleting.
+    """
+    parts = [_EVENT_REMOVAL_TIME_PREDICATE, event_match_sql_fragment(obj)]
+    return " ".join(p for p in parts if p), event_match_params(obj)
+
+
 def event_removal_where(obj, use_new_events_schema: bool = False) -> tuple[str, dict]:
     """Full WHERE predicate + params for event-removal queries.
 
@@ -198,8 +212,8 @@ def event_removal_where(obj, use_new_events_schema: bool = False) -> tuple[str, 
     proxy or the local ``sharded_events`` MergeTree. Pass ``use_new_events_schema``
     when the query targets the native-JSON events tables.
     """
-    parts = [_EVENT_REMOVAL_TIME_PREDICATE, event_match_sql_fragment(obj)]
-    params = event_match_params(obj)
+    predicate, params = portable_event_removal_where(obj)
+    parts = [predicate]
     hogql_sql, hogql_values = compile_hogql_predicate(obj, use_new_events_schema=use_new_events_schema)
     if hogql_sql:
         parts.append(f"AND ({hogql_sql})")
@@ -742,18 +756,23 @@ def refresh_deletion_stats(request: "DataDeletionRequest", *, user_id: int | Non
 
 
 def count_remaining_matching_events(request: "DataDeletionRequest") -> int:
-    """Count events still matching an event-removal request's criteria in ClickHouse.
+    """Count rows still matching an event-removal request's criteria in ClickHouse.
 
-    Counts across every events read table (legacy and native-JSON) — a request is only complete
-    once its events are gone from all of them.
+    Counts across every registered read table that could hold the named events. A request is only
+    complete once its rows are gone from all of them.
+
+    A target that cannot take the compiled HogQL fragment is counted with the portable predicate
+    instead, which matches a superset. That can only hold a request in QUEUED, never promote one
+    early. It also means a non-zero count is not proof that rows were missed: for a HogQL request
+    the superset can match rows the predicate itself never would.
     """
     from posthog.clickhouse.client import sync_execute
     from posthog.clickhouse.client.connection import ClickHouseUser
     from posthog.clickhouse.query_tagging import Feature, Product, tags_context
     from posthog.clickhouse.workload import Workload
-    from posthog.models.event.deletion import events_read_tables_via_sync_execute
-    from posthog.models.event.sql import DISTRIBUTED_EVENTS_JSON_TABLE
+    from posthog.models.deletion_targets import resolve_read_targets_via_sync_execute, surviving_rows_sql
 
+    events = [] if request.delete_all_events else request.events
     total = 0
     with tags_context(
         product=Product.INTERNAL,
@@ -762,13 +781,15 @@ def count_remaining_matching_events(request: "DataDeletionRequest") -> int:
         workload=Workload.OFFLINE,
         query_type="data_deletion_request_verify_queued",
     ):
-        for table in events_read_tables_via_sync_execute():
-            predicate, params = event_removal_where(
-                request, use_new_events_schema=table == DISTRIBUTED_EVENTS_JSON_TABLE
-            )
-            # nosemgrep: clickhouse-fstring-param-audit (predicate built from internal helper, not user input)
+        for target in resolve_read_targets_via_sync_execute():
+            if not target.may_hold_any_of(events):
+                continue
+            if target.accepts_hogql_predicate:
+                predicate, params = event_removal_where(request, use_new_events_schema=target.uses_new_events_schema)
+            else:
+                predicate, params = portable_event_removal_where(request)
             result = sync_execute(
-                f"SELECT count() FROM {table} WHERE {predicate} AND _row_exists = 1",
+                surviving_rows_sql(target.read_table, predicate),
                 params,
                 team_id=request.team_id,
                 readonly=True,
@@ -795,6 +816,9 @@ def discover_affected_mat_columns(properties: list[str], table_column: str) -> l
     ``column_materializer::<table_column>::<prop>`` convention. Mirrors ``_get_affected_mat_columns``
     in the deletion job so verification counts a row as dirty on the same terms the deletion does — a
     value left in a materialized column after its JSON key is gone still counts.
+
+    Scoped to ``events`` deliberately, matching the deletion job; see
+    docs/internal/clickhouse-deletion-coverage.md.
     """
     if not properties:
         return []

@@ -12,9 +12,6 @@
                                 },
                                 {
                                     "type": "number"
-                                },
-                                {
-                                    "type": "null"
                                 }
                             ],
                             "description": "User ID or role UUID to filter by."

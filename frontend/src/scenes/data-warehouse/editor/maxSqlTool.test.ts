@@ -27,6 +27,16 @@ describe('maxSqlTool', () => {
                 filters: { dateRange: { date_from: '-30d' } },
             },
         })
+        expect(context.connection_id).toBeNull()
+    })
+
+    it('passes the selected direct connection id as context', () => {
+        const context = getExecuteSqlToolContext('SELECT 1', {
+            ...sourceQuery,
+            source: { ...sourceQuery.source, connectionId: 'conn-123' },
+        })
+
+        expect(context.connection_id).toEqual('conn-123')
     })
 
     it.each([

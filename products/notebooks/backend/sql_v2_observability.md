@@ -5,8 +5,9 @@ Companion to [`sql_v2_frame_store.md`](./sql_v2_frame_store.md) — that doc dec
 
 Artifacts:
 
-- [`observability/notebooks-rollout.grafana.json`](../observability/notebooks-rollout.grafana.json) — importable Grafana dashboard (Prometheus/VictoriaMetrics).
-- [`observability/notebooks-query-log.sql`](../observability/notebooks-query-log.sql) — `query_log_archive` query pack (ClickHouse per-query cost).
+- [`observability/notebooks-rollout.grafana.json`](../observability/notebooks-rollout.grafana.json) — importable Grafana dashboard (Prometheus/VictoriaMetrics). Its "Transport A/B" row is the flag-on vs flag-off comparison.
+- [`observability/notebooks-query-log.sql`](../observability/notebooks-query-log.sql) — `query_log_archive` query pack (ClickHouse per-query cost). SQL 9 is the same comparison on the ClickHouse side.
+- Notebook `Vs0Gjpqb` in project 2 ("SQLV2 transport benchmark") — the graduated workload to run under each arm.
 
 ## The split: two surfaces, and why
 
@@ -39,18 +40,20 @@ The dashboard uses the `_total` names; the source code does not have them.
 
 ## Coverage against what you asked for
 
-| Want                              | Where                                                                                               | State                                                           |
-| --------------------------------- | --------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
-| Notebook request E2E latency      | `posthog_notebooks_node_run_seconds{node_type,outcome}` + `notebook node run completed` event       | Covered — see "Node-run instrumentation" below                  |
-| CH latency for notebook queries   | `query_log_archive.query_duration_ms` (SQL 1)                                                       | Covered                                                         |
-| CH scanned bytes                  | `query_log_archive.read_bytes` (SQL 1, 6)                                                           | Covered                                                         |
-| CH bytes returned                 | `result_bytes` / `WriteBufferFromS3Bytes` (SQL 4)                                                   | Covered, but mode-dependent — see below                         |
-| CH rows returned                  | `result_rows` / `written_rows` (SQL 4)                                                              | Covered, mode-dependent                                         |
-| Overall CH health                 | Existing shared CH Grafana dashboards + SQL 8                                                       | Covered by platform; SQL 8 gives notebooks' share of offline    |
-| Throttled queries                 | `posthog_clickhouse_query_concurrency_limit_exceeded_total{limit_name=~"notebooks_materialize_.*"}` | Covered (rejections only)                                       |
-| Parallel queries per team         | Reconstructed from `query_log_archive` (SQL 5)                                                      | Covered by SQL; **no live gauge** — gap 3                       |
-| Parallel queries per user         | Same, group by `lc_user_id`                                                                         | Same                                                            |
-| Per-notebook / per-node breakdown | `NotebookNodeRun` in Postgres (gap 4)                                                               | Available in Postgres — runs, node type, status, rough duration |
+| Want                              | Where                                                                                                  | State                                                           |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------- |
+| Notebook request E2E latency      | `posthog_notebooks_node_run_seconds{node_type,outcome,delivery}` + `notebook node run completed` event | Covered — see "Node-run instrumentation" below                  |
+| CH latency for notebook queries   | `query_log_archive.query_duration_ms` (SQL 1)                                                          | Covered                                                         |
+| CH scanned bytes                  | `query_log_archive.read_bytes` (SQL 1, 6)                                                              | Covered                                                         |
+| CH bytes returned                 | `result_bytes` / `WriteBufferFromS3Bytes` (SQL 4)                                                      | Covered, but mode-dependent — see below                         |
+| CH rows returned                  | `result_rows` / `written_rows` (SQL 4)                                                                 | Covered, mode-dependent                                         |
+| Overall CH health                 | Existing shared CH Grafana dashboards + SQL 8                                                          | Covered by platform; SQL 8 gives notebooks' share of offline    |
+| Throttled queries                 | `posthog_clickhouse_query_concurrency_limit_exceeded_total{limit_name=~"notebooks_materialize_.*"}`    | Covered (rejections only)                                       |
+| Parallel queries per team         | Reconstructed from `query_log_archive` (SQL 5)                                                         | Covered by SQL; **no live gauge** — gap 3                       |
+| Parallel queries per user         | Same, group by `lc_user_id`                                                                            | Same                                                            |
+| Per-notebook / per-node breakdown | `NotebookNodeRun` in Postgres (gap 4)                                                                  | Available in Postgres — runs, node type, status, rough duration |
+| E2E latency per transport         | `posthog_notebooks_node_run_seconds{delivery}` + the event's `delivery` property                       | Covered — see "The `delivery` dimension" below                  |
+| CH cost per transport             | `query_log_archive` split on `query_kind` (SQL 9)                                                      | Covered                                                         |
 
 "Bytes/rows returned" is mode-dependent and averaging the modes together is wrong:
 the streaming path returns a result set (`result_bytes`, `result_rows`), while the CH-writes path is an `INSERT` whose result set is empty and whose delivered bytes show up as `ProfileEvents['WriteBufferFromS3Bytes']` and `written_rows`.
@@ -61,11 +64,36 @@ The Prometheus `posthog_notebooks_frame_object_bytes` histogram is the mode-inde
 
 Every terminal transition of a `NotebookNodeRun` — the sandbox callback, the direct-lane finish, dispatch failures, and interrupts — reports once through `sql_v2_metrics.record_node_run_terminal`, emitting three sinks:
 
-- **`posthog_notebooks_node_run_seconds{node_type,outcome}`** — end-to-end duration, run-row `created_at` to the terminal transition. `outcome` is `done` / `failed` / `interrupted` / `timed_out`; the direct lane's grace-expiry watchdog reports `timed_out`, so an expired query is a bucket, not a user error.
+- **`posthog_notebooks_node_run_seconds{node_type,outcome,delivery}`** — end-to-end duration, run-row `created_at` to the terminal transition. `outcome` is `done` / `failed` / `interrupted` / `timed_out`; the direct lane's grace-expiry watchdog reports `timed_out`, so an expired query is a bucket, not a user error.
 - **`posthog_notebooks_node_run_phase_seconds{phase,node_type}`** — the decomposition, from the run envelope's `timings` dict. Sandbox-reported: `input_wait` (data-plane wait for referenced frames or the display fetch), `download` (presigned frame downloads), `exec` (ipykernel cell), `sandbox_total`. Direct lane, from `QueryStatus`: `queued` (enqueue → Celery pickup), `clickhouse` (pickup → completion).
-- **`notebook node run completed`** PostHog event with `duration_seconds`, the phase seconds, `row_count`, `outcome`, `notebook_short_id` — the per-notebook/per-team view Prometheus label cardinality can't hold.
+- **`notebook node run completed`** PostHog event with `duration_seconds`, the phase seconds, `row_count`, `outcome`, `delivery`, `notebook_short_id` — the per-notebook/per-team view Prometheus label cardinality can't hold.
 
 Both histograms also stream into the PostHog Metrics product via their OTLP twins (`posthog/otel_metrics.py`).
+
+### The `delivery` dimension
+
+`delivery` names the transport that actually served a run's rows, and it is what a transport A/B splits on:
+
+| Value              | Meaning                                                                            |
+| ------------------ | ---------------------------------------------------------------------------------- |
+| `direct`           | Direct lane: ClickHouse to Redis to the UI. The sandbox is never involved.         |
+| `inline`           | Sandbox fetch over the inline (Redis) transport, clamped at the async row ceiling. |
+| `object_relay`     | Phase 1: a Temporal worker streams ClickHouse rows to object storage.              |
+| `object_ch_writes` | Phase 2: ClickHouse writes the object itself via `INSERT INTO FUNCTION s3`.        |
+| `none`             | Kernel run that read no ClickHouse-backed frame, so no transport applied.          |
+| `mixed`            | One run materialized several inputs and they did not agree on a transport.         |
+
+The data plane resolves the value where it picks a transport (`sql_v2_data_plane.py`) and reports it in the 202 accept body; the sandbox echoes it into the envelope without interpreting it.
+That ordering matters: an object request that falls through either gate is labeled `inline`, so a silent fallback lands in the bucket it really used rather than the one the flags asked for.
+
+The value crosses the sandbox boundary, where user code can forge an envelope, so `sql_v2_metrics.DELIVERY_LABEL_VALUES` is the allowlist bounding label cardinality.
+Anything outside it collapses to `none`.
+Adding a transport means adding it in both `sql_v2.DELIVERY_*` and that allowlist.
+
+Two caveats when reading a comparison:
+
+- `direct` and `none` runs have no transport choice, so including them dilutes the split. The dashboard's A/B panels select `delivery=~"object_relay|object_ch_writes|inline"`.
+- The label describes delivery, not the ClickHouse write mode behind it. `query_log_archive.query_kind` (`Select` vs `Insert`) is the authoritative server-side split, and SQL 9 in the query pack uses it.
 
 One deliberate hole: the callback is best-effort, so a kernel-lane run whose sandbox dies without delivering stays RUNNING and contributes **no** sample — the row remains visible in Postgres and the node can be re-run. A periodic reaper that would fail such rows (and record them as `timed_out`) was built and dropped as more complexity than the case warrants; revisit if stranded rows become common.
 

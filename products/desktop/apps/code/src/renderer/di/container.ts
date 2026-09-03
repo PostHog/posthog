@@ -26,6 +26,7 @@ import {
   EXTERNAL_APPS_WORKSPACE_CLIENT,
   type ExternalAppsWorkspaceClient,
 } from "@posthog/core/external-apps/identifiers";
+import { FILE_READ_CLIENT } from "@posthog/core/files/identifiers";
 import { GitInteractionService } from "@posthog/core/git-interaction/gitInteractionService";
 import {
   GIT_INTERACTION_EFFECTS,
@@ -47,20 +48,11 @@ import {
   CLOUD_ARTIFACT_RESOLVE_SKILL_DEPENDENCIES,
 } from "@posthog/core/sessions/cloudArtifactIdentifiers";
 import {
-  LOCAL_HANDOFF_DIALOG,
-  LOCAL_HANDOFF_HOST,
-  LOCAL_HANDOFF_NOTIFIER,
-  LOCAL_HANDOFF_SERVICE,
-  type LocalHandoffHost,
-  LocalHandoffService,
-} from "@posthog/core/sessions/localHandoffService";
-import {
   SESSION_SERVICE,
   type SessionService,
 } from "@posthog/core/sessions/sessionService";
 import { sessionsModule } from "@posthog/core/sessions/sessions.module";
 import {
-  TITLE_GENERATOR_FILE_READ_CLIENT,
   TITLE_GENERATOR_GITHUB_PR_TITLE_CLIENT,
   TITLE_GENERATOR_LOGGER,
 } from "@posthog/core/sessions/titleGeneratorIdentifiers";
@@ -127,12 +119,16 @@ import {
   MCP_APP_HOST_COMPONENT,
   MCP_SANDBOX_PROXY_URL,
 } from "@posthog/ui/features/mcp-apps/identifiers";
+import {
+  MISSION_CONTROL_CLIENT,
+  type MissionControlClient,
+} from "@posthog/ui/features/mission-control/identifiers";
+import {
+  QUICK_ASK_SETTINGS_CLIENT,
+  type QuickAskSettingsClient,
+} from "@posthog/ui/features/quick-ask/identifiers";
 import { ARTIFACT_HTML_FRAME_COMPONENT } from "@posthog/ui/features/sessions/components/artifactHtmlFrameHost";
 import { MCP_TOOL_BLOCK_COMPONENT } from "@posthog/ui/features/sessions/components/session-update/identifiers";
-import {
-  localHandoffDialog,
-  localHandoffNotifier,
-} from "@posthog/ui/features/sessions/localHandoffService";
 import { getSessionService } from "@posthog/ui/features/sessions/sessionServiceHost";
 import {
   DEV_MODE_CLIENT,
@@ -209,10 +205,13 @@ container.bind(CONNECTIVITY_CLIENT).toConstantValue(connectivityClient);
 const browserTabsClient: BrowserTabsClient = {
   getSnapshot: () => trpcClient.browserTabs.getSnapshot.query(),
   getPrimaryWindowId: () => trpcClient.browserTabs.getPrimaryWindowId.query(),
-  openOrFocus: (input) => trpcClient.browserTabs.openOrFocus.mutate(input),
-  newBlankTab: (input) => trpcClient.browserTabs.newBlankTab.mutate(input),
+  reset: () => trpcClient.browserTabs.reset.mutate(),
+  openTab: (input) => trpcClient.browserTabs.openTab.mutate(input),
   setTabTarget: (input) => trpcClient.browserTabs.setTabTarget.mutate(input),
-  close: (tabId) => trpcClient.browserTabs.close.mutate({ tabId }),
+  close: (tabId, newTabId) =>
+    trpcClient.browserTabs.close.mutate({ tabId, newTabId }),
+  closeMany: (input) => trpcClient.browserTabs.closeMany.mutate(input),
+  setOrder: (input) => trpcClient.browserTabs.setOrder.mutate(input),
   setActiveTab: (input) => trpcClient.browserTabs.setActiveTab.mutate(input),
   onSnapshotChange: (sub) =>
     trpcClient.browserTabs.onSnapshotChange.subscribe(undefined, sub),
@@ -243,6 +242,39 @@ const discordPresenceClient: DiscordPresenceClient = {
   },
 };
 container.bind(DISCORD_PRESENCE_CLIENT).toConstantValue(discordPresenceClient);
+
+const quickAskSettingsClient: QuickAskSettingsClient = {
+  getState: () => trpcClient.quickAsk.getState.query(),
+  setShortcut: (accelerator) =>
+    trpcClient.quickAsk.setShortcut.mutate({ accelerator }),
+  setSettings: (patch) =>
+    trpcClient.quickAsk.setSettings.mutate({
+      ...patch,
+      defaultAdapter: patch.defaultAdapter as
+        | ""
+        | "claude"
+        | "codex"
+        | undefined,
+    }),
+};
+container
+  .bind(QUICK_ASK_SETTINGS_CLIENT)
+  .toConstantValue(quickAskSettingsClient);
+
+// mission control overlay client
+const missionControlClient: MissionControlClient = {
+  onStateChanged: (onData) => {
+    const sub = trpcClient.missionControl.onStateChanged.subscribe(undefined, {
+      onData,
+    });
+    return () => sub.unsubscribe();
+  },
+  isSupported: () => trpcClient.missionControl.isSupported.query(),
+  getEnabled: () => trpcClient.missionControl.getEnabled.query(),
+  setEnabled: (enabled) =>
+    trpcClient.missionControl.setEnabled.mutate({ enabled }),
+};
+container.bind(MISSION_CONTROL_CLIENT).toConstantValue(missionControlClient);
 
 // terminal shell client
 const shellClient: ShellClient = {
@@ -324,24 +356,6 @@ container
   .bind<SessionService>(SESSION_SERVICE)
   .toDynamicValue(() => getSessionService())
   .inSingletonScope();
-container.bind<LocalHandoffHost>(LOCAL_HANDOFF_HOST).toConstantValue({
-  getRepositoryByRemoteUrl: (input) =>
-    trpcClient.folders.getRepositoryByRemoteUrl.query(input),
-  selectDirectory: () => trpcClient.os.selectDirectory.query(),
-  addFolder: (input) => trpcClient.folders.addFolder.mutate(input),
-  getWorktreeLocation: () => trpcClient.os.getWorktreeLocation.query(),
-  cloneRepository: (input) => trpcClient.git.cloneRepository.mutate(input),
-  addAdditionalDirectory: async (input) => {
-    await trpcClient.additionalDirectories.addForTask.mutate(input);
-  },
-});
-container.bind(LOCAL_HANDOFF_DIALOG).toConstantValue(localHandoffDialog);
-container.bind(LOCAL_HANDOFF_NOTIFIER).toConstantValue(localHandoffNotifier);
-container
-  .bind<LocalHandoffService>(LOCAL_HANDOFF_SERVICE)
-  .to(LocalHandoffService)
-  .inSingletonScope();
-
 // git-interaction
 container.bind(GIT_WRITE_CLIENT).toConstantValue(gitWriteClient);
 container.bind(GIT_INTERACTION_EFFECTS).toConstantValue(gitInteractionEffects);
@@ -464,7 +478,7 @@ container.bind(LLM_GATEWAY_SERVICE).toConstantValue({
       model: options.model,
     }),
 } as unknown as LlmGatewayService);
-container.bind(TITLE_GENERATOR_FILE_READ_CLIENT).toConstantValue({
+container.bind(FILE_READ_CLIENT).toConstantValue({
   readAbsoluteFile: (filePath: string) =>
     trpcClient.fs.readAbsoluteFile.query({ filePath }),
 });
@@ -475,7 +489,3 @@ container.bind(TITLE_GENERATOR_GITHUB_PR_TITLE_CLIENT).toConstantValue({
 container
   .bind(TITLE_GENERATOR_LOGGER)
   .toConstantValue(logger.scope("title-generator"));
-
-export function get<T>(token: symbol): T {
-  return container.get<T>(token);
-}

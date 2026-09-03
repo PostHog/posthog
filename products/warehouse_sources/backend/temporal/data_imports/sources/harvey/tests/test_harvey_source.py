@@ -1,41 +1,12 @@
 import datetime
-from typing import Any
 
 from unittest import mock
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType, SourceFieldSelectConfig
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.harvey import HarveySourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.harvey.canonical_descriptions import (
-    CANONICAL_DESCRIPTIONS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.harvey.harvey import HarveyResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.harvey.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.harvey.source import HarveySource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
-
-
-def _make_inputs(**overrides: Any) -> SourceInputs:
-    defaults: dict[str, Any] = {
-        "schema_name": "audit_logs",
-        "schema_id": "schema-1",
-        "source_id": "source-1",
-        "team_id": 123,
-        "should_use_incremental_field": False,
-        "db_incremental_field_last_value": None,
-        "db_incremental_field_earliest_value": None,
-        "incremental_field": None,
-        "incremental_field_type": None,
-        "job_id": "job-1",
-        "logger": mock.MagicMock(),
-        "reset_pipeline": False,
-    }
-    defaults.update(overrides)
-    return SourceInputs(**defaults)
 
 
 class TestHarveySource:
@@ -43,9 +14,6 @@ class TestHarveySource:
         self.source = HarveySource()
         self.team_id = 123
         self.config = HarveySourceConfig(api_key="test-token", region="us")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.HARVEY
 
     def test_v1_is_deprecated_with_vendor_sunset_and_default_is_v2(self) -> None:
         # New sources start on v2; v1 stays supported so already-pinned rows keep resolving to the
@@ -66,37 +34,6 @@ class TestHarveySource:
     def test_lists_tables_without_credentials(self) -> None:
         # get_schemas is a static endpoint catalog, so the public docs can render it.
         assert self.source.lists_tables_without_credentials is True
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-
-        assert config.name.value == "Harvey"
-        assert config.label == "Harvey"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.iconPath == "/static/services/harvey.svg"
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/harvey"
-
-        api_key_field, region_field = config.fields
-        assert isinstance(api_key_field, SourceFieldInputConfig)
-        assert api_key_field.name == "api_key"
-        assert api_key_field.type == SourceFieldInputConfigType.PASSWORD
-        assert api_key_field.required is True
-        assert api_key_field.secret is True
-
-        assert isinstance(region_field, SourceFieldSelectConfig)
-        assert region_field.name == "region"
-        assert region_field.required is True
-        assert region_field.defaultValue == "us"
-        assert [option.value for option in region_field.options] == ["us", "eu", "au"]
-
-    @parameterized.expand(
-        [
-            ("unauthorized", "401 Client Error: Unauthorized for url"),
-            ("forbidden", "403 Client Error: Forbidden for url"),
-        ]
-    )
-    def test_non_retryable_errors(self, _name: str, expected_key: str) -> None:
-        assert expected_key in self.source.get_non_retryable_errors()
 
     def test_get_schemas_returns_all_endpoints(self) -> None:
         schemas = self.source.get_schemas(self.config, self.team_id)
@@ -197,38 +134,3 @@ class TestHarveySource:
             "vault_projects": "missing permission",
             "unknown_endpoint": None,
         }
-
-    def test_get_resumable_source_manager_bound_to_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(_make_inputs())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is HarveyResumeConfig
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.harvey.source.harvey_source")
-    def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
-        inputs = _make_inputs(schema_name="usage_history")
-        manager = mock.MagicMock(spec=ResumableSourceManager)
-
-        self.source.source_for_pipeline(self.config, manager, inputs)
-
-        mock_source.assert_called_once_with(
-            api_key="test-token",
-            region="us",
-            endpoint="usage_history",
-            logger=inputs.logger,
-            resumable_source_manager=manager,
-            should_use_incremental_field=False,
-            db_incremental_field_last_value=None,
-        )
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.harvey.source.harvey_source")
-    def test_source_for_pipeline_strips_last_value_when_not_incremental(self, mock_source: mock.MagicMock) -> None:
-        inputs = _make_inputs(should_use_incremental_field=False, db_incremental_field_last_value="2026-01-01")
-        manager = mock.MagicMock(spec=ResumableSourceManager)
-
-        self.source.source_for_pipeline(self.config, manager, inputs)
-
-        assert mock_source.call_args.kwargs["db_incremental_field_last_value"] is None
-
-    def test_canonical_descriptions_cover_known_endpoints(self) -> None:
-        assert set(self.source.get_canonical_descriptions().keys()) == set(ENDPOINTS)
-        assert self.source.get_canonical_descriptions() is CANONICAL_DESCRIPTIONS

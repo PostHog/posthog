@@ -32,4 +32,17 @@ describe('selfManagedTableFormErrors', () => {
         expect(errors.format).toBeFalsy()
         expect(errors.credential).toEqual({ access_key: false, access_secret: false })
     })
+
+    // The backend rejects any non-https url pattern; these should surface a frontend error instead
+    // of falling through to the generic server-side message.
+    it.each([
+        ['s3://your-org/invoices/*.pqt'],
+        ['http://your-org.s3.amazonaws.com/invoices/*.pqt'],
+        ['s3a://your-org/invoices/*.pqt'],
+        ['your-org.s3.amazonaws.com/invoices/*.pqt'],
+    ])('rejects non-https url pattern %s', (url_pattern) => {
+        const errors = selfManagedTableFormErrors({ ...validTable, url_pattern })
+
+        expect(errors.url_pattern).toBeTruthy()
+    })
 })

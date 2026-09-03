@@ -65,7 +65,9 @@ describe('HogFlowInvocationPipeline', () => {
         } as unknown as jest.Mocked<HogWatcherService>
 
         hogMasker = {
-            filterByMasking: jest.fn((invocations) => Promise.resolve({ masked: [], notMasked: invocations })),
+            filterByMasking: jest.fn((invocations) =>
+                Promise.resolve({ masked: [], notMasked: invocations, release: async () => {} })
+            ),
         } as unknown as jest.Mocked<HogMaskerService>
 
         hogFunctionMonitoringService = {
@@ -188,7 +190,7 @@ describe('HogFlowInvocationPipeline', () => {
         hogFlowExecutor.buildHogFlowInvocations.mockResolvedValue({ invocations: [inv], metrics: [], logs: [] })
         hogWatcher.getEffectiveStates.mockResolvedValue({ [inv.hogFlow.id]: { state: HogWatcherState.healthy } } as any)
         rateLimitGroupedMock.mockResolvedValue([[null, { isRateLimited: false }]])
-        hogMasker.filterByMasking.mockResolvedValue({ masked: [inv], notMasked: [] })
+        hogMasker.filterByMasking.mockResolvedValue({ masked: [inv], notMasked: [], release: async () => {} })
 
         const result = await pipeline.buildInvocations([makeGlobals()])
 
