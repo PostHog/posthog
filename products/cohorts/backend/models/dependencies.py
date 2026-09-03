@@ -220,7 +220,7 @@ def extract_cohort_dependencies(cohort: Cohort) -> set[int]:
     return dependencies
 
 
-def get_cohort_dependencies(cohort: Cohort, _warming: bool = False) -> list[int]:
+def get_cohort_dependencies(cohort: Cohort) -> list[int]:
     """
     Get the list of cohort IDs that the given cohort depends on.
     """
@@ -230,11 +230,10 @@ def get_cohort_dependencies(cohort: Cohort, _warming: bool = False) -> list[int]
     cache_hit = cache.has_key(cache_key)
 
     def compute_dependencies():
-        if not _warming:
-            COHORT_DEPENDENCY_CACHE_COUNTER.labels(cache_type="dependencies", result="miss").inc()
+        COHORT_DEPENDENCY_CACHE_COUNTER.labels(cache_type="dependencies", result="miss").inc()
         return list(extract_cohort_dependencies(cohort))
 
-    if cache_hit and not _warming:
+    if cache_hit:
         COHORT_DEPENDENCY_CACHE_COUNTER.labels(cache_type="dependencies", result="hit").inc()
 
     result = cache.get_or_set(
@@ -294,6 +293,10 @@ def warm_team_cohort_dependency_cache(team_id: int, batch_size: int = 1000):
     Uses keyset pagination on id instead of .iterator(), which opens a named
     server-side cursor that can be invalidated by connection recycling between
     batches (e.g. behind a pooler) and raises InvalidCursorName mid-scan.
+
+    Redis is read and written once per batch rather than once per cohort. This runs on every
+    cohort save (see _on_cohort_changed), so the per-cohort read plus TTL refresh it replaces
+    made a single save cost three round trips for every cohort the team owns.
     """
     dependents_map: dict[str, list[int]] = {}
     last_id = 0
@@ -301,15 +304,27 @@ def warm_team_cohort_dependency_cache(team_id: int, batch_size: int = 1000):
         batch = list(Cohort.objects.filter(team_id=team_id, deleted=False, id__gt=last_id).order_by("id")[:batch_size])
         if not batch:
             break
-        for cohort in batch:
-            # Any invalidated dependencies cache is rebuilt here
+
+        dependency_keys = [_cohort_dependencies_key(cohort.id) for cohort in batch]
+        cached_dependencies = cache.get_many(dependency_keys)
+
+        dependencies_by_key: dict[str, list[int]] = {}
+        for cohort, dependency_key in zip(batch, dependency_keys):
             dependents_map.setdefault(_cohort_dependents_key(cohort.id), [])
-            dependencies = get_cohort_dependencies(cohort, _warming=True)
-            # Dependency keys aren't fully invalidated; make sure they don't expire.
-            cache.touch(_cohort_dependencies_key(cohort.id), timeout=DEPENDENCY_CACHE_TIMEOUT)
+            # Any invalidated dependencies cache is rebuilt here. A cached empty list is a real
+            # answer, so only a key missing from get_many counts as a miss.
+            cached = cached_dependencies.get(dependency_key)
+            dependencies = list(cached) if cached is not None else list(extract_cohort_dependencies(cohort))
+            dependencies_by_key[dependency_key] = dependencies
             # Build reverse map
             for dep_id in dependencies:
                 dependents_map.setdefault(_cohort_dependents_key(dep_id), []).append(cohort.id)
+
+        # Writing the cache hits back is what replaces the per-key cache.touch: dependency keys
+        # aren't fully invalidated, so they still need their TTL extended, and one set_many
+        # both fills the misses and extends every key in the batch.
+        cache.set_many(dependencies_by_key, timeout=DEPENDENCY_CACHE_TIMEOUT)
+
         last_id = batch[-1].id
     cache.set_many(dependents_map, timeout=DEPENDENCY_CACHE_TIMEOUT)
 

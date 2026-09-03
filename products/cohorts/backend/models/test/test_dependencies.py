@@ -239,24 +239,42 @@ class TestCohortDependencies(BaseTest):
         # Warm the cache initially
         warm_team_cohort_dependency_cache(self.team.id)
 
-        # Mock cache.touch and cache.set_many to verify TTL refresh
-        with mock.patch.object(cache, "touch") as mock_touch, mock.patch.object(cache, "set_many") as mock_set_many:
+        with mock.patch.object(cache, "set_many") as mock_set_many:
             # Call warm again - should refresh TTL
             warm_team_cohort_dependency_cache(self.team.id)
 
-            # Verify touch was called for dependency keys
-            expected_dependency_keys = [
-                f"cohort:dependencies:{cohort_a.id}",
-                f"cohort:dependencies:{cohort_b.id}",
-            ]
+        # Dependency keys are rewritten rather than touched, so the TTL refresh has to show up
+        # as a set_many carrying the dependency timeout.
+        written_keys: set[str] = set()
+        for call_args, call_kwargs in mock_set_many.call_args_list:
+            self.assertEqual(call_kwargs.get("timeout"), DEPENDENCY_CACHE_TIMEOUT)
+            written_keys.update(call_args[0].keys())
 
-            for key in expected_dependency_keys:
-                mock_touch.assert_any_call(key, timeout=DEPENDENCY_CACHE_TIMEOUT)
+        for key in (f"cohort:dependencies:{cohort_a.id}", f"cohort:dependencies:{cohort_b.id}"):
+            self.assertIn(key, written_keys)
 
-            # Verify set_many was called with timeout for dependents
-            self.assertTrue(mock_set_many.called)
-            args, kwargs = mock_set_many.call_args
-            self.assertEqual(kwargs.get("timeout"), DEPENDENCY_CACHE_TIMEOUT)
+    def test_warm_team_cohort_dependency_cache_batches_redis_calls(self) -> None:
+        """Redis work scales with batches, not with the number of cohorts in the team.
+
+        A per-cohort read plus TTL refresh made one cohort save cost three round trips per
+        cohort the team owns, which is minutes of a web worker for a team with tens of
+        thousands of cohorts.
+        """
+        for i in range(10):
+            self._create_cohort(name=f"Batched Cohort {i}")
+
+        cache.clear()
+
+        with (
+            mock.patch.object(cache, "get_many", wraps=cache.get_many) as mock_get_many,
+            mock.patch.object(cache, "has_key", wraps=cache.has_key) as mock_has_key,
+            mock.patch.object(cache, "touch", wraps=cache.touch) as mock_touch,
+        ):
+            warm_team_cohort_dependency_cache(self.team.id)
+
+        self.assertEqual(mock_get_many.call_count, 1)
+        self.assertEqual(mock_has_key.call_count, 0)
+        self.assertEqual(mock_touch.call_count, 0)
 
     def test_cache_miss_get_cohort_dependencies(self) -> None:
         cohort_a = self._create_cohort(name="Test Cohort A")
