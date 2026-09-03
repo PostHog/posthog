@@ -12,6 +12,7 @@ import { relationshipsLogic } from './relationshipsLogic'
 export const METRIC_TOOLS = [
     'data-catalog-metric-create',
     'data-catalog-metric-update',
+    'data-catalog-metric-delete-execute',
     'data-catalog-metric-approve-execute',
     'data-catalog-metrics-refresh-from-insight-create',
 ]
