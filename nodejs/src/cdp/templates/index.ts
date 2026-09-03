@@ -59,6 +59,7 @@ import { template as ipAnonymizationTemplate } from './_transformations/ip-anony
 import { template as piiHashingTemplate } from './_transformations/pii-hashing/pii-hashing.template'
 import { template as removeNullPropertiesTemplate } from './_transformations/remove-null-properties/remove-null-properties.template'
 import { template as semverFlattenerTemplate } from './_transformations/semver-flattener/semver-flattener.template'
+import { template as taxonomyTemplate } from './_transformations/taxonomy/taxonomy.template'
 import { template as timestampParserTemplate } from './_transformations/timestamp-parser/timestamp-parser.template'
 import { template as urlMaskingTemplate } from './_transformations/url-masking/url-masking.template'
 import { template as urlNormalizationTemplate } from './_transformations/url-normalization/url-normalization.template'
@@ -130,6 +131,7 @@ export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS: HogFunctionTemplate[] = [
     timestampParserTemplate,
     downsamplingTemplate,
     urlParametersToPropertiesTemplate,
+    taxonomyTemplate,
 ]
 
 export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS_LOG: HogFunctionTemplate[] = [
