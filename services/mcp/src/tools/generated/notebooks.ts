@@ -13,6 +13,24 @@ import {
 } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
+const NotebooksComputeOptionsSchema = () => z.object({})
+
+const notebooksComputeOptions = (): ToolBase<
+    ReturnType<typeof NotebooksComputeOptionsSchema>,
+    Schemas.NotebookComputeOptionsResponse
+> => ({
+    name: 'notebooks-compute-options',
+    schema: NotebooksComputeOptionsSchema(),
+    handler: async (context: Context, _params: z.infer<ReturnType<typeof NotebooksComputeOptionsSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.NotebookComputeOptionsResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/notebooks/kernel/compute_options/`,
+        })
+        return result
+    },
+})
+
 const NotebooksConfigureComputeSchema = () => {
     const NotebooksKernelConfigCreateBody = orvalSchemas.NotebooksKernelConfigCreateBody()
     const NotebooksKernelConfigCreateParams = orvalSchemas.NotebooksKernelConfigCreateParams()
@@ -181,6 +199,9 @@ const notebooksListFrames = (): ToolBase<
             'cpu_cores',
             'memory_gb',
             'idle_timeout_seconds',
+            'backend',
+            'hourly_price',
+            'preset_key',
         ]) as typeof result
         return withInformationalResponse(
             filtered,
@@ -301,6 +322,7 @@ const notebooksRunCellResult = (): ToolBase<
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'notebooks-compute-options': notebooksComputeOptions,
     'notebooks-configure-compute': notebooksConfigureCompute,
     'notebooks-create': notebooksCreate,
     'notebooks-destroy': notebooksDestroy,
