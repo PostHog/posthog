@@ -430,7 +430,8 @@ function SessionTurnView({
     ).length
     // Errors already surfaced by a red tool pill are excluded; the rest (e.g.
     // generation failures) render as their own pills in the same style.
-    const otherErrors = turn.errors.filter((e) => !turn.tools.includes(e.label))
+    // Conversation-only mode hides the tool pills, so every error renders here.
+    const otherErrors = conversationOnly ? turn.errors : turn.errors.filter((e) => !turn.tools.includes(e.label))
 
     const hasTranscript = turn.isLoaded && !!turn.userVisibleTurn
     // Span-only turns have no transcript, so the span tree IS the conversation.
