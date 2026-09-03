@@ -322,13 +322,40 @@ function shouldEmitRawMessage(
   );
 }
 
+interface SdkTokenUsage {
+  input_tokens?: number | null;
+  output_tokens?: number | null;
+  cache_read_input_tokens?: number | null;
+  cache_creation_input_tokens?: number | null;
+}
+
+function sumSdkUsage(usage: SdkTokenUsage): number {
+  return (
+    (usage.input_tokens ?? 0) +
+    (usage.output_tokens ?? 0) +
+    (usage.cache_read_input_tokens ?? 0) +
+    (usage.cache_creation_input_tokens ?? 0)
+  );
+}
+
+const CONTEXT_USAGE_TIMEOUT_MS = 5_000;
+
 async function fetchContextUsedTokens(
   sdkQuery: Query,
   logger: Logger,
 ): Promise<number | null> {
   try {
-    const usage = await sdkQuery.getContextUsage();
-    return usage.totalTokens;
+    const usage = await withTimeout(
+      sdkQuery.getContextUsage(),
+      CONTEXT_USAGE_TIMEOUT_MS,
+    );
+    if (usage.result === "timeout") {
+      logger.warn(
+        `Timed out after ${CONTEXT_USAGE_TIMEOUT_MS}ms fetching context usage from SDK`,
+      );
+      return null;
+    }
+    return usage.value.totalTokens;
   } catch (error) {
     logger.error("Failed to fetch context usage from SDK:", error);
     return null;
@@ -1261,6 +1288,18 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
               }
             }
 
+            if (!isTaskNotification && lastAssistantTotalUsage === null) {
+              const usedTokens = await withAbort(
+                fetchContextUsedTokens(query, this.logger),
+                cancelController.signal,
+              );
+              const total =
+                usedTokens.result === "success" ? (usedTokens.value ?? 0) : 0;
+              if (total > 0) {
+                recordContextUsage(total);
+              }
+            }
+
             session.contextSize = windowSize();
             if (lastAssistantTotalUsage !== null) {
               session.contextUsed = lastAssistantTotalUsage;
@@ -1440,11 +1479,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
                 };
               }
 
-              const nextTotal =
-                lastStreamUsage.input_tokens +
-                lastStreamUsage.output_tokens +
-                lastStreamUsage.cache_read_input_tokens +
-                lastStreamUsage.cache_creation_input_tokens;
+              const nextTotal = sumSdkUsage(lastStreamUsage);
 
               if (recordContextUsage(nextTotal)) {
                 await this.client.sessionUpdate({
@@ -1549,11 +1584,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
                 cache_read_input_tokens: number | null;
                 cache_creation_input_tokens: number | null;
               };
-              const nextTotal =
-                (usage.input_tokens ?? 0) +
-                (usage.output_tokens ?? 0) +
-                (usage.cache_read_input_tokens ?? 0) +
-                (usage.cache_creation_input_tokens ?? 0);
+              const nextTotal = sumSdkUsage(usage);
 
               if (recordContextUsage(nextTotal)) {
                 await this.client.sessionUpdate({
@@ -1930,6 +1961,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       session.input = newInput;
       session.queryOptions = newOptions;
       session.abortController = newAbortController;
+      session.contextUsed = undefined;
 
       const result = await withTimeout(
         newQuery.initializationResult(),
