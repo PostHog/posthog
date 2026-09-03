@@ -31,6 +31,12 @@ function convertLegacyCodeCell(node: NotebookBlockNode): NotebookBlockNode {
 
     // Only the code and its name carry over. The legacy execution results were bound to a kernel
     // sandbox that no longer exists, so the cell opens on its code and runs from scratch.
+    //
+    // The code is copied as written, so a `{name}` placeholder in a legacy HogQL query changes
+    // meaning: it read a value from the kernel namespace, and SQLV2 reads it as a variable that the
+    // notebook declares in a Variables block. Such a query reports the undeclared variable by name
+    // until its author rewrites the reference. Rewriting it here is not possible, because a scalar
+    // placeholder and a dataframe placeholder need different SQLV2 constructs.
     const props: NotebookComponentProps = {
         nodeId: typeof node.props.nodeId === 'string' && node.props.nodeId ? node.props.nodeId : uuid(),
         code: typeof node.props.code === 'string' ? node.props.code : '',
