@@ -1,5 +1,9 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
+import { ApiError } from 'lib/api-error'
+
 import { initKeaTests } from '~/test/init'
 
 import {
@@ -174,6 +178,24 @@ describe('customerTasksLogic', () => {
 
         expect(mockList).toHaveBeenCalledTimes(1)
         expect(logic.values.tasks).toEqual([updatedTask, otherTask])
+    })
+
+    test.each([
+        ['the field the server rejected', { assigned_to_id: 'Select a member of this project.' }, 400],
+        ['the detail the server sent', { detail: 'Restore this task before editing it.' }, 409],
+    ])('reports %s instead of asking for a retry', async (_name, body, status) => {
+        const toast = jest.spyOn(lemonToast, 'error').mockImplementation(() => '' as never)
+        mockList.mockResolvedValueOnce({ count: 1, next: null, previous: null, results: [task()] })
+        mockUpdate.mockRejectedValueOnce(new ApiError(undefined, status, undefined, body))
+        logic = customerTasksLogic({ context: 'account', accountId: 'account-1' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.updateTask('task-1', { assigned_to_id: 9 })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(toast).toHaveBeenCalledWith(Object.values(body)[0])
+        toast.mockRestore()
     })
 
     test('does not submit a no-op, an uneditable task, or an archived task', async () => {

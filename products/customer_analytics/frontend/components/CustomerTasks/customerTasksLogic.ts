@@ -16,6 +16,7 @@ import { loaders } from 'kea-loaders'
 
 import { lemonToast, type PaginationManual, type Sorting } from '@posthog/lemon-ui'
 
+import { ApiError } from 'lib/api-error'
 import { teamLogic } from 'scenes/teamLogic'
 
 import {
@@ -119,6 +120,21 @@ export type customerTasksLogicType = MakeLogicType<
     customerTasksLogicActions,
     CustomerTasksLogicProps
 >
+
+// A rejected task write answers with the message a person needs, either as `detail` or against the
+// field at fault, so show that instead of asking for a retry the server will refuse again.
+function taskWriteFailureMessage(error: unknown, fallback: string): string {
+    if (error instanceof ApiError) {
+        const body = error.data as Record<string, unknown> | null | undefined
+        for (const candidate of [error.detail, body?.assigned_to_id, body?.status]) {
+            if (typeof candidate === 'string' && candidate.trim()) {
+                return candidate
+            }
+        }
+    }
+    return fallback
+}
+
 export const customerTasksLogic: LogicWrapper<customerTasksLogicType> = kea<customerTasksLogicType>([
     props({} as CustomerTasksLogicProps),
     key((p) => 'customer-tasks-' + p.context + '-' + (p.accountId ?? p.persistPrefix ?? 'all')),
@@ -377,9 +393,9 @@ export const customerTasksLogic: LogicWrapper<customerTasksLogicType> = kea<cust
                 actions.mutationFinished('create')
                 actions.closeModal()
                 actions.loadTaskPage()
-            } catch {
+            } catch (error) {
                 actions.mutationFinished('create')
-                lemonToast.error('Could not create the task. Try again.')
+                lemonToast.error(taskWriteFailureMessage(error, 'Could not create the task. Try again.'))
             }
         },
         updateTask: async ({ taskId, patch }: { taskId: string; patch: PatchedCustomerTaskUpdateApi }) => {
@@ -407,9 +423,9 @@ export const customerTasksLogic: LogicWrapper<customerTasksLogicType> = kea<cust
                 actions.mutationFinished(taskId)
                 actions.closeModal()
                 actions.loadTaskPage()
-            } catch {
+            } catch (error) {
                 actions.mutationFinished(taskId)
-                lemonToast.error('Could not save the task. Try again.')
+                lemonToast.error(taskWriteFailureMessage(error, 'Could not save the task. Try again.'))
             }
         },
         archiveTask: async ({ taskId }: { taskId: string }) => {
