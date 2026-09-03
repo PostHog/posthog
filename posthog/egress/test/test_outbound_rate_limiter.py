@@ -90,8 +90,8 @@ def test_release_sync_targets_the_original_window_after_a_shift():
     storage = backend._redis_storage()
     window_keys = backend._redis_window_keys(storage, first_window.item_key)
     redis_client = backends_module.get_client()
-    redis_client.pexpire(window_keys[1], 9_000)
-    redis_client.pexpire(window_keys[3], 9_000)
+    redis_client.pexpire(window_keys.current, 9_000)
+    redis_client.pexpire(window_keys.current_generation, 9_000)
 
     second_admission = limiter.reserve_sync(key, 2)
     assert second_admission.granted is True

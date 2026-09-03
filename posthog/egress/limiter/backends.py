@@ -127,6 +127,14 @@ return false
 
 
 @frozen
+class RedisWindowKeys:
+    previous: str
+    current: str
+    previous_generation: str
+    current_generation: str
+
+
+@frozen
 class RedisWindowReservation:
     item_key: str
     generation: str
@@ -298,14 +306,17 @@ class LimitsBackend:
     ) -> RedisWindowReservation | None:
         storage = self._redis_storage()
         item_key = item.key_for(key)
-        previous_key, current_key, previous_generation_key, current_generation_key = self._redis_window_keys(
-            storage, item_key
-        )
+        window_keys = self._redis_window_keys(storage, item_key)
         script = self._reserve_script
         if script is None:
             raise RuntimeError("Redis reservation script is not initialized")
         generation = script(
-            keys=[previous_key, current_key, previous_generation_key, current_generation_key],
+            keys=[
+                window_keys.previous,
+                window_keys.current,
+                window_keys.previous_generation,
+                window_keys.current_generation,
+            ],
             args=[item.amount - reserve, item.get_expiry(), n, uuid.uuid4().hex],
         )
         if not generation:
@@ -319,16 +330,29 @@ class LimitsBackend:
             raise RuntimeError("Redis release script is not initialized")
         released = True
         for reservation in reservations:
-            keys = self._redis_window_keys(storage, reservation.item_key)
-            if not script(keys=list(keys), args=[reservation.generation, reservation.amount]):
+            window_keys = self._redis_window_keys(storage, reservation.item_key)
+            if not script(
+                keys=[
+                    window_keys.previous,
+                    window_keys.current,
+                    window_keys.previous_generation,
+                    window_keys.current_generation,
+                ],
+                args=[reservation.generation, reservation.amount],
+            ):
                 released = False
         return released
 
     @staticmethod
-    def _redis_window_keys(storage: RedisStorage, item_key: str) -> tuple[str, str, str, str]:
+    def _redis_window_keys(storage: RedisStorage, item_key: str) -> RedisWindowKeys:
         previous_key = storage.prefixed_key(storage._previous_window_key(item_key))
         current_key = storage.prefixed_key(storage._current_window_key(item_key))
-        return previous_key, current_key, f"{previous_key}:generation", f"{current_key}:generation"
+        return RedisWindowKeys(
+            previous=previous_key,
+            current=current_key,
+            previous_generation=f"{previous_key}:generation",
+            current_generation=f"{current_key}:generation",
+        )
 
     def _redis_storage(self) -> RedisStorage:
         return cast(RedisStorage, self._redis_limiter().storage)
