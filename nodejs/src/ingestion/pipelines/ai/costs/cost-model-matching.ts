@@ -192,6 +192,20 @@ export const requireSpecialCost = (aiModel: string): boolean => {
     return SPECIAL_COST_MODELS.some((model) => lowerAiModel.includes(model.toLowerCase()))
 }
 
+/**
+ * OpenAI's flex service tier bills the same call at its own (currently half) rates, stored as
+ * `<model>:flex` rows. When no flex row exists, the longest-contained-name match falls back to
+ * the standard row, so an unknown tier can never break pricing. Other service_tier values
+ * ("auto", "default", "priority"/"fast") have no dedicated rows yet and price as standard.
+ */
+export function applyServiceTierModelName(model: string, serviceTier: unknown): string {
+    if (serviceTier === 'flex') {
+        return `${model}:flex`
+    }
+
+    return model
+}
+
 export function getNewModelName(model: string, inputTokens: unknown): string {
     // Gemini 2.5 Pro Preview has a limit of 200k input tokens before the price changes, we store the other price in the :large suffix
     if (model.toLowerCase().includes('gemini-2.5-pro-preview')) {

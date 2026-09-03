@@ -1,6 +1,12 @@
 import { Properties } from '~/plugin-scaffold'
 
-import { CostModelSource, findCostFromModel, getNewModelName, requireSpecialCost } from './cost-model-matching'
+import {
+    CostModelSource,
+    applyServiceTierModelName,
+    findCostFromModel,
+    getNewModelName,
+    requireSpecialCost,
+} from './cost-model-matching'
 
 jest.mock('./providers', () => {
     const openRouterCostsByModel = {
@@ -87,6 +93,12 @@ jest.mock('./providers', () => {
     }
 
     const manualCostsByModel = {
+        'gpt-4o-mini:flex': {
+            model: 'gpt-4o-mini:flex',
+            cost: {
+                default: { prompt_token: 0.000000075, completion_token: 0.0000003 },
+            },
+        },
         'gpt-3.5-turbo': {
             model: 'gpt-3.5-turbo',
             cost: {
@@ -137,6 +149,31 @@ jest.mock('./providers', () => {
         openRouterCostsByModel,
         manualCostsByModel,
     }
+})
+
+describe('applyServiceTierModelName()', () => {
+    it('suffixes the model for the flex tier', () => {
+        expect(applyServiceTierModelName('gpt-5-nano', 'flex')).toBe('gpt-5-nano:flex')
+    })
+
+    it.each(['auto', 'default', 'priority', 'fast', undefined, null, 42])(
+        'leaves the model untouched for tier %p',
+        (tier) => {
+            expect(applyServiceTierModelName('gpt-5-nano', tier)).toBe('gpt-5-nano')
+        }
+    )
+
+    it('prices a flex-suffixed model from its flex row', () => {
+        const result = findCostFromModel('gpt-4o-mini:flex', { $ai_provider: 'openai' })
+        expect(result?.cost.model).toBe('gpt-4o-mini:flex')
+        // A silent fallback to the standard row would misprice every flex call.
+        expect(result?.cost.cost.prompt_token).toBe(0.000000075)
+    })
+
+    it('falls back to the standard row when a model has no flex row', () => {
+        const result = findCostFromModel('gpt-4:flex', { $ai_provider: 'openai' })
+        expect(result?.cost.model).toBe('openai/gpt-4')
+    })
 })
 
 describe('findCostFromModel()', () => {

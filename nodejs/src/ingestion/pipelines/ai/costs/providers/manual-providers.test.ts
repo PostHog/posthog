@@ -1,3 +1,4 @@
+import { openRouterCostsByModel } from './index'
 import { manualCosts } from './manual-providers'
 
 describe('manualCosts', () => {
@@ -80,6 +81,25 @@ describe('manualCosts', () => {
 
         if (expected.cache_read_token !== undefined) {
             expect(modelEntry?.cost.default.cache_read_token).toBe(expected.cache_read_token)
+        }
+    })
+})
+
+describe('openai flex rows', () => {
+    // The exact flex values come from OpenAI's flex pricing page (see the comment on the rows).
+    // A strict half-of-standard check does not hold because the upstream standard row can carry
+    // promotional pricing (gpt-5.6-sol), so this pins the two properties that must always hold:
+    // every flex row shadows a real standard row, and flex never costs more than standard.
+    it('every :flex row has a standard base row and never exceeds its price', () => {
+        const flexRows = manualCosts.filter((row) => row.model.endsWith(':flex'))
+        expect(flexRows.length).toBeGreaterThan(0)
+
+        for (const row of flexRows) {
+            const baseModel = row.model.slice(0, -':flex'.length)
+            const standard = openRouterCostsByModel[`openai/${baseModel}`]
+            expect(standard).toBeDefined()
+            expect(row.cost.default.prompt_token).toBeLessThanOrEqual(standard!.cost.default.prompt_token)
+            expect(row.cost.default.completion_token).toBeLessThanOrEqual(standard!.cost.default.completion_token)
         }
     })
 })
