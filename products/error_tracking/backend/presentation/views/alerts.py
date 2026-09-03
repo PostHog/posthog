@@ -221,7 +221,6 @@ class ErrorTrackingAlertThreadSerializer(serializers.Serializer):
         allow_null=True, help_text="Link to the thread in the provider; null while the root has not been posted."
     )
     root_headline = serializers.CharField()
-    delivered_count = serializers.IntegerField(help_text="Recent lifecycle notifications delivered into the thread.")
     last_error = serializers.CharField(help_text="Last delivery error for the destination, empty when healthy.")
     consecutive_failures = serializers.IntegerField()
     created_at = serializers.DateTimeField()
