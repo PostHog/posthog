@@ -52,6 +52,10 @@ describe("feature settingsStore defaults", () => {
       "local",
     );
   });
+
+  it("has no saved agent runtime override for a fresh profile, so the fleet default applies", () => {
+    expect(useSettingsStore.getState().lastUsedAgentRuntime).toBeNull();
+  });
 });
 
 describe("feature settingsStore cloud selections", () => {
@@ -86,6 +90,20 @@ describe("feature settingsStore cloud selections", () => {
     await useSettingsStore.persist.rehydrate();
 
     expect(useSettingsStore.getState().lastUsedAgentRuntime).toBe("pi");
+  });
+
+  it("clears a pre-v2 saved acp runtime on migration, so the fleet default applies instead", async () => {
+    getItem.mockResolvedValue(
+      JSON.stringify({
+        state: { lastUsedAgentRuntime: "acp" },
+        version: 1,
+      }),
+    );
+    useSettingsStore.setState({ lastUsedAgentRuntime: "pi" });
+
+    await useSettingsStore.persist.rehydrate();
+
+    expect(useSettingsStore.getState().lastUsedAgentRuntime).toBeNull();
   });
 
   it("persists Pi and ACP model selections independently", async () => {

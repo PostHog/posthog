@@ -1,6 +1,7 @@
 import type { SessionConfigOption } from "@agentclientprotocol/sdk";
 import {
   type Adapter,
+  type AgentRuntime,
   adapterForModelId,
   flattenSelectOptions,
   formatModelId,
@@ -19,6 +20,21 @@ export function flattenConfigValues(option: SessionConfigOption): string[] {
   return (option.options as RawOptionItem[]).flatMap((o) =>
     o.options ? o.options.map((g) => g.value) : o.value ? [o.value] : [],
   );
+}
+
+/**
+ * Which harness a composer resolves to. An explicit saved choice always
+ * wins; otherwise the fleet default applies. The Pi kill switch overrides
+ * both, so disabling it never leaves a user stuck on an unavailable
+ * harness.
+ */
+export function resolveAgentRuntime(
+  savedRuntime: AgentRuntime | null,
+  defaultHarness: AgentRuntime,
+  piHarnessEnabled: boolean,
+): AgentRuntime {
+  if (!piHarnessEnabled) return "acp";
+  return savedRuntime ?? defaultHarness;
 }
 
 export function isValidConfigValue(

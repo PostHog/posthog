@@ -106,3 +106,15 @@ export const BEDROCK_GATEWAY_VARIANTS = ["test", "control"] as const;
 export type BedrockGatewayVariant = (typeof BEDROCK_GATEWAY_VARIANTS)[number];
 /** Gates the organization context wiki: the Context explorer in the nav rails. */
 export const CONTEXT_LAYER_FLAG = "context-layer";
+
+/** Kill switch for the Pi runtime harness (client and cloud). */
+export const PI_HARNESS_FLAG = "pi-harness";
+
+/**
+ * Remote-configured fleet default for which harness (Pi or ACP) a composer
+ * resolves to when the user has no saved runtime choice. Payload is an
+ * AgentRuntime string ("pi" | "acp"); missing or invalid payload falls back
+ * to DEFAULT_AGENT_RUNTIME. Lets the default roll back to ACP without a
+ * release, independent of the PI_HARNESS_FLAG kill switch.
+ */
+export const DEFAULT_HARNESS_FLAG = "posthog-code-default-harness";
