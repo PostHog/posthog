@@ -895,7 +895,6 @@ export type ResultMessageHandlerResult = {
     outputTokens: number;
     cachedReadTokens: number;
     cachedWriteTokens: number;
-    costUsd?: number;
     contextWindowSize?: number;
   };
 };
@@ -989,8 +988,6 @@ function extractUsageFromResult(
     outputTokens: msgUsage.output_tokens ?? 0,
     cachedReadTokens: msgUsage.cache_read_input_tokens ?? 0,
     cachedWriteTokens: msgUsage.cache_creation_input_tokens ?? 0,
-    costUsd:
-      typeof msg.total_cost_usd === "number" ? msg.total_cost_usd : undefined,
     contextWindowSize,
   };
 }
