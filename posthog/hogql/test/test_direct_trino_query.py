@@ -3,7 +3,12 @@ from uuid import uuid4
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from posthog.schema import HogQLQuery
+
 from posthog.hogql.query import HogQLQueryExecutor
+from posthog.hogql.transforms.trino.errors import TrinoLoweringError
+
+from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 
 from products.data_warehouse.backend.facade.api import DIRECT_TRINO_URL_PATTERN
 from products.data_warehouse.backend.facade.sources import (
@@ -68,6 +73,21 @@ class TestDirectTrinoQuery(APIBaseTest):
         self.assertEqual(executor.direct_values, context.values)
         self.assertIn("paid", context.values.values())
 
+    def test_query_editor_uses_pure_compilation(self) -> None:
+        source = self._create_source_and_table()
+        runner = HogQLQueryRunner(
+            team=self.team,
+            query=HogQLQuery(
+                query="SELECT matchesAction(1) FROM orders",
+                connectionId=str(source.id),
+            ),
+        )
+
+        with self.assertRaises(TrinoLoweringError) as error:
+            runner.calculate()
+
+        self.assertEqual(error.exception.feature_code, "TRINO_PURE_ACTION_UNSUPPORTED")
+
     @patch("posthog.hogql.direct_sql.trino_adapter.TrinoAdapter.validate_source_config")
     @patch("products.warehouse_sources.backend.facade.source_management.connect_trino")
     def test_query_editor_executes_compiled_values_as_driver_parameters(
@@ -81,13 +101,15 @@ class TestDirectTrinoQuery(APIBaseTest):
         connection = MagicMock()
         connection.cursor.return_value = cursor
         mock_connect_trino.return_value.__enter__.return_value = connection
-        executor = HogQLQueryExecutor(
-            query="SELECT id FROM orders WHERE status = 'paid' LIMIT 1",
+        runner = HogQLQueryRunner(
             team=self.team,
-            connection_id=str(source.id),
+            query=HogQLQuery(
+                query="SELECT id FROM orders WHERE status = 'paid' LIMIT 1",
+                connectionId=str(source.id),
+            ),
         )
 
-        response = executor.execute()
+        response = runner.calculate()
 
         submitted_sql, submitted_values = cursor.execute.call_args.args
         self.assertIn('"ducklake"."analytics"."materialized_orders"', submitted_sql)

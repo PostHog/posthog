@@ -16,11 +16,11 @@ Pure transpilation accepts caller-supplied constant values. It rejects unresolve
 
 ## Query Editor connection integration
 
-The connection integration advertises `TrinoAdapter.dialect = "trino"`. Selecting a Trino connection for a HogQL query uses the shared query executor and Trino compiler. Table and field lookup follow Trino's case-insensitive identifier rules, while printed relations use the connection's catalog, schema, and physical table name.
+The connection integration advertises `TrinoAdapter.dialect = "trino"`. Selecting a Trino connection for a HogQL query uses pure manifest-backed compilation. The query executor derives the manifest from the selected connection's discovered tables and calls the same pure transpiler as managed compilation. It does not enable Django semantic expansion.
+
+Table and field lookup follow Trino's case-insensitive identifier rules, while printed relations use the connection's catalog, schema, and physical table name. Tables outside the selected connection are absent from the manifest. Actions, cohorts, saved queries, query filters, variables, and Django-only modifiers receive the pure compiler's existing unsupported-feature errors.
 
 The adapter converts compiler placeholders into positional driver parameters without interpolating values into SQL. Raw SQL requests without bound values still pass through unchanged. Existing source configuration validation, raw read-only checks, timeouts, and row caps remain in place.
-
-Direct queries cannot join PostHog person tables, so Query Editor normalizes the person-on-events modifier to the compiler's supported mode before Trino preparation. The selected project's modifier remains unchanged.
 
 The integration does not provision catalogs, alter deployments, or make source-only ClickHouse tables available in Trino.
 

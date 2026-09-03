@@ -1,6 +1,6 @@
 import dataclasses
 from time import sleep
-from typing import Any, ClassVar, Literal, Optional, Union, cast
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, Optional, Union, cast
 
 from opentelemetry import trace
 
@@ -72,11 +72,13 @@ from posthog.direct_query_cancellation import build_direct_query_cancellation_to
 from posthog.errors import CHQueryErrorS3Error, CHQueryErrorS3FileChangedDuringRead, ExposedCHQueryError
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.schema_enums import PersonsOnEventsMode
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.warehouse_sources.backend.facade.types import ManagedWarehouseSQLMode
+
+if TYPE_CHECKING:
+    from products.warehouse_sources.backend.facade.models import ExternalDataSource
 
 tracer = trace.get_tracer(__name__)
 
@@ -148,6 +150,8 @@ class HogQLQueryExecutor:
         self.limit: Optional[int] = None
         self.offset: Optional[int] = None
         self.used_data_warehouse_sources: list[WarehouseSourceUsage] = []
+        self._direct_source: Optional[ExternalDataSource] = None
+        self._direct_source_resolved = False
 
     @tracer.start_as_current_span("HogQLQueryExecutor._parse_query")
     def _parse_query(self):
@@ -236,8 +240,11 @@ class HogQLQueryExecutor:
                 if isinstance(transformed_node, ast.SelectQuery) or isinstance(transformed_node, ast.SelectSetQuery):
                     self.select_query = transformed_node
 
-    @tracer.start_as_current_span("HogQLQueryExecutor._generate_hogql")
-    def _generate_hogql(self):
+    @tracer.start_as_current_span("HogQLQueryExecutor._resolve_direct_source")
+    def _resolve_direct_source(self) -> Optional["ExternalDataSource"]:
+        if self._direct_source_resolved:
+            return self._direct_source
+
         source = get_direct_connection_source_none_or_raise(
             self.team,
             self.connection_id,
@@ -246,6 +253,12 @@ class HogQLQueryExecutor:
         )
         self.connection_id = str(source.id) if source else None
         self._direct_source = source
+        self._direct_source_resolved = True
+        return source
+
+    @tracer.start_as_current_span("HogQLQueryExecutor._generate_hogql")
+    def _generate_hogql(self):
+        self._resolve_direct_source()
 
         database = self.context.database
         if database is None or self.connection_id is not None:
@@ -404,17 +417,9 @@ class HogQLQueryExecutor:
         if self.connection_id != direct_source_id:
             raise ExposedHogQLError("The query references a different source than the selected connection.")
 
-        source = getattr(self, "_direct_source", None)
+        source = self._direct_source
         adapter = get_adapter(source.direct_engine) if source is not None else None
         dialect: HogQLDialect = adapter.dialect if adapter is not None and adapter.dialect is not None else "postgres"
-
-        direct_modifiers = self.query_modifiers
-        if dialect == "trino":
-            # Direct queries cannot join PostHog person tables, so their person-on-events mode has
-            # no effect. Use the one mode whose semantics the Trino compiler can guarantee.
-            direct_modifiers = self.query_modifiers.model_copy(
-                update={"personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS}
-            )
 
         direct_context = dataclasses.replace(
             self.context,
@@ -423,7 +428,7 @@ class HogQLQueryExecutor:
             team=self.team,
             enable_select_queries=True,
             timings=self.timings,
-            modifiers=direct_modifiers,
+            modifiers=self.query_modifiers,
             limit_context=self.limit_context,
             database=self.hogql_context.database if self.hogql_context else None,
         )
@@ -452,6 +457,60 @@ class HogQLQueryExecutor:
             context=direct_context,
             engine="direct_sql",
         )
+
+    def _prepare_pure_trino_query(self) -> _PreparedExecution:
+        source = self._resolve_direct_source()
+        if source is None or self.connection_id is None:
+            raise InternalHogQLError("Pure Trino compilation requires a selected connection.")
+        if self.query is None:
+            raise InternalHogQLError("Pure Trino compilation requires a query.")
+
+        database = Database.create_for(
+            team=self.team,
+            user=self.user,
+            user_access_control=self.context.user_access_control,
+            modifiers=self.query_modifiers,
+            timings=self.timings,
+            connection_id=self.connection_id,
+            bypass_warehouse_access_control=self.context.bypass_warehouse_access_control,
+            trigger="executor",
+        )
+
+        from posthog.hogql.transforms.trino.manifest import (  # noqa: PLC0415 -- load the optional backend only for Trino queries
+            build_trino_manifest_from_database,
+            transpile_hogql_to_trino,
+        )
+
+        limit_context = self.limit_context or LimitContext.QUERY
+        query = self.query
+        if isinstance(query, ast.SelectQuery | ast.SelectSetQuery):
+            self.query = None
+        transpiled = transpile_hogql_to_trino(
+            query,
+            manifest=build_trino_manifest_from_database(database),
+            filters=self.filters,
+            variables=self.variables,
+            modifiers=self.modifiers,
+            limit_top_select=limit_context not in (LimitContext.COHORT_CALCULATION, LimitContext.SAVED_QUERY),
+            limit_context=limit_context,
+            default_limit=get_default_limit_for_context(limit_context),
+            pretty=self.pretty if self.pretty is not None else True,
+            include_hogql=True,
+        )
+
+        self.hogql = transpiled.hogql
+        self.direct_sql = ensure_single_direct_statement(transpiled.sql)
+        self.direct_values = transpiled.values
+        self.direct_source_id = str(source.id)
+        self.direct_dialect = "trino"
+        self.direct_context = HogQLContext(
+            values=dict(transpiled.values),
+            timings=self.timings,
+            limit_context=limit_context,
+            timezone=database.get_timezone(),
+            week_start_day=database.get_week_start_day(),
+        )
+        return self._PreparedExecution(sql=self.direct_sql, context=self.direct_context, engine="direct_sql")
 
     def _get_select_query_type(self) -> ast.SelectQueryType | ast.SelectSetQueryType | None:
         if self.select_query.type is not None:
@@ -593,6 +652,10 @@ class HogQLQueryExecutor:
                 raise
 
     def _prepare_execution(self) -> _PreparedExecution:
+        source = self._resolve_direct_source()
+        if source is not None and source.direct_engine == "trino":
+            return self._prepare_pure_trino_query()
+
         self._parse_query()
         self._process_variables()
         self._process_placeholders()
