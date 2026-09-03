@@ -411,7 +411,7 @@ class CustomerTaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return Response({"detail": "Task not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(CustomerTaskSerializer(instance=task).data)
 
-    @extend_schema(responses={200: CustomerTaskSerializer})
+    @extend_schema(request=CustomerTaskUpdateSerializer, responses={200: CustomerTaskSerializer})
     def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         return self.partial_update(request, *args, **kwargs)
 
