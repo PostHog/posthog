@@ -132,6 +132,38 @@ class TestFeatureFlagRequireTags(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert flag.tagged_items.count() == 1
 
+    def test_bulk_update_rejects_the_request_when_only_one_selected_flag_would_be_stripped(self) -> None:
+        # A mixed selection is what exercises the any() in validate_bulk_tag_changes: with one flag
+        # per request, checking every flag and checking only the first read the same.
+        #
+        # The flag that loses its last tag sits between two that keep one, and that placement is
+        # load-bearing. Neither the viewset nor the model sets an ordering, so the flag the check
+        # would reach first is whichever end the database returns. A keeper at both ends means a
+        # check that stops after the first flag misses the violation either way.
+        keeps_a_tag = FeatureFlag.objects.create(key="first-keeper-flag", team=self.team, created_by=self.user)
+        self._tag_flag(keeps_a_tag, "billing")
+        self._tag_flag(keeps_a_tag, "growth")
+        loses_its_last = FeatureFlag.objects.create(key="one-tag-flag", team=self.team, created_by=self.user)
+        self._tag_flag(loses_its_last, "billing")
+        also_keeps_a_tag = FeatureFlag.objects.create(key="last-keeper-flag", team=self.team, created_by=self.user)
+        self._tag_flag(also_keeps_a_tag, "billing")
+        self._tag_flag(also_keeps_a_tag, "growth")
+        self._require_tags(True)
+
+        response = self.client.post(
+            f"{self.url}bulk_update_tags/",
+            {
+                "ids": [keeps_a_tag.id, loses_its_last.id, also_keeps_a_tag.id],
+                "action": "remove",
+                "tags": ["billing"],
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        for flag in (keeps_a_tag, loses_its_last, also_keeps_a_tag):
+            assert "billing" in flag.tagged_items.values_list("tag__name", flat=True)
+
     def test_bulk_update_can_still_swap_tags_when_required(self) -> None:
         flag = FeatureFlag.objects.create(key="tagged-flag", team=self.team, created_by=self.user)
         self._tag_flag(flag, "billing")
