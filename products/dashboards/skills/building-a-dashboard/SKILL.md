@@ -54,12 +54,17 @@ Prefer reusing existing insights over recreating them.
 - Existing dashboard: `dashboard-update`. Adding, replacing, or removing insights means sending the full intended set of
   tiles — insights you omit are removed, so include the ones you want to keep.
 - Layout: `posthog:dashboard-reorder-tiles` supports `preserve` (the default), `two_column`, `three_column`, and
-  `full_width`. Only reflow when the user explicitly asks to rearrange, reorder, or move tiles. `three_column` keeps
-  text and image tiles full-width at their existing heights, then packs each contiguous run of other tiles three per
-  row with `sm` positions `(x, w) = (0, 4), (4, 4), (8, 4)` and height 5.
-- After every layout change, call `posthog:dashboard-get`. Verify tile IDs match the requested order and inspect each
-  tile's `layouts.sm` coordinates. Do not claim that tiles share a row until their `y` values match and their `x` and
-  `w` values do not overlap.
+  `full_width`. Only reflow when the user explicitly asks to rearrange, reorder, or move tiles. Use `three_column` only
+  when the user specifically asks for a three-column or equal-thirds row, and pass every active dashboard tile ID. It
+  keeps text and image separators full-width at their saved heights (or rendered height 2 when layoutless), then packs
+  each contiguous run of other tiles three per row.
+- After every layout change, call `posthog:dashboard-get` and verify the tile IDs match the requested order.
+- After `three_column`, do not claim the requested order or row layout until all of these checks pass:
+  - Each complete insight row has a shared `y`; every tile has `w = 4` and `h = 5`; and the `x` values are exactly
+    `0`, `4`, and `8`, in order.
+  - Each separator has `layouts.sm.x = 0`, `w = 12`, and its preserved saved or effective height.
+  - Every `layouts.xs` tile has `x = 0`, `w = 1`, and `y` equal to the previous tile's `y + h`, so the mobile stack
+    cannot overlap.
 - Verify with `dashboard-insights-run` to confirm the tiles return data, then summarize what you built and invite the
   user to refine it.
 

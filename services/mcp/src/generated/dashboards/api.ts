@@ -1220,7 +1220,9 @@ export const DashboardsReorderTilesCreateBody = () => zod.object({
     tile_order: zod
         .array(zod.number())
         .min(1)
-        .describe('Array of tile IDs in the desired display order (top to bottom, left to right).'),
+        .describe(
+            'Array of tile IDs in the desired display order (top to bottom, left to right). The three_column layout requires every active tile ID on the dashboard.'
+        ),
     layout: zod
         .enum(['preserve', 'two_column', 'three_column', 'full_width'])
         .describe(
@@ -1228,7 +1230,7 @@ export const DashboardsReorderTilesCreateBody = () => zod.object({
         )
         .default(dashboardsReorderTilesCreateBodyLayoutDefault)
         .describe(
-            "How to size tiles when reordering. 'preserve' (default) keeps each tile's existing width and height and only repacks positions in the new order. 'two_column' forces a 6-wide × 5-tall grid (two tiles per row). 'three_column' packs non-text tiles three per row at width 4 and height 5 while keeping text and image tiles full-width at their existing height. 'full_width' forces each tile to span the full 12-column row at height 5.\n\n\* `preserve` - preserve\n\* `two_column` - two_column\n\* `three_column` - three_column\n\* `full_width` - full_width"
+            "How to size tiles when reordering. 'preserve' (default) keeps each tile's existing width and height and only repacks positions in the new order. 'two_column' forces a 6-wide × 5-tall grid (two tiles per row). 'three_column' packs non-text tiles three per row at width 4 and height 5 while keeping text and image tiles full-width at their saved height (or rendered default height 2 when no valid height is saved); it requires every active dashboard tile ID. 'full_width' forces each tile to span the full 12-column row at height 5.\n\n\* `preserve` - preserve\n\* `two_column` - two_column\n\* `three_column` - three_column\n\* `full_width` - full_width"
         ),
 })
 

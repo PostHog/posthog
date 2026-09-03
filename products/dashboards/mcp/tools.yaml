@@ -246,8 +246,9 @@ tools:
             Reorder tiles on a dashboard by providing an array of tile IDs in the desired display order. First, use
             dashboard-get to see current tile IDs. By default existing tile widths and heights are preserved; see the
             layout parameter to force a two-column, three-column, or full-width grid instead. The three-column layout
-            keeps text and image tiles full-width as separators, preserves their heights, and packs each contiguous
-            run of other tiles three per row.
+            is only for an explicitly requested three-column or equal-thirds layout and requires every active dashboard
+            tile ID. It keeps text and image tiles full-width as separators, preserving their saved height or using
+            rendered height 2 when layoutless, and packs each contiguous run of other tiles three per row.
     dashboard-saved-views-create:
         operation: dashboard_saved_views_create
         enabled: false
