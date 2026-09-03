@@ -75,6 +75,14 @@ pub struct TakenFrontier {
     pub charge: Charge,
 }
 
+/// What a window holds: the offsets charged and not yet drained by
+/// `take_frontier`, and the charge they carry.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Held {
+    pub offsets: usize,
+    pub charge: Charge,
+}
+
 /// Per-partition offset accounting: record offsets as they are delivered,
 /// complete them in any order, and read the frontier in Kafka's
 /// committed-offset representation. Observing the frontier never changes it;
@@ -104,6 +112,9 @@ pub struct PartitionOffsetLedger {
     /// Number of completed slots at the front of the window, kept current on
     /// every completion so `frontier` stays O(1).
     completed_prefix_len: usize,
+    /// Charge of every slot in the window, kept current on every charge and
+    /// take so `held` stays O(1).
+    held_charge: Charge,
     /// A dense sliding window over one contiguous offset range: `charge`
     /// appends at the back, `take_frontier` pops the front, and `complete`
     /// indexes by offset minus `base_offset`. Every operation is amortized constant
@@ -117,6 +128,7 @@ impl PartitionOffsetLedger {
             generation,
             base_offset: None,
             completed_prefix_len: 0,
+            held_charge: Charge::ZERO,
             slots: VecDeque::new(),
         }
     }
@@ -160,6 +172,7 @@ impl PartitionOffsetLedger {
                 charge,
             });
             total += charge;
+            self.held_charge += charge;
         }
         Ok(total)
     }
@@ -221,6 +234,7 @@ impl PartitionOffsetLedger {
             .drain(..self.completed_prefix_len)
             .map(|slot| slot.charge)
             .sum();
+        self.held_charge -= charge;
         self.base_offset = Some(frontier_offset);
         self.completed_prefix_len = 0;
         Some(TakenFrontier {
@@ -229,10 +243,13 @@ impl PartitionOffsetLedger {
         })
     }
 
-    /// Offsets the window still holds: charged and not yet drained by
-    /// `take_frontier`.
-    pub fn depth(&self) -> usize {
-        self.slots.len()
+    /// What the window still holds: offsets charged and not yet drained by
+    /// `take_frontier`, and their charge.
+    pub fn held(&self) -> Held {
+        Held {
+            offsets: self.slots.len(),
+            charge: self.held_charge,
+        }
     }
 }
 
@@ -269,7 +286,7 @@ mod tests {
         let taken = ledger.take_frontier().unwrap();
         assert_eq!(taken.offset, Offset(1));
         assert_eq!(taken.charge.events, 1);
-        assert_eq!(ledger.depth(), 2);
+        assert_eq!(ledger.held().offsets, 2);
         ledger.complete([Offset(1), Offset(2)]).unwrap();
         assert_eq!(ledger.frontier(), Some(Offset(3)));
         assert_eq!(ledger.take_frontier().unwrap().charge.events, 2);
@@ -341,7 +358,7 @@ mod tests {
         assert_eq!(ledger.frontier(), Some(Offset(2)));
         assert_eq!(ledger.frontier(), Some(Offset(2)));
         assert_eq!(ledger.take_frontier().unwrap().charge.events, 2);
-        assert_eq!(ledger.depth(), 0);
+        assert_eq!(ledger.held().offsets, 0);
     }
 
     #[test]
@@ -362,6 +379,37 @@ mod tests {
         let taken = ledger.take_frontier().unwrap();
         assert_eq!(taken.offset, Offset(4));
         assert_eq!(taken.charge.events, 2);
+    }
+
+    #[test]
+    fn held_charge_follows_charges_and_takes() {
+        let mut ledger = PartitionOffsetLedger::new(1);
+        ledger.charge([charge(0), charge(1), charge(3)]).unwrap();
+        assert_eq!(
+            ledger.held(),
+            Held {
+                offsets: 4,
+                charge: Charge {
+                    events: 3,
+                    bytes: 30
+                }
+            },
+            "gap filler holds a slot but no charge"
+        );
+
+        // The take drains the completed prefix, gap filler included.
+        ledger.complete([Offset(0), Offset(1)]).unwrap();
+        ledger.take_frontier().unwrap();
+        assert_eq!(
+            ledger.held(),
+            Held {
+                offsets: 1,
+                charge: Charge {
+                    events: 1,
+                    bytes: 10
+                }
+            }
+        );
     }
 
     #[test]

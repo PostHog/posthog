@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use common_kafka_consumer::{
-    Charge, Offset, Rejection, Settlement, TopicOffsetLedger, TopicPartition,
+    Charge, Held, Offset, Rejection, Settlement, TopicOffsetLedger, TopicPartition,
 };
 use metrics::{counter, gauge};
 use tracing::{info, warn};
@@ -51,8 +51,8 @@ impl LedgerShadow {
         self.ledger.generation(topic_partition)
     }
 
-    /// Charge one batch's slice of a partition to its ledger and publish the
-    /// partition's depth.
+    /// Charge one batch's slice of a partition to its ledger and publish what
+    /// the partition's window holds.
     pub(crate) fn charge(
         &self,
         topic_partition: &TopicPartition,
@@ -66,7 +66,7 @@ impl LedgerShadow {
             .ledger
             .charge(topic_partition, stamp, charges.iter().copied())
         {
-            Ok(depth) => set_depth_gauge(&topic_partition.topic, topic_partition.partition, depth),
+            Ok(held) => set_held_gauges(&topic_partition.topic, topic_partition.partition, held),
             Err(rejection) => count_rejection("charge", topic_partition, rejection),
         }
     }
@@ -93,10 +93,10 @@ impl LedgerShadow {
         };
         self.observe(topic_partition, &settlement, span, stamp);
         self.ledger.take_frontier(topic_partition);
-        set_depth_gauge(
+        set_held_gauges(
             &topic_partition.topic,
             topic_partition.partition,
-            self.ledger.depth(topic_partition),
+            self.ledger.held(topic_partition),
         );
     }
 
@@ -139,7 +139,7 @@ impl LedgerShadow {
                 committed = mismatch.committed,
                 frontier = ?mismatch.frontier,
                 direction = mismatch.direction(),
-                depth = settlement.depth,
+                depth = settlement.held.offsets,
                 batch_generation = stamp,
                 ledger_generation = settlement.generation,
                 "Offset ledger frontier differs from current commit"
@@ -211,14 +211,29 @@ fn count_rejection(stage: &'static str, topic_partition: &TopicPartition, reject
     }
 }
 
-/// Publish a partition's uncommitted-offset depth.
-pub(crate) fn set_depth_gauge(topic: &str, partition: i32, depth: usize) {
+/// Publish what a partition's window holds: its uncommitted offsets and the
+/// events and bytes they carry.
+pub(crate) fn set_held_gauges(topic: &str, partition: i32, held: Held) {
+    let topic: Arc<str> = Arc::from(topic);
+    let partition: Arc<str> = Arc::from(partition.to_string());
     gauge!(
         "ingestion_consumer_ledger_uncommitted_offsets",
-        "topic" => topic.to_string(),
-        "partition" => partition.to_string()
+        "topic" => topic.clone(),
+        "partition" => partition.clone()
     )
-    .set(depth as f64);
+    .set(held.offsets as f64);
+    gauge!(
+        "ingestion_consumer_ledger_uncommitted_events",
+        "topic" => topic.clone(),
+        "partition" => partition.clone()
+    )
+    .set(held.charge.events as f64);
+    gauge!(
+        "ingestion_consumer_ledger_uncommitted_bytes",
+        "topic" => topic,
+        "partition" => partition
+    )
+    .set(held.charge.bytes as f64);
 }
 
 #[cfg(test)]
@@ -261,11 +276,15 @@ mod tests {
         shadow.settle(&live, 0, [Offset(20)], &span(20, 20));
 
         assert_eq!(
-            ledger.depth(&reassigned),
+            ledger.held(&reassigned).offsets,
             1,
             "the stale batch settles nothing against the new ledger"
         );
-        assert_eq!(ledger.depth(&live), 0, "the live batch settles and drains");
+        assert_eq!(
+            ledger.held(&live).offsets,
+            0,
+            "the live batch settles and drains"
+        );
     }
 
     #[test]
@@ -276,7 +295,7 @@ mod tests {
 
         shadow.settle(&held, 0, [Offset(11)], &span(11, 11));
 
-        assert_eq!(ledger.depth(&held), 2);
+        assert_eq!(ledger.held(&held).offsets, 2);
     }
 
     #[test]
@@ -286,7 +305,7 @@ mod tests {
         shadow.charge(&p0, 0, &charges(&[10]));
         shadow.settle(&p0, 0, [Offset(10)], &span(10, 10));
 
-        assert_eq!(ledger.depth(&p0), 0);
+        assert_eq!(ledger.held(&p0).offsets, 0);
         assert_eq!(shadow.generations_version(), 0);
         assert_eq!(shadow.generation(&p0), 0);
     }

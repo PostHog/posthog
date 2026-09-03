@@ -32,7 +32,7 @@ Null-key messages (e.g. overflow rerouting) are excluded from both checks: the p
 `ledger_shadow.rs` runs the per-partition offset ledger from `common/kafka-consumer` next to the current commit path without changing what is committed.
 Every delivered message is charged to its partition's ledger during collection, and a committed batch completes its offsets there; the ledger's frontier is then compared with the offset the batch commits.
 `ingestion_consumer_ledger_mismatch_total{topic,partition,direction}` counts every disagreement, and a warning logs when a partition's disagreement starts and when it ends.
-`ingestion_consumer_ledger_uncommitted_offsets{topic,partition}` gauges each partition's window depth.
+`ingestion_consumer_ledger_uncommitted_offsets{topic,partition}` gauges each partition's window depth; `ingestion_consumer_ledger_uncommitted_events` and `ingestion_consumer_ledger_uncommitted_bytes` gauge the charge those offsets carry, where bytes is the payload plus key plus headers of each message.
 `ingestion_consumer_ledger_stale_slices_total{stage}` counts charges and settlements dropped because their partition was reassigned while they were in flight; a few around a rebalance are expected.
 `ingestion_consumer_ledger_errors_total{stage,kind}` counts contract violations in the ledger's accounting; it must stay 0. A violation resets that partition's ledger, and the consumer keeps running.
 `CONSUMER_OFFSET_LEDGER_SHADOW_ENABLED` (default `true`) is the kill switch: off, nothing is charged, settled, or reported.

@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 
 use crate::charge::Charge;
-use crate::partition_offset_ledger::{LedgerError, PartitionOffsetLedger};
+use crate::partition_offset_ledger::{Held, LedgerError, PartitionOffsetLedger};
 use crate::types::Offset;
 
 /// A partition of a named topic, the key for everything the ledger tracks.
@@ -41,8 +41,8 @@ pub struct Settlement {
     /// Next-to-read frontier, `None` while the first offset of the window is
     /// still incomplete.
     pub frontier: Option<Offset>,
-    /// Offsets still held by the window after the completion.
-    pub depth: usize,
+    /// What the window still holds after the completion.
+    pub held: Held,
     pub generation: u64,
 }
 
@@ -89,14 +89,14 @@ impl TopicOffsetLedger {
 
     /// Record one slice of delivered offsets on the partition's ledger,
     /// founding the ledger when the slice is the partition's first delivery.
-    /// Returns the partition's depth after the charge, or why the slice was
-    /// rejected.
+    /// Returns what the partition's window holds after the charge, or why
+    /// the slice was rejected.
     pub fn charge(
         &self,
         topic_partition: &TopicPartition,
         stamp: u64,
         offset_charges: impl IntoIterator<Item = (Offset, Charge)>,
-    ) -> Result<usize, Rejection> {
+    ) -> Result<Held, Rejection> {
         let mut partitions = self.partitions.lock().unwrap();
         let ledger = partitions
             .entry(topic_partition.clone())
@@ -106,7 +106,7 @@ impl TopicOffsetLedger {
             return Err(Rejection::Stale { stamp, generation });
         }
         match ledger.charge(offset_charges) {
-            Ok(_) => Ok(ledger.depth()),
+            Ok(_) => Ok(ledger.held()),
             Err(error) => {
                 *ledger = PartitionOffsetLedger::new(generation + 1);
                 self.generations_version.fetch_add(1, Ordering::Relaxed);
@@ -140,7 +140,7 @@ impl TopicOffsetLedger {
         match ledger.complete(offsets) {
             Ok(()) => Ok(Settlement {
                 frontier: ledger.frontier(),
-                depth: ledger.depth(),
+                held: ledger.held(),
                 generation,
             }),
             Err(error) => {
@@ -160,13 +160,13 @@ impl TopicOffsetLedger {
         ledger.take_frontier().map(|taken| taken.offset)
     }
 
-    /// Offsets the partition's window still holds; 0 without a ledger.
-    pub fn depth(&self, topic_partition: &TopicPartition) -> usize {
+    /// What the partition's window still holds; nothing without a ledger.
+    pub fn held(&self, topic_partition: &TopicPartition) -> Held {
         self.partitions
             .lock()
             .unwrap()
             .get(topic_partition)
-            .map(PartitionOffsetLedger::depth)
+            .map(PartitionOffsetLedger::held)
             .unwrap_or_default()
     }
 
@@ -226,7 +226,7 @@ mod tests {
         assert_eq!(settlement.frontier, Some(Offset(12)));
 
         assert_eq!(ledger.take_frontier(&p0), Some(Offset(12)));
-        assert_eq!(ledger.depth(&p0), 0);
+        assert_eq!(ledger.held(&p0).offsets, 0);
     }
 
     #[test]
@@ -238,7 +238,7 @@ mod tests {
 
         ledger.forget_partitions([("events", 0)]);
 
-        assert_eq!(ledger.depth(&p0), 0);
+        assert_eq!(ledger.held(&p0).offsets, 0);
         assert_eq!(ledger.generation(&p0), 1);
         assert_eq!(ledger.generations_version(), 1);
     }
@@ -259,7 +259,12 @@ mod tests {
                 generation: 1
             })
         );
-        assert_eq!(ledger.charge(&p0, 1, [(Offset(10), Charge::ZERO)]), Ok(1));
+        assert_eq!(
+            ledger
+                .charge(&p0, 1, [(Offset(10), Charge::ZERO)])
+                .map(|held| held.offsets),
+            Ok(1)
+        );
     }
 
     #[test]
@@ -273,9 +278,9 @@ mod tests {
             .settle(&p0, 0, [Offset(11)])
             .expect("live ledger settles");
         assert_eq!(settlement.frontier, None);
-        assert_eq!(settlement.depth, 2);
+        assert_eq!(settlement.held.offsets, 2);
         assert_eq!(ledger.take_frontier(&p0), None);
-        assert_eq!(ledger.depth(&p0), 2);
+        assert_eq!(ledger.held(&p0).offsets, 2);
 
         // The late completion arrives with the next batch and the held
         // offsets drain.
@@ -284,7 +289,7 @@ mod tests {
             .expect("live ledger settles");
         assert_eq!(settlement.frontier, Some(Offset(12)));
         assert_eq!(ledger.take_frontier(&p0), Some(Offset(12)));
-        assert_eq!(ledger.depth(&p0), 0);
+        assert_eq!(ledger.held(&p0).offsets, 0);
     }
 
     #[test]
@@ -306,8 +311,12 @@ mod tests {
 
         ledger.take_frontier(&p0);
         ledger.take_frontier(&p1);
-        assert_eq!(ledger.depth(&p0), 0, "the settled partition drains");
-        assert_eq!(ledger.depth(&p1), 2, "the held partition keeps its offsets");
+        assert_eq!(ledger.held(&p0).offsets, 0, "the settled partition drains");
+        assert_eq!(
+            ledger.held(&p1).offsets,
+            2,
+            "the held partition keeps its offsets"
+        );
     }
 
     #[test]
@@ -351,8 +360,8 @@ mod tests {
             .expect("live ledger settles");
         ledger.take_frontier(&events);
 
-        assert_eq!(ledger.depth(&events), 0);
-        assert_eq!(ledger.depth(&overflow), 1);
+        assert_eq!(ledger.held(&events).offsets, 0);
+        assert_eq!(ledger.held(&overflow).offsets, 1);
     }
 
     #[test]
@@ -374,7 +383,7 @@ mod tests {
             })
         );
         assert_eq!(
-            ledger.depth(&p0),
+            ledger.held(&p0).offsets,
             1,
             "the redelivered offset stays uncompleted"
         );
@@ -384,7 +393,7 @@ mod tests {
             .settle(&p0, 1, [Offset(10)])
             .expect("current-generation batch settles");
         ledger.take_frontier(&p0);
-        assert_eq!(ledger.depth(&p0), 0);
+        assert_eq!(ledger.held(&p0).offsets, 0);
     }
 
     #[test]
@@ -417,12 +426,12 @@ mod tests {
         ledger.take_frontier(&p1);
 
         assert_eq!(
-            ledger.depth(&p0),
+            ledger.held(&p0).offsets,
             1,
             "the reassigned partition ignores the stale completion"
         );
         assert_eq!(
-            ledger.depth(&p1),
+            ledger.held(&p1).offsets,
             0,
             "the untouched partition completes and drains"
         );
@@ -439,13 +448,13 @@ mod tests {
         ledger.forget_partitions([("events", 0)]);
         assert_eq!(ledger.generations_version(), 1);
         charge(&ledger, &p1, 0, &[21]);
-        assert_eq!(ledger.depth(&p1), 2);
+        assert_eq!(ledger.held(&p1).offsets, 2);
 
         ledger
             .settle(&p1, 0, [Offset(20), Offset(21)])
             .expect("surviving ledger settles");
         ledger.take_frontier(&p1);
-        assert_eq!(ledger.depth(&p1), 0, "no message is lost");
+        assert_eq!(ledger.held(&p1).offsets, 0, "no message is lost");
     }
 
     #[test]
@@ -467,14 +476,14 @@ mod tests {
                 generation: 2
             })
         );
-        assert_eq!(ledger.depth(&p0), 0, "no ledger, nothing lands");
+        assert_eq!(ledger.held(&p0).offsets, 0, "no ledger, nothing lands");
 
         charge(&ledger, &p0, 2, &[10]);
         ledger
             .settle(&p0, 2, [Offset(10)])
             .expect("the new assignment settles");
         ledger.take_frontier(&p0);
-        assert_eq!(ledger.depth(&p0), 0);
+        assert_eq!(ledger.held(&p0).offsets, 0);
     }
 
     #[test]
@@ -499,9 +508,14 @@ mod tests {
                 generation: 2
             })
         );
-        assert_eq!(ledger.depth(&p0), 0);
+        assert_eq!(ledger.held(&p0).offsets, 0);
 
-        assert_eq!(ledger.charge(&p0, 2, [(Offset(10), Charge::ZERO)]), Ok(1));
+        assert_eq!(
+            ledger
+                .charge(&p0, 2, [(Offset(10), Charge::ZERO)])
+                .map(|held| held.offsets),
+            Ok(1)
+        );
     }
 
     #[test]
@@ -519,7 +533,7 @@ mod tests {
                 next: Offset(12),
             }))
         );
-        assert_eq!(ledger.depth(&p0), 0, "the window is discarded");
+        assert_eq!(ledger.held(&p0).offsets, 0, "the window is discarded");
         assert_eq!(ledger.generation(&p0), 1);
         assert_eq!(ledger.generations_version(), 1);
 
@@ -532,7 +546,12 @@ mod tests {
                 generation: 1
             })
         );
-        assert_eq!(ledger.charge(&p0, 1, [(Offset(12), Charge::ZERO)]), Ok(1));
+        assert_eq!(
+            ledger
+                .charge(&p0, 1, [(Offset(12), Charge::ZERO)])
+                .map(|held| held.offsets),
+            Ok(1)
+        );
     }
 
     #[test]
@@ -547,7 +566,7 @@ mod tests {
                 offset: Offset(15)
             }))
         );
-        assert_eq!(ledger.depth(&p0), 0);
+        assert_eq!(ledger.held(&p0).offsets, 0);
         assert_eq!(ledger.generation(&p0), 1);
         assert_eq!(ledger.take_frontier(&p0), None);
     }

@@ -50,9 +50,9 @@ use rdkafka::consumer::{BaseConsumer, ConsumerContext, Rebalance};
 use rdkafka::{ClientContext, Statistics};
 use tracing::{info, warn};
 
-use crate::ledger_shadow::set_depth_gauge;
+use crate::ledger_shadow::set_held_gauges;
 use crate::types::SerializedKafkaMessage;
-use common_kafka_consumer::{TopicOffsetLedger, TopicPartition};
+use common_kafka_consumer::{Held, TopicOffsetLedger, TopicPartition};
 
 /// The first and last Kafka offsets a batch holds for one topic-partition.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -638,7 +638,7 @@ impl ConsumerContext for SentinelContext {
                 self.topic_offset_ledger
                     .forget_partitions(tpl.elements().iter().map(|e| (e.topic(), e.partition())));
                 for element in tpl.elements() {
-                    set_depth_gauge(element.topic(), element.partition(), 0);
+                    set_held_gauges(element.topic(), element.partition(), Held::default());
                 }
                 // Revoked partitions may be replayed by another consumer (or by
                 // us after re-assignment) from the last commit — every per-key
@@ -664,7 +664,7 @@ impl ConsumerContext for SentinelContext {
             self.topic_offset_ledger
                 .forget_partitions(tpl.elements().iter().map(|e| (e.topic(), e.partition())));
             for element in tpl.elements() {
-                set_depth_gauge(element.topic(), element.partition(), 0);
+                set_held_gauges(element.topic(), element.partition(), Held::default());
             }
             if let Some(epoch) = &self.assignment_epoch {
                 epoch.fetch_add(1, Ordering::Relaxed);
