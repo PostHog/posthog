@@ -72,6 +72,7 @@ export interface FocusServiceEvents {
 }
 
 export interface IFocusService {
+  resubscribeEvents(): void;
   getSession(mainRepoPath: string): FocusSession | null;
   saveSession(session: FocusSession): Promise<void>;
   deleteSession(mainRepoPath: string): Promise<void>;
