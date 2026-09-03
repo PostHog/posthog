@@ -17,12 +17,14 @@ from posthog.models import PropertyDefinition
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.property_access_control import PropertyAccessLevel
 
-# The row carries the same key in four blobs with a different value in each, so a field pointed at
-# the wrong physical column returns another blob's value instead of merely returning something.
+# The row carries the same key in both blobs with a different value in each, so a field pointed at
+# the wrong physical column returns the other blob's value instead of merely returning something.
 EVENT_PROBE = "from-event-properties"
 PERSON_PROBE = "from-person-properties"
-GROUP0_PROBE = "from-group0-properties"
-GROUP1_PROBE = "from-group1-properties"
+
+# Compares greater than 9 as a number and less than it as a string, so the assertion tells the two
+# apart rather than passing under either.
+NUMERIC_PROBE = 10
 
 
 class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
@@ -37,7 +39,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
             """
             INSERT INTO writable_flag_evaluations
                 (uuid, event, properties, timestamp, team_id, distinct_id, created_at, person_id,
-                 person_properties, group0_properties, group1_properties)
+                 person_properties)
             VALUES
             """,
             [
@@ -52,6 +54,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
                             "$feature_flag_request_id": "req-456",
                             "$group_0": "acme",
                             "probe": EVENT_PROBE,
+                            "count": NUMERIC_PROBE,
                         }
                     ),
                     occurred_at,
@@ -59,9 +62,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
                     "probe-distinct-id",
                     occurred_at,
                     str(self.person_id),
-                    json.dumps({"probe": PERSON_PROBE}),
-                    json.dumps({"probe": GROUP0_PROBE}),
-                    json.dumps({"probe": GROUP1_PROBE}),
+                    json.dumps({"probe": PERSON_PROBE, "count": NUMERIC_PROBE}),
                 )
             ],
         )
@@ -102,7 +103,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
     def test_every_field_reads_its_own_physical_column(self):
         results = self._select(
             "flag_key, response, session_id, request_id, `$group_0`, person_id, person.id, "
-            "properties.probe, person.properties.probe, group_0.properties.probe, group_1.properties.probe"
+            "properties.probe, person.properties.probe"
         )
 
         assert results == [
@@ -116,8 +117,6 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
                 self.person_id,
                 EVENT_PROBE,
                 PERSON_PROBE,
-                GROUP0_PROBE,
-                GROUP1_PROBE,
             )
         ]
 
@@ -131,14 +130,6 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
                 "person.properties.probe",
                 "properties.probe",
                 EVENT_PROBE,
-            ),
-            (
-                "group",
-                PropertyDefinition.Type.GROUP,
-                0,
-                "group_0.properties.probe",
-                "group_1.properties.probe",
-                GROUP1_PROBE,
             ),
         ]
     )
@@ -157,6 +148,24 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
 
         assert self._select(restricted) == [(None,)]
         assert self._select(untouched) == [(untouched_value,)]
+
+    @parameterized.expand(
+        [
+            ("event", PropertyDefinition.Type.EVENT, "properties.count"),
+            ("person", PropertyDefinition.Type.PERSON, "person.properties.count"),
+        ]
+    )
+    def test_numeric_property_compares_as_a_number(self, _name: str, property_type, expression: str):
+        # Drop this table from any of the property-type dispatches and the read stays a String, so
+        # the comparison no longer answers the numeric question.
+        PropertyDefinition.objects.create(
+            team=self.team,
+            name="count",
+            property_type="Numeric",
+            type=property_type,
+        )
+
+        assert self._select(f"{expression} > 9") == [(True,)]
 
     def test_restricted_key_is_dropped_from_a_whole_blob_read(self):
         self._restrict("probe", PropertyDefinition.Type.EVENT)

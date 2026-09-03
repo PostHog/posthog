@@ -37,27 +37,6 @@ class FlagEvaluationsPersonSubTable(VirtualTable):
         return FLAG_EVALUATIONS_CLICKHOUSE_TABLE
 
 
-class FlagEvaluationsGroupSubTable(VirtualTable):
-    """Group columns carried on the flag-evaluation row itself."""
-
-    group_index: int = 0
-
-    def __init__(self, group_index: int):
-        super().__init__(
-            fields={
-                "key": StringDatabaseField(name=f"$group_{group_index}", nullable=False),
-                "properties": StringJSONDatabaseField(name=f"group{group_index}_properties", nullable=False),
-            }
-        )
-        self.group_index = group_index
-
-    def to_printed_clickhouse(self, context):
-        return FLAG_EVALUATIONS_CLICKHOUSE_TABLE
-
-    def to_printed_hogql(self):
-        return FLAG_EVALUATIONS_CLICKHOUSE_TABLE
-
-
 class FlagEvaluationsTable(Table):
     description: str = (
         "One row per feature flag evaluation, from the `$feature_flag_called` event. Rows are kept for 90 days. "
@@ -121,36 +100,25 @@ class FlagEvaluationsTable(Table):
             nullable=False,
             description="Identifier of the flag-evaluation request, shared by every flag evaluated in it.",
         ),
-        # Person and group columns on the row itself. Should not be used directly; reached via
-        # `person` and `group_0`..`group_4`.
+        # Person columns on the row itself. Should not be used directly; reached via `person`.
         "poe": FlagEvaluationsPersonSubTable(),
-        "goe_0": FlagEvaluationsGroupSubTable(group_index=0),
-        "goe_1": FlagEvaluationsGroupSubTable(group_index=1),
-        "goe_2": FlagEvaluationsGroupSubTable(group_index=2),
-        "goe_3": FlagEvaluationsGroupSubTable(group_index=3),
-        "goe_4": FlagEvaluationsGroupSubTable(group_index=4),
         "person": FieldTraverser(
             chain=["poe"],
             description="The person the evaluation was attributed to when it happened. Access properties via "
             "`person.properties.*`.",
         ),
-        "$group_0": StringDatabaseField(name="$group_0", nullable=False),
-        "$group_1": StringDatabaseField(name="$group_1", nullable=False),
-        "$group_2": StringDatabaseField(name="$group_2", nullable=False),
-        "$group_3": StringDatabaseField(name="$group_3", nullable=False),
-        "$group_4": StringDatabaseField(name="$group_4", nullable=False),
-        # Group properties come from the row, not from a join to `groups`. join_with_group_n_table's
-        # prefilter only bounds the groups side when the outer FROM is literally `events`, so a join
-        # here would read every group of that type for the team.
-        "group_0": FieldTraverser(
-            chain=["goe_0"],
-            description="Group of type 0 the evaluation was attributed to, with the properties it had at the time. "
-            "Access them via `group_0.properties.*`.",
+        # Group keys only. The row carries no group properties, so there is nothing to traverse to:
+        # join to `groups` on one of these keys to read a group's current properties.
+        "$group_0": StringDatabaseField(
+            name="$group_0",
+            nullable=False,
+            description="Key of the type-0 group the evaluation was attributed to. Join to `groups` for its "
+            "properties.",
         ),
-        "group_1": FieldTraverser(chain=["goe_1"], description="Group of type 1, as captured at evaluation time."),
-        "group_2": FieldTraverser(chain=["goe_2"], description="Group of type 2, as captured at evaluation time."),
-        "group_3": FieldTraverser(chain=["goe_3"], description="Group of type 3, as captured at evaluation time."),
-        "group_4": FieldTraverser(chain=["goe_4"], description="Group of type 4, as captured at evaluation time."),
+        "$group_1": StringDatabaseField(name="$group_1", nullable=False, description="Key of the type-1 group."),
+        "$group_2": StringDatabaseField(name="$group_2", nullable=False, description="Key of the type-2 group."),
+        "$group_3": StringDatabaseField(name="$group_3", nullable=False, description="Key of the type-3 group."),
+        "$group_4": StringDatabaseField(name="$group_4", nullable=False, description="Key of the type-4 group."),
     }
 
     def to_printed_clickhouse(self, context):
