@@ -157,8 +157,8 @@ tools:
             find (e.g. "users confused by the pricing page") and results come back under `results`, most relevant first.
             Each result pairs the `observation` with its `distance` to the query (lower is closer, only comparable
             within one response) and `matched_content`, the excerpt of the observation's text that matched (may be empty
-            for old rows). The search ranks each observation's LLM output (a summarizer's intent/outcome/friction
-            facets, other scanners' reasoning) by semantic similarity, so it finds sessions described differently from
+            for old rows). The search ranks each observation's LLM output (a summarizer's title and summary,
+            other scanners' reasoning) by semantic similarity, so it finds sessions described differently from
             the query. Scope with `scanner_id` to search one scanner, otherwise every scanner the caller can read is
             searched. Narrow by exact outcome with `verdict` (comma-separated, e.g. `yes,inconclusive`), `tags`
             (comma-separated classifier tags), and `min_score`/`max_score` (scorer bounds). These filter, while `q`
@@ -235,8 +235,8 @@ tools:
         title: Create replay vision scanner
         description: >
             Create a replay vision scanner. Pick a `scanner_type` — `monitor` (open-ended observations), `classifier`
-            (assign a tag from a fixed label set), `scorer` (numeric rubric), or `summarizer` (free-text summary, always
-            with facet embeddings for search) — and fill `scanner_config` to match: all types need a `prompt`; monitors
+            (assign a tag from a fixed label set), `scorer` (numeric rubric), or `summarizer` (free-text summary,
+            embedded for search) — and fill `scanner_config` to match: all types need a `prompt`; monitors
             optionally set `allow_inconclusive`; classifiers also need `tags` (and optionally `multi_label`,
             `allow_freeform_tags`); scorers also need `scale`; summarizers optionally set `length`. Unknown
             `scanner_config` keys are rejected. `query` is a `RecordingsQuery` shape that defines which sessions the
@@ -381,7 +381,7 @@ tools:
             List all replay vision scanners in the current project. A scanner watches a slice of session recordings
             (defined by its `query`, `sampling_mode` and `sampling_rate`) and runs one of four LLM analyses against each
             matching session: `monitor` (open-ended observations), `classifier` (tag from a fixed label set), `scorer`
-            (numeric rubric), or `summarizer` (free-text summary with facet embeddings for downstream search). Each
+            (numeric rubric), or `summarizer` (free-text summary, embedded for downstream search). Each
             scanner returns its current configuration, enabled state, sampling settings, `last_swept_at` timestamp, and
             its credit figures (`credits_per_observation`, `estimated_monthly_credits`, `credits_this_month`).
     vision-scanners-observations-create-task-create:

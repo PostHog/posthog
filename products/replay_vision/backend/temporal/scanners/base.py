@@ -100,7 +100,7 @@ class MissionStep:
     """One structured turn in a scanner's conversation: an instruction, the schema the model must answer with,
     and how its result feeds the final output.
 
-    `required` steps abort the scan when they can't be satisfied; non-required steps (facets, signals) are
+    `required` steps abort the scan when they can't be satisfied; non-required steps (signals) are
     best-effort and simply contribute nothing on failure. `validate` runs an extra semantic check on the parsed
     response and, when it returns an error string, triggers the same re-prompt path as a schema failure.
     """
@@ -137,8 +137,8 @@ class BaseScanner(BaseModel, frozen=True):
     """Common shape for every concrete scanner; subclasses bind `scanner_type`, `core_step_template`, and `llm_response_schema`.
 
     A scan is a multi-turn conversation over the cached video: a shared `preamble` (sent/cached once) followed by
-    the ordered `mission_steps` — one structured turn each. Most scanners have a single `core` step; the summarizer
-    splits into `summary` then `facets`; the signals side mission, when enabled, is always the final turn.
+    the ordered `mission_steps` — one structured turn each. Every scanner type has a single `core` step (the summarizer
+    names it `summary`); the signals side mission, when enabled, is always the final turn.
     """
 
     prompt: str

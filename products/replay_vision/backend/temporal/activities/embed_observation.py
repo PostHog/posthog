@@ -1,10 +1,10 @@
-"""Side-effect: emit embedding requests for an observation's reasoning (or summarizer facets).
+"""Side-effect: emit an embedding request for an observation's explanation text.
 
-Fires `emit_embedding_request` calls so the text lands as rows in `document_embeddings`, scoped to the
-scanner via `metadata.scanner_id` for later natural-language search. monitor/classifier/scorer embed their
-`reasoning` paragraph under `rendering="reasoning"`; the summarizer embeds its facets (`intent`, `outcome`,
-`friction_points`, `keywords`) under per-facet renderings. Empty content is skipped. Failures surface to the
-workflow, which logs and swallows them — the observation is already marked succeeded.
+Fires `emit_embedding_request` so the text lands as a row in `document_embeddings`, scoped to the scanner
+via `metadata.scanner_id` for later natural-language search. monitor/classifier/scorer embed their
+`reasoning` paragraph under `rendering="reasoning"`; the summarizer embeds its title and summary as one
+document under `rendering="summary"`. Empty content is skipped. Failures surface to the workflow, which
+logs and swallows them — the observation is already marked succeeded.
 
 The structured result (monitor `verdict`, scorer `score`, classifier `tags`) is stamped into `metadata` so
 search can filter by exact outcome inside the same ClickHouse ranking query, with no second-pass lookup.
@@ -33,22 +33,16 @@ from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.scanners.classifier import ClassifierOutput
 from products.replay_vision.backend.temporal.scanners.monitor import MonitorOutput
 from products.replay_vision.backend.temporal.scanners.scorer import ScorerOutput
-from products.replay_vision.backend.temporal.scanners.summarizer import SummarizerOutput
+from products.replay_vision.backend.temporal.scanners.summarizer import SummarizerOutput, summary_embedding_text
 from products.replay_vision.backend.temporal.types import AnyScannerOutput, EmbedObservationInputs
 
 logger = structlog.get_logger(__name__)
 
 
 def _renderings_for(model_output: AnyScannerOutput) -> list[tuple[str, str]]:
-    """Map a scanner output to `(rendering, content)` pairs to embed; the summarizer splits into facets,
-    every other type embeds its single `reasoning` paragraph."""
+    """Map a scanner output to the `(rendering, content)` pair to embed."""
     if isinstance(model_output, SummarizerOutput):
-        return [
-            ("intent", model_output.intent),
-            ("outcome", model_output.outcome),
-            ("friction_points", "\n".join(model_output.friction_points)),
-            ("keywords", ", ".join(model_output.keywords)),
-        ]
+        return [("summary", summary_embedding_text(model_output))]
     # monitor / classifier / scorer all carry a free-text `reasoning` field.
     return [("reasoning", model_output.reasoning)]
 
@@ -113,7 +107,7 @@ async def _emit_embeddings(
 @activity.defn
 @track_activity(side_effect="embed")
 async def embed_observation_activity(inputs: EmbedObservationInputs) -> None:
-    """Emit one embedding per non-empty rendering of the observation's explanation text."""
+    """Emit an embedding for the observation's explanation text when it is non-empty."""
     metadata = {
         "session_id": inputs.session_id,
         "team_id": inputs.team_id,

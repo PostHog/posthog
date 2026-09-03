@@ -11,7 +11,6 @@ from products.replay_vision.backend.temporal.scanners.classifier import Classifi
 from products.replay_vision.backend.temporal.scanners.monitor import MonitorLlmResponse, MonitorOutput, MonitorScanner
 from products.replay_vision.backend.temporal.scanners.scorer import ScorerOutput, ScorerScanner, ScoreScale
 from products.replay_vision.backend.temporal.scanners.summarizer import (
-    SummarizerFacetsResponse,
     SummarizerOutput,
     SummarizerScanner,
     SummarizerSummaryResponse,
@@ -81,7 +80,6 @@ __all__ = [
     "ScorerOutput",
     "SummarizerScanner",
     "SummarizerSummaryResponse",
-    "SummarizerFacetsResponse",
     "SummarizerOutput",
     "scanner_from_db",
     "scanner_from_snapshot",

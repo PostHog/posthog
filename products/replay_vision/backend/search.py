@@ -38,7 +38,7 @@ MAX_SEARCH_LIMIT = 50
 # exactly `limit` ids can come back short. Callers rank this many times their limit and slice the
 # hydrated rows back down, so drops only shorten the response once they exceed the margin.
 RANK_OVERFETCH_FACTOR = 3
-# Cut inside the candidate subquery so full facet paragraphs are neither carried through the sort nor
+# Cut inside the candidate subquery so full document texts are neither carried through the sort nor
 # sent over the wire.
 _MATCHED_CONTENT_MAX_CHARS = 300
 # The cosine-distance scan is exact (brute-force), so cap how many of a team's most-recent embedding rows it
@@ -147,8 +147,8 @@ def rank_observations(
     """Closest observations by cosine distance, restricted to the given scanners and to the structured
     outcome filters via the embedding metadata, so filter and rank happen in a single query.
 
-    `min(...)` collapses an observation's multiple renderings (the summarizer's per-facet rows) to its
-    single best-matching distance, so each observation appears once.
+    `min(...)` collapses an observation's multiple renderings (rows written when summarizers embedded
+    per-facet documents) to its single best-matching distance, so each observation appears once.
 
     The distance scan is exact (brute-force), so we bound it: the inner query takes the most recent
     `_MAX_CANDIDATE_ROWS` matching embedding rows before ranking. Below that volume (all teams at launch

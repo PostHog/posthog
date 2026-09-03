@@ -16,7 +16,7 @@ from products.replay_vision.backend.prompt_evaluation import classify_outcome, p
 _OUTCOME_SCORES = {"kept": 1.0, "fixed": 1.0, "regressed": 0.0, "still_wrong": 0.0}
 
 # The summarizer output fields the judge compares; build_case snapshots the same fields as the reference.
-SUMMARY_FIELDS = ("title", "summary", "intent", "outcome", "friction_points", "keywords")
+SUMMARY_FIELDS = ("title", "summary")
 
 
 def _spec(expected: dict[str, Any] | None, name: str) -> dict[str, Any] | None:

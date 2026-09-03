@@ -2536,20 +2536,16 @@ async def test_apply_scanner_workflow_propagates_workflow_id_to_create() -> None
     assert create_input.workflow_id == "wf-from-info"
 
 
-def _summarizer_output_with_facets() -> SummarizerOutput:
+def _summarizer_output() -> SummarizerOutput:
     return SummarizerOutput(
         title="Login attempt",
         summary="User tried to authenticate but the form failed twice.",
-        intent="Log in to the dashboard",
-        outcome="Reached the password reset page after failed attempts.",
-        friction_points=["invalid password error"],
-        keywords=["login", "authentication", "reset"],
         confidence=0.9,
     )
 
 
-def _summarizer_output_without_facets() -> SummarizerOutput:
-    return SummarizerOutput(title="Onboarding", summary="User walked through the demo.", confidence=0.9)
+def _summarizer_output_without_text() -> SummarizerOutput:
+    return SummarizerOutput(title="", summary="   ", confidence=0.9)
 
 
 def _classifier_output() -> ClassifierOutput:
@@ -2562,14 +2558,10 @@ def _classifier_output() -> ClassifierOutput:
 
 
 @pytest.mark.asyncio
-async def test_embed_observation_emits_one_request_per_nonempty_facet() -> None:
+async def test_embed_observation_emits_title_and_summary_as_one_document() -> None:
     out = SummarizerOutput(
         title="Investigation",
         summary="User browsed dashboards and clicked through several insights.",
-        intent="Investigate slow query response",
-        outcome="No issue reproduced — user closed the tab.",
-        friction_points=[],
-        keywords=["dashboard", "insight"],
         confidence=0.8,
     )
     scanner_id = uuid.uuid4()
@@ -2581,8 +2573,10 @@ async def test_embed_observation_emits_one_request_per_nonempty_facet() -> None:
     ) as mock_emit:
         await embed_observation_activity(inputs)
 
-    renderings = [call.kwargs["rendering"] for call in mock_emit.call_args_list]
-    assert renderings == ["intent", "outcome", "keywords"]
+    assert [call.kwargs["rendering"] for call in mock_emit.call_args_list] == ["summary"]
+    assert mock_emit.call_args.kwargs["content"] == (
+        "Investigation\n\nUser browsed dashboards and clicked through several insights."
+    )
     for call in mock_emit.call_args_list:
         assert call.kwargs["team_id"] == 99
         assert call.kwargs["product"] == "replay-vision"
@@ -2640,7 +2634,7 @@ async def test_embed_observation_raises_propagates_failure() -> None:
         session_id="sess-x",
         observation_id=uuid.uuid4(),
         scanner_id=uuid.uuid4(),
-        model_output=_summarizer_output_with_facets(),
+        model_output=_summarizer_output(),
     )
     with patch(
         "products.replay_vision.backend.temporal.activities.embed_observation.emit_embedding_request",
@@ -2704,7 +2698,7 @@ async def test_embed_observation_raises_when_kafka_delivery_fails() -> None:
         session_id="sess-x",
         observation_id=uuid.uuid4(),
         scanner_id=uuid.uuid4(),
-        model_output=_summarizer_output_with_facets(),
+        model_output=_summarizer_output(),
     )
     failed_result = MagicMock()
     failed_result.get.side_effect = RuntimeError("broker timeout")
@@ -2742,9 +2736,9 @@ async def test_emit_classifier_tags_raises_when_kafka_delivery_fails() -> None:
 
 
 @pytest.mark.asyncio
-async def test_apply_scanner_workflow_dispatches_summarizer_embedding_when_facets_present() -> None:
+async def test_apply_scanner_workflow_dispatches_summarizer_embedding() -> None:
     new_observation_id = uuid.uuid4()
-    model_output = _summarizer_output_with_facets()
+    model_output = _summarizer_output()
     mocks = _WorkflowMocks(
         activity_results={
             create_observation_activity: CreateObservationOutput(
@@ -2776,7 +2770,7 @@ async def test_apply_scanner_workflow_dispatches_summarizer_embedding_when_facet
 
 
 @pytest.mark.asyncio
-async def test_apply_scanner_workflow_skips_summarizer_embedding_when_no_facets() -> None:
+async def test_apply_scanner_workflow_skips_summarizer_embedding_when_summary_blank() -> None:
     new_observation_id = uuid.uuid4()
     mocks = _WorkflowMocks(
         activity_results={
@@ -2789,11 +2783,11 @@ async def test_apply_scanner_workflow_skips_summarizer_embedding_when_no_facets(
             upload_video_to_gemini_activity: UploadedVideo(
                 file_uri="gemini://files/x", mime_type="video/mp4", gemini_file_name="files/x"
             ),
-            call_scanner_provider_activity: ScannerCallOutput(model_output=_summarizer_output_without_facets()),
+            call_scanner_provider_activity: ScannerCallOutput(model_output=_summarizer_output_without_text()),
         },
     )
 
-    await _run_workflow(_build_inputs(session_id="sess-nofacets"), mocks)
+    await _run_workflow(_build_inputs(session_id="sess-blank"), mocks)
 
     called = {fn for fn, _ in mocks.activity_calls}
     assert embed_observation_activity not in called

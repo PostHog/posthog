@@ -61,25 +61,15 @@ function PanelEmpty({ loading, message }: { loading: boolean; message: string })
 // Cap the rows so a panel can't outgrow the one beside it.
 const RANKED_ROWS = 5
 
-/**
- * Two row shapes, because the terms differ in kind:
- * - `tag` renders short vocabulary terms as pills, which is what marks them as tags rather than prose.
- * - `phrase` renders model-written sentences as plain text with the bar behind the row, so they wrap
- *   instead of being truncated into a pill.
- */
-type RankedTermVariant = 'tag' | 'phrase'
-
 function RankedTermList({
     ranked,
     loading,
     emptyMessage,
-    variant,
     renderAction,
 }: {
     ranked: [string, number][]
     loading: boolean
     emptyMessage: string
-    variant: RankedTermVariant
     renderAction?: (term: string) => JSX.Element
 }): JSX.Element {
     if (ranked.length === 0) {
@@ -91,51 +81,25 @@ function RankedTermList({
     const showBars = maxCount > 1
     const percent = (count: number): number => Math.round((count / maxCount) * 100)
 
-    if (variant === 'tag') {
-        return (
-            <div className="space-y-1.5">
-                {top.map(([term, count]) => (
-                    <div key={term} className="flex items-center gap-2">
-                        {/* Fixed-width label column so every bar shares the same left edge and their lengths stay comparable. */}
-                        <div className="w-24 sm:w-40 shrink-0 flex">
-                            <LemonTag type="option" title={term} className="max-w-full truncate">
-                                {term}
-                            </LemonTag>
-                        </div>
-                        {showBars ? (
-                            <LemonProgress percent={percent(count)} className="flex-1" />
-                        ) : (
-                            <div className="flex-1" />
-                        )}
-                        <span className="text-xs text-muted tabular-nums text-right whitespace-nowrap shrink-0 w-12">
-                            {count.toLocaleString()}
-                        </span>
-                        {renderAction?.(term)}
-                    </div>
-                ))}
-            </div>
-        )
-    }
-
     return (
-        <div className="space-y-1">
+        <div className="space-y-1.5">
             {top.map(([term, count]) => (
-                <div key={term} className="relative rounded overflow-hidden">
-                    {showBars && (
-                        <div
-                            className="absolute inset-y-0 left-0 bg-accent-highlight-secondary"
-                            // Width is data-derived, so it can't live in a class.
-                            // eslint-disable-next-line react/forbid-dom-props
-                            style={{ width: `${percent(count)}%` }}
-                        />
-                    )}
-                    <div className="relative flex items-baseline justify-between gap-2 px-2 py-1">
-                        <span className="text-xs">{term}</span>
-                        <div className="flex items-center gap-1 shrink-0">
-                            <span className="text-xs font-medium tabular-nums">{count.toLocaleString()}</span>
-                            {renderAction?.(term)}
-                        </div>
+                <div key={term} className="flex items-center gap-2">
+                    {/* Fixed-width label column so every bar shares the same left edge and their lengths stay comparable. */}
+                    <div className="w-24 sm:w-40 shrink-0 flex">
+                        <LemonTag type="option" title={term} className="max-w-full truncate">
+                            {term}
+                        </LemonTag>
                     </div>
+                    {showBars ? (
+                        <LemonProgress percent={percent(count)} className="flex-1" />
+                    ) : (
+                        <div className="flex-1" />
+                    )}
+                    <span className="text-xs text-muted tabular-nums text-right whitespace-nowrap shrink-0 w-12">
+                        {count.toLocaleString()}
+                    </span>
+                    {renderAction?.(term)}
                 </div>
             ))}
         </div>
@@ -373,7 +337,6 @@ function ClassifierOverview({ scannerId }: { scannerId: string }): JSX.Element |
                     ranked={fixedRanked}
                     loading={overviewStatsApiLoading}
                     emptyMessage={fixedEmpty}
-                    variant="tag"
                     renderAction={cohortAction}
                 />
             </OverviewPanel>
@@ -389,7 +352,6 @@ function ClassifierOverview({ scannerId }: { scannerId: string }): JSX.Element |
                         ranked={freeformRanked}
                         loading={overviewStatsApiLoading}
                         emptyMessage={freeformEmpty}
-                        variant="tag"
                         renderAction={cohortAction}
                     />
                 ) : (
@@ -476,52 +438,6 @@ function ScorerOverview({ scannerId }: { scannerId: string }): JSX.Element {
     )
 }
 
-function SummarizerOverview({ scannerId }: { scannerId: string }): JSX.Element | null {
-    const { scanner, summarizerFacetStats, hasActiveOverviewFilters, overviewStatsApiLoading } = useValues(
-        scannerOverviewLogic({ scannerId })
-    )
-    if (!scanner || scanner.scanner_type !== 'summarizer') {
-        return null
-    }
-    const { frictionRanked, keywordRanked, totalSucceeded, totalWithFriction } = summarizerFacetStats
-    const frictionEmpty = hasActiveOverviewFilters
-        ? 'No friction points match the current filter.'
-        : 'No friction points reported yet. They appear as summaries accumulate.'
-    const keywordEmpty = hasActiveOverviewFilters
-        ? 'No keywords match the current filter.'
-        : 'No keywords reported yet. They appear as summaries accumulate.'
-
-    const summaries = (count: number): string => `${count.toLocaleString()} summar${count === 1 ? 'y' : 'ies'}`
-    // Both subtitles use the same succeeded-summary denominator so the two panels stay comparable.
-    const frictionSubtitle =
-        totalSucceeded > 0
-            ? `${totalWithFriction.toLocaleString()} of ${summaries(totalSucceeded)} (${Math.round(
-                  (totalWithFriction / totalSucceeded) * 100
-              )}%)`
-            : undefined
-    const keywordSubtitle = totalSucceeded > 0 ? `from ${summaries(totalSucceeded)}` : undefined
-    return (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <OverviewPanel title="Top friction points" subtitle={frictionSubtitle} fill>
-                <RankedTermList
-                    ranked={frictionRanked}
-                    loading={overviewStatsApiLoading}
-                    emptyMessage={frictionEmpty}
-                    variant="phrase"
-                />
-            </OverviewPanel>
-            <OverviewPanel title="Common keywords" subtitle={keywordSubtitle} fill>
-                <RankedTermList
-                    ranked={keywordRanked}
-                    loading={overviewStatsApiLoading}
-                    emptyMessage={keywordEmpty}
-                    variant="tag"
-                />
-            </OverviewPanel>
-        </div>
-    )
-}
-
 // The interstitial a just-created scanner shows instead of the filters + charts, whose "no matching
 // events" empty state would wrongly suggest the user's setup is broken while the first sweep runs.
 // It also hides the overview's reload buttons, so when the background checks keep failing it has to
@@ -582,8 +498,6 @@ export function ScannerOverview({ scannerId }: { scannerId: string }): JSX.Eleme
             <ClassifierOverview scannerId={scannerId} />
         ) : scannerType === 'scorer' ? (
             <ScorerOverview scannerId={scannerId} />
-        ) : scannerType === 'summarizer' ? (
-            <SummarizerOverview scannerId={scannerId} />
         ) : null
 
     // Scorer puts its line chart and score-distribution histogram side by side to reclaim vertical space.

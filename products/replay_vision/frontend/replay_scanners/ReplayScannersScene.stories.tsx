@@ -176,24 +176,6 @@ const summarizerStats: ObservationStatsApi = {
     monitor: null,
     classifier: null,
     scorer: null,
-    summarizer: {
-        friction_ranked: [
-            { term: 'checkout stalls after applying a coupon', count: 21 },
-            { term: 'search returns no results for valid skus', count: 14 },
-            { term: 'filter selection resets on back navigation', count: 9 },
-            { term: 'payment form rejects valid card numbers', count: 6 },
-            { term: 'session times out mid-signup', count: 3 },
-        ],
-        keyword_ranked: [
-            { term: 'checkout', count: 68 },
-            { term: 'coupon', count: 41 },
-            { term: 'abandoned', count: 33 },
-            { term: 'search', count: 27 },
-            { term: 'signup', count: 12 },
-        ],
-        total_with_facets: 138,
-        total_with_friction: 53,
-    },
 } as ObservationStatsApi
 
 const scannerImpact = {
@@ -523,7 +505,6 @@ export const UsageTab: StoryObj = {
     parameters: { pageUrl: `${urls.replayVision()}?tab=usage` },
 }
 
-// Nothing else renders the summarizer's friction/keyword panels, so this story is what catches regressions there.
 export const SummarizerOverview: StoryObj = {
     parameters: { pageUrl: urls.replayVision(summarizerScanner.id) },
 }

@@ -244,24 +244,24 @@ async def test_non_required_step_failure_is_skipped_not_raised() -> None:
 
 @pytest.mark.asyncio
 async def test_failed_non_required_step_is_rolled_back_so_the_next_step_stays_clean() -> None:
-    # facets (non-required) fails both attempts; signals must still run against a clean convo, with the failed
-    # facets exchange rolled back rather than left as two consecutive user turns.
+    # extras (non-required) fails both attempts; signals must still run against a clean convo, with the failed
+    # extras exchange rolled back rather than left as two consecutive user turns.
     steps = [
         MissionStep(name="summary", instruction="sum", response_model=_Core),
-        MissionStep(name="facets", instruction="fac", response_model=_Side, required=False),
+        MissionStep(name="extras", instruction="fac", response_model=_Side, required=False),
         MissionStep(name="signals", instruction="sig", response_model=_Side, required=False),
     ]
     client = _FakeClient(
         [
             _Resp(text='{"verdict":"yes"}'),  # summary ok
             _Resp(text="bad"),
-            _Resp(text="still bad"),  # facets exhausts both attempts
+            _Resp(text="still bad"),  # extras exhausts both attempts
             _Resp(text='{"note":"ok"}'),  # signals ok
         ]
     )
     out = await _run(client, steps)
-    assert "summary" in out and "signals" in out and "facets" not in out
-    # signals sees [video, preamble, summary instr, summary answer, signals instr] = 5; the failed facets turn rolled back.
+    assert "summary" in out and "signals" in out and "extras" not in out
+    # signals sees [video, preamble, summary instr, summary answer, signals instr] = 5; the failed extras turn rolled back.
     assert len(client.models.calls[-1]["contents"]) == 5
 
 
