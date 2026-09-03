@@ -59,6 +59,7 @@ from products.tasks.backend.facade.run_config import (
     TaskArtifactType,
     get_model_access_error,
     get_reasoning_effort_error,
+    get_runtime_adapter_for_model,
 )
 
 logger = logging.getLogger(__name__)
@@ -2094,6 +2095,14 @@ class OnboardingSessionTestResponseSerializer(OnboardingSessionSerializer):
 
 
 class OnboardingSessionTestSerializer(serializers.Serializer):
+    model = serializers.CharField(
+        required=False,
+        default=None,
+        allow_null=True,
+        allow_blank=False,
+        max_length=255,
+        help_text="Optional LLM model identifier for the test session. Omit to use the plan default.",
+    )
     company_domain = serializers.CharField(
         required=False,
         default="",
@@ -2130,6 +2139,14 @@ class OnboardingSessionTestSerializer(serializers.Serializer):
     sources_newly_enabled = serializers.BooleanField(
         default=False, help_text="Whether onboarding enabled any signal sources."
     )
+
+    def validate_model(self, value: str | None) -> str | None:
+        model_access_error = get_model_access_error(value, distinct_id=request_distinct_id(self.context))
+        if model_access_error is not None:
+            raise serializers.ValidationError(model_access_error)
+        if value is not None and get_runtime_adapter_for_model(value) is None:
+            raise serializers.ValidationError(f"'{value}' is not supported for onboarding test sessions.")
+        return value
 
 
 class TeachingCanvasSerializer(serializers.Serializer):

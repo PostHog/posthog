@@ -184,7 +184,7 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def onboarding_session_test(self, request: Request, **kwargs) -> Response:
         if not isinstance(request.user, User) or not onboarding_test_tools_enabled(self.team, request.user):
             raise PermissionDenied("The onboarding test tools feature is not enabled.")
-        serializer = OnboardingSessionTestSerializer(data=request.data)
+        serializer = OnboardingSessionTestSerializer(data=request.data, context={"request": request})
         serializer.is_valid(raise_exception=True)
         values = serializer.validated_data
         task_id = start_onboarding_test_session(

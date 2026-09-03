@@ -4,6 +4,7 @@ from uuid import uuid4
 from unittest.mock import patch
 
 from django.test import TestCase
+from django.test.utils import override_settings
 from django.utils import timezone as django_timezone
 
 from parameterized import parameterized
@@ -143,8 +144,10 @@ class ChannelsAPITestCase(TestCase):
             response = self.client.post(f"{self._channels_url()}{action}/", {}, format="json")
             self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
+    @override_settings(DEBUG=False)
+    @patch("products.tasks.backend.feature_flags.posthoganalytics.feature_enabled", return_value=True)
     @patch("products.tasks.backend.presentation.views.channels_api.onboarding_test_tools_enabled", return_value=True)
-    def test_flagged_user_can_create_test_onboarding_artifacts(self, _enabled):
+    def test_flagged_user_can_create_test_onboarding_artifacts(self, _enabled, _model_enabled):
         personal_id = next(
             channel["id"] for channel in self._provision()["channels"] if channel["system_role"] == "personal"
         )
@@ -156,7 +159,12 @@ class ChannelsAPITestCase(TestCase):
         ) as start:
             response = self.client.post(
                 f"{self._channels_url()}onboarding_session_test/",
-                {"joining_existing_organization": True, "other_members": ["Max"], "has_events": True},
+                {
+                    "joining_existing_organization": True,
+                    "other_members": ["Max"],
+                    "has_events": True,
+                    "model": "zai-org/glm-5.3",
+                },
                 format="json",
             )
 
@@ -164,6 +172,7 @@ class ChannelsAPITestCase(TestCase):
         self.assertEqual(response.json(), {"task_id": str(task_id), "channel_id": personal_id})
         self.assertTrue(start.call_args.kwargs["joining_existing_organization"])
         self.assertEqual(start.call_args.kwargs["other_members"], ["Max"])
+        self.assertEqual(start.call_args.kwargs["model"], "zai-org/glm-5.3")
 
         teaching = TeachingCanvas(channel_id=uuid4(), canvas_id=canvas_id)
         with patch(

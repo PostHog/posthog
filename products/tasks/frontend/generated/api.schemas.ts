@@ -1300,6 +1300,12 @@ export interface OnboardingSessionApi {
 
 export interface OnboardingSessionTestApi {
     /**
+     * Optional LLM model identifier for the test session. Omit to use the plan default.
+     * @maxLength 255
+     * @nullable
+     */
+    model?: string | null
+    /**
      * Company domain to research. Blank simulates a personal email address.
      * @maxLength 253
      */

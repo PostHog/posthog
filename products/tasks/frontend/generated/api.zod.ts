@@ -1059,6 +1059,8 @@ export const TaskChannelsStarCreateBody = /* @__PURE__ */ zod
  * Feature-flagged test path that creates a repeatable session from explicit prompt-building inputs, in the requester's personal space.
  * @summary Start a test first-run onboarding session
  */
+export const taskChannelsOnboardingSessionTestCreateBodyModelMax = 255
+
 export const taskChannelsOnboardingSessionTestCreateBodyCompanyDomainDefault = ``
 export const taskChannelsOnboardingSessionTestCreateBodyCompanyDomainMax = 253
 
@@ -1083,6 +1085,11 @@ export const taskChannelsOnboardingSessionTestCreateBodySourcesWatchingMax = 25
 export const taskChannelsOnboardingSessionTestCreateBodySourcesNewlyEnabledDefault = false
 
 export const TaskChannelsOnboardingSessionTestCreateBody = /* @__PURE__ */ zod.object({
+    model: zod
+        .string()
+        .max(taskChannelsOnboardingSessionTestCreateBodyModelMax)
+        .nullish()
+        .describe('Optional LLM model identifier for the test session. Omit to use the plan default.'),
     company_domain: zod
         .string()
         .max(taskChannelsOnboardingSessionTestCreateBodyCompanyDomainMax)
