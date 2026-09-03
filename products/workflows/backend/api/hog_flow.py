@@ -2585,6 +2585,17 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         # binds `self.instance`, so fall back to the flow passed in via context so recovery still works.
         instance = cast(Optional[HogFlow], self.instance) or self.context.get("instance")
 
+        # Who a "Create AI task" step runs as: the existing creator for an update, or the
+        # requesting user for a brand-new flow (matches the `created_by` a create() actually
+        # writes). None outside a request (internal re-saves), where the skills check is skipped.
+        owner = instance.created_by if instance else None
+        if owner is None:
+            request = self.context.get("request")
+            user = getattr(request, "user", None)
+            if user is not None and getattr(user, "is_authenticated", False):
+                owner = user
+        self.context["workflow_owner_id"] = owner.id if owner else None
+
         # Wait conditions the live flow already carries, so per-action validation can tell a newly
         # introduced clock condition from one we have been storing all along. Seeded here because
         # nested action validation runs during field processing, before validate() is reached.
