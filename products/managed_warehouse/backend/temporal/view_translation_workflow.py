@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import hashlib
 import datetime as dt
 from uuid import UUID
 
@@ -26,12 +28,16 @@ from products.managed_warehouse.backend.models import (
     ManagedWarehouseViewTranslationResult,
 )
 from products.managed_warehouse.backend.trino_compiler import get_ready_trino_catalog_name
-from products.managed_warehouse.backend.view_translation_status import source_query_hash
 
 
 @frozen
 class ViewTranslationPreparation:
     team_ids: tuple[int, ...]
+
+
+def source_query_hash(query: object) -> str:
+    serialized = json.dumps(query, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    return hashlib.sha256(serialized.encode()).hexdigest()
 
 
 @activity.defn

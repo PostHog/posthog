@@ -71,8 +71,6 @@ To retry specific failures, select failed or stale rows in `Managed warehouse vi
 
 The manual trigger is deliberately separate from provisioning. A future provisioning trigger should call the same job starter instead of adding compilation to the provisioning request path.
 
-Data modeling shadow materialization starts only when its feature flag is enabled, the managed warehouse is provisioned, the organization has a ready Trino target, and the saved query has a compiled translation for its current definition. Missing, failed, stale, or empty translations keep the shadow path disabled.
-
 ## Environment variables
 
 The workflow obtains its DuckLake configuration from the following environment variables:
