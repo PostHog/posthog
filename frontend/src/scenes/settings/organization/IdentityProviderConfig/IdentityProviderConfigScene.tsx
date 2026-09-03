@@ -1,6 +1,5 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { useState } from 'react'
 
 import { IconShieldLock, IconTrash } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDivider, LemonModal, Spinner } from '@posthog/lemon-ui'
@@ -56,16 +55,23 @@ export function IdentityProviderConfigScene(): JSX.Element | null {
         organizationDomainsLoading,
         revealedScimToken,
         regeneratedScimTokenLoading,
+        isDeleteModalOpen,
+        deleteConfirmation,
     } = useValues(identityProviderConfigLogic)
-    const { loadIdentityProviderConfig, loadOrganizationDomains, regenerateScimToken, deleteIdentityProviderConfig } =
-        useActions(identityProviderConfigLogic)
+    const {
+        loadIdentityProviderConfig,
+        loadOrganizationDomains,
+        regenerateScimToken,
+        deleteIdentityProviderConfig,
+        openDeleteModal,
+        closeDeleteModal,
+        setDeleteConfirmation,
+    } = useActions(identityProviderConfigLogic)
     const { preflight } = useValues(preflightLogic)
     const restrictionReason = useRestrictedArea({
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
         scope: RestrictionScope.Organization,
     })
-    const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
-    const [deleteConfirmation, setDeleteConfirmation] = useState('')
 
     if (!isRedesignEnabled) {
         return null
@@ -193,10 +199,7 @@ export function IdentityProviderConfigScene(): JSX.Element | null {
                                         type="secondary"
                                         status="danger"
                                         icon={<IconTrash />}
-                                        onClick={() => {
-                                            setDeleteConfirmation('')
-                                            setIsDeleteModalOpen(true)
-                                        }}
+                                        onClick={openDeleteModal}
                                         disabledReason={restrictionReason}
                                         data-attr={`delete-${configScope}-identity-provider`}
                                     >
@@ -211,13 +214,13 @@ export function IdentityProviderConfigScene(): JSX.Element | null {
             {identityProviderConfig?.config_scope != null && (
                 <LemonModal
                     isOpen={isDeleteModalOpen}
-                    onClose={identityProviderConfigDeletingLoading ? undefined : () => setIsDeleteModalOpen(false)}
+                    onClose={identityProviderConfigDeletingLoading ? undefined : closeDeleteModal}
                     title="Delete identity provider configuration?"
                     footer={
                         <div className="flex justify-end gap-2">
                             <LemonButton
                                 type="secondary"
-                                onClick={() => setIsDeleteModalOpen(false)}
+                                onClick={closeDeleteModal}
                                 disabled={identityProviderConfigDeletingLoading}
                             >
                                 Cancel

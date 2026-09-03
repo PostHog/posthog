@@ -156,6 +156,7 @@ export interface identityProviderConfigLogicValues {
     breadcrumbs: Breadcrumb[]
     configId: string
     configScope: ConfigScopeEnumApi | null
+    deleteConfirmation: string
     hasSamlDomainScopeConflict: boolean
     identityProviderConfig: IdentityProviderConfigApi | null
     identityProviderConfigDeleting: boolean
@@ -173,6 +174,7 @@ export interface identityProviderConfigLogicValues {
     identityProviderConfigLoaded: boolean
     identityProviderConfigLoading: boolean
     isConfigScopeValid: boolean
+    isDeleteModalOpen: boolean
     isIdentityProviderConfigFormSubmitting: boolean
     isIdentityProviderConfigFormValid: boolean
     isRedesignEnabled: boolean
@@ -202,6 +204,7 @@ export interface identityProviderConfigLogicActions {
         identityProviderConfigs: IdentityProviderConfigApi[]
         payload?: any
     } // identityProviderConfigsLogic
+    closeDeleteModal: () => {}
     deleteIdentityProviderConfig: () => any
     deleteIdentityProviderConfigFailure: (
         error: string,
@@ -247,6 +250,7 @@ export interface identityProviderConfigLogicActions {
         organizationDomains: OrganizationDomainApi[]
         payload?: any
     }
+    openDeleteModal: () => {}
     regenerateScimToken: () => any
     regenerateScimTokenFailure: (
         error: string,
@@ -264,6 +268,9 @@ export interface identityProviderConfigLogicActions {
     }
     resetIdentityProviderConfigForm: (values?: IdentityProviderConfigForm) => {
         values?: IdentityProviderConfigForm
+    }
+    setDeleteConfirmation: (confirmation: string) => {
+        confirmation: string
     }
     setIdentityProviderConfigFormManualErrors: (errors: Record<string, any>) => {
         errors: Record<string, any>
@@ -357,6 +364,9 @@ export const identityProviderConfigLogic = kea<identityProviderConfigLogicType>(
     })),
     actions({
         setRevealedScimToken: (token: string | null) => ({ token }),
+        openDeleteModal: () => ({}),
+        closeDeleteModal: () => ({}),
+        setDeleteConfirmation: (confirmation: string) => ({ confirmation }),
     }),
     forms(({ actions, props, values }) => ({
         identityProviderConfigForm: {
@@ -502,6 +512,22 @@ export const identityProviderConfigLogic = kea<identityProviderConfigLogicType>(
                 setRevealedScimToken: (_, { token }) => token,
             },
         ],
+        isDeleteModalOpen: [
+            false,
+            {
+                openDeleteModal: () => true,
+                closeDeleteModal: () => false,
+            },
+        ],
+        deleteConfirmation: [
+            '',
+            {
+                // A stale confirmation must not survive a reopen, or a typed confirmation
+                // from last time would let a single click delete the config.
+                openDeleteModal: () => '',
+                setDeleteConfirmation: (_, { confirmation }) => confirmation,
+            },
+        ],
     }),
     selectors({
         configId: [(_, props) => [props.configId], (configId: string): string => configId],
@@ -580,6 +606,11 @@ export const identityProviderConfigLogic = kea<identityProviderConfigLogicType>(
         },
         loadIdentityProviderConfigsSuccess: ({ identityProviderConfigs }) => {
             if (props.configId === NEW_CONFIG_ID && props.configScope) {
+                // The list can finish after the form is interactive. Reconcile the guessed
+                // default name only while the user hasn't edited the form.
+                if (values.identityProviderConfigFormChanged) {
+                    return
+                }
                 const hasExistingConfig =
                     getIdentityProviderConfigsForScope(identityProviderConfigs, props.configScope).length > 0
                 actions.resetIdentityProviderConfigForm({
