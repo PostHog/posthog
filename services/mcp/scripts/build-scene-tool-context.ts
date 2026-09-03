@@ -23,6 +23,7 @@
 import { spawnSync } from 'node:child_process'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { parse as parseYaml } from 'yaml'
 
 const MCP_ROOT = path.resolve(__dirname, '..')
@@ -32,6 +33,8 @@ const ALL_DEFINITIONS_PATH = path.resolve(MCP_ROOT, 'schema/tool-definitions-all
 interface ToolSourceConfig {
     constName: string
     yamlPath: string
+    /** Include only these enabled YAML tools, in this order. Omit to include every enabled tool. */
+    includeTools?: string[]
     /**
      * Tools registered directly in services/mcp/src/tools (no `enabled:` entry in the YAML), which
      * YAML-derived membership would silently omit. Resolution still requires each name to exist in
@@ -61,11 +64,26 @@ const CONFIGS: SceneContextConfig[] = [
         tools: [
             { constName: 'DASHBOARD_MCP_TOOLS', yamlPath: 'products/dashboards/mcp/tools.yaml' },
             { constName: 'INSIGHT_MCP_TOOLS', yamlPath: 'products/product_analytics/mcp/tools.yaml' },
+            {
+                constName: 'SUBSCRIPTION_MCP_TOOLS',
+                yamlPath: 'products/subscriptions/mcp/tools.yaml',
+                includeTools: ['subscriptions-list', 'subscriptions-create'],
+            },
+            {
+                constName: 'ALERT_MCP_TOOLS',
+                yamlPath: 'products/alerts/mcp/tools.yaml',
+                includeTools: ['alerts-list', 'alert-create'],
+            },
         ],
         skills: [
             {
                 constName: 'BUILDING_A_DASHBOARD_SKILL',
                 skillDir: 'products/dashboards/skills/building-a-dashboard',
+                files: ['SKILL.md'],
+            },
+            {
+                constName: 'MANAGING_SUBSCRIPTIONS_SKILL',
+                skillDir: 'products/posthog_ai/skills/managing-subscriptions',
                 files: ['SKILL.md'],
             },
         ],
@@ -112,18 +130,52 @@ const CONFIGS: SceneContextConfig[] = [
     },
 ]
 
-interface ToolDefinition {
+export interface ToolDefinition {
     description?: string
     feature?: string
 }
 
-function enabledToolNames(yamlPath: string): string[] {
+interface YamlToolConfig {
+    enabled?: boolean
+}
+
+function yamlTools(yamlPath: string): Record<string, YamlToolConfig> {
     const parsed = parseYaml(fs.readFileSync(path.resolve(REPO_ROOT, yamlPath), 'utf8')) as {
-        tools?: Record<string, { enabled?: boolean }>
+        tools?: Record<string, YamlToolConfig>
     }
-    return Object.entries(parsed.tools ?? {})
-        .filter(([, config]) => config?.enabled === true)
-        .map(([name]) => name)
+    return parsed.tools ?? {}
+}
+
+export function resolveToolSummaries(
+    toolConfigs: Record<string, YamlToolConfig>,
+    definitions: Record<string, ToolDefinition>,
+    config: Pick<ToolSourceConfig, 'includeTools' | 'extraTools'>,
+    yamlPath: string
+): { name: string; description: string }[] {
+    const names = config.includeTools
+        ? config.includeTools.map((name) => {
+              if (!(name in toolConfigs)) {
+                  throw new Error(`tool "${name}" is not defined in ${yamlPath}`)
+              }
+              if (toolConfigs[name]?.enabled !== true) {
+                  throw new Error(`tool "${name}" is not enabled in ${yamlPath}`)
+              }
+              return name
+          })
+        : Object.entries(toolConfigs)
+              .filter(([, toolConfig]) => toolConfig.enabled === true)
+              .map(([name]) => name)
+
+    return [...names, ...(config.extraTools ?? [])].map((name) => {
+        const definition = definitions[name]
+        if (!definition?.description) {
+            throw new Error(
+                `tool "${name}" has no description in tool-definitions-all.json (${yamlPath}) — ` +
+                    'run `hogli build:openapi-mcp-tools` first'
+            )
+        }
+        return { name, description: definition.description }
+    })
 }
 
 interface FrontmatterResult {
@@ -144,19 +196,12 @@ function splitFrontmatter(markdown: string): FrontmatterResult {
 
 function renderToolConst(config: ToolSourceConfig, definitions: Record<string, ToolDefinition>): string {
     const { constName, yamlPath } = config
-    const names = [...enabledToolNames(yamlPath), ...(config.extraTools ?? [])]
-    const entries = names.map((name) => {
-        const definition = definitions[name]
-        if (!definition?.description) {
-            throw new Error(
-                `tool "${name}" is enabled in ${yamlPath} (or listed in extraTools) but has no description in ` +
-                    'tool-definitions-all.json — run `hogli build:openapi-mcp-tools` first'
-            )
-        }
+    const summaries = resolveToolSummaries(yamlTools(yamlPath), definitions, config, yamlPath)
+    const entries = summaries.map(({ name, description }) => {
         return (
             '    {\n' +
             `        name: ${JSON.stringify(name)},\n` +
-            `        description: ${JSON.stringify(definition.description)},\n` +
+            `        description: ${JSON.stringify(description)},\n` +
             '    },'
         )
     })
@@ -230,4 +275,6 @@ function main(): void {
     }
 }
 
-main()
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+    main()
+}
