@@ -18,6 +18,7 @@ vi.mock("@posthog/ui/features/sidebar/useCwd", () => ({
 }));
 
 import { track } from "@posthog/ui/shell/analytics";
+import { usePendingScrollStore } from "../../code-editor/pendingScrollStore";
 import { usePanelLayoutStore } from "../../panels/panelLayoutStore";
 import { MarkdownRenderer } from "./MarkdownRenderer";
 
@@ -36,6 +37,7 @@ describe("MarkdownRenderer file links", () => {
     cwd.current = "/repo";
     usePanelLayoutStore.getState().clearAllLayouts();
     usePanelLayoutStore.getState().initializeTask("task-1");
+    usePendingScrollStore.setState({ pendingLine: {} });
   });
 
   it("opens a repo-relative href in a panel instead of the browser", () => {
@@ -61,6 +63,24 @@ describe("MarkdownRenderer file links", () => {
       usePanelLayoutStore.getState().getLayout("task-1")?.openFiles,
     ).toContain("src/App.tsx");
   });
+
+  // The editor waits on the tab's own absolute path, so a target outside the
+  // worktree — which stays absolute — must not have the repo root prefixed.
+  it.each([
+    ["src/App.tsx:79", "/repo/src/App.tsx", 79],
+    ["/tmp/build.log:42", "/tmp/build.log", 42],
+  ])(
+    "keys the scroll request for %s on the path the editor opens",
+    (href, expectedKey, line) => {
+      renderMarkdown(`See [the file](${href}).`);
+
+      fireEvent.click(screen.getByRole("button", { name: "the file" }));
+
+      expect(usePendingScrollStore.getState().pendingLine).toEqual({
+        [expectedKey]: line,
+      });
+    },
+  );
 
   it("leaves a web href as an external link", () => {
     renderMarkdown("See [the docs](https://posthog.com/docs).");

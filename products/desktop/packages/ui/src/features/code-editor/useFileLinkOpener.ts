@@ -1,5 +1,6 @@
 import type { FileHrefTarget } from "@posthog/core/code-editor/fileHref";
 import { getRelativePath } from "@posthog/core/code-editor/pathUtils";
+import { resolveTabAbsolutePath } from "@posthog/core/panels/resolveTabPath";
 import type { FileOpenSource } from "@posthog/shared";
 import { useMemo } from "react";
 import { usePanelLayoutStore } from "../panels/panelLayoutStore";
@@ -31,9 +32,12 @@ export function useFileLinkOpener(
     return ({ path, line }: FileHrefTarget) => {
       const relativePath = getRelativePath(path, repoPath);
       if (line) {
+        // The editor waits on the tab's own absolute path, which the panel
+        // builds with this helper. A target outside the worktree stays
+        // absolute, so prefixing the root here would key on a path no tab has.
         usePendingScrollStore
           .getState()
-          .requestScroll(`${repoPath}/${relativePath}`, line);
+          .requestScroll(resolveTabAbsolutePath(relativePath, repoPath), line);
       }
       usePanelLayoutStore
         .getState()
