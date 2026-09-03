@@ -31,6 +31,7 @@ from posthog.temporal.ai_observability.evaluation_llm_judge import (
 from posthog.temporal.ai_observability.evaluation_sentiment import execute_sentiment_eval_activity
 from posthog.temporal.ai_observability.evaluation_types import EvaluationActivityResult
 from posthog.temporal.ai_observability.evaluation_workflow_activities import (
+    EMIT_EVALUATION_EVENT_FAILED_ERROR_TYPE,
     EmitEvaluationEventInputs,
     EmitInternalTelemetryInputs,
     RunEvaluationInputs,
@@ -266,20 +267,27 @@ class RunEvaluationWorkflow(PostHogWorkflow):
         result: EvaluationActivityResult | None = None
         emitted_in_activity = False
         if temporalio.workflow.patched("merge-local-eval-activities-2026-09"):
-            outcome = await temporalio.workflow.execute_activity(
-                run_local_evaluation_activity,
-                RunLocalEvaluationInputs(
-                    evaluation_id=inputs.evaluation_id,
-                    event_data=inputs.event_data,
-                    start_time=start_time,
-                ),
-                start_to_close_timeout=timedelta(seconds=120),
-                # Total deadline including queue wait: without it a task stuck in the queue keeps
-                # the workflow RUNNING forever, and USE_EXISTING then blocks every later trigger
-                # for this (evaluation, event) pair.
-                schedule_to_close_timeout=timedelta(minutes=8),
-                retry_policy=RetryPolicy(maximum_attempts=3),
-            )
+            try:
+                outcome = await temporalio.workflow.execute_activity(
+                    run_local_evaluation_activity,
+                    RunLocalEvaluationInputs(
+                        evaluation_id=inputs.evaluation_id,
+                        event_data=inputs.event_data,
+                        start_time=start_time,
+                    ),
+                    start_to_close_timeout=timedelta(seconds=120),
+                    # Total deadline including queue wait: without it a task stuck in the queue
+                    # keeps the workflow RUNNING forever, and USE_EXISTING then blocks every later
+                    # trigger for this (evaluation, event) pair.
+                    schedule_to_close_timeout=timedelta(minutes=8),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
+            except temporalio.exceptions.ActivityError as e:
+                if isinstance(e.cause, ApplicationError) and e.cause.type == EMIT_EVALUATION_EVENT_FAILED_ERROR_TYPE:
+                    # Feeds llma_eval_errors, the LLMAEvalsHighErrorRate numerator — once per
+                    # workflow after retries end, matching the legacy emit path below.
+                    increment_errors("emit_evaluation_event_failed")
+                raise
             evaluation = outcome.evaluation
             result = outcome.result
             emitted_in_activity = outcome.emitted
@@ -360,15 +368,24 @@ class RunEvaluationWorkflow(PostHogWorkflow):
                 raise
 
         if evaluation_type == "llm_judge" and not result.get("skipped"):
-            await temporalio.workflow.execute_activity(
-                emit_internal_telemetry_activity,
-                EmitInternalTelemetryInputs(
-                    evaluation=evaluation,
+            try:
+                await temporalio.workflow.execute_activity(
+                    emit_internal_telemetry_activity,
+                    EmitInternalTelemetryInputs(
+                        evaluation=evaluation,
+                        team_id=evaluation["team_id"],
+                        result=result,
+                    ),
+                    schedule_to_close_timeout=timedelta(seconds=30),
+                )
+            except Exception:
+                # Internal telemetry must not fail a workflow whose $ai_evaluation already
+                # emitted: the workflow-level retry would re-emit it.
+                logger.exception(
+                    "Failed to emit internal telemetry",
+                    evaluation_id=evaluation["id"],
                     team_id=evaluation["team_id"],
-                    result=result,
-                ),
-                schedule_to_close_timeout=timedelta(seconds=30),
-            )
+                )
 
         # Old histories must still issue their recorded activity or child-workflow command during replay.
         replay_legacy_eval_signal = not temporalio.workflow.patched("remove-per-evaluation-signal-2026-08")

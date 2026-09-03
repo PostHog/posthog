@@ -10,6 +10,7 @@ from django.db import transaction
 import structlog
 import temporalio
 from structlog.contextvars import bind_contextvars
+from temporalio.exceptions import ApplicationError
 
 from posthog.api.capture import CaptureInternalError
 from posthog.dataclasses import frozen
@@ -20,7 +21,7 @@ from posthog.temporal.ai_observability.evaluation_hog import run_hog_eval_for_ev
 from posthog.temporal.ai_observability.evaluation_llm_judge import DEFAULT_JUDGE_MODEL
 from posthog.temporal.ai_observability.evaluation_sentiment import run_sentiment_eval
 from posthog.temporal.ai_observability.evaluation_types import EvaluationActivityResult
-from posthog.temporal.ai_observability.metrics import increment_emit_event_outcome, increment_errors
+from posthog.temporal.ai_observability.metrics import increment_emit_event_outcome
 from posthog.temporal.ai_observability.team_capture import capture_internal_for_team
 
 from products.ai_observability.backend.models.evaluations import Evaluation, EvaluationStatus
@@ -29,6 +30,8 @@ from products.ai_observability.backend.models.provider_keys import LLMProviderKe
 logger = structlog.get_logger(__name__)
 
 SOURCE_AI_PROPERTIES_TO_COPY = ("$ai_prompt_name", "$ai_prompt_version")
+
+EMIT_EVALUATION_EVENT_FAILED_ERROR_TYPE = "EmitEvaluationEventFailed"
 
 
 @dataclass
@@ -280,12 +283,13 @@ def build_evaluation_event_properties(
 
 
 def _evaluation_event_uuid() -> str | None:
-    """One workflow run emits one $ai_evaluation, so its uuid derives from the run id. Activity
-    retries reuse it, letting ingestion deduplicate a re-emit after a lost activity completion."""
+    """One workflow emits one $ai_evaluation, so its uuid derives from the workflow id, which
+    survives activity retries and workflow-level retries alike. A manual re-run mints a new
+    workflow id (it embeds a ms timestamp), so re-runs still get distinct events."""
     if not temporalio.activity.in_activity():
         return None
-    run_id = temporalio.activity.info().workflow_run_id
-    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"posthog://ai-evaluation/{run_id}"))
+    workflow_id = temporalio.activity.info().workflow_id
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"posthog://ai-evaluation/{workflow_id}"))
 
 
 async def emit_generation_evaluation_event(inputs: EmitEvaluationEventInputs) -> None:
@@ -457,9 +461,10 @@ async def run_local_evaluation_activity(inputs: RunLocalEvaluationInputs) -> Loc
                     start_time=inputs.start_time,
                 )
             )
-        except Exception:
-            # Feeds llma_eval_errors, the numerator of the LLMAEvalsHighErrorRate alert.
-            increment_errors("emit_evaluation_event_failed", provider=result.get("provider"))
-            raise
+        except Exception as error:
+            # Typed so the workflow counts one emit failure per run, after retries end.
+            raise ApplicationError(
+                "Failed to emit $ai_evaluation", type=EMIT_EVALUATION_EVENT_FAILED_ERROR_TYPE
+            ) from error
         emitted = True
     return LocalEvaluationOutcome(evaluation=evaluation, result=result, emitted=emitted)
