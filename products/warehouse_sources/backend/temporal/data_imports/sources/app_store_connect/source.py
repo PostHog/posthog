@@ -67,7 +67,7 @@ An **Account Holder** or **Admin** creates an API key under **Users and Access â
 
 Sales and subscription reports also need your vendor number (App Store Connect â†’ **Payments and Financial Reports**) and a key with the **Finance**, **Sales**, or **Admin** role. Leave it blank if you only want app, review and build data.
 
-The analytics tables need a key with the **Admin** role. Apple lets only an **Admin** key start an analytics report, so an **App Manager** key syncs everything else but returns no analytics data."""
+The analytics tables need a key with the **Admin** role. Apple lets only an **Admin** key start an analytics report, so an **App Manager** key returns no analytics data."""
         restatement_note = restatement_caption()
         if restatement_note:
             caption = f"{caption}\n\n{restatement_note}"
