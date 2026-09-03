@@ -9,7 +9,6 @@ from posthoganalytics import capture_exception
 from pydantic import BaseModel, Field
 from rest_framework.exceptions import Throttled
 
-from posthog.api.embedding_worker import async_generate_embedding
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.exceptions import QuotaLimitExceeded
 from posthog.models.team import Team
@@ -21,7 +20,6 @@ from products.access_control.backend.facade.user_access_control import AccessCon
 from products.replay_vision.backend.api.scanners import ReplayScannerSerializer
 from products.replay_vision.backend.billing import CREDITS_PER_DOLLAR, observation_credits_for_model
 from products.replay_vision.backend.consent import is_ai_data_processing_approved
-from products.replay_vision.backend.embeddings import OBSERVATION_EMBEDDING_MODEL
 from products.replay_vision.backend.impact import compute_scanner_impact, create_affected_cohort
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_observation_label import ReplayObservationLabel
@@ -52,9 +50,10 @@ from products.replay_vision.backend.scanning import (
 from products.replay_vision.backend.search import (
     DEFAULT_SEARCH_LIMIT,
     MAX_SEARCH_LIMIT,
-    RANK_OVERFETCH_FACTOR,
     ObservationSearchFilters,
-    rank_observations,
+    async_query_vector_for,
+    parse_search_date,
+    search_observations,
 )
 from products.replay_vision.backend.tag_suggestions import suggest_classifier_tags
 from products.replay_vision.backend.temporal.metrics import record_scanner_limit_reached
@@ -369,6 +368,14 @@ class SearchObservationsArgs(BaseModel):
     max_score: float | None = Field(
         default=None, description="Keep only scorer results whose score is at most this value."
     )
+    date_from: str | None = Field(
+        default=None,
+        description="Only recordings analyzed at or after this time: ISO 8601 or relative like '-7d'.",
+    )
+    date_to: str | None = Field(
+        default=None,
+        description="Only recordings analyzed at or before this time: ISO 8601 or relative like '-1d'.",
+    )
     limit: int | None = Field(
         default=None,
         ge=1,
@@ -396,6 +403,8 @@ class SearchReplayVisionObservationsTool(ReplayVisionGatesMixin, MaxTool):
         tags: list[str] | None = None,
         min_score: float | None = None,
         max_score: float | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
         limit: int | None = None,
     ) -> tuple[str, dict[str, Any]]:
         # Explicit argument wins; scene context is only the default scope when the model passed nothing.
@@ -403,7 +412,15 @@ class SearchReplayVisionObservationsTool(ReplayVisionGatesMixin, MaxTool):
         if not query or not query.strip():
             return "No search query provided. Please describe what to look for.", {"error": "empty_query"}
 
-        filters = ObservationSearchFilters.from_raw(verdict, tags, min_score, max_score)
+        timezone_info = self._team.timezone_info
+        filters = ObservationSearchFilters.from_raw(
+            verdict,
+            tags,
+            min_score,
+            max_score,
+            date_from=parse_search_date(date_from, timezone_info, end_of_range=False) if date_from else None,
+            date_to=parse_search_date(date_to, timezone_info, end_of_range=True) if date_to else None,
+        )
         try:
             return await self._search(str(resolved_id) if resolved_id else None, query.strip(), filters, limit)
         except Exception as e:
@@ -418,10 +435,9 @@ class SearchReplayVisionObservationsTool(ReplayVisionGatesMixin, MaxTool):
     async def _search(
         self, scanner_id: str | None, query: str, filters: ObservationSearchFilters, limit: int | None
     ) -> tuple[str, dict[str, Any]]:
-        # The embedding call is a 30s-bounded HTTP request; awaiting `async_generate_embedding` lets the event
-        # loop schedule other work instead of pinning a Django DB-pool thread for the full network RTT. The DB
-        # / ClickHouse pieces stay in `database_sync_to_async` blocks on either side so each thread held is
-        # genuinely DB-bound.
+        # The embedding call is a 30s-bounded HTTP request; awaiting it lets the event loop schedule other work
+        # instead of pinning a Django DB-pool thread for the full network RTT. The DB / ClickHouse pieces stay in
+        # `database_sync_to_async` blocks on either side so each thread held is genuinely DB-bound.
         resolved_scope, short_circuit = await self._resolve_search_scope(scanner_id, limit)
         if short_circuit is not None:
             return short_circuit
@@ -429,9 +445,7 @@ class SearchReplayVisionObservationsTool(ReplayVisionGatesMixin, MaxTool):
         scanner_ids, scope_label, cross_scanner, capped_limit = resolved_scope
 
         try:
-            embedding_response = await async_generate_embedding(
-                self._team, query, model=OBSERVATION_EMBEDDING_MODEL.value
-            )
+            query_vector = await async_query_vector_for(self._team, query)
         except Exception:
             logger.warning("replay_vision.observation_search.embedding_failed", team_id=self._team.id, exc_info=True)
             # Could be a timeout, a transport error, or (commonly) the org not having opted into AI data processing.
@@ -442,7 +456,7 @@ class SearchReplayVisionObservationsTool(ReplayVisionGatesMixin, MaxTool):
             )
 
         return await self._rank_and_format(
-            scanner_ids, scope_label, cross_scanner, capped_limit, query, embedding_response.embedding, filters
+            scanner_ids, scope_label, cross_scanner, capped_limit, query, query_vector, filters
         )
 
     @database_sync_to_async
@@ -483,45 +497,18 @@ class SearchReplayVisionObservationsTool(ReplayVisionGatesMixin, MaxTool):
 
         # Filter + rank in one ClickHouse query: the structured outcome filters run against the embedding
         # metadata, so the semantic ranking only ever sees recordings that already match the exact outcome.
-        # Over-fetch, then cut back down after the loop below drops rows (see RANK_OVERFETCH_FACTOR).
-        ordered_ids = [
-            match.observation_id
-            for match in rank_observations(
-                self._team, self._user, scanner_ids, query_vector, capped_limit * RANK_OVERFETCH_FACTOR, filters
-            )
-        ]
-        if not ordered_ids:
-            return empty
-
-        observations = {
-            str(obs.id): obs
-            for obs in accessible_observations(
-                self.user_access_control,
-                self._team.id,
-                ReplayObservation.objects.filter(
-                    team_id=self._team.id,
-                    scanner_id__in=scanner_ids,
-                    status=ObservationStatus.SUCCEEDED,
-                    id__in=ordered_ids,
-                ),
-            )
-            .select_related("scanner")
-            .only("id", "session_id", "scanner_result", "created_at", "scanner__name")
-        }
+        response = search_observations(
+            self._team, self._user, self.user_access_control, scanner_ids, query_vector, capped_limit, filters
+        )
 
         lines: list[str] = []
         matched_ids: list[str] = []
-        for observation_id in ordered_ids:
-            if len(matched_ids) >= capped_limit:
-                break
-            obs = observations.get(observation_id)
-            if obs is None:
-                continue
-            output = read_output(obs)
+        for result in response.results:
+            output = read_output(result.observation)
             if output is None:
                 continue
-            lines.append(format_line(obs, output, show_scanner=cross_scanner))
-            matched_ids.append(observation_id)
+            lines.append(format_line(result.observation, output, show_scanner=cross_scanner))
+            matched_ids.append(str(result.observation.id))
 
         if not lines:
             return empty

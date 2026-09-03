@@ -1,6 +1,7 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
@@ -107,6 +108,22 @@ describe('observationSearchLogic', () => {
         router.actions.push(urls.replayVision(), { tab: 'search', q: 'rage clicks', unrelated: '1' })
         await expectLogic(logic).toFinishAllListeners()
         expect(searchSpy).toHaveBeenCalledTimes(1)
+        logic.unmount()
+    })
+
+    it('an AI consent error points the user at the organization setting', async () => {
+        searchSpy.mockImplementation(() => [400, { code: 'ai_data_processing_not_approved', detail: 'off' }])
+        const toastSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast-id')
+        const logic = observationSearchLogic({ scannerId: null })
+        logic.mount()
+        router.actions.push(urls.replayVision(), { tab: 'search' })
+        logic.actions.setQuery('anything')
+        await expectLogic(logic, () => logic.actions.search()).toFinishAllListeners()
+        expect(toastSpy).toHaveBeenCalledWith(
+            expect.stringContaining('AI data processing'),
+            expect.objectContaining({ button: expect.objectContaining({ label: 'Open settings' }) })
+        )
+        toastSpy.mockRestore()
         logic.unmount()
     })
 })

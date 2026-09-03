@@ -2,7 +2,9 @@ import json
 import uuid
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import MagicMock, patch
 
+from django.core.cache import cache
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -13,7 +15,12 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.replay_vision.backend.embeddings import EMBEDDING_DOCUMENT_TYPE, EMBEDDING_PRODUCT
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerOrigin, ScannerType
-from products.replay_vision.backend.search import ObservationSearchFilters, fetch_ranked_observations, rank_observations
+from products.replay_vision.backend.search import (
+    ObservationSearchFilters,
+    fetch_ranked_observations,
+    query_vector_for,
+    rank_observations,
+)
 from products.replay_vision.backend.tests.helpers import snapshot_for
 
 
@@ -90,7 +97,9 @@ class TestRankObservationsQuery(ClickhouseTestMixin, APIBaseTest):
             [
                 row("intent", best, "user wanted to check out", vector(1.0, 0.0)),
                 row("outcome", best, "gave up at the payment step", vector(0.0, 1.0)),
-                row("reasoning", other, "x" * 400, vector(0.6, 0.8)),
+                row("reasoning", other, "x" * 2000, vector(0.6, 0.8)),
+                # Opposite direction: past the distance ceiling, so never a match however few rows exist.
+                row("reasoning", str(uuid.uuid4()), "unrelated", vector(-1.0, 0.0)),
             ]
         )
 
@@ -102,7 +111,7 @@ class TestRankObservationsQuery(ClickhouseTestMixin, APIBaseTest):
         # `best` has two renderings and the hit carries the closest one's text.
         self.assertEqual(matches[0].matched_content, "user wanted to check out")
         self.assertAlmostEqual(matches[0].distance, 0.0, places=5)
-        self.assertEqual(len(matches[1].matched_content), 300)
+        self.assertEqual(len(matches[1].matched_content), 1500)
 
     def test_every_filter_clause_compiles_and_applies_inside_the_candidate_subquery(self) -> None:
         scanner_id = str(uuid.uuid4())
@@ -187,3 +196,17 @@ class TestFetchRankedObservations(APIBaseTest):
         with self.assertNumQueries(0):
             # Annotated by `hydrate_for_serialization`, so it is not on the declared row type.
             self.assertEqual([row.scanner_origin for row in rows], [origin] * 2)  # type: ignore[attr-defined]
+
+
+class TestQueryVectorCache(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        cache.clear()
+
+    @patch("products.replay_vision.backend.search.generate_embedding")
+    def test_same_text_embeds_once_and_different_text_embeds_again(self, mock_embed: MagicMock) -> None:
+        mock_embed.return_value = MagicMock(embedding=[0.1, 0.2])
+        self.assertEqual(query_vector_for(self.team, "confused users"), [0.1, 0.2])
+        self.assertEqual(query_vector_for(self.team, "confused users"), [0.1, 0.2])
+        query_vector_for(self.team, "happy users")
+        self.assertEqual(mock_embed.call_count, 2)

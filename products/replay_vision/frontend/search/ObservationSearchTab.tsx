@@ -72,9 +72,6 @@ function SearchResultCard({
                     </>
                 )}
                 <span className="font-mono text-xs text-muted truncate">{observation.session_id}</span>
-                {observation.recording_subject_email && (
-                    <span className="text-xs text-muted truncate">{observation.recording_subject_email}</span>
-                )}
                 <span className="ml-auto shrink-0 flex items-center gap-2 text-xs text-muted">
                     {strongMatch && (
                         <LemonTag type="success" size="small">

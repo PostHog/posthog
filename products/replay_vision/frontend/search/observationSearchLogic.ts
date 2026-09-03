@@ -14,6 +14,8 @@ const SEARCH_RESULT_LIMIT = 50
 
 // Relative to the best match, because distances are only comparable within one response.
 const STRONG_MATCH_MARGIN = 0.05
+// The server's error code when the organization has not allowed AI data processing.
+const AI_CONSENT_REQUIRED_CODE = 'ai_data_processing_not_approved'
 
 export interface ObservationSearchLogicProps {
     /** Scope the search to one scanner. Null searches every scanner the user can read. */
@@ -159,7 +161,17 @@ export const observationSearchLogic = kea<observationSearchLogicType>([
                 if (error instanceof Error && isBreakpoint(error)) {
                     throw error
                 }
-                lemonToast.error(`Search failed${error?.detail ? `: ${error.detail}` : ''}`)
+                if (error?.code === AI_CONSENT_REQUIRED_CODE) {
+                    lemonToast.error('AI data processing is turned off for your organization.', {
+                        button: {
+                            label: 'Open settings',
+                            action: () =>
+                                router.actions.push(urls.settings('organization-details', 'organization-ai-consent')),
+                        },
+                    })
+                } else {
+                    lemonToast.error(`Search failed${error?.detail ? `: ${error.detail}` : ''}`)
+                }
                 actions.searchFailure()
             }
         },

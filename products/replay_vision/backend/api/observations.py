@@ -30,7 +30,6 @@ from rest_framework.exceptions import APIException, NotFound, PermissionDenied, 
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.api.embedding_worker import generate_embedding
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.streaming import sse_streaming_response
@@ -46,7 +45,6 @@ from products.replay_vision.backend.api.filters import MultiChoiceFilter, OrderB
 from products.replay_vision.backend.api.observation_progress import stream_observation_progress
 from products.replay_vision.backend.api.observation_stats import compute_observation_stats
 from products.replay_vision.backend.consent import is_ai_data_processing_approved
-from products.replay_vision.backend.embeddings import OBSERVATION_EMBEDDING_MODEL
 from products.replay_vision.backend.error_kinds import ERROR_REASON_HELP_TEXT
 from products.replay_vision.backend.models.replay_observation import (
     IN_FLIGHT_STATUSES,
@@ -69,10 +67,11 @@ from products.replay_vision.backend.scanning import RetryOutcome, retry_observat
 from products.replay_vision.backend.search import (
     DEFAULT_SEARCH_LIMIT,
     MAX_SEARCH_LIMIT,
-    RANK_OVERFETCH_FACTOR,
     ObservationSearchFilters,
-    fetch_ranked_observations,
-    rank_observations,
+    ObservationSearchResult,
+    parse_search_date,
+    query_vector_for,
+    search_observations,
 )
 from products.replay_vision.backend.temporal.scanners.monitor import MonitorVerdict
 from products.replay_vision.backend.temporal.types import ScannerResult, ScannerSnapshot
@@ -81,6 +80,10 @@ from products.tasks.backend.facade import api as tasks_facade
 from ee.hogai.utils.untrusted import as_untrusted_data
 
 logger = structlog.get_logger(__name__)
+
+
+# Error code the frontend keys on to point the user at the organization AI setting.
+AI_CONSENT_REQUIRED_CODE = "ai_data_processing_not_approved"
 
 
 class EmbeddingUnavailableError(APIException):
@@ -1099,6 +1102,20 @@ class ObservationSearchQuerySerializer(serializers.Serializer):
     max_score = serializers.FloatField(
         required=False, help_text="Keep only scorer observations with a score at or below this value."
     )
+    date_from = serializers.CharField(
+        required=False,
+        help_text=(
+            "Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`; "
+            "values without an explicit offset are interpreted in the project's timezone."
+        ),
+    )
+    date_to = serializers.CharField(
+        required=False,
+        help_text=(
+            "Only observations created at or before this time. Accepts ISO 8601 or a relative date like `-1d`; "
+            "date-only values include the whole day, interpreted in the project's timezone."
+        ),
+    )
     limit = serializers.IntegerField(
         required=False,
         min_value=1,
@@ -1237,54 +1254,46 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
         # Gate before the embedding call so an opted-out org gets an actionable 400, not an opaque failure.
         if not is_ai_data_processing_approved(self.team.id):
             raise ValidationError(
-                "Your organization needs to allow AI analysis before you can search Replay Vision observations."
+                "AI data processing is turned off for your organization. Turn it on in organization settings "
+                "to search Replay Vision observations.",
+                code=AI_CONSENT_REQUIRED_CODE,
             )
         try:
-            # Short timeout: this sync call pins a request thread, and search users don't wait long.
-            embedding_response = generate_embedding(
-                self.team, validated["q"], model=OBSERVATION_EMBEDDING_MODEL.value, timeout=10.0
-            )
+            query_vector = query_vector_for(self.team, validated["q"])
         except (requests.ConnectionError, requests.Timeout):
             # The embedding worker is unreachable or slow, so the caller can retry. A rejected request
             # (requests.HTTPError) is a bug, not retryable, and should surface as a 500.
             logger.warning("replay_vision.observation_search.embedding_failed", team_id=self.team_id, exc_info=True)
             raise EmbeddingUnavailableError()
+        timezone_info = self.team.timezone_info
         filters = ObservationSearchFilters.from_raw(
             verdict=_csv_values(validated.get("verdict")),
             tags=_csv_values(validated.get("tags")),
             min_score=validated.get("min_score"),
             max_score=validated.get("max_score"),
+            date_from=(
+                parse_search_date(validated["date_from"], timezone_info, end_of_range=False)
+                if validated.get("date_from")
+                else None
+            ),
+            date_to=(
+                parse_search_date(validated["date_to"], timezone_info, end_of_range=True)
+                if validated.get("date_to")
+                else None
+            ),
         )
-        limit = validated["limit"]
-        # Over-fetch, then slice back down after hydration drops rows (see RANK_OVERFETCH_FACTOR).
-        rank_limit = limit * RANK_OVERFETCH_FACTOR
-        matches = rank_observations(
+        response = search_observations(
             self.team,
             cast(User, request.user),
+            self.user_access_control,
             scanner_ids,
-            embedding_response.embedding,
-            rank_limit,
+            query_vector,
+            validated["limit"],
             filters,
         )
-        match_by_id = {match.observation_id: match for match in matches}
-        observations = fetch_ranked_observations(
-            self.team_id, scanner_ids, [match.observation_id for match in matches], self.user_access_control
-        )
-        # ClickHouse filling its limit means it may hold further matches it never ranked.
-        truncated = len(matches) >= rank_limit or len(observations) > limit
-        return self._search_response(
-            [
-                {
-                    "observation": obs,
-                    "distance": match_by_id[str(obs.id)].distance,
-                    "matched_content": match_by_id[str(obs.id)].matched_content,
-                }
-                for obs in observations[:limit]
-            ],
-            truncated=truncated,
-        )
+        return self._search_response(list(response.results), truncated=response.truncated)
 
-    def _search_response(self, results: list[dict[str, Any]], truncated: bool = False) -> Response:
+    def _search_response(self, results: list[ObservationSearchResult], truncated: bool = False) -> Response:
         serializer = ObservationSearchResponseSerializer(
             {"results": results, "truncated": truncated}, context=self.get_serializer_context()
         )

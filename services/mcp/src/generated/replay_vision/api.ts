@@ -167,6 +167,20 @@ export const visionObservationsSearchRetrieveQueryLimitMax = 50
 export const visionObservationsSearchRetrieveQueryQMax = 2000
 
 export const VisionObservationsSearchRetrieveQueryParams = () => zod.object({
+    date_from: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            "Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`; values without an explicit offset are interpreted in the project's timezone."
+        ),
+    date_to: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            "Only observations created at or before this time. Accepts ISO 8601 or a relative date like `-1d`; date-only values include the whole day, interpreted in the project's timezone."
+        ),
     limit: zod
         .number()
         .min(1)

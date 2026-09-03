@@ -156,13 +156,14 @@ tools:
             Search replay vision observations by meaning, not keywords: `q` is a natural-language description of what to
             find (e.g. "users confused by the pricing page") and results come back under `results`, most relevant first.
             Each result pairs the `observation` with its `distance` to the query (lower is closer, only comparable
-            within one response) and `matched_content`, the excerpt of the observation's text that matched (may be empty
-            for old rows). The search ranks each observation's LLM output (a summarizer's title and summary,
+            within one response) and `matched_content`, the observation's text that matched (may be empty for old
+            rows). Observations too far from the query are not returned at all, so an off-topic search yields no
+            results rather than the nearest unrelated ones. The search ranks each observation's LLM output (a summarizer's title and summary,
             other scanners' reasoning) by semantic similarity, so it finds sessions described differently from
             the query. Scope with `scanner_id` to search one scanner, otherwise every scanner the caller can read is
             searched. Narrow by exact outcome with `verdict` (comma-separated, e.g. `yes,inconclusive`), `tags`
-            (comma-separated classifier tags), and `min_score`/`max_score` (scorer bounds). These filter, while `q`
-            ranks. `limit` defaults to 20 (max 50). Use `vision-observations-retrieve` for a result's full detail, or
+            (comma-separated classifier tags), and `min_score`/`max_score` (scorer bounds), or by time with
+            `date_from`/`date_to` (ISO 8601 or relative like `-7d`). These filter, while `q` ranks. `limit` defaults to 20 (max 50). Use `vision-observations-retrieve` for a result's full detail, or
             `vision-observations-list` for everything observed about one session.
         requires_ai_consent: true
     vision-quota-retrieve:

@@ -5,6 +5,7 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
+from django.core.cache import cache
 from django.utils import timezone
 
 from asgiref.sync import sync_to_async
@@ -46,7 +47,7 @@ from ee.hogai.tool import ApprovalResumePayload, MaxTool
 _SCANNER_LOOKUP_PATH = "products.replay_vision.backend.max_tools.scanner_for_reading_observations"
 # The estimate refresh runs a ClickHouse query; these tests are about the tool, not the query.
 _REFRESH_ESTIMATE_PATH = "products.replay_vision.backend.api.scanners._refresh_estimate_fail_soft"
-_GENERATE_EMBEDDING_PATH = "products.replay_vision.backend.max_tools.async_generate_embedding"
+_GENERATE_EMBEDDING_PATH = "products.replay_vision.backend.search.async_generate_embedding"
 _EXECUTE_HOGQL_PATH = "products.replay_vision.backend.search.execute_hogql_query"
 
 
@@ -94,6 +95,11 @@ class TestDraftReplayVisionScannerPromptTool(BaseTest):
 
 
 class TestSearchReplayVisionObservationsTool(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        # Query vectors are cached by text, so a mocked embedding must not leak between tests.
+        cache.clear()
+
     def _tool(self, context: dict | None = None) -> SearchReplayVisionObservationsTool:
         configurable: dict = {"team": self.team, "user": self.user}
         if context is not None:
