@@ -34,11 +34,13 @@ _URL_TRAILING_PUNCTUATION = ".,;:!?"
 # an expensive parse.
 _MAX_ANCHORS = 100
 # Match an existing Markdown link/image or angle autolink first so we skip over it,
-# then a bare URL (delimited by whitespace, brackets, or parentheses) to wrap.
+# then a bare URL. The bare pattern keeps parentheses so a URL like
+# `.../Markdown_(language)` stays whole; any unbalanced trailing parenthesis (from a
+# `(url)` wrapper) is peeled back off in `_wrap_bare_urls`.
 _LINKIFY_RE = re.compile(
     r"(?P<mdlink>!?\[[^\]]*\]\([^)]*\))"
     r"|(?P<autolink><[^<>\s]+>)"
-    r"|(?P<bare>https?://[^\s<>()\[\]]+)",
+    r"|(?P<bare>https?://[^\s<>\[\]]+)",
     re.IGNORECASE,
 )
 
@@ -67,9 +69,10 @@ def _wrap_bare_urls(text: str) -> str:
     punctuation from a bare URL. An explicit `<url>` autolink is taken verbatim, so
     the full token survives. Existing Markdown links and autolinks are left as-is.
 
-    Only sentence punctuation is peeled off the end and left outside the link, so a
-    URL ending a sentence stays clean. Token characters (`~`, `-`, `_`) are kept,
-    since dropping one would break the tracking links this protects.
+    Sentence punctuation and an unbalanced trailing parenthesis are peeled off the
+    end and left outside the link, so a URL ending a sentence or wrapped in `(...)`
+    stays clean while a balanced `(...)` inside the URL is kept. Token characters
+    (`~`, `-`, `_`) are kept, since dropping one would break the links this protects.
     """
 
     def replace(match: re.Match[str]) -> str:
@@ -77,8 +80,15 @@ def _wrap_bare_urls(text: str) -> str:
         if not bare:
             return match.group(0)
         trailing = ""
-        while bare and bare[-1] in _URL_TRAILING_PUNCTUATION:
-            trailing = bare[-1] + trailing
+        while bare:
+            last = bare[-1]
+            if last in _URL_TRAILING_PUNCTUATION:
+                pass
+            elif last == ")" and bare.count(")") > bare.count("("):
+                pass
+            else:
+                break
+            trailing = last + trailing
             bare = bare[:-1]
         scheme = _HTTP_SCHEME_RE.match(bare)
         # Nothing left after the scheme (e.g. "https://.") — leave the text alone.

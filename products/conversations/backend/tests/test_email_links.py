@@ -71,6 +71,23 @@ class TestRecoverLinksFromHtml:
         result = recover_links_from_html(text, "")
         assert f"<{url}>{punctuation}" in result
 
+    @parameterized.expand(
+        [
+            ("balanced_parens", "Read https://en.wikipedia.org/wiki/Markdown_(language) now"),
+            ("mid_path_parens", "Read https://example.com/path(param) now"),
+        ]
+    )
+    def test_keeps_balanced_parentheses_inside_url(self, _name: str, text: str) -> None:
+        # GFM autolinks balance parentheses, so a URL that legitimately contains them
+        # must stay whole rather than truncate at the first "(".
+        url = text.split("Read ", 1)[1].rsplit(" now", 1)[0]
+        result = recover_links_from_html(text, "")
+        assert f"<{url}> now" in result
+
+    def test_peels_unbalanced_wrapping_parenthesis(self) -> None:
+        result = recover_links_from_html("(https://example.com/x)", "")
+        assert result == "(<https://example.com/x>)"
+
     def test_does_not_double_wrap_recovered_link(self) -> None:
         text = "Please confirm.\nAttiva l'inoltro"
         html = '<a href="https://clicks.example/f/a/token~">Attiva l\'inoltro</a>'
