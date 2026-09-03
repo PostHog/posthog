@@ -3545,11 +3545,16 @@ def append_suggested_reviewers(
         new_logins = [entry["github_login"] for entry in new_content]
         correction: ReviewerCorrection | None = None
         if attribution.kind == "user" and set(prior_logins) != set(new_logins):
+            # Read impersonation once: the activity row records it, and a support-staff edit made
+            # while impersonating must not become scout routing precedent. The reviewer-corrections
+            # profile already excludes impersonated rows (`_recent_reviewer_corrections`), so the
+            # note channel gates on the same signal to keep the two reviewer-correction paths agreeing.
+            was_impersonated = is_impersonated_session(request)
             log_activity(
                 organization_id=None,
                 team_id=team.id,
                 user=cast(User, request.user),
-                was_impersonated=is_impersonated_session(request),
+                was_impersonated=was_impersonated,
                 item_id=report_id,
                 scope="SignalReport",
                 activity="suggested_reviewers_changed",
@@ -3581,15 +3586,18 @@ def append_suggested_reviewers(
                 )
 
             # The same correction also steers the scouts that route on the logins it changed, which
-            # is the only return path a scout has for routing memory it already cached.
-            new_login_set = set(new_logins)
-            correction = ReviewerCorrection(
-                report_id=str(report_id),
-                added_logins=tuple(added_logins),
-                removed_logins=tuple(login for login in prior_logins if login not in new_login_set),
-                actor_user_id=user_id,
-                scoped_team_ids=scoped_team_id_tuple,
-            )
+            # is the only return path a scout has for routing memory it already cached — but only for
+            # a genuine team edit. An impersonated operator edit is not team ownership evidence, so it
+            # steers nothing, matching the reviewer-corrections profile's impersonation filter.
+            if not was_impersonated:
+                new_login_set = set(new_logins)
+                correction = ReviewerCorrection(
+                    report_id=str(report_id),
+                    added_logins=tuple(added_logins),
+                    removed_logins=tuple(login for login in prior_logins if login not in new_login_set),
+                    actor_user_id=user_id,
+                    scoped_team_ids=scoped_team_id_tuple,
+                )
 
         # on_commit so a rolled-back edit emits and steers nothing, matching every other reviewer
         # write path.
