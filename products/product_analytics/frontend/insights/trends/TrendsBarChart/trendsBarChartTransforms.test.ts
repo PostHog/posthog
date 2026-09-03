@@ -79,9 +79,13 @@ describe('buildTrendsBarTimeSeries', () => {
 
     it.each([
         { showMultipleYAxes: undefined, expected: ['left', 'left', 'left'] },
-        { showMultipleYAxes: true, expected: ['left', 'y1', 'y2'] },
-    ])('assigns yAxisId per series (showMultipleYAxes=$showMultipleYAxes)', ({ showMultipleYAxes, expected }) => {
-        const results = [makeResult({ id: 'a' }), makeResult({ id: 'b' }), makeResult({ id: 'c' })]
+        { showMultipleYAxes: true, expected: ['left', 'y1', 'left'] },
+    ])('groups yAxisIds by magnitude (showMultipleYAxes=$showMultipleYAxes)', ({ showMultipleYAxes, expected }) => {
+        const results = [
+            makeResult({ id: 'a', data: [1, 2, 3] }),
+            makeResult({ id: 'b', data: [1000, 2000, 3000] }),
+            makeResult({ id: 'c', data: [2, 4, 6] }),
+        ]
         const series = buildTrendsBarTimeSeries(results, { getColor: () => RED, showMultipleYAxes })
         expect(series.map((s) => s.yAxisId)).toEqual(expected)
     })
