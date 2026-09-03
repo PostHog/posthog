@@ -58,11 +58,29 @@ fn destination_for_event_name(name: &str) -> Destination {
     }
 }
 
+/// Run the batch through the pipeline, then report its drops and build the
+/// response. The pipeline itself only decides each event's outcome; whatever
+/// stage it exits from, the warnings sweep sees the final outcomes exactly
+/// once, here.
 pub async fn process_batch(
     state: &router::State,
     context: &mut Context,
     batch: Batch,
 ) -> Result<BatchResponse, Error> {
+    let events = run_pipeline(state, context, batch).await?;
+    emit_drop_warnings(state, context, &events);
+    Ok(BatchResponse::build(context, &events))
+}
+
+/// Every stage of the v1 pipeline, from validation to publishing. Returns the
+/// events with their final per-event outcomes; a whole-batch failure is the
+/// `Err`. Stages that leave nothing to publish return early with what they
+/// have, so the 200 with per-event drops still comes from `process_batch`.
+async fn run_pipeline(
+    state: &router::State,
+    context: &mut Context,
+    batch: Batch,
+) -> Result<Vec<WrappedEvent>, Error> {
     let processing_start = Instant::now();
     crate::ctx_log!(Level::INFO, context, "process_batch called");
 
@@ -81,10 +99,6 @@ pub async fn process_batch(
         }
     };
 
-    // Best-effort v2 ingestion warnings for validation drops, emitted before
-    // the all-dropped early return so those batches are covered too.
-    emit_drop_warnings(state, context, &events, None);
-
     // Import mode ingests only historical backfills: drop any batch not flagged
     // `historical_migration` (a batch-level flag) by marking every event Drop and
     // returning 200 (accept-and-discard) so the batch-import-worker doesn't retry.
@@ -102,7 +116,7 @@ pub async fn process_batch(
             dropped_events = events.len(),
             "import mode dropped non-historical batch"
         );
-        return Ok(BatchResponse::build(context, &events));
+        return Ok(events);
     }
 
     if state.capture_mode == CaptureMode::Ai {
@@ -111,7 +125,7 @@ pub async fn process_batch(
 
     // Nothing left to process — return 200 with per-event drops.
     if events.iter().all(|ev| ev.result != EventResult::Ok) {
-        return Ok(BatchResponse::build(context, &events));
+        return Ok(events);
     }
 
     // Verify gateway provenance before the quota limiter so verified events can
@@ -136,20 +150,7 @@ pub async fn process_batch(
         .await;
     }
 
-    let oversize_dropped = apply_ai_event_size_limit(state.ai_max_event_bytes, &mut events);
-
-    // The validation sweep runs before this stage, so an oversized AI event
-    // would otherwise drop with no customer-visible signal at all. v0 raises
-    // `MessageSizeTooLarge` for the same condition; this keeps a project owner
-    // seeing it on the AI lane.
-    //
-    // Two guards. The mode keeps the AI lane's reporting out of an analytics
-    // deployment, which this endpoint does not change. The count keeps the scan
-    // off both hot paths in the case that always holds, which is that no event
-    // in the batch was oversized.
-    if state.capture_mode == CaptureMode::Ai && oversize_dropped > 0 {
-        emit_drop_warnings(state, context, &events, Some(DETAIL_AI_EVENT_TOO_BIG));
-    }
+    apply_ai_event_size_limit(state.ai_max_event_bytes, &mut events);
 
     if let Some(ref limiter) = state.ai_byte_rate_limiter {
         apply_ai_byte_limits(limiter, &context.api_token, &mut events).await;
@@ -228,7 +229,7 @@ pub async fn process_batch(
     all_results.extend(sink_results);
     merge_sink_results(&mut events, &all_results);
 
-    Ok(BatchResponse::build(context, &events))
+    Ok(events)
 }
 
 // Verify gateway provenance on each `$ai_*` event: a fresh, valid signature stamps
@@ -387,16 +388,11 @@ fn emit_batch_abort_warning(
 /// event — with multiple events they would be ambiguous, so they are omitted.
 /// Skips entirely when the emitter is off or the batch had no drops.
 ///
-/// `only_tag` scopes the pass. The validation sweep runs before any other stage
-/// can drop an event, so it takes `None` and sweeps everything. Later stages
-/// name their own tag, because a second unscoped sweep would re-emit every
-/// warning the first one already sent.
-fn emit_drop_warnings(
-    state: &router::State,
-    context: &Context,
-    events: &[WrappedEvent],
-    only_tag: Option<&str>,
-) {
+/// Runs once per batch, from `process_batch`, after the pipeline has settled
+/// every outcome, so a stage reports a drop by tagging it and nothing else.
+/// Whether the tag turns into a warning is decided in one place,
+/// `WarningType::from_tag`.
+fn emit_drop_warnings(state: &router::State, context: &Context, events: &[WrappedEvent]) {
     let emitter = state.ingestion_warning_emitter.as_deref();
     if emitter.is_none() {
         // Checked up front so a deployment with warnings off doesn't pay for the
@@ -410,11 +406,6 @@ fn emit_drop_warnings(
     for ev in events {
         if ev.result != EventResult::Drop {
             continue;
-        }
-        if let Some(tag) = only_tag {
-            if ev.details != Some(tag) {
-                continue;
-            }
         }
         let Some(warning) = ev.details.and_then(WarningType::from_tag) else {
             continue;
@@ -950,9 +941,9 @@ fn on_ai_lane(event: &WrappedEvent) -> bool {
 ///
 /// Charged bytes are the event's properties, which dominate an AI event's wire
 /// size; the serialized envelope is not built until the sink.
-fn apply_ai_event_size_limit(max_event_bytes: u64, events: &mut [WrappedEvent]) -> u64 {
+fn apply_ai_event_size_limit(max_event_bytes: u64, events: &mut [WrappedEvent]) {
     if max_event_bytes == 0 {
-        return 0;
+        return;
     }
 
     let mut dropped: u64 = 0;
@@ -973,8 +964,6 @@ fn apply_ai_event_size_limit(max_event_bytes: u64, events: &mut [WrappedEvent]) 
         metrics::counter!(CAPTURE_V1_EVENTS_DROPPED, "reason" => "ai_event_too_big")
             .increment(dropped);
     }
-
-    dropped
 }
 
 /// Charge the AI lane's per-project byte budget, dropping the events that take
@@ -4629,15 +4618,18 @@ mod tests {
     }
 
     /// An oversized AI event must stay visible to the project owner. v0 maps
-    /// `CaptureError::AiEventTooBig` to `MessageSizeTooLarge`; on v1 the drop
-    /// happens after the validation sweep has already run, so without the
-    /// scoped second pass the customer sees nothing at all for exactly the
-    /// case the higher AI ceiling exists to serve.
+    /// `CaptureError::AiEventTooBig` to `MessageSizeTooLarge`; v1 reaches the
+    /// same warning through the drop tag. The ceiling applies on every
+    /// deployment that carries AI events, so the warning does too: SDKs send
+    /// `$ai_*` events through the analytics endpoint as well.
+    #[rstest::rstest]
+    #[case::ai_deployment(CaptureMode::Ai)]
+    #[case::analytics_deployment(CaptureMode::Events)]
     #[tokio::test]
-    async fn oversize_ai_event_emits_the_message_size_warning() {
+    async fn oversize_ai_event_emits_the_message_size_warning(#[case] capture_mode: CaptureMode) {
         let collector = Arc::new(CollectingEmitter::new());
         let ts = TestStateBuilder::new()
-            .with_capture_mode(CaptureMode::Ai)
+            .with_capture_mode(capture_mode)
             .with_ai_max_event_bytes(700)
             .with_ingestion_warning_emitter(collector.clone())
             .build();
@@ -4669,10 +4661,11 @@ mod tests {
         );
     }
 
-    /// The scoped pass must not re-send what the validation sweep already sent.
-    /// Both stages drop events in this batch; each warning may appear once.
+    /// Drops from different stages of one batch each surface once. Validation
+    /// and the AI size ceiling both drop an event here; the single end-of-batch
+    /// sweep reports both without repeating either.
     #[tokio::test]
-    async fn a_validation_drop_is_not_re_emitted_by_the_ai_size_pass() {
+    async fn drops_from_several_stages_each_surface_once() {
         let collector = Arc::new(CollectingEmitter::new());
         let ts = TestStateBuilder::new()
             .with_capture_mode(CaptureMode::Ai)
