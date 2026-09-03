@@ -1260,6 +1260,9 @@ class TestTaskInputTypeValidation(SimpleTestCase):
             ("installations_not_strings", "task_mcp_installations", [1, 2], False),
             ("signals_scout_string", "signals_scout", "signals-scout-error-tracking", True),
             ("signals_scout_not_string", "signals_scout", 123, False),
+            ("skills_string_list", "task_skills", ["error-triage", "db-runbook"], True),
+            ("skills_not_list", "task_skills", "error-triage", False),
+            ("skills_not_strings", "task_skills", [{"name": "error-triage"}], False),
         ]
     )
     def test_task_input_value_shapes(self, _name, schema_type, value, expect_valid):

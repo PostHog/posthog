@@ -1569,7 +1569,10 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         user_client_secret = (data.get("client_secret") or "").strip()
         scope = data.get("scope", "personal")
         self._require_admin_for_shared_scope(scope)
-        self._require_custom_servers_allowed()
+        # Connecting to a server a teammate already registered is not adding
+        # one, so the team's custom-server setting does not apply.
+        if not MCPGatewayServer.objects.for_team(self.team_id).filter(url=url).exists():
+            self._require_custom_servers_allowed()
         self._validate_gateway_options(data)
 
         install_source = data.get("install_source", "posthog")

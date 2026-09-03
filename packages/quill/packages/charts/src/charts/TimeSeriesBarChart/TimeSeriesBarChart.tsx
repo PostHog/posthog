@@ -64,6 +64,8 @@ export interface TimeSeriesBarChartConfig {
     minBarSize?: number
     /** Per-side overrides on the computed chart margins — see {@link ChartConfig.margins}. */
     margins?: Partial<ChartMargins>
+    /** Max pixel width for category labels before truncation. See {@link ChartConfig.maxCategoryLabelWidth}. */
+    maxCategoryLabelWidth?: number
     /** Ease the hover highlight in over this many ms (`true` = default duration). Omit to snap. */
     animateHover?: boolean | number
     /** Built-in legend with click-to-toggle series visibility. Hidden by default. */
@@ -119,6 +121,7 @@ export function TimeSeriesBarChart<Meta = unknown>({
         bandPadding,
         minBarSize,
         margins,
+        maxCategoryLabelWidth,
         animateHover,
         legend,
         trendLines,
@@ -148,6 +151,7 @@ export function TimeSeriesBarChart<Meta = unknown>({
 
     const barChartConfig: BarChartConfig = {
         margins,
+        maxCategoryLabelWidth,
         yScaleType: primaryYAxis?.scale,
         xTickFormatter,
         xTickLabelRotation: xAxis?.tickLabelRotation,
