@@ -30,6 +30,20 @@ conservative: a name like "posthog" also matches third-party repackages, so anyt
 becomes a standalone row with the candidates recorded, and curated overrides
 (`KNOWN_MEASURED_LINKS`) pin the known cases.
 
+## The agent-facing entry point
+
+`GET .../mcp_registry/servers/discover/?intent=<task>` is the one call an agent needs: it
+returns ranked candidates, each with its score rationale, real usage signal where we measure
+it, and connection instructions. Ranking is `fit x authority`: `relevance` (how well the
+server's own text answers the query) multiplied by the run's static score (liveness x trust).
+Neither can dominate, so a dead exact match loses and so does a high-traffic server that does
+not do the thing.
+
+Relevance is lexical today, which is the biggest known gap: it cannot match a paraphrase
+("watch user sessions" against "session replay"). Embedding-based capability search replaces
+`_relevance_annotation` in `presentation/views.py`; keeping relevance separate from the static
+score is what makes that swap local.
+
 ## Iterating on ranking
 
 Ranking versions are pure functions in `ranking.py`'s `RANKING_VERSIONS`, and they are never
@@ -43,9 +57,6 @@ The current versions are the core A/B of the product thesis:
 - `v1_metadata_prior`: liveness x public-metadata trust. The control arm any registry could build.
 - `v2_measured_trust`: v1 plus behavioral trust (reliability weighted by volume confidence) for
   measured servers.
-
-Query-time relevance is a token-based text match for now (`_search_filter` in
-`presentation/views.py`); the seam for embedding-based capability search is that one function.
 
 ## Connection instructions
 
@@ -76,6 +87,7 @@ map.
 
 - Embedding-based capability search (tool-level retrieval, arXiv:2511.01854) behind the existing
   `?search=` parameter.
-- The agent-facing `discover` / `get_connect_config` MCP tools in `services/mcp`.
+- `discover` as an actual MCP tool in `services/mcp`. The HTTP endpoint exists; exposing it over
+  the MCP protocol is what makes the registry itself the one server an agent connects to.
 - `report_outcome` feedback ingestion (needs anti-gaming design).
 - A web UI; mcp_store's marketplace is the likely surface.

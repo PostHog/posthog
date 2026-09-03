@@ -98029,6 +98029,23 @@ export namespace Schemas {
 
     export type McpRegistryServersCompareRetrieve200 = { [key: string]: unknown };
 
+    export type McpRegistryServersDiscoverRetrieveParams = {
+    /**
+     * What the agent is trying to do, in natural language.
+     */
+    intent: string;
+    /**
+     * Candidates to return (default 5, max 20).
+     */
+    limit?: number;
+    /**
+     * Ranking version to rank candidates by.
+     */
+    version?: string;
+    };
+
+    export type McpRegistryServersDiscoverRetrieve200 = { [key: string]: unknown };
+
     export type McpServerInstallationsListParams = {
     /**
      * Number of results to return per page.

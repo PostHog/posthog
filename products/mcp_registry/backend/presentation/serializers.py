@@ -182,6 +182,36 @@ class MCPRankingVersionSerializer(serializers.Serializer):
     )
 
 
+class MCPDiscoverCandidateSerializer(serializers.Serializer):
+    """One ranked candidate in a discover response, with everything an agent needs to act."""
+
+    rank = serializers.IntegerField(help_text="1-based position under the ranking version used.")
+    id = serializers.UUIDField(help_text="Registry server id, for the detail endpoint.")
+    registry_name = serializers.CharField(help_text="Official registry name, empty for measured-only servers.")
+    title = serializers.CharField(help_text="Human-readable server name.")
+    description = serializers.CharField(help_text="What the server does.")
+    score = serializers.FloatField(help_text="Rank score in [0, 1] under the ranking version used.")
+    why = JSONDictField(
+        help_text="Score breakdown so an agent can explain its choice: fit, liveness, trust, and whether "
+        "real usage signal contributed."
+    )
+    liveness = serializers.CharField(help_text="Probed liveness state (alive_open, alive_auth, dead, ...).")
+    auth_method = serializers.CharField(help_text="Detected auth method (none, oauth, api_key, unknown).")
+    measured = JSONDictField(
+        allow_null=True,
+        help_text="Real MCP Analytics aggregates when the server is measured, otherwise null: calls, "
+        "sessions, error_rate_pct, intent_coverage_pct, harness_count.",
+    )
+    matched_tools = JSONListField(
+        help_text="Tools that matched the intent: [{name, description, source}]. Empty when only the server "
+        "description matched."
+    )
+    connect = JSONDictField(
+        help_text="Connection instructions, most-automated method first, steps typed by actor so the agent "
+        "runs its own steps and narrates the human ones."
+    )
+
+
 class MCPRegistryCompareRowSerializer(serializers.Serializer):
     """One server's position under one ranking version."""
 

@@ -26,7 +26,8 @@ class TestMCPRegistryAPI(APIBaseTest):
     def _seed_index(self) -> dict[str, MCPRegistryServer]:
         measured = MCPRegistryServer.objects.create(
             registry_name="io.github.PostHog/mcp",
-            display_name="PostHog MCP Server",
+            display_name="Product analytics server",
+            description="Product analytics, session replay, feature flags, and experiments.",
             listed_in_registry=True,
             is_measured=True,
             liveness="alive_auth",
@@ -47,7 +48,8 @@ class TestMCPRegistryAPI(APIBaseTest):
         )
         unmeasured = MCPRegistryServer.objects.create(
             registry_name="io.example/analytics-helper",
-            display_name="Analytics helper",
+            display_name="Product analytics helper",
+            description="Product analytics, session replay, feature flags, and experiments.",
             listed_in_registry=True,
             repository_url="https://github.com/example/analytics-helper",
             liveness="alive_open",
@@ -119,6 +121,70 @@ class TestMCPRegistryAPI(APIBaseTest):
         assert data["measured_stats"][0]["calls"] == 50_000
         assert data["connect"]["recommended"] == "remote_oauth"
         assert data["connect"]["methods"][-1]["method"] == "remote_api_key"
+
+    def test_discover_returns_ranked_candidates_with_connect_instructions(self) -> None:
+        servers = self._seed_index()
+
+        payload = self.client.get(self._url("discover/"), {"intent": "query my product analytics"}).json()
+
+        assert payload["ranking_version"] == "v2_measured_trust"
+        top = payload["candidates"][0]
+        assert top["id"] == str(servers["measured"].id)
+        assert top["rank"] == 1
+        # The measured block is what no other registry can return.
+        assert top["measured"]["calls"] == 50_000
+        assert top["why"]["measured"] is True
+        # Connect instructions ship in the same response, so one call is enough to act.
+        assert top["connect"]["recommended"] == "remote_oauth"
+        assert payload["candidates"][1]["measured"] is None
+
+    def test_relevance_outranks_authority_when_the_text_match_is_better(self) -> None:
+        # A live, well-documented server that is plainly about the thing must beat a
+        # measured server that only matches on a tool name, or a high-traffic server
+        # would win every unrelated query.
+        self._seed_index()
+        on_topic = MCPRegistryServer.objects.create(
+            registry_name="io.example/webhook-relay",
+            display_name="Webhook relay",
+            description="Relay webhooks between services.",
+            listed_in_registry=True,
+            liveness="alive_open",
+            auth_method="none",
+            canonical_url="https://relay.example.com/mcp",
+        )
+        compute_ranking_run("v2_measured_trust")
+
+        payload = self.client.get(self._url("discover/"), {"intent": "relay webhooks"}).json()
+
+        assert payload["candidates"][0]["id"] == str(on_topic.id)
+
+    def test_discover_returns_one_row_per_server(self) -> None:
+        # Several tools matching one intent used to duplicate the server in the results.
+        servers = self._seed_index()
+        for name in ("query_analytics_daily", "query_analytics_hourly"):
+            MCPRegistryTool.objects.create(
+                server=servers["unmeasured"],
+                name=name,
+                description="Run an analytics query",
+                source="tools_list",
+                last_seen_at=timezone.now(),
+            )
+
+        payload = self.client.get(self._url("discover/"), {"intent": "query_analytics"}).json()
+
+        ids = [candidate["id"] for candidate in payload["candidates"]]
+        assert len(ids) == len(set(ids))
+
+    def test_discover_requires_an_intent(self) -> None:
+        assert self.client.get(self._url("discover/")).status_code == 400
+
+    def test_discover_surfaces_tools_that_matched_the_intent(self) -> None:
+        self._seed_index()
+
+        payload = self.client.get(self._url("discover/"), {"intent": "query_analytics"}).json()
+
+        matched = payload["candidates"][0]["matched_tools"]
+        assert [tool["name"] for tool in matched] == ["query_analytics"]
 
     def test_versions_endpoint_lists_runs_and_default(self) -> None:
         self._seed_index()
