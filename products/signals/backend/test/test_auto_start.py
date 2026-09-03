@@ -1017,7 +1017,9 @@ _EXISTING_PR_URL = "https://github.com/PostHog/posthog/pull/1"
         (None, 2, 1, _EXISTING_PR_URL, False),
         # This pass already opened the replacement. Without this a retried evaluation opens a second.
         (True, 2, 2, _EXISTING_PR_URL, False),
-        # The report's implementation run never opened a PR, so there is nothing to replace.
+        # The report's implementation run never opened a PR, so there is nothing to replace. Also
+        # covers a report whose only PR came from a "Discuss" task: the handover can never close
+        # one, so it must not be resolved here and promised a replacement.
         (True, 2, 1, None, False),
     ],
 )
@@ -1034,8 +1036,8 @@ def test_resolve_supersede(team, supersede, run_count, implemented_at_run_count,
     )
     decision = None if supersede is None else ImplementationDecision(supersede=supersede, reason="the root cause moved")
     with patch(
-        "products.signals.backend.auto_start.fetch_implementation_pr_urls_for_reports",
-        return_value={str(report.id): pr_url} if pr_url else {},
+        "products.signals.backend.auto_start.fetch_implementation_task_pr_url",
+        return_value=pr_url,
     ):
         resolved = _resolve_supersede(report, decision)
 
@@ -1198,10 +1200,6 @@ async def test_supersede_bypasses_the_already_addressed_gate(supersede_allowed):
     with (
         patch.object(tasks_facade, "create_and_run_task", side_effect=_fake_create_and_run_task) as mock_create,
         patch("products.signals.backend.auto_start.resolve_agent_runtime", return_value=pinned),
-        patch(
-            "products.signals.backend.auto_start.fetch_implementation_pr_urls_for_reports",
-            return_value={str(report.id): _EXISTING_PR_URL},
-        ),
     ):
         await maybe_autostart_implementation_task(
             team_id=team.id,

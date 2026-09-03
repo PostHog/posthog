@@ -247,6 +247,27 @@ def _implementation_task_ids_for_report(team_id: int, report_id: str) -> list[st
     ]
 
 
+def fetch_implementation_task_pr_url(team_id: int, report_id: str) -> str | None:
+    """The newest PR opened by one of the report's own implementation tasks, when it has one.
+
+    Narrower than `fetch_implementation_pr_urls_for_reports`, which also surfaces the PR of a task
+    a person started from "Discuss". That is the right contract for display, but the wrong one for
+    superseding: `close_superseded_implementation_prs` only ever closes implementation PRs, so a
+    Discuss PR resolved here would promise a handover that can never happen — leaving the report
+    with two open pull requests, the newer one claiming to have replaced the other.
+    """
+    task_ids = _implementation_task_ids_for_report(team_id, report_id)
+    if not task_ids:
+        return None
+    pr_url_by_task = tasks_facade.get_latest_pr_url_by_task(task_ids)
+    # Newest first, matching what the report surfaces: a replacement wins over what it replaced.
+    for candidate_task_id in reversed(task_ids):
+        pr_url = pr_url_by_task.get(candidate_task_id)
+        if pr_url:
+            return pr_url
+    return None
+
+
 def report_has_newer_implementation_task(team_id: int, report_id: str, task_id: str) -> bool:
     """Whether the report started another implementation after ``task_id``.
 

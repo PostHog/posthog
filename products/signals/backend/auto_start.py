@@ -25,7 +25,7 @@ from products.signals.backend.billing import (
     mark_report_billing_exempt,
     system_billing_exempt_reason,
 )
-from products.signals.backend.implementation_pr import fetch_implementation_pr_urls_for_reports
+from products.signals.backend.implementation_pr import fetch_implementation_task_pr_url
 from products.signals.backend.models import (
     SignalReport,
     SignalReportArtefact,
@@ -420,10 +420,10 @@ def _resolve_supersede(report: SignalReport, decision: ImplementationDecision | 
         return NO_SUPERSEDE
     if report.run_count <= (report.implemented_at_run_count or 0):
         return NO_SUPERSEDE
-    pr_url = fetch_implementation_pr_urls_for_reports([str(report.id)]).get(str(report.id))
+    pr_url = fetch_implementation_task_pr_url(report.team_id, str(report.id))
     if pr_url is None:
-        # The report has an implementation task but no PR to replace — the run never opened one.
-        # Nothing to supersede, and the existing task already covers the work.
+        # No implementation PR to replace — the run never opened one, or the report's only PR came
+        # from a task a person started. Nothing to supersede, and the existing work already covers it.
         return NO_SUPERSEDE
     return SupersedeDecision(allowed=True, superseded_pr_url=pr_url, reason=decision.reason)
 

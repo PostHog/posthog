@@ -8,6 +8,7 @@ from posthog.models import Organization, Team
 from products.signals.backend.implementation_pr import (
     close_superseded_implementation_prs,
     fetch_implementation_pr_state_for_reports,
+    fetch_implementation_task_pr_url,
     report_has_newer_implementation_task,
 )
 from products.signals.backend.models import SignalReport, SignalReportTask
@@ -75,6 +76,26 @@ def test_discussion_pr_still_loses_to_an_implementation_pr(team, report):
     # Newest-first applies within a group, not across them: a later "Discuss" PR must not displace
     # the implementation PR.
     assert surfaced[str(report.id)].url == _OLD_PR
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("relationship", [TASK_RUN_TYPE_IMPLEMENTATION, TASK_RUN_TYPE_DISCUSSION])
+def test_supersede_lookup_only_resolves_implementation_prs(team, report, relationship):
+    _link_task(team, report, pr_url=_OLD_PR, relationship=relationship)
+
+    resolved = fetch_implementation_task_pr_url(team.id, str(report.id))
+
+    # The handover only ever closes implementation PRs, so resolving a "Discuss" PR here would
+    # supersede work a person started: a second PR opens, claiming to replace one that never closes.
+    assert resolved == (_OLD_PR if relationship == TASK_RUN_TYPE_IMPLEMENTATION else None)
+
+
+@pytest.mark.django_db
+def test_supersede_lookup_prefers_the_newest_implementation_pr(team, report):
+    _link_task(team, report, pr_url=_OLD_PR)
+    _link_task(team, report, pr_url=_NEW_PR)
+
+    assert fetch_implementation_task_pr_url(team.id, str(report.id)) == _NEW_PR
 
 
 @pytest.mark.django_db
