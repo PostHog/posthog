@@ -44,7 +44,6 @@ function usage(overrides?: Partial<ContextUsage>): ContextUsage {
     used: 50_000,
     size: 200_000,
     percentage: 25,
-    cost: null,
     breakdown: null,
     ...overrides,
   };
