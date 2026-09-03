@@ -783,6 +783,25 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
     ) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
         view_id = "00000000-0000-0000-0000-000000000001"
+        filters = {
+            "date_from": "-30d",
+            "date_to": "-1d",
+            "interval": "week",
+            "filterTestAccounts": False,
+            "properties": [
+                {"key": "plan", "type": "person", "operator": "exact", "value": ["enterprise", "scale"]},
+                {"key": "$browser", "type": "event", "operator": "is_not", "value": "Internet Explorer"},
+            ],
+            "breakdown_filter": {
+                "breakdowns": [
+                    {"property": "$browser", "type": "event"},
+                    {"property": "plan", "type": "person"},
+                    {"property": "company_id", "type": "group", "group_type_index": 0},
+                ],
+                "breakdown_limit": 25,
+                "breakdown_hide_other_aggregation": True,
+            },
+        }
 
         _, updated = self.dashboard_api.update_dashboard(
             dashboard_id,
@@ -791,14 +810,14 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                     {
                         "id": view_id,
                         "name": "Enterprise",
-                        "filters": {"date_from": "-30d", "properties": []},
+                        "filters": filters,
                     }
                 ]
             },
         )
 
         self.assertEqual(updated["customization"]["filter_views"][0]["id"], view_id)
-        self.assertEqual(updated["customization"]["filter_views"][0]["filters"]["date_from"], "-30d")
+        self.assertEqual(updated["customization"]["filter_views"][0]["filters"], filters)
         created_call = next(
             call for call in mock_report_user_action.call_args_list if call.args[1] == "dashboard filter view created"
         )
@@ -808,10 +827,10 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "dashboard_id": dashboard_id,
                 "saved_view_count": 1,
                 "has_date_filter": True,
-                "property_filter_count": 0,
-                "has_breakdown_filter": False,
-                "has_interval_filter": False,
-                "has_test_account_filter": False,
+                "property_filter_count": 2,
+                "has_breakdown_filter": True,
+                "has_interval_filter": True,
+                "has_test_account_filter": True,
             },
         )
 

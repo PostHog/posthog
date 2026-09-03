@@ -20615,6 +20615,8 @@ export namespace Schemas {
       Stable: 'stable',
     } as const;
 
+    export type DashboardCustomizationFilterViewsItem = { [key: string]: unknown };
+
     export interface DashboardCustomization {
       /** Named tile density preset.
        *
@@ -20630,6 +20632,8 @@ export namespace Schemas {
        * * `horizontal` - horizontal
        * * `stable` - stable */
       layout_compaction?: LayoutCompactionEnum;
+      /** Named dashboard filter sets available to dashboard viewers. */
+      filter_views?: DashboardCustomizationFilterViewsItem[];
     }
 
     /**
