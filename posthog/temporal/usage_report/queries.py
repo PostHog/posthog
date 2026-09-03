@@ -292,6 +292,7 @@ QUERIES: list[QuerySpec] = [
             "edge_events": "teams_with_edge_events_count_in_period",
             "convex_events": "teams_with_convex_events_count_in_period",
             "android_events": "teams_with_android_events_count_in_period",
+            "kmp_events": "teams_with_kmp_events_count_in_period",
             "flutter_events": "teams_with_flutter_events_count_in_period",
             "ios_events": "teams_with_ios_events_count_in_period",
             "go_events": "teams_with_go_events_count_in_period",

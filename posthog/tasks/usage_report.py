@@ -321,6 +321,7 @@ class UsageReportCounters:
     edge_events_count_in_period: int
     convex_events_count_in_period: int
     android_events_count_in_period: int
+    kmp_events_count_in_period: int
     flutter_events_count_in_period: int
     ios_events_count_in_period: int
     go_events_count_in_period: int
@@ -935,6 +936,7 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
         ("posthog-edge", None, "edge_events"),
         ("posthog-convex", None, "convex_events"),
         ("posthog-android", None, "android_events"),
+        ("posthog-kmp", None, "kmp_events"),
         ("posthog-flutter", None, "flutter_events"),
         ("posthog-ios", None, "ios_events"),
         ("posthog-go", None, "go_events"),
@@ -999,6 +1001,7 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
             "edge_events": {},
             "convex_events": {},
             "android_events": {},
+            "kmp_events": {},
             "flutter_events": {},
             "ios_events": {},
             "go_events": {},
@@ -2874,6 +2877,7 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         "teams_with_edge_events_count_in_period": all_metrics["edge_events"],
         "teams_with_convex_events_count_in_period": all_metrics["convex_events"],
         "teams_with_android_events_count_in_period": all_metrics["android_events"],
+        "teams_with_kmp_events_count_in_period": all_metrics["kmp_events"],
         "teams_with_flutter_events_count_in_period": all_metrics["flutter_events"],
         "teams_with_ios_events_count_in_period": all_metrics["ios_events"],
         "teams_with_go_events_count_in_period": all_metrics["go_events"],
@@ -3289,6 +3293,7 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         edge_events_count_in_period=all_data["teams_with_edge_events_count_in_period"].get(team.id, 0),
         convex_events_count_in_period=all_data["teams_with_convex_events_count_in_period"].get(team.id, 0),
         android_events_count_in_period=all_data["teams_with_android_events_count_in_period"].get(team.id, 0),
+        kmp_events_count_in_period=all_data["teams_with_kmp_events_count_in_period"].get(team.id, 0),
         flutter_events_count_in_period=all_data["teams_with_flutter_events_count_in_period"].get(team.id, 0),
         ios_events_count_in_period=all_data["teams_with_ios_events_count_in_period"].get(team.id, 0),
         go_events_count_in_period=all_data["teams_with_go_events_count_in_period"].get(team.id, 0),

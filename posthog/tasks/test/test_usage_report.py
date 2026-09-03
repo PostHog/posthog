@@ -486,6 +486,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                 "posthog-edge",
                 "posthog-convex",
                 "posthog-android",
+                "posthog-kmp",
                 "posthog-flutter",
                 "posthog-ios",
                 "posthog-go",
@@ -661,8 +662,8 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     },
                     "plugins_enabled": {"Installed and enabled": 1},
                     "instance_tag": "none",
-                    "event_count_in_period": 44,
-                    "enhanced_persons_event_count_in_period": 43,
+                    "event_count_in_period": 45,
+                    "enhanced_persons_event_count_in_period": 44,
                     "event_count_with_groups_in_period": 2,
                     "event_count_from_keywords_ai_in_period": 1,
                     "event_count_from_traceloop_in_period": 1,
@@ -685,6 +686,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "edge_events_count_in_period": 1,
                     "convex_events_count_in_period": 1,
                     "android_events_count_in_period": 1,
+                    "kmp_events_count_in_period": 1,
                     "flutter_events_count_in_period": 1,
                     "ios_events_count_in_period": 1,
                     "go_events_count_in_period": 1,
@@ -749,8 +751,8 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "team_count": 2,
                     "teams": {
                         str(self.org_1_team_1.id): {
-                            "event_count_in_period": 33,
-                            "enhanced_persons_event_count_in_period": 32,
+                            "event_count_in_period": 34,
+                            "enhanced_persons_event_count_in_period": 33,
                             "event_count_with_groups_in_period": 2,
                             "event_count_from_keywords_ai_in_period": 1,
                             "event_count_from_traceloop_in_period": 1,
@@ -773,6 +775,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "edge_events_count_in_period": 1,
                             "convex_events_count_in_period": 1,
                             "android_events_count_in_period": 1,
+                            "kmp_events_count_in_period": 1,
                             "flutter_events_count_in_period": 1,
                             "ios_events_count_in_period": 1,
                             "go_events_count_in_period": 1,
@@ -855,6 +858,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "edge_events_count_in_period": 0,
                             "convex_events_count_in_period": 0,
                             "android_events_count_in_period": 0,
+                            "kmp_events_count_in_period": 0,
                             "flutter_events_count_in_period": 0,
                             "ios_events_count_in_period": 0,
                             "go_events_count_in_period": 0,
@@ -960,6 +964,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "edge_events_count_in_period": 0,
                     "convex_events_count_in_period": 0,
                     "android_events_count_in_period": 0,
+                    "kmp_events_count_in_period": 0,
                     "flutter_events_count_in_period": 0,
                     "ios_events_count_in_period": 0,
                     "go_events_count_in_period": 0,
@@ -1048,6 +1053,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "edge_events_count_in_period": 0,
                             "convex_events_count_in_period": 0,
                             "android_events_count_in_period": 0,
+                            "kmp_events_count_in_period": 0,
                             "flutter_events_count_in_period": 0,
                             "ios_events_count_in_period": 0,
                             "go_events_count_in_period": 0,
@@ -1569,7 +1575,13 @@ class TestQueryUsageReportSQL:
         # 1st _execute_split_query call is the main per-$lib scan (node_events over-counts every
         # posthog-node event); 2nd is the AI sub-SDK rows (team_id, $ai_lib, count) over $ai_* events.
         mock_execute_split_query.side_effect = [
-            {"node_events": [(1, 10)], "openclaw_events": [], "posthog_pi_events": [], "posthog_ai_events": []},
+            {
+                "node_events": [(1, 10)],
+                "kmp_events": [(1, 8)],
+                "openclaw_events": [],
+                "posthog_pi_events": [],
+                "posthog_ai_events": [],
+            },
             [(1, "posthog-ai", 2), (1, "posthog-openclaw", 3)],
         ]
         # Both MCP scans are calendar-aligned, so they reach sync_execute directly: 1st is
@@ -1592,6 +1604,7 @@ class TestQueryUsageReportSQL:
         assert "OR lib_expr IN (" in main_query
         assert "event = '$mcp_tool_call'" not in main_query
         assert "'posthog-node'" in main_query
+        assert "'posthog-kmp'" in main_query
         assert "'posthog-rs'" in main_query
         assert "ai_lib_expr" not in main_query
         assert "HAVING metric != 'other'" not in main_query
@@ -1627,6 +1640,7 @@ class TestQueryUsageReportSQL:
         assert result["posthog_ai_events"] == [(1, 2)]
         assert result["openclaw_events"] == [(1, 3)]
         assert result["node_events"] == [(1, 5)]
+        assert result["kmp_events"] == [(1, 8)]
 
         # New MCP Analytics metrics are merged straight into the returned dict.
         assert result["mcp_missing_capability_events"] == [(1, 6)]
