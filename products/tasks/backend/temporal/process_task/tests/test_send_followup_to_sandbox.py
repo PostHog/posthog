@@ -118,6 +118,7 @@ class TestRefreshSandboxMcp:
             project_id=7,
             scopes="read_only",
             interaction_origin=None,
+            slack_reply_context=False,
             task_id="task-1",
             origin_product="support_reply",
         )
@@ -127,6 +128,7 @@ class TestRefreshSandboxMcp:
             user_id=42,
             include_personal=False,
             interaction_origin=None,
+            slack_reply_context=False,
             allowed_installation_ids=None,
             origin_product="support_reply",
             task_agent_key="support",
@@ -247,6 +249,7 @@ class TestRefreshSandboxMcp:
             project_id=7,
             scopes="full",
             interaction_origin=None,
+            slack_reply_context=False,
             task_id="task-1",
             origin_product="user_created",
         )
