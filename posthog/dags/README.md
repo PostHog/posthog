@@ -267,10 +267,18 @@ Modes, all gated by config in `posthog/dags/eventproperty_cleanup/config.py`:
 - `dormant_discovery_enabled` (default off): scores the largest tenants on cloud DB, persons DB and ClickHouse signals and reports a scorecard. Rows are deleted only for teams that are both eligible now and listed in `dormant_approved_team_ids`.
 
 Every unit re-checks its predicate inside the `DELETE`, so a failed run is resumed by launching the same config again.
-Discovery records a resume point per mode as an asset materialization (`eventproperty_cleanup/discovery_cursor/<mode>`) each time it exhausts a `team_id` range, so a relaunch starts above the ranges an earlier run finished instead of re-walking roughly 18 million already-clean units. `start_after_team_id` overrides it for one run and `reset_cursor_after_run` sends it back to the start. A dry run never advances it, and an unreadable resume point falls back to the beginning rather than failing the run.
+Pollution discovery records a resume point as an asset materialization (`eventproperty_cleanup/discovery_cursor/pollution`) each time it exhausts a `team_id` range, so a relaunch starts above the ranges an earlier run finished instead of re-walking roughly 18 million already-clean units. `start_after_team_id` overrides it for one run and `reset_cursor_after_run` sends it back to the start. A dry run never advances it, and an unreadable resume point falls back to the beginning rather than failing the run.
+Retention never records one: one of its units covers a set of event names, and the per-row re-check can end a batch while rows for the other names are still eligible, so treating that range as finished would skip them for good.
 Run pods are independent Kubernetes Jobs, so a Dagster agent or code deploy does not interrupt a run in flight. They carry `karpenter.sh/do-not-disrupt`, and their Job sets `backoffLimit: 0`, so a pod that does die is not retried: relaunch the same config and the resume point picks up where it stopped. Confirm a relaunched run actually scheduled -- the run pod pins an instance type, and an unschedulable run sits `Pending` indefinitely.
 The job runs as five sequential ops in a single process (`in_process_executor`); nothing is parallelized because the table lives on the shared cloud primary.
 Discovery and scoring read the Django `replica` connection when Dagster has one configured (`POSTHOG_POSTGRES_READ_HOST`), else the primary with a warning. Discovery walks `team_id` ranges (`discovery_team_chunk`) so no statement scans a whole table.
+First runs, in order. Step 2 is the smallest launch that exercises the resume point end to end: it walks a range, deletes one
+unit's rows, and records a point, so it proves the write path in Dagster+ before a long run depends on it.
+
+1. `dry_run: true`, `team_ids: [<one team>]` -- proves discovery and the predicates against real data, deletes nothing.
+2. `dry_run: false`, `max_units: 1` and no `team_ids` -- one unit, then check the run's asset materializations for a resume point.
+3. `dry_run: false`, `max_runtime_minutes: <a few hours>` -- a bounded pass. Relaunch the same config to continue.
+
 Before the first non-dry run on US, check `pg_replication_slots` on the primary: preflight refuses to run while a slot exists. That gate matters more on US than EU, because `posthog_eventproperty` is a member of the `big_tables` publication there, so an active slot would ship every delete downstream.
 Bound an exploratory run with `max_units` or `max_runtime_minutes`; both apply to discovery, not just deletion.
 At the default `sleep_seconds` the job clears roughly 7,700 rows/s, so shrinking the table is a multi-week campaign per region rather than a single run.

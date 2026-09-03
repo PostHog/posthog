@@ -444,9 +444,8 @@ def collect_and_vacuum_op(
 ) -> dict[str, int]:
     results = [pollution, retention, dormant]
     if config.reset_cursor_after_run and not config.dry_run:
-        for mode in ("pollution", "retention"):
-            reset_cursor(context, mode)
-        context.log.info("resume points reset; the next run re-walks every range")
+        reset_cursor(context, "pollution")
+        context.log.info("pollution resume point reset; the next run re-walks every range")
     rows_since_vacuum = sum(r.rows_since_vacuum for r in results)
     final_vacuums = 0
     if config.vacuum and not config.dry_run and rows_since_vacuum > 0:

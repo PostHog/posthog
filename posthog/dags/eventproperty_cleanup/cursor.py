@@ -5,7 +5,8 @@ interruption -- a pod eviction, an operator cancel, or `max_runtime_minutes` fir
 costs a full re-walk of every already-clean unit before the run reaches new work, and prod-US
 holds roughly 18 million of them.
 
-The cursor is the highest team_id range this mode has exhausted. Reads never fail the run: an
+The cursor is the highest team_id range this mode has exhausted. Only a mode whose units are
+all-or-nothing may record one -- see `_chunk_recorder` in `ops.py`. Reads never fail the run: an
 unreadable cursor falls back to the start, which is the behaviour the job had before it existed.
 """
 
@@ -18,7 +19,7 @@ METADATA_KEY = "last_completed_team_id"
 
 
 def cursor_asset_key(mode: str) -> dagster.AssetKey:
-    """One cursor per mode: pollution and retention walk the ranges independently."""
+    """Keyed by mode so the modes never share a point. Only pollution records one today."""
     return dagster.AssetKey(["eventproperty_cleanup", "discovery_cursor", mode])
 
 

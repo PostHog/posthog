@@ -55,9 +55,10 @@ class EventPropertyCleanupConfig(dagster.Config):
     resume: bool = Field(
         default=True,
         description=(
-            "Start discovery above the highest team_id an earlier run exhausted, instead of "
-            "re-walking every range. The resume point is published per mode as an asset "
-            "materialization; a live run records it as each range completes."
+            "Start pollution discovery above the highest team_id an earlier run exhausted, "
+            "instead of re-walking every range. The resume point is an asset materialization "
+            "that a live run publishes as each range completes. Retention never records one, "
+            "because one of its units can end with rows for its other event names still eligible."
         ),
     )
     start_after_team_id: int | None = Field(
@@ -66,7 +67,7 @@ class EventPropertyCleanupConfig(dagster.Config):
     )
     reset_cursor_after_run: bool = Field(
         default=False,
-        description="Send the resume point back to 0 when the run ends, so the next pass starts over.",
+        description="Send the pollution resume point back to 0 when the run ends, so the next pass starts over.",
     )
 
     # Pacing
