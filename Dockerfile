@@ -203,11 +203,8 @@ RUN --mount=type=cache,id=uv-libxmlsec1.2.37-2,target=/root/.cache/uv \
     # present in the build context. tools/owners is also a real install source here: posthog-owners
     # is a runtime dependency (stamphog's digest reads owners.yaml through it), and --no-editable
     # copies it into the venv so the image never depends on this bind mount's path surviving.
-    # posthog-owners keeps one static version, so the uv cache mount holds the wheel it built the
-    # first time and serves it to later builds, even into a new venv. --reinstall-package rebuilds
-    # it from the bind mount every build, so the baked copy always matches the checkout.
     --mount=type=bind,source=tools/owners,target=tools/owners \
-    uv sync --locked --no-dev --no-editable --no-install-project --reinstall-package posthog-owners --no-binary-package lxml --no-binary-package xmlsec
+    uv sync --locked --no-dev --no-editable --no-install-project --no-binary-package lxml --no-binary-package xmlsec
 
 ENV PATH=/python-runtime/bin:$PATH \
     PYTHONPATH=/python-runtime
