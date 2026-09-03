@@ -499,6 +499,12 @@ describe('formula readers', () => {
         ],
         ['values of an unknown shape', { formulas: [42] }, [{ formula: '' }]],
         ['the single legacy formula field', { formula: 'A + B' }, [{ formula: 'A + B' }]],
+        ['a node object in the single legacy formula field', { formula: { formula: 'A + B' } }, [{ formula: 'A + B' }]],
+        [
+            'a collection that is not an array',
+            { formulaNodes: { formula: 'A + B' }, formulas: ['A / B'] },
+            [{ formula: 'A / B' }],
+        ],
     ])('getFormulaNodes reads %s', (_name, trendsFilter, expected) => {
         expect(getFormulaNodes(trendsQuery(trendsFilter))).toEqual(expected)
     })

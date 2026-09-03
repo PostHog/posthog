@@ -565,12 +565,17 @@ export const toFormulaNode = (formula: unknown): TrendsFormulaNode => {
     return { formula: '' }
 }
 
+/** A formula collection that is not an array is unreadable, so the caller falls through to the next field. */
+const toFormulaNodeList = (formulas: unknown): TrendsFormulaNode[] | undefined =>
+    Array.isArray(formulas) ? formulas.map(toFormulaNode) : undefined
+
 export const getFormula = (query: InsightQueryNode | null): string | undefined => {
     if (isTrendsQuery(query)) {
         return (
             toFormulaNode(query.trendsFilter?.formulaNodes?.[0]).formula ||
             toFormulaNode(query.trendsFilter?.formulas?.[0]).formula ||
-            query.trendsFilter?.formula
+            toFormulaNode(query.trendsFilter?.formula).formula ||
+            undefined
         )
     }
     return undefined
@@ -583,9 +588,9 @@ export const getFormulas = (query: InsightQueryNode | null): string[] | undefine
 export const getFormulaNodes = (query: InsightQueryNode | null): TrendsFormulaNode[] | undefined => {
     if (isTrendsQuery(query)) {
         return (
-            query.trendsFilter?.formulaNodes?.map(toFormulaNode) ||
-            query.trendsFilter?.formulas?.map(toFormulaNode) ||
-            (query.trendsFilter?.formula ? [{ formula: query.trendsFilter.formula }] : undefined)
+            toFormulaNodeList(query.trendsFilter?.formulaNodes) ||
+            toFormulaNodeList(query.trendsFilter?.formulas) ||
+            (query.trendsFilter?.formula ? [toFormulaNode(query.trendsFilter.formula)] : undefined)
         )
     }
     return undefined
