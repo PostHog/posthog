@@ -67,6 +67,7 @@ jobs:
             npm_config_platform: darwin
             VITE_POSTHOG_API_KEY: ${{ secrets.VITE_POSTHOG_API_KEY }}
             VITE_POSTHOG_API_HOST: ${{ secrets.VITE_POSTHOG_API_HOST }}
+            VITE_POSTHOG_UI_HOST: ${{ vars.VITE_POSTHOG_UI_HOST }}
             POSTHOG_SOURCEMAP_API_KEY: ${{ secrets.DESKTOP_POSTHOG_SOURCEMAP_API_KEY }}
             POSTHOG_ENV_ID: ${{ secrets.DESKTOP_POSTHOG_ENV_ID }}
             POSTHOG_HOST: ${{ secrets.DESKTOP_POSTHOG_HOST }}
@@ -318,6 +319,7 @@ jobs:
             NODE_ENV: production
             VITE_POSTHOG_API_KEY: ${{ secrets.VITE_POSTHOG_API_KEY }}
             VITE_POSTHOG_API_HOST: ${{ secrets.VITE_POSTHOG_API_HOST }}
+            VITE_POSTHOG_UI_HOST: ${{ vars.VITE_POSTHOG_UI_HOST }}
             POSTHOG_SOURCEMAP_API_KEY: ${{ secrets.DESKTOP_POSTHOG_SOURCEMAP_API_KEY }}
             POSTHOG_ENV_ID: ${{ secrets.DESKTOP_POSTHOG_ENV_ID }}
             POSTHOG_HOST: ${{ secrets.DESKTOP_POSTHOG_HOST }}
@@ -501,6 +503,7 @@ jobs:
             NODE_ENV: production
             VITE_POSTHOG_API_KEY: ${{ secrets.VITE_POSTHOG_API_KEY }}
             VITE_POSTHOG_API_HOST: ${{ secrets.VITE_POSTHOG_API_HOST }}
+            VITE_POSTHOG_UI_HOST: ${{ vars.VITE_POSTHOG_UI_HOST }}
             POSTHOG_SOURCEMAP_API_KEY: ${{ secrets.DESKTOP_POSTHOG_SOURCEMAP_API_KEY }}
             POSTHOG_ENV_ID: ${{ secrets.DESKTOP_POSTHOG_ENV_ID }}
             POSTHOG_HOST: ${{ secrets.DESKTOP_POSTHOG_HOST }}

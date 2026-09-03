@@ -57,6 +57,7 @@ jobs:
             npm_config_platform: darwin
             VITE_POSTHOG_API_KEY: ${{ secrets.VITE_POSTHOG_API_KEY }}
             VITE_POSTHOG_API_HOST: ${{ secrets.VITE_POSTHOG_API_HOST }}
+            VITE_POSTHOG_UI_HOST: ${{ vars.VITE_POSTHOG_UI_HOST }}
             # No sourcemap secrets: without them the posthog vite plugin skips
             # release creation and sourcemap upload, keeping test builds
             # hermetic instead of calling the prod API and flaking on it.
@@ -244,6 +245,7 @@ jobs:
             NODE_ENV: production
             VITE_POSTHOG_API_KEY: ${{ secrets.VITE_POSTHOG_API_KEY }}
             VITE_POSTHOG_API_HOST: ${{ secrets.VITE_POSTHOG_API_HOST }}
+            VITE_POSTHOG_UI_HOST: ${{ vars.VITE_POSTHOG_UI_HOST }}
         steps:
             - name: Checkout
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -358,6 +360,7 @@ jobs:
             NODE_ENV: production
             VITE_POSTHOG_API_KEY: ${{ secrets.VITE_POSTHOG_API_KEY }}
             VITE_POSTHOG_API_HOST: ${{ secrets.VITE_POSTHOG_API_HOST }}
+            VITE_POSTHOG_UI_HOST: ${{ vars.VITE_POSTHOG_UI_HOST }}
         steps:
             - name: Checkout
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2

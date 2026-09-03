@@ -42,6 +42,7 @@ jobs:
             npm_config_platform: darwin
             VITE_POSTHOG_API_KEY: ${{ secrets.VITE_POSTHOG_API_KEY }}
             VITE_POSTHOG_API_HOST: ${{ secrets.VITE_POSTHOG_API_HOST }}
+            VITE_POSTHOG_UI_HOST: ${{ vars.VITE_POSTHOG_UI_HOST }}
             # Sign both builds with the same identity so Squirrel.Mac accepts the swap.
             # Notarization is skipped: it is a Gatekeeper concern, not what the in-place
             # update verifies, and locally built bundles carry no quarantine attribute.

@@ -123,13 +123,13 @@ export APPLE_TEAM_ID="TEAMID"
 
 For CI releases, configure matching GitHub Actions secrets:
 
-- `APPLE_CODESIGN_IDENTITY`
 - `APPLE_ID`
 - `APPLE_APP_SPECIFIC_PASSWORD`
 - `APPLE_TEAM_ID`
 - `APPLE_CODESIGN_CERT_BASE64` – Base64-encoded `.p12` export of the Developer ID Application certificate (include the private key)
 - `APPLE_CODESIGN_CERT_PASSWORD` – Password used when exporting the `.p12`
-- `APPLE_CODESIGN_KEYCHAIN_PASSWORD` – Password for the temporary keychain the workflow creates on the runner
+
+CI derives the signing identity from the certificate, so it needs no `APPLE_CODESIGN_IDENTITY` secret. Set that variable only for local signing.
 
 The `Publish Release` workflow imports the certificate into a temporary keychain, signs each artifact with hardened runtime enabled (using Electron's default entitlements), and notarizes it before upload whenever these secrets are available.
 
