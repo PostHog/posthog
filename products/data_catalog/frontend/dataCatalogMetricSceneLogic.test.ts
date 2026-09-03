@@ -192,6 +192,44 @@ describe('dataCatalogMetricSceneLogic', () => {
         expect(lemonToast.error).toHaveBeenCalled()
     })
 
+    it('carries an open markdown draft to an externally renamed metric once', async () => {
+        logic.actions.setEditingDefinition(true)
+        logic.actions.setDraftMarkdown('1. Count users who paid')
+        logic.actions.renamedExternally('daily_paying_users')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(router.values.location.pathname).toContain('/daily_paying_users')
+
+        const renamedLogic = dataCatalogMetricSceneLogic({ name: 'daily_paying_users' })
+        renamedLogic.mount()
+        await expectLogic(renamedLogic).toDispatchActions(['loadMetricSuccess']).toFinishAllListeners()
+
+        expect(renamedLogic.values.editingDefinition).toBe(true)
+        expect(renamedLogic.values.draftMarkdown).toEqual('1. Count users who paid')
+        renamedLogic.unmount()
+
+        const reloadedLogic = dataCatalogMetricSceneLogic({ name: 'daily_paying_users' })
+        reloadedLogic.mount()
+        await expectLogic(reloadedLogic).toDispatchActions(['loadMetricSuccess']).toFinishAllListeners()
+
+        expect(reloadedLogic.values.editingDefinition).toBe(false)
+        expect(reloadedLogic.values.draftMarkdown).toEqual('')
+        reloadedLogic.unmount()
+    })
+
+    it('does not carry a draft when an externally renamed metric is not being edited', async () => {
+        logic.actions.renamedExternally('daily_paying_users')
+        await expectLogic(logic).toFinishAllListeners()
+
+        const renamedLogic = dataCatalogMetricSceneLogic({ name: 'daily_paying_users' })
+        renamedLogic.mount()
+        await expectLogic(renamedLogic).toDispatchActions(['loadMetricSuccess']).toFinishAllListeners()
+
+        expect(renamedLogic.values.editingDefinition).toBe(false)
+        expect(renamedLogic.values.draftMarkdown).toEqual('')
+        renamedLogic.unmount()
+    })
+
     it('opens the markdown editor once loaded when arriving with ?edit=definition', async () => {
         jest.clearAllMocks()
         ;(dataCatalogMetricsRetrieve as jest.Mock).mockResolvedValue(
