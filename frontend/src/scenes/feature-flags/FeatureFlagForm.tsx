@@ -37,6 +37,7 @@ import {
     LemonCollapse,
     LemonDivider,
     LemonInput,
+    LemonInputSelect,
     LemonLabel,
     LemonSelect,
     LemonSwitch,
@@ -58,6 +59,8 @@ import 'lib/lemon-ui/Lettermark'
 import { alphabet } from 'lib/utils/strings'
 import { ApprovalActionKey } from 'scenes/approvals/utils'
 import { JSONEditorInput } from 'scenes/feature-flags/JSONEditorInput'
+import { organizationLogic } from 'scenes/organizationLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -166,6 +169,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
         expandAdvancedOnEdit,
         hasEncryptedPayloadBeenSaved,
         hasEarlyAccessFeatures,
+        createInProjectIds,
     } = useValues(featureFlagLogic)
     const {
         setMultivariateEnabled,
@@ -183,11 +187,18 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
         setOpenVariants,
         setPayloadExpanded,
         resetEncryptedPayload,
+        setCreateInProjectIds,
     } = useActions(featureFlagLogic)
     const { tags: availableTags } = useValues(tagsModel)
     const { isApprovalRequired } = useValues(approvalsGateLogic)
+    const { currentOrganization } = useValues(organizationLogic)
+    const { currentTeamId } = useValues(teamLogic)
     const hasEvaluationContexts = useFeatureFlag('FLAG_EVALUATION_TAGS') // NB: the tag was named "flag-evaluation-tags" before we renamed the concept – i.e. this powers evaluation contexts even though the name implies tags
     const isNewFeatureFlag = id === 'new' || id === undefined
+    const otherProjectOptions = (currentOrganization?.teams ?? [])
+        .filter((team) => team.id !== currentTeamId)
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .map((team) => ({ key: String(team.id), label: team.name, value: team.id }))
     const implementationRef = useRef<HTMLDivElement>(null)
 
     const handleShowImplementation = (): void => {
@@ -479,6 +490,22 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                         placeholder="(Optional) A description of the feature flag for your reference."
                                     />
                                 </LemonField>
+
+                                {isNewFeatureFlag && otherProjectOptions.length > 0 && (
+                                    <LemonField.Pure
+                                        label="Also create in"
+                                        info="Creates a flag with the same key, description, and release conditions in each selected project. Cohorts are matched by name; static cohorts aren't copied."
+                                    >
+                                        <LemonInputSelect<number>
+                                            mode="multiple"
+                                            value={createInProjectIds}
+                                            onChange={setCreateInProjectIds}
+                                            options={otherProjectOptions}
+                                            placeholder="(Optional) Select other projects"
+                                            data-attr="feature-flag-create-in-projects"
+                                        />
+                                    </LemonField.Pure>
+                                )}
 
                                 <LemonDivider />
 

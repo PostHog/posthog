@@ -22,7 +22,7 @@ import { CombinedLocation } from 'kea-router/lib/utils'
 import { createElement } from 'react'
 
 import api, { PaginatedResponse } from 'lib/api'
-import { isAccessDeniedError } from 'lib/api-error'
+import { ApiError, isAccessDeniedError } from 'lib/api-error'
 import { handleApprovalRequired } from 'lib/approvals/utils'
 import { ACTIVITY_SEARCH_PARAM } from 'lib/components/ActivityLog/activityLogLogic'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
@@ -126,6 +126,7 @@ import type { DefaultReleaseConditionsResponse } from './defaultReleaseCondition
 import { uniformAggregationGroupTypeIndex } from './defaultReleaseConditionsUtils'
 import { FeatureFlagArchivedSource, reportFeatureFlagArchived } from './featureFlagArchiveDialog'
 import { checkFeatureFlagConfirmation } from './featureFlagConfirmationLogic'
+import { summarizeCreateInProjects } from './featureFlagCreateInProjects'
 import type { FlagIntent } from './featureFlagIntentWarningLogic'
 import {
     ScheduleOccurrence,
@@ -227,6 +228,37 @@ function parseUrlIntent(): FlagIntent | undefined {
 }
 
 /** Apply the intent from the URL param (idempotent — no-ops if already applied). */
+async function copyNewFlagToProjects(
+    values: { createInProjectIds: number[]; currentOrganizationId: string; currentProjectId: number | null },
+    actions: {
+        createInProjectsFinished: (
+            response: CopyFlagsResponseApi | null,
+            targetProjectIds: number[],
+            errorMessage?: string
+        ) => void
+    },
+    flagKey: string
+): Promise<void> {
+    const { createInProjectIds: targetProjectIds, currentOrganizationId, currentProjectId } = values
+    if (targetProjectIds.length === 0 || !currentOrganizationId || !currentProjectId) {
+        return
+    }
+    try {
+        const response = await featureFlagsCopyFlagsCreate(String(currentOrganizationId), {
+            feature_flag_key: flagKey,
+            from_project: currentProjectId,
+            target_project_ids: targetProjectIds,
+        })
+        actions.createInProjectsFinished(response, targetProjectIds)
+    } catch (error) {
+        actions.createInProjectsFinished(
+            null,
+            targetProjectIds,
+            error instanceof ApiError ? (error.detail ?? error.message) : String(error)
+        )
+    }
+}
+
 function maybeApplyUrlIntent(
     values: { urlIntentApplied: boolean; featureFlag: FeatureFlagType },
     actions: {
@@ -756,6 +788,7 @@ export interface featureFlagLogicValues {
     copyDependencyRequirementsLoading: boolean
     copyDestinationProject: number | null
     copySchedule: boolean
+    createInProjectIds: number[]
     cronExpression: string | null
     cronPreview: string | null
     customPairDisableCron: string
@@ -1009,6 +1042,15 @@ export interface featureFlagLogicActions {
     ) => {
         newEarlyAccessFeature: EarlyAccessFeatureType
         payload?: any
+    }
+    createInProjectsFinished: (
+        response: CopyFlagsResponseApi | null,
+        targetProjectIds: number[],
+        errorMessage?: string
+    ) => {
+        errorMessage: string | undefined
+        response: CopyFlagsResponseApi | null
+        targetProjectIds: number[]
     }
     createPairedSchedule: () => {
         value: true
@@ -1408,6 +1450,9 @@ export interface featureFlagLogicActions {
     }
     setCopySchedule: (copySchedule: boolean) => {
         copySchedule: boolean
+    }
+    setCreateInProjectIds: (projectIds: number[]) => {
+        projectIds: number[]
     }
     setCronExpression: (cronExpression: string | null) => {
         cronExpression: string | null
@@ -2055,6 +2100,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         distributeVariantsEqually: true,
         enrichUsageDashboard: true,
         setCopyDestinationProject: (id: number | null) => ({ id }),
+        setCreateInProjectIds: (projectIds: number[]) => ({ projectIds }),
+        createInProjectsFinished: (
+            response: CopyFlagsResponseApi | null,
+            targetProjectIds: number[],
+            errorMessage?: string
+        ) => ({ response, targetProjectIds, errorMessage }),
         setCopySchedule: (copySchedule: boolean) => ({ copySchedule }),
         setDisableCopiedFlag: (disableCopiedFlag: boolean) => ({ disableCopiedFlag }),
         setCopyDependencies: (copyDependencies: boolean) => ({ copyDependencies }),
@@ -2422,6 +2473,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             null as number | null,
             {
                 setCopyDestinationProject: (_, { id }) => id,
+            },
+        ],
+        createInProjectIds: [
+            [] as number[],
+            {
+                setCreateInProjectIds: (_, { projectIds }) => projectIds,
+                saveFeatureFlagSuccess: () => [],
             },
         ],
         projectFlagsToggling: [
@@ -2937,6 +2995,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             product_type: ProductKey.FEATURE_FLAGS,
                             intent_context: ProductIntentContext.FEATURE_FLAG_CREATED,
                         })
+                        // Must finish before saveFeatureFlagSuccess. That listener redirects to the new id, which
+                        // unmounts this "new"-keyed logic, so a later listener cannot run the copy.
+                        await copyNewFlagToProjects(values, actions, savedFlag.key)
                     } else {
                         // Updating an existing flag - include version in preparedFlag
                         const cachedFlag = featureFlagsLogic
@@ -3955,6 +4016,38 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             actions.setCopySchedule(false)
             actions.setDisableCopiedFlag(false)
             actions.setCopyDependencies(false)
+        },
+        createInProjectsFinished: ({ response, targetProjectIds, errorMessage }) => {
+            const projectName = (id: number | null): string =>
+                values.currentOrganization?.teams.find((team) => team.id === id)?.name ?? `project ${id ?? 'unknown'}`
+            const projectNames = (ids: number[]): string => ids.map(projectName).join(', ')
+
+            if (!response) {
+                lemonToast.error(
+                    `The flag was created here, but couldn't be created in ${projectNames(targetProjectIds)}: ${errorMessage}`
+                )
+                return
+            }
+
+            const summary = summarizeCreateInProjects(response)
+            if (summary.createdProjectIds.length > 0) {
+                lemonToast.success(`Flag also created in ${projectNames(summary.createdProjectIds)}`)
+            }
+            if (summary.updatedProjectIds.length > 0) {
+                lemonToast.info(
+                    `A flag with this key already existed in ${projectNames(summary.updatedProjectIds)} and was updated to match`
+                )
+            }
+            if (summary.pendingApprovalProjectIds.length > 0) {
+                lemonToast.warning(
+                    `${projectNames(summary.pendingApprovalProjectIds)} requires approval. A change request was created and the flag will be created once approved.`
+                )
+            }
+            for (const failure of summary.failures) {
+                lemonToast.error(
+                    `Couldn't create the flag in ${projectName(failure.projectId)}: ${failure.errorMessage}`
+                )
+            }
         },
         copyFlagFailure: () => {
             if (values.copyDependencies && values.copyDestinationProject) {

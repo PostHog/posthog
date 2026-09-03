@@ -1,5 +1,6 @@
 import {
     MOCK_DEFAULT_BASIC_USER,
+    MOCK_DEFAULT_ORGANIZATION,
     MOCK_DEFAULT_PROJECT,
     MOCK_DEFAULT_TEAM,
     MOCK_ORGANIZATION_ID,
@@ -15,6 +16,7 @@ import { dayjs } from 'lib/dayjs'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
@@ -78,6 +80,7 @@ function capturesOf(event: string): any[][] {
 jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
     lemonToast: {
         success: jest.fn(),
+        info: jest.fn(),
         error: jest.fn(),
         warning: jest.fn(),
     },
@@ -3348,6 +3351,101 @@ describe('variant reordering', () => {
             expect(payloads?.[0]).toBeUndefined() // test-a had no payload
             expect(payloads?.[1]).toEqual({ option: 'variant-b' }) // test-b payload
             expect(payloads?.[2]).toEqual({ option: 'default' }) // control payload
+        })
+    })
+
+    describe('creating a flag in other projects', () => {
+        const OTHER_TEAM = { ...MOCK_DEFAULT_TEAM, id: 555, name: 'Staging' }
+        const createdFlag = { ...MOCK_FEATURE_FLAG, id: 77, key: 'multi-project-flag' }
+        let capturedCopyBody: Record<string, unknown> | null = null
+        let copyResponse: CopyFlagsResponseApi = { success: [], failed: [] }
+
+        beforeEach(() => {
+            capturedCopyBody = null
+            useMocks({
+                post: {
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/`]: () => [201, createdFlag],
+                    '/api/organizations/:organization_id/feature_flags/copy_flags': async ({ request }) => {
+                        capturedCopyBody = (await request.json()) as Record<string, unknown>
+                        return [200, copyResponse]
+                    },
+                },
+            })
+        })
+
+        async function createFlagPickingOtherTeam(
+            response: CopyFlagsResponseApi
+        ): Promise<ReturnType<typeof featureFlagLogic.build>> {
+            copyResponse = response
+            organizationLogic.actions.loadCurrentOrganizationSuccess({
+                ...MOCK_DEFAULT_ORGANIZATION,
+                teams: [MOCK_DEFAULT_TEAM, OTHER_TEAM],
+            })
+            const newLogic = featureFlagLogic({ id: 'new' })
+            newLogic.mount()
+            newLogic.actions.setCreateInProjectIds([OTHER_TEAM.id])
+            await expectLogic(newLogic, () => {
+                newLogic.actions.saveFeatureFlag({ ...newLogic.values.featureFlag, key: createdFlag.key })
+            })
+                .toDispatchActions(['createInProjectsFinished', 'saveFeatureFlagSuccess'])
+                .toFinishAllListeners()
+            return newLogic
+        }
+
+        it('copies the new flag to the picked projects right after creating it, then clears the picks', async () => {
+            const newLogic = await createFlagPickingOtherTeam({
+                success: [{ ...createdFlag, team_id: OTHER_TEAM.id, updated_existing: false }],
+                failed: [],
+            })
+            try {
+                expect(capturedCopyBody).toEqual({
+                    feature_flag_key: createdFlag.key,
+                    from_project: MOCK_DEFAULT_PROJECT.id,
+                    target_project_ids: [OTHER_TEAM.id],
+                })
+                expect(newLogic.values.createInProjectIds).toEqual([])
+            } finally {
+                newLogic.unmount()
+            }
+        })
+
+        it.each<[string, CopyFlagsResponseApi, 'success' | 'info' | 'warning' | 'error', string]>([
+            [
+                'a new copy',
+                { success: [{ ...createdFlag, team_id: OTHER_TEAM.id, updated_existing: false }], failed: [] },
+                'success',
+                'Flag also created in Staging',
+            ],
+            [
+                'an overwritten existing flag',
+                { success: [{ ...createdFlag, team_id: OTHER_TEAM.id, updated_existing: true }], failed: [] },
+                'info',
+                'A flag with this key already existed in Staging and was updated to match',
+            ],
+            [
+                'a pending approval',
+                {
+                    success: [],
+                    failed: [{ project_id: OTHER_TEAM.id, error_message: 'Gated', approval_pending: true }],
+                },
+                'warning',
+                'Staging requires approval. A change request was created and the flag will be created once approved.',
+            ],
+            [
+                'a failure',
+                { success: [], failed: [{ project_id: OTHER_TEAM.id, error_message: 'Project not found.' }] },
+                'error',
+                "Couldn't create the flag in Staging: Project not found.",
+            ],
+        ])('names the project when reporting %s', async (_, copyResponse, toastMethod, message) => {
+            const toastSpy = jest.spyOn(lemonToast, toastMethod).mockReturnValue('toast-id')
+            const newLogic = await createFlagPickingOtherTeam(copyResponse)
+            try {
+                expect(toastSpy).toHaveBeenCalledWith(message)
+            } finally {
+                toastSpy.mockRestore()
+                newLogic.unmount()
+            }
         })
     })
 })
