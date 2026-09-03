@@ -2058,7 +2058,7 @@ email@example.org,
         # The basic list defers `groups`, so cohorts saved before `filters` existed rely on the
         # `_legacy_groups` annotation to keep the converted `filters` in the payload. Without it
         # the fallback either loses the conversion or lazy-loads one row per legacy cohort.
-        Cohort.objects.create(team=self.team, name="legacy one", groups=[{"properties": {"email": "a@b.com"}}])
+        Cohort.objects.create(team=self.team, name="legacy one", groups=[{"properties": {"email": "one@example.com"}}])
 
         full = self.client.get(f"/api/projects/{self.team.id}/cohorts").json()["results"][0]
         basic = self.client.get(f"/api/projects/{self.team.id}/cohorts?basic=true").json()["results"][0]
@@ -2068,7 +2068,7 @@ email@example.org,
         with capture_db_queries() as one_ctx:
             self.client.get(f"/api/projects/{self.team.id}/cohorts?basic=true")
 
-        Cohort.objects.create(team=self.team, name="legacy two", groups=[{"properties": {"email": "c@d.com"}}])
+        Cohort.objects.create(team=self.team, name="legacy two", groups=[{"properties": {"email": "two@example.com"}}])
         with capture_db_queries() as two_ctx:
             self.client.get(f"/api/projects/{self.team.id}/cohorts?basic=true")
 
