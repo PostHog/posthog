@@ -921,8 +921,7 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
             str_fields = ", ".join(f"'{extra_field}'" for extra_field in sorted(extra_fields))
             raise serializers.ValidationError(f"Configuration has unknown field/s: {str_fields}")
 
-        # Some credential/connection fields are optional on the dataclass (integration-backed exports
-        # resolve them at run time), so only fields with no dataclass default are required here.
+        # Destination config fields without a dataclass default must be provided.
         for destination_field in destination_fields:
             is_required = (
                 destination_field.default == dataclasses.MISSING
