@@ -117,6 +117,9 @@ function OpenQuestionItem({ report, artefact }: { report: SignalReport; artefact
     const { startAnswering, setAnswerDraft, cancelAnswering, saveAnswer } = useActions(logic)
 
     const questionText = typeof artefact.content?.question === 'string' ? artefact.content.question : ''
+    const options = Array.isArray(artefact.content?.options)
+        ? Array.from(new Set(artefact.content.options.filter((option): option is string => typeof option === 'string')))
+        : []
     const answering = answeringQuestionId === artefact.id
 
     return (
@@ -129,12 +132,39 @@ function OpenQuestionItem({ report, artefact }: { report: SignalReport; artefact
             </div>
             {answering ? (
                 <div className="flex flex-col gap-2">
+                    {options.length > 0 ? (
+                        <>
+                            <div className="grid grid-cols-1 gap-2 @3xl:grid-cols-2">
+                                {options.map((option) => (
+                                    <LemonButton
+                                        key={option}
+                                        size="small"
+                                        type="secondary"
+                                        fullWidth
+                                        loading={answerSaving && answerDraft === option}
+                                        disabledReason={answerSaving ? 'Saving answer' : undefined}
+                                        data-attr="feature-question-option"
+                                        onClick={() => saveAnswer(option)}
+                                    >
+                                        <span className="w-full whitespace-normal text-left">{option}</span>
+                                    </LemonButton>
+                                ))}
+                            </div>
+                            <div className="flex items-center gap-2 py-1">
+                                <div className="h-px flex-1 bg-border-primary" />
+                                <span className="text-xs text-tertiary">Custom answer</span>
+                                <div className="h-px flex-1 bg-border-primary" />
+                            </div>
+                        </>
+                    ) : null}
                     <LemonTextArea
                         value={answerDraft}
                         onChange={setAnswerDraft}
                         minRows={2}
-                        placeholder="Write your answer…"
-                        autoFocus
+                        placeholder={options.length > 0 ? 'Write a custom answer…' : 'Write your answer…'}
+                        disabled={answerSaving}
+                        autoFocus={options.length === 0}
+                        data-attr="feature-question-custom-answer"
                     />
                     <div className="flex items-center justify-end gap-2">
                         <LemonButton
@@ -145,8 +175,14 @@ function OpenQuestionItem({ report, artefact }: { report: SignalReport; artefact
                         >
                             Cancel
                         </LemonButton>
-                        <LemonButton size="small" type="primary" onClick={saveAnswer} loading={answerSaving}>
-                            Answer
+                        <LemonButton
+                            size="small"
+                            type="primary"
+                            onClick={() => saveAnswer()}
+                            loading={answerSaving}
+                            data-attr="feature-question-submit-custom"
+                        >
+                            {options.length > 0 ? 'Submit custom answer' : 'Answer'}
                         </LemonButton>
                     </div>
                 </div>

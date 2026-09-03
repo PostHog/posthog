@@ -877,6 +877,54 @@ class TestSignalReportArtefactLogWriteViewSet(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert response.json()["type"] == artefact_type
 
+    def test_post_accepts_freeform_human_question(self):
+        report = self._create_report()
+
+        response = self.client.post(
+            self._list_url(str(report.id)),
+            data=json.dumps({"artefact_type": "question", "content": {"question": "Can we simplify this?"}}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["content"]["options"] == []
+
+    def test_post_requires_options_for_agent_question(self):
+        report = self._create_report()
+        task = Task.objects.create(
+            team=self.team,
+            title="Planning agent",
+            description="Plan the feature",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+        )
+        headers = {"X-PostHog-Task-Id": str(task.id)}
+
+        rejected = self.client.post(
+            self._list_url(str(report.id)),
+            data=json.dumps({"artefact_type": "question", "content": {"question": "Who should see this?"}}),
+            content_type="application/json",
+            headers=headers,
+        )
+        accepted = self.client.post(
+            self._list_url(str(report.id)),
+            data=json.dumps(
+                {
+                    "artefact_type": "question",
+                    "content": {
+                        "question": "Who should see this?",
+                        "options": ["Everyone", "Workspace admins only"],
+                    },
+                }
+            ),
+            content_type="application/json",
+            headers=headers,
+        )
+
+        assert rejected.status_code == status.HTTP_400_BAD_REQUEST
+        assert "suggested answer options" in rejected.json()["error"]
+        assert accepted.status_code == status.HTTP_201_CREATED, accepted.json()
+        assert accepted.json()["content"]["options"] == ["Everyone", "Workspace admins only"]
+
     def test_post_log_artefacts_accumulate(self):
         report = self._create_report()
         for _ in range(3):

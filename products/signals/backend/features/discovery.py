@@ -11,6 +11,9 @@ import structlog
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from products.signals.backend.artefact_schemas import (
+    QUESTION_MAX_OPTIONS,
+    QUESTION_MIN_OPTIONS,
+    QUESTION_OPTION_MAX_LENGTH,
     SIGNALS_PRODUCT,
     TASK_RUN_TYPE_FEATURE_DISCOVERY,
     CodeReference,
@@ -62,6 +65,7 @@ _FEATURE_SUMMARY_FIELDS = (
 _StructuredOutputT = TypeVar("_StructuredOutputT", bound=BaseModel)
 _RepositoryName = Annotated[str, Field(min_length=1, max_length=255)]
 _OpenQuestion = Annotated[str, Field(min_length=1, max_length=_OPEN_QUESTION_MAX_LENGTH)]
+_SuggestedAnswer = Annotated[str, Field(min_length=1, max_length=QUESTION_OPTION_MAX_LENGTH)]
 logger = structlog.get_logger(__name__)
 
 
@@ -287,6 +291,37 @@ class DiscoveredFeatureSummary(FeatureDiscoverySchema):
         return "\n\n".join(f"{heading}\n\n{getattr(self, field)}" for heading, field in _FEATURE_SUMMARY_FIELDS)
 
 
+class DiscoveredFeatureOpenQuestion(FeatureDiscoverySchema):
+    question: _OpenQuestion = Field(description="One concise question about unresolved intended behavior.")
+    options: list[_SuggestedAnswer] = Field(
+        min_length=QUESTION_MIN_OPTIONS,
+        max_length=QUESTION_MAX_OPTIONS,
+        description=(
+            "Concise, mutually exclusive answers the human owner can select directly. "
+            "Do not include an Other option because the UI permits a custom answer."
+        ),
+    )
+
+    @field_validator("question", mode="before")
+    @classmethod
+    def normalize_question(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
+
+    @field_validator("options", mode="before")
+    @classmethod
+    def normalize_options(cls, value: object) -> object:
+        if not isinstance(value, list):
+            return value
+        return [option.strip() if isinstance(option, str) else option for option in value]
+
+    @field_validator("options")
+    @classmethod
+    def options_must_be_unique(cls, options: list[str]) -> list[str]:
+        if len({option.casefold() for option in options}) != len(options):
+            raise ValueError("options must be unique")
+        return options
+
+
 class DiscoveredFeatureDocument(FeatureDiscoverySchema):
     title: str = Field(
         min_length=1,
@@ -327,10 +362,13 @@ class DiscoveredFeatureDocument(FeatureDiscoverySchema):
         max_length=_OWNER_SCOUT_PLAYBOOK_MAX_LENGTH,
         description="Concise monitoring and optimization instructions for the owner scout.",
     )
-    open_questions: list[_OpenQuestion] = Field(
+    open_questions: list[DiscoveredFeatureOpenQuestion] = Field(
         default_factory=list,
         max_length=6,
-        description="Direct questions for unresolved intended behavior; never replace uncertainty with assumptions.",
+        description=(
+            "Direct multiple-choice questions for unresolved intended behavior; "
+            "never replace uncertainty with assumptions."
+        ),
     )
 
     @field_validator("title", "repository", "priority_explanation", "owner_scout_playbook")
@@ -339,15 +377,6 @@ class DiscoveredFeatureDocument(FeatureDiscoverySchema):
         if not value.strip():
             raise ValueError("must not be blank")
         return value.strip()
-
-    @field_validator("open_questions", mode="before")
-    @classmethod
-    def questions_must_not_be_blank(cls, value: object) -> object:
-        if not isinstance(value, list):
-            return value
-        if any(isinstance(question, str) and not question.strip() for question in value):
-            raise ValueError("questions must not be blank")
-        return [question.strip() if isinstance(question, str) else question for question in value]
 
 
 class FeatureDiscoveryContinuation(FeatureDiscoverySchema):
@@ -427,7 +456,7 @@ Use the candidate title as the report title unless inspected evidence requires a
 
 For `in_flight_work`, include only active work connected to this candidate in the exploration ledger. When none applies, use one concise sentence naming the sources checked or unavailable; do not repeat their full results. For `measurement_and_health`, name existing instrumentation plus concrete PostHog events, properties, insights, dashboards, flags, experiments, errors, logs, or replays an owner can use.
 
-Ground every claim in code you inspected and account for the wider codebase and any related repositories. Do not guess about intended behavior. Put every uncertainty about intended functionality in `open_questions` as one concise, direct question for a human owner, even when the rest of the feature is well understood. Usually return zero to three questions, but never omit a real uncertainty. Keep those questions out of the summary so the question artefacts remain the source of truth.
+Ground every claim in code you inspected and account for the wider codebase and any related repositories. Do not guess about intended behavior. Put every uncertainty about intended functionality in `open_questions` as one concise, direct question for a human owner, even when the rest of the feature is well understood. Give each question two to five concise, mutually exclusive `options` that represent likely intended decisions and can stand alone as the answer. Do not add an Other option because the UI always permits a custom answer. Usually return zero to three questions, but never omit a real uncertainty. Keep those questions out of the summary so the question artefacts remain the source of truth.
 
 Separate features by distinct user goals, journeys, lifecycles, success measures, or ownership and monitoring needs, not by source-tree layout. Do not merge distinct workflows merely because they share files, components, routes, or storage. Conversely, do not split a coherent user-facing capability into separate features only because it uses several implementation mechanisms.
 
@@ -437,7 +466,8 @@ Return two to five code references where evidence exists. Keep each to the small
 
 Hard response budgets:
 {summary_budget}
-- Each `open_questions` item: at most {_OPEN_QUESTION_MAX_LENGTH} characters.
+- Each `open_questions[].question`: at most {_OPEN_QUESTION_MAX_LENGTH} characters.
+- Each `open_questions[].options` list: two to five unique answers, at most {QUESTION_OPTION_MAX_LENGTH} characters each.
 - Use only keys declared in the schema; do not add placeholders or helper fields.
 
 Before returning, check every string against these budgets and check every code-reference line span. Do not rely on a correction turn to shorten the response.
@@ -704,7 +734,7 @@ def persist_discovered_features(*, run_id: str, team_id: int, result: FeatureDis
             SignalReportArtefact.add_log(
                 team_id=team_id,
                 report_id=report_id,
-                content=QuestionArtefact(question=question),
+                content=QuestionArtefact(question=question.question, options=question.options),
                 attribution=attribution,
             )
         related_repositories = "\n".join(f"- `{repository}`" for repository in document.related_repositories)

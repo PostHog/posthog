@@ -1,6 +1,6 @@
 # Self-driving features
 
-> Status: **Draft** · Owner: Oliver Browne · Last updated: 2026-08-31
+> Status: **Draft** · Owner: Oliver Browne · Last updated: 2026-09-03
 
 ## Summary
 
@@ -58,7 +58,8 @@ Shared files do not collapse distinct workflows into one feature, while internal
 An in-flight-work section states which available repository-host and version-control sources were checked when no relevant work is found.
 
 The agent records every uncertainty about intended functionality as an open question instead of guessing.
-Those questions become task-attributed `question` artefacts on the staged feature so a human can answer them before dependent implementation work begins.
+Each agent-authored question includes two to five concise, mutually exclusive suggested answers.
+Those questions become task-attributed `question` artefacts on the staged feature so a human can select an answer or write a custom one before dependent implementation work begins.
 
 An optional focus from the user is a hard scope constraint throughout exploration and continuation.
 The workflow persists no feature reports until every turn succeeds.
@@ -87,7 +88,7 @@ Planning must establish:
 - an `## Owner scout playbook` note that explains what to watch and when to act.
 
 The planning agent reads outstanding questions before proposing work.
-It creates a `question` artefact whenever intended functionality is uncertain, asks the user in the live conversation, and updates the same artefact when answered.
+It creates a `question` artefact whenever intended functionality is uncertain, supplies concise suggested answers, asks the user in the live conversation, and updates the same artefact when answered.
 The user finishes planning only after the report has a title, summary, repository selection, owners, and priority, and every question affecting the first implementation increment is resolved.
 
 ### Feature owner scout
@@ -139,6 +140,7 @@ Finishing initial planning promotes a discovered or new feature, activates its o
 - A discovery retry never creates the same staged report twice.
 - Planning agents do not implement or open pull requests.
 - Agents ask a question whenever intended functionality is uncertain instead of choosing an assumption.
+- Agent-authored questions offer two to five suggested answers, and the user can always provide a custom answer.
 - Implementation work does not begin while a relevant agent question is unanswered.
 - Feature owner scouts continue after planning and release.
 - Implementation passes never overlap.

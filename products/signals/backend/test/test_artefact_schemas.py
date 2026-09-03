@@ -11,6 +11,7 @@ from products.signals.backend.artefact_schemas import (
     CodeReference,
     Commit,
     NoteArtefact,
+    QuestionArtefact,
     SuggestedReviewerEntry,
     SummaryChange,
     TaskRunArtefact,
@@ -91,6 +92,29 @@ class TestArtefactSchemas(SimpleTestCase):
         with self.assertRaises(ValidationError):
             NoteArtefact(note="   ")
 
+    def test_question_accepts_suggested_answers_and_normalizes_them(self):
+        question = QuestionArtefact(
+            question="Which audience should see this?",
+            options=[" Everyone ", "Workspace admins"],
+        )
+
+        assert question.options == ["Everyone", "Workspace admins"]
+
+    @parameterized.expand(
+        [
+            ("single", ["Everyone"]),
+            ("blank", ["Everyone", " "]),
+            ("duplicate", ["Everyone", "everyone"]),
+            ("too_many", ["One", "Two", "Three", "Four", "Five", "Six"]),
+        ]
+    )
+    def test_question_rejects_invalid_suggested_answers(self, _name, options):
+        with self.assertRaises(ValidationError):
+            QuestionArtefact(question="Which audience should see this?", options=options)
+
+    def test_question_allows_no_options_for_human_feedback_and_legacy_rows(self):
+        assert QuestionArtefact(question="Please make this easier to scan.").options == []
+
     def test_title_change_allows_null_old_title(self):
         # A report with no prior title (null) is a valid before-state for the first edit.
         change = TitleChange(new_title="A title")
@@ -136,6 +160,13 @@ class TestValidateArtefactContent(SimpleTestCase):
                 },
             ),
             ("task_run", {"task_id": "t1", "run_id": None, "product": "signals", "type": "implementation"}),
+            (
+                "question",
+                {
+                    "question": "Who should see this?",
+                    "options": ["Everyone", "Workspace admins only"],
+                },
+            ),
             ("title_change", {"old_title": "before", "new_title": "after"}),
             ("summary_change", {"old_summary": None, "new_summary": "after"}),
         ]
@@ -158,6 +189,7 @@ class TestValidateArtefactContent(SimpleTestCase):
             ("note", {"note": "   "}),
             ("commit", {"repository": "PostHog/posthog", "branch": "b", "commit_sha": "  ", "message": "m"}),
             ("task_run", {"task_id": "t1", "product": "Not Safe!", "type": "research"}),
+            ("question", {"question": "Who should see this?", "options": ["Everyone"]}),
         ]
     )
     def test_rejects_invalid_content_for_type(self, artefact_type, content):

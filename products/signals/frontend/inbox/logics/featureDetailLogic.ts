@@ -145,8 +145,8 @@ export interface featureDetailLogicActions {
         ownerScoutConfig: SignalScoutConfigApi | null
         payload?: any
     }
-    saveAnswer: () => {
-        value: true
+    saveAnswer: (answer?: string) => {
+        answer: string | undefined
     }
     saveFeedback: () => {
         value: true
@@ -283,7 +283,7 @@ export const featureDetailLogic = kea<featureDetailLogicType>([
         startAnswering: (artefactId: string) => ({ artefactId }),
         setAnswerDraft: (draft: string) => ({ draft }),
         cancelAnswering: true,
-        saveAnswer: true,
+        saveAnswer: (answer?: string) => ({ answer }),
         setAnswerSaving: (saving: boolean) => ({ saving }),
         // User feedback: `question` artefacts authored by the user (attribution = user id), which
         // the owner scout acts on and answers on its next run.
@@ -633,23 +633,24 @@ export const featureDetailLogic = kea<featureDetailLogicType>([
                 actions.setFeedbackSaving(false)
             }
         },
-        saveAnswer: async () => {
+        saveAnswer: async ({ answer }) => {
             const artefactId = values.answeringQuestionId
             if (!artefactId || values.answerSaving) {
                 return
             }
-            const draft = values.answerDraft.trim()
-            if (!draft) {
+            const submittedAnswer = (answer ?? values.answerDraft).trim()
+            if (!submittedAnswer) {
                 lemonToast.error('The answer cannot be empty')
                 return
             }
             const artefact = values.questionArtefacts.find((a) => a.id === artefactId)
+            actions.setAnswerDraft(submittedAnswer)
             actions.setAnswerSaving(true)
             try {
                 await signalsReportArtefactsPartialUpdate(String(values.currentProjectId), props.reportId, artefactId, {
                     content: {
                         ...artefact?.content,
-                        answer: draft,
+                        answer: submittedAnswer,
                         answered: true,
                     },
                 })

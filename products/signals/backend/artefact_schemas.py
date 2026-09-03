@@ -21,7 +21,7 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 from enum import Enum
-from typing import Any, Literal, cast
+from typing import Annotated, Any, Literal, cast
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, RootModel, ValidationError, field_validator, model_validator
@@ -33,6 +33,11 @@ from products.tasks.backend.facade.repo_selection_types import RepoSelectionResu
 # contract (see custom_agent.schemas.validate_identifier_part), kept inline so this module stays
 # dependency-light (pydantic only).
 _IDENTIFIER_PART_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
+
+QUESTION_MIN_OPTIONS = 2
+QUESTION_MAX_OPTIONS = 5
+QUESTION_OPTION_MAX_LENGTH = 160
+QuestionOption = Annotated[str, Field(min_length=1, max_length=QUESTION_OPTION_MAX_LENGTH)]
 
 
 class ArtefactContentValidationError(ValueError):
@@ -495,11 +500,21 @@ class QuestionArtefact(BaseModel):
     The direction comes from the artefact's attribution, not the content: a question attributed to
     a task (task_id set) comes from an agent and is answered by the user in the UI, while a question
     attributed to a user (created_by set) is feedback or direction from the human, to be answered by
-    an agent on its next pass. Answering in place sets `answer` and flips `answered`; open questions
+    an agent on its next pass. Agent-authored questions carry suggested answer options, while human
+    feedback does not need them. Answering in place sets `answer` and flips `answered`; open questions
     are the ones with `answered=False`.
     """
 
     question: str = Field(description="The question (markdown allowed).")
+    options: list[QuestionOption] = Field(
+        default_factory=list,
+        max_length=QUESTION_MAX_OPTIONS,
+        description=(
+            "Two to five concise, mutually exclusive suggested answers for an agent-authored question. "
+            "Do not add an Other option because the UI always permits a custom answer. "
+            "Leave empty for human-authored feedback."
+        ),
+    )
     answer: str | None = Field(default=None, description="The answer, once given (markdown allowed).")
     answered: bool = Field(default=False, description="Whether the question has been answered.")
 
@@ -509,6 +524,25 @@ class QuestionArtefact(BaseModel):
         if not v.strip():
             raise ValueError("must not be empty or whitespace-only")
         return v
+
+    @field_validator("options", mode="before")
+    @classmethod
+    def normalize_options(cls, value: object) -> object:
+        if not isinstance(value, list):
+            return value
+        normalized = [option.strip() if isinstance(option, str) else option for option in value]
+        if normalized and len(normalized) < QUESTION_MIN_OPTIONS:
+            raise ValueError(f"must include at least {QUESTION_MIN_OPTIONS} options when provided")
+        if any(not option for option in normalized if isinstance(option, str)):
+            raise ValueError("options must not be empty or whitespace-only")
+        return normalized
+
+    @field_validator("options")
+    @classmethod
+    def options_must_be_unique(cls, options: list[str]) -> list[str]:
+        if len({option.casefold() for option in options}) != len(options):
+            raise ValueError("options must be unique")
+        return options
 
 
 class TitleChange(BaseModel):

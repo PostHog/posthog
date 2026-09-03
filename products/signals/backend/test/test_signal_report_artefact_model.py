@@ -10,6 +10,7 @@ from products.signals.backend.artefact_schemas import (
     NoteArtefact,
     Priority,
     PriorityAssessment,
+    QuestionArtefact,
     RelatedTo,
     SignalFinding,
 )
@@ -101,6 +102,18 @@ class TestSignalReportArtefactHelpers(BaseTest):
         )
         assert str(artefact.task_id) == str(task.id)
         assert artefact.created_by_id is None
+
+    def test_task_question_requires_suggested_answers(self):
+        report = self._report()
+        task = self._task()
+
+        with self.assertRaises(ArtefactContentValidationError):
+            SignalReportArtefact.add_log(
+                team_id=self.team.id,
+                report_id=str(report.id),
+                content=QuestionArtefact(question="Who should see this?"),
+                attribution=ArtefactAttribution.from_task(str(task.id)),
+            )
 
     def test_system_attribution_persists_nulls(self):
         artefact = self._append_priority(self._report(), "P1")

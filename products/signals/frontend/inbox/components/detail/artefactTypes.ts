@@ -49,6 +49,7 @@ export interface NoteContent {
 
 export interface QuestionContent {
     question: string
+    options?: string[]
     answer?: string | null
     answered?: boolean
 }

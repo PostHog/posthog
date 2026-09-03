@@ -17,6 +17,7 @@ from products.signals.backend.features.discovery import (
     MAX_DISCOVERY_CODE_REFERENCE_LINES,
     DiscoveredFeatureCodeReference,
     DiscoveredFeatureDocument,
+    DiscoveredFeatureOpenQuestion,
     DiscoveredFeatureOwner,
     DiscoveredFeatureSummary,
     FeatureDiscoveryActiveWorkSource,
@@ -94,7 +95,12 @@ def _feature(title: str = "Session replay") -> DiscoveredFeatureDocument:
             )
         ],
         owner_scout_playbook="Monitor replay load success and playback errors.",
-        open_questions=["Should recordings be retained when a user revokes consent?"],
+        open_questions=[
+            DiscoveredFeatureOpenQuestion(
+                question="Should recordings be retained when a user revokes consent?",
+                options=["Delete recordings immediately", "Retain recordings until their normal expiry"],
+            )
+        ],
     )
 
 
@@ -211,6 +217,8 @@ async def test_feature_discovery_follows_candidate_ledger_until_agent_stops() ->
     assert "structured set of bounded sections" in feature_prompt
     assert "open_questions" in feature_prompt
     assert "Do not guess about intended behavior" in feature_prompt
+    assert "two to five concise, mutually exclusive `options`" in feature_prompt
+    assert "Do not add an Other option" in feature_prompt
     assert "include only active work connected to this candidate" in feature_prompt
     assert "Do not merge distinct workflows merely because they share files" in feature_prompt
     assert "target 4 to 8 contiguous lines and never exceed 10" in feature_prompt
@@ -240,7 +248,12 @@ async def test_feature_discovery_follows_candidate_ledger_until_agent_stops() ->
 @pytest.mark.asyncio
 async def test_feature_discovery_corrects_an_invalid_feature_document() -> None:
     invalid_document = _feature().model_dump()
-    invalid_document["open_questions"] = [""]
+    invalid_document["open_questions"] = [
+        {
+            "question": "Should recordings be retained when a user revokes consent?",
+            "options": ["Delete recordings immediately"],
+        }
+    ]
     with pytest.raises(ValidationError):
         DiscoveredFeatureDocument.model_validate(invalid_document)
 
@@ -270,10 +283,10 @@ async def test_feature_discovery_corrects_an_invalid_feature_document() -> None:
     assert [feature.title for feature in result.features] == ["Session replay"]
     assert session.send_followup_raw.await_count == 4
     first_correction_prompt = session.send_followup_raw.await_args_list[1].args[0]
-    assert "questions must not be blank" in first_correction_prompt
+    assert "at least 2 items" in first_correction_prompt
     assert "return one Markdown string, never an array" in first_correction_prompt
     assert "remove the undeclared key instead of renaming it" in first_correction_prompt
-    assert "questions must not be blank" in session.send_followup_raw.await_args_list[2].args[0]
+    assert "at least 2 items" in session.send_followup_raw.await_args_list[2].args[0]
     session.end.assert_awaited_once_with()
 
 
@@ -494,6 +507,7 @@ class TestPersistDiscoveredFeatures(APIBaseTest):
         )
         question = QuestionArtefact.model_validate_json(question_row.content)
         assert question.question == "Should recordings be retained when a user revokes consent?"
+        assert question.options == ["Delete recordings immediately", "Retain recordings until their normal expiry"]
         assert question.answered is False
         assert question_row.task_id == task.id
         run.refresh_from_db()

@@ -169,13 +169,16 @@ def main() -> None:
         questions=[
             QuestionArtefact(
                 question="Should closed-then-reopened issues count as **new scope** in the burndown, or stay "
-                "attributed to the original scope line?"
+                "attributed to the original scope line?",
+                options=["Count them as new scope", "Keep them on the original scope line"],
             ),
             QuestionArtefact(
-                question="Is a 14-day default horizon right, or should the widget infer it from the issue filter?"
+                question="Is a 14-day default horizon right, or should the widget infer it from the issue filter?",
+                options=["Use a 14-day default", "Infer it from the issue filter"],
             ),
             QuestionArtefact(
                 question="Which dashboard should the first burndown widget land on?",
+                options=["Team sprint dashboard", "Create a new dashboard", "Do not add it automatically"],
                 answer="The team sprint dashboard — pin it top-right.",
                 answered=True,
             ),
@@ -199,7 +202,8 @@ def main() -> None:
         created_ago=timedelta(days=3),
         questions=[
             QuestionArtefact(
-                question="Should the deletion worker hard-delete ClickHouse events too, or only Postgres person data in v1?"
+                question="Should the deletion worker hard-delete ClickHouse events too, or only Postgres person data in v1?",
+                options=["Delete both event and person data", "Limit v1 to person data"],
             ),
         ],
         feedback=[

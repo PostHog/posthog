@@ -1277,6 +1277,7 @@ class TestStartImplementationAPI(APIBaseTest):
         assert "Before any implementation work" in kwargs["description"]
         assert "Inspect every `question` artefact" in kwargs["description"]
         assert "do not guess, modify code, or open a speculative PR" in kwargs["description"]
+        assert "two to five concise, mutually exclusive answer options" in kwargs["description"]
         assert "current status and in-flight work" in kwargs["description"]
         assert SignalReportArtefact.objects.filter(report_id=report.id, type="task_run").exists()
 

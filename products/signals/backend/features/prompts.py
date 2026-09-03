@@ -47,9 +47,11 @@ decision and change in status.
   - `note`: requirements, decisions, implementation increments, success criteria, measurement plans, \
 monitoring results, and optimization opportunities.
   - `code_reference`: relevant code with file_path, start_line, end_line, contents, and relevance_note.
-  - `question`: a two-way channel. Questions attributed to an agent are for humans. Questions \
-attributed to a user are feedback for agents. Act on user feedback, then answer it with \
-`inbox-report-artefacts-update` using `answer` and `answered: true`.
+  - `question`: a two-way channel. Questions attributed to an agent are for humans. Every \
+agent-authored question must include `options` with two to five concise, mutually exclusive answers \
+the user can select directly. Do not add an Other option because the UI always permits a custom \
+answer. Questions attributed to a user are feedback for agents and do not need options. Act on user \
+feedback, then answer it with `inbox-report-artefacts-update` using `answer` and `answered: true`.
   - `repo_selection`: the repository where implementation will land.
   - `suggested_reviewers`: the feature's human owners as a list of {{"github_login": ...}}.
   - `priority_judgment`: the feature's priority. User-created features default to P1.
@@ -68,7 +70,8 @@ invent a stored deployment status.
 `answered` state. Incorporate answered questions before changing the feature.
 - Whenever intended functionality, expected user behavior, scope, tradeoffs, or success criteria are \
 uncertain, create a `question` artefact for the human owner. Prefer asking a question to silently \
-choosing an assumption, even when the uncertainty seems small.
+choosing an assumption, even when the uncertainty seems small. Supply two to five short answer \
+options that cover the likely decisions without overlapping. The user can always give a custom answer.
 - In an interactive conversation, create the question artefact before asking the user. When they \
 answer, update that same artefact with `answer` and `answered: true`, then reflect the decision in the \
 overview or a durable note.
@@ -124,8 +127,9 @@ assuming the current behavior is the desired behavior.
 - Write artefacts as decisions are made so the user can watch the feature report develop live.
 - Before proposing work, inspect every outstanding `question` artefact. For any uncertainty about \
 intended functionality, create a question artefact and ask the user instead of making an assumption. \
-Update that same artefact when the user answers. Do not say planning is complete while a question that \
-affects the first implementation increment is unanswered.
+Include two to five concise, mutually exclusive `options`, without an Other option. Update that same \
+artefact when the user answers. Do not say planning is complete while a question that affects the \
+first implementation increment is unanswered.
 - Keep the report summary as a living overview of the feature, its current status, in-flight work, and \
 next step. Do not write it as a reactive outcome or recommendation report.
 - Define how PostHog will measure success and how the owner scout should detect problems or \
@@ -156,8 +160,9 @@ below. Handle every applicable item, in order:
 Act on open questions attributed to users, then answer each through \
 `inbox-report-artefacts-update`. Incorporate newly answered agent questions and user-authored notes. \
 Whenever intended functionality or expected user behavior is uncertain, create a question for the \
-human owner instead of choosing an assumption. If an unanswered question affects the next increment, \
-record what is blocked and do not start implementation.
+human owner instead of choosing an assumption. Give the question two to five concise, mutually \
+exclusive answer options, without an Other option. If an unanswered question affects the next \
+increment, record what is blocked and do not start implementation.
 2. **Progress implementation.** Derive progress from `task_run` and `commit` artefacts and the \
 associated branch or pull request. When the previous increment has merged and work remains, append a \
 note describing exactly one next increment, then call `scout-start-implementation` for report \

@@ -26,6 +26,7 @@ from products.signals.backend.artefact_schemas import (
     ChannelAssignment,
     Dismissal,
     LogArtefactContent,
+    QuestionArtefact,
     RelatedTo,
     SignalFinding,
     StatusArtefactContent,
@@ -935,6 +936,10 @@ class SignalReportArtefact(UUIDModel):
         # not diverge. The FK comes from attribution, so require task attribution that matches.
         if isinstance(content, TaskRunArtefact) and content.task_id != attribution.task_id:
             raise ArtefactContentValidationError("task_run content.task_id must match the artefact's attributed task")
+        if isinstance(content, QuestionArtefact) and attribution.kind == "task" and not content.options:
+            raise ArtefactContentValidationError(
+                "Agent-authored questions must include two to five suggested answer options"
+            )
         return cls.objects.create(
             team_id=team_id,
             report_id=report_id,

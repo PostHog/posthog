@@ -72,6 +72,7 @@ from products.signals.backend.artefact_schemas import (
     ArtefactContentValidationError,
     ChannelAssignment,
     Dismissal,
+    QuestionArtefact,
     SuggestedReviewers,
     SummaryChange,
     TitleChange,
@@ -3564,6 +3565,11 @@ class SignalReportArtefactViewSet(
         except ArtefactContentValidationError as e:
             return Response(
                 {"error": f"content does not match the '{artefact_type}' schema: {e}"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if isinstance(parsed_content, QuestionArtefact) and attribution.kind == "task" and not parsed_content.options:
+            return Response(
+                {"error": "Agent-authored questions must include two to five suggested answer options."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         if isinstance(parsed_content, ChannelAssignment):
