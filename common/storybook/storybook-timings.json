@@ -187,10 +187,6 @@
         "chromium": 1.667,
         "webkit": 1.22
     },
-    "frontend/src/lib/components/MarkdownEditor/inline/InlineRichMarkdownEditor.stories.tsx": {
-        "chromium": 12.076,
-        "webkit": 2.125
-    },
     "frontend/src/lib/components/MarkdownEditor/rich/RichMarkdownEditor.stories.tsx": {
         "chromium": 5.579,
         "webkit": 1.455
