@@ -775,7 +775,12 @@ const meta: Meta = {
                     // Onboarding gate: report the project as instrumented so the scene
                     // renders the dashboard/tabs instead of the empty state.
                     if (query.includes('has_initialize')) {
-                        return [200, { results: [[true, true]] }]
+                        return [
+                            200,
+                            {
+                                results: [[true, ACTIVITY_OVERVIEW.stats.total_calls, 72, '2026-05-15T09:00:00Z']],
+                            },
+                        ]
                     }
                     if (query.includes('AS session_id')) {
                         return [200, { results: SESSION_RESULTS }]

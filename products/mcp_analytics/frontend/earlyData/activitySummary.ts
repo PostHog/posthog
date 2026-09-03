@@ -1,6 +1,7 @@
 import { humanFriendlyLargeNumber, humanFriendlyNumber } from 'lib/utils/numbers'
 
 export interface ActivitySummaryInput {
+    lifetimeCalls: number | null
     totalCalls: number
     distinctClients: number
     errorCalls: number
@@ -15,28 +16,29 @@ export interface ActivitySummaryInput {
  * one-time first-look hero, but persistent and tailored to early data.
  */
 export function buildActivitySummary(input: ActivitySummaryInput): string {
-    const { totalCalls, distinctClients, errorCalls, topTool } = input
+    const { lifetimeCalls, totalCalls, distinctClients, errorCalls, topTool } = input
+    const resolvedLifetimeCalls = lifetimeCalls === null ? null : Math.max(lifetimeCalls, totalCalls)
 
     if (totalCalls === 0) {
-        return 'Waiting for your first tool call…'
+        return resolvedLifetimeCalls === 0 ? 'Waiting for your first tool call…' : 'No tool calls in the last 30 days'
     }
-    if (totalCalls <= 5) {
-        return totalCalls === 1
-            ? "Your first tool call arrived — here's what the agent tried."
-            : `Your first ${totalCalls} tool calls arrived — here's what agents tried.`
+    if (resolvedLifetimeCalls !== null && resolvedLifetimeCalls <= 5) {
+        return resolvedLifetimeCalls === 1
+            ? "Your first tool call arrived. Here's what the agent tried."
+            : `Your first ${resolvedLifetimeCalls} tool calls arrived. Here's what agents tried.`
     }
 
-    const parts = [`${humanFriendlyLargeNumber(totalCalls)} tool calls`]
+    const parts = [`${humanFriendlyLargeNumber(totalCalls)} tool calls in the last 30 days`]
     if (distinctClients > 0) {
         parts.push(`from ${humanFriendlyNumber(distinctClients)} client${distinctClients === 1 ? '' : 's'}`)
     }
-    let summary = `${parts.join(' ')} so far`
+    let summary = parts.join(' ')
     if (topTool) {
-        summary += ` — ${topTool} is the favorite`
+        summary += `. ${topTool} is the favorite`
     }
     if (errorCalls > 0) {
         const failures = `${humanFriendlyNumber(errorCalls)} failure${errorCalls === 1 ? '' : 's'}`
-        summary += `${topTool ? ',' : ' —'} ${failures} worth a look`
+        summary += `. ${failures} worth a look`
     }
     return summary
 }

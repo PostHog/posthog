@@ -241,6 +241,37 @@ describe('dataNodeLogic', () => {
         })
     })
 
+    it.each([{ event: '$mcp_tool_call' }, { events: ['$mcp_tool_call'] }])(
+        'keeps the $event event scope in count queries',
+        (eventScope) => {
+            const properties = [{ key: '$mcp_is_error', type: 'event', value: true, operator: 'exact' as const }]
+            logic = dataNodeLogic({
+                autoLoad: false,
+                key: testUniqueKey,
+                query: setLatestVersionsOnQuery({
+                    kind: NodeKind.EventsQuery,
+                    select: ['*'],
+                    ...eventScope,
+                    properties,
+                }),
+            })
+            logic.mount()
+
+            expect(logic.values.totalCountQuery).toMatchObject({
+                kind: NodeKind.EventsQuery,
+                ...eventScope,
+                properties: undefined,
+                select: ['count(*)'],
+            })
+            expect(logic.values.filteredCountQuery).toMatchObject({
+                kind: NodeKind.EventsQuery,
+                ...eventScope,
+                properties,
+                select: ['count(*)'],
+            })
+        }
+    )
+
     it('clamps EventsQuery pagination to the maximum accumulated rows', async () => {
         const results = [
             [
