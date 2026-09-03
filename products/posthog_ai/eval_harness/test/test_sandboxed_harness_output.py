@@ -161,6 +161,26 @@ def test_exec_commands_wrapping_no_inner_tool_stay_under_the_raw_name() -> None:
     assert spans == [("tool_call: exec", [{"tool": "exec", "input": {"command": "schema query-trends series"}}])]
 
 
+def test_tool_call_spans_are_split_when_one_agent_message_has_multiple_calls() -> None:
+    parsed = ParsedLog(
+        generations=[
+            GenerationDescriptor(
+                output_content=[
+                    {"type": "tool_use", "id": "1", "name": "query-retention", "input": {}},
+                    {"type": "tool_use", "id": "2", "name": "execute-sql", "input": {}},
+                ],
+            )
+        ]
+    )
+
+    spans = _collect_spans(parsed)
+
+    assert spans == [
+        ("tool_call: query-retention", [{"tool": "query-retention", "input": {}}]),
+        ("tool_call: execute-sql", [{"tool": "execute-sql", "input": {}}]),
+    ]
+
+
 def _collect_spans(parsed: ParsedLog) -> list[tuple[str, Any]]:
     collected: list[tuple[str, Any]] = []
 

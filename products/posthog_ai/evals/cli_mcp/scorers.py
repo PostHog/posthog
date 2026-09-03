@@ -13,6 +13,9 @@ unrelated cases don't drag the rollup down.
 
 * ``CalledTargetTool`` — did the agent successfully invoke
   ``expected[<scorer_name>]["tool"]`` at least once? Returns 1.0/0.0.
+* ``FirstRelevantTool`` — in the earliest turn where the agent used one of a
+  supplied set of comparable tools, did it use only the expected one?
+  Returns 1.0/0.0.
 * ``RecoveredToCorrectTool`` — when prompted to use a wrong tool name
   (deprecated or typo'd), did the agent end up calling a correct
   replacement?
@@ -26,21 +29,31 @@ unrelated cases don't drag the rollup down.
   preceded by ``info <tool>`` in the same run?
 * ``VerifiedEventBeforeQuery`` — did the agent run ``read-data-schema``
   before any successful ``query-*`` call?
+* ``DidNotCiteRawSqlAfterTypedQuery`` — after a typed query tool succeeded,
+  did the final answer avoid hand-writing the equivalent raw SQL?
 """
 
 from __future__ import annotations
 
 import re
 
-from products.posthog_ai.eval_harness.log_parser import EXEC_TOOL_NAME, INFO_SYNTHETIC_PREFIX, LogParser, ToolCall
+from products.posthog_ai.eval_harness.log_parser import (
+    EXEC_TOOL_NAME,
+    INFO_SYNTHETIC_PREFIX,
+    LogParser,
+    ToolCall,
+    is_schema_discovery_call,
+)
 from products.posthog_ai.eval_harness.scorers.contract import Score, Scorer
 
 __all__ = [
     "CalledTargetTool",
+    "DidNotCiteRawSqlAfterTypedQuery",
     "DidNotRenderUi",
     "DrilledIntoSchema",
     "ExecBeforeRender",
     "InfoBeforeCall",
+    "FirstRelevantTool",
     "PreferredSearchOverTools",
     "RanPythonPostProcessing",
     "RecoveredToCorrectTool",
@@ -56,6 +69,11 @@ __all__ = [
 # punctuation, etc. The backslash exclusion matters: tool results arrive JSON-escaped, so without it
 # the capture keeps a trailing `\` and never substring-matches the (unescaped) final message.
 _URL_RE = re.compile(r"https?://[^\s\"'`)\]<>\\]+")
+
+# Matches a `<hogql>` citation tag or a fenced ```sql block — the two shapes an
+# agent uses to hand-write a raw query in its final answer instead of trusting
+# a typed query tool's own structured result.
+_RAW_SQL_CITATION_RE = re.compile(r"<hogql\b|```sql\b", re.IGNORECASE)
 
 RENDER_UI_TOOL_NAME = "render-ui"
 """Normalized name of the umbrella render tool (``mcp__<server>__render-ui`` → ``render-ui``).
@@ -138,6 +156,127 @@ class CalledTargetTool(Scorer):
             score=0.0,
             metadata={"reason": f"Tool '{target}' was never successfully called", "tool": target},
         )
+
+
+class DidNotCiteRawSqlAfterTypedQuery(Scorer):
+    """Binary: after a typed query tool succeeded, did the answer avoid raw SQL?
+
+    ``expected = {"did_not_cite_raw_sql_after_typed_query": {"tool": "query-trends"}}``
+
+    A typed query tool (``query-trends`` and friends) already returns a
+    structured, renderable result — there is no reason for the final answer
+    to also hand-write the equivalent SQL. Doing so anyway reads as a routing
+    win under ``CalledTargetTool`` while the underlying reasoning is still
+    SQL-first; this scorer catches that gap.
+
+    Looks for a ``<hogql`` citation tag or a fenced ```sql block in the final
+    assistant message. Score 1.0 if the tool succeeded and neither appears,
+    0.0 if either appears. ``None`` if ``tool`` was never called successfully
+    (that gap is caught by ``CalledTargetTool``).
+    """
+
+    def _name(self) -> str:
+        return "did_not_cite_raw_sql_after_typed_query"
+
+    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
+        target = _read_tool(expected, self._name())
+        if not target:
+            return Score(name=self._name(), score=None, metadata={"reason": f"No {self._name()}.tool on case"})
+
+        parser = _build_parser(output)
+        if parser is None:
+            return Score(name=self._name(), score=None, metadata={"reason": "No raw log"})
+
+        called = any(not call.is_error for call in parser.get_tool_calls(target))
+        if not called:
+            return Score(
+                name=self._name(),
+                score=None,
+                metadata={"reason": f"Tool '{target}' was never successfully called", "tool": target},
+            )
+
+        last_message = (output or {}).get("last_message") or ""
+        if not isinstance(last_message, str):
+            last_message = str(last_message)
+
+        match = _RAW_SQL_CITATION_RE.search(last_message)
+        if match:
+            return Score(
+                name=self._name(),
+                score=0.0,
+                metadata={
+                    "reason": "Final answer cited raw SQL after a typed query tool already succeeded",
+                    "tool": target,
+                    "matched": match.group(0),
+                },
+            )
+        return Score(name=self._name(), score=1.0, metadata={"tool": target})
+
+
+class FirstRelevantTool(Scorer):
+    """Binary: did the earliest turn that used ``relevant_tools`` use only the target?
+
+    ``execute-sql`` calls against ``system.information_schema.*`` are skipped:
+    the MCP instructions require that catalog lookup before an answer query, so
+    counting it as the route would score the mandated discovery step rather
+    than the tool the agent picked to answer with.
+
+    ``position`` is the index of the enclosing assistant message, so every call
+    the agent emitted in one response shares it. Such calls are simultaneous —
+    none of them saw another's result — so there is no first among them, and
+    picking one by block order would grade the order the model happened to
+    write them in. This scorer grades the whole batch instead: it passes only
+    when every relevant call in the earliest turn used the target. A turn that
+    fires a typed runner and ``execute-sql`` together is a hedge, not a route,
+    and fails whichever of the two the case expects.
+    """
+
+    def __init__(self, *, relevant_tools: frozenset[str]) -> None:
+        self.relevant_tools = relevant_tools
+
+    def _name(self) -> str:
+        return "first_relevant_tool"
+
+    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
+        target = _read_tool(expected, self._name())
+        if not target:
+            return Score(name=self._name(), score=None, metadata={"reason": f"No {self._name()}.tool on case"})
+
+        parser = _build_parser(output)
+        if parser is None:
+            return Score(name=self._name(), score=0.0, metadata={"reason": "No raw log", "tool": target})
+
+        candidates = [
+            call for call in parser.get_tool_calls() if not call.is_error and call.name in self.relevant_tools
+        ]
+        relevant = [call for call in candidates if not is_schema_discovery_call(call)]
+        skipped_discovery = len(candidates) - len(relevant)
+        if not relevant:
+            return Score(
+                name=self._name(),
+                score=0.0,
+                metadata={
+                    "reason": "No successful relevant tool calls",
+                    "tool": target,
+                    "skipped_discovery_calls": skipped_discovery,
+                },
+            )
+
+        first_position = min(call.position for call in relevant)
+        first_turn = [call for call in relevant if call.position == first_position]
+        turn_tools = sorted({call.name for call in first_turn})
+        metadata: dict[str, object] = {
+            "expected_tool": target,
+            "first_relevant_tool": turn_tools[0] if len(turn_tools) == 1 else None,
+            "first_relevant_tools": turn_tools,
+            "call_ids": [call.call_id for call in first_turn],
+            "skipped_discovery_calls": skipped_discovery,
+        }
+        if turn_tools == [target]:
+            return Score(name=self._name(), score=1.0, metadata=metadata)
+        if len(turn_tools) > 1:
+            metadata["reason"] = "The earliest relevant turn selected several tools at once"
+        return Score(name=self._name(), score=0.0, metadata=metadata)
 
 
 def _attempted_tool(call: ToolCall, wrong: str) -> bool:

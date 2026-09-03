@@ -48,6 +48,7 @@ from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.evals.cli_mcp.scorers import (
     CalledTargetTool,
+    DidNotCiteRawSqlAfterTypedQuery,
     DidNotRenderUi,
     ExecBeforeRender,
     RenderedEntityUi,
@@ -107,7 +108,9 @@ async def eval_no_render_for_query_results(ctx: EvalContext) -> None:
     ``query-trends`` (and the other insight ``query-*`` tools) carry the custom
     ``query-results`` app, which renders automatically — they are not in
     ``render-ui``'s enum. The agent should answer with the query tool and never
-    call ``render-ui``.
+    call ``render-ui``. It also should not hand-write the equivalent SQL in its
+    final answer once ``query-trends`` already returned a structured result —
+    doing so is the same SQL-first reasoning wearing a different disguise.
     """
 
     cases: list[SandboxedEvalCase] = [
@@ -117,6 +120,7 @@ async def eval_no_render_for_query_results(ctx: EvalContext) -> None:
             expected={
                 "called_target_tool": {"tool": "query-trends"},
                 "did_not_render_ui": {},
+                "did_not_cite_raw_sql_after_typed_query": {"tool": "query-trends"},
             },
         ),
     ]
@@ -124,6 +128,6 @@ async def eval_no_render_for_query_results(ctx: EvalContext) -> None:
     await SandboxedPublicEval(
         experiment_name="sandboxed-cli-mcp-no-render-for-query-cli",
         cases=cases,
-        scorers=[CalledTargetTool(), DidNotRenderUi()],
+        scorers=[CalledTargetTool(), DidNotRenderUi(), DidNotCiteRawSqlAfterTypedQuery()],
         ctx=ctx,
     )

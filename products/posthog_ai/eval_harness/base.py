@@ -74,6 +74,12 @@ def _log_conversation_spans(hooks: CaseHooks, parsed: ParsedLog) -> None:
         else:
             display_content = str(content)
 
+        if role == "assistant" and tool_calls:
+            for tool_call in tool_calls:
+                with hooks.start_span(f"tool_call: {tool_call['tool']}", "function") as span:
+                    span.log(input=[tool_call], output=display_content)
+            continue
+
         span_type: SpanKind
         if role == "assistant":
             span_type = "function" if tool_calls else "llm"
