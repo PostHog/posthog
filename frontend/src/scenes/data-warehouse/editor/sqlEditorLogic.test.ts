@@ -216,9 +216,12 @@ function createMonacoWithModel(model: any): any {
 
 async function runDebouncedAction(action: () => void): Promise<void> {
     jest.useFakeTimers()
-    action()
-    await jest.advanceTimersByTimeAsync(600)
-    jest.useRealTimers()
+    try {
+        action()
+        await jest.advanceTimersByTimeAsync(600)
+    } finally {
+        jest.useRealTimers()
+    }
 }
 
 describe('sqlEditorLogic', () => {
