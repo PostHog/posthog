@@ -1,6 +1,9 @@
 from django.utils import timezone
 
-from rest_framework.exceptions import ValidationError as DRFValidationError
+from rest_framework.exceptions import (
+    PermissionDenied,
+    ValidationError as DRFValidationError,
+)
 from temporalio import activity
 
 from posthog.clickhouse.client.connection import ClickHouseUser
@@ -22,9 +25,10 @@ def refresh_scanner_estimate_activity(inputs: RefreshScannerEstimateInputs) -> b
         return False
     try:
         refresh_scanner_estimate(scanner, ch_user=ClickHouseUser.REPLAY_VISION)
-    except DRFValidationError:
-        # A draft, deleted, or group-aggregated experiment gives the estimate no population to
-        # count. `refresh_scanner_estimate` stamps `estimate_attempted_at` before it queries, so the
-        # one-hour backoff still applies and the scanner does not count as a failed activity.
+    except (DRFValidationError, PermissionDenied):
+        # The targeted experiment gives the estimate no population to count: a draft, deleted, or
+        # group-aggregated experiment, or a creator who lost experiment access. The sweep skips the
+        # same states. `refresh_scanner_estimate` stamps `estimate_attempted_at` before it queries,
+        # so the one-hour backoff still applies and the scanner does not count as a failed activity.
         return False
     return True
