@@ -16,6 +16,7 @@ filtering.py).
 
 import dataclasses
 from datetime import datetime, timedelta
+from uuid import UUID
 
 from django.db import IntegrityError
 from django.db.models import Q
@@ -127,7 +128,9 @@ def plan_alert_deliveries(inputs: AlertDeliveryWorkflowInputs) -> list[PlannedDe
     return planned
 
 
-def _opener_filter_matches(planned: list[PlannedDelivery], inputs: AlertDeliveryWorkflowInputs) -> dict:
+def _opener_filter_matches(
+    planned: list[PlannedDelivery], inputs: AlertDeliveryWorkflowInputs
+) -> dict[UUID, bool | None]:
     """Filters gate openers only, evaluated once per (transition, alert).
 
     Replies follow the thread without a second evaluation, so this only looks at

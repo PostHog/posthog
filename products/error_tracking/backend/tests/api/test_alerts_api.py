@@ -175,6 +175,21 @@ class TestErrorTrackingAlerts(APIBaseTest):
                 "typeless_event_entity",
                 {"filters": {"events": [{"id": "$error_tracking_issue_created"}]}},
             ),
+            ("keyless_property_filter", {"filters": {"properties": [{"value": "x", "type": "event"}]}}),
+            (
+                "object_event_properties",
+                {
+                    "filters": {
+                        "events": [
+                            {
+                                "id": "$error_tracking_issue_created",
+                                "type": "events",
+                                "properties": {"key": "sleep(5)", "type": "hogql"},
+                            }
+                        ]
+                    }
+                },
+            ),
             (
                 "person_property_filter",
                 {"filters": {"properties": [{"key": "email", "value": "@example.com", "type": "person"}]}},

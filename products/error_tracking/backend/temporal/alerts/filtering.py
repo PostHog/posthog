@@ -24,8 +24,14 @@ from products.error_tracking.backend.temporal.alerts.types import AlertDeliveryW
 from products.error_tracking.backend.temporal.lifecycle.event_properties import fetch_event_properties
 
 from common.hogvm.python.execute import execute_bytecode
+from common.hogvm.python.stl import BLOCKING_FUNCTIONS
 
 logger = structlog.get_logger(__name__)
+
+# issue_id on events resolves through the fingerprint-state join, which cannot prune by
+# partition on its own; the time bound keeps the manual-opener fallback from scanning a
+# team's whole exception history. An issue quiet for longer has no useful sample anyway.
+MANUAL_FALLBACK_LOOKBACK_DAYS = 30
 
 
 def has_configured_filters(alert: ErrorTrackingAlert) -> bool:
@@ -59,24 +65,25 @@ def alert_filters_match(
         logger.warning("error_tracking_alert_filters_missing_bytecode", alert_id=str(alert.id))
         return False
 
-    lifecycle_properties = {
-        key: value
-        for key, value in {
-            **{key: _coerce_numeric(value) for key, value in (inputs.extra or {}).items()},
-            # Older in-flight payloads predate lifecycle_timestamp; the exception time
-            # is the right value for created/reopened and the previous one for spiking.
-            "exception_timestamp": inputs.lifecycle_timestamp or inputs.event_timestamp,
-            "name": inputs.issue_name,
-            "description": inputs.issue_description,
-            "issue_description": inputs.issue_description,
-            "first_seen": inputs.first_seen,
-            "severity": inputs.severity,
-            "fingerprint": inputs.fingerprint,
-            "status": inputs.status,
-            "assignee": inputs.assignee,
-        }.items()
-        if value is not None
+    # The producers always emit these keys, null included, and on the CDP plane a null
+    # lifecycle value shadows the exception's own property; mirror that so both planes agree.
+    lifecycle_properties: dict[str, object] = {
+        **{key: _coerce_numeric(value) for key, value in (inputs.extra or {}).items()},
+        "name": inputs.issue_name,
+        "description": inputs.issue_description,
+        "issue_description": inputs.issue_description,
+        "first_seen": inputs.first_seen,
+        "severity": inputs.severity,
+        "status": inputs.status,
     }
+    optional_properties = {
+        # Older in-flight payloads predate lifecycle_timestamp; the exception time
+        # is the right value for created/reopened and the previous one for spiking.
+        "exception_timestamp": inputs.lifecycle_timestamp or inputs.event_timestamp,
+        "fingerprint": inputs.fingerprint,
+        "assignee": inputs.assignee,
+    }
+    lifecycle_properties.update({key: value for key, value in optional_properties.items() if value is not None})
     filter_globals = {
         "event": inputs.event,
         "distinct_id": inputs.issue_id,
@@ -85,7 +92,8 @@ def alert_filters_match(
         "properties": {**exception_properties, **lifecycle_properties},
     }
     try:
-        result = execute_bytecode(bytecode, filter_globals).result
+        # Filters run on the shared worker; a smuggled blocking call must not hold it.
+        result = execute_bytecode(bytecode, filter_globals, disallowed_functions=BLOCKING_FUNCTIONS).result
     except Exception:
         # Match the hog function consumer: a filter that cannot be evaluated
         # skips delivery instead of firing on excluded issues.
@@ -135,11 +143,16 @@ def _fetch_latest_issue_exception_properties(team: Team, inputs: AlertDeliveryWo
         """
         SELECT properties
         FROM events
-        WHERE event = '$exception' AND issue_id = toUUID({issue_id})
+        WHERE event = '$exception'
+            AND issue_id = toUUID({issue_id})
+            AND timestamp > now() - INTERVAL {lookback_days} DAY
         ORDER BY timestamp DESC
         LIMIT 1
         """,
-        placeholders={"issue_id": ast.Constant(value=inputs.issue_id)},
+        placeholders={
+            "issue_id": ast.Constant(value=inputs.issue_id),
+            "lookback_days": ast.Constant(value=MANUAL_FALLBACK_LOOKBACK_DAYS),
+        },
     )
     response = execute_hogql_query(
         query=query,
