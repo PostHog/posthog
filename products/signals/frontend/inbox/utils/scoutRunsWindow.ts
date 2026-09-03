@@ -597,7 +597,7 @@ function cronFieldNumber(token: string, offset: number, names: string[] | undefi
 
 /**
  * The values a single cron field matches. `unmodeled` covers the syntax this check does not
- * model (`L`, `W`, `#`, `?`): the backend decides those, because a client that guessed would
+ * model (`L`, `#`, `?`): the backend decides those, because a client that guessed would
  * refuse an expression the scheduler accepts.
  */
 function parseCronField(field: string, min: number, max: number, names?: string[]): CronFieldParse {
@@ -610,13 +610,20 @@ function parseCronField(field: string, min: number, max: number, names?: string[
         if (extra.length > 0 || spec === undefined) {
             return { kind: 'invalid' }
         }
-        const step = stepToken === undefined ? 1 : Number(stepToken)
-        if (!Number.isInteger(step) || step < 1) {
+        // A step is plain digits. `Number` alone would also read "1e2" and "0x10", which the
+        // scheduler refuses.
+        const step = stepToken === undefined ? 1 : /^\d+$/.test(stepToken) ? Number(stepToken) : 0
+        if (step < 1) {
             return { kind: 'invalid' }
         }
         let from = min
         let to = max
         if (spec !== '*') {
+            // croniter reads a bare "L" as the last day of the month, a calendar this check does
+            // not model. Every other use of the letter, like "15W" or "L-2", it refuses anyway.
+            if (spec.toLowerCase() === 'l') {
+                return { kind: 'unmodeled' }
+            }
             const bounds = spec.split('-')
             if (bounds.length > 2) {
                 return { kind: 'invalid' }

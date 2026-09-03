@@ -177,6 +177,7 @@ describe('scout schedule modes', () => {
             ['0 9 31 2,3 MON', 'a real date in one of the months'],
             ['10,50 0,23 * * 1', 'slots either side of midnight, but only one day a week'],
             ['0 9 * * 5#2', 'syntax only the backend models'],
+            ['0 9 L * *', 'the last day of the month'],
         ])('accepts %s (%s)', (expression) => {
             expect(scoutCronScheduleError(expression)).toBeNull()
         })
@@ -190,6 +191,7 @@ describe('scout schedule modes', () => {
             ['*/20 * * * *', 'Runs must be at least 30 minutes apart.'],
             ['0,15 9 * * *', 'Runs must be at least 30 minutes apart.'],
             ['10,50 0,23 * * *', 'Runs must be at least 30 minutes apart.'],
+            ['*/1e2 9 * * *', 'Enter a five-field cron expression, like 0 9 * * 1-5.'],
         ])('refuses %s', (expression, expected) => {
             expect(scoutCronScheduleError(expression)).toEqual(expected)
         })
