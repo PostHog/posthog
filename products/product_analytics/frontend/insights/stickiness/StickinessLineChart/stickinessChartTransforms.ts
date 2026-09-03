@@ -1,7 +1,6 @@
 import { DEFAULT_Y_AXIS_ID } from '@posthog/quill-charts'
 import type { Series, TimeSeriesLineChartConfig, TooltipConfig, YAxisConfig } from '@posthog/quill-charts'
 
-import { capitalizeFirstLetter } from 'lib/utils/strings'
 import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 
 import { ChartDisplayType } from '~/types'
@@ -83,14 +82,6 @@ export function buildStickinessSeries<R extends StickinessResultLike, M = unknow
     return results.map((r, index) => buildStickinessMainSeries(r, index, opts, yAxisIds?.[index]))
 }
 
-/** Produce per-bucket labels ("Day 0", "Day 1", …). The API's own "X day(s)" labels
- * duplicate the interval prefix when paired with a stickiness-style axis, so we
- * synthesize them from the bucket count. Mirrors `formatIntervalLabels` in the legacy LineGraph. */
-export function buildStickinessLabels(count: number, interval: string | null | undefined): string[] {
-    const prefix = capitalizeFirstLetter(interval ?? 'day')
-    return Array.from({ length: count }, (_, i) => `${prefix} ${i}`)
-}
-
 /** Emit `85.0%`-style ticks — legacy parity with `${value.toFixed(1)}%` in LineGraph. */
 export function stickinessPercentFormatter(value: number): string {
     return `${value.toFixed(1)}%`
@@ -134,7 +125,7 @@ export function buildStickinessLineTimeSeriesConfig(
     opts: BuildStickinessLineTimeSeriesConfigOpts
 ): TimeSeriesLineChartConfig {
     return {
-        // No xAxis date config — labels are pre-formatted interval counts (Day 0, Day 1, …).
+        // No xAxis date config: labels come from the API's own per-bucket labels (e.g. "1 day", "2 days").
         yAxis: buildStickinessYAxisConfig({ yAxisScaleType: opts.yAxisScaleType, showGrid: opts.showGrid }),
         valueLabels: opts.valueLabels,
         showCrosshair: opts.showCrosshair,
