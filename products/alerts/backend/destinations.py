@@ -335,7 +335,10 @@ def count_active_alert_destinations(*, team_id: int, alert_id: str, allowed_even
 # credential (Slack/Discord/Teams webhook secret). Anything that shows such a name — a
 # receipt in the API, the History tooltip, or a read surface in another product — must
 # keep only the host.
-_URL_IN_NAME_RE = re.compile(r"\b[a-z][a-z0-9+.-]*://\S+", re.IGNORECASE)
+# No leading word boundary: a scheme glued to a word character (`hook_https://…`) is still
+# a URL, and skipping it would leave the credential in the name. The match ends on a
+# non-punctuation character, so a bracket or comma after the URL stays in the text.
+_URL_IN_NAME_RE = re.compile(r"[a-zA-Z][a-zA-Z0-9+.\-]*://[^\s'\"]*[^\s'\".,;:!?)\]}>]")
 
 _DESTINATION_NAME_SEPARATOR = " → "
 
