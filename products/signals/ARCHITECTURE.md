@@ -1377,7 +1377,7 @@ Signal {index}:
 | ---------------------------------------- | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
 | `SIGNAL_WEIGHT_THRESHOLD`                | `1.0`                         | Total weight needed to promote a report to candidate                                                                         |
 | `SIGNAL_MATCHING_LLM_MODEL`              | `claude-sonnet-5`             | LLM model for matching, grouping, and safety-judge signal operations                                                         |
-| `SIGNAL_EMISSION_LLM_MODEL`              | `claude-sonnet-5`             | LLM model for emission-stage summarization and actionability checks                                                         |
+| `SIGNAL_EMISSION_LLM_MODEL`              | `claude-sonnet-5`             | LLM model for emission-stage summarization and actionability checks                                                          |
 | `MAX_RESPONSE_TOKENS`                    | `4096`                        | Base max tokens for LLM responses (thinking uses 3× for max_tokens, 2× for budget)                                           |
 | Embedding model                          | `text-embedding-3-small-1536` | OpenAI embedding model used for signal content                                                                               |
 | Task queue                               | `VIDEO_EXPORT_TASK_QUEUE`     | Temporal task queue for all workflows                                                                                        |
