@@ -1191,6 +1191,12 @@ FANOUT_GATE = (
     "products.warehouse_sources.backend.temporal.data_imports.workflow_activities."
     "import_data_sync.is_fanout_warehouse_reuse_enabled"
 )
+# The mock account holds a handful of customers, far under the production size floor. These tests
+# cover the conversion itself; the floor is policy, covered by the gate's own unit tests.
+PARENT_SIZE_FLOOR = (
+    "products.warehouse_sources.backend.temporal.data_imports.workflow_activities."
+    "import_data_sync.MIN_WAREHOUSE_PARENT_ROWS"
+)
 
 
 @sync_to_async
@@ -1247,7 +1253,7 @@ async def _sync_parent_then_child(team, source, parent, child, mock_stripe_api, 
     calls_before = len(mock_stripe_api.get_all_api_calls())
 
     expected_rows = sum(len(rows) for rows in CUSTOMER_BALANCE_TRANSACTIONS.values())
-    with mock.patch(FANOUT_GATE, return_value=reuse_enabled):
+    with mock.patch(FANOUT_GATE, return_value=reuse_enabled), mock.patch(PARENT_SIZE_FLOOR, 0):
         response = await run_external_data_job_workflow(
             team=team,
             external_data_source=source,
