@@ -7,7 +7,9 @@ from django.utils import timezone
 
 import structlog
 
+from posthog.llm.wizard_blocklist import WIZARD_BLOCKED_DETAIL, wizard_identity_blocked
 from posthog.models import OAuthAccessToken, OAuthApplication
+from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_oauth_access_token
 from posthog.scopes import (
     API_SCOPE_OBJECTS,
@@ -418,8 +420,6 @@ def get_wizard_app() -> OAuthApplication:
 def _organization_id_for_team(team_id: int) -> str:
     """The organization the run is pinned to. Not the user's current one, which is
     writable through `PATCH /api/users/@me/` and so cannot carry a ban."""
-    from posthog.models.team.team import Team  # noqa: PLC0415
-
     organization_id = Team.objects.filter(id=team_id).values_list("organization_id", flat=True).first()
     return str(organization_id) if organization_id else ""
 
@@ -439,8 +439,6 @@ def create_wizard_oauth_access_token_for_user(user, team_id: int) -> str:
     Gated here rather than only at the HTTP kickoff, which a workflow retry or
     resume reaches with no request in front of it.
     """
-    from posthog.llm.wizard_blocklist import WIZARD_BLOCKED_DETAIL, wizard_identity_blocked  # noqa: PLC0415
-
     if wizard_identity_blocked(
         distinct_id=str(user.distinct_id),
         email=user.email,

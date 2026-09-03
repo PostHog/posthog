@@ -276,7 +276,7 @@ class TestCreateWizardOAuthAccessTokenForUser(TestCase):
         return user, team
 
     @override_settings(WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID=_WIZARD_CLIENT_ID)
-    @patch("posthog.llm.wizard_blocklist.wizard_identity_blocked", return_value=True)
+    @patch("posthog.temporal.oauth.wizard_identity_blocked", return_value=True)
     def test_a_blocklisted_identity_is_refused_a_wizard_token(self, mock_blocked) -> None:
         # Gated at the mint, not only at the HTTP kickoff: a workflow retry or resume
         # reaches here with no request in front of it.
