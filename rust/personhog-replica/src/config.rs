@@ -2,6 +2,8 @@ use envconfig::Envconfig;
 use std::net::SocketAddr;
 use std::time::Duration;
 
+use crate::team_allowlist::TeamAllowlist;
+
 #[derive(Envconfig, Clone, Debug)]
 pub struct Config {
     #[envconfig(default = "127.0.0.1:50051")]
@@ -60,6 +62,15 @@ pub struct Config {
     /// load on the database when multiple callers delete concurrently.
     #[envconfig(default = "2")]
     pub bulk_max_concurrent_chunks: usize,
+
+    /// Teams whose person deletes tombstone the rows instead of removing
+    /// them: `*` for every team, a comma-separated list of team ids, or
+    /// empty (the default) to keep hard deletes everywhere. Mirrors
+    /// ingestion's PERSON_MERGE_TOMBSTONE_TEAM_ALLOWLIST: a tombstone keeps
+    /// the row's version counter, so a later revival of the same key
+    /// outranks its own ClickHouse tombstone instead of restarting at 0.
+    #[envconfig(default = "")]
+    pub person_delete_tombstone_team_allowlist: String,
 
     /// Maximum number of server-side (PgBouncer → Postgres) connections to
     /// warm at startup via SELECT 1. Clamped to min_pg_connections. Set to 0
@@ -130,6 +141,12 @@ pub struct Config {
 }
 
 impl Config {
+    pub fn person_delete_tombstone_teams(&self) -> Result<TeamAllowlist, String> {
+        self.person_delete_tombstone_team_allowlist
+            .parse()
+            .map_err(|e| format!("PERSON_DELETE_TOMBSTONE_TEAM_ALLOWLIST: {e}"))
+    }
+
     pub fn acquire_timeout(&self) -> Duration {
         Duration::from_secs(self.acquire_timeout_secs)
     }

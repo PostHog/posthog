@@ -11,6 +11,7 @@ use sqlx::postgres::PgPool;
 use sqlx::Postgres;
 
 use super::error::StorageError;
+use crate::team_allowlist::TeamAllowlist;
 
 pub(crate) const DB_QUERY_DURATION: &str = "personhog_replica_db_query_duration_ms";
 pub(crate) const DB_POOL_ACQUIRE_DURATION: &str = "personhog_replica_db_pool_acquire_duration_ms";
@@ -41,6 +42,8 @@ pub struct PostgresStorage {
     pub bulk_replica_pool: PgPool,
     pub(crate) bulk_chunk_size: usize,
     pub(crate) bulk_max_concurrent_chunks: usize,
+    /// Teams whose person deletes tombstone rows instead of removing them.
+    pub(crate) tombstone_delete_teams: TeamAllowlist,
 }
 
 impl PostgresStorage {
@@ -52,6 +55,7 @@ impl PostgresStorage {
         bulk_replica_pool: PgPool,
         bulk_chunk_size: usize,
         bulk_max_concurrent_chunks: usize,
+        tombstone_delete_teams: TeamAllowlist,
     ) -> Self {
         Self {
             primary_pool,
@@ -60,6 +64,7 @@ impl PostgresStorage {
             bulk_replica_pool,
             bulk_chunk_size,
             bulk_max_concurrent_chunks,
+            tombstone_delete_teams,
         }
     }
 
