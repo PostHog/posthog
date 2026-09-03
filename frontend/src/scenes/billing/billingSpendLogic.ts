@@ -325,7 +325,7 @@ export interface billingSpendLogicMeta {
         headingTooltip: (dateTo: string | null) => string | null
         teamOptions: (
             currentOrganization: OrganizationType | null,
-            teamIdOptions: any
+            teamIdOptions: number[]
         ) => {
             key: string
             label: string
