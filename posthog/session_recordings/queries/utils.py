@@ -3,6 +3,7 @@ from typing import NamedTuple
 
 import structlog
 import posthoganalytics
+from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     ActionsNode,
@@ -167,10 +168,14 @@ def poe_is_active(team: Team) -> bool:
     return team.person_on_events_mode is not None and team.person_on_events_mode != PersonsOnEventsMode.DISABLED
 
 
-def _entity_to_expr(entity: EventsNode | ActionsNode) -> ast.Expr:
+def _entity_to_expr(entity: EventsNode | ActionsNode, team: Team) -> ast.Expr:
     # KLUDGE: we should be able to use NodeKind.ActionsNode here but mypy :shrug:
     if entity.kind == "ActionsNode":
-        action = Action.objects.get(pk=entity.id)
+        # Scoped to the project, not the team, because environments in a project share actions.
+        try:
+            action = Action.objects.get(pk=entity.id, team__project_id=team.project_id)
+        except Action.DoesNotExist:
+            raise ValidationError(f"Action ID {entity.id} does not exist!")
         return action_to_expr(action)
     else:
         if entity.event is None:

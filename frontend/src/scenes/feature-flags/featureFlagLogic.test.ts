@@ -15,6 +15,7 @@ import { dayjs } from 'lib/dayjs'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
@@ -63,6 +64,7 @@ import {
     scheduleDateToProjectTzISO,
     slugifyFeatureFlagKey,
     validateFeatureFlagKey,
+    validateFeatureFlagTags,
     validateFeatureFlagVariantKey,
     validateVariantRolloutSum,
 } from './featureFlagLogic'
@@ -3029,6 +3031,63 @@ describe('validateVariantRolloutSum', () => {
     })
 })
 
+describe('validateFeatureFlagTags', () => {
+    it.each([
+        { desc: 'the project does not require tags', tags: [], required: false, isNewFlag: true, hadTags: false },
+        { desc: 'a new flag carries a tag', tags: ['billing'], required: true, isNewFlag: true, hadTags: false },
+        // `hadTags` exists for this case: turning the setting on must not freeze the flags that
+        // predate it. Collapsing the check to a plain length test would block this save.
+        {
+            desc: 'a flag that predates the setting is edited while still untagged',
+            tags: [],
+            required: true,
+            isNewFlag: false,
+            hadTags: false,
+        },
+    ])('allows the save when $desc', ({ tags, required, isNewFlag, hadTags }) => {
+        expect(validateFeatureFlagTags(tags, { required, isNewFlag, hadTags })).toBeUndefined()
+    })
+
+    it.each([
+        {
+            desc: 'a new flag has no tags',
+            tags: [],
+            required: true,
+            isNewFlag: true,
+            hadTags: false,
+            error: 'Add at least one tag',
+        },
+        // A blank tag is not a tag: the server normalizes it away, so accepting it here would only
+        // buy a rejected save.
+        {
+            desc: 'a new flag has only a blank tag',
+            tags: ['   '],
+            required: true,
+            isNewFlag: true,
+            hadTags: false,
+            error: 'Add at least one tag',
+        },
+        {
+            desc: 'a tagged flag loses its last tag',
+            tags: [],
+            required: true,
+            isNewFlag: false,
+            hadTags: true,
+            error: 'Keep at least one tag',
+        },
+        {
+            desc: 'a tagged flag has its last tag replaced by a blank one',
+            tags: [''],
+            required: true,
+            isNewFlag: false,
+            hadTags: true,
+            error: 'Keep at least one tag',
+        },
+    ])('blocks the save when $desc', ({ tags, required, isNewFlag, hadTags, error }) => {
+        expect(validateFeatureFlagTags(tags, { required, isNewFlag, hadTags })).toContain(error)
+    })
+})
+
 describe('variant rollout sum validation', () => {
     let logic: ReturnType<typeof featureFlagLogic.build>
 
@@ -3113,6 +3172,59 @@ describe('variant rollout sum validation', () => {
         })
 
         expect(logic.values.featureFlagHasErrors).toBe(false)
+    })
+})
+
+describe('required tags on a collapsed advanced panel', () => {
+    let logic: ReturnType<typeof featureFlagLogic.build>
+
+    beforeEach(() => {
+        useMocks({
+            get: {
+                [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${MOCK_FEATURE_FLAG.id}/`]: () => [
+                    200,
+                    MOCK_FEATURE_FLAG,
+                ],
+                [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${MOCK_FEATURE_FLAG.id}/status`]: () => [
+                    200,
+                    MOCK_FEATURE_FLAG_STATUS,
+                ],
+            },
+        })
+        initKeaTests()
+        teamLogic.actions.loadCurrentTeamSuccess({
+            ...MOCK_DEFAULT_TEAM,
+            feature_flag_policy_config: { require_tags: true },
+        })
+        logic = featureFlagLogic({ id: 1 })
+        logic.mount()
+    })
+
+    afterEach(() => {
+        logic.unmount()
+    })
+
+    // The tag input sits inside the advanced panel, and a collapsed LemonCollapse unmounts its
+    // children, so without this the save is blocked with no field on screen to explain why.
+    it('opens the panel when a save is blocked for emptying the last tag', async () => {
+        logic.actions.setOriginalFeatureFlag({ ...MOCK_FEATURE_FLAG, tags: ['billing'] } as FeatureFlagType)
+        logic.actions.setFeatureFlag({ ...MOCK_FEATURE_FLAG, tags: [] } as FeatureFlagType)
+        expect(logic.values.advancedPanelOpen).toBe(false)
+
+        await expectLogic(logic, () => {
+            logic.actions.submitFeatureFlag()
+        }).toFinishAllListeners()
+
+        expect(logic.values.advancedPanelOpen).toBe(true)
+    })
+
+    // A flag that predates the setting stays editable, so an untagged one must not be held back.
+    it('leaves the panel closed when an untagged flag saves cleanly', async () => {
+        logic.actions.setOriginalFeatureFlag({ ...MOCK_FEATURE_FLAG, tags: [] } as FeatureFlagType)
+        logic.actions.setFeatureFlag({ ...MOCK_FEATURE_FLAG, tags: [] } as FeatureFlagType)
+
+        expect(logic.values.featureFlagHasErrors).toBe(false)
+        expect(logic.values.advancedPanelOpen).toBe(false)
     })
 })
 

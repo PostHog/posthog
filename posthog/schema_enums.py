@@ -884,6 +884,21 @@ class CurrencyCode(StrEnum):
     ZMW = "ZMW"
 
 
+class CustomBotField(StrEnum):
+    FIELD_RAW_USER_AGENT = "$raw_user_agent"
+    FIELD_IP = "$ip"
+    FIELD_LIB = "$lib"
+    FIELD_HOST = "$host"
+    FIELD_PATHNAME = "$pathname"
+    FIELD_CURRENT_URL = "$current_url"
+
+
+class CustomBotMatcher(StrEnum):
+    CONTAINS = "contains"
+    REGEX = "regex"
+    CIDR = "cidr"
+
+
 class CustomChannelField(StrEnum):
     UTM_SOURCE = "utm_source"
     UTM_MEDIUM = "utm_medium"
