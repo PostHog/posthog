@@ -1938,6 +1938,9 @@ export interface hogFlowEditorLogicActions {
     copyNodeToHighlightedDropzone: () => {
         value: true
     }
+    duplicateNodeBelow: (actionId: string) => {
+        actionId: string
+    }
     fitView: (options?: { duration?: number; noZoom?: boolean }) => {
         duration?: number | undefined
         noZoom?: boolean | undefined
@@ -1974,6 +1977,11 @@ export interface hogFlowEditorLogicActions {
             params: Pick<AppMetricsTotalsRequest, 'appSource' | 'appSourceId' | 'dateFrom' | 'dateTo'>
             timezone: string
         }
+    }
+    moveNodeToEdge: (movingNodeId: string, targetEdge: HogFlowEdge, isBranchJoinDropzone: boolean) => {
+        movingNodeId: string
+        targetEdge: HogFlowEdge
+        isBranchJoinDropzone: boolean
     }
     moveNodeToHighlightedDropzone: () => {
         value: true
@@ -2139,6 +2147,12 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         startMovingNode: (node: HogFlowActionNode) => ({ node }),
         stopMovingNode: true,
         moveNodeToHighlightedDropzone: true,
+        moveNodeToEdge: (movingNodeId: string, targetEdge: HogFlowEdge, isBranchJoinDropzone: boolean) => ({
+            movingNodeId,
+            targetEdge,
+            isBranchJoinDropzone,
+        }),
+        duplicateNodeBelow: (actionId: string) => ({ actionId }),
         loadActionMetricsById: (
             params: Pick<AppMetricsTotalsRequest, 'appSource' | 'appSourceId' | 'dateFrom' | 'dateTo'>,
             timezone: string
@@ -2915,23 +2929,33 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 }
 
                 const isBranchJoinDropzone = dropzoneNode.data.isBranchJoinDropzone ?? false
-                const newEdges = computeMoveEdges(
-                    values.workflow.edges,
-                    movingNodeId,
-                    targetHogFlowEdge,
-                    isBranchJoinDropzone
-                )
+                actions.moveNodeToEdge(movingNodeId, targetHogFlowEdge, isBranchJoinDropzone)
+                actions.hideDropzones()
+                actions.stopMovingNode()
+            },
+            moveNodeToEdge: ({ movingNodeId, targetEdge, isBranchJoinDropzone }) => {
+                // Uses computeMoveEdges (pure function) to manipulate edges in a single
+                // setWorkflowInfo call. This preserves node identity while moving a step.
+                const newEdges = computeMoveEdges(values.workflow.edges, movingNodeId, targetEdge, isBranchJoinDropzone)
 
                 if (!newEdges) {
                     lemonToast.error("Couldn't move this step there. Try a different spot.")
-                    actions.stopMovingNode()
                     return
                 }
 
                 actions.setWorkflowInfo({ actions: values.workflow.actions, edges: newEdges })
                 actions.setSelectedNodeId(movingNodeId)
-                actions.hideDropzones()
-                actions.stopMovingNode()
+            },
+            duplicateNodeBelow: ({ actionId }) => {
+                const action = values.workflow.actions.find((action) => action.id === actionId)
+                const targetEdge = values.workflow.edges.find((edge) => edge.from === actionId)
+
+                if (!action || action.type === 'trigger' || action.type === 'exit' || !targetEdge) {
+                    return
+                }
+
+                actions.setNodeToBeAdded(action)
+                actions.onDrop(undefined, targetEdge)
             },
             handlePaneClick: () => {
                 actions.setSelectedNodeId(null)

@@ -36,7 +36,7 @@ export function StepView({
         workflow,
         isZoomedOutFar,
     } = useValues(hogFlowEditorLogic)
-    const { setSelectedNodeId, startCopyingNode, startMovingNode } = useActions(hogFlowEditorLogic)
+    const { setSelectedNodeId, startCopyingNode, startMovingNode, duplicateNodeBelow } = useActions(hogFlowEditorLogic)
     const { actionValidationErrorsById, logicProps, scheduleState, scheduleStartsAt, isScheduleRepeating } =
         useValues(workflowLogic)
     const { deleteElements } = useReactFlow()
@@ -97,54 +97,106 @@ export function StepView({
 
     if (layout === 'list') {
         return (
-            <LemonButton
-                fullWidth
-                active={isSelected}
-                onClick={() => setSelectedNodeId(action.id)}
-                data-attr="workflow-linear-step"
-                aria-pressed={isSelected}
-                className="!relative !h-auto !items-stretch !justify-start !rounded !border-2 !bg-surface-primary !p-0 hover:!bg-surface-secondary"
-                style={{
-                    borderColor: isAnimationTarget ? 'var(--success)' : selectedColor,
-                    boxShadow: `0px 2px 0px 0px ${colorLight}`,
-                }}
-            >
-                <div className="flex min-w-0 flex-1 items-start gap-3 px-1 py-2 text-left">
-                    <span
-                        className="flex size-12 shrink-0 items-center justify-center rounded text-2xl"
-                        style={{ backgroundColor: colorLight, color }}
+            <div className="relative w-full">
+                <LemonButton
+                    fullWidth
+                    active={isSelected}
+                    onClick={() => setSelectedNodeId(action.id)}
+                    data-attr="workflow-linear-step"
+                    aria-pressed={isSelected}
+                    className="!relative !h-auto !items-stretch !justify-start !rounded !border-2 !bg-surface-primary !p-0 hover:!bg-surface-secondary"
+                    style={{
+                        borderColor: isAnimationTarget ? 'var(--success)' : selectedColor,
+                        boxShadow: `0px 2px 0px 0px ${colorLight}`,
+                    }}
+                >
+                    <div
+                        className={`flex min-w-0 flex-1 items-start gap-3 px-1 py-2 text-left ${
+                            isSelected && node?.deletable ? 'pr-10' : ''
+                        }`}
                     >
-                        {icon}
-                    </span>
-                    <span className="flex min-w-0 flex-1 flex-col">
-                        <span className="font-semibold leading-5">{action.name}</span>
-                        <span className="mt-0.5 truncate text-xs text-secondary">
-                            {scheduleDescription || action.description || 'No description'}
+                        <span
+                            className="flex size-12 shrink-0 items-center justify-center rounded text-2xl"
+                            style={{ backgroundColor: colorLight, color }}
+                        >
+                            {icon}
                         </span>
-                        {!!Step?.previews.length && (
-                            <span className="mt-1.5 flex flex-wrap gap-1">
-                                {Step.previews.map((preview) => (
-                                    <LemonTag
-                                        key={preview.label}
-                                        type="muted"
-                                        size="small"
-                                        icon={preview.icon ?? icon}
-                                        className="max-w-64 truncate"
-                                    >
-                                        {preview.label}
-                                    </LemonTag>
-                                ))}
+                        <span className="flex min-w-0 flex-1 flex-col">
+                            <span className="font-semibold leading-5">{action.name}</span>
+                            <span className="mt-0.5 truncate text-xs text-secondary">
+                                {scheduleDescription || action.description || 'No description'}
                             </span>
-                        )}
-                    </span>
-                    {shouldShowMetricsSummary && <StepViewMetrics action={action} layout="list" />}
-                    {hasValidationError || hasValidationWarning ? (
-                        <span className="absolute right-2 top-2">
-                            <LemonBadge status="warning" size="small" content="!" />
+                            {!!Step?.previews.length && (
+                                <span className="mt-1.5 flex flex-wrap gap-1">
+                                    {Step.previews.map((preview) => (
+                                        <LemonTag
+                                            key={preview.label}
+                                            type="muted"
+                                            size="small"
+                                            icon={preview.icon ?? icon}
+                                            className="max-w-64 truncate"
+                                        >
+                                            {preview.label}
+                                        </LemonTag>
+                                    ))}
+                                </span>
+                            )}
                         </span>
-                    ) : null}
-                </div>
-            </LemonButton>
+                        {shouldShowMetricsSummary && <StepViewMetrics action={action} layout="list" />}
+                        {hasValidationError || hasValidationWarning ? (
+                            <span
+                                className={`absolute top-2 ${isSelected && node?.deletable ? 'right-10' : 'right-2'}`}
+                            >
+                                <LemonBadge status="warning" size="small" content="!" />
+                            </span>
+                        ) : null}
+                    </div>
+                </LemonButton>
+                {isSelected && node?.deletable && (
+                    <div className="absolute right-2 top-2" onClick={(event) => event.stopPropagation()}>
+                        <LemonMenu
+                            items={[
+                                {
+                                    items: [
+                                        {
+                                            label: 'Duplicate below',
+                                            icon: <IconCopy />,
+                                            onClick: () => duplicateNodeBelow(action.id),
+                                            'data-attr': 'workflow-linear-duplicate-step',
+                                        },
+                                        {
+                                            label: 'Delete',
+                                            status: 'danger',
+                                            icon: <IconTrash />,
+                                            onClick: () => {
+                                                void deleteElements({ nodes: [node] })
+                                                setSelectedNodeId(null)
+                                            },
+                                            disabledReason: !selectedNodeCanBeDeleted
+                                                ? 'Clean up branching steps first'
+                                                : undefined,
+                                            'data-attr': 'workflow-linear-delete-step',
+                                        },
+                                    ],
+                                    footer: (
+                                        <div className="flex items-center gap-1 px-1 text-xs text-secondary">
+                                            <IconDrag /> Drag and drop to rearrange steps.
+                                        </div>
+                                    ),
+                                },
+                            ]}
+                        >
+                            <LemonButton
+                                icon={<IconEllipsis />}
+                                size="small"
+                                tooltip="Step actions"
+                                noPadding
+                                data-attr="workflow-linear-step-actions"
+                            />
+                        </LemonMenu>
+                    </div>
+                )}
+            </div>
         )
     }
 
