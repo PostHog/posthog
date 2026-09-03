@@ -14,6 +14,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { isOperatorFlag } from 'lib/utils/operators'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { cohortsModel } from '~/models/cohortsModel'
 import { AnyPropertyFilter, EmptyPropertyFilter } from '~/types'
 
 const TAXONOMIC_GROUP_TYPE_TO_DISPLAY_NAME: Partial<Record<TaxonomicFilterGroupType, string>> = {
@@ -204,11 +205,13 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>([
                     const recentValue = isCohort ? property.value : property.key
                     // For Flag filters `key` is the numeric flag ID (see FlagPropertyFilter); the
                     // human-readable key lives in `label`, set at selection time. Cohorts keep the
-                    // name in `cohort_name`.
-                    const displayName =
-                        ('label' in property && property.label) ||
-                        (isCohort && property.cohort_name) ||
-                        String(recentValue)
+                    // name in `cohort_name`. That field is optional, so a filter built by the API
+                    // or by an older client carries no name. Read the name off the loaded cohort
+                    // list in that case.
+                    const cohortName = isCohort
+                        ? property.cohort_name || cohortsModel.findMounted()?.values.cohortsById?.[property.value]?.name
+                        : undefined
+                    const displayName = ('label' in property && property.label) || cohortName || String(recentValue)
                     recentTaxonomicFiltersLogic.actions.recordRecentFilter({
                         groupType,
                         groupName,

@@ -10,8 +10,9 @@ import {
 import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 import { useMocks } from '~/mocks/jest'
+import { cohortsModel } from '~/models/cohortsModel'
 import { initKeaTests } from '~/test/init'
-import { AnyPropertyFilter, PropertyFilterType, PropertyFilterValue, PropertyOperator } from '~/types'
+import { AnyPropertyFilter, CohortType, PropertyFilterType, PropertyFilterValue, PropertyOperator } from '~/types'
 
 const eventFilter = (key: string, value?: PropertyFilterValue, operator?: PropertyOperator): AnyPropertyFilter =>
     ({
@@ -342,6 +343,25 @@ describe('propertyFilterLogic', () => {
             const recents = recentsLogic.values.recentFilters
             expect(recents).toHaveLength(1)
             expect(recents[0].value).toBe(42)
+            expect(recents[0].item).toMatchObject({ name: 'Power users' })
+        })
+
+        it('names a cohort recent from the loaded cohorts when the filter carries no name', async () => {
+            cohortsModel.mount()
+            await expectLogic(cohortsModel).toFinishAllListeners()
+            cohortsModel.actions.cohortCreated({ id: 42, name: 'Power users' } as CohortType)
+
+            const logic = mountLogic({ propertyFilters: [{}] as AnyPropertyFilter[] })
+            logic.actions.setFilter(0, {
+                key: 'id',
+                value: 42,
+                type: PropertyFilterType.Cohort,
+                operator: PropertyOperator.In,
+            })
+            await expectLogic(logic).toFinishAllListeners()
+
+            const recents = recentsLogic.values.recentFilters
+            expect(recents).toHaveLength(1)
             expect(recents[0].item).toMatchObject({ name: 'Power users' })
         })
 
