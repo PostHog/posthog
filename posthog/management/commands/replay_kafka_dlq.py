@@ -1,7 +1,7 @@
 from argparse import ArgumentParser
 from typing import Any
 
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 
 from posthog.kafka_client.dlq_replay import drain_dlq
 
@@ -39,8 +39,7 @@ class Command(BaseCommand):
             security_protocol=options["security_protocol"],
             log=lambda message: self.stdout.write(message),
         )
-        self.stdout.write(
-            self.style.SUCCESS(
-                f"Replayed {result['replayed']}, exhausted {result['exhausted']}, errors {result['errors']}"
-            )
-        )
+        counts = f"Replayed {result['replayed']}, exhausted {result['exhausted']}, errors {result['errors']}"
+        if result["errors"]:
+            raise CommandError(f"{counts}. The DLQ is not drained, so rerun with the same --group-id.")
+        self.stdout.write(self.style.SUCCESS(counts))

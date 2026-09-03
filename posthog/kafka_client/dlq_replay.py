@@ -92,8 +92,9 @@ def drain_dlq(
     Reads the source topic with a committed consumer group (so progress is resumable and
     visible as lag), reproduces each message to the target with the diagnostic headers
     stripped, and stops once the topic is drained (idle_polls consecutive empty polls).
-    Commits only after each batch is produced, so an interrupted run resumes rather than
-    replaying from the start. A dry run counts without producing or committing.
+    Commits a batch only after the broker acknowledges every record in it, so an
+    interrupted run resumes rather than replaying from the start, and a record the broker
+    rejected stays on the DLQ. A dry run counts without producing or committing.
     """
     source = get_profile_settings(topic=source_topic)
     target = get_profile_settings(topic=target_topic)
@@ -132,6 +133,14 @@ def drain_dlq(
     replayed = 0
     exhausted = 0
     errors = 0
+    # confluent-kafka reports a rejected record through the delivery callback, not through
+    # produce() or flush(). Without this the run would commit offsets for records the
+    # broker never took, and those records would be gone from the next replay.
+    delivery_failures: list[str] = []
+
+    def on_delivery(err: Any, _message: Any) -> None:
+        if err is not None:
+            delivery_failures.append(str(err))
 
     try:
         consumer.subscribe([source_topic])
@@ -145,6 +154,7 @@ def drain_dlq(
                 continue
             idle = 0
 
+            delivery_failures.clear()
             produced_in_batch = 0
             for message in messages:
                 err = message.error()
@@ -159,15 +169,24 @@ def drain_dlq(
                     exhausted += 1
                     continue
 
-                replayed += 1
                 if dry_run or producer is None:
+                    replayed += 1
                     continue
 
-                _produce(producer, target_topic, message.value(), headers, log)
+                _produce(producer, target_topic, message.value(), headers, on_delivery, log)
                 produced_in_batch += 1
 
-            if producer is not None and produced_in_batch:
+            if producer is not None:
                 producer.flush()
+                failed = len(delivery_failures)
+                replayed += produced_in_batch - failed
+                errors += failed
+                if failed:
+                    log(f"delivery failed for {failed} record(s); stopping without commit: {delivery_failures[0]}")
+                    break
+                # Commit even when the batch produced nothing, because a batch of records
+                # that all hit max_replays would otherwise hold the group behind it and the
+                # lag would never reach zero.
                 consumer.commit(asynchronous=False)
 
             log(f"progress: replayed={replayed} exhausted={exhausted} errors={errors}")
@@ -185,11 +204,18 @@ def _produce(
     topic: str,
     value: Optional[bytes],
     headers: list[Header],
+    on_delivery: Callable[[Any, Any], None],
     log: Callable[[str], None],
 ) -> None:
     while True:
         try:
-            producer.produce(topic=topic, value=value, key=None, headers=cast(Any, headers))
+            producer.produce(
+                topic=topic,
+                value=value,
+                key=None,
+                headers=cast(Any, headers),
+                on_delivery=on_delivery,
+            )
             return
         except BufferError:
             # Local produce queue is full; let it drain, then retry the same message.

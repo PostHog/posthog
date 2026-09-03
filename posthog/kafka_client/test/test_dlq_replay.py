@@ -1,8 +1,13 @@
+from collections.abc import Callable
+from types import SimpleNamespace
+from typing import Any, Optional
+
 from unittest import TestCase
+from unittest.mock import patch
 
 from parameterized import parameterized
 
-from posthog.kafka_client.dlq_replay import REPLAY_COUNT_HEADER, build_replay_headers
+from posthog.kafka_client.dlq_replay import REPLAY_COUNT_HEADER, build_replay_headers, drain_dlq
 
 
 class BuildReplayHeadersTest(TestCase):
@@ -63,3 +68,123 @@ class BuildReplayHeadersTest(TestCase):
 
         assert result is not None
         assert dict(result)[REPLAY_COUNT_HEADER] == b"1"
+
+
+class FakeMessage:
+    def __init__(self, value: bytes, headers: Optional[list[tuple[str, bytes]]] = None) -> None:
+        self._value = value
+        self._headers = headers
+
+    def error(self) -> None:
+        return None
+
+    def headers(self) -> Optional[list[tuple[str, bytes]]]:
+        return self._headers
+
+    def value(self) -> bytes:
+        return self._value
+
+
+class FakeConsumer:
+    def __init__(self, batches: list[list[FakeMessage]]) -> None:
+        self._batches = list(batches)
+        self.commits = 0
+
+    def subscribe(self, _topics: list[str]) -> None:
+        pass
+
+    def consume(self, num_messages: int, timeout: float) -> list[FakeMessage]:
+        return self._batches.pop(0) if self._batches else []
+
+    def commit(self, asynchronous: bool = True) -> None:
+        self.commits += 1
+
+    def close(self) -> None:
+        pass
+
+
+class FakeProducer:
+    def __init__(self, delivery_error: Optional[str] = None) -> None:
+        self.delivery_error = delivery_error
+        self.produced: list[dict[str, Any]] = []
+        self._pending: list[Callable[[Any, Any], None]] = []
+
+    def produce(self, **kwargs: Any) -> None:
+        self.produced.append(kwargs)
+        self._pending.append(kwargs["on_delivery"])
+
+    def flush(self, timeout: Optional[float] = None) -> int:
+        pending, self._pending = self._pending, []
+        for callback in pending:
+            callback(self.delivery_error, None)
+        return 0
+
+    def poll(self, timeout: float) -> int:
+        return 0
+
+
+class DrainDlqTest(TestCase):
+    def _drain(
+        self, batches: list[list[FakeMessage]], producer: FakeProducer, **kwargs: Any
+    ) -> tuple[dict[str, int], FakeConsumer]:
+        consumer = FakeConsumer(batches)
+        with (
+            patch("posthog.kafka_client.dlq_replay.Consumer", return_value=consumer),
+            patch("posthog.kafka_client.dlq_replay.Producer", return_value=producer),
+            patch(
+                "posthog.kafka_client.dlq_replay.get_profile_settings",
+                return_value=SimpleNamespace(
+                    hosts=["localhost:9092"],
+                    security_protocol="PLAINTEXT",
+                    sasl_mechanism=None,
+                    sasl_user=None,
+                    sasl_password=None,
+                ),
+            ),
+        ):
+            result = drain_dlq(
+                source_topic="topic-dlq",
+                target_topic="topic",
+                group_id="dlq-replay-test",
+                log=lambda _message: None,
+                **kwargs,
+            )
+        return result, consumer
+
+    def test_commits_once_per_delivered_batch(self) -> None:
+        producer = FakeProducer()
+        batch = [FakeMessage(b"one", [("error_name", b"ValueError")]), FakeMessage(b"two")]
+
+        result, consumer = self._drain([batch], producer)
+
+        assert result == {"replayed": 2, "exhausted": 0, "errors": 0}
+        assert consumer.commits == 1
+        assert [record["value"] for record in producer.produced] == [b"one", b"two"]
+        assert dict(producer.produced[0]["headers"]) == {REPLAY_COUNT_HEADER: b"1"}
+
+    def test_delivery_failure_is_reported_and_not_committed(self) -> None:
+        producer = FakeProducer(delivery_error="Broker: Message too large")
+
+        result, consumer = self._drain([[FakeMessage(b"one")]], producer)
+
+        assert result == {"replayed": 0, "exhausted": 0, "errors": 1}
+        assert consumer.commits == 0
+
+    def test_batch_of_exhausted_messages_still_commits(self) -> None:
+        producer = FakeProducer()
+        at_cap = [(REPLAY_COUNT_HEADER, b"2")]
+
+        result, consumer = self._drain([[FakeMessage(b"one", at_cap), FakeMessage(b"two", at_cap)]], producer)
+
+        assert result == {"replayed": 0, "exhausted": 2, "errors": 0}
+        assert consumer.commits == 1
+        assert producer.produced == []
+
+    def test_dry_run_counts_without_producing_or_committing(self) -> None:
+        producer = FakeProducer()
+
+        result, consumer = self._drain([[FakeMessage(b"one")]], producer, dry_run=True)
+
+        assert result == {"replayed": 1, "exhausted": 0, "errors": 0}
+        assert consumer.commits == 0
+        assert producer.produced == []
