@@ -537,19 +537,27 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
 
   async getCodexSubscriptionStatus(): Promise<CodexSubscriptionStatus> {
     if (this.codexLogin) return { loginState: "logged-out" };
-    const loggedIn = await hasCodexChatgptLogin({
+    const status = await hasCodexChatgptLogin({
       binaryPath: this.getCodexBinaryPath(),
     });
-    return { loginState: loggedIn ? "logged-in" : "logged-out" };
+    return {
+      loginState: status.loggedIn ? "logged-in" : "logged-out",
+      email: status.email,
+      subscriptionType: status.planType,
+    };
   }
 
   async getClaudeSubscriptionStatus(): Promise<ClaudeSubscriptionStatus> {
+    const status = await hasClaudeLogin({
+      claudeCliPath: this.getClaudeCliPath(),
+      machineAuth: machineClaudeAuth(),
+      logger: this.log,
+    });
     return {
-      loginState: await hasClaudeLogin({
-        claudeCliPath: this.getClaudeCliPath(),
-        machineAuth: machineClaudeAuth(),
-        logger: this.log,
-      }),
+      loginState: status.state,
+      email: status.email,
+      organization: status.organization,
+      subscriptionType: status.subscriptionType,
     };
   }
 
@@ -1006,7 +1014,7 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
       let claudeSubscription =
         adapter === "claude" && config.claudeModelAccess === "own-subscription";
       if (claudeSubscription) {
-        const loginState = await hasClaudeLogin({
+        const { state: loginState } = await hasClaudeLogin({
           claudeCliPath: this.getClaudeCliPath(),
           machineAuth: machineClaudeAuth(),
           logger: this.log,
