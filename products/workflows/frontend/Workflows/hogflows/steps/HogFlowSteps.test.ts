@@ -47,4 +47,16 @@ describe('HogFlow step previews', () => {
     ])('derives preview labels from the action config', (workflowAction, expected) => {
         expect(previewLabels(workflowAction)).toEqual(expected)
     })
+
+    it('adds the number of action conditions', () => {
+        const workflowAction = {
+            ...action('function', {
+                template_id: 'template-webhook',
+                inputs: { method: { value: 'POST' }, url: { value: 'https://hooks.example.com/path' } },
+            }),
+            filters: { properties: [{}, {}] },
+        } as HogFlowAction
+
+        expect(previewLabels(workflowAction)).toEqual(['POST hooks.example.com', '2'])
+    })
 })

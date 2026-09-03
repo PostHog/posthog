@@ -8,6 +8,7 @@ import {
     IconClock,
     IconDay,
     IconDecisionTree,
+    IconFilter,
     IconHourglass,
     IconLeave,
     IconLetter,
@@ -275,11 +276,20 @@ export function getHogFlowStep<T extends HogFlowAction['type']>(
     if (!builder) {
         return undefined
     }
+    const conditionCount =
+        (action.filters?.events?.length ?? 0) +
+        (action.filters?.actions?.length ?? 0) +
+        (action.filters?.properties?.length ?? 0)
+    const previews = builder.getPreviews(action, hogFunctionTemplatesById)
+    if (conditionCount) {
+        previews.push({ label: String(conditionCount), icon: <IconFilter /> })
+    }
+
     return {
         type,
         icon: builder.icon(action, hogFunctionTemplatesById),
         color: builder.color(action, isDarkModeOn),
-        previews: builder.getPreviews(action, hogFunctionTemplatesById),
+        previews,
         renderConfiguration: builder.renderConfiguration,
     }
 }
