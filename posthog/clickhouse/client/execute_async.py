@@ -20,7 +20,7 @@ from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import get_query_tags, tag_queries
 from posthog.constants import AvailableFeature
 from posthog.direct_query_cancellation import build_direct_query_cancellation_token, request_direct_query_cancellation
-from posthog.errors import ExposedCHQueryError
+from posthog.errors import ExposedCHQueryError, clickhouse_error_type
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.exceptions_capture import capture_exception
 from posthog.renderers import SafeJSONRenderer
@@ -311,6 +311,11 @@ def execute_process_query(
                 codes = err.get_codes()
                 if isinstance(codes, str):
                     query_status.error_code = codes
+        if not query_status.error_code:
+            # The message text stays hidden when it's not user-safe, but the exception class is a
+            # stable, machine-readable cause (e.g. "CHQueryErrorMemoryLimitExceeded"). Carry it so
+            # callers can classify the failure instead of dead-ending on an opaque "Query failed".
+            query_status.error_code = clickhouse_error_type(err)
         logger.exception("Error processing query async", team_id=team_id, query_id=query_id, exc_info=True)
         if not is_user_safe_error:
             # User-safe errors (e.g. a malformed HogQL query) are already returned to the user as a 400,

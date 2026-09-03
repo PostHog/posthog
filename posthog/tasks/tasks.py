@@ -23,7 +23,7 @@ from posthog.hogql.constants import LimitContext
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, limit_concurrency
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tag_queries
 from posthog.cloud_utils import is_cloud
-from posthog.errors import CH_TRANSIENT_ERRORS, CHQueryErrorUnknownTable
+from posthog.errors import CH_TRANSIENT_ERRORS, CHQueryErrorUnknownTable, clickhouse_error_type
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.exceptions_capture import capture_exception
 from posthog.metrics import pushed_metrics_registry
@@ -409,6 +409,12 @@ def _process_query_task_failure(
     if isinstance(exc, APIException):
         # User-safe message (e.g. ClickHouseAtCapacity's "try again later" copy)
         query_status.error_message = str(exc.detail)
+    elif not query_status.error_code:
+        # A non-user-safe task failure (concurrency-limit exhaustion, worker loss) reaches this
+        # callback, not execute_process_query's handler, so it hides its message and would set no
+        # cause. Record the exception class as a machine-readable code so the AI executor and
+        # polling clients get the cause instead of an opaque "Query failed".
+        query_status.error_code = clickhouse_error_type(exc)
     query_status.end_time = datetime.datetime.now(datetime.UTC)
     manager.store_query_status(query_status)
 

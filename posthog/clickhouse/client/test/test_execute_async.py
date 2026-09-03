@@ -22,6 +22,7 @@ from posthog.clickhouse.client import (
 )
 from posthog.clickhouse.client.async_task_chain import execute_task_chain, task_chain_context
 from posthog.clickhouse.client.execute_async import QueryNotFoundError, QueryStatusManager, execute_process_query
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import get_query_tags, tag_queries
 from posthog.constants import AvailableFeature
 from posthog.direct_query_cancellation import (
@@ -71,13 +72,24 @@ class TestQueryStatusManager(SimpleTestCase):
         self.query_status.expiration_time = None  # We don't care about expiration time in this test
         self.assertEqual(self.manager.get_query_status(True), self.query_status)
 
-    def test_process_query_task_on_failure_marks_status_errored(self):
+    @parameterized.expand(
+        [
+            # User-safe APIException: message is surfaced, no machine-readable code needed.
+            ("api_exception", ClickHouseAtCapacity(), ClickHouseAtCapacity.default_detail, None),
+            # Non-user-safe outer-task failure (retries exhausted / worker loss) reaches the
+            # callback with its message hidden, so it must still record the class as the cause.
+            ("non_api_exception", ConcurrencyLimitExceeded("over limit"), None, "ConcurrencyLimitExceeded"),
+        ]
+    )
+    def test_process_query_task_on_failure_marks_status_errored(
+        self, _name, exc, expected_message, expected_error_code
+    ):
         from posthog.tasks.tasks import process_query_task
 
         self.manager.store_query_status(self.query_status)
 
         process_query_task.on_failure(
-            exc=ClickHouseAtCapacity(),
+            exc=exc,
             task_id="celery-task-id",
             args=(self.team_id, None, self.query_id),
             kwargs={},
@@ -87,7 +99,8 @@ class TestQueryStatusManager(SimpleTestCase):
         result = self.manager.get_query_status()
         self.assertTrue(result.complete)
         self.assertTrue(result.error)
-        self.assertEqual(result.error_message, ClickHouseAtCapacity.default_detail)
+        self.assertEqual(result.error_message, expected_message)
+        self.assertEqual(result.error_code, expected_error_code)
         self.assertIsNotNone(result.end_time)
 
     def test_store_clickhouse_query_progress(self):
@@ -362,6 +375,23 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         self.assertTrue(result.complete)
         assert result.error_message
         self.assertEqual(result.error_code, ClickHouseQueryMemoryLimitExceeded.default_code)
+
+    def test_async_query_non_user_safe_error_carries_error_code_without_message(self):
+        query = build_query("SELECT * FROM events")
+        query_id = uuid.uuid4().hex
+
+        with patch("posthog.api.services.query.process_query_dict", side_effect=Exception("sensitive detail")):
+            client.enqueue_process_query_task(
+                self.team, self.user.id, query, query_id=query_id, _test_only_bypass_celery=True
+            )
+
+        result = client.get_query_status(self.team.id, query_id)
+        self.assertTrue(result.error)
+        self.assertTrue(result.complete)
+        # The message stays hidden for a non-user-safe error, but the class name is carried as a
+        # machine-readable cause so callers can classify the failure.
+        self.assertIsNone(result.error_message)
+        self.assertEqual(result.error_code, "Exception")
 
     def test_async_query_server_errors(self):
         query = build_query("SELECT * FROM events")

@@ -2740,7 +2740,7 @@ export type QueryStatus = {
     /**  @default null */
     error_message: string | null
     /**
-     * Stable machine-readable code for the error (the DRF exception code), when known.
+     * Stable machine-readable code for the error (the DRF exception code when user-safe, otherwise the exception or ClickHouse error type), set even when the message text is hidden.
      * @default null
      */
     error_code: string | null

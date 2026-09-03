@@ -6676,7 +6676,11 @@ class QueryStatus(BaseModel):
     )
     error_code: str | None = Field(
         default=None,
-        description=("Stable machine-readable code for the error (the DRF exception code), when known."),
+        description=(
+            "Stable machine-readable code for the error (the DRF exception code when"
+            " user-safe, otherwise the exception or ClickHouse error type), set even"
+            " when the message text is hidden."
+        ),
     )
     error_message: str | None = None
     expiration_time: AwareDatetime | None = None
