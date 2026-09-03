@@ -518,6 +518,45 @@ const canvasValidateCreate = (): ToolBase<
     },
 })
 
+const CanvasMoveSchema = () => {
+    const CanvasesPartialUpdateBody = orvalSchemas.CanvasesPartialUpdateBody()
+    const CanvasesPartialUpdateParams = orvalSchemas.CanvasesPartialUpdateParams()
+    return CanvasesPartialUpdateParams.omit({ project_id: true })
+        .extend(
+            CanvasesPartialUpdateBody.omit({
+                name: true,
+                context: true,
+                description: true,
+                pinned: true,
+                generation_task_id: true,
+            }).shape
+        )
+        .extend({
+            id: CanvasesPartialUpdateParams.shape['id'].describe('ID of the canvas to move.'),
+            channel_id: CanvasesPartialUpdateBody.shape['channel_id']
+                .unwrap()
+                .describe('ID of the visible destination space.'),
+        })
+}
+
+const canvasMove = (): ToolBase<ReturnType<typeof CanvasMoveSchema>, Schemas.Canvas> => ({
+    name: 'canvas-move',
+    schema: CanvasMoveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof CanvasMoveSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.channel_id !== undefined) {
+            body['channel_id'] = params.channel_id
+        }
+        const result = await context.api.request<Schemas.Canvas>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/canvases/${encodeURIComponent(String(params.id))}/`,
+            body,
+        })
+        return result
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'canvas-builds-retrieve': canvasBuildsRetrieve,
     'canvas-create': canvasCreate,
@@ -535,4 +574,5 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'canvas-state-retrieve': canvasStateRetrieve,
     'canvas-state-set': canvasStateSet,
     'canvas-validate-create': canvasValidateCreate,
+    'canvas-move': canvasMove,
 }
