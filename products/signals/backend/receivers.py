@@ -8,7 +8,6 @@ import json
 from datetime import datetime, timedelta
 from typing import Any
 
-from django.apps import apps as django_apps
 from django.db import transaction
 from django.db.models import QuerySet
 from django.db.models.signals import post_delete, post_save, pre_save
@@ -30,6 +29,7 @@ from products.signals.backend.report_embeddings import (
 )
 from products.signals.backend.scout_harness.suggestions import mark_stale_if_fleet_changed
 from products.signals.backend.tasks import close_dismissed_report_pr
+from products.tasks.backend.facade.task_run_signals import connect_task_run_post_save
 
 logger = structlog.get_logger(__name__)
 
@@ -41,9 +41,8 @@ _DOCUMENT_FIELDS = frozenset({"title", "summary"})
 
 
 def connect_task_run_assignment_sync() -> None:
-    post_save.connect(
+    connect_task_run_post_save(
         sync_task_run_pr_to_assignments,
-        sender=django_apps.get_model("tasks", "TaskRun"),
         dispatch_uid="signals_sync_task_run_pr_to_assignments",
     )
 
