@@ -33,7 +33,11 @@ export function isTransientServerError(error: unknown): boolean {
     return error instanceof ApiError && isTransientGatewayStatus(error.status)
 }
 
-/** The DRF `detail` values `posthog/api/routing.py` raises when a URL's scope no longer resolves. */
+/**
+ * The DRF `detail` values `posthog/api/routing.py` raises when a URL's scope no longer resolves.
+ * This is user-facing copy that the backend plans to rename (`Project` to `Environment`), so the
+ * match is fragile: keep this set in sync with those raise sites, which point back here.
+ */
 const SCOPE_NOT_FOUND_DETAILS: ReadonlySet<string> = new Set(['Project not found.', 'Organization not found.'])
 
 /**
