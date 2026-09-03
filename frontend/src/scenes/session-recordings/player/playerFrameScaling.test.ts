@@ -7,7 +7,6 @@ import {
 
 const IPHONE =
     'Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Mobile/15E148 Safari/604.1'
-// iPadOS 13+ reports the same user agent as desktop Safari. Only maxTouchPoints separates them.
 const MAC_SAFARI =
     'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.6 Safari/605.1.15'
 const ANDROID_CHROME =

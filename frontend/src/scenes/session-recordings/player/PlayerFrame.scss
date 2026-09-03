@@ -10,8 +10,7 @@
     overflow: hidden;
     background-color: var(--color-bg-3000-dark);
 
-    // Pinch-zooming the scaled replay iframe crashes the tab in iOS WebKit (FB13816677). Allow
-    // panning but not pinch, so a pinch that starts on the player cannot re-rasterize the iframe.
+    // iOS WebKit pinch-zoom crash (FB13816677).
     &--ios {
         touch-action: pan-x pan-y;
     }
