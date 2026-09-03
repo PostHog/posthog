@@ -240,6 +240,7 @@ class TestAIObservabilityModuleIntegrity:
             "compute_evaluation_cluster_aggregates_activity",
             "emit_evaluation_cluster_events_activity",
             "fetch_evaluation_activity",
+            "run_local_evaluation_activity",
             "disable_evaluation_activity",
             "send_evaluation_disabled_email_activity",
             "update_key_state_activity",
