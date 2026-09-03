@@ -61,7 +61,7 @@ from posthog.temporal.ai_observability.trace_summarization.sampling import sampl
 from posthog.temporal.ai_observability.trace_summarization.summarize_and_save import summarize_and_save_activity
 from posthog.temporal.common.base import PostHogWorkflow
 
-from products.ai_observability.backend.summarization.budget import text_repr_budget
+from products.ai_observability.backend.summarization.budget import batch_text_repr_budget
 from products.ai_observability.backend.summarization.models import OpenAIModel, SummarizationMode
 
 logger = structlog.get_logger(__name__)
@@ -236,7 +236,7 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
                 mode=inputs.mode,
                 batch_run_id=batch_run_id,
                 model=inputs.model,
-                max_length=text_repr_budget(inputs.model),
+                max_length=batch_text_repr_budget(inputs.model),
                 job_id=inputs.job_id,
                 job_name=inputs.job_name,
             )

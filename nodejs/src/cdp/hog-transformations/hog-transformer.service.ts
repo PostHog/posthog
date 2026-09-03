@@ -27,6 +27,7 @@ import { getTransformationFunctions } from './transformation-functions'
 export interface HogTransformerConfig {
     siteUrl: string
     hogRustVmExecutionEnabled: boolean
+    hogRustVmBatchExecutionEnabled: boolean
     mmdbFileLocation: string
 }
 
@@ -100,6 +101,15 @@ export class HogTransformerService implements HogTransformer {
         this.hogFunctionMonitoringService.queueInvocationResults(results)
 
         await this.hogFunctionMonitoringService.flush()
+    }
+
+    public async prefetchHogFunctionsForTeams(teamIds: number[]): Promise<void> {
+        // Warm the by-team and by-id loaders directly, skipping the per-team assembly and sort
+        // that getHogFunctionsForTeams would do and the event path redoes anyway.
+        const idsByTeam = await this.hogFunctionManager.getHogFunctionIdsForTeams(teamIds, ['transformation'], {
+            flush: true,
+        })
+        await this.hogFunctionManager.getHogFunctions(Object.values(idsByTeam).flat(), { flush: true })
     }
 
     private async getTransformationFunctions() {
@@ -322,7 +332,9 @@ export class HogTransformerService implements HogTransformer {
 
         if (this.rustVmExecutor) {
             const sensitiveValues = this.hogExecutor.getSensitiveValues(hogFunction, globalsWithInputs.inputs)
-            const rustResult = this.rustVmExecutor.execute(invocation, sensitiveValues)
+            const rustResult = this.config.hogRustVmBatchExecutionEnabled
+                ? await this.rustVmExecutor.executeBatched(invocation, sensitiveValues)
+                : this.rustVmExecutor.execute(invocation, sensitiveValues)
             // Null means the Rust VM can't run this program (addon not built, unsupported host
             // function): fall through to the Node VM.
             if (rustResult) {
@@ -337,7 +349,11 @@ export class HogTransformerService implements HogTransformer {
 /** Config read by createHogTransformerService when running inside ingestion. */
 export type HogTransformerServiceConfig = Pick<
     CommonConfig,
-    'SITE_URL' | 'CDP_HOG_RUST_VM_EXECUTION_ENABLED' | 'MMDB_FILE_LOCATION' | 'TRANSFORMATIONS_HOG_TIMEOUT_MS'
+    | 'SITE_URL'
+    | 'CDP_HOG_RUST_VM_EXECUTION_ENABLED'
+    | 'CDP_HOG_RUST_VM_BATCH_EXECUTION_ENABLED'
+    | 'MMDB_FILE_LOCATION'
+    | 'TRANSFORMATIONS_HOG_TIMEOUT_MS'
 >
 
 export interface HogTransformerServiceDeps {
@@ -375,6 +391,7 @@ export function createHogTransformerService(
         {
             siteUrl: config.SITE_URL,
             hogRustVmExecutionEnabled: config.CDP_HOG_RUST_VM_EXECUTION_ENABLED,
+            hogRustVmBatchExecutionEnabled: config.CDP_HOG_RUST_VM_BATCH_EXECUTION_ENABLED,
             mmdbFileLocation: config.MMDB_FILE_LOCATION,
         }
     )

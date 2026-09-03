@@ -1,3 +1,4 @@
+import re
 import errno
 import socket
 import threading
@@ -30,8 +31,13 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
     QueryTimeoutException,
     TemporaryFileSizeExceedsLimitException,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import DEFAULT_CHUNK_SIZE
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import (
+    DEFAULT_CHUNK_SIZE,
+    DEFAULT_TABLE_SIZE_BYTES,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.table_stats import table_payload_bytes
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import batching
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import (
     ColumnTypeCategory,
     ValidatedRowFilter,
@@ -63,6 +69,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     _SSH_HANDSHAKE_EOF_ERROR,
     FORCE_UTF8_CLIENT_ENCODING,
     METADATA_STATEMENT_TIMEOUT_MS,
+    MIN_SIZE_SAMPLE_PERCENT,
+    SIZE_SAMPLE_MAX_ROWS,
+    SIZE_SAMPLE_TARGET_ROWS,
     SSL_REQUIRED_AFTER_DATE,
     XMIN_PROJECTED_COLUMN,
     JsonAsStringLoader,
@@ -84,6 +93,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     _connect_to_postgres,
     _connect_with_dropped_retry,
     _connect_with_options_fallback,
+    _fetch_rows_for,
     _get_estimated_row_count_for_partitioned_table,
     _get_partition_settings,
     _get_partition_settings_for_partitioned_table,
@@ -114,7 +124,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     _safe_close_connection,
     _schema_discovery_timeout_error,
     _schemas_from_conn,
+    _size_sample_percent,
     _statement_timeout_as_non_retryable,
+    _TableChunking,
     _tunnel_with_handshake_translation,
     _xmin_capable_tables_from_conn,
     filter_postgres_incremental_fields,
@@ -452,6 +464,24 @@ class TestPostgresSourceNonRetryableErrors:
         assert matches, "unrecognized session parameter must be classified non-retryable"
         assert matches[0] is not None, "unrecognized session parameter must surface an actionable message"
         assert "session setting" in matches[0].lower()
+
+    def test_missing_relation_surfaces_actionable_message(self, source):
+        # A dropped/renamed table or column stays non-retryable, but must surface an actionable
+        # message rather than the raw psycopg text (which echoes the relation name and SQL fragment).
+        # Mirror the finalizer's first-match selection so a reorder that shadows it with an earlier
+        # None-valued key, or a revert of this bucket back to None, is caught. The relation name is
+        # invented, not a real customer value.
+        error_msg = (
+            'relation "public.orders" does not exist LINE 1: DECLARE _cur CURSOR FOR SELECT * FROM "public"."orders"'
+        )
+        matches = [
+            friendly
+            for pattern, friendly in source.get_non_retryable_errors().items()
+            if error_message_matches(error_msg, [pattern])
+        ]
+        assert matches, "a dropped relation must be classified non-retryable"
+        assert matches[0] is not None, "a dropped relation must surface an actionable message, not raw driver text"
+        assert "no longer exists" in matches[0].lower()
 
     def test_connect_timeout_surfaces_actionable_message(self, source):
         # A persistently timing-out connect stays non-retryable, but must surface firewall/reachability
@@ -1750,7 +1780,7 @@ class TestSetupStatementTimeoutUnsupported:
             patch(f"{module}._is_duckdb_connection", return_value=False),
             patch(f"{module}._get_primary_keys", return_value=["id"]),
             patch(f"{module}._is_partitioned_table", return_value=False),
-            patch(f"{module}._get_table_chunk_size", return_value=100),
+            patch(f"{module}._get_table_chunk_size", return_value=_TableChunking(batch_rows=100, fetch_rows=100)),
             patch(f"{module}._get_rows_to_sync", return_value=0),
             patch(f"{module}._role_subject_to_rls", return_value=False),
             patch(f"{module}._get_partition_settings", return_value=None),
@@ -1845,6 +1875,10 @@ class TestIsConnectionDroppedError:
                 'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
                 "FATAL:  Failed to connect to database: {:error, :econnrefused}"
             ),
+            # The generic GenServer-timeout sibling: Supavisor reports a pool checkout or internal
+            # backend-connect timeout as "{:error, :timeout}", the Erlang GenServer call-timeout atom,
+            # distinct from the POSIX-level ":etimedout". Same transient pooler class; reconnect recovers.
+            psycopg.errors.ConnectionFailure("Failed to connect to database: {:error, :timeout}"),
             # Neon's proxy reports a compute that didn't wake from scale-to-zero before the auth
             # deadline as a ConnectionFailure — a transient drop the in-process recovery must catch.
             psycopg.errors.ConnectionFailure(
@@ -2769,7 +2803,7 @@ class TestServerCursorStatementTimeout:
             patch(f"{module}._is_duckdb_connection", return_value=False),
             patch(f"{module}._get_primary_keys", return_value=["id"]),
             patch(f"{module}._is_partitioned_table", return_value=False),
-            patch(f"{module}._get_table_chunk_size", return_value=100),
+            patch(f"{module}._get_table_chunk_size", return_value=_TableChunking(batch_rows=100, fetch_rows=100)),
             patch(f"{module}._get_rows_to_sync", return_value=10),
             patch(f"{module}._role_subject_to_rls", return_value=False),
             patch(f"{module}._get_partition_settings", return_value=None),
@@ -2892,7 +2926,7 @@ class TestServerCursorCloseStatementTimeout:
             patch(f"{module}._is_duckdb_connection", return_value=False),
             patch(f"{module}._get_primary_keys", return_value=["id"]),
             patch(f"{module}._is_partitioned_table", return_value=False),
-            patch(f"{module}._get_table_chunk_size", return_value=100),
+            patch(f"{module}._get_table_chunk_size", return_value=_TableChunking(batch_rows=100, fetch_rows=100)),
             patch(f"{module}._get_rows_to_sync", return_value=10),
             patch(f"{module}._role_subject_to_rls", return_value=False),
             patch(f"{module}._get_partition_settings", return_value=None),
@@ -3007,7 +3041,7 @@ class TestGetRowsSkipsServerCursorForDuckDB:
             patch(f"{module}._is_duckdb_connection", return_value=True),
             patch(f"{module}._get_primary_keys", return_value=["id"]),
             patch(f"{module}._is_partitioned_table", return_value=False),
-            patch(f"{module}._get_table_chunk_size", return_value=100),
+            patch(f"{module}._get_table_chunk_size", return_value=_TableChunking(batch_rows=100, fetch_rows=100)),
             patch(f"{module}._get_rows_to_sync", return_value=10),
             patch(f"{module}._role_subject_to_rls", return_value=False),
             patch(f"{module}._get_partition_settings", return_value=None),
@@ -3126,7 +3160,7 @@ class TestOffsetChunkingConnectRecoveryConflict:
         fake_table = mock.Mock()
         fake_table.to_arrow_schema.return_value = pa.schema([pa.field("id", pa.int64())])
         fake_table.type = "table"
-        fake_table.columns = []
+        fake_table.columns = [PostgreSQLColumn(name="id", data_type="integer", nullable=False)]
         fake_table.__contains__ = mock.Mock(return_value=False)
 
         connection = self._Connection()
@@ -3149,7 +3183,7 @@ class TestOffsetChunkingConnectRecoveryConflict:
             patch(f"{module}._is_duckdb_connection", return_value=False),
             patch(f"{module}._get_primary_keys", return_value=["id"]),
             patch(f"{module}._is_partitioned_table", return_value=False),
-            patch(f"{module}._get_table_chunk_size", return_value=1000),
+            patch(f"{module}._get_table_chunk_size", return_value=_TableChunking(batch_rows=1000, fetch_rows=1000)),
             patch(f"{module}._get_rows_to_sync", return_value=10),
             patch(f"{module}._role_subject_to_rls", return_value=False),
             patch(f"{module}._get_partition_settings", return_value=None),
@@ -3190,7 +3224,7 @@ class TestOffsetChunkingConnectTimeout:
         fake_table = mock.Mock()
         fake_table.to_arrow_schema.return_value = pa.schema([pa.field("id", pa.int64())])
         fake_table.type = "table"
-        fake_table.columns = []
+        fake_table.columns = [PostgreSQLColumn(name="id", data_type="integer", nullable=False)]
         fake_table.__contains__ = mock.Mock(return_value=False)
 
         # Reuse the connect-conflict scaffolding: the named server cursor raises a recovery conflict
@@ -3218,7 +3252,7 @@ class TestOffsetChunkingConnectTimeout:
             patch(f"{module}._is_duckdb_connection", return_value=False),
             patch(f"{module}._get_primary_keys", return_value=["id"]),
             patch(f"{module}._is_partitioned_table", return_value=False),
-            patch(f"{module}._get_table_chunk_size", return_value=1000),
+            patch(f"{module}._get_table_chunk_size", return_value=_TableChunking(batch_rows=1000, fetch_rows=1000)),
             patch(f"{module}._get_rows_to_sync", return_value=10),
             patch(f"{module}._role_subject_to_rls", return_value=False),
             patch(f"{module}._get_partition_settings", return_value=None),
@@ -3320,7 +3354,7 @@ class TestOffsetChunkingRecoveryConflictTimeout:
         fake_table = mock.Mock()
         fake_table.to_arrow_schema.return_value = pa.schema([pa.field("id", pa.int64())])
         fake_table.type = "table"
-        fake_table.columns = []
+        fake_table.columns = [PostgreSQLColumn(name="id", data_type="integer", nullable=False)]
         fake_table.__contains__ = mock.Mock(return_value=False)
 
         module = "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres"
@@ -3332,7 +3366,7 @@ class TestOffsetChunkingRecoveryConflictTimeout:
             patch(f"{module}._is_duckdb_connection", return_value=False),
             patch(f"{module}._get_primary_keys", return_value=["id"]),
             patch(f"{module}._is_partitioned_table", return_value=False),
-            patch(f"{module}._get_table_chunk_size", return_value=1000),
+            patch(f"{module}._get_table_chunk_size", return_value=_TableChunking(batch_rows=1000, fetch_rows=1000)),
             patch(f"{module}._get_rows_to_sync", return_value=10),
             patch(f"{module}._role_subject_to_rls", return_value=False),
             patch(f"{module}._get_partition_settings", return_value=None),
@@ -3361,6 +3395,199 @@ class TestOffsetChunkingRecoveryConflictTimeout:
         # non-retryable signal here is the type name, not the message text.
         non_retryable = PostgresSource().get_non_retryable_errors()
         assert type(exc_info.value).__name__ in non_retryable
+
+
+class TestChunkedRereadAfterRecoveryConflict:
+    """A read replica cancelling the initial read with "conflict with recovery" routes `get_rows`
+    into a chunked re-read. Paging by LIMIT/OFFSET is only correct when the query orders its rows:
+    a full-table read has no ORDER BY, so every page is a fresh scan Postgres may return in a
+    different order, which both repeats and drops rows. Such a read must page by seeking past the
+    last primary key it read, and must refuse to page at all when it cannot.
+
+    `_Scan` rotates an unordered result per statement to model that freedom deterministically.
+    """
+
+    _CONFLICT = "canceling statement due to conflict with recovery"
+    _ROWS: list[tuple[int]] = [(1,), (2,), (3,), (4,), (5,), (6,)]
+
+    class _Scan:
+        def __init__(self, rows: list[tuple[int]]):
+            self._rows = rows
+            self._statements = 0
+
+        def rows_for(self, ordered: bool) -> list[tuple[int]]:
+            if ordered:
+                return sorted(self._rows)
+            self._statements += 1
+            pivot = self._statements % len(self._rows)
+            return self._rows[pivot:] + self._rows[:pivot]
+
+    class _PageCursor:
+        def __init__(self, scan):
+            column = mock.Mock()
+            column.name = "id"
+            self.description = [column]
+            self._scan = scan
+            self._result: list[tuple[int]] = []
+
+        def execute(self, query, *args, **kwargs):
+            text = query.as_string()
+            rows = self._scan.rows_for("ORDER BY" in text)
+            seek = re.search(r'\("id"\) > \((\d+)\)', text)
+            if seek:
+                rows = [row for row in rows if row[0] > int(seek.group(1))]
+            offset = re.search(r"OFFSET (\d+)", text)
+            if offset:
+                rows = rows[int(offset.group(1)) :]
+            limit = re.search(r"LIMIT (\d+)", text)
+            self._result = rows[: int(limit.group(1))] if limit else rows
+
+        def fetchall(self):
+            return self._result
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    class _NamedCursor:
+        def __init__(self, rows_before_conflict: int, scan):
+            column = mock.Mock()
+            column.name = "id"
+            self.description = [column]
+            self._pending = scan.rows_for(True)[:rows_before_conflict]
+
+        def execute(self, *args, **kwargs):
+            return None
+
+        def fetchmany(self, _n):
+            if self._pending:
+                page, self._pending = self._pending, []
+                return page
+            raise psycopg.errors.SerializationFailure(TestChunkedRereadAfterRecoveryConflict._CONFLICT)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    class _Connection:
+        def __init__(self, named_cursor):
+            self.autocommit = False
+            self.closed = False
+            self.broken = False
+            self.adapters = mock.Mock()
+            self._named_cursor = named_cursor
+
+        def cursor(self, *args, **kwargs):
+            if "name" in kwargs:
+                return self._named_cursor
+            return mock.MagicMock()
+
+        def commit(self):
+            return None
+
+        def close(self):
+            self.closed = True
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    def _read_ids(
+        self,
+        *,
+        should_use_incremental_field: bool,
+        rows_before_conflict: int,
+        primary_keys: list[str] | None = None,
+        key_is_nullable: bool = False,
+    ) -> list[int]:
+        @contextmanager
+        def fake_tunnel():
+            yield ("localhost", 5432)
+
+        fake_table = mock.Mock()
+        fake_table.to_arrow_schema.return_value = pa.schema([pa.field("id", pa.int64())])
+        fake_table.type = "table"
+        fake_table.columns = [PostgreSQLColumn(name="id", data_type="integer", nullable=key_is_nullable)]
+        fake_table.__contains__ = mock.Mock(return_value=False)
+
+        scan = self._Scan(list(self._ROWS))
+        connection = self._Connection(self._NamedCursor(rows_before_conflict, scan))
+
+        module = "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres"
+        with (
+            patch(f"{module}.psycopg.connect", return_value=connection),
+            patch(f"{module}.psycopg.Cursor", side_effect=lambda _conn: self._PageCursor(scan)),
+            patch(f"{module}._get_table", return_value=fake_table),
+            patch(f"{module}._is_read_replica", return_value=True),
+            patch(f"{module}._is_duckdb_connection", return_value=False),
+            patch(f"{module}._get_primary_keys", return_value=primary_keys),
+            patch(f"{module}._is_partitioned_table", return_value=False),
+            patch(f"{module}._get_table_chunk_size", return_value=_TableChunking(batch_rows=2, fetch_rows=2)),
+            patch(f"{module}._get_rows_to_sync", return_value=len(self._ROWS)),
+            patch(f"{module}._role_subject_to_rls", return_value=False),
+            patch(f"{module}._get_partition_settings", return_value=None),
+            patch(f"{module}.time.sleep"),
+        ):
+            response = postgres_source(
+                tunnel=lambda: fake_tunnel(),
+                user="u",
+                password="p",
+                database="db",
+                sslmode="prefer",
+                schema="public",
+                table_names=["companies"],
+                should_use_incremental_field=should_use_incremental_field,
+                incremental_field="id" if should_use_incremental_field else None,
+                incremental_field_type=IncrementalFieldType.Integer if should_use_incremental_field else None,
+                logger=structlog.get_logger(),
+                db_incremental_field_last_value=0 if should_use_incremental_field else None,
+                team_id=1,
+            )
+            return [row["id"] for table in cast(Iterable[Any], response.items()) for row in table.to_pylist()]
+
+    @pytest.mark.parametrize(
+        "should_use_incremental_field,rows_before_conflict",
+        [(False, 0), (True, 2)],
+        ids=["full_refresh_has_no_order_of_its_own", "incremental_read_is_ordered_by_its_cursor"],
+    )
+    def test_chunked_reread_yields_every_row_exactly_once(self, should_use_incremental_field, rows_before_conflict):
+        ids = self._read_ids(
+            should_use_incremental_field=should_use_incremental_field,
+            rows_before_conflict=rows_before_conflict,
+            primary_keys=["id"],
+        )
+
+        assert sorted(ids) == [row[0] for row in self._ROWS]
+
+    def test_full_refresh_stays_retryable_when_rows_are_already_written(self):
+        with pytest.raises(psycopg.errors.SerializationFailure):
+            self._read_ids(should_use_incremental_field=False, rows_before_conflict=2, primary_keys=["id"])
+
+    @pytest.mark.parametrize(
+        "rows_before_conflict,primary_keys,key_is_nullable",
+        [(0, None, False), (2, None, False), (0, ["id"], True)],
+        ids=["no_key_at_all", "no_key_at_all_after_rows_written", "key_column_is_nullable"],
+    )
+    def test_full_refresh_without_a_seekable_key_fails_non_retryably(
+        self, rows_before_conflict, primary_keys, key_is_nullable
+    ):
+        with pytest.raises(Exception) as exc_info:
+            self._read_ids(
+                should_use_incremental_field=False,
+                rows_before_conflict=rows_before_conflict,
+                primary_keys=primary_keys,
+                key_is_nullable=key_is_nullable,
+            )
+
+        message = str(exc_info.value)
+        assert "no key that can resume a canceled read" in message
+        assert any(fragment in message for fragment in PostgresSource().get_non_retryable_errors())
 
 
 class TestSafeCloseConnection:
@@ -3844,6 +4071,35 @@ class TestValidateCredentialsErrorMapping:
         assert host not in (error or "")
         assert "hostname" in (error or "")
 
+    @pytest.mark.parametrize(
+        "host",
+        [
+            "db.example.com:5432",  # host:port pasted into the host field
+            "db.example.com:",  # trailing colon with an empty port
+        ],
+    )
+    def test_port_in_host_field_rejected_before_dns(self, source, host):
+        config = source.parse_config(
+            {
+                "host": host,
+                "port": 5432,
+                "database": "postgres",
+                "user": "postgres",
+                "password": "postgres",
+                "schema": "public",
+            }
+        )
+        with (
+            mock.patch.object(source, "ssh_tunnel_is_valid", return_value=(True, None)),
+            mock.patch.object(source, "is_database_host_valid", side_effect=AssertionError("should not resolve")),
+            mock.patch.object(source, "get_schemas", side_effect=AssertionError("should not connect")),
+        ):
+            valid, error = source.validate_credentials(config, team_id=1)
+
+        assert valid is False
+        assert host not in (error or "")
+        assert "port field" in (error or "")
+
 
 class TestPostgresSchemaDiscovery:
     def _mock_connection(self, *fetchall_results: list[tuple[object, ...]]):
@@ -4103,6 +4359,40 @@ class TestPostgresSchemaDiscovery:
         assert set(schemas.keys()) == {"public.users"}
         conflicted_connection.close.assert_called_once()
         good_connection.close.assert_called_once()
+
+    def test_get_schemas_retries_supavisor_generic_timeout_on_discovery_query(self):
+        # Supavisor reports a pool checkout or backend-connect timeout as a ConnectionFailure
+        # carrying "{:error, :timeout}", the generic Erlang GenServer call-timeout atom. Discovery
+        # must retry on a fresh connection; the failed connection must not be rolled back (rollback
+        # on a dead connection raises a misleading secondary exception that buries the real cause).
+        drop = psycopg.errors.ConnectionFailure("Failed to connect to database: {:error, :timeout}")
+        dropped_connection = self._drop_on_execute_connection(drop)
+        good_connection = self._mock_connection(
+            [("public", "users")],
+            [("public", "users", "id", "integer", "NO", 1)],
+        )
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
+            side_effect=[dropped_connection, good_connection],
+        ) as connect_mock:
+            with mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.time.sleep"
+            ):
+                schemas = get_schemas(
+                    host="localhost",
+                    port=5432,
+                    database="postgres",
+                    user="postgres",
+                    password="postgres",
+                    schema="",
+                )
+
+        assert connect_mock.call_count == 2
+        assert set(schemas.keys()) == {"public.users"}
+        dropped_connection.close.assert_called_once()
+        good_connection.close.assert_called_once()
+        dropped_connection.rollback.assert_not_called()
 
     def test_get_schemas_retries_connection_limit_refused_on_connect(self):
         # The customer database can refuse the discovery connect outright once it's out of slots
@@ -5407,11 +5697,48 @@ class TestGetTableChunkSize:
         with autocommit_pg_connection.cursor() as cursor:
             inner_query = sql.SQL("SELECT * FROM does_not_exist_chunk_probe").format()
 
-            chunk_size = _get_table_chunk_size(cast(Any, cursor), inner_query, logger)
+            chunk_size = _get_table_chunk_size(cast(Any, cursor), inner_query, logger).batch_rows
             assert chunk_size == DEFAULT_CHUNK_SIZE
 
             cursor.execute("SELECT 1")
             assert cursor.fetchone()[0] == 1
+
+    @pytest.mark.django_db
+    def test_common_wide_rows_shrink_the_fetch_without_shrinking_the_batch(self):
+        # Wide rows sitting between the p95 and the p99: too rare to move the batch, common
+        # enough to fill a FETCH.
+        logger = structlog.get_logger()
+
+        with django_connection.cursor() as dj_cursor:
+            dj_cursor.execute("CREATE TEMP TABLE wide_rows (id int, payload text)")
+            dj_cursor.execute("INSERT INTO wide_rows SELECT g, 'x' FROM generate_series(1, 200) g")
+            dj_cursor.execute(
+                "INSERT INTO wide_rows SELECT g, repeat('x', 1024 * 1024) FROM generate_series(201, 206) g"
+            )
+
+            chunking = _get_table_chunk_size(cast(Any, dj_cursor), sql.SQL("SELECT * FROM wide_rows").format(), logger)
+
+        # The p95 still sees a narrow row, so the batch stays large; the FETCH does not.
+        assert chunking.batch_rows > 100_000
+        assert chunking.fetch_rows < 200
+
+    @pytest.mark.django_db
+    def test_a_lone_wide_row_does_not_shrink_the_fetch(self):
+        # One outlier among two hundred cannot fill a page, and the FETCH cap is a ceiling the
+        # reader can never grow back above — so pricing the whole table off it would strand every
+        # later fetch at a handful of rows for one row's sake.
+        logger = structlog.get_logger()
+
+        with django_connection.cursor() as dj_cursor:
+            dj_cursor.execute("CREATE TEMP TABLE lone_wide_row (id int, payload text)")
+            dj_cursor.execute("INSERT INTO lone_wide_row SELECT g, 'x' FROM generate_series(1, 200) g")
+            dj_cursor.execute("INSERT INTO lone_wide_row VALUES (201, repeat('x', 1024 * 1024))")
+
+            chunking = _get_table_chunk_size(
+                cast(Any, dj_cursor), sql.SQL("SELECT * FROM lone_wide_row").format(), logger
+            )
+
+        assert chunking.fetch_rows == chunking.batch_rows
 
     @pytest.mark.django_db
     def test_statement_timeout_falls_back_without_poisoning_transaction(self):
@@ -5426,12 +5753,135 @@ class TestGetTableChunkSize:
             dj_cursor.execute("SET LOCAL statement_timeout = '100ms'")
             inner_query = sql.SQL("SELECT pg_sleep(3) AS c").format()
 
-            chunk_size = _get_table_chunk_size(cast(Any, dj_cursor), inner_query, logger)
+            chunk_size = _get_table_chunk_size(cast(Any, dj_cursor), inner_query, logger).batch_rows
             assert chunk_size == DEFAULT_CHUNK_SIZE
 
             # Savepoint rollback leaves the connection usable for the rest of setup.
             dj_cursor.execute("SELECT 1")
             assert dj_cursor.fetchone()[0] == 1
+
+    class _ProbeCursor:
+        def __init__(self, row):
+            self._row = row
+            self.connection = mock.Mock(autocommit=True)
+
+        def execute(self, *args, **kwargs):
+            return None
+
+        def fetchall(self):
+            return []
+
+        def fetchone(self):
+            return self._row
+
+    def test_a_row_wider_than_the_budget_still_reads_one_row_at_a_time(self):
+        # Flooring the division to zero reads `FETCH FORWARD 0`, and an empty page is
+        # indistinguishable from the end of the result set — the table would sync as empty.
+        wider_than_the_budget = float(DEFAULT_TABLE_SIZE_BYTES * 2)
+        cursor = self._ProbeCursor((wider_than_the_budget, wider_than_the_budget, int(wider_than_the_budget)))
+
+        chunking = _get_table_chunk_size(cast(Any, cursor), sql.SQL("SELECT 1").format(), structlog.get_logger())
+
+        assert chunking.batch_rows == 1
+        assert chunking.fetch_rows == 1
+
+    def test_a_sample_that_measured_nothing_falls_back(self):
+        # NULL percentiles mean no row was measured, not that rows are one byte wide. Reading
+        # that as a size derives a 150-million-row chunk, and with no page cap in play the chunk
+        # is what sizes the FETCH, so the read asks for the whole table in one page.
+        cursor = self._ProbeCursor((None, None, None))
+
+        chunking = _get_table_chunk_size(cast(Any, cursor), sql.SQL("SELECT 1").format(), structlog.get_logger())
+
+        assert chunking == _TableChunking(batch_rows=DEFAULT_CHUNK_SIZE, fetch_rows=DEFAULT_CHUNK_SIZE)
+
+
+class TestSizeSamplePercent:
+    @parameterized.expand(
+        [
+            ("no_estimate", None, None),
+            ("zero_estimate", 0, None),
+            ("smaller_than_the_target", 400, 100.0),
+            ("large_table", 2_000_000, 0.05),
+            ("beyond_the_floor", 10_000_000_000, MIN_SIZE_SAMPLE_PERCENT),
+        ]
+    )
+    def test_scales_the_sample_to_the_table(self, _name, row_estimate, expected):
+        assert _size_sample_percent(row_estimate) == expected
+
+
+class TestFetchRowsFor:
+    @parameterized.expand(
+        [
+            # Nothing measured has to leave the whole-batch FETCH alone, or every table pays
+            # round trips for a risk only some of them carry.
+            ("unmeasured", None, 100_000, 100_000),
+            ("zero", 0, 100_000, 100_000),
+            # A uniform table's p99 is close to its p95, so the FETCH barely moves.
+            ("uniform_rows", 2 * 1024, 100_000, 76_800),
+            # Wide rows common enough to fill a page are what the cap exists for.
+            ("wide_rows", 3 * 1024 * 1024, 100_000, 50),
+            ("wider_than_the_budget", 400 * 1024 * 1024, 100_000, 1),
+        ]
+    )
+    def test_derives_the_fetch_from_the_p99_row(self, _name, wide_row_bytes, batch_rows, expected):
+        assert _fetch_rows_for(batch_rows, wide_row_bytes) == expected
+
+
+class TestSamplingQuery:
+    def _sampling_query(self, sample_percent):
+        return _build_query(
+            "public",
+            "events",
+            False,
+            "table",
+            None,
+            None,
+            None,
+            add_sampling=True,
+            sample_percent=sample_percent,
+        ).as_string()
+
+    def test_a_sized_sample_is_not_truncated_to_the_head_of_the_table(self):
+        # A sample scan reads blocks in physical order, so a target-sized LIMIT over a fixed 1%
+        # only ever measures the front of the table — blind to a region that widens later.
+        query = self._sampling_query(0.05)
+
+        assert "TABLESAMPLE SYSTEM (0.05)" in query
+        assert f"LIMIT {SIZE_SAMPLE_MAX_ROWS}" in query
+
+    def test_falls_back_to_the_fixed_sample_without_an_estimate(self):
+        query = self._sampling_query(None)
+
+        assert "TABLESAMPLE SYSTEM (1)" in query
+        assert f"LIMIT {SIZE_SAMPLE_TARGET_ROWS}" in query
+
+    def _incremental_sampling_query(self, sample_percent):
+        return _build_query(
+            "public",
+            "events",
+            True,
+            "table",
+            "id",
+            IncrementalFieldType.Integer,
+            0,
+            add_sampling=True,
+            sample_percent=sample_percent,
+        ).as_string()
+
+    @parameterized.expand(
+        [
+            # A small table is one page, and a 1% page sample misses it ~99 times in 100, so the
+            # sync measures nothing and has to guess at its row size.
+            ("small_table_is_measured_whole", 100.0, "TABLESAMPLE SYSTEM (100.0)"),
+            # Below the floor the sample stays what it has always been, because the estimate
+            # describes the table and the query reads a slice of it.
+            ("large_table_keeps_the_fixed_sample", 0.05, "TABLESAMPLE SYSTEM (1.0)"),
+            ("no_estimate_keeps_the_fixed_sample", None, "TABLESAMPLE SYSTEM (1)"),
+        ]
+    )
+    def test_the_incremental_sample_never_draws_fewer_pages_than_before(self, _name, sample_percent, expected):
+        assert expected in self._incremental_sampling_query(sample_percent)
 
 
 class TestGetRowsToSync:
@@ -7023,6 +7473,7 @@ class _FakeCursor:
         self._executed = True
 
     def fetchmany(self, n: int):
+        self.owner.owner.fetch_sizes.append(n)
         if not self._executed:
             return []
         batch, self._rows_remaining = self._rows_remaining[:n], self._rows_remaining[n:]
@@ -7064,6 +7515,7 @@ class _FakeConnectionFactory:
         self.script = script
         self.connections_opened = 0
         self.connections: list[_FakeConnection] = []
+        self.fetch_sizes: list[int] = []
 
     def __call__(self) -> _FakeConnection:
         self.connections_opened += 1
@@ -7098,6 +7550,7 @@ def _run_windows(script, **overrides):
         "db_incremental_field_last_value": date(2026, 1, 1),
         "child_partitions": [],
         "chunk_size": 1000,
+        "byte_bounded": False,
         "arrow_schema": _arrow_schema(),
         "logger": structlog.get_logger(),
         "initial_window": timedelta(days=1),
@@ -7290,6 +7743,9 @@ class TestIterateDateWindowsFake:
             _run_windows(
                 script=script,
                 child_partitions=[child],
+                # One row per batch, so the row really is out before the drop: rows read into the
+                # batcher but not yet yielded are discarded with the failed window and re-read.
+                chunk_size=1,
                 is_connection_dropped=_is_connection_dropped_error,
             )
 
@@ -7898,7 +8354,7 @@ class TestGetRowsInitialReadDropRetry:
             patch(f"{module}._is_duckdb_connection", return_value=False),
             patch(f"{module}._get_primary_keys", return_value=["id"]),
             patch(f"{module}._is_partitioned_table", return_value=False),
-            patch(f"{module}._get_table_chunk_size", return_value=100),
+            patch(f"{module}._get_table_chunk_size", return_value=_TableChunking(batch_rows=100, fetch_rows=100)),
             patch(f"{module}._get_rows_to_sync", return_value=10),
             patch(f"{module}._role_subject_to_rls", return_value=False),
             patch(f"{module}._get_partition_settings", return_value=None),
@@ -8046,7 +8502,7 @@ class TestGetRowsInitialReadLockTimeoutRetry:
             patch(f"{module}._is_duckdb_connection", return_value=False),
             patch(f"{module}._get_primary_keys", return_value=["id"]),
             patch(f"{module}._is_partitioned_table", return_value=False),
-            patch(f"{module}._get_table_chunk_size", return_value=100),
+            patch(f"{module}._get_table_chunk_size", return_value=_TableChunking(batch_rows=100, fetch_rows=100)),
             patch(f"{module}._get_rows_to_sync", return_value=10),
             patch(f"{module}._role_subject_to_rls", return_value=False),
             patch(f"{module}._get_partition_settings", return_value=None),
@@ -8210,7 +8666,7 @@ class TestPartitionIterationConnectRetry:
             patch(f"{module}._is_partitioned_table", return_value=True),
             patch(f"{module}.list_child_partitions", return_value=[child]),
             patch(f"{module}.get_partition_strategy", return_value=partition_strategy),
-            patch(f"{module}._get_table_chunk_size", return_value=1000),
+            patch(f"{module}._get_table_chunk_size", return_value=_TableChunking(batch_rows=1000, fetch_rows=1000)),
             patch(f"{module}._get_rows_to_sync", return_value=10),
             patch(f"{module}._role_subject_to_rls", return_value=False),
             patch(f"{module}._get_partition_settings", return_value=None),
@@ -8237,3 +8693,188 @@ class TestPartitionIterationConnectRetry:
         # 1 setup + 2 per-window/per-partition connects (1 dropped commit + 1 success).
         assert connect_mock.call_count == 3
         assert sum(table.num_rows for table in tables) == 3
+
+
+class TestExtractionByteBounds:
+    """Extraction batches must be bounded by accumulated bytes, not by a sampled row count.
+
+    The chunk size is derived from a p95 `octet_length` sample, so on a table whose row
+    sizes span orders of magnitude a fixed row count buys no memory bound at all: a heavy
+    region fetches the same row count and materialises gigabytes.
+    """
+
+    BUDGET = 8 * 1024
+    BLOB = "x" * 1024
+
+    def _schema(self) -> pa.Schema:
+        fields: list[pa.Field] = [pa.field("id", pa.int64()), pa.field("val", pa.string())]
+        return pa.schema(fields)
+
+    def _child(self) -> ChildPartition:
+        return ChildPartition(
+            oid=1,
+            schema="public",
+            name="p",
+            partbound="FOR VALUES FROM ('2026-01-01') TO ('2026-01-02')",
+        )
+
+    def test_batches_flush_on_the_byte_budget_not_the_row_count(self):
+        rows = [(i, "s") for i in range(200)] + [(i, self.BLOB) for i in range(200, 400)]
+
+        with patch.object(batching, "EXTRACT_BATCH_MAX_BYTES", self.BUDGET):
+            tables, _ = _run_windows(
+                script=[list(rows)],
+                child_partitions=[self._child()],
+                chunk_size=400,
+                byte_bounded=True,
+                arrow_schema=self._schema(),
+            )
+
+        assert sum(table.num_rows for table in tables) == 400
+        assert [value for table in tables for value in table.column("val").to_pylist()] == [row[1] for row in rows]
+        # A blob row costs ~1 KiB, so a batch that respects an 8 KiB budget holds a handful of
+        # them — never the whole 400-row chunk.
+        oversized = [table.num_rows for table in tables if table_payload_bytes(table) > self.BUDGET]
+        assert oversized == []
+
+    def test_gate_off_keeps_the_row_count_batching(self):
+        rows = [(i, self.BLOB) for i in range(400)]
+
+        with patch.object(batching, "EXTRACT_BATCH_MAX_BYTES", self.BUDGET):
+            tables, factory = _run_windows(
+                script=[list(rows)],
+                child_partitions=[self._child()],
+                chunk_size=400,
+                byte_bounded=False,
+                arrow_schema=self._schema(),
+            )
+
+        assert [table.num_rows for table in tables] == [400]
+        assert set(factory.fetch_sizes) == {400}
+
+    def test_fetch_pages_shrink_once_wide_rows_appear(self):
+        rows = [(i, "s") for i in range(1000)] + [(i, self.BLOB) for i in range(1000, 2000)]
+
+        with patch.object(batching, "EXTRACT_BATCH_MAX_BYTES", self.BUDGET):
+            _, factory = _run_windows(
+                script=[list(rows)],
+                child_partitions=[self._child()],
+                chunk_size=100_000,
+                byte_bounded=True,
+                arrow_schema=self._schema(),
+            )
+
+        # Once a 1 KiB row has been seen, a page of the sampled row count would hold ~100 MiB.
+        assert max(factory.fetch_sizes[-3:]) <= self.BUDGET // len(self.BLOB) + 1
+
+
+class TestFetchPageGate:
+    """The page cap is the byte bound's own instrument, so the rollout gate has to hold it back too.
+
+    Left applied with the gate off it shrinks the `FETCH` without ever flushing a batch: the read
+    pays a round trip per page and still accumulates the whole table into one batch, which is
+    strictly worse than the single full-size fetch it replaced.
+    """
+
+    class _Cursor:
+        def __init__(self, *, named: bool, rows: list, fetch_sizes: list[int]):
+            self._named = named
+            self._rows = list(rows) if named else []
+            self._fetch_sizes = fetch_sizes
+            col = mock.Mock()
+            col.name = "id"
+            self.description = [col]
+
+        def execute(self, *args, **kwargs):
+            return None
+
+        def fetchmany(self, n):
+            if not self._named:
+                return []
+            self._fetch_sizes.append(n)
+            batch, self._rows = self._rows[:n], self._rows[n:]
+            return batch
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    class _Connection:
+        def __init__(self, rows, fetch_sizes):
+            self.autocommit = False
+            self.closed = False
+            self.broken = False
+            self.adapters = mock.Mock()
+            self._rows = rows
+            self._fetch_sizes = fetch_sizes
+
+        def cursor(self, *args, **kwargs):
+            return TestFetchPageGate._Cursor(named="name" in kwargs, rows=self._rows, fetch_sizes=self._fetch_sizes)
+
+        def commit(self):
+            return None
+
+        def close(self):
+            self.closed = True
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    def _fetch_sizes(self, *, byte_bounded: bool) -> list[int]:
+        from contextlib import contextmanager
+
+        @contextmanager
+        def fake_tunnel():
+            yield ("localhost", 5432)
+
+        fake_table = mock.Mock()
+        fake_table.to_arrow_schema.return_value = pa.schema([pa.field("id", pa.int64())])
+        fake_table.type = "table"
+        fake_table.columns = []
+        fake_table.__contains__ = mock.Mock(return_value=False)
+
+        fetch_sizes: list[int] = []
+        rows = [(i,) for i in range(20)]
+
+        module = "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres"
+        with (
+            patch(f"{module}.psycopg.connect", return_value=self._Connection(rows, fetch_sizes)),
+            patch(f"{module}.psycopg.Cursor", return_value=self._Cursor(named=False, rows=[], fetch_sizes=[])),
+            patch(f"{module}._get_table", return_value=fake_table),
+            patch(f"{module}._is_read_replica", return_value=False),
+            patch(f"{module}._is_duckdb_connection", return_value=False),
+            patch(f"{module}._get_primary_keys", return_value=["id"]),
+            patch(f"{module}._is_partitioned_table", return_value=False),
+            patch(f"{module}._get_table_chunk_size", return_value=_TableChunking(batch_rows=1000, fetch_rows=7)),
+            patch(f"{module}._get_rows_to_sync", return_value=20),
+            patch(f"{module}._role_subject_to_rls", return_value=False),
+            patch(f"{module}._get_partition_settings", return_value=None),
+        ):
+            response = postgres_source(
+                tunnel=lambda: fake_tunnel(),
+                user="u",
+                password="p",
+                database="db",
+                sslmode="prefer",
+                schema="public",
+                table_names=["companies"],
+                should_use_incremental_field=False,
+                logger=structlog.get_logger(),
+                db_incremental_field_last_value=None,
+                team_id=1,
+                byte_bounded_extraction=byte_bounded,
+            )
+            list(cast(Iterable[Any], response.items()))
+
+        return fetch_sizes
+
+    def test_gate_off_fetches_the_whole_chunk(self):
+        assert set(self._fetch_sizes(byte_bounded=False)) == {1000}
+
+    def test_gate_on_fetches_the_measured_page(self):
+        assert max(self._fetch_sizes(byte_bounded=True)) == 7

@@ -1,9 +1,10 @@
-import { GitBranch, Spinner, TreeStructure } from "@phosphor-icons/react";
+import { GitBranch, TreeStructure } from "@phosphor-icons/react";
 import { SidebarItem } from "@posthog/ui/features/sidebar/components/SidebarItem";
 import { SidebarSection } from "@posthog/ui/features/sidebar/components/SidebarSection";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import { useAdoptableWorktrees } from "@posthog/ui/features/sidebar/useAdoptableWorktrees";
 import { useStartTaskFromWorktree } from "@posthog/ui/features/sidebar/useStartTaskFromWorktree";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 
 interface GroupWorktreesSectionProps {
   groupId: string;
@@ -50,7 +51,7 @@ export function GroupWorktreesSection({
             disabled={isStarting}
             endContent={
               isStarting ? (
-                <Spinner size={12} className="animate-spin text-gray-10" />
+                <Spinner size={12} className="text-gray-10" />
               ) : undefined
             }
             onClick={() => void startTask(worktree.branch)}

@@ -17,6 +17,8 @@ from posthog.schema import (
     MCPToolQualityRowsQueryResponse,
 )
 
+from posthog.hogql import ast
+
 from products.access_control.backend.facade.user_access_control import UserAccessControlError
 from products.mcp_analytics.backend.hogql_queries.tool_quality_tables import (
     MCPToolCategoriesQueryRunner,
@@ -113,10 +115,12 @@ class TestMCPToolQualityRowsQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clickh
             query=MCPToolQualityRowsQuery(dateRange=DateRange(date_from="-7d"), limit=2, offset=100),
             team=self.team,
         ).calculate()
-        searched = MCPToolQualityRowsQueryRunner(
+        searched_runner = MCPToolQualityRowsQueryRunner(
             query=MCPToolQualityRowsQuery(dateRange=DateRange(date_from="-7d"), search="TARGET", limit=1),
             team=self.team,
-        ).calculate()
+        )
+        searched_query = searched_runner.to_query()
+        searched = searched_runner.calculate()
         highest_error_rate = MCPToolQualityRowsQueryRunner(
             query=MCPToolQualityRowsQuery(
                 dateRange=DateRange(date_from="-7d"),
@@ -133,6 +137,8 @@ class TestMCPToolQualityRowsQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clickh
         assert last_page.totalCount == 3
         assert out_of_range_page.results == []
         assert out_of_range_page.totalCount == 3
+        assert isinstance(searched_query, ast.SelectQuery)
+        assert searched_query.having is None
         assert [row.tool for row in searched.results] == ["rare_target"]
         assert searched.totalCount == 1
         assert [row.tool for row in highest_error_rate.results] == ["rare_target"]

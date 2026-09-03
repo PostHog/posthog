@@ -33,6 +33,7 @@ import {
   type NativeGoalState,
   POSTHOG_METHODS,
   POSTHOG_NOTIFICATIONS,
+  steerDeclined,
 } from "../../acp-extensions";
 import {
   buildContextWikiInstructions,
@@ -113,6 +114,48 @@ const POLICY_ERROR_MESSAGE =
 const GENERIC_FATAL_ERROR_MESSAGE =
   "The agent stopped before completing this request. Please try again.";
 
+type ApprovalRequestDetail = {
+  itemId?: string;
+  command?: string;
+  changes?: AppServerItem["changes"];
+  availableDecisions?: unknown[];
+  reason?: string | null;
+  grantRoot?: string | null;
+  networkApprovalContext?: unknown;
+  additionalPermissions?: unknown;
+  proposedNetworkPolicyAmendments?: unknown[] | null;
+};
+
+export function shouldAutoAcceptLocalApproval(input: {
+  environment?: "local" | "cloud";
+  mode: string;
+  sandboxPolicy?: CodexSandboxPolicy;
+  method: string;
+  detail: ApprovalRequestDetail;
+  hasMcpToolCall: boolean;
+}): boolean {
+  if (
+    input.environment !== "local" ||
+    input.mode !== "auto" ||
+    input.sandboxPolicy?.type !== "workspaceWrite" ||
+    input.hasMcpToolCall ||
+    input.detail.reason
+  ) {
+    return false;
+  }
+  if (input.method === APP_SERVER_REQUESTS.FILE_CHANGE_APPROVAL) {
+    return !input.detail.grantRoot;
+  }
+  if (input.method !== APP_SERVER_REQUESTS.COMMAND_APPROVAL) {
+    return false;
+  }
+  return (
+    input.detail.networkApprovalContext == null &&
+    input.detail.additionalPermissions == null &&
+    !input.detail.proposedNetworkPolicyAmendments?.length
+  );
+}
+
 type AppServerSessionMeta = {
   // The host sends either a plain string or the Claude-style `{ append }` form.
   systemPrompt?: string | { append?: string };
@@ -185,10 +228,6 @@ function parseGoalCommand(prompt: PromptRequest["prompt"]): GoalCommand | null {
     default:
       return { kind: "set", objective: argument };
   }
-}
-
-function steerDeclined(): PromptResponse {
-  return { stopReason: "end_turn", _meta: { steer: false } };
 }
 
 function mergePromptResponses(
@@ -803,15 +842,24 @@ export class CodexAppServerAgent extends BaseAcpAgent {
     if (!this.threadId) {
       throw new Error("prompt() called before newSession()");
     }
+    const isSteer =
+      (params._meta as { steer?: unknown } | undefined)?.steer === true;
+    if (isSteer && this.session.cancelled) {
+      return steerDeclined("cancelled");
+    }
     const goalCommand = parseGoalCommand(params.prompt);
     if (goalCommand) {
       this.broadcastUserInput(visiblePromptBlocks(params.prompt));
       await this.handleGoalCommand(goalCommand);
-      return { stopReason: "end_turn" };
+      return isSteer
+        ? { stopReason: "end_turn", _meta: { steer: true } }
+        : { stopReason: "end_turn" };
     }
     this.cancelNextGoalTurn = false;
     // Reopen the notification gate (a prior interrupt may have left session.cancelled set).
-    this.session.cancelled = false;
+    if (!isSteer) {
+      this.session.cancelled = false;
+    }
     // A new prompt while the plan handoff awaits approval implicitly declines it:
     // settle the race so the previous prompt() returns and this one owns the turn.
     this.planHandoffCancel?.();
@@ -876,8 +924,6 @@ export class CodexAppServerAgent extends BaseAcpAgent {
     if (dropped > 0) {
       this.logger.warn("Dropped non-text/non-image prompt blocks", { dropped });
     }
-    const isSteer =
-      (params._meta as { steer?: unknown } | undefined)?.steer === true;
     if (this.turns.isRunning) {
       if (isSteer) {
         return await this.steerRunningTurn(input, params.prompt);
@@ -895,7 +941,9 @@ export class CodexAppServerAgent extends BaseAcpAgent {
       return { stopReason: "end_turn", _meta: { steer: true } };
     }
     if (isSteer) {
-      return steerDeclined();
+      return steerDeclined(
+        this.turns.isPending ? "turn_not_steerable" : "no_in_flight_turn",
+      );
     }
     if (this.turns.isPending) {
       // A turn is pending but has no turnId yet, so we can't steer; fail fast.
@@ -1059,7 +1107,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
     prompt: PromptRequest["prompt"],
   ): Promise<PromptResponse> {
     if (this.steering) {
-      return steerDeclined();
+      return steerDeclined("steer_in_flight");
     }
     this.steering = true;
     try {
@@ -1067,7 +1115,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
         ? undefined
         : this.turns.markInterrupted();
       if (!turnId) {
-        return steerDeclined();
+        return steerDeclined("cancelled");
       }
       await this.interruptTurn(turnId, "steer turn/interrupt failed");
       this.planProposal = undefined;
@@ -1083,7 +1131,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
         if (!this.turns.clearInterrupted(turnId)) {
           await this.finalizeTurn("cancelled");
         }
-        return steerDeclined();
+        return steerDeclined("continuation_failed");
       }
       this.usage.carryForNativeTurn();
       if (this.session.cancelled) {
@@ -1100,7 +1148,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
             "orphan continuation interrupt failed",
           );
         }
-        return steerDeclined();
+        return steerDeclined("cancelled");
       }
       this.broadcastUserInput(prompt);
       return { stopReason: "end_turn", _meta: { steer: true } };
@@ -1705,6 +1753,13 @@ export class CodexAppServerAgent extends BaseAcpAgent {
           void this.refuseTurnWithMessage(policyErrorMessage);
           return;
         }
+        // ChatGPT's own usage limit, not a PostHog gateway denial — show the
+        // account's real reason (it already includes a reset time) instead
+        // of the generic fallback below.
+        if (codexErrorInfo === "usageLimitExceeded" && message) {
+          void this.refuseTurnWithMessage(message);
+          return;
+        }
         void this.failTurn(
           new RequestError(
             ACP_INTERNAL_ERROR_CODE,
@@ -2206,12 +2261,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
       return { decision: "decline" };
     }
     const isFileChange = method === APP_SERVER_REQUESTS.FILE_CHANGE_APPROVAL;
-    const detail = params as {
-      itemId?: string;
-      command?: string;
-      changes?: AppServerItem["changes"];
-      availableDecisions?: unknown[];
-    };
+    const detail = params as ApprovalRequestDetail;
     // codex lists the decisions valid for this prompt. An "approve and remember"
     // decision is echoed back verbatim: either the string "acceptForSession" or the
     // acceptWithExecpolicyAmendment object carrying the proposed allowlist amendment.
@@ -2241,6 +2291,18 @@ export class CodexAppServerAgent extends BaseAcpAgent {
     // Codex has no MCP-specific approval; a known MCP call surfaces the real server/tool/args
     // so the host renders the proper MCP permission (incl. PostHog `exec` unwrapping).
     const mcp = this.mcp.byItemId(detail.itemId);
+    if (
+      shouldAutoAcceptLocalApproval({
+        environment: this.environment,
+        mode: this.config.mode,
+        sandboxPolicy: this.sandboxPolicyForTurn(),
+        method,
+        detail,
+        hasMcpToolCall: Boolean(mcp),
+      })
+    ) {
+      return { decision: "accept" };
+    }
     if (mcp && this.shouldAutoAcceptMcpToolCall(mcp)) {
       return { decision: "accept" };
     }

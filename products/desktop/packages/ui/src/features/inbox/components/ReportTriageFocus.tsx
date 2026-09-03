@@ -1,38 +1,33 @@
+import { canCreateImplementationPr } from "@posthog/core/inbox/reportActions";
 import {
-  CaretLeftIcon,
-  CaretRightIcon,
-  FileTextIcon,
-  XIcon,
-} from "@phosphor-icons/react";
-import {
-  humanizeReportTitle,
-  splitReportSummary,
-} from "@posthog/core/inbox/reportPresentation";
+  type InboxScope,
+  inboxReviewerScopeValue,
+  inboxScopeTriggerLabel,
+} from "@posthog/core/inbox/reportMembership";
+import { parsePrUrl } from "@posthog/core/inbox/reportPresentation";
 import { Button } from "@posthog/quill";
+import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { isDismissalReasonSnooze } from "@posthog/shared/dismissalReasons";
 import type { SignalReport } from "@posthog/shared/types";
-import { DetailSection } from "@posthog/ui/features/inbox/components/DetailSection";
 import {
   DismissReportDialog,
   type DismissReportDialogResult,
 } from "@posthog/ui/features/inbox/components/DismissReportDialog";
+import { ReportChatSidebar } from "@posthog/ui/features/inbox/components/ReportChatSidebar";
+import { ReportTriageFocusView } from "@posthog/ui/features/inbox/components/ReportTriageFocusView";
 import { ReportVerdictBanner } from "@posthog/ui/features/inbox/components/ReportVerdictBanner";
-import { SignalReportPriorityBadge } from "@posthog/ui/features/inbox/components/utils/SignalReportPriorityBadge";
-import { SignalReportSummaryMarkdown } from "@posthog/ui/features/inbox/components/utils/SignalReportSummaryMarkdown";
+import { SuggestedReviewerAvatarStack } from "@posthog/ui/features/inbox/components/SuggestedReviewerAvatarStack";
 import { useInboxBulkActions } from "@posthog/ui/features/inbox/hooks/useInboxBulkActions";
 import { useInboxReportDetailPrefetch } from "@posthog/ui/features/inbox/hooks/useInboxReportDetailPrefetch";
-import { RelativeTimestamp } from "@posthog/ui/primitives/RelativeTimestamp";
+import {
+  findContinuableImplementationTask,
+  getTaskPrUrl,
+  useReportTasks,
+} from "@posthog/ui/features/inbox/hooks/useReportTasks";
+import { useReportChatPanelStore } from "@posthog/ui/features/inbox/stores/reportChatPanelStore";
 import { navigateToInboxReportDetail } from "@posthog/ui/router/navigationBridge";
-import { useCallback, useEffect, useMemo, useState } from "react";
-
-/** A keyboard hint chip; quill has no kbd primitive, so plain HTML carries it. */
-export function KeyCap({ children }: { children: string }) {
-  return (
-    <kbd className="rounded border border-(--gray-6) bg-(--gray-2) px-1 font-mono text-[11.5px] text-gray-11">
-      {children}
-    </kbd>
-  );
-}
+import { track } from "@posthog/ui/shell/analytics";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 function isTypingTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
@@ -57,35 +52,112 @@ export function isInteractiveTarget(target: EventTarget | null): boolean {
   );
 }
 
+export function triageEnterAction(input: {
+  key: string;
+  metaKey: boolean;
+  ctrlKey: boolean;
+  altKey: boolean;
+  target: EventTarget | null;
+}): "toggle" | "open" | null {
+  if (
+    input.key !== "Enter" ||
+    input.altKey ||
+    isInteractiveTarget(input.target)
+  ) {
+    return null;
+  }
+  return input.metaKey || input.ctrlKey ? "open" : "toggle";
+}
+
 /**
- * One report at a time, keyboard-driven: the fast way through a pile of
- * decisions. Walks the needs-a-decision queue in the list's order — j/k (or
- * arrows) move, e opens archive, enter opens the full report, esc leaves.
- * Archiving auto-advances: the archived report drops out of the queue and the
- * next one takes its place under the same index.
+ * Archiving auto-advances because the archived report drops out of the queue
+ * and the next report takes its place under the same index.
  */
 export function ReportTriageFocus({
   reports,
   allReports,
+  scope,
+  hasActiveFilters,
+  initialReportId,
   onExit,
 }: {
   /** The decision queue, in the list's current sort order. */
   reports: SignalReport[];
   /** Superset backing archive eligibility (mirrors the list shells). */
   allReports: SignalReport[];
+  /** Scope and filter context inherited from the list that opened triage. */
+  scope: InboxScope;
+  hasActiveFilters: boolean;
+  initialReportId?: string;
   onExit: () => void;
 }) {
-  const [index, setIndex] = useState(0);
+  const [index, setIndex] = useState(() => {
+    const initialIndex = initialReportId
+      ? reports.findIndex((report) => report.id === initialReportId)
+      : -1;
+    return Math.max(0, initialIndex);
+  });
   const [dismissOpen, setDismissOpen] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const chatOpen = useReportChatPanelStore((state) => state.open);
+  const setChatOpen = useReportChatPanelStore((state) => state.setOpen);
+  const triageIdRef = useRef(crypto.randomUUID());
+  const sessionContextRef = useRef({
+    triage_id: triageIdRef.current,
+    queue_size: reports.length,
+    scope: inboxReviewerScopeValue(scope),
+    has_active_filters: hasActiveFilters,
+  });
+  const sessionStartedAtRef = useRef(Date.now());
+  const reviewedReportIdsRef = useRef(new Set<string>());
+  const sessionEndedRef = useRef(false);
+
+  const finishSession = useCallback((endReason: "completed" | "exited") => {
+    if (sessionEndedRef.current) return;
+    sessionEndedRef.current = true;
+    track(ANALYTICS_EVENTS.INBOX_TRIAGE_ENDED, {
+      ...sessionContextRef.current,
+      reports_reviewed: reviewedReportIdsRef.current.size,
+      duration_ms: Date.now() - sessionStartedAtRef.current,
+      end_reason: endReason,
+    });
+  }, []);
+
+  useEffect(() => {
+    track(ANALYTICS_EVENTS.INBOX_TRIAGE_STARTED, sessionContextRef.current);
+    return () => finishSession("exited");
+  }, [finishSession]);
 
   // The queue shrinks under us when a report is archived; clamping (rather
   // than resetting) is what makes archive-and-advance work.
   const clamped = Math.min(index, Math.max(0, reports.length - 1));
   const report = reports[clamped];
-  const summarySplit = useMemo(
-    () => splitReportSummary(report?.summary),
-    [report?.summary],
-  );
+  const reportId = report?.id;
+  const {
+    data: reportTasks,
+    isLoading: reportTasksLoading,
+    isError: reportTasksFailed,
+  } = useReportTasks(reportId ?? "", report?.status ?? "candidate");
+  const continuableTask = findContinuableImplementationTask(reportTasks);
+  const canCreatePr =
+    report?.status === "ready" &&
+    canCreateImplementationPr(report, {
+      hasLiveImplementationTask: continuableTask !== null,
+      // A failed lookup leaves task state unknown, same as a pending one.
+      isTaskLookupPending: reportTasksLoading || reportTasksFailed,
+    });
+  const livePrUrl = report?.implementation_pr_merged
+    ? null
+    : report?.implementation_pr_url;
+  const existingPrUrl =
+    livePrUrl ?? (continuableTask ? getTaskPrUrl(continuableTask) : null);
+  const canOpenPr =
+    report?.status === "ready" &&
+    !!existingPrUrl &&
+    parsePrUrl(existingPrUrl) !== null;
+  const prShortcut = canOpenPr ? "open" : canCreatePr ? "create" : null;
+  const previousReport = clamped > 0 ? reports[clamped - 1] : null;
+  const nextReport = clamped < reports.length - 1 ? reports[clamped + 1] : null;
   const { prefetch } = useInboxReportDetailPrefetch(
     report
       ? {
@@ -94,6 +166,21 @@ export function ReportTriageFocus({
         }
       : null,
   );
+
+  useEffect(() => {
+    if (!reportId) {
+      setChatOpen(false);
+      finishSession("completed");
+      return;
+    }
+    reviewedReportIdsRef.current.add(reportId);
+    setExpanded(false);
+    setChatOpen(false);
+    // Close the archive dialog so a confirm cannot act on the report that
+    // replaced the one it was opened for (for example after a reviewer removal
+    // drops the current report out of the "For you" queue).
+    setDismissOpen(false);
+  }, [finishSession, reportId, setChatOpen]);
 
   // Triage is intentionally sequential, so the next destination is known as
   // soon as the card renders. Warm it before Enter/Review is pressed instead
@@ -105,72 +192,98 @@ export function ReportTriageFocus({
   const bulkActions = useInboxBulkActions(
     allReports,
     report?.id ?? null,
-    "list_row",
+    "triage",
+    triageIdRef.current,
   );
   const dismissPending = bulkActions.isSuppressing || bulkActions.isSnoozing;
+
+  // Gate on the hook's disabled reason, not just is_suggested_reviewer, so the
+  // hint stays hidden until the current-user query has resolved (a press with
+  // no meUuid silently no-ops).
+  const canRemoveSelfFromReviewers =
+    bulkActions.removeReviewerDisabledReason === null &&
+    report?.is_suggested_reviewer === true;
+  const removingReviewer = bulkActions.isRemovingReviewer;
+  const handleRemoveReviewer = useCallback(() => {
+    if (removingReviewer) return;
+    void bulkActions.removeReviewerSelected();
+  }, [bulkActions, removingReviewer]);
 
   const handleDismissConfirm = useCallback(
     async (result: DismissReportDialogResult) => {
       const ok = isDismissalReasonSnooze(result.reason)
-        ? await bulkActions.snoozeSelected()
+        ? await bulkActions.snoozeSelected(result)
         : await bulkActions.suppressSelected(result);
       if (ok) setDismissOpen(false);
     },
     [bulkActions],
   );
 
-  // Defer = snooze without a dialog: one keystroke, the report re-promotes
-  // itself when enough new evidence lands. Auto-advances like archive.
-  const deferReport = useCallback(async () => {
-    if (bulkActions.snoozeDisabledReason !== null) return;
-    await bulkActions.snoozeSelected();
-  }, [bulkActions]);
-
-  const goNext = useCallback(
-    () => setIndex((i) => Math.min(i + 1, reports.length - 1)),
-    [reports.length],
-  );
-  const goPrev = useCallback(() => setIndex((i) => Math.max(i - 1, 0)), []);
+  // In the "For you" scope the removed report drops out of the queue once the
+  // refetch lands. Moving the index before that would skip the next report.
+  const goNext = useCallback(() => {
+    if (removingReviewer) return;
+    setIndex((i) => Math.min(i + 1, reports.length - 1));
+  }, [reports.length, removingReviewer]);
+  const goPrev = useCallback(() => {
+    if (removingReviewer) return;
+    setIndex((i) => Math.max(i - 1, 0));
+  }, [removingReviewer]);
+  const handleExit = useCallback(() => {
+    finishSession("exited");
+    onExit();
+  }, [finishSession, onExit]);
+  const handleOpenReport = useCallback(() => {
+    if (!report) return;
+    finishSession("exited");
+    navigateToInboxReportDetail(report.id, { returnToTriage: true });
+  }, [finishSession, report]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      // The dialog owns the keyboard while open; typing surfaces always do.
-      if (dismissOpen || isTypingTarget(event.target)) return;
+      if (
+        dismissOpen ||
+        isTypingTarget(event.target) ||
+        document.querySelector('[role="dialog"], [role="alertdialog"]')
+      ) {
+        return;
+      }
+      const enterAction = triageEnterAction(event);
+      if (enterAction === "open") {
+        event.preventDefault();
+        handleOpenReport();
+        return;
+      }
+      if (enterAction === "toggle") {
+        event.preventDefault();
+        if (report) setExpanded((current) => !current);
+        return;
+      }
       if (event.metaKey || event.ctrlKey || event.altKey) return;
       switch (event.key) {
-        case "k":
         case "ArrowDown":
-        case "ArrowRight":
           event.preventDefault();
           goNext();
           break;
-        case "j":
         case "ArrowUp":
-        case "ArrowLeft":
           event.preventDefault();
           goPrev();
           break;
-        case "e":
+        case "a":
           event.preventDefault();
-          if (report) setDismissOpen(true);
+          if (report && !removingReviewer) setDismissOpen(true);
           break;
-        case "d":
+        case "o":
           event.preventDefault();
-          if (report && !dismissPending) void deferReport();
+          handleOpenReport();
           break;
-        case "Enter":
-          // A focused control (button, link) owns Enter — let the browser
-          // activate it instead of hijacking the key to exit triage.
-          if (isInteractiveTarget(event.target)) break;
+        case "x":
           event.preventDefault();
-          if (report) {
-            onExit();
-            navigateToInboxReportDetail(report.id);
-          }
+          if (canRemoveSelfFromReviewers) handleRemoveReviewer();
           break;
         case "Escape":
           event.preventDefault();
-          onExit();
+          handleExit();
           break;
       }
     };
@@ -179,11 +292,13 @@ export function ReportTriageFocus({
   }, [
     dismissOpen,
     report,
-    dismissPending,
-    deferReport,
+    removingReviewer,
     goNext,
     goPrev,
-    onExit,
+    handleExit,
+    handleOpenReport,
+    canRemoveSelfFromReviewers,
+    handleRemoveReviewer,
   ]);
 
   if (!report) {
@@ -196,7 +311,7 @@ export function ReportTriageFocus({
         <span className="text-[14px] text-gray-11">
           Nothing left in the queue.
         </span>
-        <Button type="button" variant="outline" size="sm" onClick={onExit}>
+        <Button type="button" variant="outline" size="sm" onClick={handleExit}>
           Back to the list
         </Button>
       </div>
@@ -204,157 +319,66 @@ export function ReportTriageFocus({
   }
 
   return (
-    <>
-      <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-6 py-4">
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="icon-sm"
-              aria-label="Previous report"
-              disabled={clamped === 0}
-              onClick={goPrev}
-            >
-              <CaretLeftIcon size={14} />
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="icon-sm"
-              aria-label="Next report"
-              disabled={clamped >= reports.length - 1}
-              onClick={goNext}
-            >
-              <CaretRightIcon size={14} />
-            </Button>
-            <span className="text-[13px] text-gray-10 tabular-nums">
-              {clamped + 1} of {reports.length}
-            </span>
-          </div>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={onExit}
-            className="gap-1"
-          >
-            <XIcon size={12} />
-            Exit triage
-          </Button>
-        </div>
-
-        <div className="flex flex-col gap-3 rounded-lg border border-border bg-(--color-panel-solid) p-5">
-          <div className="flex flex-col gap-1.5">
-            <h2 className="font-semibold text-[17px] text-gray-12 leading-snug">
-              {humanizeReportTitle(report.title, "Untitled report")}
-            </h2>
-            <div className="flex items-center gap-2 text-[13px] text-gray-10">
-              <SignalReportPriorityBadge priority={report.priority} />
-              <span className="tabular-nums">
-                {report.signal_count} signal
-                {report.signal_count === 1 ? "" : "s"}
-              </span>
-              <RelativeTimestamp
-                timestamp={report.updated_at ?? report.created_at}
-                className="text-[13px]"
-              />
-            </div>
-          </div>
-
-          {/* The proof stays sorted and folded — the same labeled slots as
-              the detail page. The lede (the summary's own tl;dr) shows since
-              it's triage-sized; each section opens on demand. Triage reads
-              the verdict; research opens the full report. */}
-          {summarySplit.sections.length === 0 ? (
-            <DetailSection
-              Icon={FileTextIcon}
-              title="How we know"
-              collapsible
-              defaultCollapsed
-            >
-              <SignalReportSummaryMarkdown
-                content={report.summary}
-                fallback="No summary yet. The agent is still investigating."
-                variant="detail"
-                pending={report.status === "in_progress"}
-              />
-            </DetailSection>
-          ) : (
-            <>
-              {summarySplit.lede && (
-                <SignalReportSummaryMarkdown
-                  content={summarySplit.lede}
-                  fallback=""
-                  variant="detail"
-                  pending={report.status === "in_progress"}
-                />
-              )}
-              {summarySplit.sections.map((section, sectionIndex) => (
-                <DetailSection
-                  key={`${section.title}-${sectionIndex}`}
-                  Icon={FileTextIcon}
-                  title={section.title}
-                  collapsible
-                  defaultCollapsed
-                >
-                  <SignalReportSummaryMarkdown
-                    content={section.body}
-                    fallback=""
-                    variant="detail"
-                    pending={false}
-                  />
-                </DetailSection>
-              ))}
-            </>
-          )}
-
-          {/* The decision closes the card: read first, then accept. */}
-          <ReportVerdictBanner
-            report={report}
-            actionHotkey={dismissOpen ? undefined : "f"}
-            // The triage card hosts no dock: engaging opens the report page,
-            // where the dock (already flagged open) shows the conversation.
-            onEngaged={() => {
-              onExit();
-              navigateToInboxReportDetail(report.id);
-            }}
-          />
-        </div>
-
-        <div className="flex items-center justify-center gap-4 text-[13px] text-gray-10">
-          <span className="flex items-center gap-1">
-            <KeyCap>j</KeyCap>
-            <KeyCap>k</KeyCap> move
-          </span>
-          <span className="flex items-center gap-1">
-            <KeyCap>f</KeyCap> fix
-          </span>
-          <span className="flex items-center gap-1">
-            <KeyCap>d</KeyCap> defer
-          </span>
-          <span className="flex items-center gap-1">
-            <KeyCap>e</KeyCap> dismiss
-          </span>
-          <span className="flex items-center gap-1">
-            <KeyCap>↵</KeyCap> open
-          </span>
-          <span className="flex items-center gap-1">
-            <KeyCap>esc</KeyCap> exit
-          </span>
-        </div>
-      </div>
-
-      {dismissOpen && (
-        <DismissReportDialog
-          open
-          onOpenChange={setDismissOpen}
+    <div className="flex h-full min-h-0">
+      <div className="min-w-0 flex-1 overflow-y-auto">
+        <ReportTriageFocusView
           report={report}
-          isSubmitting={dismissPending}
-          snoozeDisabledReason={bulkActions.snoozeDisabledReason}
-          onConfirm={handleDismissConfirm}
+          position={clamped + 1}
+          total={reports.length}
+          scopeLabel={inboxScopeTriggerLabel(scope)}
+          hasActiveFilters={hasActiveFilters}
+          previousReport={previousReport}
+          nextReport={nextReport}
+          expanded={expanded}
+          prShortcut={prShortcut}
+          canRemoveSelfFromReviewers={canRemoveSelfFromReviewers}
+          actions={
+            <ReportVerdictBanner
+              // Remount on report change so the PR popover cannot create a PR
+              // for the report that replaced the one it was opened for.
+              key={report.id}
+              report={report}
+              variant="triage-actions"
+              prHotkey={
+                dismissOpen || removingReviewer || !prShortcut ? undefined : "c"
+              }
+              resolveHotkey={dismissOpen || removingReviewer ? undefined : "r"}
+              surface="triage"
+              triageId={triageIdRef.current}
+            />
+          }
+          reviewers={
+            <SuggestedReviewerAvatarStack
+              report={report}
+              surface="triage"
+              triageId={triageIdRef.current}
+            />
+          }
+          onExit={handleExit}
+          onPrevious={goPrev}
+          onNext={goNext}
+          onOpenReport={handleOpenReport}
+          onToggleSummary={() => setExpanded((current) => !current)}
+        />
+
+        {dismissOpen && (
+          <DismissReportDialog
+            open
+            onOpenChange={setDismissOpen}
+            report={report}
+            isSubmitting={dismissPending}
+            snoozeDisabledReason={bulkActions.snoozeDisabledReason}
+            onConfirm={handleDismissConfirm}
+          />
+        )}
+      </div>
+      {chatOpen && (
+        <ReportChatSidebar
+          report={report}
+          surface="triage"
+          triageId={triageIdRef.current}
         />
       )}
-    </>
+    </div>
   );
 }

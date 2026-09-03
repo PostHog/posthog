@@ -9,7 +9,3 @@ export interface AppDefinition {
 export interface ExternalAppsPreferences {
   lastUsedApp?: string;
 }
-
-export interface ExternalAppsSchema {
-  externalAppsPrefs: ExternalAppsPreferences;
-}

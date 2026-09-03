@@ -12,6 +12,7 @@ import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+import { captureImageLogic } from 'lib/components/Scenes/InsightOrDashboard/captureImageLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { IconLink } from 'lib/lemon-ui/icons'
@@ -47,7 +48,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { useInsightDisplayOptions } from '~/queries/nodes/InsightViz/insightDisplayOptions'
 import { Node, ProductKey } from '~/queries/schema/schema-general'
-import { isDataVisualizationNode } from '~/queries/utils'
+import { isDataVisualizationNode, isDataVisualizationNodeWithHogQLQuery } from '~/queries/utils'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -69,9 +70,12 @@ import type { AlertType } from 'products/alerts/frontend/types'
 import { ManageAlertsModal } from 'products/alerts/frontend/views/ManageAlertsModal'
 
 import { DashboardInsightDisplayOptions } from './DashboardInsightDisplayOptions'
+import { useDashboardVisualizationOptions } from './dashboardVisualizationOptions'
+import type { DashboardSqlVisualizationPersistence } from './dashboardVisualizationOptions'
 import { dashboardWidgetMenusLogic } from './dashboardWidgetMenusLogic'
 import { DashboardWidgetPlacementMenus } from './DashboardWidgetPlacementMenus'
 import { InsightCardProps } from './InsightCard'
+import { insightCardCaptureTarget } from './insightCardImageCapture'
 import { InsightDetails } from './InsightDetails'
 
 interface InsightMetaProps extends Pick<
@@ -157,7 +161,10 @@ export function InsightMeta({
     }
     const { insightFeedback } = useValues(insightLogic(insightLogicProps))
     const { setInsightFeedback } = useActions(insightLogic(insightLogicProps))
-    const { exportContext, insightData, query } = useValues(insightDataLogic(insightLogicProps))
+    const { exportContext, insightData, query, savingSqlVisualization, sqlVisualizationVersion } = useValues(
+        insightDataLogic(insightLogicProps)
+    )
+    const { persistSqlVisualization } = useActions(insightDataLogic(insightLogicProps))
     const [isManageAlertsModalOpen, setIsManageAlertsModalOpen] = useState(false)
     const { loadAlerts: loadDeferredInsightAlerts } = useActions(
         insightAlertsLogic({
@@ -177,6 +184,8 @@ export function InsightMeta({
             dashboard_tiles: insight.dashboard_tiles,
         })
     )
+    const { copyImage } = useActions(captureImageLogic)
+    const { isCapturing: isCapturingImage } = useValues(captureImageLogic)
     const { updateInsightDirect } = useActions(insightsModel)
     const { reportDashboardInsightMetaUpdated } = useActions(eventUsageLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -189,7 +198,7 @@ export function InsightMeta({
         placement === DashboardPlacement.Dashboard ||
         placement === DashboardPlacement.Public ||
         placement === DashboardPlacement.Builtin
-    const isSqlInsight = isDataVisualizationNode(insight.query)
+    const isSqlInsight = isDataVisualizationNodeWithHogQLQuery(insight.query)
     const showCompactHeading = !showCompactTile || !isSqlInsight
 
     const ignoresDashboardFilters = !!tileFiltersOverride?.ignoreDashboardFilters
@@ -240,9 +249,26 @@ export function InsightMeta({
     const canCreateAnomalyAlertForInsight = areAnomalyAlertsSupportedForInsight(query)
 
     const showDisplayOptionsMenu = isUsedAsDashboardTile && canEditInsight && !!persistDisplayOptions
-    // Hoist the hook out of the More overlay so kea logics it mounts don't do so lazily inside a
+    // Hoist the hooks out of the More overlay so kea logics they mount don't do so lazily inside a
     // portal, which cascades into closing the dropdown before the user can interact with it.
     const { items: displayOptionItems } = useInsightDisplayOptions()
+    const sqlVisualizationPersistence: DashboardSqlVisualizationPersistence | undefined = persistDisplayOptions
+        ? {
+              saving: savingSqlVisualization,
+              version: sqlVisualizationVersion,
+              persistChartType: (display) => persistSqlVisualization({ type: 'chart-type', display }),
+              persistDisplayOptions: (sqlQuery) =>
+                  persistSqlVisualization({ type: 'display-options', query: sqlQuery }),
+          }
+        : undefined
+    const visualizationItems = useDashboardVisualizationOptions({
+        query,
+        insightData,
+        variablesOverride,
+        loading: loading || loadingQueued,
+        persistence: sqlVisualizationPersistence,
+    })
+    const displayMenuItems = [...visualizationItems, ...displayOptionItems]
 
     const hasTileStyleActions = !!(showCompactTile && toggleShowDescription && insight.description) || !!updateColor
     const canShowCopyToDashboardTile = showCompactTile && !!copyToDashboard && canViewInsight
@@ -332,6 +358,14 @@ export function InsightMeta({
     // The always-visible "⋯" menu keeps refresh reachable on touch/keyboard. Unlike the hover
     // icon (which hides while this tile refreshes) the menu item stays but disables.
     const refreshMenuDisabledReason = tileRefreshing ? 'Refreshing…' : refreshDisabledReason
+
+    // A browser capture takes whatever is on screen, so a tile captured mid-load makes a valid PNG of an
+    // empty card.
+    const copyImageDisabledReason = isCapturingImage
+        ? 'Copying…'
+        : tileRefreshing
+          ? 'Wait for the insight to finish loading'
+          : undefined
 
     // Gate the hover icon on `showEditingControls` so it doesn't appear on public/export
     // dashboards, matching the "⋯" menu (which is already gated there).
@@ -513,7 +547,7 @@ export function InsightMeta({
                                 Alerts
                             </LemonButton>
                         ) : null}
-                        {showDisplayOptionsMenu && <DashboardInsightDisplayOptions items={displayOptionItems} />}
+                        {showDisplayOptionsMenu && <DashboardInsightDisplayOptions items={displayMenuItems} />}
 
                         {canShowCopyToDashboardTile && !canEditDashboard && (
                             <>
@@ -629,6 +663,15 @@ export function InsightMeta({
                                 />
                             </>
                         ) : null}
+                        <LemonButton
+                            onClick={() => copyImage(insightCardCaptureTarget(insight, tile, dashboardId))}
+                            disabledReason={copyImageDisabledReason}
+                            tooltip="Copy the tile to your clipboard as a PNG"
+                            fullWidth
+                            data-attr="insight-card-copy-image"
+                        >
+                            Copy as PNG
+                        </LemonButton>
                         {refresh && (
                             <DashboardTileRefreshDataButton
                                 onRefresh={refresh}
@@ -647,8 +690,8 @@ export function InsightMeta({
                 }
                 moreTooltip={
                     canEditInsight
-                        ? 'Rename, duplicate, export, refresh and more…'
-                        : 'Duplicate, export, refresh and more…'
+                        ? 'Rename, duplicate, export, copy as PNG, refresh and more…'
+                        : 'Duplicate, export, copy as PNG, refresh and more…'
                 }
                 extraControls={
                     placement !== DashboardPlacement.Public &&

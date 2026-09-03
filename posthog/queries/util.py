@@ -1,29 +1,12 @@
-import json
 from datetime import UTC, datetime
-from enum import Enum, auto
 from typing import Any, Optional, Union, overload
 from zoneinfo import ZoneInfo
 
 from rest_framework.exceptions import ValidationError
 
-from posthog.interval_specs import UnsupportedIntervalError, get_interval_func, get_trunc_func
+from posthog.interval_specs import UnsupportedIntervalError, get_trunc_func
 from posthog.models.team.team import Team, WeekStartDay
 from posthog.schema_enums import PersonsOnEventsMode
-
-
-class PersonPropertiesMode(Enum):
-    USING_SUBQUERY = auto()
-    USING_PERSON_PROPERTIES_COLUMN = auto()
-    DIRECT_ON_EVENTS = auto()
-    """
-    Get person property from the events table (persons-on-events v1 - no person ID overrides),
-    selecting the latest version of the person.
-    """
-    DIRECT_ON_EVENTS_WITH_POE_V2 = auto()
-    """
-    Get person property from the events table (persons-on-events v2 - accounting for person ID overrides),
-    selecting the latest version of the person.
-    """
 
 
 @overload
@@ -85,29 +68,6 @@ def get_trunc_func_ch(period: Optional[str]) -> str:
         raise ValidationError(f"Period {period} is unsupported.")
 
 
-def get_interval_func_ch(period: Optional[str]) -> str:
-    try:
-        return get_interval_func(period)
-    except UnsupportedIntervalError:
-        raise ValidationError(f"Interval {period} is unsupported.")
-
-
-def get_time_in_seconds_for_period(period: Optional[str]) -> str:
-    if period is None:
-        period = "day"
-    seconds_in_period = TIME_IN_SECONDS.get(period.lower())
-    if seconds_in_period is None:
-        raise ValidationError(f"Interval {period} is unsupported.")
-    return seconds_in_period
-
-
-def deep_dump_object(params: dict[str, Any]) -> dict[str, Any]:
-    for key in params:
-        if isinstance(params[key], dict) or isinstance(params[key], list):
-            params[key] = json.dumps(params[key])
-    return params
-
-
 def convert_to_datetime_aware(date_obj):
     if date_obj.tzinfo is None:
         date_obj = date_obj.replace(tzinfo=UTC)
@@ -135,11 +95,3 @@ def correct_result_for_sampling(
 
     result = round(value * (1 / sampling_factor))
     return result
-
-
-def get_person_properties_mode(team: Team) -> PersonPropertiesMode:
-    if team.person_on_events_mode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS:
-        return PersonPropertiesMode.DIRECT_ON_EVENTS_WITH_POE_V2
-    if team.person_on_events_mode == PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS:
-        return PersonPropertiesMode.DIRECT_ON_EVENTS
-    return PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN

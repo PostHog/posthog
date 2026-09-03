@@ -249,6 +249,7 @@ jobs:
             # token is visible to this same-repo PR code — same as every backend CI job here — and
             # forks never reach this workflow, so there's nothing to isolate it from.
             - name: DockerHub login
+              continue-on-error: true
               if: steps.merge.outputs.skip != 'true' && steps.merge.outputs.needs_backend == 'true'
               uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
               with:

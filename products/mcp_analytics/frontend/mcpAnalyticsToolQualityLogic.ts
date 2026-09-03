@@ -4,6 +4,15 @@ import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
 import { dateFilterToText } from 'lib/utils/dateFilters'
+import {
+    type IntervalOption,
+    buildBucketKeys,
+    intervalOptionsForWindow,
+    lastBucketIsInProgress,
+    normalizeBucket,
+    parseIntervalParam,
+    resolveInterval,
+} from 'lib/utils/timeBuckets'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -16,16 +25,6 @@ import {
     NodeKind,
 } from '~/queries/schema/schema-general'
 import { IntervalType } from '~/types'
-
-import {
-    type IntervalOption,
-    buildBucketKeys,
-    intervalOptionsForWindow,
-    lastBucketIsInProgress,
-    normalizeBucket,
-    parseIntervalParam,
-    resolveInterval,
-} from './timeBuckets'
 
 export interface CategoryCount {
     category: string
@@ -48,6 +47,10 @@ export interface SortState {
 export interface DateFilter {
     dateFrom: string | null
     dateTo: string | null
+}
+
+interface ToolRowsPage extends MCPToolQualityRowsQueryResponse {
+    pageIndex: number
 }
 
 // Carry the selected window across navigation as date_from / date_to, plus the grouping interval
@@ -138,6 +141,7 @@ export interface mcpAnalyticsToolQualityLogicValues {
     incompleteTail: boolean
     interval: IntervalType
     intervalOptions: IntervalOption[]
+    loadedToolQualityPageIndex: number
     pinnedInterval: IntervalType | null
     scopeShare: ScopeShare
     searchTerm: string
@@ -146,7 +150,7 @@ export interface mcpAnalyticsToolQualityLogicValues {
     toolQualityPageIndex: number
     toolQualitySort: SortState
     toolRows: MCPToolQualityRowItem[]
-    toolRowsPage: MCPToolQualityRowsQueryResponse | null
+    toolRowsPage: ToolRowsPage | null
     toolRowsPageLoading: boolean
     toolRowsTotalCount: number
 }
@@ -207,10 +211,10 @@ export interface mcpAnalyticsToolQualityLogicActions {
         errorObject?: any
     }
     loadToolRowsPageSuccess: (
-        toolRowsPage: MCPToolQualityRowsQueryResponse,
+        toolRowsPage: ToolRowsPage,
         payload?: void
     ) => {
-        toolRowsPage: MCPToolQualityRowsQueryResponse
+        toolRowsPage: ToolRowsPage
         payload?: void
     }
     reloadAll: () => {
@@ -254,8 +258,9 @@ export interface mcpAnalyticsToolQualityLogicMeta {
         intervalOptions: (dateFilter: DateFilter, timezone: string) => IntervalOption[]
         interval: (dateFilter: DateFilter, pinnedInterval: IntervalType | null, timezone: string) => IntervalType
         scopeShare: (categoryCounts: CategoryCount[], selectedCategories: string[]) => ScopeShare
-        toolRows: (toolRowsPage: MCPToolQualityRowsQueryResponse | null) => MCPToolQualityRowItem[]
-        toolRowsTotalCount: (toolRowsPage: MCPToolQualityRowsQueryResponse | null) => number
+        loadedToolQualityPageIndex: (toolRowsPage: ToolRowsPage | null) => number
+        toolRows: (toolRowsPage: ToolRowsPage | null) => MCPToolQualityRowItem[]
+        toolRowsTotalCount: (toolRowsPage: ToolRowsPage | null) => number
         dailyChartData: (
             dailyStats: DailyToolStat[],
             dateFilter: DateFilter,
@@ -362,10 +367,11 @@ export const mcpAnalyticsToolQualityLogic = kea<mcpAnalyticsToolQualityLogicType
             },
         ],
         toolRowsPage: [
-            null as MCPToolQualityRowsQueryResponse | null,
+            null as ToolRowsPage | null,
             {
-                loadToolRowsPage: async (_: void, breakpoint): Promise<MCPToolQualityRowsQueryResponse> => {
+                loadToolRowsPage: async (_: void, breakpoint): Promise<ToolRowsPage> => {
                     await breakpoint(300)
+                    const pageIndex = values.toolQualityPageIndex
                     const response = (await api.query({
                         kind: NodeKind.MCPToolQualityRowsQuery,
                         dateRange: { date_from: values.dateFilter.dateFrom, date_to: values.dateFilter.dateTo },
@@ -374,10 +380,10 @@ export const mcpAnalyticsToolQualityLogic = kea<mcpAnalyticsToolQualityLogicType
                         sortColumn: values.toolQualitySort.column,
                         sortDirection: values.toolQualitySort.direction,
                         limit: TOOL_QUALITY_PAGE_SIZE,
-                        offset: values.toolQualityPageIndex * TOOL_QUALITY_PAGE_SIZE,
+                        offset: pageIndex * TOOL_QUALITY_PAGE_SIZE,
                     })) as MCPToolQualityRowsQueryResponse
                     breakpoint()
-                    return response
+                    return { ...response, pageIndex }
                 },
             },
         ],
@@ -439,14 +445,17 @@ export const mcpAnalyticsToolQualityLogic = kea<mcpAnalyticsToolQualityLogicType
                 return { inScope, total, pct: total > 0 ? (inScope / total) * 100 : null }
             },
         ],
+        loadedToolQualityPageIndex: [
+            (s) => [s.toolRowsPage],
+            (toolRowsPage: ToolRowsPage | null): number => toolRowsPage?.pageIndex ?? 0,
+        ],
         toolRows: [
             (s) => [s.toolRowsPage],
-            (toolRowsPage: MCPToolQualityRowsQueryResponse | null): MCPToolQualityRowItem[] =>
-                toolRowsPage?.results ?? [],
+            (toolRowsPage: ToolRowsPage | null): MCPToolQualityRowItem[] => toolRowsPage?.results ?? [],
         ],
         toolRowsTotalCount: [
             (s) => [s.toolRowsPage],
-            (toolRowsPage: MCPToolQualityRowsQueryResponse | null): number => toolRowsPage?.totalCount ?? 0,
+            (toolRowsPage: ToolRowsPage | null): number => toolRowsPage?.totalCount ?? 0,
         ],
         dailyChartData: [
             (s) => [s.dailyStats, s.dateFilter, s.interval, teamLogic.selectors.timezone],

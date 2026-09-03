@@ -49,7 +49,7 @@ export type SplitDirection = "left" | "right" | "top" | "bottom";
 
 type TaskLayouts = Record<string, TaskLayout>;
 
-export interface PanelLayoutStore {
+interface PanelLayoutStore {
   taskLayouts: TaskLayouts;
 
   getLayout: (taskId: string) => TaskLayout | null;

@@ -263,5 +263,6 @@ export default function Canvas() {
 }
 ```
 
-Note: `ph` is a global the host injects into the sandbox (`window.ph`) — do not import it, and do
-not import or initialize posthog-js.
+Note: reach PostHog through `import { ph } from "@posthog/canvas-sdk"`, a platform-provided module
+that needs no `dependencies` entry. The host also injects the same object as the `window.ph`
+global. Never initialize it, and do not import or initialize posthog-js.

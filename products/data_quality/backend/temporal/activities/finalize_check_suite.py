@@ -19,6 +19,8 @@ async def finalize_check_suite_activity(inputs: FinalizeCheckSuiteInputs) -> Che
 
 def _finalize(inputs: FinalizeCheckSuiteInputs) -> CheckSuiteResult:
     suite_run = DataQualitySuiteRun.objects.for_team(inputs.team_id).get(id=inputs.suite_run_id)
+    if suite_run.status != SuiteRunStatus.RUNNING:
+        return _result(suite_run, inputs)
 
     suite_run.checks_passed = sum(outcome.passed for outcome in inputs.outcomes)
     suite_run.checks_failed = sum(outcome.failed for outcome in inputs.outcomes)
@@ -45,9 +47,13 @@ def _finalize(inputs: FinalizeCheckSuiteInputs) -> CheckSuiteResult:
         failed=suite_run.checks_failed,
         errored=suite_run.checks_errored,
     )
+    return _result(suite_run, inputs)
+
+
+def _result(suite_run: DataQualitySuiteRun, inputs: FinalizeCheckSuiteInputs) -> CheckSuiteResult:
     return CheckSuiteResult(
         suite_run_id=str(suite_run.id),
-        status=SuiteRunStatus.COMPLETED,
+        status=SuiteRunStatus(suite_run.status),
         checks_passed=suite_run.checks_passed,
         checks_failed=suite_run.checks_failed,
         checks_errored=suite_run.checks_errored,

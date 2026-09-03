@@ -89,6 +89,7 @@ def create_clickhouse_tables():
 def reset_clickhouse_tables():
     # Truncate clickhouse tables to default before running test
     # Mostly so that test runs locally work correctly
+    from posthog.clickhouse.cleanup_snapshots import TRUNCATE_CLEANUP_SNAPSHOT_TABLES_SQL
     from posthog.clickhouse.dead_letter_queue import TRUNCATE_DEAD_LETTER_QUEUE_TABLE_SQL
     from posthog.clickhouse.plugin_log_entries import TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL
     from posthog.heatmaps.sql import TRUNCATE_HEATMAPS_TABLE_SQL
@@ -149,6 +150,7 @@ def reset_clickhouse_tables():
         TRUNCATE_HEATMAPS_TABLE_SQL(),
         TRUNCATE_PG_EMBEDDINGS_TABLE_SQL(),
         TRUNCATE_AI_EVENTS_TABLE_SQL(),
+        *TRUNCATE_CLEANUP_SNAPSHOT_TABLES_SQL(),
     ]
 
     # Drop created Kafka tables because some tests don't expect it.
@@ -436,7 +438,7 @@ def _patched_flush_handle(self, **options: Any) -> None:
 
 
 _original_flush_handle = FlushCommand.handle
-FlushCommand.handle = _patched_flush_handle  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+FlushCommand.handle = _patched_flush_handle  # type: ignore[method-assign]
 
 
 @pytest.fixture
@@ -502,22 +504,6 @@ def mock_code_based_verifier(request, mocker):
     mocker.patch(
         "posthog.helpers.two_factor_session.CodeBasedVerifier.should_send_code_based_verification",
         return_value=CodeBasedVerificationCheckResult(should_send=False),
-    )
-
-
-@pytest.fixture(autouse=True)
-def mock_email_code_verification(request, mocker):
-    """
-    Keep the pre-existing email-verification tests on the link flow. Codes are the default and
-    would bypass every mock of the link-email sender. Code-flow tests opt out with
-    @pytest.mark.disable_mock_email_code_verification.
-    """
-    if "disable_mock_email_code_verification" in request.keywords:
-        return
-
-    mocker.patch(
-        "posthog.api.email_verification.EmailVerifier.use_verification_code",
-        return_value=False,
     )
 
 

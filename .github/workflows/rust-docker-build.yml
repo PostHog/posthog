@@ -180,6 +180,9 @@ jobs:
                     - release: pgcollector
                       digest_key: pgcollector
                       values_key: image
+                    - release: pgapi
+                      digest_key: pgapi
+                      values_key: image
                     - release: kafka-deduplicator
                       digest_key: kafka-deduplicator
                       values_key: image

@@ -27,6 +27,10 @@ import type {
   FocusWorktreePaths,
 } from "@posthog/core/focus/host-focus";
 import type {
+  FOCUS_SERVICE,
+  IFocusService,
+} from "@posthog/core/focus/identifiers";
+import type {
   GitWorkspaceLookup,
   HostGitWorkspaceClient,
 } from "@posthog/core/git/host-git";
@@ -118,6 +122,7 @@ import type { CRYPTO_SERVICE } from "@posthog/platform/crypto";
 import type { DEEP_LINK_SERVICE } from "@posthog/platform/deep-link";
 import type { DEV_HOST_ACTIONS_SERVICE } from "@posthog/platform/dev-host-actions";
 import type { DIALOG_SERVICE } from "@posthog/platform/dialog";
+import type { DISK_CACHE_SERVICE } from "@posthog/platform/disk-cache";
 import type { FILE_ICON_SERVICE } from "@posthog/platform/file-icon";
 import type { IMAGE_PROCESSOR_SERVICE } from "@posthog/platform/image-processor";
 import type { MAIN_WINDOW_SERVICE } from "@posthog/platform/main-window";
@@ -135,7 +140,10 @@ import type {
 } from "@posthog/quick-ask/service/quick-ask";
 import type { WorkspaceClient } from "@posthog/workspace-client/client";
 import type { DatabaseService } from "@posthog/workspace-server/db/service";
-import type { GIT_SERVICE as WS_GIT_SERVICE } from "@posthog/workspace-server/di/tokens";
+import type {
+  CONNECTIVITY_SERVICE as WS_CONNECTIVITY_SERVICE,
+  GIT_SERVICE as WS_GIT_SERVICE,
+} from "@posthog/workspace-server/di/tokens";
 import type { AgentService } from "@posthog/workspace-server/services/agent/agent";
 import type {
   AGENT_AUTH,
@@ -155,6 +163,7 @@ import type {
 } from "@posthog/workspace-server/services/archive/ports";
 import type { AUTH_PROXY_AUTH } from "@posthog/workspace-server/services/auth-proxy/identifiers";
 import type { AuthProxyAuth } from "@posthog/workspace-server/services/auth-proxy/ports";
+import type { ConnectivityService } from "@posthog/workspace-server/services/connectivity/service";
 import type {
   ENRICHMENT_AUTH,
   ENRICHMENT_FILE_READER,
@@ -246,7 +255,6 @@ import type { AppLifecycleService } from "../services/app-lifecycle/service";
 import type {
   AuthPreferencePortAdapter,
   AuthSessionPortAdapter,
-  ConnectivityPortAdapter,
   OAuthFlowPortAdapter,
   TokenCipherPortAdapter,
 } from "../services/auth/port-adapters";
@@ -257,6 +265,7 @@ import type { DevLogsService } from "../services/dev-logs/service";
 import type { DevMetricsService } from "../services/dev-metrics/service";
 import type { DevNetworkService } from "../services/dev-network/service";
 import type { DiscordPresenceService } from "../services/discord-presence/service";
+import type { DiskCache } from "../services/disk-cache/service";
 import type { EncryptionService } from "../services/encryption/service";
 import type { SecureStoreService } from "../services/secure-store/service";
 import type { settingsStore } from "../services/settingsStore";
@@ -335,6 +344,7 @@ export interface MainBindings {
   [WORKSPACE_SETTINGS_SERVICE]: ElectronWorkspaceSettings;
   [APP_METRICS_SERVICE]: ElectronAppMetrics;
   [DEV_HOST_ACTIONS_SERVICE]: ElectronDevHostActions;
+  [DISK_CACHE_SERVICE]: DiskCache;
 
   // Database (main aliases + ws-server source tokens via toService)
   [MAIN_DATABASE_SERVICE]: DatabaseService;
@@ -365,7 +375,7 @@ export interface MainBindings {
   [AUTH_PREFERENCE_STORE]: AuthPreferencePortAdapter;
   [AUTH_OAUTH_FLOW_SERVICE]: OAuthFlowPortAdapter;
   [AUTH_TOKEN_CIPHER]: TokenCipherPortAdapter;
-  [AUTH_CONNECTIVITY]: ConnectivityPortAdapter;
+  [AUTH_CONNECTIVITY]: ConnectivityService;
   [AUTH_TOKEN_OVERRIDE]: string | null;
   [MAIN_AUTH_SERVICE]: AuthService;
   [AUTH_SERVICE]: AuthService;
@@ -490,6 +500,7 @@ export interface MainBindings {
 
   // ws-server git service (bound to(GitService))
   [WS_GIT_SERVICE]: GitService;
+  [WS_CONNECTIVITY_SERVICE]: ConnectivityService;
 
   // index.ts runtime bindings
   [MAIN_WORKSPACE_CLIENT]: WorkspaceClient;
@@ -501,6 +512,7 @@ export interface MainBindings {
   [FOCUS_WORKSPACE_CLIENT]: FocusWorkspaceClient;
   [FOCUS_SESSION_STORE]: FocusSessionStore;
   [FOCUS_WORKTREE_PATHS]: FocusWorktreePaths;
+  [FOCUS_SERVICE]: IFocusService;
   [MAIN_FS_SERVICE]: FsCapability;
   [FS_SERVICE]: FsCapability;
 

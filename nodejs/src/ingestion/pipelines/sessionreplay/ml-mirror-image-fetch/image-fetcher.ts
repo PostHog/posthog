@@ -1,5 +1,6 @@
 import { InvalidRequestError, ResolutionError, SecureRequestError, fetchStreamed } from '~/common/utils/request'
 
+import type { ImageFetchBlockReason } from './block-reason'
 import { OriginPolicyReason, ResponseOptOutReason, responseOptOutReason } from './configuration-policy'
 import { HttpCacheMetadata } from './crawl-history'
 import { ImageFetchRequestMetrics } from './metrics'
@@ -53,6 +54,7 @@ export interface ImageFetchResult {
     /** Set by a 429 or a 503 that named a period. The caller holds the registrable domain for that period. */
     retryAfterMs?: number
     schedulingReason?: RequestScheduleBlockReason
+    schedulingBlockingReason?: ImageFetchBlockReason
     schedulingWaitMs?: number
     policyTransient?: boolean
     /** Where a redirect this lane did not follow points. The caller republishes it rather than fetching it. */
@@ -69,7 +71,15 @@ export interface ImageFetchOptions {
         url: URL,
         deadlineMs: number,
         request: () => Promise<T>
-    ) => Promise<{ ran: true; value: T } | { ran: false; reason: RequestScheduleBlockReason; waitMs: number }>
+    ) => Promise<
+        | { ran: true; value: T }
+        | {
+              ran: false
+              reason: RequestScheduleBlockReason
+              blockingReason: ImageFetchBlockReason
+              waitMs: number
+          }
+    >
     checkRedirectPolicy: (url: string) => Promise<RedirectTargetPolicy>
     isDifferentOrigin: (url: URL) => boolean
     cache?: HttpCacheMetadata
@@ -129,7 +139,12 @@ export class HttpImageFetcher implements ImageFetcher {
             }
             let scheduled:
                 | { ran: true; value: HopResult }
-                | { ran: false; reason: RequestScheduleBlockReason; waitMs: number }
+                | {
+                      ran: false
+                      reason: RequestScheduleBlockReason
+                      blockingReason: ImageFetchBlockReason
+                      waitMs: number
+                  }
             try {
                 scheduled = await options.scheduleRequest(new URL(target), deadlineMs, () =>
                     this.hop(
@@ -150,6 +165,7 @@ export class HttpImageFetcher implements ImageFetcher {
                     redirects,
                     currentUrl: target,
                     schedulingReason: scheduled.reason,
+                    schedulingBlockingReason: scheduled.blockingReason,
                     schedulingWaitMs: scheduled.waitMs,
                 }
             }

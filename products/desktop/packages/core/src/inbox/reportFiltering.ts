@@ -51,6 +51,13 @@ export const REPORTS_INBOX_STATUS_FILTER = INBOX_PIPELINE_STATUSES.filter(
   (status) => status !== "potential",
 ).join(",");
 
+/** Web Inbox's actionable report set: ready reports plus ones waiting on human input. */
+export const INBOX_ACTIONABLE_REPORT_STATUS_FILTER = "ready,pending_input";
+
+/** The two judgments that web Inbox includes in Review and merge / Needs a PR. */
+export const INBOX_ACTIONABLE_ACTIONABILITY_FILTER =
+  "immediately_actionable,requires_human_input";
+
 /**
  * Status filter for the Reports tab's count. `isReportTabReport` keeps a report
  * only when it is `ready` and carries no PR, because every other pipeline status
@@ -127,6 +134,46 @@ export function buildArchiveListOrdering(
   direction: "asc" | "desc",
 ): string {
   return direction === "desc" ? `-${field}` : field;
+}
+
+const PRIORITY_RANK: Record<SignalReportPriority, number> = {
+  P0: 0,
+  P1: 1,
+  P2: 2,
+  P3: 3,
+  P4: 4,
+};
+
+function reportPriorityRank(report: SignalReport): number {
+  return report.priority ? PRIORITY_RANK[report.priority] : 5;
+}
+
+export function sortInboxReports(
+  reports: SignalReport[],
+  field: Extract<
+    SignalReportOrderingField,
+    "priority" | "created_at" | "total_weight"
+  >,
+  direction: "asc" | "desc",
+): SignalReport[] {
+  const directionMultiplier = direction === "asc" ? 1 : -1;
+  return [...reports].sort((left, right) => {
+    let primary = 0;
+    if (field === "priority") {
+      primary = reportPriorityRank(left) - reportPriorityRank(right);
+    } else if (field === "total_weight") {
+      primary = left.total_weight - right.total_weight;
+    } else {
+      primary = left.created_at.localeCompare(right.created_at);
+    }
+    if (primary !== 0) return primary * directionMultiplier;
+
+    const tiebreak =
+      field === "priority"
+        ? right.created_at.localeCompare(left.created_at)
+        : reportPriorityRank(left) - reportPriorityRank(right);
+    return tiebreak || left.id.localeCompare(right.id);
+  });
 }
 
 export function buildSuggestedReviewerFilterParam(

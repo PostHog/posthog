@@ -1,17 +1,18 @@
 import {
-  type CloudTaskConfigOption,
   DEFAULT_GATEWAY_MODEL,
+  type GatewayModel,
   GLM53_FLASH_MODEL_FLAG,
   GLM53_MODEL_FLAG,
+  KIMI_MODEL_FLAG,
 } from "@posthog/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createElement, type PropsWithChildren } from "react";
 import { act, create } from "react-test-renderer";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockGetCloudTaskConfigOptions, mockUseAuthStore, mockUseFeatureFlag } =
+const { mockGetCloudTaskGatewayModels, mockUseAuthStore, mockUseFeatureFlag } =
   vi.hoisted(() => ({
-    mockGetCloudTaskConfigOptions: vi.fn(),
+    mockGetCloudTaskGatewayModels: vi.fn(),
     mockUseAuthStore: vi.fn(),
     mockUseFeatureFlag: vi.fn(),
   }));
@@ -26,7 +27,7 @@ vi.mock("@/features/auth", () => ({
 
 vi.mock("@/lib/posthogApiClient", () => ({
   getPostHogApiClient: () => ({
-    getCloudTaskConfigOptions: mockGetCloudTaskConfigOptions,
+    getCloudTaskGatewayModels: mockGetCloudTaskGatewayModels,
   }),
 }));
 
@@ -43,14 +44,17 @@ function createWrapper(queryClient: QueryClient) {
   };
 }
 
-async function renderHook() {
+async function renderHook(
+  adapter: "claude" | "codex" = "claude",
+  currentValue?: string,
+) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   let currentResult: ReturnType<typeof useCloudTaskConfigOptions>;
 
   function HookProbe() {
-    currentResult = useCloudTaskConfigOptions("claude");
+    currentResult = useCloudTaskConfigOptions(adapter, currentValue);
     return null;
   }
 
@@ -80,9 +84,33 @@ async function waitForAssertion(assertion: () => void): Promise<void> {
   }
 }
 
+function inferOwnedBy(id: string): string {
+  if (id.startsWith("claude-") || id.startsWith("anthropic/"))
+    return "anthropic";
+  if (id.startsWith("gpt-") || id.startsWith("openai/")) return "openai";
+  if (id.startsWith("@cf/")) return "cloudflare";
+  if (id.startsWith("zai-org/") || id.includes("deepseek")) return "baseten";
+  return id.split("/")[0] ?? "anthropic";
+}
+
+function gatewayModel(
+  id: string,
+  extra: Partial<GatewayModel> = {},
+): GatewayModel {
+  return {
+    id,
+    owned_by: inferOwnedBy(id),
+    context_window: 200_000,
+    supports_streaming: true,
+    supports_vision: false,
+    allowed: true,
+    ...extra,
+  };
+}
+
 describe("useCloudTaskConfigOptions", () => {
   beforeEach(() => {
-    mockGetCloudTaskConfigOptions.mockReset();
+    mockGetCloudTaskGatewayModels.mockReset();
     mockUseFeatureFlag.mockReset();
     mockUseFeatureFlag.mockReturnValue(false);
     mockUseAuthStore.mockImplementation((selector) =>
@@ -90,51 +118,57 @@ describe("useCloudTaskConfigOptions", () => {
     );
   });
 
-  it("uses the authenticated live Claude catalog", async () => {
-    const liveOptions: CloudTaskConfigOption[] = [
-      {
-        id: "model",
-        name: "Model",
-        type: "select",
-        currentValue: "claude-sonnet-5",
-        options: [{ value: "claude-sonnet-5", name: "Claude Sonnet 5" }],
-        category: "model",
-        description: "Choose a model",
-      },
-    ];
-    mockGetCloudTaskConfigOptions.mockResolvedValue(liveOptions);
+  it("builds per-adapter config options from the gateway models", async () => {
+    mockGetCloudTaskGatewayModels.mockResolvedValue([
+      gatewayModel("claude-sonnet-5"),
+      gatewayModel("gpt-5.6-sol"),
+    ]);
 
-    const result = await renderHook();
+    const result = await renderHook("claude");
     await waitForAssertion(() => {
-      expect(result.current.configOptions).toEqual(liveOptions);
+      const modelOption = getModelConfigOption(result.current.configOptions);
+      expect(modelOption.options.map((o) => o.value)).toEqual([
+        "claude-sonnet-5",
+      ]);
       expect(result.current.hasLiveConfig).toBe(true);
     });
-    expect(mockGetCloudTaskConfigOptions).toHaveBeenCalledWith("claude");
+  });
+
+  it("groups both harnesses' models by vendor for the cross-harness picker", async () => {
+    mockGetCloudTaskGatewayModels.mockResolvedValue([
+      gatewayModel("claude-sonnet-5"),
+      gatewayModel("gpt-5.6-sol"),
+    ]);
+
+    const result = await renderHook("claude");
+    await waitForAssertion(() => {
+      const groups = result.current.modelGroups.map((g) => ({
+        group: g.group,
+        options: g.options.map((o) => o.value),
+      }));
+      expect(groups).toEqual([
+        { group: "anthropic", options: ["claude-sonnet-5"] },
+        { group: "openai", options: ["gpt-5.6-sol"] },
+      ]);
+    });
   });
 
   it("replaces a hidden GLM current model with a visible model", async () => {
-    mockGetCloudTaskConfigOptions.mockResolvedValue([
-      {
-        id: "model",
-        name: "Model",
-        type: "select",
-        currentValue: "@cf/zai-org/glm-5.2",
-        options: [
-          { value: "@cf/zai-org/glm-5.2", name: "GLM-5.2" },
-          { value: "claude-sonnet-5", name: "Claude Sonnet 5" },
-        ],
-        category: "model",
-        description: "Choose a model",
-      },
-    ] satisfies CloudTaskConfigOption[]);
+    mockGetCloudTaskGatewayModels.mockResolvedValue([
+      gatewayModel("zai-org/glm-5.3"),
+      gatewayModel("claude-sonnet-5"),
+    ]);
 
-    const result = await renderHook();
+    const result = await renderHook("claude");
     await waitForAssertion(() => {
       const modelOption = getModelConfigOption(result.current.configOptions);
-      expect(modelOption.currentValue).toBe("claude-sonnet-5");
       expect(modelOption.options.map((option) => option.value)).toEqual([
         "claude-sonnet-5",
       ]);
+      // Cross-harness groups drop the empty Z.ai group along with its heading.
+      expect(result.current.modelGroups.map((g) => g.group)).not.toContain(
+        "zai-org",
+      );
     });
   });
 
@@ -145,26 +179,14 @@ describe("useCloudTaskConfigOptions", () => {
     mockUseFeatureFlag.mockImplementation(
       (flag: string) => flag === enabledFlag,
     );
-    mockGetCloudTaskConfigOptions.mockResolvedValue([
-      {
-        id: "model",
-        name: "Model",
-        type: "select",
-        currentValue: model,
-        options: [
-          { value: "@cf/zai-org/glm-5.2", name: "GLM-5.2" },
-          { value: "zai-org/glm-5.3", name: "GLM-5.3" },
-          { value: "zai-org/glm-5.3-flash", name: "GLM-5.3 Flash" },
-        ],
-        category: "model",
-        description: "Choose a model",
-      },
-    ] satisfies CloudTaskConfigOption[]);
+    mockGetCloudTaskGatewayModels.mockResolvedValue([
+      gatewayModel("zai-org/glm-5.3"),
+      gatewayModel("zai-org/glm-5.3-flash"),
+    ]);
 
-    const result = await renderHook();
+    const result = await renderHook("claude");
     await waitForAssertion(() => {
       const modelOption = getModelConfigOption(result.current.configOptions);
-      expect(modelOption.currentValue).toBe(model);
       expect(modelOption.options.map((option) => option.value)).toEqual([
         model,
       ]);
@@ -176,19 +198,67 @@ describe("useCloudTaskConfigOptions", () => {
       selector({ oauthAccessToken: null }),
     );
 
-    const result = await renderHook();
+    const result = await renderHook("claude");
 
     expect(
       getModelConfigOption(result.current.configOptions).currentValue,
     ).toBe(DEFAULT_GATEWAY_MODEL);
-    expect(mockGetCloudTaskConfigOptions).not.toHaveBeenCalled();
+    expect(mockGetCloudTaskGatewayModels).not.toHaveBeenCalled();
     expect(result.current.isConfigReady).toBe(true);
   });
 
-  it("makes the shared fallback usable after the live catalog fails", async () => {
-    mockGetCloudTaskConfigOptions.mockRejectedValue(new Error("offline"));
+  it("keeps a model missing from the catalog selectable via a synthetic entry", async () => {
+    mockGetCloudTaskGatewayModels.mockResolvedValue([
+      gatewayModel("claude-sonnet-5"),
+    ]);
 
-    const result = await renderHook();
+    // A gateway blip drops the running model; the picker must still list it so
+    // the user can see what's selected instead of an empty highlight.
+    const result = await renderHook("claude", "claude-fable-legacy");
+    await waitForAssertion(() => {
+      expect(
+        result.current.modelGroups.some((group) =>
+          group.options.some(
+            (option) => option.value === "claude-fable-legacy",
+          ),
+        ),
+      ).toBe(true);
+    });
+  });
+
+  it("hides Kimi K3 when its flag is off and keeps it when on", async () => {
+    mockGetCloudTaskGatewayModels.mockResolvedValue([
+      gatewayModel("moonshotai/kimi-k3", { owned_by: "modal" }),
+      gatewayModel("claude-sonnet-5"),
+    ]);
+
+    let flagOn = false;
+    mockUseFeatureFlag.mockImplementation(
+      (flag: string) => flag === KIMI_MODEL_FLAG && flagOn,
+    );
+
+    const off = await renderHook("claude");
+    await waitForAssertion(() => {
+      const values = getModelConfigOption(
+        off.current.configOptions,
+      ).options.map((option) => option.value);
+      expect(values).not.toContain("moonshotai/kimi-k3");
+    });
+
+    flagOn = true;
+    const on = await renderHook("claude");
+    await waitForAssertion(() => {
+      const values = getModelConfigOption(on.current.configOptions).options.map(
+        (option) => option.value,
+      );
+      expect(values).toContain("moonshotai/kimi-k3");
+    });
+  });
+
+  it("makes the shared fallback usable after the live catalog fails", async () => {
+    mockGetCloudTaskGatewayModels.mockRejectedValue(new Error("offline"));
+
+    const result = await renderHook("claude");
     await waitForAssertion(() => {
       expect(result.current.isConfigReady).toBe(true);
     });

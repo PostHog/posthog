@@ -9,11 +9,20 @@ import type {
   PiModelSelection,
   PiThinkingLevel,
 } from "@posthog/core/pi-runtime/piSessionController";
-import { isValidConfigValue } from "@posthog/core/task-detail/configOptions";
+import {
+  harnessForModelValue,
+  isValidConfigValue,
+  modelOptionForHarness,
+  syntheticPiModelSelection,
+} from "@posthog/core/task-detail/configOptions";
 import { useServiceOptional } from "@posthog/di/react";
 import { useHostTRPC, useHostTRPCClient } from "@posthog/host-router/react";
 import { ButtonGroup } from "@posthog/quill";
-import { type AgentRuntime, ANALYTICS_EVENTS } from "@posthog/shared";
+import {
+  type AgentRuntime,
+  ANALYTICS_EVENTS,
+  adapterForModelId,
+} from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import {
   spendStopMessage,
@@ -30,8 +39,11 @@ import {
 } from "@posthog/ui/features/canvas/stores/taskRepositoryDraftStore";
 import { useChannelReportsEnabled } from "@posthog/ui/features/feature-flags/useChannelReportsEnabled";
 import { useOpenInboxReport } from "@posthog/ui/features/inbox/hooks/useOpenInboxReport";
+import {
+  subscriptionModelAccess,
+  useAdapterSubscription,
+} from "@posthog/ui/features/settings/adapterSubscription";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
-import { useCodexSubscription } from "@posthog/ui/features/settings/useCodexSubscription";
 import { NEW_TASK_COMPOSER_FADE_MS } from "@posthog/ui/features/task-detail/newTaskComposerTransition";
 import type { TaskInputReportAssociation } from "@posthog/ui/features/task-detail/stores/taskInputPrefillStore";
 import { useTaskInputPrefillStore } from "@posthog/ui/features/task-detail/stores/taskInputPrefillStore";
@@ -108,6 +120,8 @@ import {
   useSettingsStore,
 } from "../../settings/settingsStore";
 import { useSkills } from "../../skills/useSkills";
+import { cloudTargetIds } from "../cloudTargets";
+import { useCloudTargetSelection } from "../hooks/useCloudTarget";
 import {
   areReposReady,
   useInitialRepoSelectionFromFolderId,
@@ -119,6 +133,7 @@ import { useWarmTask } from "../hooks/useWarmTask";
 import { ChannelContextChip } from "./ChannelContextChip";
 import { CloudGithubMissingNotice } from "./CloudGithubMissingNotice";
 import { NewTaskSuggestions } from "./ContinueCliSessions";
+import { shouldShowChannelContextChip } from "./channelContext";
 import {
   type SuggestedPrompt,
   SuggestedPromptCard,
@@ -129,6 +144,7 @@ interface TaskInputProps {
   sessionId?: string;
   onTaskCreated?: (task: Task) => void;
   onTaskCreatedEffect?: (task: Task) => void;
+  showNewTaskSuggestions?: boolean;
   initialPrompt?: string;
   /** Full editor content to prefill (chips + attachments), preferred over initialPrompt. */
   initialContent?: EditorContent;
@@ -201,6 +217,7 @@ export function TaskInput({
   sessionId = "task-input",
   onTaskCreated,
   onTaskCreatedEffect,
+  showNewTaskSuggestions = true,
   initialPrompt,
   initialContent,
   recoveredFromKey,
@@ -341,19 +358,13 @@ export function TaskInput({
   const [selectedEnvironment, setSelectedEnvironmentRaw] = useState<
     string | null
   >(null);
-  const [selectedCloudEnvId, setSelectedCloudEnvId] = useState<string | null>(
-    null,
-  );
-  const [selectedCustomImageId, setSelectedCustomImageId] = useState<
-    string | null
-  >(null);
+  const { cloudTarget, setCloudTarget } = useCloudTargetSelection();
   const [activeReportAssociation, setActiveReportAssociation] = useState(
     reportAssociation ?? null,
   );
 
-  // Channel CONTEXT.md is included by default; the chip lets the user drop it
-  // from this task's prompt. Re-include whenever the source context changes
-  // (e.g. switching channels) so a dismissal doesn't stick across channels.
+  // Legacy CONTEXT.md is optional. A resolved context-layer page is a pointer
+  // into the session-wide mount and stays connected for the whole session.
   const [channelContextDismissed, setChannelContextDismissed] = useState(false);
   const channelContextSource = channelContextPath ?? channelContext;
   const lastChannelContextRef = useRef(channelContextSource);
@@ -364,10 +375,11 @@ export function TaskInput({
     }
   }, [channelContextSource]);
   const includeChannelContext =
-    !!channelContextSource && !channelContextDismissed;
+    !!channelContextPath || (!!channelContext && !channelContextDismissed);
 
   const adapter = lastUsedAdapter;
-  const codexSubscription = useCodexSubscription();
+  const codexSubscription = useAdapterSubscription("codex");
+  const claudeSubscription = useAdapterSubscription("claude");
   const prefillRequestKey = initialPromptKey ?? initialPrompt;
 
   // Applying a prefilled prompt replaces whatever the composer had, so it must
@@ -474,7 +486,7 @@ export function TaskInput({
     hasGithubIntegration,
   } = useUserRepositoryIntegration();
 
-  const piHarnessEnabled = useFeatureFlag("pi-harness");
+  const piHarnessEnabled = useFeatureFlag("pi-harness", import.meta.env.DEV);
   const flagsLoaded = useFeatureFlagsLoaded();
   const reposReady = areReposReady({
     isLoadingRepos,
@@ -492,18 +504,38 @@ export function TaskInput({
     );
   }, [flagsLoaded, lastUsedAgentRuntime, piHarnessEnabled, settingsHydrated]);
 
-  const { workspaceMode, setWorkspaceMode, overrideWorkspaceMode } =
-    useResolvedWorkspaceMode({
-      hasGithubIntegration,
-      isLoadingIntegrations,
-      pinCloud: !!initialCloudRepository,
-    });
+  const {
+    workspaceMode,
+    isResolved: isWorkspaceModeResolved,
+    setWorkspaceMode,
+    overrideWorkspaceMode,
+  } = useResolvedWorkspaceMode({
+    hasGithubIntegration,
+    isLoadingIntegrations,
+    pinCloud: !!initialCloudRepository,
+  });
+  const localWorkspaceReady =
+    isWorkspaceModeResolved && workspaceMode !== "cloud";
 
   const showCodexNotConnectedNotice =
     runtime !== "pi" &&
     adapter === "codex" &&
-    workspaceMode !== "cloud" &&
+    localWorkspaceReady &&
     codexSubscription.needsConnection;
+
+  const showClaudeNotConnectedNotice =
+    runtime !== "pi" &&
+    adapter === "claude" &&
+    workspaceMode !== "cloud" &&
+    claudeSubscription.needsConnection;
+
+  const composerModelAccess =
+    runtime === "pi"
+      ? undefined
+      : subscriptionModelAccess(
+          adapter === "codex" ? codexSubscription : claudeSubscription,
+          workspaceMode,
+        );
 
   const {
     repositories: visibleCloudRepositories,
@@ -524,7 +556,7 @@ export function TaskInput({
     return repositories.includes(lower) ? lower : null;
   }, [selectedRepository, repositories]);
   const { currentBranch, branchLoading, defaultBranch, busyState } =
-    useGitQueries(selectedDirectory);
+    useGitQueries(selectedDirectory, { enabled: localWorkspaceReady });
 
   const selectedGithubUserIntegrationId = selectedCloudRepository
     ? getUserIntegrationIdForRepo(selectedCloudRepository)
@@ -690,7 +722,10 @@ export function TaskInput({
     fastModeOption,
     isLoading: isPreviewLoading,
     setConfigOption,
-  } = usePreviewConfig(adapter);
+    resetToDefault,
+    isDefaultSelection,
+    resetToDefaultDisabled,
+  } = usePreviewConfig(adapter, { allHarnessModels: true });
 
   const lastAppliedDeepLinkConfigKey = useRef<string | undefined>(undefined);
 
@@ -701,6 +736,15 @@ export function TaskInput({
     if (!initialModel && !initialMode) return;
 
     if (initialModel && isValidConfigValue(modelOption, initialModel)) {
+      // The list spans both harnesses, so a deep-linked model can belong to the
+      // other one. Switch harness first and leave the key unmarked: the reloaded
+      // config comes back around and applies the pick on the right harness.
+      const harness = harnessForModelValue(modelOption, initialModel);
+      if (harness && harness !== adapter) {
+        setLastUsedModel(initialModel);
+        setAdapter(harness);
+        return;
+      }
       setConfigOption(modelOption.id, initialModel);
     }
     if (initialMode && isValidConfigValue(modeOption, initialMode)) {
@@ -708,13 +752,16 @@ export function TaskInput({
     }
     lastAppliedDeepLinkConfigKey.current = initialPromptKey;
   }, [
+    adapter,
     isPreviewLoading,
     initialPromptKey,
     initialModel,
     initialMode,
     modelOption,
     modeOption,
+    setAdapter,
     setConfigOption,
+    setLastUsedModel,
   ]);
 
   const { folders, isLoaded: foldersLoaded } = useFolders();
@@ -800,6 +847,7 @@ export function TaskInput({
   }
 
   const effectiveWorkspaceMode = workspaceMode;
+  const cloudIds = workspaceMode === "cloud" ? cloudTargetIds(cloudTarget) : {};
 
   const repoOptional = !!allowNoRepo && workspaceMode === "cloud";
 
@@ -821,6 +869,11 @@ export function TaskInput({
     thoughtOption?.type === "select" ? thoughtOption.currentValue : undefined;
   const currentPiModel =
     piModelCatalog.find((model) => model.id === selectedPiModelId) ??
+    // Pi runs any gateway model, so a session pick outside Pi's curated
+    // catalog sticks instead of falling back to Pi's default.
+    (selectedPiModelId
+      ? syntheticPiModelSelection(modelOption, selectedPiModelId)
+      : undefined) ??
     piModelCatalog.find((model) => model.id === lastUsedPiModel) ??
     piModelCatalog.find((model) => model.isDefault) ??
     piModelCatalog[0];
@@ -880,8 +933,8 @@ export function TaskInput({
     runtimeAdapter: adapter ?? null,
     model: effectiveModel,
     reasoningEffort: effectiveReasoningLevel,
-    sandboxEnvironmentId: workspaceMode === "cloud" ? selectedCloudEnvId : null,
-    customImageId: workspaceMode === "cloud" ? selectedCustomImageId : null,
+    sandboxEnvironmentId: cloudIds.sandboxEnvironmentId ?? null,
+    customImageId: cloudIds.customImageId ?? null,
   });
 
   const branchForTaskCreation =
@@ -891,9 +944,11 @@ export function TaskInput({
 
   const autoresearchService =
     useServiceOptional<AutoresearchService>(AUTORESEARCH_SERVICE);
+  // The composer's picker spans both harnesses, but a stage model rides on the
+  // task's own harness with no way to switch, so the stages see only its models.
   const autoresearchModelOptions = useMemo(
-    () => toStageSelectOptions(modelOption),
-    [modelOption],
+    () => toStageSelectOptions(modelOptionForHarness(modelOption, adapter)),
+    [modelOption, adapter],
   );
   const autoresearchEffortOptions = useMemo(
     () => toStageSelectOptions(thoughtOption),
@@ -1020,21 +1075,15 @@ export function TaskInput({
     onTaskCreated,
     onTaskCreatedEffect: handleTaskCreatedEffect,
     environmentId: selectedEnvironment,
-    sandboxEnvironmentId:
-      effectiveWorkspaceMode === "cloud" && selectedCloudEnvId
-        ? selectedCloudEnvId
-        : undefined,
-    customImageId:
-      effectiveWorkspaceMode === "cloud" && selectedCustomImageId
-        ? selectedCustomImageId
-        : undefined,
+    sandboxEnvironmentId: cloudIds.sandboxEnvironmentId,
+    customImageId: cloudIds.customImageId,
     signalReportId: activeReportAssociation?.reportId,
     channelContext: includeChannelContext ? channelContext : undefined,
     channelContextPath: includeChannelContext ? channelContextPath : undefined,
     channelName,
     channelId,
     channelContextId,
-    submissionBlocked: channelContextBlocked,
+    submissionBlocked: channelContextBlocked || !isWorkspaceModeResolved,
     allowNoRepo: repoOptional,
   });
 
@@ -1118,9 +1167,12 @@ export function TaskInput({
 
   const handleModelChange = useCallback(
     (value: string) => {
+      // A harness switch clears the options while the new config loads, and
+      // the menu stays open through that window. Recording the pick first
+      // lets the reload restore it instead of dropping it silently.
+      setLastUsedModel(value);
       if (modelOption) {
         setConfigOption(modelOption.id, value);
-        setLastUsedModel(value);
       }
     },
     [modelOption, setConfigOption, setLastUsedModel],
@@ -1148,17 +1200,53 @@ export function TaskInput({
     [sessionId, setLastUsedAgentRuntime],
   );
 
+  // A manual harness switch keeps the selected model when the target harness
+  // runs it; otherwise the target falls back to its default.
   const handleHarnessChange = useCallback(
     (harness: AgentHarness) => {
       if (harness === "pi") {
+        if (runtime !== "pi" && currentModel) {
+          // Session-only, so the saved Pi pick is not clobbered.
+          setSelectedPiModelId(currentModel);
+        }
         handleRuntimeChange("pi");
         return;
       }
 
+      if (runtime === "pi") {
+        const carried = currentPiModel?.id;
+        if (carried && adapterForModelId(carried) === harness) {
+          setLastUsedModel(carried);
+          if (harness === adapter && isValidConfigValue(modelOption, carried)) {
+            // Same adapter means no config refetch, so apply the pick directly.
+            setConfigOption(modelOption.id, carried);
+          }
+        }
+      }
       handleRuntimeChange("acp");
       setAdapter(harness);
     },
-    [handleRuntimeChange, setAdapter],
+    [
+      adapter,
+      currentModel,
+      currentPiModel,
+      handleRuntimeChange,
+      modelOption,
+      runtime,
+      setAdapter,
+      setConfigOption,
+      setLastUsedModel,
+    ],
+  );
+
+  // Saving the model before the switch lets the new harness's config restore
+  // it instead of resetting to that harness's default.
+  const handleHarnessModelChange = useCallback(
+    (harness: AgentAdapter, model: string) => {
+      setLastUsedModel(model);
+      handleHarnessChange(harness);
+    },
+    [handleHarnessChange, setLastUsedModel],
   );
 
   const handlePiModelChange = useCallback(
@@ -1167,6 +1255,20 @@ export function TaskInput({
       setLastUsedPiModel(model.id);
     },
     [setLastUsedPiModel],
+  );
+
+  // Pi runs any gateway model, so a pick in the Pi menu never leaves Pi. A
+  // pick outside Pi's curated catalog applies session-only.
+  const handlePiGatewayModelSelect = useCallback(
+    (model: string) => {
+      const entry = piModelCatalog.find((candidate) => candidate.id === model);
+      if (entry) {
+        handlePiModelChange(entry);
+        return;
+      }
+      setSelectedPiModelId(model);
+    },
+    [handlePiModelChange, piModelCatalog],
   );
 
   const handlePiThinkingLevelChange = useCallback((level: PiThinkingLevel) => {
@@ -1262,7 +1364,7 @@ export function TaskInput({
     >
       <DropZoneOverlay isVisible={isDraggingFile} />
       <Flex height="100%" width="100%">
-        {previewFile && selectedDirectory && (
+        {localWorkspaceReady && previewFile && selectedDirectory && (
           <Box className="h-full min-w-0 flex-1 border-gray-4 border-r">
             <NewTaskFilePreview
               repoPath={selectedDirectory}
@@ -1304,10 +1406,8 @@ export function TaskInput({
                   value={workspaceMode}
                   onChange={setWorkspaceMode}
                   adapter={runtime === "pi" ? undefined : adapter}
-                  selectedCloudEnvironmentId={selectedCloudEnvId}
-                  onCloudEnvironmentChange={setSelectedCloudEnvId}
-                  selectedCustomImageId={selectedCustomImageId}
-                  onCustomImageChange={setSelectedCustomImageId}
+                  cloudTarget={cloudTarget}
+                  onCloudTargetChange={setCloudTarget}
                   size="1"
                 />
                 {repoOptional && (
@@ -1384,7 +1484,9 @@ export function TaskInput({
                       repoPath={
                         workspaceMode === "cloud"
                           ? selectedCloudRepository
-                          : selectedDirectory
+                          : localWorkspaceReady
+                            ? selectedDirectory
+                            : null
                       }
                       currentBranch={currentBranch}
                       defaultBranch={
@@ -1394,6 +1496,7 @@ export function TaskInput({
                       }
                       disabled={
                         isCreatingTask ||
+                        !isWorkspaceModeResolved ||
                         (workspaceMode === "cloud" && !selectedCloudRepository)
                       }
                       loading={
@@ -1422,7 +1525,7 @@ export function TaskInput({
                     />
                   </ButtonGroup>
                 )}
-                {!repoOptional && workspaceMode !== "cloud" && (
+                {!repoOptional && localWorkspaceReady && (
                   <AdditionalDirectoriesButton
                     values={additionalDirectories}
                     onChange={setAdditionalDirectories}
@@ -1508,7 +1611,10 @@ export function TaskInput({
                           </button>
                         ) : null}
                       </span>
-                    ) : includeChannelContext ? (
+                    ) : shouldShowChannelContextChip(
+                        includeChannelContext,
+                        channelContextPath,
+                      ) ? (
                       <ChannelContextChip
                         channelName={channelName}
                         onView={onContextChipClick}
@@ -1548,6 +1654,8 @@ export function TaskInput({
                         onChange={handlePiModelChange}
                         onThinkingLevelChange={handlePiThinkingLevelChange}
                         onHarnessChange={handleHarnessChange}
+                        modelOption={modelOption}
+                        onGatewayModelSelect={handlePiGatewayModelSelect}
                         menuOpen={modelMenuOpen}
                         onMenuOpenChange={setModelMenuOpen}
                       />
@@ -1574,12 +1682,19 @@ export function TaskInput({
                         onHarnessChange={
                           piHarnessEnabled ? handleHarnessChange : undefined
                         }
+                        onHarnessModelChange={handleHarnessModelChange}
                         includePiHarness={piHarnessEnabled}
                         onConfigOptionChange={setConfigOption}
                         menuOpen={modelMenuOpen}
                         onMenuOpenChange={setModelMenuOpen}
                         disabled={isCreatingTask}
                         isLoading={isPreviewLoading}
+                        modelAccess={composerModelAccess}
+                        showBillingMenu
+                        workspaceMode={workspaceMode}
+                        isDefaultSelection={isDefaultSelection}
+                        onResetToDefault={resetToDefault}
+                        resetToDefaultDisabled={resetToDefaultDisabled}
                       />
                     )
                   }
@@ -1590,6 +1705,19 @@ export function TaskInput({
                     if (canSubmit) void submitTask();
                   }}
                 />
+                {showClaudeNotConnectedNotice && (
+                  <div className="mx-2 mt-1.5 text-[12px] text-gray-10">
+                    Claude is set to use your Claude plan, but no account is
+                    logged in. Sessions use PostHog credits.{" "}
+                    <button
+                      type="button"
+                      className="underline"
+                      onClick={() => openSettings("harness")}
+                    >
+                      Log in in Settings
+                    </button>
+                  </div>
+                )}
                 {showCodexNotConnectedNotice && (
                   <div className="mx-2 mt-1.5 text-[12px] text-gray-10">
                     Codex is set to use your ChatGPT plan, but no account is
@@ -1695,13 +1823,15 @@ export function TaskInput({
                       </motion.div>
                     )}
                   </AnimatePresence>
-                ) : (
+                ) : showNewTaskSuggestions ? (
                   <NewTaskSuggestions
-                    repoPath={selectedDirectory || null}
+                    repoPath={
+                      localWorkspaceReady ? selectedDirectory || null : null
+                    }
                     workspaceMode={effectiveWorkspaceMode}
                     disabled={isCreatingTask}
                   />
-                )}
+                ) : null}
               </div>
             </div>
           </Flex>

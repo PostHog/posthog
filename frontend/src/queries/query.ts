@@ -12,6 +12,7 @@ import {
     PersonsNode,
     QueryStatus,
     RefreshType,
+    WebStatsTableQueryResponse,
 } from '~/queries/schema/schema-general'
 import { OnlineExportContext, QueryExportContext } from '~/types'
 
@@ -260,15 +261,20 @@ export async function performQuery<N extends DataNode>(
                 logParams.clickhouse_sql = (response as HogQLQueryResponse)?.clickhouse
             }
             if (response && typeof response === 'object') {
-                // Web analytics responses report which read path served them and whether
-                // a lazy-precompute read was served stale. Undefined elsewhere, so these
-                // props only land on events that carry them.
-                const { preComputeStrategy, preComputeStale } = response as {
-                    preComputeStrategy?: string
-                    preComputeStale?: boolean
-                }
+                // Web analytics responses report which read path served them, whether a
+                // lazy-precompute read was served stale, and why a live read skipped precompute.
+                // Undefined elsewhere, so these props only land on events that carry them. The
+                // shape comes from the generated schema, so renaming a field there fails the
+                // build instead of silently capturing undefined.
+                const { preComputeStrategy, preComputeStale, preComputeIneligibleReason } = response as Partial<
+                    Pick<
+                        WebStatsTableQueryResponse,
+                        'preComputeStrategy' | 'preComputeStale' | 'preComputeIneligibleReason'
+                    >
+                >
                 logParams.precompute_strategy = preComputeStrategy
                 logParams.precompute_stale = preComputeStale
+                logParams.precompute_ineligible_reason = preComputeIneligibleReason
             }
         }
         const warehouseSources = dataWarehouseSourcesFromResponse(response)

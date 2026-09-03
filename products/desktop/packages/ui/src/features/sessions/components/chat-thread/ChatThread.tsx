@@ -103,6 +103,7 @@ import { extractCustomInstructions } from "@posthog/ui/features/sessions/compone
 import {
   extractOnboardingBrief,
   ONBOARDING_BRIEF_LABEL,
+  ONBOARDING_BRIEF_TOOLTIP,
 } from "@posthog/ui/features/sessions/components/session-update/onboardingBrief";
 import {
   hasFileMentions,
@@ -148,11 +149,14 @@ import {
   type DiffWorkerFactory,
 } from "@posthog/ui/shell/diffWorkerHost";
 import {
+  createContext,
+  type FocusEvent,
   memo,
   type ReactElement,
   type ReactNode,
   type RefObject,
   useCallback,
+  useContext,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -352,6 +356,15 @@ function formatTimestamp(ts: number): string {
  * A rated turn keeps its footer on screen, so the reader can see which thumb they picked without
  * hovering to find out.
  */
+/**
+ * True while the pointer is over the row, or focus sits inside it. The feedback thumbs (each a
+ * Tooltip around a Button) mount only then: a thread mounts dozens of rows at once and they are
+ * invisible until hover anyway. The copy button stays mounted regardless, so the footer keeps the
+ * tab stop a keyboard reader needs to reach the thumbs at all.
+ */
+const FooterRevealContext = createContext(false);
+const RawLogsToggleContext = createContext(false);
+
 function TurnFooter({
   turnId,
   timestamp,
@@ -362,19 +375,24 @@ function TurnFooter({
   copyText?: string;
 }) {
   const sentiment = useTurnFeedback(turnId);
+  const revealed = useContext(FooterRevealContext);
   if (timestamp == null) return null;
   return (
     <ChatMessageFooter
       className={cn(
-        "mt-2 items-center justify-end gap-1 pl-0 transition-opacity",
-        sentiment ? "opacity-100" : "opacity-0 group-hover:opacity-100",
+        "mt-2 min-h-5 items-center justify-end gap-1 pl-0 transition-opacity",
+        sentiment
+          ? "opacity-100"
+          : "opacity-0 focus-within:opacity-100 group-hover:opacity-100",
       )}
     >
       <span className="text-muted-foreground">
         {formatTimestamp(timestamp)}
       </span>
       {copyText && <CopyButton value={copyText} label="Copy turn" />}
-      <TurnFeedback turnId={turnId} sentiment={sentiment} />
+      {(revealed || sentiment) && (
+        <TurnFeedback turnId={turnId} sentiment={sentiment} />
+      )}
     </ChatMessageFooter>
   );
 }
@@ -578,18 +596,20 @@ function UserBubble({
   const [isExpanded, setIsExpanded] = useState(false);
   const [isOverflowing, setIsOverflowing] = useState(false);
   const textRef = useRef<HTMLDivElement>(null);
+  const footerRevealed = useContext(FooterRevealContext);
 
   // Only meaningful while collapsed: expanding removes the clamp so scrollHeight === clientHeight.
   // We keep the prior result when expanded so the "Show less" trigger stays put.
   // biome-ignore lint/correctness/useExhaustiveDependencies: re-measure when the message text changes.
-  useLayoutEffect(() => {
+  useEffect(() => {
     if (isExpanded) return;
     const el = textRef.current;
     if (!el) return;
-    const measure = () =>
-      setIsOverflowing(el.scrollHeight - el.clientHeight > 1);
-    measure();
-    const observer = new ResizeObserver(measure);
+    // The observer fires once on observe, after layout, so the first measure
+    // forces no layout inside the commit.
+    const observer = new ResizeObserver(() =>
+      setIsOverflowing(el.scrollHeight - el.clientHeight > 1),
+    );
     observer.observe(el);
     return () => observer.disconnect();
   }, [displayContent, isExpanded]);
@@ -608,8 +628,9 @@ function UserBubble({
               )}
               {onboardingBrief && (
                 <MentionChip
-                  icon={<FileText size={12} />}
+                  icon={<Robot size={12} />}
                   label={ONBOARDING_BRIEF_LABEL}
+                  tooltip={ONBOARDING_BRIEF_TOOLTIP}
                 />
               )}
               {showChannelContextTag && channelContext && (
@@ -698,9 +719,11 @@ function UserBubble({
             </ChatBubble>
           )}
           {timestamp != null && (
-            <ChatMessageFooter className="items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+            <ChatMessageFooter className="min-h-5 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
               {formatTimestamp(timestamp)}
-              <CopyButton value={displayContent} label="Copy message" />
+              {(footerRevealed || keyboardFocused) && (
+                <CopyButton value={displayContent} label="Copy message" />
+              )}
             </ChatMessageFooter>
           )}
         </ChatMessageContent>
@@ -713,10 +736,6 @@ function UserBubble({
  * Right-click a message to copy it. Replaces the per-message copy button that used to float in the
  * message's right rail — the turn footer covers the common case, so a single message's copy lives
  * here instead of costing every row a hover affordance.
- *
- * This menu sits inside `SessionView`'s own context menu and wins the event over it, so it also
- * carries that menu's raw-logs toggle; without it, right-clicking a message would be the one spot
- * in the session where the toggle went missing.
  *
  * Highlighted text wins over the message: right-clicking a selection copies just that, as it does
  * outside the app. The whole message is the fallback for a right-click with nothing selected, and
@@ -733,6 +752,7 @@ function MessageContextMenu({
   value: string;
   children: ReactElement;
 }) {
+  const showRawLogsToggle = useContext(RawLogsToggleContext);
   const showRawLogs = useShowRawLogs();
   const { setShowRawLogs } = useSessionViewActions();
   const [selection, setSelection] = useState<string | null>(null);
@@ -757,11 +777,15 @@ function MessageContextMenu({
           <Copy size={14} />
           {selection ? "Copy selection" : "Copy message"}
         </ContextMenuItem>
-        <ContextMenuSeparator />
-        <ContextMenuItem onClick={() => setShowRawLogs(!showRawLogs)}>
-          <Scroll size={14} />
-          {showRawLogs ? "Back to conversation" : "Show raw logs"}
-        </ContextMenuItem>
+        {showRawLogsToggle && (
+          <>
+            <ContextMenuSeparator />
+            <ContextMenuItem onClick={() => setShowRawLogs(!showRawLogs)}>
+              <Scroll size={14} />
+              {showRawLogs ? "Back to conversation" : "Show raw logs"}
+            </ContextMenuItem>
+          </>
+        )}
       </ContextMenuContent>
     </ContextMenu>
   );
@@ -843,6 +867,38 @@ function ThreadItemBody({
 }
 
 /**
+ * Pointer and focus state for one transcript row, which is what its footer mounts against. Focus
+ * counts alongside hover because the footer holds the only copy and rating controls a turn has: a
+ * reader who tabs into the row has to be able to bring them out.
+ */
+function useRowReveal(keyboardFocused?: boolean): {
+  revealed: boolean;
+  rowProps: {
+    onPointerEnter: () => void;
+    onPointerLeave: () => void;
+    onFocus: () => void;
+    onBlur: (event: FocusEvent<HTMLElement>) => void;
+  };
+} {
+  const [hovered, setHovered] = useState(false);
+  const [focusWithin, setFocusWithin] = useState(false);
+  return {
+    revealed: hovered || focusWithin || Boolean(keyboardFocused),
+    rowProps: {
+      onPointerEnter: () => setHovered(true),
+      onPointerLeave: () => setHovered(false),
+      onFocus: () => setFocusWithin(true),
+      // React's blur is focusout, so it also fires for moves within the row.
+      onBlur: (event) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) {
+          setFocusWithin(false);
+        }
+      },
+    },
+  };
+}
+
+/**
  * One transcript row. Memoized and scroll-state-free, so rows never re-render while scrolling — the
  * non-virtualized thread stays cheap. The pinned header is the separate overlay, not the rows.
  *
@@ -858,6 +914,7 @@ const ThreadRow = memo(function ThreadRow({
   renderItem: (item: ConversationItem) => ReactNode;
   keyboardFocused?: boolean;
 }) {
+  const { revealed: footerRevealed, rowProps } = useRowReveal(keyboardFocused);
   if (item.type === "agent_turn") {
     return (
       <ChatMessageScrollerItem
@@ -865,31 +922,34 @@ const ThreadRow = memo(function ThreadRow({
         scrollAnchor={false}
         className="group mx-auto w-full empty:hidden"
         style={{ maxWidth: CHAT_CONTENT_MAX_WIDTH }}
+        {...rowProps}
       >
-        <div className="flex flex-col gap-4 empty:hidden">
-          {item.items.map((sub, i) => (
-            // The scroller item's own content-visibility works at whole-turn granularity — a
-            // large turn (diffs, charts, dozens of tools) would render wholesale as soon as the
-            // card nears the viewport. Nesting content-visibility per sub-item keeps layout +
-            // paint bounded to the viewport-sized slice while scrolling; `auto` remembers each
-            // row's real size after first render so the scrollbar stays stable.
-            <div
-              key={sub.id}
-              className="[contain-intrinsic-size:auto_2rem] [content-visibility:auto] empty:hidden"
-            >
-              <ThreadItemBody
-                item={sub}
-                renderItem={renderItem}
-                isTrailing={i === item.items.length - 1}
-              />
-            </div>
-          ))}
-        </div>
-        <TurnFooter
-          turnId={item.id}
-          timestamp={completedTurnTimestamp(item)}
-          copyText={buildTurnCopyText(item.items) ?? undefined}
-        />
+        <FooterRevealContext.Provider value={footerRevealed}>
+          <div className="flex flex-col gap-4 empty:hidden">
+            {item.items.map((sub, i) => (
+              // The scroller item's own content-visibility works at whole-turn granularity — a
+              // large turn (diffs, charts, dozens of tools) would render wholesale as soon as the
+              // card nears the viewport. Nesting content-visibility per sub-item keeps layout +
+              // paint bounded to the viewport-sized slice while scrolling; `auto` remembers each
+              // row's real size after first render so the scrollbar stays stable.
+              <div
+                key={sub.id}
+                className="[contain-intrinsic-size:auto_2rem] [content-visibility:auto] empty:hidden"
+              >
+                <ThreadItemBody
+                  item={sub}
+                  renderItem={renderItem}
+                  isTrailing={i === item.items.length - 1}
+                />
+              </div>
+            ))}
+          </div>
+          <TurnFooter
+            turnId={item.id}
+            timestamp={completedTurnTimestamp(item)}
+            copyText={buildTurnCopyText(item.items) ?? undefined}
+          />
+        </FooterRevealContext.Provider>
       </ChatMessageScrollerItem>
     );
   }
@@ -899,12 +959,15 @@ const ThreadRow = memo(function ThreadRow({
       scrollAnchor={item.type === "user_message"}
       className="mx-auto w-full py-1 empty:hidden"
       style={{ maxWidth: CHAT_CONTENT_MAX_WIDTH }}
+      {...rowProps}
     >
-      <ThreadItemBody
-        item={item}
-        renderItem={renderItem}
-        keyboardFocused={keyboardFocused}
-      />
+      <FooterRevealContext.Provider value={footerRevealed}>
+        <ThreadItemBody
+          item={item}
+          renderItem={renderItem}
+          keyboardFocused={keyboardFocused}
+        />
+      </FooterRevealContext.Provider>
     </ChatMessageScrollerItem>
   );
 });
@@ -1237,10 +1300,13 @@ const FlatRowView = memo(
     keyboardFocused: boolean;
   }) {
     const { item } = row;
+    const { revealed: footerRevealed, rowProps } =
+      useRowReveal(keyboardFocused);
     return (
       <ChatMessageScrollerItem
         messageId={item.id}
         scrollAnchor={false}
+        {...rowProps}
         className={cn(
           // pb-4 stands in for the non-virtualized content's inter-row gap-4; an empty row
           // collapses entirely (display:none hides the padding too), matching how flex gap
@@ -1250,19 +1316,21 @@ const FlatRowView = memo(
         )}
         style={{ maxWidth: CHAT_CONTENT_MAX_WIDTH }}
       >
-        <ThreadItemBody
-          item={item}
-          renderItem={renderItem}
-          isTrailing={row.isTrailingInTurn}
-          keyboardFocused={keyboardFocused}
-        />
-        {row.turnId != null && row.turnTimestamp != null && (
-          <TurnFooter
-            turnId={row.turnId}
-            timestamp={row.turnTimestamp}
-            copyText={row.turnCopyText}
+        <FooterRevealContext.Provider value={footerRevealed}>
+          <ThreadItemBody
+            item={item}
+            renderItem={renderItem}
+            isTrailing={row.isTrailingInTurn}
+            keyboardFocused={keyboardFocused}
           />
-        )}
+          {row.turnId != null && row.turnTimestamp != null && (
+            <TurnFooter
+              turnId={row.turnId}
+              timestamp={row.turnTimestamp}
+              copyText={row.turnCopyText}
+            />
+          )}
+        </FooterRevealContext.Provider>
       </ChatMessageScrollerItem>
     );
   },
@@ -1366,13 +1434,15 @@ export function ChatThread({ events, ...props }: ChatThreadProps) {
   );
 
   return (
-    <ChatThreadRenderer
-      key={props.taskId}
-      {...props}
-      conversationItems={items}
-      footerEvents={[]}
-      footerState={footerState}
-    />
+    <RawLogsToggleContext.Provider value={false}>
+      <ChatThreadRenderer
+        key={props.taskId}
+        {...props}
+        conversationItems={items}
+        footerEvents={[]}
+        footerState={footerState}
+      />
+    </RawLogsToggleContext.Provider>
   );
 }
 
@@ -1383,12 +1453,14 @@ export function AcpChatThread({ events, ...props }: AcpChatThreadProps) {
   });
 
   return (
-    <ChatThreadRenderer
-      key={props.taskId}
-      {...props}
-      conversationItems={items}
-      footerEvents={events}
-    />
+    <RawLogsToggleContext.Provider value={true}>
+      <ChatThreadRenderer
+        key={props.taskId}
+        {...props}
+        conversationItems={items}
+        footerEvents={events}
+      />
+    </RawLogsToggleContext.Provider>
   );
 }
 

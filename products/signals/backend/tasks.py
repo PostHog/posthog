@@ -2,6 +2,7 @@ from datetime import timedelta
 from decimal import Decimal
 
 from django.core.cache import cache
+from django.db.models import Q
 from django.utils import timezone
 
 import structlog
@@ -143,6 +144,7 @@ def deliver_scout_slack_output(
                 return
             post_scout_emission_to_slack(
                 emission,
+                delivery_id=delivery_id,
                 integration_id=integration_id,
                 channel=channel,
             )
@@ -483,6 +485,12 @@ def sync_pending_signals_refund_credits() -> None:
 
 
 _ACTIVITY_ROW_MAX_IDLE = timedelta(days=90)
+# Every rebuild boots a Modal sandbox, so the weekly warm-up releases rebuilds in small batches
+# spaced this far apart rather than all at once. A single burst of the whole fan-out trips
+# Modal's API rate limit once enough repositories are warm. N repositories fully release in about
+# (N / _REFRESH_BATCH_SIZE) * _REFRESH_BATCH_INTERVAL_SECONDS, well within the weekly cadence.
+_REFRESH_BATCH_SIZE = 10
+_REFRESH_BATCH_INTERVAL_SECONDS = 60
 # Backstop for a worker dying without releasing the rebuild lock; above the task's
 # time_limit so a live rebuild is never treated as abandoned.
 _REBUILD_LOCK_TTL_SECONDS = 30 * 60
@@ -592,23 +600,43 @@ def pause_inactive_signal_scouts() -> None:
     name="products.signals.backend.tasks.refresh_signal_repository_activity",
     ignore_result=True,
     max_retries=0,
+    # The chain holds each countdown message in one worker's memory for the whole interval.
+    # Ack it only after the batch schedules the next one, so a worker restart (deploy,
+    # scale-down, OOM) redelivers the message and resumes the walk instead of dropping it.
+    acks_late=True,
+    reject_on_worker_lost=True,
 )
 @skip_team_scope_audit
-def refresh_signal_repository_activity() -> None:
-    """Weekly (Monday) warm-up: enqueue a rebuild for every recently-used repository map."""
-    now = timezone.now()
-    SignalRepositoryAreaActivity.objects.unscoped().filter(
-        last_used_at__lt=now - _ACTIVITY_ROW_MAX_IDLE
-    ).delete()  # nosemgrep: idor-lookup-without-team (system Celery sweeper, no user input; unscoped is the sanctioned cross-team access)
+def refresh_signal_repository_activity(after_team_id: int | None = None, after_repository: str | None = None) -> None:
+    """Weekly (Monday) warm-up: enqueue a rebuild for every recently-used repository map.
 
-    repositories = list(
-        SignalRepositoryAreaActivity.objects.unscoped()  # nosemgrep: idor-lookup-without-team (system Celery sweeper, no user input; unscoped is the sanctioned cross-team access)
-        .filter(last_used_at__gte=now - ACTIVITY_KEEP_WARM_WINDOW)
-        .values_list("team_id", "repository")
-        .distinct()
-        .order_by("team_id", "repository")
+    Releases rebuilds in batches of ``_REFRESH_BATCH_SIZE``. Each batch re-schedules the next
+    after ``_REFRESH_BATCH_INTERVAL_SECONDS`` via a stable (team_id, repository) cursor, so the
+    fan-out spreads over the window instead of bursting past Modal's sandbox-creation rate limit.
+    """
+    now = timezone.now()
+    first_batch = after_team_id is None and after_repository is None
+    if first_batch:
+        SignalRepositoryAreaActivity.objects.unscoped().filter(
+            last_used_at__lt=now - _ACTIVITY_ROW_MAX_IDLE
+        ).delete()  # nosemgrep: idor-lookup-without-team (system Celery sweeper, no user input; unscoped is the sanctioned cross-team access)
+
+    warm = SignalRepositoryAreaActivity.objects.unscoped().filter(  # nosemgrep: idor-lookup-without-team (system Celery sweeper, no user input; unscoped is the sanctioned cross-team access)
+        last_used_at__gte=now - ACTIVITY_KEEP_WARM_WINDOW
     )
-    for team_id, repository in repositories:
+    if after_team_id is not None and after_repository is not None:
+        warm = warm.filter(Q(team_id__gt=after_team_id) | Q(team_id=after_team_id, repository__gt=after_repository))
+    batch = list(
+        warm.values_list("team_id", "repository").distinct().order_by("team_id", "repository")[:_REFRESH_BATCH_SIZE]
+    )
+    if not batch:
+        return
+    for team_id, repository in batch:
         rebuild_signal_repository_activity.delay(team_id=team_id, repository=repository, force=True)
-    if repositories:
-        logger.info("signals repository activity refresh enqueued rebuilds", count=len(repositories))
+    logger.info("signals repository activity refresh enqueued rebuilds", count=len(batch))
+    if len(batch) == _REFRESH_BATCH_SIZE:
+        last_team_id, last_repository = batch[-1]
+        refresh_signal_repository_activity.apply_async(
+            kwargs={"after_team_id": last_team_id, "after_repository": last_repository},
+            countdown=_REFRESH_BATCH_INTERVAL_SECONDS,
+        )

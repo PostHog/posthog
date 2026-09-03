@@ -32,7 +32,7 @@ tiles, or `FeaturePreviewSceneGate` rather than scene empty states.
 
 ## Adopted
 
-25 scenes. The 11 marked "in review" are the stack under PR #90607 and are not on `master` yet.
+Rows marked "in review" are not on `master` yet. See "Regenerating the lists" for a live count.
 
 | Product                | Scene                                                                               | Status                |
 | ---------------------- | ----------------------------------------------------------------------------------- | --------------------- |
@@ -50,17 +50,22 @@ tiles, or `FeaturePreviewSceneGate` rather than scene empty states.
 | Skills                 | `products/skills/frontend/LLMSkillsScene.tsx`                                       | on master             |
 | User interviews        | `products/user_interviews/frontend/UserInterviews.tsx`                              | on master             |
 | Web scripts            | `frontend/src/scenes/data-pipelines/WebScriptsScene.tsx`                            | on master             |
-| Error tracking         | `products/error_tracking/frontend/scenes/ErrorTrackingScene/ErrorTrackingScene.tsx` | in review             |
-| Logs                   | `products/logs/frontend/LogsScene.tsx`                                              | in review             |
-| Tracing                | `products/tracing/frontend/TracingScene.tsx`                                        | in review             |
-| Metrics                | `products/metrics/frontend/MetricsScene.tsx`                                        | in review             |
-| Surveys                | `frontend/src/scenes/surveys/Surveys.tsx`                                           | in review             |
-| Session replay         | `frontend/src/scenes/session-recordings/SessionRecordings.tsx`                      | in review             |
-| Web vitals             | `frontend/src/scenes/web-analytics/WebAnalyticsScene.tsx`                           | in review             |
-| Data warehouse sources | `products/data_warehouse/frontend/scenes/SourcesScene/SourcesScene.tsx`             | in review             |
-| Workflows              | `products/workflows/frontend/WorkflowsScene.tsx`                                    | in review             |
-| Marketing analytics    | `frontend/src/scenes/marketing-analytics/MarketingAnalyticsScene.tsx`               | in review             |
-| Customer analytics     | `products/customer_analytics/frontend/CustomerAnalyticsScene.tsx`                   | in review             |
+| Error tracking         | `products/error_tracking/frontend/scenes/ErrorTrackingScene/ErrorTrackingScene.tsx` | on master             |
+| Logs                   | `products/logs/frontend/LogsScene.tsx`                                              | on master             |
+| Tracing                | `products/tracing/frontend/TracingScene.tsx`                                        | on master             |
+| Metrics                | `products/metrics/frontend/MetricsScene.tsx`                                        | on master             |
+| Surveys                | `frontend/src/scenes/surveys/Surveys.tsx`                                           | on master             |
+| Session replay         | `frontend/src/scenes/session-recordings/SessionRecordings.tsx`                      | on master             |
+| Web vitals             | `frontend/src/scenes/web-analytics/WebAnalyticsScene.tsx`                           | on master             |
+| Data warehouse sources | `products/data_warehouse/frontend/scenes/SourcesScene/SourcesScene.tsx`             | on master             |
+| Workflows              | `products/workflows/frontend/WorkflowsScene.tsx`                                    | on master             |
+| Marketing analytics    | `frontend/src/scenes/marketing-analytics/MarketingAnalyticsScene.tsx`               | on master             |
+| Customer analytics     | `products/customer_analytics/frontend/CustomerAnalyticsScene.tsx`                   | on master             |
+| Actions                | `products/actions/frontend/pages/Actions.tsx`                                       | on master             |
+| Annotations            | `frontend/src/scenes/annotations/Annotations.tsx`                                   | on master             |
+| Cohorts                | `frontend/src/scenes/cohorts/Cohorts.tsx`                                           | on master             |
+| Dashboards             | `frontend/src/scenes/dashboard/dashboards/Dashboards.tsx`                           | on master             |
+| Product analytics      | `frontend/src/scenes/saved-insights/SavedInsights.tsx`                              | on master             |
 
 Only four products resolve their status at app boot, via a `setupProbe` in their manifest:
 LLM analytics, error tracking, MCP analytics, web analytics.
@@ -74,14 +79,9 @@ do not have one yet.
 
 These are the scenes a new user is most likely to land on before they have data.
 
-| Product                | Scene                                                       | Shows instead                                                                          |
-| ---------------------- | ----------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| Product analytics      | `frontend/src/scenes/saved-insights/SavedInsights.tsx`      | `SavedInsightsEmptyState`, plus a bespoke `SampleDataState` and `sampleDataStateLogic` |
-| Dashboards             | `frontend/src/scenes/dashboard/dashboards/Dashboards.tsx`   | `ProductIntroduction`                                                                  |
-| Single empty dashboard | `frontend/src/scenes/dashboard/EmptyDashboardComponent.tsx` | `ProductIntroduction`                                                                  |
-| Cohorts                | `frontend/src/scenes/cohorts/Cohorts.tsx`                   | `ProductIntroduction`, plus a second table-level empty state                           |
-| Annotations            | `frontend/src/scenes/annotations/Annotations.tsx`           | `ProductIntroduction`                                                                  |
-| Actions                | `products/actions/frontend/components/ActionsTable.tsx`     | `ProductIntroduction`                                                                  |
+| Product                | Scene                                                       | Shows instead         |
+| ---------------------- | ----------------------------------------------------------- | --------------------- |
+| Single empty dashboard | `frontend/src/scenes/dashboard/EmptyDashboardComponent.tsx` | `ProductIntroduction` |
 
 ### Tier 2: cheap, or actively misleading today
 

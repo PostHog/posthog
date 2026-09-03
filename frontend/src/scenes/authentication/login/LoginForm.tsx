@@ -1,11 +1,12 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useEffect } from 'react'
-import { twMerge } from 'tailwind-merge'
 
+import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass-1'
 import { IconCheckCircle } from '@posthog/icons'
 
 import { getCookie } from 'lib/api'
+import { pngHoggie } from 'lib/brand/hoggies'
 import { SocialLoginButtons, SSOEnforcedLoginButton } from 'lib/components/SocialLoginButton/SocialLoginButton'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { SSO_PROVIDER_NAMES } from 'lib/constants'
@@ -22,23 +23,83 @@ import { RegionField } from 'scenes/authentication/shared/authScene/RegionField'
 import { ERROR_MESSAGES } from 'scenes/authentication/shared/loginErrorMessages'
 import { OtherRegionHint } from 'scenes/authentication/shared/OtherRegionHint'
 import { RedirectIfLoggedInOtherInstance } from 'scenes/authentication/shared/RedirectToLoggedInInstance'
+import { isValidVerificationCode, normalizeVerificationCode } from 'scenes/authentication/shared/verificationCode'
+import { VerificationCodeInput } from 'scenes/authentication/shared/VerificationCodeInput'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
-import { LoginMethod } from '~/types'
+import { LoginMethod, Region, SSOProvider } from '~/types'
 
 import { loginLogic } from './loginLogic'
 import { SessionRiskBanner } from './SessionRiskBanner'
 
 const LAST_LOGIN_METHOD_COOKIE = 'ph_last_login_method'
 
+const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
+
+function loginMethodLabel(method: LoginMethod): string {
+    if (method === 'password') {
+        return 'password'
+    }
+    if (method === 'passkey') {
+        return 'passkey'
+    }
+    return method ? SSO_PROVIDER_NAMES[method] : ''
+}
+
+// The support form starts empty for the person, so a login-error ticket loses the context the page
+// already holds. Prefill the message with the error code, region, and login methods, so support can
+// triage without a round trip.
+function buildLoginSupportMessage({
+    errorCode,
+    region,
+    ssoEnforcement,
+    availableLoginMethods,
+    precheckTrusted,
+    codeVerificationPending,
+}: {
+    errorCode?: string
+    region?: Region | null
+    ssoEnforcement?: SSOProvider | null
+    availableLoginMethods: LoginMethod[]
+    precheckTrusted: boolean
+    codeVerificationPending: boolean
+}): string {
+    const lines = ['I need help logging in.']
+    if (errorCode) {
+        lines.push(`Error code: ${errorCode}`)
+    }
+    if (region) {
+        lines.push(`Data region: ${region}`)
+    }
+    // Only state the account's methods when the precheck is trustworthy. A failed or stale one
+    // reports permissive defaults (e.g. password login for an SSO-only account), which would point
+    // support the wrong way.
+    if (precheckTrusted) {
+        if (ssoEnforcement) {
+            lines.push(`Login method: SSO enforced (${SSO_PROVIDER_NAMES[ssoEnforcement]})`)
+        } else {
+            const labels = availableLoginMethods.map(loginMethodLabel).filter(Boolean)
+            if (labels.length) {
+                lines.push(`Login methods available: ${labels.join(', ')}`)
+            }
+        }
+    }
+    if (codeVerificationPending) {
+        lines.push('Waiting on an emailed verification code.')
+    }
+    return lines.join('\n')
+}
+
 // Bare text nodes below are wrapped in <span>s: in-page translation replaces text nodes with
 // <font> elements, which crashes React's sibling insert/remove operations (removeChild /
 // insertBefore NotFoundError, see react#11538). Text that is its own element's only child is
 // already safe, so only text sharing a parent with element siblings needs wrapping.
 export function LoginForm(): JSX.Element {
-    const { precheck, exitCodeVerification, resendCodeBasedVerification } = useActions(loginLogic)
+    const { precheck, exitCodeVerification, resendCodeBasedVerification, submitCodeVerification } =
+        useActions(loginLogic)
     const { openSupportForm } = useActions(supportLogic)
+    const { sendSupportRequest } = useValues(supportLogic)
     const {
         precheckResponse,
         precheckResponseLoading,
@@ -51,9 +112,12 @@ export function LoginForm(): JSX.Element {
         codeVerificationRequired,
         isCodeVerificationSubmitting,
         isPasswordLoginUnavailable,
+        codeVerificationEmail,
+        codeVerification,
         hasNoConfiguredLoginMethod,
         restrictToProviders,
         autoRedirectingToProvider,
+        availableLoginMethods,
     } = useValues(loginLogic)
     const { preflight } = useValues(preflightLogic)
 
@@ -88,10 +152,12 @@ export function LoginForm(): JSX.Element {
         <AuthScene notes={['// welcome back', '// 500,000+ teams ship here']}>
             {preflight?.cloud && <RedirectIfLoggedInOtherInstance />}
             <AuthSceneCard footer={footer}>
+                {isCodeSent && <HedgehogMagnifyingGlass className="block w-auto mx-auto mb-3 h-28" />}
                 <AuthCardTitle
+                    className={isCodeSent ? 'mb-2' : undefined}
                     title={
                         isCodeSent ? (
-                            'Enter your login code'
+                            'Check your inbox'
                         ) : (
                             <>
                                 {/* This whole fragment is deleted when the title flips to the code-sent
@@ -103,16 +169,37 @@ export function LoginForm(): JSX.Element {
                             </>
                         )
                     }
-                    sub={isCodeSent ? undefined : "Welcome back. Let's go ship something."}
+                    sub={
+                        isCodeSent ? (
+                            <>
+                                For your security, we've emailed a 6-digit verification code to{' '}
+                                <strong>{codeVerificationEmail}</strong>.
+                            </>
+                        ) : (
+                            "Welcome back. Let's go ship something."
+                        )
+                    }
                 />
                 <SessionRiskBanner className="mb-4" />
-                {generalError && (
-                    <div
-                        className={twMerge(
-                            'mb-4 py-2.5 px-3 text-sm leading-normal text-primary text-left bg-danger-highlight border border-danger rounded',
-                            isCodeSent ? 'bg-success-highlight border-success' : 'bg-danger-highlight border-danger'
+                {isCodeSent && (
+                    <div className="mb-5 flex flex-col items-center gap-1 text-sm">
+                        <Link
+                            onClick={() => resendCodeBasedVerification(null)}
+                            disabledReason={resendResponseLoading ? 'Sending...' : undefined}
+                            className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-secondary"
+                        >
+                            Resend code
+                        </Link>
+                        {resendResponse?.success && (
+                            <p className="flex items-center gap-1 text-success mb-0" role="status">
+                                <IconCheckCircle />
+                                <span>Code sent</span>
+                            </p>
                         )}
-                    >
+                    </div>
+                )}
+                {generalError && (
+                    <div className="mb-4 py-2.5 px-3 text-sm leading-normal text-primary text-left bg-danger-highlight border border-danger rounded">
                         <span>
                             {generalError.detail ||
                                 ERROR_MESSAGES[generalError.code] ||
@@ -125,9 +212,29 @@ export function LoginForm(): JSX.Element {
                                     data-attr="login-error-contact-support"
                                     onClick={(e) => {
                                         e.preventDefault()
+                                        // Trust the precheck only when it resolved for the email now
+                                        // in the form: a failed precheck reports permissive defaults,
+                                        // and a stale one still holds the previous email's account.
+                                        const precheckTrusted =
+                                            precheckResponse.status === 'completed' &&
+                                            !precheckResponse.precheckFailed &&
+                                            precheckResponse.email === login.email
                                         openSupportForm({
                                             kind: 'support',
                                             email: login.email,
+                                            // Prefill only into an empty form. Passing no message lets
+                                            // openSupportForm keep a draft the person already started,
+                                            // so reopening this link never overwrites their text.
+                                            message: sendSupportRequest.message
+                                                ? undefined
+                                                : buildLoginSupportMessage({
+                                                      errorCode: generalError.code,
+                                                      region: preflight?.region,
+                                                      ssoEnforcement: precheckResponse.sso_enforcement,
+                                                      availableLoginMethods,
+                                                      precheckTrusted,
+                                                      codeVerificationPending: codeVerificationRequired,
+                                                  }),
                                         })
                                     }}
                                     className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-warning"
@@ -148,16 +255,30 @@ export function LoginForm(): JSX.Element {
                         logic={loginLogic}
                         formKey="codeVerification"
                         enableFormOnSubmit
+                        // The code input renders a hidden input with a \d{6} pattern. Without noValidate,
+                        // the browser blocks submit on a partial code and kea cannot show its error.
+                        noValidate
                         className="flex flex-col gap-4"
                     >
-                        <LemonField name="code" label="Verification code">
-                            <LemonInput
-                                className="ph-ignore-input"
-                                autoFocus
+                        <LemonField
+                            name="code"
+                            label="Verification code"
+                            labelClassName="sr-only"
+                            // Plain centered text without an icon, like the signup verify screen's error
+                            renderError={(error) => (
+                                <p className="m-0 text-sm text-danger text-center" role="alert">
+                                    {error}
+                                </p>
+                            )}
+                        >
+                            <VerificationCodeInput
                                 data-attr="code-verification"
-                                placeholder="123456"
-                                inputMode="numeric"
-                                autoComplete="one-time-code"
+                                disabled={isCodeVerificationSubmitting}
+                                onComplete={() => {
+                                    if (!isCodeVerificationSubmitting) {
+                                        submitCodeVerification()
+                                    }
+                                }}
                             />
                         </LemonField>
                         <LemonButton
@@ -169,25 +290,15 @@ export function LoginForm(): JSX.Element {
                             center
                             size="large"
                             loading={isCodeVerificationSubmitting}
+                            disabledReason={
+                                isValidVerificationCode(normalizeVerificationCode(codeVerification.code))
+                                    ? undefined
+                                    : 'Enter the 6-digit code from your email'
+                            }
                         >
                             Verify and log in
                         </LemonButton>
                         <div className="flex flex-col items-center gap-3">
-                            <LemonButton
-                                size="small"
-                                type="tertiary"
-                                disabled={resendResponseLoading}
-                                loading={resendResponseLoading}
-                                onClick={() => resendCodeBasedVerification(null)}
-                            >
-                                Resend code
-                            </LemonButton>
-                            {resendResponse?.success && (
-                                <p className="flex items-center gap-1 text-success mb-0" role="status">
-                                    <IconCheckCircle />
-                                    <span>Code sent — check your inbox.</span>
-                                </p>
-                            )}
                             <Link
                                 onClick={() => exitCodeVerification()}
                                 className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-secondary"
