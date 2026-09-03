@@ -102,6 +102,31 @@ describe('customerTasksLogic', () => {
         })
     })
 
+    test.each([
+        ['assigns', null, 'account-1'],
+        ['removes', { id: 'account-1', name: 'Acme' }, null],
+    ])('%s an account while editing a task', async (_, account, selectedAccountId) => {
+        const originalTask = { ...task(), account }
+        mockList.mockResolvedValueOnce({ count: 1, next: null, previous: null, results: [originalTask] })
+        logic = customerTasksLogic({ context: 'inbox', canViewAll: true })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.openEditModal(originalTask)
+        expect(logic.values.draftAccountId).toBe(account?.id ?? null)
+        logic.actions.setDraftAccountId(selectedAccountId)
+        logic.actions.submitModal()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(mockUpdate).toHaveBeenCalledWith(expect.any(String), originalTask.id, {
+            account_id: selectedAccountId,
+            name: originalTask.name,
+            description: null,
+            assigned_to_id: null,
+            due_at: null,
+        })
+    })
+
     test('persists inbox filters for one team and user, then resets them to defaults', async () => {
         const prefix = customerTasksPersistencePrefix(1, 42)
         logic = customerTasksLogic({ context: 'inbox', canViewAll: true, persistPrefix: prefix })

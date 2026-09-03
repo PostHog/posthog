@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonInput, LemonLabel, LemonModal, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonInputSelect, LemonLabel, LemonModal, LemonTextArea } from '@posthog/lemon-ui'
 
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { dayjsLocalToTimezone, dayjsUtcToTimezone } from 'lib/dayjs'
@@ -9,15 +9,42 @@ import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalend
 import type { customerTasksLogicType } from './customerTasksLogic'
 export interface CustomerTaskModalProps {
     logic: import('kea').BuiltLogic<customerTasksLogicType>
+    accountName?: string
 }
-export function CustomerTaskModal({ logic }: CustomerTaskModalProps): JSX.Element {
-    const { modalOpen, modalTask, draftName, draftDescription, draftAssignedTo, draftDueAt, mutationKeys, timezone } =
-        useValues(logic)
-    const { closeModal, setDraftName, setDraftDescription, setDraftAssignedTo, setDraftDueAt, submitModal } =
-        useActions(logic)
+export function CustomerTaskModal({ logic, accountName }: CustomerTaskModalProps): JSX.Element {
+    const {
+        modalOpen,
+        modalTask,
+        accountOptions,
+        accountOptionsResponseLoading,
+        draftName,
+        draftDescription,
+        draftAccountId,
+        draftAssignedTo,
+        draftDueAt,
+        mutationKeys,
+        timezone,
+    } = useValues(logic)
+    const {
+        closeModal,
+        loadAccountOptions,
+        setDraftName,
+        setDraftDescription,
+        setDraftAccountId,
+        setDraftAssignedTo,
+        setDraftDueAt,
+        submitModal,
+    } = useActions(logic)
     const saving = Boolean(mutationKeys[modalTask?.id ?? 'create'])
     const create = modalTask === null
     const editable = create || modalTask?.can_edit === true
+    const accountOptionsForSelect = accountOptions.map((account) => ({ key: account.id, label: account.name }))
+    if (draftAccountId && !accountOptionsForSelect.some((option) => option.key === draftAccountId)) {
+        const selectedAccountName = modalTask?.account?.id === draftAccountId ? modalTask.account.name : accountName
+        if (selectedAccountName) {
+            accountOptionsForSelect.unshift({ key: draftAccountId, label: selectedAccountName })
+        }
+    }
     return (
         <LemonModal
             isOpen={modalOpen}
@@ -54,6 +81,21 @@ export function CustomerTaskModal({ logic }: CustomerTaskModalProps): JSX.Elemen
                 <div className="flex flex-col gap-1">
                     <LemonLabel>Description (optional)</LemonLabel>
                     <LemonTextArea value={draftDescription} onChange={setDraftDescription} minRows={4} />
+                </div>
+                <div className="flex flex-col gap-1">
+                    <LemonLabel>Account (optional)</LemonLabel>
+                    <LemonInputSelect
+                        mode="single"
+                        value={draftAccountId ? [draftAccountId] : []}
+                        options={accountOptionsForSelect}
+                        loading={accountOptionsResponseLoading}
+                        onInputChange={(query) => loadAccountOptions({ query })}
+                        onChange={(values) => setDraftAccountId(values[0] ?? null)}
+                        placeholder="No account"
+                        disabledReason={!editable ? 'You cannot edit this task' : undefined}
+                        fullWidth
+                        data-attr="customer-task-account"
+                    />
                 </div>
                 <div className="flex flex-col gap-1">
                     <LemonLabel>Assignee (optional)</LemonLabel>

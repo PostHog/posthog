@@ -81,6 +81,8 @@ describe('CustomerTasksTable', () => {
 
         fireEvent.click(taskName)
         expect(screen.getByText('Edit task')).toBeInTheDocument()
+        expect(screen.getByText('Account (optional)')).toBeInTheDocument()
+        expect(screen.getByText('No account')).toBeInTheDocument()
 
         mockList.mockResolvedValueOnce({
             count: 1,

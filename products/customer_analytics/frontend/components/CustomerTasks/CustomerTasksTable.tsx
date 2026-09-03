@@ -32,6 +32,7 @@ export function CustomerTasksTable({
     context,
     canCreate = false,
     canViewAll = false,
+    accountName,
 }: CustomerTasksTableProps): JSX.Element {
     const { taskPage, taskPageError, taskPageLoading, tasks, pagination, hasActiveFilters, taskSorting, timezone } =
         useValues(logic)
@@ -168,7 +169,7 @@ export function CustomerTasksTable({
                 nouns={['task', 'tasks']}
                 tableLayout="fixed"
             />
-            <CustomerTaskModal logic={logic} />
+            <CustomerTaskModal logic={logic} accountName={accountName} />
         </div>
     )
 }

@@ -80,6 +80,7 @@ export interface customerTasksLogicValues {
     timezone: string
     draftName: string
     draftDescription: string
+    draftAccountId: string | null
     draftAssignedTo: number | null
     draftDueAt: string | null
 }
@@ -102,6 +103,7 @@ export interface customerTasksLogicActions {
     setTaskSorting: (sorting: Sorting | null) => { sorting: Sorting | null }
     setPage: (page: number) => { page: number }
     setSearch: (search: string) => { search: string }
+    setDraftAccountId: (accountId: string | null) => { accountId: string | null }
     setDraftAssignedTo: (assignedToId: number | null) => { assignedToId: number | null }
     setDraftDescription: (description: string) => { description: string }
     setDraftDueAt: (dueAt: string | null) => { dueAt: string | null }
@@ -138,6 +140,7 @@ export const customerTasksLogic: LogicWrapper<customerTasksLogicType> = kea<cust
         closeModal: () => ({}),
         setDraftName: (name: string) => ({ name }),
         setDraftDescription: (description: string) => ({ description }),
+        setDraftAccountId: (accountId: string | null) => ({ accountId }),
         setDraftAssignedTo: (assignedToId: number | null) => ({ assignedToId }),
         setDraftDueAt: (dueAt: string | null) => ({ dueAt }),
         submitModal: () => ({}),
@@ -273,6 +276,15 @@ export const customerTasksLogic: LogicWrapper<customerTasksLogicType> = kea<cust
                     closeModal: () => '',
                 },
             ],
+            draftAccountId: [
+                props.accountId ?? null,
+                {
+                    openCreateModal: () => props.accountId ?? null,
+                    openEditModal: (_: string | null, a: { task: CustomerTaskApi }) => a.task.account?.id ?? null,
+                    setDraftAccountId: (_: string | null, a: { accountId: string | null }) => a.accountId,
+                    closeModal: () => props.accountId ?? null,
+                },
+            ],
             draftAssignedTo: [
                 null as number | null,
                 {
@@ -339,6 +351,7 @@ export const customerTasksLogic: LogicWrapper<customerTasksLogicType> = kea<cust
             }
             if (values.modalTask) {
                 actions.updateTask(values.modalTask.id, {
+                    account_id: values.draftAccountId,
                     name: values.draftName,
                     description: values.draftDescription || null,
                     assigned_to_id: values.draftAssignedTo,
@@ -346,7 +359,7 @@ export const customerTasksLogic: LogicWrapper<customerTasksLogicType> = kea<cust
                 })
             } else {
                 actions.createTask({
-                    account_id: props.accountId ?? null,
+                    account_id: values.draftAccountId,
                     name: values.draftName,
                     description: values.draftDescription || null,
                     assigned_to_id: values.draftAssignedTo,
