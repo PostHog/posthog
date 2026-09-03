@@ -229,6 +229,17 @@ export function renderQueryOutline(
     node.style.height = `${maxBottom - minTop + padY * 2}px`
 }
 
+// A disposed Monaco editor drops its DOM node, but the cached `props.editor` reference lingers.
+// `IStandaloneCodeEditor` has no `isDisposed()`, so a null DOM node is the reliable disposed signal.
+// Writing to a disposed editor (e.g. `setModel`) throws inside Monaco's `_attachModel` and crashes
+// the React commit, so gate every such write on this check. A live editor without a model still
+// passes — a fresh tab binds its first model here.
+export function isEditorAlive(
+    editorInstance: editor.IStandaloneCodeEditor | null | undefined
+): editorInstance is editor.IStandaloneCodeEditor {
+    return !!editorInstance && editorInstance.getDomNode() !== null
+}
+
 function clearQueryOutlineOverlay(
     cache: sqlEditorLogicType['cache'],
     fallbackEditor?: editor.IStandaloneCodeEditor | null
@@ -1904,7 +1915,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         model = props.monaco.editor.createModel(query, 'hogQL', uri)
                         cache.createdModels = cache.createdModels || []
                         cache.createdModels.push(model)
-                        props.editor?.setModel(model)
+                        if (isEditorAlive(props.editor)) {
+                            props.editor.setModel(model)
+                        }
                         initModel(
                             model,
                             codeEditorLogic({
@@ -1946,7 +1959,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 actions.enforceConnectionRawQueryMode()
 
                 // Focus the editor after creating a new tab
-                props.editor?.focus()
+                if (isEditorAlive(props.editor)) {
+                    props.editor.focus()
+                }
             },
             setSourceQuery: ({ sourceQuery }) => {
                 if (!values.activeTab) {
@@ -3771,7 +3786,6 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             // Bump the generation counter so any still-running invocation bails out before
             // applying stale decorations. Each run owns its own `generation` token.
             const generation = ++cache.decorationGeneration
-            const isStale = (): boolean => generation !== cache.decorationGeneration
 
             const editorInstance = props.editor
             if (!editorInstance?.getPosition || !editorInstance?.getModel) {
@@ -3782,6 +3796,12 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             if (!model || !position) {
                 return
             }
+
+            // A run bails when a newer run superseded it, or when the model was disposed while it
+            // awaited the parser or metadata. Switching to the BI view disposes the tab model but
+            // keeps this logic mounted, so the generation counter never advances, and
+            // `getPositionAt` throws "Model is disposed!" on a dead model.
+            const isStale = (): boolean => generation !== cache.decorationGeneration || model.isDisposed()
 
             const fullText = values.queryInput ?? ''
             const queries = splitQueries(fullText)
@@ -3829,7 +3849,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 offset: number
             ): Promise<{ range: IRange | null; decorations: editor.IModelDeltaDecoration[] }> => {
                 const subquery = await findInnermostSelectAtOffset(activeQuery.query, offset, activeQuery.start)
-                if (!subquery) {
+                if (!subquery || isStale()) {
                     return { range: null, decorations: [] }
                 }
                 const subStart = model.getPositionAt(subquery.start)
