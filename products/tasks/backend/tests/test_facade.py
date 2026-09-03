@@ -591,8 +591,9 @@ class TestFacadeReadsAndMappers(TestCase):
         for task in tasks:
             TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.QUEUED)
 
-        # A single query with the latest-run-id subquery — no per-task run lookup, no N+1.
-        with self.assertNumQueries(1):
+        # One task query with the latest-run-id subquery plus one narrow team prefetch, so no
+        # per-task run lookup and no N+1.
+        with self.assertNumQueries(2):
             dtos = facade.get_conversation_task_dtos([t.id for t in tasks], self.team.id, self.user.id)
             for task in tasks:
                 self.assertIsNotNone(dtos[task.id].latest_run_id)
