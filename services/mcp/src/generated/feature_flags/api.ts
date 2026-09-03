@@ -8,6 +8,44 @@
  */
 import * as zod from 'zod'
 
+export const FeatureFlagsCopyFlagsCreateParams = () => zod.object({
+    organization_id: zod
+        .string()
+        .describe(
+            "ID of the organization you're trying to access. To find the ID of the organization, make a call to \/api\/organizations\/."
+        ),
+})
+
+export const featureFlagsCopyFlagsCreateBodyTargetProjectIdsMax = 50
+
+export const featureFlagsCopyFlagsCreateBodyCopyScheduleDefault = false
+export const featureFlagsCopyFlagsCreateBodyDisableCopiedFlagDefault = false
+export const featureFlagsCopyFlagsCreateBodyCopyDependenciesDefault = false
+
+export const FeatureFlagsCopyFlagsCreateBody = () => zod.object({
+    feature_flag_key: zod.string().describe('Key of the feature flag to copy'),
+    from_project: zod.number().describe('Source project ID to copy the flag from'),
+    target_project_ids: zod
+        .array(zod.number())
+        .min(1)
+        .max(featureFlagsCopyFlagsCreateBodyTargetProjectIdsMax)
+        .describe('List of target project IDs to copy the flag to'),
+    copy_schedule: zod
+        .boolean()
+        .default(featureFlagsCopyFlagsCreateBodyCopyScheduleDefault)
+        .describe('Whether to also copy scheduled changes for this flag'),
+    disable_copied_flag: zod
+        .boolean()
+        .default(featureFlagsCopyFlagsCreateBodyDisableCopiedFlagDefault)
+        .describe(
+            "Whether to force the copied flag to be disabled in target projects, ignoring the source flag's enabled status"
+        ),
+    copy_dependencies: zod
+        .boolean()
+        .default(featureFlagsCopyFlagsCreateBodyCopyDependenciesDefault)
+        .describe('Whether to also copy missing feature flags that this flag depends on'),
+})
+
 /**
  * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
  *
