@@ -2036,6 +2036,10 @@ snapshots:
         hash: v1.k794b7964.9a607e1c8b67aa4caf736f532eae8f04172a08b1519a5b233caed383cd61ac2e.oJJ1rz584k526jS3YRjmGoRSSlONVnNRC_gh0BpAWDw
     components-sharing--recording-sharing-licensed--light:
         hash: v1.k794b7964.e5e8a1004d1628fd8a6a6f29a9071a59f3664ca9535cc757db079dde1241cecb.52undskkRbk3x7FpaxFiwDs9NNQWavdegSSi5D8JiRI
+    components-signal-report-pr-badge--states--dark:
+        hash: v1.k794b7964.abb25883b468a3ab092d289a9514e4fdd40ef6190e710d94ba8d63f36e38f8ad.NB2aqbsGNbvB7d1Qe5Hqh1xz2g6vS1RE-O6LY7xurks
+    components-signal-report-pr-badge--states--light:
+        hash: v1.k794b7964.6da8eed2f535185fbd38dfb732c55060a6567cd7d4795aa159069564b293272c.4i60xTjiWcEymIBaQj7-GBN1y14k4pqUDDymGPm5xa4
     components-skillpicker--default--dark:
         hash: v1.k794b7964.42e480d1854fa4e855c514aa6cb4e0adebde88d01cccd1b802b6a2acba0ccfd3.zWHBN45jGiaWgIUoC6ZoTFd9RLQ9LxAZ5x5szvvO2aE
     components-skillpicker--default--light:
