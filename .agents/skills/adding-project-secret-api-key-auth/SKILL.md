@@ -25,7 +25,7 @@ Read the closest one before you wire a new action:
 | `products/experiments/backend/presentation/views.py` | `experiment:read` | `list`, `retrieve` |
 | `products/feature_flags/backend/api/feature_flag.py` | `feature_flag:read` | `remote_config` |
 | `products/tasks/backend/presentation/views/loops.py` | `loop:write` | `trigger`, `runs` |
-| `products/customer_analytics/backend/presentation/views/external.py` | `account:read` | external account list (a function view, so it checks the scope itself) |
+| `products/customer_analytics/backend/presentation/views/external.py` | `account:read` | external account list (a plain `APIView`, not a viewset, so it authenticates and checks the scope itself) |
 
 The experiments viewset is the reference for a read-only export: it opts standard CRUD reads in, and keeps writes, lifecycle actions, and results on session, personal key, or OAuth auth.
 
