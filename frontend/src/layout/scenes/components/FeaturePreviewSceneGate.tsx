@@ -41,7 +41,6 @@ function FeaturePreviewGateContent({ config }: { config: FeaturePreviewGateConfi
     const { loadEarlyAccessFeatures, updateEarlyAccessFeatureEnrollment } = useActions(featurePreviewsLogic)
     const { activeSceneId } = useValues(sceneLogic)
     const { preflight } = useValues(preflightLogic)
-    const { openSupportForm } = useActions(supportLogic)
 
     useEffect(() => {
         loadEarlyAccessFeatures()
@@ -90,44 +89,51 @@ function FeaturePreviewGateContent({ config }: { config: FeaturePreviewGateConfi
                             <span className="font-semibold">Enable feature preview</span>
                         </label>
                     ) : (
-                        <div className="flex flex-col gap-2">
-                            <div className="flex items-center gap-2">
-                                <LemonButton type="primary" to={urls.featurePreview(config.flag)}>
-                                    Open feature previews
-                                </LemonButton>
-                                {config.offerRequestAccess && preflight?.cloud && (
-                                    <LemonButton
-                                        type="secondary"
-                                        onClick={() =>
-                                            openSupportForm({
-                                                kind: 'support',
-                                                message: `I'd like to request access to ${config.title}.`,
-                                            })
-                                        }
-                                    >
-                                        Request access
-                                    </LemonButton>
-                                )}
-                                {config.storedDataQuery && (
-                                    <LemonButton
-                                        type="secondary"
-                                        to={urls.sqlEditor({ query: config.storedDataQuery })}
-                                    >
-                                        Query in SQL
-                                    </LemonButton>
-                                )}
-                            </div>
-                            {!flagsHonored && (
-                                <span className="text-secondary text-xs">
-                                    On self-hosted instances, feature previews are controlled by the
-                                    PERSISTED_FEATURE_FLAGS environment variable.
-                                </span>
-                            )}
-                        </div>
+                        <GateLinks config={config} />
                     )
                 }
                 docsURL={config.docsURL}
             />
         </SceneContent>
+    )
+}
+
+function GateLinks({ config }: { config: FeaturePreviewGateConfig }): JSX.Element {
+    const { preflight } = useValues(preflightLogic)
+    const { openSupportForm } = useActions(supportLogic)
+    const flagsHonored = areClientFeatureFlagsHonored(preflight)
+
+    return (
+        <div className="flex flex-col gap-2">
+            <div className="flex items-center gap-2">
+                <LemonButton type="primary" to={urls.featurePreview(config.flag)}>
+                    Open feature previews
+                </LemonButton>
+                {config.offerRequestAccess && preflight?.cloud && (
+                    <LemonButton
+                        type="secondary"
+                        onClick={() =>
+                            openSupportForm({
+                                kind: 'support',
+                                message: `I'd like to request access to ${config.title}.`,
+                            })
+                        }
+                    >
+                        Request access
+                    </LemonButton>
+                )}
+                {config.storedDataQuery && (
+                    <LemonButton type="secondary" to={urls.sqlEditor({ query: config.storedDataQuery })}>
+                        Query in SQL
+                    </LemonButton>
+                )}
+            </div>
+            {!flagsHonored && (
+                <span className="text-secondary text-xs">
+                    On self-hosted instances, feature previews are controlled by the PERSISTED_FEATURE_FLAGS environment
+                    variable.
+                </span>
+            )}
+        </div>
     )
 }
