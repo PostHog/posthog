@@ -1,5 +1,7 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Literal, Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import PartitionFormat, SortMode
@@ -8,7 +10,7 @@ from products.warehouse_sources.backend.types import IncrementalField
 DUB_BASE_URL = "https://api.dub.co"
 
 
-@dataclass
+@frozen
 class DubEndpointConfig:
     name: str
     path: str
