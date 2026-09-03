@@ -2,12 +2,16 @@ from unittest import TestCase
 
 from parameterized import parameterized
 
+from posthog.hogql.database.database import Database
 from posthog.hogql.events_scan import EventsScanReason, find_events_scans
 from posthog.hogql.parser import parse_select
 
+# The default schema resolves `events` without a team or a database connection
+DATABASE = Database()
+
 
 def reasons(query: str) -> list[EventsScanReason]:
-    return [finding.reason for finding in find_events_scans(parse_select(query))]
+    return [finding.reason for finding in find_events_scans(parse_select(query), DATABASE)]
 
 
 class TestFindEventsScans(TestCase):
@@ -121,6 +125,6 @@ class TestFindEventsScans(TestCase):
 
     def test_finding_marks_the_events_reference_and_names_the_property(self) -> None:
         query = "SELECT count() FROM events WHERE properties.plan = 'pro' AND properties['tier'] = 'a' AND timestamp >= today()"
-        (finding,) = find_events_scans(parse_select(query))
+        (finding,) = find_events_scans(parse_select(query), DATABASE)
         self.assertEqual(query[finding.start : finding.end], "events")
         self.assertEqual(finding.property_names, ("plan", "tier"))

@@ -126,9 +126,6 @@ def get_hogql_metadata(
                     )
                     hogql_ast = cast(ast.SelectQuery, replace_placeholders(hogql_ast, query.globals))
 
-            heuristic_result = run_metadata_heuristics(hogql_ast, team)
-            heuristic_warnings.extend(heuristic_result.warnings)
-            heuristic_notices.extend(heuristic_result.notices)
             hogql_table_names = get_table_names(hogql_ast)
             heuristic_warnings.extend(validate_taxonomy_references(hogql_ast, team, hogql_table_names))
             response.table_names = hogql_table_names
@@ -146,6 +143,11 @@ def get_hogql_metadata(
 
             if prepared_ast:
                 response.ch_table_names = get_table_names(prepared_ast)
+
+            # After printing, so the heuristics can resolve table names through the database it built
+            heuristic_result = run_metadata_heuristics(hogql_ast, team, context.database)
+            heuristic_warnings.extend(heuristic_result.warnings)
+            heuristic_notices.extend(heuristic_result.notices)
 
             if source is None and query.indexUsage and _index_usage_enabled(team):
                 _attach_index_usage(response, hogql_ast, context)

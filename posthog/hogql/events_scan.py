@@ -16,16 +16,18 @@ from django.db import DatabaseError
 from posthog.schema import EventsScanWarning
 
 from posthog.hogql import ast
+from posthog.hogql.database.schema.events import EVENTS_TABLE_TYPES
 from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.dataclasses import frozen
 
 if TYPE_CHECKING:
+    from posthog.hogql.database.database import Database
+
     from posthog.models import Team
 
 logger = getLogger(__name__)
 
-EVENTS_TABLE = "events"
 _PROPERTIES = "properties"
 _EVENT = "event"
 _TIMESTAMP = "timestamp"
@@ -80,13 +82,14 @@ class EventsScanFinding:
     property_names: tuple[str, ...] = ()
 
 
-def find_events_scans(query: ast.SelectQuery | ast.SelectSetQuery) -> list[EventsScanFinding]:
-    visitor = _EventsScanVisitor()
+def find_events_scans(query: ast.SelectQuery | ast.SelectSetQuery, database: "Database") -> list[EventsScanFinding]:
+    """`database` resolves table names, so `posthog.events` and the persons-on-events subtables count too."""
+    visitor = _EventsScanVisitor(database)
     visitor.visit(query)
     return visitor.findings
 
 
-def events_scan_warnings(query: ast.SelectQuery | ast.SelectSetQuery) -> list[EventsScanWarning]:
+def events_scan_warnings(query: ast.SelectQuery | ast.SelectSetQuery, database: "Database") -> list[EventsScanWarning]:
     """The findings that mean real work is being wasted, shaped for a query response's `warnings`.
 
     Reading every event with no filter at all is often the question being asked, so that finding
@@ -100,7 +103,7 @@ def events_scan_warnings(query: ast.SelectQuery | ast.SelectSetQuery) -> list[Ev
             start=finding.start,
             end=finding.end,
         )
-        for finding in find_events_scans(query)
+        for finding in find_events_scans(query, database)
         if finding.reason != EventsScanReason.NO_EVENT_FILTER
     ]
 
@@ -172,7 +175,8 @@ def events_seen_with_properties(team: "Team", property_names: Iterable[str]) -> 
 
 
 class _EventsScanVisitor(TraversingVisitor):
-    def __init__(self) -> None:
+    def __init__(self, database: "Database") -> None:
+        self.database = database
         self.findings: list[EventsScanFinding] = []
         self._cte_scopes: list[set[str]] = []
 
@@ -185,10 +189,7 @@ class _EventsScanVisitor(TraversingVisitor):
             self._cte_scopes.pop()
 
     def _check(self, node: ast.SelectQuery) -> None:
-        # `WITH events AS (...)` makes `FROM events` read the CTE, not the table
-        if any(EVENTS_TABLE in scope for scope in self._cte_scopes):
-            return
-        references = _events_references(node.select_from)
+        references = _events_references(node.select_from, self.database, self._cte_scopes)
         if not references:
             return
         aliases = {alias for alias, _ in references}
@@ -221,13 +222,27 @@ class _EventsScanVisitor(TraversingVisitor):
             )
 
 
-def _events_references(join: ast.JoinExpr | None) -> list[tuple[str, ast.Field]]:
+def _events_references(
+    join: ast.JoinExpr | None, database: "Database", cte_scopes: list[set[str]]
+) -> list[tuple[str, ast.Field]]:
     references: list[tuple[str, ast.Field]] = []
     while join is not None:
-        if isinstance(join.table, ast.Field) and join.table.chain == [EVENTS_TABLE]:
-            references.append((join.alias or EVENTS_TABLE, join.table))
+        if isinstance(join.table, ast.Field) and _is_events_table(join.table.chain, database, cte_scopes):
+            references.append((join.alias or str(join.table.chain[-1]), join.table))
         join = join.next_join
     return references
+
+
+def _is_events_table(chain: list[str | int], database: "Database", cte_scopes: list[set[str]]) -> bool:
+    # `WITH events AS (...)` makes `FROM events` read the CTE, not the table
+    if len(chain) == 1 and any(str(chain[0]) in scope for scope in cte_scopes):
+        return False
+    try:
+        table = database.get_table([str(part) for part in chain])
+    except Exception:
+        # An unknown or inaccessible table is the resolver's error to report, not a scan
+        return False
+    return isinstance(table, EVENTS_TABLE_TYPES)
 
 
 def _row_predicate(node: ast.SelectQuery) -> ast.Expr | None:

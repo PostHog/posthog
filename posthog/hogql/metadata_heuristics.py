@@ -16,6 +16,8 @@ from posthog.hogql.events_scan import (
 from posthog.dataclasses import frozen
 
 if TYPE_CHECKING:
+    from posthog.hogql.database.database import Database
+
     from posthog.models import Team
 
 
@@ -80,11 +82,12 @@ class EventsScanHeuristic(MetadataHeuristic):
     filter at all is often the point of the query, so that is only a notice.
     """
 
-    def __init__(self, team: "Team | None" = None) -> None:
+    def __init__(self, team: "Team | None", database: "Database") -> None:
         self.team = team
+        self.database = database
 
     def run(self, query: ast.SelectQuery | ast.SelectSetQuery) -> MetadataHeuristicNotices:
-        findings = find_events_scans(query)
+        findings = find_events_scans(query, self.database)
         property_names = [name for finding in findings for name in finding.property_names]
         events_by_property = (
             events_seen_with_properties(self.team, property_names) if self.team and property_names else {}
@@ -106,9 +109,12 @@ class EventsScanHeuristic(MetadataHeuristic):
 
 
 def run_metadata_heuristics(
-    query: ast.SelectQuery | ast.SelectSetQuery, team: "Team | None" = None
+    query: ast.SelectQuery | ast.SelectSetQuery, team: "Team | None" = None, database: "Database | None" = None
 ) -> MetadataHeuristicNotices:
-    heuristics: list[MetadataHeuristic] = [SimilarSubqueryHeuristic(), EventsScanHeuristic(team)]
+    heuristics: list[MetadataHeuristic] = [SimilarSubqueryHeuristic()]
+    # The events scan check resolves table names, which needs a database not every caller has
+    if database is not None:
+        heuristics.append(EventsScanHeuristic(team, database))
     result = MetadataHeuristicNotices(warnings=[], notices=[])
 
     for heuristic in heuristics:

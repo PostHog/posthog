@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field
 
 from posthog.schema import AssistantHogQLQuery, HogQLNotice, HogQLQuery
 
+from posthog.hogql.database.database import Database
 from posthog.hogql.metadata import get_table_names
 from posthog.hogql.metadata_heuristics import EventsScanHeuristic
 from posthog.hogql.parser import parse_select
@@ -155,7 +156,9 @@ class ExecuteSQLMCPTool(HogQLOutputParserMixin, MCPTool[ExecuteSQLMCPToolArgs]):
             taxonomy=validate_taxonomy_references(parsed_query, self._team, table_names),
             # A query that reads every event is the other silent failure: it runs, slowly, and an agent
             # that never sees the cost keeps building on it.
-            scan=EventsScanHeuristic(self._team).run(parsed_query).warnings,
+            scan=EventsScanHeuristic(self._team, Database.create_for(team=self._team, user=self._user))
+            .run(parsed_query)
+            .warnings,
         )
 
 

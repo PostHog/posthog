@@ -284,6 +284,7 @@ class HogQLQueryExecutor:
             database=database,
         )
 
+        self._collect_events_scan_warnings()
         self._apply_optimizers()
 
         with self.timings.measure("clone"):
@@ -592,7 +593,6 @@ class HogQLQueryExecutor:
         self._parse_query()
         self._process_variables()
         self._process_placeholders()
-        self._collect_events_scan_warnings()
         self._apply_limit()
         with self.timings.measure("_generate_hogql"):
             self._generate_hogql()
@@ -615,10 +615,13 @@ class HogQLQueryExecutor:
     def _collect_events_scan_warnings(self) -> None:
         # Only user-written SQL: insight runners build their own event filters, and an external
         # connection has no events table to scan.
-        if self.query_type != "HogQLQuery" or self.connection_id is not None:
+        if self.query_type != "HogQLQuery" or self.connection_id is not None or self.hogql_context is None:
+            return
+        database = self.hogql_context.database
+        if database is None:
             return
         try:
-            self.events_scan_warnings = events_scan_warnings(self.select_query)
+            self.events_scan_warnings = events_scan_warnings(self.select_query, database)
         except Exception:
             # Advisory: a failure in the scan check must not fail the query.
             logger.exception("hogql_events_scan_check_failed", team_id=self.team.pk)
