@@ -75,6 +75,23 @@ GitHub event, one repository, one event type:
 
 Keep the `actor_access` filter. It stops people without write access to the repository from starting a task.
 
+Narrow to specific actions when the user asks for one, for example "when an issue is opened". Add one more property filter. Omit it only for a loop that should fire on every action of the event.
+
+```json
+{ "key": "action", "value": ["<action>"], "operator": "exact", "type": "event" }
+```
+
+Actions by event type:
+
+| Event           | Actions                                                                                                                                                                                           |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `issues`        | `opened`, `reopened`, `closed`, `edited`, `deleted`, `labeled`, `unlabeled`, `assigned`, `unassigned`, `pinned`, `unpinned`, `transferred`                                                        |
+| `pull_request`  | `opened`, `reopened`, `closed`, `synchronize`, `edited`, `ready_for_review`, `converted_to_draft`, `review_requested`, `review_request_removed`, `labeled`, `unlabeled`, `assigned`, `unassigned` |
+| `issue_comment` | `created`, `edited`, `deleted`                                                                                                                                                                    |
+| `push`          | none, `push` has no actions                                                                                                                                                                       |
+
+A `pull_request` loop without an `action` filter fires on `synchronize` too, which is every push to every open pull request.
+
 ## Schedule row
 
 Create it with `workflows-schedule-create` after the workflow exists. `rrule` is one of these, exactly. No `BYHOUR` or `BYMINUTE`.
@@ -101,4 +118,4 @@ A `status=skipped` on step 1 means the sample event does not match the trigger f
 
 ## Not available in Loops
 
-Notifications, auto-fix behaviors, contexts, API or manual triggers, more than one repository, more than one GitHub event type, and any other workflow step. If the user asks for one of these, say Loops does not support it yet and offer the closest loop that fits. Do not add actions, edges, or inputs to work around it.
+Notifications, auto-fix behaviors, contexts, API or manual triggers, more than one repository, more than one GitHub event type, shared MCP connectors, PostHog write access from the task (tasks get read-only PostHog access), and any other workflow step. If the user asks for one of these, say Loops does not support it yet and offer the closest loop that fits. Do not add actions, edges, or inputs to work around it.

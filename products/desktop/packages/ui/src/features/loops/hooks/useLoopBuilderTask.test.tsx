@@ -1,5 +1,5 @@
 import type { TaskCreationInput } from "@posthog/core/task-detail/taskService";
-import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
+import { resolveFeatureFlagAfterLoad } from "@posthog/ui/features/feature-flags/useFeatureFlagsLoaded";
 import {
   type InboxCloudTaskInputContext,
   useInboxCloudTaskRunner,
@@ -8,8 +8,12 @@ import { renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useLoopBuilderTask } from "./useLoopBuilderTask";
 
-vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
-  useFeatureFlag: vi.fn(),
+vi.mock("@posthog/di/react", () => ({
+  useService: () => ({}),
+}));
+vi.mock("@posthog/ui/features/feature-flags/useFeatureFlagsLoaded", () => ({
+  useFeatureFlagsLoaded: () => true,
+  resolveFeatureFlagAfterLoad: vi.fn(),
 }));
 vi.mock("@posthog/ui/features/inbox/hooks/useInboxCloudTaskRunner", () => ({
   useInboxCloudTaskRunner: vi.fn(),
@@ -19,7 +23,7 @@ vi.mock("@posthog/ui/features/auth/store", () => ({
   useAuthStore: { getState: () => ({ authState: {} }) },
 }));
 
-const mockedUseFeatureFlag = vi.mocked(useFeatureFlag);
+const mockedResolveFlag = vi.mocked(resolveFeatureFlagAfterLoad);
 const mockedRunner = vi.mocked(useInboxCloudTaskRunner);
 
 const inputContext: InboxCloudTaskInputContext = {
@@ -31,7 +35,7 @@ const inputContext: InboxCloudTaskInputContext = {
 } as InboxCloudTaskInputContext;
 
 /** Runs the hook and returns the task input its `buildInput` produces. */
-function buildInputFor(instructions: string): TaskCreationInput {
+async function buildInputFor(instructions: string): Promise<TaskCreationInput> {
   let built: TaskCreationInput | null = null;
   mockedRunner.mockImplementation((options) => ({
     run: async () => {
@@ -40,14 +44,14 @@ function buildInputFor(instructions: string): TaskCreationInput {
     isRunning: false,
   }));
   const { result } = renderHook(() => useLoopBuilderTask());
-  void result.current.runTask(instructions);
+  await result.current.runTask(instructions);
   if (!built) throw new Error("buildInput was not called");
   return built;
 }
 
 describe("useLoopBuilderTask", () => {
   beforeEach(() => {
-    mockedUseFeatureFlag.mockReset();
+    mockedResolveFlag.mockReset();
   });
 
   it.each([
@@ -55,9 +59,9 @@ describe("useLoopBuilderTask", () => {
     { flag: true, expects: "`workflows-create`", forbids: "`loops-create`" },
   ])(
     "briefs the agent for the backend the flag selects (flag=$flag)",
-    ({ flag, expects, forbids }) => {
-      mockedUseFeatureFlag.mockReturnValue(flag);
-      const input = buildInputFor("Summarize open PRs");
+    async ({ flag, expects, forbids }) => {
+      mockedResolveFlag.mockResolvedValue(flag);
+      const input = await buildInputFor("Summarize open PRs");
       expect(input.customInstructions).toContain(expects);
       expect(input.customInstructions).not.toContain(forbids);
       expect(input.content).toBe("Summarize open PRs");

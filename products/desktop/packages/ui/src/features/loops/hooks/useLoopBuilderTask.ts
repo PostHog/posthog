@@ -1,7 +1,16 @@
 import type { TaskCreationInput } from "@posthog/core/task-detail/taskService";
+import { useService } from "@posthog/di/react";
+import { LOOPS_HOG_FLOWS_FLAG } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import { getAuthIdentity, useAuthStore } from "@posthog/ui/features/auth/store";
-import { useLoopsHogFlowsEnabled } from "@posthog/ui/features/feature-flags/useLoopsHogFlowsEnabled";
+import {
+  FEATURE_FLAGS,
+  type FeatureFlags,
+} from "@posthog/ui/features/feature-flags/identifiers";
+import {
+  resolveFeatureFlagAfterLoad,
+  useFeatureFlagsLoaded,
+} from "@posthog/ui/features/feature-flags/useFeatureFlagsLoaded";
 import {
   type InboxCloudTaskInputContext,
   useInboxCloudTaskRunner,
@@ -35,9 +44,11 @@ export function useLoopBuilderTask(context?: {
   const instructionsRef = useRef("");
   const contextRef = useRef(context);
   contextRef.current = context;
-  const workflowBacked = useLoopsHogFlowsEnabled();
+  // Resolved per submit, after flags load: a submit on a cold identity must
+  // not seed the legacy briefing while the Loops screens read workflows.
+  const featureFlags = useService<FeatureFlags>(FEATURE_FLAGS);
+  const featureFlagsLoaded = useFeatureFlagsLoaded();
   const backendRef = useRef<LoopBuilderBackend>("loops");
-  backendRef.current = workflowBacked ? "workflow" : "loops";
 
   const buildInput = useCallback(
     (ctx: InboxCloudTaskInputContext): TaskCreationInput => {
@@ -111,9 +122,15 @@ export function useLoopBuilderTask(context?: {
   const runTask = useCallback(
     async (instructions: string) => {
       instructionsRef.current = instructions;
+      const workflowBacked = await resolveFeatureFlagAfterLoad(
+        featureFlags,
+        LOOPS_HOG_FLOWS_FLAG,
+        featureFlagsLoaded,
+      );
+      backendRef.current = workflowBacked ? "workflow" : "loops";
       await run();
     },
-    [run],
+    [run, featureFlags, featureFlagsLoaded],
   );
 
   return { runTask, isRunning };
