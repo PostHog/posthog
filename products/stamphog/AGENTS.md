@@ -97,7 +97,9 @@ add a read-then-act path, pin it; this class of bug has been found on five separ
   the repo's connecting user. With the Go ai-gateway configured (`AI_GATEWAY_URL` + `AI_GATEWAY_API_KEY`
   in the worker env) that is a `phe_` scoped token from `POST /v1/tokens`: `product=stamphog`,
   `obo=<customer team>`, `cap_usd=5`, `ttl_seconds=3600`. The worker's `phs_` mints it and never
-  enters the sandbox. The legacy path (`AI_GATEWAY_URL` alone, on the Python gateway's
+  enters the sandbox, and the worker revokes the token once the sandbox is destroyed. With
+  `AI_GATEWAY_URL` on the Go host and no key the run fails closed: the OAuth token below is a
+  standard credential on the Go gateway and must never be sent there. The legacy path (`AI_GATEWAY_URL` alone, on the Python gateway's
   `/stamphog/v1` route) mints an OAuth token with exactly `["llm_gateway:read", "internal_run:read"]`
   and `include_internal_scopes=False`. Never switch to `include_internal_scopes=True` — that
   drags `task:write` into a sandbox running an LLM over untrusted PR content. The

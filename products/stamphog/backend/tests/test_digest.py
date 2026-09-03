@@ -28,6 +28,7 @@ from products.stamphog.backend.logic.channel_resolution import (
 )
 from products.stamphog.backend.logic.digest import (
     _HEADLINE_MAX_RETRIES,
+    _HEADLINE_MAX_TOKENS,
     _HEADLINE_TIMEOUT_SECONDS,
     GRAZE_CHANGED_FILES,
     MAX_DIGEST_PRS,
@@ -752,6 +753,8 @@ def test_a_headline_failure_keeps_the_judged_digest() -> None:
     # and a team's audiences post one at a time, so an unbounded stall on an optional call holds up
     # this digest and every audience behind it. The client's own default is ten minutes with retries.
     assert client.options == [{"timeout": _HEADLINE_TIMEOUT_SECONDS, "max_retries": _HEADLINE_MAX_RETRIES}]
+    # The headline answers in a paragraph, so it reserves far less output than the selection call.
+    assert client.calls[1]["max_tokens"] == _HEADLINE_MAX_TOKENS < client.calls[0]["max_tokens"]
 
 
 def test_the_digest_call_names_its_product_team_and_source() -> None:

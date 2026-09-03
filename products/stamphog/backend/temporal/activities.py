@@ -136,6 +136,16 @@ AI_GATEWAY_TOKEN_MINTS = Counter(
 )
 
 
+def _gateway_root(gateway: AIGatewayConfig) -> str:
+    # The config URL carries the OpenAI /v1 base; the token routes hang off the gateway root.
+    return gateway.url.rstrip("/").removesuffix("/v1")
+
+
+def _is_legacy_stamphog_route(url: str) -> bool:
+    # The legacy Python gateway resolves the product from the path, so its route ends in the slug.
+    return urlparse(url).path.rstrip("/").endswith("/stamphog/v1")
+
+
 def _connected_user(run: ReviewRun) -> User:
     """The user who connected the repo's installation; every sandbox credential is minted under them.
 
@@ -178,6 +188,11 @@ def _mint_reviewer_scoped_token(gateway: AIGatewayConfig, run: ReviewRun, user: 
     Sonnet calls under stamphog's own tag and nothing else. The worker's ``phs_`` never enters the
     sandbox. Retries once on rate limits, 5xx and network errors; any other refusal is final. Fails
     closed: hosted runs never fall back to a shared key.
+
+    Deliberately a local copy of the tasks and wizard minters rather than a shared helper: each
+    product owns its failure posture (this one raises, tasks falls back) and its cap and TTL are
+    documented security invariants in AGENTS.md, not ops knobs. The transport is the gateway's
+    stable ``POST /v1/tokens`` contract.
     """
     body: dict[str, object] = {
         "cap_usd": _REVIEWER_TOKEN_CAP_USD,
@@ -187,11 +202,12 @@ def _mint_reviewer_scoped_token(gateway: AIGatewayConfig, run: ReviewRun, user: 
     }
     if user.distinct_id:
         body["user"] = user.distinct_id
-    allowed_models = list(settings.STAMPHOG_REVIEWER_TOKEN_ALLOWED_MODELS)
+    # A trailing or doubled comma in the env value would send an empty model id the gateway
+    # rejects, and a mint 400 fails every review.
+    allowed_models = [model.strip() for model in settings.STAMPHOG_REVIEWER_TOKEN_ALLOWED_MODELS if model.strip()]
     if allowed_models:
         body["allowed_models"] = allowed_models
-    # The config URL carries the OpenAI /v1 base; the mint route hangs off the gateway root.
-    mint_url = f"{gateway.url.rstrip('/').removesuffix('/v1')}/v1/tokens"
+    mint_url = f"{_gateway_root(gateway)}/v1/tokens"
     last_error = ""
     for attempt in range(_MINT_ATTEMPTS):
         try:
@@ -232,7 +248,31 @@ def _mint_reviewer_scoped_token(gateway: AIGatewayConfig, run: ReviewRun, user: 
     )
 
 
-def _reviewer_environment(run: ReviewRun) -> dict[str, str]:
+def _release_reviewer_token(gateway: AIGatewayConfig | None, token: str) -> None:
+    """Best-effort revoke of the per-run ``phe_`` once its sandbox is gone.
+
+    The token's TTL outlives the review by design; revoking it at the run's end closes that window
+    for a token that leaked through a channel the exact-string scrub does not cover. A revoke
+    failure only logs (the token then expires with its TTL) and never changes the run's outcome.
+    Legacy OAuth tokens have no revoke route and are left to expire.
+    """
+    if gateway is None:
+        return
+    try:
+        response = requests.post(
+            f"{_gateway_root(gateway)}/v1/tokens/revoke",
+            json={"token": token},
+            headers={"Authorization": f"Bearer {gateway.api_key}"},
+            timeout=_MINT_TIMEOUT_SECONDS,
+        )
+        outcome = "ok" if 200 <= response.status_code < 300 else f"HTTP {response.status_code}"
+    except Exception as e:  # noqa: BLE001 — a revoke failure must never mask the review outcome
+        outcome = type(e).__name__
+    if outcome != "ok":
+        activity.logger.warning(f"Could not revoke the reviewer token ({outcome}); it expires with its TTL")
+
+
+def _reviewer_environment(run: ReviewRun) -> tuple[dict[str, str], AIGatewayConfig | None]:
     """Environment for the in-sandbox reviewer.
 
     The sandbox holds no GitHub token by design, and no long-lived LLM credential either: the only
@@ -241,12 +281,15 @@ def _reviewer_environment(run: ReviewRun) -> dict[str, str]:
     own, and an org-wide Anthropic key must never ride into a sandbox that runs an LLM over untrusted
     PR content.
 
-    Two gateways are supported, selected by the worker env. When ``AI_GATEWAY_URL`` and
+    Two gateways are supported, selected by the worker settings. When ``AI_GATEWAY_URL`` and
     ``AI_GATEWAY_API_KEY`` both name the Go ai-gateway (``https://<host>/v1`` plus a ``phs_``), the
-    token is a per-run ``phe_`` minted with that key (``_mint_reviewer_scoped_token``). Otherwise
-    ``AI_GATEWAY_URL`` must be the legacy Python gateway's stamphog product route
+    token is a per-run ``phe_`` minted with that key (``_mint_reviewer_scoped_token``). Without the
+    key, ``AI_GATEWAY_URL`` must be the legacy Python gateway's stamphog product route
     (``https://<gateway>/stamphog/v1``) and the token is an OAuth token that route allowlists
-    (``_mint_reviewer_oauth_token``). Either way the sandbox sees the same two variables.
+    (``_mint_reviewer_oauth_token``). Any other URL without a key fails the run: the OAuth token is
+    a standard credential on the Go gateway, so handing it out with the Go URL would run the review
+    uncapped and unpinned. Either way the sandbox sees the same two variables. Returns the env and
+    the Go config the token was minted from (None on the legacy path) so the caller can revoke it.
 
     POSTHOG_API_KEY/POSTHOG_HOST let the engine emit its stamphog_review_completed event and LLM
     traces from inside the sandbox. The capture key is a public project write token — the same class of
@@ -254,13 +297,20 @@ def _reviewer_environment(run: ReviewRun) -> dict[str, str]:
     added to _llm_env_secrets so persisted output stays tidy. STAMPHOG_EXTRA_PROPERTIES stamps the
     hosted runtime/team/run context onto those events.
     """
-    gateway = resolve_ai_gateway_config()
+    # Only call the resolver with a key present: without one it would log a misconfiguration
+    # warning on every review in the legacy regions.
+    gateway = resolve_ai_gateway_config() if settings.AI_GATEWAY_API_KEY else None
     if gateway is not None:
         gateway_url = gateway.url
     else:
-        gateway_url = os.environ.get("AI_GATEWAY_URL") or ""
+        gateway_url = settings.AI_GATEWAY_URL or ""
         if not gateway_url:
             raise RuntimeError("AI_GATEWAY_URL is not configured; hosted reviews require the LLM gateway")
+        if not _is_legacy_stamphog_route(gateway_url):
+            raise RuntimeError(
+                "AI_GATEWAY_URL is not the legacy stamphog route and AI_GATEWAY_API_KEY is unset; "
+                "hosted reviews need both values for the ai-gateway"
+            )
     user = _connected_user(run)
     token = (
         _mint_reviewer_scoped_token(gateway, run, user)
@@ -286,7 +336,7 @@ def _reviewer_environment(run: ReviewRun) -> dict[str, str]:
     if (run.output or {}).get("inbox_review"):
         extra_properties["stamphog_self_driving_review"] = True
     env["STAMPHOG_EXTRA_PROPERTIES"] = json.dumps(extra_properties, separators=(",", ":"))
-    return env
+    return env, gateway
 
 
 def _sandbox_egress_allowlist(gateway_url: str) -> list[str]:
@@ -575,7 +625,7 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
     )
 
     sandbox_class = get_sandbox_class_for_backend(_resolve_sandbox_backend())
-    environment = _reviewer_environment(run)
+    environment, gateway = _reviewer_environment(run)
     # Per-run credential, not in the worker env — scrub it explicitly wherever sandbox output
     # is persisted or raised (_llm_env_secrets only covers worker-env values).
     gateway_token = environment["AI_GATEWAY_API_KEY"]
@@ -604,6 +654,7 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
         .first()
     ) or {}
     if latest_output.get("sandbox_started_at"):
+        _release_reviewer_token(gateway, gateway_token)
         raise SandboxPhaseError("an earlier attempt already provisioned a sandbox for this run")
     run.output = {**latest_output, "sandbox_started_at": timezone.now().isoformat()}
     run.save(update_fields=["output", "updated_at"])
@@ -648,6 +699,9 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
         # stamphog:read can read run.error without access to the repository. The setup phase above
         # keeps its text, because it fails on our own infrastructure and must stay diagnosable.
         raise SandboxPhaseError(f"the sandbox phase failed with {type(exc).__name__}") from exc
+    finally:
+        # The sandbox is gone on every path out of the block above; its token goes with it.
+        _release_reviewer_token(gateway, gateway_token)
 
     activity.logger.info(f"Reviewer completed for run {run.id}")
     return {"exit_code": result.exit_code}

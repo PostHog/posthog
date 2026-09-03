@@ -570,9 +570,10 @@ def test_hosted_review_fails_closed_without_gateway_instead_of_anthropic_fallbac
     recorder.register_pr(REPO, 112, _pr_object(112, "devex-dev", "sha112a"), _pr_files())
     recorder.policy_files[".stamphog/policy.yml"] = "version: 1\n"
 
-    env_without_gateway = {k: v for k, v in os.environ.items() if k != "AI_GATEWAY_URL"}
-    env_without_gateway["ANTHROPIC_API_KEY"] = "sk-ant-worker-secret"
-    with patch.dict(os.environ, env_without_gateway, clear=True):
+    with (
+        override_settings(AI_GATEWAY_URL="", AI_GATEWAY_API_KEY=""),
+        patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-ant-worker-secret"}),
+    ):
         stamphog_chain.post_webhook(_opened_event(112, "devex-dev", "sha112a"), delivery_id=str(uuid.uuid4()))
 
     run = ReviewRun.objects.for_team(team.id).latest("created_at")
@@ -614,28 +615,49 @@ def test_sandbox_gets_a_scoped_gateway_token_when_the_go_gateway_is_configured(
     minted = {"token": "phe_run", "expires_at": "2026-09-02T00:00:00Z", "cap_usd": "5"}
     mint = MagicMock(return_value=_mint_response(201, minted))
 
-    with override_settings(**_GO_GATEWAY_SETTINGS), patch.object(activities.requests, "post", mint):
+    with (
+        override_settings(**_GO_GATEWAY_SETTINGS),
+        patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-ant-worker-secret"}),
+        patch.object(activities.requests, "post", mint),
+    ):
         stamphog_chain.post_webhook(event, delivery_id=str(uuid.uuid4()))
 
     config = stamphog_chain.sandbox_class.created_configs[0]
     env = config.environment_variables
     assert env["AI_GATEWAY_URL"] == "https://ai-gateway.test/v1"
     assert env["AI_GATEWAY_API_KEY"] == "phe_run"
+    # Nothing long-lived crosses into the sandbox: not the worker's phs_, not an Anthropic key, and
+    # no key outside the documented set (a widened passthrough goes red here).
     assert "phs_stamphog_mint" not in env.values()
+    assert "ANTHROPIC_API_KEY" not in env
+    assert set(env) <= {
+        "STAMPHOG_REPO_DIR",
+        "AI_GATEWAY_URL",
+        "AI_GATEWAY_API_KEY",
+        "POSTHOG_API_KEY",
+        "POSTHOG_HOST",
+        "STAMPHOG_EXTRA_PROPERTIES",
+    }
     assert not OAuthAccessToken.objects.filter(user_id=user.id).exists()
 
-    mint.assert_called_once()
-    assert mint.call_args.args == ("https://ai-gateway.test/v1/tokens",)
-    assert mint.call_args.kwargs["headers"] == {"Authorization": "Bearer phs_stamphog_mint"}
+    mint_call, revoke_call = mint.call_args_list
+    assert mint_call.args == ("https://ai-gateway.test/v1/tokens",)
+    assert mint_call.kwargs["headers"] == {"Authorization": "Bearer phs_stamphog_mint"}
+    assert mint_call.kwargs["timeout"] == 3
     assert user.distinct_id  # the acting identity rides on the token
-    assert mint.call_args.kwargs["json"] == {
+    assert mint_call.kwargs["json"] == {
         "cap_usd": "5",
         "ttl_seconds": 3600,
         "product": "stamphog",
         "obo": str(team.id),
         "user": user.distinct_id,
     }
+    # The token dies with its sandbox: a best-effort revoke follows destroy.
+    assert revoke_call.args == ("https://ai-gateway.test/v1/tokens/revoke",)
+    assert revoke_call.kwargs["json"] == {"token": "phe_run"}
+    assert revoke_call.kwargs["headers"] == {"Authorization": "Bearer phs_stamphog_mint"}
     assert "ai-gateway.test" in config.outbound_domain_allowlist
+    assert "github.com" in config.outbound_domain_allowlist
     assert "llm-gateway.test" not in config.outbound_domain_allowlist
 
 
@@ -685,14 +707,14 @@ def test_scoped_token_mint_does_not_retry_a_credential_rejection(team, stamphog_
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_a_half_configured_go_gateway_keeps_the_oauth_path(team, stamphog_chain: StamphogChain) -> None:
-    # Today's production shape: AI_GATEWAY_URL set (the legacy stamphog route), no AI_GATEWAY_API_KEY.
-    # The worker must keep minting OAuth tokens for the legacy route and never call the mint API.
+    # Today's production shape: AI_GATEWAY_URL set to the legacy stamphog route, no AI_GATEWAY_API_KEY.
+    # The worker keeps minting OAuth tokens for that route and never calls the mint API.
     _repo_config(team.id)
     event = _register_review(stamphog_chain, 116, "sha116a")
     mint = MagicMock()
 
     with (
-        override_settings(AI_GATEWAY_URL="https://ai-gateway.test/v1", AI_GATEWAY_API_KEY=""),
+        override_settings(AI_GATEWAY_URL="https://llm-gateway.test/stamphog/v1", AI_GATEWAY_API_KEY=""),
         patch.object(activities.requests, "post", mint),
     ):
         stamphog_chain.post_webhook(event, delivery_id=str(uuid.uuid4()))
@@ -703,6 +725,30 @@ def test_a_half_configured_go_gateway_keeps_the_oauth_path(team, stamphog_chain:
     assert OAuthAccessToken.objects.filter(token=env["AI_GATEWAY_API_KEY"]).exists()
     mint.assert_not_called()
     assert "llm-gateway.test" in config.outbound_domain_allowlist
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_a_go_gateway_url_without_a_key_fails_closed(team, user, stamphog_chain: StamphogChain) -> None:
+    # Production has ONE AI_GATEWAY_URL. A key-only rollback or a URL flip ahead of its key leaves the
+    # Go URL with no key; the OAuth token is a standard credential on the Go gateway, so sending it
+    # there would run the review uncapped and unpinned. The run must fail before any sandbox exists.
+    _repo_config(team.id)
+    event = _register_review(stamphog_chain, 121, "sha121a")
+    mint = MagicMock()
+
+    with (
+        override_settings(AI_GATEWAY_URL="https://ai-gateway.test/v1", AI_GATEWAY_API_KEY=""),
+        patch.object(activities.requests, "post", mint),
+    ):
+        stamphog_chain.post_webhook(event, delivery_id=str(uuid.uuid4()))
+
+    run = ReviewRun.objects.for_team(team.id).latest("created_at")
+    assert run.status == ReviewRunStatus.FAILED
+    assert "AI_GATEWAY_API_KEY is unset" in (run.error or "")
+    assert not stamphog_chain.sandbox_class.created_configs
+    assert not OAuthAccessToken.objects.filter(user_id=user.id).exists()
+    mint.assert_not_called()
+    assert not (run.error or "").startswith("SandboxPhaseError")
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -2200,15 +2246,19 @@ def test_mint_pins_allowed_models_when_configured(team, stamphog_chain: Stamphog
 
     with (
         override_settings(
-            **_GO_GATEWAY_SETTINGS, STAMPHOG_REVIEWER_TOKEN_ALLOWED_MODELS=["claude-sonnet-5", "claude-haiku-4-5"]
+            **_GO_GATEWAY_SETTINGS, STAMPHOG_REVIEWER_TOKEN_ALLOWED_MODELS=["claude-sonnet-5", "claude-haiku-4-5", ""]
         ),
         patch.object(activities.requests, "post", mint),
+        patch.object(activities.activity.logger, "warning") as warning,
     ):
         stamphog_chain.post_webhook(event, delivery_id=str(uuid.uuid4()))
 
-    assert mint.call_args.kwargs["json"]["allowed_models"] == ["claude-sonnet-5", "claude-haiku-4-5"]
+    # Empty entries (a trailing comma in the env value) never reach the gateway, which would 400.
+    assert mint.call_args_list[0].kwargs["json"]["allowed_models"] == ["claude-sonnet-5", "claude-haiku-4-5"]
     env = stamphog_chain.sandbox_class.created_configs[0].environment_variables
     assert env["AI_GATEWAY_API_KEY"] == "phe_run"
+    # An honored pin is silent; the warning is for a gateway that dropped it.
+    assert not any("without a model pin" in str(call.args[0]) for call in warning.call_args_list)
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -2221,10 +2271,13 @@ def test_mint_omits_allowed_models_by_default(team, stamphog_chain: StamphogChai
     with (
         override_settings(**_GO_GATEWAY_SETTINGS, STAMPHOG_REVIEWER_TOKEN_ALLOWED_MODELS=[]),
         patch.object(activities.requests, "post", mint),
+        patch.object(activities.activity.logger, "warning") as warning,
     ):
         stamphog_chain.post_webhook(event, delivery_id=str(uuid.uuid4()))
 
-    assert "allowed_models" not in mint.call_args.kwargs["json"]
+    assert "allowed_models" not in mint.call_args_list[0].kwargs["json"]
+    # No pin was asked for, so a missing echo is not a dropped pin.
+    assert not any("without a model pin" in str(call.args[0]) for call in warning.call_args_list)
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -2245,3 +2298,34 @@ def test_mint_warns_when_the_gateway_ignores_the_model_pin(team, stamphog_chain:
     assert any("without a model pin" in str(call.args[0]) for call in warning.call_args_list)
     env = stamphog_chain.sandbox_class.created_configs[0].environment_variables
     assert env["AI_GATEWAY_API_KEY"] == "phe_run"
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_mint_retries_a_network_error_and_records_the_outcome(team, stamphog_chain: StamphogChain) -> None:
+    # A transport blip (timeout, reset) is retried once and the review proceeds; the attempt carries
+    # the bounded timeout, and the counter records the outcome the operator will watch.
+    _repo_config(team.id)
+    event = _register_review(stamphog_chain, 122, "sha122a")
+    mint = MagicMock(side_effect=[requests.ConnectionError("reset"), _mint_response(201, {"token": "phe_run"})])
+    ok_before = activities.AI_GATEWAY_TOKEN_MINTS.labels(result="ok")._value.get()
+
+    with (
+        override_settings(**_GO_GATEWAY_SETTINGS),
+        patch.object(activities.requests, "post", mint),
+        patch.object(activities.time, "sleep") as sleep,
+    ):
+        stamphog_chain.post_webhook(event, delivery_id=str(uuid.uuid4()))
+
+    env = stamphog_chain.sandbox_class.created_configs[0].environment_variables
+    assert env["AI_GATEWAY_API_KEY"] == "phe_run"
+    assert [call.args[0] for call in mint.call_args_list[:2]] == ["https://ai-gateway.test/v1/tokens"] * 2
+    assert all(call.kwargs["timeout"] == 3 for call in mint.call_args_list)
+    sleep.assert_called_once()
+    assert activities.AI_GATEWAY_TOKEN_MINTS.labels(result="ok")._value.get() == ok_before + 1
+
+
+def test_product_tag_matches_the_engine_blob() -> None:
+    # The mint pins the product and the shipped engine stamps the same word in its properties blob;
+    # the two are hand-typed in different packages, so bind them here where both are visible.
+    engine_gateway = Path(activities.__file__).resolve().parents[2] / "packages" / "pr-approval-agent" / "gateway.py"
+    assert f'AI_PRODUCT = "{activities.STAMPHOG_AI_PRODUCT}"' in engine_gateway.read_text()
