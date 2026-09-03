@@ -77,6 +77,8 @@ interface SQLEditorProps {
     hideRunButton?: boolean
     onShareTab?: () => void
     queryPaneDefaultHeight?: number
+    /** Floor for a dragged query pane. Notebook cells pass a smaller one than the scene. */
+    queryPaneMinHeight?: number
     /** Whether the query pane's code editor may grab focus on mount. Defaults to true. */
     autoFocusQueryPane?: boolean
 }
@@ -98,6 +100,7 @@ export function SQLEditor({
     hideRunButton,
     onShareTab,
     queryPaneDefaultHeight,
+    queryPaneMinHeight,
     autoFocusQueryPane,
 }: SQLEditorProps): JSX.Element {
     const ref = useRef(null)
@@ -128,6 +131,7 @@ export function SQLEditor({
             sidebarRef,
             databaseTreeRef,
             queryPaneDefaultHeight,
+            queryPaneMinHeight,
             biEditorResizerProps: {
                 containerRef: biEditorRef,
                 logicKey: 'bi-editor-pane',
@@ -158,7 +162,7 @@ export function SQLEditor({
                 marginTop: mode === SQLEditorMode.FullScene ? 8 : 0,
             },
         }
-    }, [mode, tabId, queryPaneDefaultHeight])
+    }, [mode, tabId, queryPaneDefaultHeight, queryPaneMinHeight])
 
     const [monacoAndEditor, setMonacoAndEditor] = useState(
         null as [Monaco, importedEditor.IStandaloneCodeEditor | null] | null

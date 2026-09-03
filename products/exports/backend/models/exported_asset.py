@@ -8,6 +8,7 @@ from urllib.parse import urlparse
 from django.conf import settings
 from django.db import models
 from django.db.models import Q
+from django.db.models.fields.json import KeyTransform
 from django.http import HttpResponse, HttpResponseRedirect
 from django.utils.text import slugify
 from django.utils.timezone import now
@@ -139,6 +140,16 @@ class ExportedAsset(models.Model):
 
     class Meta:
         db_table = "posthog_exportedasset"
+        indexes = [
+            # The replay session-export get-or-create probes by (team, session recording id) at
+            # high volume; without this expression index it walks the team's whole asset history.
+            models.Index(
+                models.F("team_id"),
+                KeyTransform("session_recording_id", "export_context"),
+                name="exportedasset_system_session",
+                condition=Q(is_system=True),
+            ),
+        ]
 
     def save(self, *args, **kwargs):
         if not self.expires_after:
