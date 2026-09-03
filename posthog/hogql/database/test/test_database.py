@@ -2,6 +2,7 @@ import io
 import json
 import pickle
 import dataclasses
+from collections.abc import Collection
 from typing import Any, cast
 
 import pytest
@@ -70,9 +71,13 @@ from posthog.models.group_type_mapping import invalidate_group_types_cache
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
+from posthog.models.user import User
 from posthog.schema_enums import SessionTableVersion
+from posthog.shared_link_user import SharedLinkUser
+from posthog.synthetic_user import SyntheticUser
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_tools.backend.models.expression import DataWarehouseExpression
 from products.data_tools.backend.models.join import DataWarehouseJoin
@@ -4116,7 +4121,12 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         captured: dict = {}
 
-        def spy(team, user, user_access_control=None, allowed_system_tables=None):
+        def spy(
+            team: Team,
+            user: User | SyntheticUser | SharedLinkUser | None,
+            user_access_control: UserAccessControl | None = None,
+            allowed_system_tables: Collection[str] | None = None,
+        ) -> tuple[UserAccessControl | None, set[str]]:
             result = _compute_system_table_access_decision(team, user, user_access_control, allowed_system_tables)
             captured["result"] = result
             return result
@@ -4138,7 +4148,12 @@ class TestDatabase(BaseTest, QueryMatchingTest):
     def test_create_for_with_real_user_uses_user_rbac(self):
         captured: dict = {}
 
-        def spy(team, user, user_access_control=None, allowed_system_tables=None):
+        def spy(
+            team: Team,
+            user: User | SyntheticUser | SharedLinkUser | None,
+            user_access_control: UserAccessControl | None = None,
+            allowed_system_tables: Collection[str] | None = None,
+        ) -> tuple[UserAccessControl | None, set[str]]:
             result = _compute_system_table_access_decision(team, user, user_access_control, allowed_system_tables)
             captured["result"] = result
             return result
