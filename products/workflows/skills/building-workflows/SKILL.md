@@ -24,6 +24,8 @@ Work the workflow through these stages. Don't jump straight to enabling it.
 
 Full tool catalog, grouped by job: [references/lifecycle-and-debugging.md](references/lifecycle-and-debugging.md).
 
+Building a loop for PostHog Desktop (a `loops`-tagged workflow that the Loops screens can edit): follow [references/loops.md](references/loops.md) for the exact graph, trigger configs, schedule presets, and test-run steps.
+
 ## Editing a draft
 
 **Patch, don't replace.** Edit a draft with `workflows-patch-graph`: a small, ordered list of id-addressed operations (`update_action`, `add_action`, `remove_action`, `add_edge`, `remove_edge`, `replace_action_edges`). `update_action` deep-merges its patch, so changing one email subject is a few lines, not the whole graph. The ops apply atomically server-side (read, apply in order, validate, save only if valid), and the response echoes the **full updated graph**, so you never re-fetch before the next edit. This keeps each round-trip tiny instead of re-transmitting every action and edge.
