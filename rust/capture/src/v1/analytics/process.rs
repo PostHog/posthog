@@ -890,8 +890,13 @@ fn drop_non_ai_events(state: &router::State, context: &Context, events: &mut [Wr
     }
 
     metrics::counter!(CAPTURE_V1_EVENTS_DROPPED, "reason" => "non_ai_event").increment(dropped);
+    // DEBUG, not WARN: a client sending the wrong event name is not an operator
+    // problem, and the SDKs route on the `$ai_` prefix while this gate is the
+    // narrower name allowlist, so it is expected to fire at client volume. The
+    // counter above carries the alerting signal and the warning below tells the
+    // project owner.
     crate::ctx_log!(
-        Level::WARN,
+        Level::DEBUG,
         context,
         dropped_events = dropped,
         "dropped non-AI events sent to the AI lane"
