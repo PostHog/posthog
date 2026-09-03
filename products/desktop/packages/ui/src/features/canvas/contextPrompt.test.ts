@@ -26,6 +26,6 @@ describe("buildContextGenerationPrompt", () => {
     const prompt = buildContextGenerationPrompt(input);
 
     expect(prompt).toContain("channel-instructions-update");
-    expect(prompt).not.toContain("task-context-wiki-page-update");
+    expect(prompt).not.toContain("context-wiki-page-update");
   });
 });
