@@ -96,8 +96,7 @@ membership without adding permissions to Task.
 - `POST / {name}` — resolve-or-create a public channel by name
   (`get_or_create`, so concurrent creates and name-bridging are race-safe).
 - `PATCH /{id}/ {name}` - any project member can rename or configure a public channel. Private `#me` spaces cannot be renamed.
-- Channel responses include `can_manage_slack_task_routing`, which shows whether the requester can change Slack task routing.
-- Project admins can set `slack_task_routing` on a public space. It contains a Slack integration and a public Slack channel ID. The API reads the channel name from Slack. Send `null` to clear the routing.
+- Any project member can set `slack_task_routing` on a public space. It contains a Slack integration and a public Slack channel ID. The API reads the channel name from Slack. Send `null` to clear the routing.
 - `DELETE /{id}/` - any project member can delete an empty public channel. Private `#me` and non-empty spaces cannot be deleted.
 
 ### Slack task routing

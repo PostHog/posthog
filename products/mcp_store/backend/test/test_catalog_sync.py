@@ -1,3 +1,5 @@
+from collections.abc import Sequence
+
 from unittest.mock import patch
 
 from django.test import SimpleTestCase, TestCase
@@ -12,23 +14,38 @@ from products.mcp_store.backend.models import (
     MCPServerTemplate,
     normalize_mcp_icon_domain,
 )
+from products.mcp_store.backend.oauth_credentials import SUPPORTED_OAUTH_CREDENTIAL_SOURCES, OAuthCredentialsSource
 from products.mcp_store.backend.probe import ProbeResult
 
 VALID_AUTH_TYPES = {choice for choice, _ in AUTH_TYPE_CHOICES}
 VALID_CATEGORIES = {choice for choice, _ in CATEGORY_CHOICES}
 
 
-def _entry(**overrides) -> CatalogEntry:
-    defaults = {
-        "name": "Linear",
-        "url": "https://mcp.linear.app/mcp",
-        "description": "Manage Linear issues.",
-        "auth_type": "oauth",
-        "category": "dev",
-        "icon_domain": "linear.app",
-    }
-    defaults.update(overrides)
-    return CatalogEntry(**defaults)
+def _entry(
+    *,
+    name: str = "Linear",
+    url: str = "https://mcp.linear.app/mcp",
+    description: str = "Manage Linear issues.",
+    auth_type: str = "oauth",
+    category: str = "dev",
+    icon_domain: str = "linear.app",
+    docs_url: str = "",
+    oauth_scope_allowlist: tuple[str, ...] | None = None,
+    oauth_credentials_source: OAuthCredentialsSource | None = None,
+    disabled: bool = False,
+) -> CatalogEntry:
+    return CatalogEntry(
+        name=name,
+        url=url,
+        description=description,
+        auth_type=auth_type,
+        category=category,
+        icon_domain=icon_domain,
+        docs_url=docs_url,
+        oauth_scope_allowlist=oauth_scope_allowlist,
+        oauth_credentials_source=oauth_credentials_source,
+        disabled=disabled,
+    )
 
 
 def _dcr_pass_probe() -> ProbeResult:
@@ -56,6 +73,13 @@ class TestCatalogEntries(SimpleTestCase):
             assert entry.url.startswith("https://"), entry.url
             assert entry.name and entry.description, entry.url
             assert entry.icon_domain == normalize_mcp_icon_domain(entry.icon_domain), entry.url
+            if entry.oauth_scope_allowlist is not None:
+                assert entry.auth_type == "oauth", entry.url
+                assert len(entry.oauth_scope_allowlist) == len(set(entry.oauth_scope_allowlist)), entry.url
+                assert all(entry.oauth_scope_allowlist), entry.url
+            if entry.oauth_credentials_source is not None:
+                assert entry.auth_type == "oauth", entry.url
+                assert entry.oauth_credentials_source in SUPPORTED_OAUTH_CREDENTIAL_SOURCES, entry.url
 
 
 class TestSyncMCPCatalog(TestCase):
@@ -97,15 +121,87 @@ class TestSyncMCPCatalog(TestCase):
         with patch("products.mcp_store.backend.catalog_sync.probe_mcp_server", return_value=probe_result) as probe_mock:
             counts = sync_mcp_catalog(entries=[entry])
 
-        probe_mock.assert_called_once_with(entry.url)
+        probe_mock.assert_called_once_with(
+            entry.url,
+            scope_allowlist=entry.oauth_scope_allowlist,
+            shared_client_id=None,
+        )
         template = MCPServerTemplate.objects.get(url=entry.url)
         assert counts.created == 1
         assert template.is_active is expect_active
         assert template.name == entry.name
         assert template.icon_domain == entry.icon_domain
+        assert template.oauth_scope_allowlist == (
+            list(entry.oauth_scope_allowlist) if entry.oauth_scope_allowlist is not None else None
+        )
         if probe_result.oauth_metadata:
             assert template.oauth_metadata == probe_result.oauth_metadata
             assert template.oauth_issuer_url == probe_result.oauth_metadata.get("issuer", "")
+
+    @patch(
+        "products.mcp_store.backend.oauth_credentials.get_instance_settings",
+        return_value={"SLACK_APP_CLIENT_ID": "slack-client", "SLACK_APP_CLIENT_SECRET": "slack-secret"},
+    )
+    def test_existing_shared_oauth_entry_activates_from_instance_credentials(self, _settings):
+        template = MCPServerTemplate.objects.create(
+            name="Slack",
+            url="https://mcp.slack.test.example/mcp",
+            description="Search Slack.",
+            auth_type="oauth",
+            category="productivity",
+            is_active=False,
+        )
+        probe_result = ProbeResult(
+            reachable=True,
+            speaks_mcp=True,
+            auth_flavor="oauth_shared",
+            oauth_metadata={"issuer": "https://mcp.slack.com"},
+            authorize_endpoint_ok=True,
+        )
+
+        with patch("products.mcp_store.backend.catalog_sync.probe_mcp_server", return_value=probe_result) as probe:
+            counts = sync_mcp_catalog(
+                entries=[
+                    _entry(
+                        name="Slack",
+                        url=template.url,
+                        category="productivity",
+                        icon_domain="slack.com",
+                        oauth_credentials_source="slack_app",
+                    )
+                ]
+            )
+
+        template.refresh_from_db()
+        assert template.is_active is True
+        assert template.oauth_credentials_source == "slack_app"
+        assert template.oauth_credentials == {}
+        assert counts.activated == 1
+        probe.assert_called_once_with(template.url, scope_allowlist=None, shared_client_id="slack-client")
+
+    @patch(
+        "products.mcp_store.backend.oauth_credentials.get_instance_settings",
+        return_value={"SLACK_APP_CLIENT_ID": "", "SLACK_APP_CLIENT_SECRET": ""},
+    )
+    def test_instance_credential_source_deactivates_when_settings_are_missing(self, _settings):
+        entry = _entry(oauth_credentials_source="slack_app")
+        template = MCPServerTemplate.objects.create(
+            name=entry.name,
+            url=entry.url,
+            description=entry.description,
+            auth_type=entry.auth_type,
+            category=entry.category,
+            icon_domain=entry.icon_domain,
+            oauth_credentials_source="slack_app",
+            is_active=True,
+        )
+
+        with patch("products.mcp_store.backend.catalog_sync.probe_mcp_server") as probe:
+            sync_mcp_catalog(entries=[entry])
+
+        template.refresh_from_db()
+        assert template.is_active is False
+        probe.assert_not_called()
 
     def test_update_touches_content_fields_but_never_operational_state(self):
         # Clobbering is_active/credentials/metadata on an operator-configured row would break
@@ -122,13 +218,22 @@ class TestSyncMCPCatalog(TestCase):
         )
 
         with patch("products.mcp_store.backend.catalog_sync.probe_mcp_server") as probe_mock:
-            counts = sync_mcp_catalog(entries=[_entry(description="New description.", category="dev")])
+            counts = sync_mcp_catalog(
+                entries=[
+                    _entry(
+                        description="New description.",
+                        category="dev",
+                        oauth_scope_allowlist=("read",),
+                    )
+                ]
+            )
 
         probe_mock.assert_not_called()
         template.refresh_from_db()
         assert counts.updated == 1
         assert template.description == "New description."
         assert template.category == "dev"
+        assert template.oauth_scope_allowlist == ["read"]
         assert template.is_active is True
         assert template.oauth_credentials == {"client_id": "shared-client", "client_secret": "shhh"}
         assert template.oauth_metadata == {"authorization_endpoint": "https://auth.linear.app/authorize"}
@@ -177,6 +282,33 @@ class TestSyncMCPCatalog(TestCase):
         assert counts.created == 1
         assert MCPServerTemplate.objects.get(url=_entry().url).is_active is False
 
+    def test_disabled_entry_stays_inactive_without_probing(self):
+        with patch("products.mcp_store.backend.catalog_sync.probe_mcp_server") as probe_mock:
+            counts = sync_mcp_catalog(entries=[_entry(disabled=True)])
+
+        probe_mock.assert_not_called()
+        assert counts.created == 1
+        assert MCPServerTemplate.objects.get(url=_entry().url).is_active is False
+
+    def test_disabled_entry_deactivates_existing_template(self):
+        template = MCPServerTemplate.objects.create(
+            name="Linear",
+            url=_entry().url,
+            description="Manage Linear issues.",
+            auth_type="oauth",
+            category="dev",
+            icon_domain="linear.app",
+            is_active=True,
+        )
+
+        with patch("products.mcp_store.backend.catalog_sync.probe_mcp_server") as probe_mock:
+            counts = sync_mcp_catalog(entries=[_entry(disabled=True)])
+
+        probe_mock.assert_not_called()
+        template.refresh_from_db()
+        assert counts.updated == 1
+        assert template.is_active is False
+
     def test_warns_on_active_row_missing_from_catalog(self):
         # A catalog url edit orphans the old active row silently — the sync warning is the
         # only thing that surfaces it, so a refactor dropping it must fail here.
@@ -204,7 +336,11 @@ class TestSyncMCPCatalog(TestCase):
         good = _entry()
         bad = _entry(url="https://mcp.broken.example/mcp", name="Broken")
 
-        def _probe(url: str) -> ProbeResult:
+        def _probe(
+            url: str,
+            scope_allowlist: Sequence[str] | None = None,
+            shared_client_id: str | None = None,
+        ) -> ProbeResult:
             if "broken" in url:
                 raise RuntimeError("boom")
             return _dcr_pass_probe()

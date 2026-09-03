@@ -101,51 +101,39 @@ class SlackIntegration:
         """
         return sorted(self._list_channels_by_type("public_channel"), key=lambda x: x["name"])
 
-    def get_public_channel_by_id(self, channel_id: str) -> dict[str, str] | None:
-        try:
-            channel = self.client.conversations_info(channel=channel_id).get("channel")
-        except SlackApiError:
-            return None
-        except Exception:
-            return None
-        if (
-            not isinstance(channel, dict)
-            or channel.get("is_archived") is not False
-            or channel.get("is_private") is not False
-            or channel.get("is_im") is not False
-            or channel.get("is_mpim") is not False
-            or channel.get("is_channel") is not True
-            or not isinstance(channel.get("id"), str)
-            or not isinstance(channel.get("name"), str)
-            or not channel["name"]
-        ):
-            return None
-        return {"id": channel["id"], "name": channel["name"]}
-
     def get_channel_by_id(
         self, channel_id: str, should_include_private_channels: bool = False, authed_user: str | None = None
     ) -> dict | None:
         try:
             response = self.client.conversations_info(channel=channel_id, include_num_members=True)
             channel = response["channel"]
-            members_response = self.client.conversations_members(channel=channel_id, limit=channel["num_members"] + 1)
-            isMember = authed_user in members_response["members"]
+            if authed_user is not None:
+                members_response = self.client.conversations_members(
+                    channel=channel_id, limit=channel["num_members"] + 1
+                )
+                if authed_user not in members_response["members"]:
+                    return None
 
-            if not isMember:
-                return None
-
-            isPrivateWithoutAccess = channel["is_private"] and not should_include_private_channels
+            is_private_without_access = channel["is_private"] and not should_include_private_channels
 
             return {
                 "id": channel["id"],
-                "name": PRIVATE_CHANNEL_WITHOUT_ACCESS if isPrivateWithoutAccess else channel["name"],
+                "name": PRIVATE_CHANNEL_WITHOUT_ACCESS if is_private_without_access else channel["name"],
                 "is_private": channel["is_private"],
                 "is_member": channel.get("is_member", True),
                 "is_ext_shared": channel["is_ext_shared"],
-                "is_private_without_access": isPrivateWithoutAccess,
+                "is_archived": channel.get("is_archived"),
+                "is_im": channel.get("is_im"),
+                "is_mpim": channel.get("is_mpim"),
+                "is_channel": channel.get("is_channel"),
+                "is_private_without_access": is_private_without_access,
             }
         except SlackApiError as e:
-            if e.response["error"] == "channel_not_found":
+            if authed_user is None or e.response["error"] == "channel_not_found":
+                return None
+            raise
+        except Exception:
+            if authed_user is None:
                 return None
             raise
 

@@ -10,7 +10,6 @@ from temporalio import activity
 
 from posthog.helpers.slack_scopes import has_scopes
 from posthog.models.integration import Integration
-from posthog.models.user import User
 from posthog.temporal.ai.slack_app.attachments import (
     PreparedSlackAttachments,
     build_slack_attachment_prompt_text,
@@ -21,7 +20,6 @@ from posthog.temporal.ai.slack_app.helpers import block_if_team_over_quota, safe
 from posthog.temporal.ai.slack_app.types import PostHogCodeSlackMentionWorkflowInputs, SlackAppModelOverride
 from posthog.temporal.common.utils import close_db_connections
 
-from products.slack_app.backend.feature_flags import is_slack_space_routing_enabled
 from products.slack_app.backend.services.slack_messages import context_block, post_slack_thread_reply, thread_permalink
 
 logger = structlog.get_logger(__name__)
@@ -646,15 +644,10 @@ def create_posthog_code_task_for_repo_activity(
         integration, slack_user_id, override=model_override, team_id=integration.team_id, user_id=user_id
     )
 
-    bound_space_id: uuid.UUID | None = None
-    routing_user = User.objects.filter(id=user_id).only("distinct_id").first()
-    routing_distinct_id = str(routing_user.distinct_id) if routing_user and routing_user.distinct_id else None
-    if is_slack_space_routing_enabled(integration, distinct_id=routing_distinct_id):
-        bound_space_id = tasks_facade.get_slack_task_routing_channel_id(integration.team_id, integration.id, channel)
     conversation_type = resolve_conversation_type(slack, event, channel)
-    task_channel_id = (
-        bound_space_id if conversation_type == SlackThreadTaskMapping.ConversationType.PUBLIC_CHANNEL else None
-    )
+    task_channel_id = None
+    if conversation_type == SlackThreadTaskMapping.ConversationType.PUBLIC_CHANNEL:
+        task_channel_id = tasks_facade.get_slack_task_routing_channel_id(integration.team_id, integration.id, channel)
     slack_task_routing = "bound_space" if task_channel_id is not None else "personal_fallback"
 
     # 1. Create task + run WITHOUT starting the workflow

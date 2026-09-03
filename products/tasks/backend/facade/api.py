@@ -7626,9 +7626,7 @@ def _slack_task_routing_to_dto(binding: SlackChannelSpaceBinding | None) -> cont
     )
 
 
-def _channel_to_dto(
-    channel: Channel, *, starred: bool = False, can_manage_slack_task_routing: bool = False
-) -> contracts.ChannelDTO:
+def _channel_to_dto(channel: Channel, *, starred: bool = False) -> contracts.ChannelDTO:
     return contracts.ChannelDTO(
         id=channel.id,
         name=channel.name,
@@ -7641,7 +7639,6 @@ def _channel_to_dto(
         created_by=_user_basic_info(channel.created_by if channel.created_by_id else None),
         starred=starred,
         slack_task_routing=_slack_task_routing_to_dto(getattr(channel, "slack_task_routing", None)),
-        can_manage_slack_task_routing=can_manage_slack_task_routing,
     )
 
 
@@ -7775,23 +7772,19 @@ def _is_general_channel(channel: Channel) -> bool:
     return _matches_legacy_shape(channel, GENERAL_LEGACY_SHAPE)
 
 
-def provision_default_channels(
-    team_id: int, user_id: int, *, can_manage_slack_task_routing: bool = False
-) -> contracts.ProvisionedChannelsDTO:
+def provision_default_channels(team_id: int, user_id: int) -> contracts.ProvisionedChannelsDTO:
     """The created flags let a client distinguish "this call provisioned the space"
     (first user in the team) from inheriting one that already existed."""
     _, personal_created = _ensure_personal_channel(team_id, user_id)
     _, general_created = _ensure_general_channel(team_id, user_id)
     return contracts.ProvisionedChannelsDTO(
-        channels=list_channels(team_id, user_id, can_manage_slack_task_routing=can_manage_slack_task_routing),
+        channels=list_channels(team_id, user_id),
         personal_created=personal_created,
         general_created=general_created,
     )
 
 
-def list_channels(
-    team_id: int, user_id: int | None, *, can_manage_slack_task_routing: bool = False
-) -> list[contracts.ChannelDTO]:
+def list_channels(team_id: int, user_id: int | None) -> list[contracts.ChannelDTO]:
     """Every space the requester can see, by name. ``starred`` reflects the requester's
     stars. Creates nothing, which is what lets a caller gate on a space existing."""
     channels = list(
@@ -7802,14 +7795,7 @@ def list_channels(
         if user_id is not None
         else set()
     )
-    return [
-        _channel_to_dto(
-            channel,
-            starred=channel.id in starred_ids,
-            can_manage_slack_task_routing=can_manage_slack_task_routing,
-        )
-        for channel in channels
-    ]
+    return [_channel_to_dto(channel, starred=channel.id in starred_ids) for channel in channels]
 
 
 def _emit_channel_created(channel: Channel, user_id: int | None) -> None:
@@ -7833,9 +7819,7 @@ def _emit_channel_created(channel: Channel, user_id: int | None) -> None:
         logger.exception("Failed to emit channel_created feed message", extra={"channel_id": str(channel.id)})
 
 
-def resolve_channel(
-    team_id: int, user_id: int | None, *, name: str, star: bool, can_manage_slack_task_routing: bool = False
-) -> contracts.ChannelDTO | None:
+def resolve_channel(team_id: int, user_id: int | None, *, name: str, star: bool) -> contracts.ChannelDTO | None:
     """Resolve-or-create a public channel by (normalized) name. ``None`` for empty names.
     The general name resolves the team's general space, which cannot then be renamed away.
     Emits a ``channel_created`` feed message the first time a channel is created, and (unless
@@ -7872,11 +7856,7 @@ def resolve_channel(
         starred = star
         if star:
             _set_channel_star(channel.id, team_id, user_id, starred=True)
-    return _channel_to_dto(
-        channel,
-        starred=starred,
-        can_manage_slack_task_routing=can_manage_slack_task_routing,
-    )
+    return _channel_to_dto(channel, starred=starred)
 
 
 def update_channel(
@@ -7885,7 +7865,6 @@ def update_channel(
     user_id: int | None,
     *,
     can_manage_shared_auto_archive: bool,
-    can_manage_slack_task_routing: bool,
     name: str | None = None,
     github_integration: Integration | None = None,
     repositories: list[str] | None = None,
@@ -7906,22 +7885,8 @@ def update_channel(
                     return "personal"
             elif not isinstance(auto_archive_after_days, _AutoArchiveUnchanged) and not can_manage_shared_auto_archive:
                 return "auto_archive_forbidden"
-            if routing_changed and not can_manage_slack_task_routing:
-                return "slack_task_routing_forbidden"
             if routing_changed and channel.channel_type != Channel.ChannelType.PUBLIC:
                 return "slack_task_routing_public_only"
-            if (
-                routing_changed
-                and slack_task_routing is not None
-                and not Integration.objects.select_for_update()
-                .filter(
-                    id=slack_task_routing.integration_id,
-                    team_id=team_id,
-                    kind=Integration.IntegrationKind.SLACK,
-                )
-                .exists()
-            ):
-                return "slack_task_routing_invalid_integration"
             if name is not None and _is_general_channel(channel):
                 return "general"
             update_fields: list[str] = []
@@ -7955,7 +7920,7 @@ def update_channel(
                     )
     except IntegrityError:
         return "slack_task_routing_taken" if routing_changed else "name_taken"
-    return _channel_to_dto(channel, can_manage_slack_task_routing=can_manage_slack_task_routing)
+    return _channel_to_dto(channel)
 
 
 def delete_channel(channel_id: str | UUID, team_id: int, user_id: int | None) -> str:
@@ -8107,19 +8072,13 @@ def create_channel_feed_message(
     return _channel_feed_message_to_dto(message)
 
 
-def get_channel(
-    channel_id: str | UUID, team_id: int, user_id: int | None, *, can_manage_slack_task_routing: bool = False
-) -> contracts.ChannelDTO | None:
+def get_channel(channel_id: str | UUID, team_id: int, user_id: int | None) -> contracts.ChannelDTO | None:
     """One channel the requester may read, or ``None``."""
     channel = _visible_channel(channel_id, team_id, user_id)
     if channel is None:
         return None
     starred = user_id is not None and _is_channel_starred(channel.id, user_id)
-    return _channel_to_dto(
-        channel,
-        starred=starred,
-        can_manage_slack_task_routing=can_manage_slack_task_routing,
-    )
+    return _channel_to_dto(channel, starred=starred)
 
 
 # --- Channel instructions (CONTEXT.md) ---

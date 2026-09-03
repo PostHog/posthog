@@ -306,7 +306,7 @@ class TestSlackIntegration:
         assert not channel["is_private_without_access"]
 
     @patch("posthog.models.integration.slack.WebClient")
-    def test_get_channel_by_id_public_without_access(self, mock_webclient_class):
+    def test_get_channel_by_id_public_without_an_authenticated_user(self, mock_webclient_class):
         mock_client = MagicMock()
         mock_webclient_class.return_value = mock_client
 
@@ -317,10 +317,10 @@ class TestSlackIntegration:
         mock_client.conversations_members.return_value = {"members": ["test_user_id", "U2", "U3"]}
 
         slack = SlackIntegration(self.integration)
-        channel = slack.get_channel_by_id("C123", False, "test_user_id")
+        channel = slack.get_channel_by_id("C123")
 
         mock_client.conversations_info.assert_called_once_with(channel="C123", include_num_members=True)
-        mock_client.conversations_members.assert_called_once_with(channel="C123", limit=11)
+        mock_client.conversations_members.assert_not_called()
 
         assert channel is not None
         assert channel["id"] == "C123"
