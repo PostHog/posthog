@@ -390,8 +390,9 @@ function apiErrorFallback(response: Response, method: string, url: string): stri
  *
  * What the body was is the part that makes an occurrence diagnosable — an HTML interstitial from a
  * proxy and JSON cut mid-stream are different faults with the same symptom. So the content type and
- * the body length travel in the message, and the head of the body travels with the
- * `client_malformed_response` event, which is where a query can reach it.
+ * the body length travel in the message, and a content-free classification of the body's shape
+ * travels with the `client_malformed_response` event. The body itself never leaves the client,
+ * because it can hold user data.
  */
 async function getJSONFromSuccessResponse(response: Response, method: string, url: string): Promise<any> {
     const requestContext = (...details: string[]): string =>
@@ -422,7 +423,9 @@ async function getJSONFromSuccessResponse(response: Response, method: string, ur
             // The media type alone: the charset and any boundary parameter add nothing to triage.
             content_type: response.headers?.get('content-type')?.split(';')[0].trim() || null,
             body_length: text.length,
-            body_prefix: malformedBodyPrefix(text),
+            // The shape of the body, never its content. The body can hold user data, so no fragment
+            // of it may reach analytics, but its shape still separates a proxy page from a payload.
+            body_kind: malformedBodyKind(text),
         }
         captureMalformedResponse({
             pathname: requestPathname(url),
@@ -443,18 +446,22 @@ async function getJSONFromSuccessResponse(response: Response, method: string, ur
 }
 
 /**
- * How much of an unparseable body travels with the failure. Long enough to tell an HTML error page
- * from JSON cut mid-stream, short enough that a body carrying user data is only ever seen in
- * fragment. Treat the prefix as sensitive: it stays out of the error message, which reaches error
- * tracking issue titles.
+ * The shape of an unparseable body, carrying none of its content. It tells an HTML error page (a
+ * proxy or CDN interstitial) from JSON cut mid-stream, which is the diagnostic the message needs,
+ * while the body itself stays on the client because it can hold user data.
  */
-const MALFORMED_BODY_PREFIX_CHARS = 200
+export type MalformedBodyKind = 'html_like' | 'json_like' | 'other'
 
-function malformedBodyPrefix(text: string): string {
-    const collapsed = text.replace(/\s+/g, ' ').trim()
-    return collapsed.length > MALFORMED_BODY_PREFIX_CHARS
-        ? `${collapsed.slice(0, MALFORMED_BODY_PREFIX_CHARS)}…`
-        : collapsed
+function malformedBodyKind(text: string): MalformedBodyKind {
+    // The caller already dropped whitespace-only bodies, so a first non-whitespace char exists.
+    const firstChar = text.match(/\S/)?.[0]
+    if (firstChar === '<') {
+        return 'html_like'
+    }
+    if (firstChar === '{' || firstChar === '[') {
+        return 'json_like'
+    }
+    return 'other'
 }
 
 export class ApiConfig {
@@ -7591,8 +7598,8 @@ function captureClientRequestFailure(properties: {
 
 /**
  * A response the server called a success, with a body no JSON parser accepts. It is separate from
- * `client_request_failure` so failure-rate queries keep their meaning, and it is the only place the
- * body prefix is recorded (see `malformedBodyPrefix`).
+ * `client_request_failure` so failure-rate queries keep their meaning. It records only bounded,
+ * content-free facts about the body (see `malformedBodyKind`), never the body itself.
  */
 function captureMalformedResponse(properties: {
     pathname: string
@@ -7600,7 +7607,7 @@ function captureMalformedResponse(properties: {
     status: number
     content_type: string | null
     body_length: number
-    body_prefix: string
+    body_kind: MalformedBodyKind
 }): void {
     if (posthog.capture) {
         posthog.capture('client_malformed_response', properties)
