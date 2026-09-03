@@ -4,17 +4,15 @@ from dataclasses import dataclass
 from typing import Any
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.test import Client, override_settings
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 
-from posthog.models import OAuthApplication
 from posthog.models.scoping import team_scope
 from posthog.temporal.common.errors import describe_failure
-from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV, ARRAY_APP_CLIENT_ID_EU, ARRAY_APP_CLIENT_ID_US
 
 from products.stamphog.backend.temporal.activities import (
     MarkReviewFailedInput,
@@ -94,6 +92,20 @@ def _generate_app_private_key() -> str:
     ).decode()
 
 
+def _fake_gateway_post(url: str, **kwargs: Any) -> MagicMock:
+    """The ai-gateway's token routes; any other POST through the shared requests module fails loudly."""
+    response = MagicMock(text="")
+    if url.endswith("/v1/tokens"):
+        response.status_code = 201
+        response.json.return_value = {"token": "phe_test_run", "expires_at": "2026-01-01T00:00:00Z", "cap_usd": "5"}
+    elif url.endswith("/v1/tokens/revoke"):
+        response.status_code = 200
+        response.json.return_value = {"revoked": True}
+    else:
+        raise AssertionError(f"unexpected POST through the faked gateway client: {url}")
+    return response
+
+
 def _run_activity(activity_fn: Any, arg: Any) -> Any:
     """Run a stamphog activity's plain sync body in-thread.
 
@@ -166,20 +178,6 @@ def stamphog_chain() -> Iterator[StamphogChain]:
     # review-guidance.md is a required trusted policy file — run_review_in_sandbox fails closed without
     # it — so seed it for the whole chain; individual tests still set/override policy.yml as they need.
     recorder.policy_files[".stamphog/review-guidance.md"] = "Review PostHog PRs against the repo's norms.\n"
-    # The review activity mints a real sandbox OAuth token under the Array app, which resolves by
-    # region client id — seed every region so get_instance_region()'s value doesn't matter here.
-    for client_id in (ARRAY_APP_CLIENT_ID_DEV, ARRAY_APP_CLIENT_ID_US, ARRAY_APP_CLIENT_ID_EU):
-        OAuthApplication.objects.get_or_create(
-            client_id=client_id,
-            defaults={
-                "name": "Array Test App",
-                "client_type": OAuthApplication.CLIENT_PUBLIC,
-                "authorization_grant_type": OAuthApplication.GRANT_AUTHORIZATION_CODE,
-                "redirect_uris": "https://app.posthog.com/callback",
-                # RS256 is enforced by the `enforce_rs256_algorithm` DB constraint.
-                "algorithm": "RS256",
-            },
-        )
     fake_slack = fakes.FakeSlackIntegration
     fake_slack.reset(channels=[])
     sandbox_writes: list[tuple[str, bytes]] = []
@@ -193,9 +191,12 @@ def stamphog_chain() -> Iterator[StamphogChain]:
                 STAMPHOG_GITHUB_APP_PRIVATE_KEY=_generate_app_private_key(),
             )
         )
-        # Hosted reviews require a gateway; the fixture points settings at the legacy stamphog route.
-        # Go-gateway tests override both settings of the pair locally.
-        stack.enter_context(override_settings(AI_GATEWAY_URL="https://llm-gateway.test/stamphog/v1"))
+        # The pair selects the Go ai-gateway and its token routes are faked; tests asserting on the
+        # mint re-patch requests.post.
+        stack.enter_context(
+            override_settings(AI_GATEWAY_URL="https://ai-gateway.test/v1", AI_GATEWAY_API_KEY="phs_test_mint")
+        )
+        stack.enter_context(patch("products.stamphog.backend.temporal.activities.requests.post", _fake_gateway_post))
         # mark_review_failed emits a failure event through the real analytics client — a network
         # boundary, faked like the rest. Tests asserting on the event re-patch this locally.
         stack.enter_context(patch("products.stamphog.backend.temporal.activities.ph_scoped_capture"))

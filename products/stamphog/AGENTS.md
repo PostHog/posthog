@@ -93,17 +93,13 @@ add a read-then-act path, pin it; this class of bug has been found on five separ
 
 ## Sandbox credentials and egress
 
-- The sandbox holds NO long-lived secret; `_reviewer_environment` mints a per-run credential under
-  the repo's connecting user. With the Go ai-gateway configured (`AI_GATEWAY_URL` + `AI_GATEWAY_API_KEY`
-  in the worker env) that is a `phe_` scoped token from `POST /v1/tokens`: `product=aio_stamphog`,
-  `obo=<customer team>`, `cap_usd=5`, `ttl_seconds=3600`. The worker's `phs_` mints it and never
-  enters the sandbox, and the worker revokes the token once the sandbox is destroyed. With
-  `AI_GATEWAY_URL` on the Go host and no key the run fails closed: the OAuth token below is a
-  standard credential on the Go gateway and must never be sent there. The legacy path (`AI_GATEWAY_URL` alone, on the Python gateway's
-  `/stamphog/v1` route) mints an OAuth token with exactly `["llm_gateway:read", "internal_run:read"]`
-  and `include_internal_scopes=False`. Never switch to `include_internal_scopes=True` — that
-  drags `task:write` into a sandbox running an LLM over untrusted PR content. The
-  `internal_run:read` marker is what satisfies that route's `requires_server_credential`.
+- The sandbox holds NO long-lived secret. `_mint_reviewer_scoped_token` mints a per-run `phe_`
+  from the Go ai-gateway (`POST /v1/tokens`) with the worker's `phs_` (`AI_GATEWAY_API_KEY`), pinned
+  to `product=aio_stamphog` and `obo=<customer team>`, capped at `cap_usd=5` and `ttl_seconds=3600`,
+  acting as the repo's connecting user. The `phs_` never enters the sandbox; a mint failure fails
+  the run (no shared-key fallback); the worker revokes the token once the sandbox is destroyed. Do
+  not widen the cap or TTL without a run-cost reason: they bound what a prompt-injected reviewer can
+  spend with a leaked token.
 - The raw-Anthropic fallback exists for a local `review_pr.py` run only; hosted runs fail closed
   without a gateway. No `ANTHROPIC_API_KEY` may enter the sandbox environment.
 - Egress is an explicit domain allowlist (`_sandbox_egress_allowlist`). Additions go through
