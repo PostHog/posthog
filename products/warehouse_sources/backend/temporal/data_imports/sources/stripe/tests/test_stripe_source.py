@@ -1929,11 +1929,17 @@ class TestMeterSummaryWindow:
 
 
 class TestMeterEventSummaryFanout:
-    def _subscription(self, subscription_id: str, customer: str, prices: list[dict[str, Any]]) -> dict[str, Any]:
+    def _subscription(
+        self,
+        subscription_id: str,
+        customer: str,
+        prices: list[dict[str, Any]],
+        items_has_more: bool = False,
+    ) -> dict[str, Any]:
         return {
             "id": subscription_id,
             "customer": customer,
-            "items": {"data": [{"price": price} for price in prices]},
+            "items": {"data": [{"price": price} for price in prices], "has_more": items_has_more},
         }
 
     def _run(
@@ -1941,6 +1947,7 @@ class TestMeterEventSummaryFanout:
         subscriptions: list[dict[str, Any]],
         summaries_per_meter: int = 1,
         resumable_source_manager: Any = None,
+        items_by_subscription: dict[str, list[dict[str, Any]]] | None = None,
     ) -> tuple[list[dict], list[tuple[str, dict]]]:
         requested: list[tuple[str, dict]] = []
 
@@ -1960,9 +1967,16 @@ class TestMeterEventSummaryFanout:
                 ]
             )
 
+        def subscription_items_list(params):
+            return _FakeStripeList(
+                items_by_subscription.get(params["subscription"], []) if items_by_subscription else []
+            )
+
         client = MagicMock()
         client.billing.meters.event_summaries.list.side_effect = event_summaries_list
+        client.subscription_items.list.side_effect = subscription_items_list
         client.subscriptions.list.return_value = _list_object(subscriptions)
+        self.client = client
 
         real_build_resources = stripe_module._build_resources
 
@@ -2014,6 +2028,30 @@ class TestMeterEventSummaryFanout:
         # the reset that recovers the sync drops every day older than the initial lookback.
         rows, _ = self._run([self._subscription("sub_1", "cus_1", [{"recurring": {"meter": "mtr_a"}}])])
         assert rows and all(isinstance(row["aggregated_value"], float) for row in rows)
+
+    def test_a_meter_past_the_embedded_item_page_is_still_asked_for(self):
+        # Stripe embeds only the first page of a subscription's items. This subscription meters
+        # nothing on that page, so without completing the items it would be skipped entirely and
+        # its customer would have no usage rows at all.
+        rows, requested = self._run(
+            [self._subscription("sub_1", "cus_1", [{"recurring": {"interval": "month"}}], items_has_more=True)],
+            items_by_subscription={
+                "sub_1": [
+                    {"price": {"recurring": {"interval": "month"}}},
+                    {"price": {"recurring": {"meter": "mtr_late"}}},
+                ]
+            },
+        )
+        assert [meter for meter, _ in requested] == ["mtr_late"]
+        assert [(row["meter"], row["customer"]) for row in rows] == [("mtr_late", "cus_1")]
+        # One call completes the whole subscription, whatever it meters.
+        assert self.client.subscription_items.list.call_count == 1
+
+    def test_a_complete_item_page_costs_no_extra_call(self):
+        # The saving this fan-out is built on is that a subscription Stripe already described in
+        # full needs no call of its own before the sweep decides whether to skip it.
+        self._run([self._subscription("sub_1", "cus_1", [{"recurring": {"meter": "mtr_a"}}])])
+        assert self.client.subscription_items.list.call_count == 0
 
     def test_a_meter_on_several_items_is_asked_for_once(self):
         # Both items bill the same usage series, so a second call would only double the volume.

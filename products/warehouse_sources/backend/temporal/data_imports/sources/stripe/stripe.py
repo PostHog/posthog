@@ -11,7 +11,7 @@ import stripe as stripe_lib
 import pyarrow as pa
 import requests
 from asgiref.sync import async_to_sync
-from stripe import ListObject, RequestsClient, StripeClient
+from stripe import ListObject, RequestsClient, StripeClient, SubscriptionService
 from stripe._base_address import BaseAddresses
 from stripe._webhook_endpoint_service import WebhookEndpointService
 from structlog.types import FilteringBoundLogger
@@ -484,7 +484,8 @@ def _subscription_meter_ids(subscription: dict[str, Any]) -> list[str]:
     call for every meter in the account against every customer. The order has to stay stable, so a
     resumed sweep sees the same row sequence and can drop the rows it already wrote.
 
-    A subscription lists its first 10 items, so usage on a meter beyond that item is not synced.
+    The listing completes a truncated item page before this reads it, so a meter on a later item
+    is found too. See `_subscriptions_with_all_items`.
     """
     items = (subscription.get("items") or {}).get("data") or []
     meters = {((item.get("price") or {}).get("recurring") or {}).get("meter") for item in items}
@@ -499,6 +500,42 @@ def _meter_summary_params(subscription: dict[str, Any]) -> dict[str, Any]:
     """`customer` and `meters` for the fan-out call. Stripe has no `meters` parameter. The lister
     reads it to decide which meter endpoints to call."""
     return {"customer": subscription.get("customer"), "meters": _subscription_meter_ids(subscription)}
+
+
+def _subscriptions_with_all_items(client: StripeClient) -> Callable[..., ListObject[Any]]:
+    """Subscription listing whose items are complete.
+
+    Stripe embeds only the first page of a subscription's items. The meter fan-out reads its meters
+    off those items, so a metered price on a later page is never asked for, and a subscription whose
+    only metered price sits there is skipped with no usage row at all. Completing the page costs one
+    call for a subscription that reports more items, and no call for the rest.
+    """
+
+    def _fill_items(subscription: dict[str, Any]) -> dict[str, Any]:
+        items = subscription.get("items") or {}
+        subscription_id = subscription.get("id")
+        if not items.get("has_more") or not subscription_id:
+            return subscription
+        try:
+            rest = client.subscription_items.list(params={"subscription": subscription_id, "limit": DEFAULT_LIMIT})
+            data = list(rest.auto_paging_iter())
+        except stripe_lib.StripeError as e:
+            # The subscription was removed between the listing and this call. Keep the items the
+            # listing already returned rather than failing the whole sweep.
+            if not _is_stripe_resource_missing_error(e):
+                raise
+            return subscription
+        items["data"] = data
+        items["has_more"] = False
+        return subscription
+
+    def _list(params: SubscriptionService.ListParams) -> ListObject[Any]:
+        subscriptions = client.subscriptions.list(params=params)
+        return cast(
+            ListObject[Any], _RowList(_fill_items(subscription) for subscription in subscriptions.auto_paging_iter())
+        )
+
+    return _list
 
 
 def _rows_after_cursor(rows: list[dict[str, Any]], cursor: Optional[str]) -> list[dict[str, Any]]:
@@ -916,7 +953,7 @@ def _build_resources(
             method=_meter_event_summary_lister(client, meter_summary_window),
             nested_parent_param="discovery_subscription",
             parent_id="id",
-            parent=StripeResource(method=client.subscriptions.list, params={"status": "all"}),
+            parent=StripeResource(method=_subscriptions_with_all_items(client), params={"status": "all"}),
             parent_name=SUBSCRIPTION_RESOURCE_NAME,
             parent_has_nested=_subscription_has_metered_price,
             nested_params_from_parent=_meter_summary_params,
