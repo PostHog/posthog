@@ -1,1 +1,1 @@
-0088_remap_scanner_models_gemini_3_8
+0089_drop_vision_action_tables
