@@ -4,7 +4,7 @@ import { expectLogic } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { PR_CI_STATUS_MAX_AGE_MS, prCiStatusLogic } from './prCiStatusLogic'
+import { PR_CI_STATUS_MAX_AGE_MS, PR_CI_STATUS_MAX_REPORTS, prCiStatusLogic } from './prCiStatusLogic'
 
 const CI_STATUSES_URL = '/api/projects/:team_id/signals/reports/pr_ci_statuses/'
 
@@ -48,6 +48,22 @@ describe('prCiStatusLogic', () => {
         // on every row affordable.
         expect(requestedIds).toEqual([['report-1', 'report-2']])
         expect(logic.values.ciStatusByReportId).toEqual({ 'report-1': 'failing', 'report-2': 'passing' })
+    })
+
+    it('covers every tracked report when there are more than one request may carry', async () => {
+        // A reader who loads a third page, or merges several sections into the flat list, tracks more
+        // rows than the endpoint answers for in one request. Cutting the list short there would leave
+        // those rows without a glyph for as long as they stayed on screen.
+        const reportIds = Array.from({ length: PR_CI_STATUS_MAX_REPORTS + 5 }, (_, index) => `report-${index}`)
+        answers = Object.fromEntries(reportIds.map((reportId) => [reportId, 'passing']))
+
+        logic.actions.trackReports('needs-decision', reportIds)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(requestedIds).toHaveLength(2)
+        expect(requestedIds.every((ids) => ids.length <= PR_CI_STATUS_MAX_REPORTS)).toBe(true)
+        expect(requestedIds.flat().sort()).toEqual([...reportIds].sort())
+        expect(Object.keys(logic.values.ciStatusByReportId)).toHaveLength(reportIds.length)
     })
 
     it('holds the last known state for a report the next answer leaves out', async () => {

@@ -19,13 +19,22 @@ export const PR_CI_STATUS_POLL_INTERVAL_MS = 60_000
 export const PR_CI_STATUS_MAX_AGE_MS = 2 * PR_CI_STATUS_POLL_INTERVAL_MS
 /** Reports one request may ask about, above which the endpoint rejects the list. */
 export const PR_CI_STATUS_MAX_REPORTS = 100
-/** Sections load independently, so their bursts coalesce into one request. */
+/** Sections load independently, so their bursts coalesce into one load. */
 const PR_CI_STATUS_DEBOUNCE_MS = 50
 
 /** A resolved CI state and when GitHub last confirmed it, so a held state can age out. */
 interface ConfirmedCiStatus {
     ciStatus: PullRequestCiStatusEnumApi
     confirmedAt: number
+}
+
+/** The announced rows, in requests no longer than the endpoint will answer for. */
+function chunkReportIds(reportIds: string[]): string[][] {
+    const chunks: string[][] = []
+    for (let start = 0; start < reportIds.length; start += PR_CI_STATUS_MAX_REPORTS) {
+        chunks.push(reportIds.slice(start, start + PR_CI_STATUS_MAX_REPORTS))
+    }
+    return chunks
 }
 
 /**
@@ -101,8 +110,9 @@ export type prCiStatusLogicType = MakeLogicType<
  *
  * Shared rather than keyed: every report section paints the same pill, and the flat list merges
  * several sections, so one map serves them all and a report listed twice costs one lookup. Sections
- * announce the reports they show through `trackReports`; the backend resolves the whole set in one
- * batched GitHub read, and a poll keeps a running build's glyph moving while the inbox stays open.
+ * announce the reports they show through `trackReports`; the backend resolves each request's set in
+ * one batched GitHub read, and a poll keeps a running build's glyph moving while the inbox stays
+ * open.
  */
 export const prCiStatusLogic = kea<prCiStatusLogicType>([
     path(['scenes', 'inbox', 'logics', 'prCiStatusLogic']),
@@ -121,13 +131,18 @@ export const prCiStatusLogic = kea<prCiStatusLogicType>([
                         cache.confirmedCiStatuses = {}
                         return {}
                     }
-                    const response = await signalsReportsPrCiStatuses(String(teamId), {
-                        report_ids: reportIds.join(','),
-                    })
+                    // The endpoint rejects a list longer than it will answer for, so a longer set is
+                    // asked for in several requests instead of being cut short: a row on the third
+                    // page a reader loaded needs its glyph as much as a row on the first.
+                    const responses = await Promise.all(
+                        chunkReportIds(reportIds).map((chunk) =>
+                            signalsReportsPrCiStatuses(String(teamId), { report_ids: chunk.join(',') })
+                        )
+                    )
                     breakpoint()
                     const now = Date.now()
                     const confirmed: Record<string, ConfirmedCiStatus> = { ...cache.confirmedCiStatuses }
-                    for (const entry of response.statuses) {
+                    for (const entry of responses.flatMap((response) => response.statuses)) {
                         confirmed[entry.report_id] = { ciStatus: entry.ci_status, confirmedAt: now }
                     }
                     // Merge forward, then keep only the reports still on screen whose state is young
@@ -172,11 +187,13 @@ export const prCiStatusLogic = kea<prCiStatusLogicType>([
     }),
 
     selectors({
-        // The cap matches the endpoint's, which rejects a longer list than it will answer for.
+        // Every row the sections announce, deduplicated. Not capped to what one request carries: the
+        // loader splits a longer set, so a reader who pages past the first hundred rows still gets
+        // a glyph on the rest.
         trackedReportIds: [
             (s) => [s.trackedReportIdsBySource],
             (trackedReportIdsBySource: Record<string, string[]>): string[] =>
-                Array.from(new Set(Object.values(trackedReportIdsBySource).flat())).slice(0, PR_CI_STATUS_MAX_REPORTS),
+                Array.from(new Set(Object.values(trackedReportIdsBySource).flat())),
         ],
     }),
 
