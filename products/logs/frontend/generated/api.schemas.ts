@@ -1726,6 +1726,18 @@ export interface _LogsGroupByResponseApi {
     truncated: boolean
 }
 
+/**
+ * * `logs` - Logs
+ * * `spans` - Spans
+ */
+export type LogsMetricRuleRecordSourceEnumApi =
+    (typeof LogsMetricRuleRecordSourceEnumApi)[keyof typeof LogsMetricRuleRecordSourceEnumApi]
+
+export const LogsMetricRuleRecordSourceEnumApi = {
+    Logs: 'logs',
+    Spans: 'spans',
+} as const
+
 export interface LogsMetricRuleApi {
     /** Unique identifier for this metric rule. */
     readonly id: string
@@ -1754,6 +1766,11 @@ export interface LogsMetricRuleApi {
      * @items.maxLength 512
      */
     group_by?: string[]
+    /** Record source the rule tallies: `logs` (default) evaluates in the logs consumer, `spans` in the traces consumer. Immutable after creation — it decides which keys are valid and which pipeline runs the rule.
+     *
+     * * `logs` - Logs
+     * * `spans` - Spans */
+    source?: LogsMetricRuleRecordSourceEnumApi
     /** Incremented on each update for worker cache coherency. */
     readonly version: number
     readonly created_by: number
@@ -1799,6 +1816,11 @@ export interface PatchedLogsMetricRuleApi {
      * @items.maxLength 512
      */
     group_by?: string[]
+    /** Record source the rule tallies: `logs` (default) evaluates in the logs consumer, `spans` in the traces consumer. Immutable after creation — it decides which keys are valid and which pipeline runs the rule.
+     *
+     * * `logs` - Logs
+     * * `spans` - Spans */
+    source?: LogsMetricRuleRecordSourceEnumApi
     /** Incremented on each update for worker cache coherency. */
     readonly version?: number
     readonly created_by?: number

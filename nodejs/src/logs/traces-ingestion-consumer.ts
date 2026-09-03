@@ -27,6 +27,11 @@ export class TracesIngestionConsumer extends LogsIngestionConsumer {
                 LOGS_LIMITER_TTL_SECONDS: config.TRACES_LIMITER_TTL_SECONDS,
                 LOGS_LIMITER_TEAM_BUCKET_SIZE_KB: config.TRACES_LIMITER_TEAM_BUCKET_SIZE_KB,
                 LOGS_LIMITER_TEAM_REFILL_RATE_KB_PER_SECOND: config.TRACES_LIMITER_TEAM_REFILL_RATE_KB_PER_SECOND,
+                // Span metric rules gate on traces-specific env config so they roll out
+                // independently of log metric rules.
+                LOGS_METRICS_RULES_ENABLED_TEAMS: config.TRACES_METRICS_RULES_ENABLED_TEAMS,
+                LOGS_METRICS_RULES_KILLSWITCH: config.TRACES_METRICS_RULES_KILLSWITCH,
+                LOGS_METRICS_RULES_EXPORT_URL: config.TRACES_METRICS_RULES_EXPORT_URL,
             },
             // Own Redis key namespace so traces token buckets don't share per-team state with logs.
             'traces-rate-limiter'

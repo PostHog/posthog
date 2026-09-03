@@ -804,7 +804,10 @@ export class LogsIngestionConsumer {
         if (!state) {
             let rules: CompiledMetricRule[]
             try {
-                rules = await this.deps.metricRulesCache!.getCompiledRules(message.teamId)
+                const all = await this.deps.metricRulesCache!.getCompiledRules(message.teamId)
+                // Each consumer tallies only its own record source: the logs consumer runs
+                // `logs` rules, the traces consumer runs `spans` rules.
+                rules = all.filter((r) => r.source === this.appSource)
             } catch (error) {
                 // Fail open: metric rules are a purely additive side feature, so a rules-fetch
                 // failure (e.g. a Postgres blip) must never DLQ or block the log records —

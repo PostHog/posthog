@@ -156,6 +156,9 @@ export type TracesIngestionConsumerConfig = {
     TRACES_LIMITER_TTL_SECONDS: number
     TRACES_LIMITER_TEAM_BUCKET_SIZE_KB: string
     TRACES_LIMITER_TEAM_REFILL_RATE_KB_PER_SECOND: string
+    TRACES_METRICS_RULES_ENABLED_TEAMS: string
+    TRACES_METRICS_RULES_KILLSWITCH: boolean
+    TRACES_METRICS_RULES_EXPORT_URL: string
     REDIS_URL: string
     REDIS_POOL_MIN_SIZE: number
     REDIS_POOL_MAX_SIZE: number
@@ -180,6 +183,10 @@ export function getDefaultTracesIngestionConsumerConfig(): TracesIngestionConsum
         TRACES_LIMITER_TTL_SECONDS: 60 * 60 * 24,
         TRACES_LIMITER_TEAM_BUCKET_SIZE_KB: '',
         TRACES_LIMITER_TEAM_REFILL_RATE_KB_PER_SECOND: '',
+        // Span metric rules default off everywhere until explicitly enabled per team.
+        TRACES_METRICS_RULES_ENABLED_TEAMS: '',
+        TRACES_METRICS_RULES_KILLSWITCH: false,
+        TRACES_METRICS_RULES_EXPORT_URL: '',
         // Overlapping fields with CommonConfig, included for standalone usage
         // ok to connect to localhost over plaintext
         // nosemgrep: trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport

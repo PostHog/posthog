@@ -34,9 +34,10 @@ export class MetricRulesCache {
             filter_group: unknown
             value_attribute: string | null
             group_by: unknown
+            source: string
         }>(
             PostgresUse.COMMON_READ,
-            `SELECT id::text AS id, metric_name, filter_group, value_attribute, group_by
+            `SELECT id::text AS id, metric_name, filter_group, value_attribute, group_by, source
              FROM logs_logsmetricrule
              WHERE team_id = $1 AND enabled = true
              ORDER BY created_at ASC`,

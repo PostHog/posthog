@@ -23,6 +23,7 @@ export type FilterGroupNode = {
 const PROPERTY_FILTER_TYPE_LOG = 'log'
 const PROPERTY_FILTER_TYPE_LOG_ATTRIBUTE = 'log_attribute'
 const PROPERTY_FILTER_TYPE_LOG_RESOURCE_ATTRIBUTE = 'log_resource_attribute'
+const PROPERTY_FILTER_TYPE_SPAN_ATTRIBUTE = 'span_attribute'
 
 /**
  * Hard ceiling on filter-group nesting depth. The drop-rules UI surfaces at
@@ -102,10 +103,21 @@ function lookupRecordValue(filter: PropertyFilterLeaf, record: LogRecord): strin
         return record.body ?? undefined
     }
 
+    // Span top-level keys (traces consumer decodes spans through the same Avro path,
+    // so these arrive on the record). Resolved before the attribute-type branches so a
+    // `span_attribute`-typed filter on `status_code` / `name` reads the column, not a map.
+    if (key === 'status_code') {
+        const code = (record as { status_code?: number | null }).status_code
+        return code == null ? undefined : String(code)
+    }
+    if (key === 'name') {
+        return (record as { name?: string | null }).name ?? undefined
+    }
+
     if (filter.type === PROPERTY_FILTER_TYPE_LOG_RESOURCE_ATTRIBUTE) {
         return decodedAttr(record.resource_attributes, key)
     }
-    if (filter.type === PROPERTY_FILTER_TYPE_LOG_ATTRIBUTE) {
+    if (filter.type === PROPERTY_FILTER_TYPE_LOG_ATTRIBUTE || filter.type === PROPERTY_FILTER_TYPE_SPAN_ATTRIBUTE) {
         return decodedAttr(record.attributes, key)
     }
     return decodedAttr(record.attributes, key) ?? decodedAttr(record.resource_attributes, key)
