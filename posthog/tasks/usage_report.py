@@ -2728,9 +2728,10 @@ def capture_report(
     # Update organization group properties so they can be used for email campaigns.
     #
     # The AI consent flag is published on every write by a post_save receiver on
-    # Organization; republishing it daily reconciles any write whose enqueue was
-    # dropped. Only an explicit True counts as approved, matching the gate the flag
-    # feeds (`_impersonation_ai_processing_block` in posthog/api/oauth/views.py).
+    # Organization. Republishing it here is what gives the property to organizations
+    # that predate the receiver and never toggle, and it reconciles a write whose
+    # enqueue was dropped. Only an explicit True counts as approved, matching the gate
+    # the flag feeds (`_impersonation_ai_processing_block` in posthog/api/oauth/views.py).
     #
     # The read stays inside this try: capture_report auto-retries on any exception
     # and the usage report event above has already been sent, so a database error
