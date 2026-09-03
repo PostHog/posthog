@@ -26,7 +26,7 @@ runs:
           uses: actions/cache/restore@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
           with:
               path: ${{ runner.temp }}/sqlx-cli
-              key: sqlx-cli-${{ inputs.version }}-${{ runner.os }}-${{ runner.arch }}
+              key: sqlx-cli-${{ inputs.version }}-${{ runner.os }}-${{ runner.arch }}-missprobe1
 
         - name: Install Rust to build sqlx-cli
           if: steps.cache-sqlx-cli.outputs.cache-hit != 'true'
@@ -58,7 +58,7 @@ runs:
           uses: actions/cache/save@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
           with:
               path: ${{ runner.temp }}/sqlx-cli
-              key: sqlx-cli-${{ inputs.version }}-${{ runner.os }}-${{ runner.arch }}
+              key: sqlx-cli-${{ inputs.version }}-${{ runner.os }}-${{ runner.arch }}-missprobe1
 
         - name: Add sqlx-cli to PATH
           shell: bash
