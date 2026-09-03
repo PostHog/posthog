@@ -14,6 +14,8 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolutio
     MAX_VERIFIED_DELETE_ROWS,
     SCD2_APPEND_MODE,
     dedupe_keep_highest_seq,
+    drop_superseded_rows,
+    has_engine_seq,
     is_cdc_write_resolution_enabled,
     resolve_batch,
     verify_delete_enrichment,
@@ -230,3 +232,60 @@ class TestIsCdcWriteResolutionEnabled:
         with patch("posthog.models.Team.objects") as objects:
             objects.only.return_value.get.side_effect = Exception("no such team")
             assert is_cdc_write_resolution_enabled(2, "schema-1", "run-1") is False
+
+
+class TestDropSupersededRows:
+    def test_passthrough_without_watermark(self):
+        table = _batch([1, 2], ["a", "b"], ["I", "I"], seqs=[10, 20])
+        result, dropped = drop_superseded_rows(table, None)
+        assert dropped == 0
+        assert result is table
+
+    def test_passthrough_without_seq_column(self):
+        table = _batch([1, 2], ["a", "b"], ["I", "I"])
+        result, dropped = drop_superseded_rows(table, 99)
+        assert dropped == 0
+        assert result is table
+
+    def test_drops_only_rows_strictly_below_watermark(self):
+        table = _batch([1, 2, 3], ["a", "b", "c"], ["I", "I", "I"], seqs=[10, 20, 30])
+        result, dropped = drop_superseded_rows(table, 20)
+
+        assert dropped == 1
+        assert result.column("id").to_pylist() == [2, 3]
+
+    def test_keeps_later_chunks_of_a_split_transaction(self):
+        # Every event in one Postgres transaction shares its commit LSN, and a transaction bigger
+        # than the flush budget spans micro-batches. Dropping seq == watermark would discard the
+        # rest of the transaction outright.
+        table = _batch([3, 4], ["c", "d"], ["I", "I"], seqs=[20, 20])
+        result, dropped = drop_superseded_rows(table, 20)
+
+        assert dropped == 0
+        assert result.column("id").to_pylist() == [3, 4]
+
+    def test_keeps_null_positions(self):
+        # An unknown position cannot be proven stale; dropping it would lose data.
+        table = _batch([1, 2], ["a", "b"], ["I", "I"], seqs=[None, 5])
+        result, dropped = drop_superseded_rows(table, 10)
+
+        assert dropped == 1
+        assert result.column("id").to_pylist() == [1]
+
+    def test_drops_replayed_rows_below_the_watermark(self):
+        table = _batch([1, 2], ["a", "b"], ["I", "I"], seqs=[10, 20])
+        result, dropped = drop_superseded_rows(table, 30)
+
+        assert dropped == 2
+        assert result.num_rows == 0
+
+    def test_ignores_a_source_owned_seq_column(self):
+        # The batcher passes through a source column named _ph_cdc_seq untouched, so its values
+        # are user data. Trusting them would let a source set a high value, poison the watermark,
+        # and have its own later rows dropped.
+        table = _batch([1, 2], ["a", "b"], ["I", "I"], seqs=[10, 20], engine_seq=False)
+        result, dropped = drop_superseded_rows(table, 15)
+
+        assert dropped == 0
+        assert result is table
+        assert not has_engine_seq(table)

@@ -16,56 +16,69 @@ instead.
 **Every streaming table mode moves.** A run reads the buffer once and writes every table the mode
 feeds, so `both` keeps its two tables at the same freshness as `consolidated` keeps its one.
 
-Each table is its own run in the load queue. The queue keys batch idempotency, S3 staging paths and
-claim ordering on the run id, so a `both` run appends `-consolidated` and `-cdc` to it. Nothing else
-suffixes, and every single-table source keeps the run id it always had.
+**Each table gets its own job.** A `both` run creates a second `ExternalDataJob` for the `_cdc`
+table, exactly as the legacy CDC extraction already does, and writes both from one read. That is
+what keeps the load queue out of it: a job is where batch idempotency, S3 staging paths, claim
+ordering and completion all hang, so two tables under one job would collide on every one of them,
+while two jobs are two ordinary single-table runs the loader already knows how to finish.
+
+The companion job carries no `workflow_run_id` and is not billable. The schema's own job owns the
+v3 pipeline lock, and a second holder releasing it would free the lock while the run is still
+writing; one read of a change stream is one sync however many tables it keeps, so only the
+consolidated table's rows count towards usage. Its `schema_snapshot` records `cdc_write_mode` and
+`companion_of`, which name the run it belongs to. If extraction fails, the activity marks its own
+companion jobs failed — the stranded sweep finds runs by their queued batches, so a companion that
+failed before staging anything has none to be found by.
 
 Only a source that declares lanes runs the lane code. Every other source runs `PipelineV3` as it
 was: the base class is the single-table path with extract-method seams, and `LanedPipelineV3` in
 `pipeline_v3/lanes.py` overrides those seams. The activity picks the class from
-`SourceResponse.lanes`. On the load side, a final batch that names no `sibling_run_uuids` skips the
-completion gate — and the queue connection it needs — entirely, so a single-table run finalizes
-exactly as before.
-
-The job completes on the last of its runs to finish. Every final batch asks the queue whether
-another run of the same job still has a batch that has not succeeded, and the one that finds none
-completes the job, releases the v3 lock and starts post-import. A run that failed holds completion
-too, and `fail_run` takes the job terminal instead.
+`SourceResponse.lanes`. The load queue, the producer and the loader carry nothing about lanes at
+all, so a single-table run finalizes exactly as before.
 
 Schemas still snapshotting stay on legacy extraction until their first sync completes. A source
 with a mix runs hybrid — some schemas buffered, the rest unchanged — and keeps its backpressure
 guard for the legacy ones.
 
-**Buffer files are deleted when the job that read them completes**, by the loader, naming the files
-the run drained. Completion is the proof: every file the run read reached a batch, and every batch
-committed. A position cannot stand in for the list — capture flushes a transaction bigger than its
-budget across several files that all carry that transaction's commit position, so "everything up to
-here" can name a file written after the run listed and never read. A failed job deletes nothing and
-the next run re-reads.
+**Buffer files are deleted at the start of the next run**, before they are read, so the run that
+proves a file consumed is never the run that deletes it. A file goes when it is strictly below the
+floor — the lowest position any of the schema's tables holds — or when it sits exactly at the floor
+and predates a listing by a run that went on to complete every table it writes. The floor alone is
+not enough at its own boundary: capture flushes a transaction bigger than its budget across several
+files that all carry that transaction's commit position, so a file at the floor may be the unread
+tail of one. A completed listing is what proves otherwise. For a `both` run, both jobs have to have
+completed, or a file could be deleted while the history table still owed it.
 
 **A lane resumes from its own table.** A failed run can leave one table holding rows the other does
-not, so each reads back where it stops: the highest commit position it holds, and how many of its
-rows sit at that position. Both, because one transaction stamps every event it carries with the
-same position, so a transaction bigger than a batch spans batches. The merge lane skips only what
-is below its position — re-applying a row it holds is a no-op upsert. The append (`_cdc`) lane also
-skips the counted rows AT the position, because history has no upsert and would keep a second copy.
+not, so each reads back the highest commit position it holds. The merge lane drops only what is
+below that position: re-applying a row it holds is a no-op upsert, and dropping a row AT the
+position would lose a later event for a key the table happens to hold at that same commit.
+
+The append (`_cdc`) lane has no upsert, so a row written twice stays twice. It also reads back the
+rows its table holds at that exact position, keyed by primary key and operation, and drops a batch
+row only when that identity is one of them. A multiset, not a set: one transaction can change the
+same key more than once and history keeps every version, so each match spends one. This is what
+tells a row a previous run wrote from one nothing has seen — including a file capture wrote after
+that run listed the buffer, which a bare count of rows at the position would have silently skipped.
 
 Reading it back rather than recording it beside the table is what removes the crash window: a value
 kept anywhere else can be lost between the write landing and the record of it, which either loses
-changes or writes them twice.
+changes or writes them twice. Nothing about a run is written to `sync_type_config`.
 
 Delta keeps per-file min/max for its first 32 columns only, and the position column sits past that
-on any real table. So every table a buffered lane writes declares
-`delta.dataSkippingStatsColumns` naming the position column plus its primary and partition keys,
-and the read is a stats lookup. Naming columns replaces the default 32, which is why the merge key
-is named too — without it the history table's own merge loses its pruning. Legacy CDC tables are
-untouched: that path strips the position column before writing, so the property is never set on
-them.
+on any real table. So every table a buffered lane writes declares `delta.dataSkippingStatsColumns`
+naming the position column plus its primary keys, and for the history table its SCD2 `valid_to`
+column, so the merges that predicate on them keep their pruning. Naming columns replaces the
+default 32, which is why those are named too. Legacy CDC tables are untouched: that path strips the
+position column before writing, and the property is never set on a table that lacks it.
 
-A file written before the property was set carries no stat for the column. It either predates the
-column, so its rows are null there and cannot hold the maximum, or it is the first write carrying
-it, which the property immediately follows. Either way a stat-bearing file wins, and only a table
-where no file has the stat is scanned.
+A table whose files carry no statistic for the position column reports no position at all. That
+re-applies rows its table may already hold, which both lanes absorb, and it is deliberately cheaper
+than scanning a history table's whole column to avoid it. Two ordinary cases reach it: a companion
+table's first write, before the property is set, and the tick after a repartition rewrites the
+files. Buffer deletion pauses while any table is in that state, since the floor is unknown. A
+persistent `cdc_position_stats_property_not_set` warning means a table never accepted the property,
+and its buffer will grow to the S3 retention — investigate rather than wait.
 
 **A run stands down while any delivery for the schema is still in the queue** — a legacy one, or a
 previous attempt of this same job. Both would write alongside whatever this run reads, and on the
@@ -73,11 +86,9 @@ append lane that is a second copy of the same history. Two scheduled runs cannot
 own: the v3 pipeline lock is held from the start of the workflow until the loader completes the
 job. The window is a retried activity, which runs under the lock its own workflow already holds,
 and a lock takeover, which hands the lock to a new job while the old one's batches are still
-queued. It fails the run rather than returning an empty one, because an empty response completes the job,
-and completing it releases the pipeline lock while the previous attempt's batches are still
-claimable. The activity's own retries are the wait; a backlog that clears within them never
-surfaces as a failure, but one that outlives them surfaces as a failed sync rather than a quiet
-tick.
+queued. The run returns an empty response, which no-ops the tick and keeps the schedule alive. Nothing is
+listed, so nothing is read, nothing is deleted, and the tick never counts as proof that a file was
+consumed. The next scheduled run picks the buffer up once the queue has drained.
 
 Nothing is re-snapshotted. The slot, the Delta tables, and `initial_sync_complete` are all
 preserved, so there is no WAL gap and no re-sync.
@@ -151,13 +162,20 @@ deferred backlog lands.
 - Capture writes files under the schema's prefix and advances the slot (`cdc_last_log_position`
   moves).
 - The next scheduled sync writes every table the mode feeds, from one read.
-- The files that run read disappear when its job completes.
+- The files that run read disappear at the start of a later run, once every table is past them.
 - Row counts track the pre-flip day.
 - `warehouse_load_cdc_delete_enrichment_violations_total` stays at zero.
 - The schema's status in the Syncs UI now comes from the scheduled sync alone — capture heartbeats
   but never repaints a buffered schema COMPLETED, so a failing consumer run stays visible.
 
 ## Rollback
+
+> [!IMPORTANT]
+> Roll the source back to legacy **before** rolling the code back, and flip a `cdc_only` or `both`
+> schema only once a deploy has finished rolling. A worker on the previous release does not treat
+> those modes as buffered: it routes the schema into `CDCHandledExternally`, which pauses the
+> per-schema schedule permanently. Capture keeps filling the buffer and advancing the slot while
+> nothing consumes it, until the files age out of S3 retention.
 
 ```bash
 python manage.py migrate_cdc_source_to_buffered --source-id <uuid> --rollback

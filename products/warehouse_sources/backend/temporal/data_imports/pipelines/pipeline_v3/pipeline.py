@@ -153,7 +153,8 @@ class PipelineV3(Generic[ResumableData]):
 
         attempt = current_activity_attempt()
         self._attempt = attempt
-        self._s3_batch_writer = self._build_s3_writer(self._run_uuid_suffix())
+        self._run_uuid = f"{self._job.workflow_run_id}-a{attempt}" if self._job.workflow_run_id else None
+        self._s3_batch_writer = self._build_s3_writer(self._run_uuid)
 
         sync_type: SyncTypeLiteral = "full_refresh"
         if source_response.cdc_write_mode is not None:
@@ -245,41 +246,36 @@ class PipelineV3(Generic[ResumableData]):
     # The seams below are where a run that writes several tables from one read plugs in (see
     # `lanes.py`). Each default is exactly what a single-table run has always done.
 
-    def _run_uuid_suffix(self) -> str:
-        return ""
+    def _build_s3_writer(self, run_uuid: str | None) -> S3BatchWriter:
+        return S3BatchWriter(self._logger, self._job, str(self._schema.id), run_uuid, compression=PARQUET_COMPRESSION)
 
-    def _sibling_run_uuids(self) -> list[str]:
-        return []
-
-    def _run_uuid_for(self, suffix: str) -> str | None:
-        return f"{self._job.workflow_run_id}-a{self._attempt}{suffix}" if self._job.workflow_run_id else None
-
-    def _build_s3_writer(self, suffix: str) -> S3BatchWriter:
-        return S3BatchWriter(
-            self._logger, self._job, str(self._schema.id), self._run_uuid_for(suffix), compression=PARQUET_COMPRESSION
-        )
+    def _producer_args(
+        self, s3_batch_writer: S3BatchWriter, *, resource_name: str, cdc_write_mode: str | None
+    ) -> dict[str, Any]:
+        return {
+            "database_url": WAREHOUSE_SOURCES_DATABASE_URL,
+            "team_id": self._job.team_id,
+            "job_id": str(self._job.id),
+            "schema_id": str(self._schema.id),
+            "source_id": str(self._schema.source_id),
+            "resource_name": resource_name,
+            "run_uuid": s3_batch_writer.get_run_uuid(),
+            "logger": self._logger,
+            "primary_keys": self._resource.primary_keys,
+            "cdc_write_mode": cdc_write_mode,
+            "workflow_id": current_workflow_id(),
+            "workflow_run_id": current_workflow_run_id(),
+            # Snapshotted on the job when the run started. Empty for every run before
+            # destinations, and every run of a team the flag is off for.
+            "destination_ids": list(self._job.destination_ids or []),
+            **self._producer_kwargs,
+        }
 
     def _build_producer(
         self, s3_batch_writer: S3BatchWriter, *, resource_name: str, cdc_write_mode: str | None
     ) -> PostgresProducer:
         return PostgresProducer(
-            database_url=WAREHOUSE_SOURCES_DATABASE_URL,
-            team_id=self._job.team_id,
-            job_id=str(self._job.id),
-            schema_id=str(self._schema.id),
-            source_id=str(self._schema.source_id),
-            resource_name=resource_name,
-            run_uuid=s3_batch_writer.get_run_uuid(),
-            logger=self._logger,
-            primary_keys=self._resource.primary_keys,
-            cdc_write_mode=cdc_write_mode,
-            workflow_id=current_workflow_id(),
-            workflow_run_id=current_workflow_run_id(),
-            sibling_run_uuids=self._sibling_run_uuids(),
-            # Snapshotted on the job when the run started. Empty for every run before
-            # destinations, and every run of a team the flag is off for.
-            destination_ids=list(self._job.destination_ids or []),
-            **self._producer_kwargs,
+            **self._producer_args(s3_batch_writer, resource_name=resource_name, cdc_write_mode=cdc_write_mode)
         )
 
     async def _stage_batch(self, pa_table: pa.Table, batch_index: int, row_count: int) -> int:
@@ -308,16 +304,6 @@ class PipelineV3(Generic[ResumableData]):
             cumulative_row_count=row_count,
         )
         return schema_path
-
-    async def _nothing_staged(self) -> None:
-        """Let the source release whatever it consumed but had nothing to write for.
-
-        Buffered CDC deletes the files it drained here: with no batches there is no final batch for
-        the list to ride on, and leaving them makes an idle schema re-read them every tick. Every
-        other source leaves the hook unset, so this is a no-op for them.
-        """
-        if self._resource.on_nothing_staged is not None:
-            await self._resource.on_nothing_staged()
 
     def _mark_first_ever_sync(self) -> None:
         self._pg_producer.is_first_ever_sync = True
@@ -609,7 +595,6 @@ class PipelineV3(Generic[ResumableData]):
             # source stays quiet could never satisfy `_fast_return_eligible`.
             await self._stamp_full_run()
             self._logger.debug("V3 Pipeline: No batches extracted, skipping finalization")
-            await self._nothing_staged()
             return
 
         self._logger.info(

@@ -4,6 +4,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pyarrow as pa
+from asgiref.sync import async_to_sync
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.lanes import (
     LanedPipelineV3,
@@ -14,6 +15,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.import_data_sync import (
     ImportJobModels,
 )
+
+_PIPELINE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline"
+_LANES = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.lanes"
+_CONSUMER = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer"
 
 
 def _make_logger() -> MagicMock:
@@ -32,9 +37,7 @@ def _make_pipeline() -> PipelineV3:
     with patch.object(PipelineV3, "__init__", return_value=None):
         pipeline = PipelineV3.__new__(PipelineV3)
 
-    pipeline._resource = MagicMock(
-        name="test_table", primary_keys=["id"], lanes=None, finalize_metadata=None, on_nothing_staged=None
-    )
+    pipeline._resource = MagicMock(name="test_table", primary_keys=["id"], lanes=None)
     pipeline._resource_name = "test_table"
     pipeline._job = MagicMock(team_id=1, workflow_run_id="run-abc", billable=False)
     pipeline._source = MagicMock(source_type="Postgres")
@@ -108,7 +111,6 @@ class TestAttemptScopedRunUuid:
             partition_mode=None,
             cdc_write_mode=None,
             lanes=None,
-            on_nothing_staged=None,
         )
 
         with (
@@ -239,7 +241,6 @@ class TestCDCSourceWiring:
             partition_mode=None,
             cdc_write_mode=cdc_write_mode,
             lanes=None,
-            on_nothing_staged=None,
         )
 
         base = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline"
@@ -325,9 +326,11 @@ class TestCDCSeqProvenanceSurvivesStaging:
         assert has_engine_seq(pq.read_table(buf))
 
 
-def _run_uuids(lanes) -> list[str]:
-    """Run ids the pipeline hands its S3 writers, one per lane."""
-    mock_job = MagicMock(team_id=1, workflow_run_id="wfrun-abc", billable=False, id="job-1")
+def _build_laned(lanes) -> LanedPipelineV3:
+    """A `LanedPipelineV3` over mocked collaborators, built the way the activity builds it."""
+    mock_job = MagicMock(
+        team_id=1, workflow_run_id="wfrun-abc", workflow_id="wf-1", billable=True, id="job-1", destination_ids=[]
+    )
     mock_schema = MagicMock(
         id="schema-1",
         source_id="source-1",
@@ -353,21 +356,18 @@ def _run_uuids(lanes) -> list[str]:
         partition_keys=None,
         partition_format=None,
         partition_mode=None,
-        cdc_write_mode=None,
+        cdc_write_mode=lanes[0].cdc_write_mode,
         lanes=lanes,
-        on_nothing_staged=None,
     )
-    module = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline"
-    pipeline_cls: type[PipelineV3] = LanedPipelineV3 if lanes else PipelineV3
     with (
-        patch(f"{module}.current_activity_attempt", return_value=3),
-        patch(f"{module}.current_workflow_id", return_value="wf-1"),
-        patch(f"{module}.current_workflow_run_id", return_value="wfrun-abc"),
-        patch(f"{module}.S3BatchWriter") as mock_s3_writer_cls,
-        patch(f"{module}.PostgresProducer"),
-        patch(f"{module}.DeltaTableRef"),
+        patch(f"{_PIPELINE}.current_activity_attempt", return_value=3),
+        patch(f"{_PIPELINE}.current_workflow_id", return_value="wf-1"),
+        patch(f"{_PIPELINE}.current_workflow_run_id", return_value="wfrun-abc"),
+        patch(f"{_PIPELINE}.S3BatchWriter"),
+        patch(f"{_PIPELINE}.PostgresProducer"),
+        patch(f"{_PIPELINE}.DeltaTableRef"),
     ):
-        pipeline_cls(
+        return LanedPipelineV3(
             source_response=mock_resource,
             logger=_make_logger(),
             job_id="job-1",
@@ -376,7 +376,6 @@ def _run_uuids(lanes) -> list[str]:
             resumable_source_manager=None,
             models=ImportJobModels(job=mock_job, schema=mock_schema, source=mock_source_stub(), table=None),
         )
-        return [call[0][3] for call in mock_s3_writer_cls.call_args_list]
 
 
 def mock_source_stub() -> MagicMock:
@@ -408,7 +407,6 @@ class TestLaneFanOut:
         pipeline._s3_batch_writer = writers[0].s3_batch_writer
         pipeline._pg_producer = writers[0].pg_producer
         pipeline._batch_results = writers[0].batch_results
-        pipeline._resource.finalize_metadata = None
         cast(MagicMock, pipeline._schema).configure_mock(incremental_field=None, enabled_columns=None)
         pipeline._last_incremental_field_value = None
         pipeline._earliest_incremental_field_value = None
@@ -508,21 +506,104 @@ class TestLaneFanOut:
         cast(MagicMock, writers[1].pg_producer.send_batch_notification).assert_not_called()
 
 
-class TestLaneRunUuids:
-    def test_a_single_lane_source_keeps_the_run_id_it_always_had(self) -> None:
-        writers = _run_uuids(lanes=None)
+class TestCompanionJob:
+    """A table beyond the first gets its own job, the way legacy CDC extraction writes `both`."""
 
-        assert writers == ["wfrun-abc-a3"]
+    @staticmethod
+    def _laned(lanes: list[OutputLane]) -> LanedPipelineV3:
+        return _build_laned(lanes)
 
-    def test_each_cdc_lane_gets_a_run_of_its_own(self) -> None:
-        writers = _run_uuids(
-            lanes=[
-                OutputLane(name="users", cdc_write_mode="incremental_merge", run_uuid_suffix="-consolidated"),
-                OutputLane(name="users_cdc", cdc_write_mode="scd2_append", run_uuid_suffix="-cdc"),
+    @staticmethod
+    def _open(pipeline: LanedPipelineV3, created: MagicMock) -> MagicMock:
+        producer = MagicMock()
+        with (
+            patch(f"{_LANES}.PostgresProducer", producer),
+            patch(
+                f"{_LANES}.database_sync_to_async_pool", lambda fn: AsyncMock(side_effect=lambda *a, **k: fn(*a, **k))
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.workflow_activities.create_job_model._build_schema_snapshot",
+                return_value={"name": "users"},
+            ),
+            patch("products.warehouse_sources.backend.models.external_data_job.ExternalDataJob.objects", created),
+        ):
+            async_to_sync(pipeline._open_companion_lanes)()
+        return producer
+
+    def test_a_single_lane_source_creates_no_companion(self) -> None:
+        pipeline = self._laned([OutputLane(name="users_cdc", cdc_write_mode="scd2_append")])
+        created = MagicMock()
+
+        self._open(pipeline, created)
+
+        created.create.assert_not_called()
+        assert len(pipeline._lane_writers) == 1
+
+    def test_the_companion_table_gets_its_own_job(self) -> None:
+        pipeline = self._laned(
+            [
+                OutputLane(name="users", cdc_write_mode="incremental_merge"),
+                OutputLane(name="users_cdc", cdc_write_mode="scd2_append"),
             ]
         )
+        created = MagicMock()
 
-        assert writers == ["wfrun-abc-a3-consolidated", "wfrun-abc-a3-cdc"]
+        self._open(pipeline, created)
+
+        fields = created.create.call_args.kwargs
+        # No workflow run id: the schema's own job owns the pipeline lock, and a second holder
+        # releasing it would free it while this run is still writing.
+        assert fields["workflow_run_id"] is None
+        # One read of a change stream is one sync however many tables it keeps.
+        assert fields["billable"] is False
+        assert fields["schema_snapshot"]["cdc_write_mode"] == "scd2_append"
+        assert fields["schema_snapshot"]["companion_of"] == "job-1"
+
+    def test_the_companion_writes_under_its_own_job_and_run(self) -> None:
+        pipeline = self._laned(
+            [
+                OutputLane(name="users", cdc_write_mode="incremental_merge"),
+                OutputLane(name="users_cdc", cdc_write_mode="scd2_append"),
+            ]
+        )
+        created = MagicMock()
+        created.create.return_value = MagicMock(id="companion-job")
+
+        producer = self._open(pipeline, created)
+
+        assert producer.call_args.kwargs["job_id"] == "companion-job"
+        assert producer.call_args.kwargs["workflow_run_id"] is None
+        companion = pipeline._lane_writers[1].job
+        assert companion is not None and companion.id == "companion-job"
+
+    def test_a_failed_run_takes_its_companion_job_terminal(self) -> None:
+        # Nothing else would: the stranded sweep finds runs by their queued batches, so a
+        # companion that failed before staging anything has none to be found by.
+        pipeline = self._laned(
+            [
+                OutputLane(name="users", cdc_write_mode="incremental_merge"),
+                OutputLane(name="users_cdc", cdc_write_mode="scd2_append"),
+            ]
+        )
+        pipeline._lane_writers.append(
+            _LaneWriter(
+                lane=pipeline._output_lanes[1],
+                s3_batch_writer=MagicMock(),
+                pg_producer=MagicMock(),
+                job=MagicMock(id="companion-job"),
+            )
+        )
+        marked = MagicMock(return_value=True)
+
+        with (
+            patch(f"{_CONSUMER}.mark_job_failed_if_not_terminal", marked),
+            patch(
+                f"{_LANES}.database_sync_to_async_pool", lambda fn: AsyncMock(side_effect=lambda *a, **k: fn(*a, **k))
+            ),
+        ):
+            async_to_sync(pipeline._fail_companion_jobs)()
+
+        assert marked.call_args.kwargs["job_id"] == "companion-job"
 
 
 @pytest.mark.asyncio
@@ -530,104 +611,23 @@ class TestSingleTableRunIsUntouched:
     """The base class is every non-lane source. Its staging path must not depend on lanes at all."""
 
     async def test_an_empty_batch_is_still_staged_and_counted(self) -> None:
+        # A source that yields an empty table still stages it, which is what makes the load
+        # consumer — not the workflow — complete the job.
         pipeline = _make_pipeline()
-        pipeline._resource.finalize_metadata = None
-        cast(MagicMock, pipeline._schema).configure_mock(incremental_field=None, enabled_columns=None)
-        pipeline._last_incremental_field_value = None
-        pipeline._earliest_incremental_field_value = None
-        cast(MagicMock, pipeline._s3_batch_writer).write_batch = MagicMock(return_value=MagicMock(batch_index=0))
+        pipeline._s3_batch_writer = MagicMock(write_batch=MagicMock(return_value=MagicMock(batch_index=0)))
+        pipeline._pg_producer = MagicMock()
+        pipeline._batch_results = []
 
-        with (
-            patch(
-                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline.update_incremental_field_values",
-                AsyncMock(return_value=MagicMock(last_value=None, earliest_value=None)),
-            ),
-            patch(
-                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline.update_row_tracking_after_batch",
-                AsyncMock(),
-            ) as tracked,
-        ):
-            await pipeline._process_batch(
-                pa_table=pa.table({"id": pa.array([], pa.int64())}), batch_index=0, row_count=0
-            )
+        staged = await pipeline._stage_batch(pa.table({"id": pa.array([], pa.int64())}), 0, 0)
 
-        assert len(pipeline._batch_results) == 1
-        cast(MagicMock, pipeline._pg_producer.send_batch_notification).assert_called_once()
-        assert tracked.call_args[0][3] == 0
+        assert staged == 0
+        pipeline._s3_batch_writer.write_batch.assert_called_once()
+        pipeline._pg_producer.send_batch_notification.assert_called_once()
 
-    def test_a_source_without_lanes_never_names_siblings(self) -> None:
-        pipeline = _make_pipeline()
-        pipeline._job.workflow_run_id = "wfrun-abc"
-        pipeline._attempt = 1
-
-        assert pipeline._sibling_run_uuids() == []
-        assert pipeline._run_uuid_suffix() == ""
+    def test_a_source_without_lanes_runs_the_base_class(self) -> None:
+        assert _make_pipeline()._resource.lanes is None
 
 
-class TestLanedRunRequiresAWorkflowRunId:
-    def test_a_laned_run_without_one_is_refused(self) -> None:
-        # Lanes are told apart by a suffix on the workflow run id. Without one each lane falls back
-        # to its writer's generated id, which no lane can name, so they would supersede each other's
-        # batches and the first final batch would complete the job and delete the buffer.
-        mock_job = MagicMock(team_id=1, workflow_run_id=None, billable=False, id="job-1")
-        mock_schema = MagicMock(id="schema-1", source_id="source-1", table=None)
-        mock_resource = MagicMock(
-            primary_keys=["id"],
-            lanes=[
-                OutputLane(name="users", run_uuid_suffix="-consolidated"),
-                OutputLane(name="users_cdc", run_uuid_suffix="-cdc"),
-            ],
-        )
-
-        with pytest.raises(ValueError, match="no workflow_run_id"):
-            LanedPipelineV3(
-                source_response=mock_resource,
-                logger=_make_logger(),
-                job_id="job-1",
-                reset_pipeline=False,
-                shutdown_monitor=MagicMock(),
-                resumable_source_manager=None,
-                models=ImportJobModels(job=mock_job, schema=mock_schema, source=MagicMock(), table=None),
-            )
-
-
-@pytest.mark.asyncio
-class TestNothingStaged:
-    async def test_a_run_that_stages_nothing_releases_what_it_read(self) -> None:
-        # Every lane already held the whole read, so no final batch will carry the drained files.
-        # AsyncMock, not MagicMock: the hook is awaited inside the pipeline's own event loop, and a
-        # sync callable there raises "AsyncToSync in the same thread as an async event loop".
-        released = AsyncMock()
-        pipeline = _make_pipeline()
-        pipeline._resource.on_nothing_staged = released
-        pipeline._observed_columns = {}
-
-        await pipeline._finalize(row_count=0)
-
-        released.assert_awaited_once()
-
-    async def test_a_run_that_staged_batches_does_not_release_them_early(self) -> None:
-        released = AsyncMock()
-        pipeline = _make_pipeline()
-        pipeline._resource.on_nothing_staged = released
-        pipeline._batch_results = [MagicMock(batch_index=0)]
-        pipeline._observed_columns = {}
-        pipeline._last_incremental_field_value = None
-        pipeline._earliest_incremental_field_value = None
-        cast(MagicMock, pipeline._s3_batch_writer).write_schema = MagicMock(return_value="s3://schema")
-        with (
-            patch(
-                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline.finalize_desc_sort_incremental_value",
-                AsyncMock(),
-            ),
-            patch(
-                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline.advance_xmin_state",
-                AsyncMock(),
-            ),
-        ):
-            await pipeline._finalize(row_count=1)
-
-        released.assert_not_awaited()
 class TestZeroBatchRunStampsTheFullRunMarker:
     @pytest.mark.asyncio
     async def test_a_run_that_extracted_nothing_still_counts_as_a_full_run(self) -> None:

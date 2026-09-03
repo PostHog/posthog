@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import datetime
 import dataclasses
-from collections.abc import AsyncIterable, Awaitable, Callable, Iterable
+from collections.abc import AsyncIterable, Callable, Iterable
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, Optional, Protocol, TypeVar
 
 from structlog.types import FilteringBoundLogger
@@ -56,11 +56,6 @@ class OutputLane:
 
     name: str
     cdc_write_mode: Optional[str] = None
-    run_uuid_suffix: str = ""
-    """Appended to the run id so each lane's batches are their own run: the queue keys idempotency,
-    staging paths and claim ordering on that id, and two lanes sharing one would collide on all
-    three. Empty unless a source sets it, so every source that declares no lanes keeps the run ids
-    it always had."""
     billable: bool = True
     """Whether this lane's rows count towards the team's synced-row usage. A source feeding two
     tables from one stream bills the stream once."""
@@ -108,13 +103,6 @@ class SourceResponse:
     """xmin syncs: full 64-bit `xid8` ceiling, the durable wraparound-safe cursor."""
     xmin_num_wraparound: Optional[int] = None
     """xmin syncs: epoch (high 32 bits of `xmin_ceiling_xid8`) at this run's ceiling."""
-    finalize_metadata: Optional[Callable[[], dict[str, Any]]] = None
-    """Read once after extraction, and carried on every lane's final batch. Lets a source hand the
-    loader something only the completed run knows — which buffer files it drained, say."""
-    on_nothing_staged: Optional[Callable[[], Awaitable[None]]] = None
-    """Awaited when the run produced no batches, so a source can release whatever it consumed but
-    had nothing to write for — buffered CDC deletes the files it drained. Async because it is
-    called from inside the pipeline's own event loop."""
     lanes: Optional[list[OutputLane]] = None
     """Tables this response's items feed, when it feeds more than the one `name` alone describes.
     None means the single lane built from `name` and `cdc_write_mode`."""

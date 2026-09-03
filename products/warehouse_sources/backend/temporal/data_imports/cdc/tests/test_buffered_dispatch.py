@@ -62,9 +62,9 @@ def _dispatch(
         patch(f"{_JOB_MODEL}.objects") as job_objects,
         patch(f"{_MANAGER}.has_batches_in_flight", return_value=in_flight),
         patch(f"{_MANAGER}.DeltaTableRef", _delta_ref()),
-        patch(
-            f"{_MANAGER}.read_lane_position", AsyncMock(return_value=LanePosition(position=None, rows_at_position=0))
-        ),
+        patch(f"{_MANAGER}.read_lane_position", AsyncMock(return_value=LanePosition(position=None, applied={}))),
+        patch(f"{_MANAGER}.ensure_position_stats", AsyncMock()),
+        patch(f"{_MANAGER}.completed_listing_proof", AsyncMock(return_value=None)),
         patch.object(PostgresSource, "make_ssh_tunnel_func", return_value=MagicMock()),
     ):
         objects.select_related.return_value.get.return_value = schema
@@ -102,11 +102,11 @@ class TestBufferedDispatch:
 
         assert [lane.name for lane in response.lanes or []] == ["users", "users_cdc"]
 
-    def test_each_lane_gets_its_own_run_in_the_queue(self):
+    def test_each_table_carries_the_write_mode_its_loader_needs(self):
         response = _dispatch(_schema(cdc_table_mode="both"), _inputs())
 
-        suffixes = [lane.run_uuid_suffix for lane in response.lanes or []]
-        assert suffixes == ["-consolidated", "-cdc"]
+        modes = [lane.cdc_write_mode for lane in response.lanes or []]
+        assert modes == ["incremental_merge", "scd2_append"]
 
     def test_a_v2_run_reaching_the_buffered_lane_fails_loudly(self):
         # The forcing keeps this unreachable; if a race or deploy skew gets past it, the run must
@@ -119,11 +119,13 @@ class TestBufferedDispatch:
         with pytest.raises(ValueError, match="no job row"):
             _dispatch(_schema(), _inputs(), job_version=None)
 
-    def test_a_delivery_still_in_flight_fails_the_run_rather_than_completing_it(self):
-        # An empty response completes the job, and completing it deletes the files this run read —
-        # so standing down would delete files a crashed attempt never drained.
-        with pytest.raises(ValueError, match="deliveries in flight"):
-            _dispatch(_schema(), _inputs(), in_flight=True)
+    def test_a_delivery_still_in_flight_no_ops_the_tick(self):
+        # Reading now would stage rows alongside batches that are still landing. An empty response
+        # keeps the schedule alive and declares no lanes, so nothing is listed, read or deleted.
+        response = _dispatch(_schema(cdc_table_mode="both"), _inputs(), in_flight=True)
+
+        assert list(response.items()) == []
+        assert response.lanes is None
 
     def test_a_reset_on_a_streaming_buffered_schema_is_refused(self):
         with pytest.raises(ValueError, match="cdc_mode='snapshot'"):

@@ -8,15 +8,20 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import CDC_SEQ_COLUMN, CDC_SEQ_PROVENANCE
+from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
+    CDC_OP_COLUMN,
+    CDC_SEQ_COLUMN,
+    CDC_SEQ_PROVENANCE,
+)
 from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import build_buffer_file_name
 from products.warehouse_sources.backend.temporal.data_imports.cdc.lane_position import LanePosition
 from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import (
     COMPANION_WRITE_MODE,
     CONSOLIDATED_WRITE_MODE,
+    AppendReplayFilter,
     CDCLane,
     CDCSourceManager,
-    LaneResumeFilter,
+    MergeReplayFilter,
     build_output_lanes,
     companion_resource_name,
     consumes_buffer,
@@ -39,6 +44,16 @@ def _table(ids: list[int], seqs: list[int]) -> pa.Table:
     return pa.table({"id": pa.array(ids, pa.int64())}).append_column(
         pa.field(CDC_SEQ_COLUMN, pa.int64(), metadata=CDC_SEQ_PROVENANCE), pa.array(seqs, pa.int64())
     )
+
+
+def _ops(ids: list[int], seqs: list[int], ops: list[str] | None = None) -> pa.Table:
+    """A batch as the lanes see it: keyed rows carrying the position and the operation."""
+    return _table(ids, seqs).append_column(
+        pa.field(CDC_OP_COLUMN, pa.string()), pa.array(ops or ["I"] * len(ids), pa.string())
+    )
+
+
+_NO_POSITION = LanePosition(position=None, applied={})
 
 
 def _parquet_bytes(table: pa.Table) -> bytes:
@@ -112,17 +127,20 @@ def _patched(s3: _FakeS3):
         yield
 
 
-def _manager() -> CDCSourceManager:
+def _manager(*, deletion_floor: int | None = None, proof_time: dt.datetime | None = None) -> CDCSourceManager:
     inputs = MagicMock()
     inputs.team_id = _TEAM_ID
     inputs.schema_id = _SCHEMA_ID
     inputs.reset_pipeline = False
-    return CDCSourceManager(inputs=inputs, logger=AsyncMock())
+    return CDCSourceManager(inputs=inputs, logger=AsyncMock(), deletion_floor=deletion_floor, proof_time=proof_time)
 
 
-async def _collect(s3: _FakeS3, **kwargs) -> list[pa.Table]:
-    with _patched(s3):
-        return [t async for t in _manager().get_items(**kwargs)]
+async def _collect(
+    s3: _FakeS3, *, deletion_floor: int | None = None, proof_time: dt.datetime | None = None, **kwargs
+) -> list[pa.Table]:
+    manager = _manager(deletion_floor=deletion_floor, proof_time=proof_time)
+    with _patched(s3), patch.object(CDCSourceManager, "stamp_listing", AsyncMock()):
+        return [t async for t in manager.get_items(**kwargs)]
 
 
 def _schema(**overrides) -> MagicMock:
@@ -133,6 +151,7 @@ def _schema(**overrides) -> MagicMock:
     schema.initial_sync_complete = overrides.get("initial_sync_complete", True)
     schema.sync_type_config = overrides.get("sync_type_config", {})
     schema.source.job_inputs = overrides.get("job_inputs", {})
+    schema.primary_key_columns = overrides.get("primary_key_columns", ["id"])
     schema.name = overrides.get("name", "users")
     schema.resolved_s3_folder_name = overrides.get("resolved_s3_folder_name", "users")
     return schema
@@ -312,77 +331,117 @@ class TestBatchesInFlight:
 
 
 @pytest.mark.asyncio
-class TestDrainedFiles:
-    async def test_every_file_read_is_recorded_for_deletion(self):
-        s3 = _FakeS3({_key(1, 10): _parquet_bytes(_table([1], [10])), _key(11, 20): _parquet_bytes(_table([2], [20]))})
-        manager = _manager()
-        with _patched(s3):
-            [t async for t in manager.get_items()]
+class TestReplayFilters:
+    """What each lane drops when a run re-reads a buffer its table has partly consumed.
 
-        assert manager.drained_files == [
-            _key(1, 10).rsplit("/", 1)[-1],
-            _key(11, 20).rsplit("/", 1)[-1],
-        ]
+    The two lanes differ only at the position itself: a merge rewrites those rows as upserts,
+    while history would keep a second copy, so only the append lane matches them by identity.
+    """
 
-    async def test_a_file_that_vanished_before_the_read_is_not_recorded(self):
-        s3 = _FakeS3({_key(1, 10): _parquet_bytes(_table([1], [10]))}, missing_keys={_key(1, 10)})
-        manager = _manager()
-        with _patched(s3):
-            [t async for t in manager.get_items()]
+    @staticmethod
+    def _append(position, applied):
+        return AppendReplayFilter(LanePosition(position=position, applied=applied, key_columns=("id", CDC_OP_COLUMN)))
 
-        assert manager.drained_files == []
-
-    async def test_an_empty_file_still_counts_as_drained(self):
-        s3 = _FakeS3({_key(1, 10): _parquet_bytes(_table([], []))})
-        manager = _manager()
-        with _patched(s3):
-            [t async for t in manager.get_items()]
-
-        assert manager.drained_files == [_key(1, 10).rsplit("/", 1)[-1]]
-
-
-class TestLaneResumeFilter:
     def test_nothing_is_dropped_before_a_lane_has_written_anything(self):
-        table = _table([1, 2], [10, 20])
+        table = _ops([1, 2], [10, 20], ["I", "U"])
 
-        assert LaneResumeFilter(None, 0).apply(table) is table
+        assert self._append(None, {}).apply(table) is table
+        assert MergeReplayFilter(LanePosition(position=None, applied={})).apply(table) is table
 
     def test_rows_below_the_position_are_dropped(self):
-        result = LaneResumeFilter(20, 0).apply(_table([1, 2, 3], [10, 20, 30]))
+        result = MergeReplayFilter(LanePosition(position=20, applied={})).apply(_ops([1, 2, 3], [10, 20, 30]))
 
         assert result.column(CDC_SEQ_COLUMN).to_pylist() == [20, 30]
 
-    def test_the_append_lane_also_drops_the_rows_it_wrote_at_the_position(self):
-        result = LaneResumeFilter(20, 2).apply(_table([1, 2, 3, 4], [20, 20, 20, 30]))
-
-        assert result.column("id").to_pylist() == [3, 4]
-
     def test_the_merge_lane_keeps_every_row_at_its_position(self):
-        result = LaneResumeFilter(20, 0).apply(_table([1, 2, 3], [20, 20, 30]))
+        result = MergeReplayFilter(LanePosition(position=20, applied={})).apply(_ops([1, 2, 3], [20, 20, 30]))
 
         assert result.column("id").to_pylist() == [1, 2, 3]
 
-    def test_the_count_is_spent_across_files_that_share_the_position(self):
-        resume = LaneResumeFilter(20, 3)
+    def test_the_append_lane_drops_only_the_rows_its_table_already_holds(self):
+        result = self._append(20, {(1, "I"): 1, (2, "U"): 1}).apply(
+            _ops([1, 2, 3, 4], [20, 20, 20, 30], ["I", "U", "I", "U"])
+        )
 
-        first = resume.apply(_table([1, 2], [20, 20]))
-        second = resume.apply(_table([3, 4], [20, 20]))
+        assert result.column("id").to_pylist() == [3, 4]
+
+    def test_a_file_that_arrives_late_at_a_consumed_position_still_lands(self):
+        """The data-loss case a bare count could not see.
+
+        The previous run read every file at position 20 and its table holds those two rows.
+        Capture then wrote another file at the same position, carrying rows nothing has seen.
+        """
+        result = self._append(20, {(1, "I"): 1, (2, "I"): 1}).apply(_ops([7, 8], [20, 20], ["I", "I"]))
+
+        assert result.column("id").to_pylist() == [7, 8]
+
+    def test_a_key_changed_twice_in_one_transaction_keeps_its_second_version(self):
+        result = self._append(20, {(1, "U"): 1}).apply(_ops([1, 1], [20, 20], ["U", "U"]))
+
+        assert result.num_rows == 1
+
+    def test_the_identity_is_spent_across_files_that_share_the_position(self):
+        replay = self._append(20, {(1, "I"): 1, (2, "I"): 1})
+
+        first = replay.apply(_ops([1], [20], ["I"]))
+        second = replay.apply(_ops([2, 3], [20, 20], ["I", "I"]))
 
         assert first.num_rows == 0
-        assert second.column("id").to_pylist() == [4]
+        assert second.column("id").to_pylist() == [3]
 
-    def test_rows_past_the_position_are_never_spent_against_the_count(self):
-        resume = LaneResumeFilter(20, 5)
-        result = resume.apply(_table([1, 2], [30, 40]))
+    def test_rows_past_the_position_are_never_matched(self):
+        replay = self._append(20, {(1, "I"): 1})
+        result = replay.apply(_ops([1, 2], [30, 40], ["I", "I"]))
 
         assert result.column("id").to_pylist() == [1, 2]
-        assert resume.rows_skipped == 0
+        assert replay.rows_skipped == 0
+
+    def test_a_table_missing_a_key_column_keys_the_batch_the_same_way(self):
+        # The position reports the columns it actually read. If the filter keyed batch rows by a
+        # wider tuple than the table was read with, nothing would ever match and every replayed
+        # row would be appended a second time.
+        replay = AppendReplayFilter(LanePosition(position=20, applied={("I",): 1}, key_columns=(CDC_OP_COLUMN,)))
+
+        result = replay.apply(_ops([1, 2], [20, 20], ["I", "I"]))
+
+        assert result.num_rows == 1
 
     def test_skipped_rows_are_counted(self):
-        resume = LaneResumeFilter(20, 1)
-        resume.apply(_table([1, 2, 3], [10, 20, 20]))
+        replay = self._append(20, {(2, "I"): 1})
+        replay.apply(_ops([1, 2, 3], [10, 20, 20], ["I", "I", "I"]))
 
-        assert resume.rows_skipped == 2
+        assert replay.rows_skipped == 2
+
+
+@pytest.mark.asyncio
+class TestFloorDeletion:
+    """Files every table has settled are deleted before they are read, never after."""
+
+    async def test_files_strictly_below_the_floor_are_deleted_and_never_read(self):
+        s3 = _FakeS3({_key(1, 10): _parquet_bytes(_table([1], [10])), _key(21, 30): _parquet_bytes(_table([2], [30]))})
+        await _collect(s3, deletion_floor=20)
+
+        assert s3.removed == [_key(1, 10)]
+        assert s3.opened == [_key(21, 30)]
+
+    async def test_a_file_at_the_floor_is_kept_until_a_completed_run_proves_it_read(self):
+        s3 = _FakeS3({_key(11, 20): _parquet_bytes(_table([1], [20]))})
+        await _collect(s3, deletion_floor=20)
+
+        assert s3.removed == []
+        assert s3.opened == [_key(11, 20)]
+
+    async def test_a_file_at_the_floor_goes_once_an_older_completed_listing_covers_it(self):
+        s3 = _FakeS3({_key(11, 20): _parquet_bytes(_table([1], [20]))})
+        await _collect(s3, deletion_floor=20, proof_time=_NOW)
+
+        assert s3.removed == [_key(11, 20)]
+
+    async def test_nothing_is_deleted_before_every_lane_has_a_position(self):
+        s3 = _FakeS3({_key(1, 10): _parquet_bytes(_table([1], [10]))})
+        await _collect(s3, deletion_floor=None, proof_time=_NOW)
+
+        assert s3.removed == []
 
 
 @pytest.mark.asyncio
@@ -396,6 +455,10 @@ class TestBuildOutputLanes:
                 "products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager.DeltaTableRef", delta_ref
             ),
             patch(
+                "products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager.ensure_position_stats",
+                AsyncMock(),
+            ),
+            patch(
                 "products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager.read_lane_position",
                 AsyncMock(side_effect=positions),
             ),
@@ -403,44 +466,52 @@ class TestBuildOutputLanes:
             return await build_output_lanes(schema, MagicMock(), AsyncMock())
 
     async def test_both_writes_two_tables_in_one_run(self):
-        lanes = await self._build(
-            _schema(cdc_table_mode="both"),
-            [LanePosition(position=None, rows_at_position=0), LanePosition(position=None, rows_at_position=0)],
-        )
+        lanes, _ = await self._build(_schema(cdc_table_mode="both"), [_NO_POSITION, _NO_POSITION])
 
         assert [lane.name for lane in lanes] == ["users", "users_cdc"]
         assert [lane.cdc_write_mode for lane in lanes] == [CONSOLIDATED_WRITE_MODE, COMPANION_WRITE_MODE]
 
-    async def test_each_lane_is_its_own_run_in_the_queue(self):
-        lanes = await self._build(
-            _schema(cdc_table_mode="both"),
-            [LanePosition(position=None, rows_at_position=0), LanePosition(position=None, rows_at_position=0)],
-        )
-
-        assert [lane.run_uuid_suffix for lane in lanes] == ["-consolidated", "-cdc"]
-        assert len({lane.run_uuid_suffix for lane in lanes}) == len(lanes)
-
     @parameterized.expand([("consolidated", "consolidated", "users"), ("cdc_only", "cdc_only", "users_cdc")])
     async def test_a_single_table_mode_bills_its_only_lane(self, _name, table_mode, expected):
-        lanes = await self._build(_schema(cdc_table_mode=table_mode), [LanePosition(position=None, rows_at_position=0)])
+        lanes, _ = await self._build(_schema(cdc_table_mode=table_mode), [_NO_POSITION])
 
         assert [(lane.name, lane.billable) for lane in lanes] == [(expected, True)]
 
     async def test_both_bills_the_consolidated_lane_only(self):
-        lanes = await self._build(
-            _schema(cdc_table_mode="both"),
-            [LanePosition(position=None, rows_at_position=0), LanePosition(position=None, rows_at_position=0)],
-        )
+        lanes, _ = await self._build(_schema(cdc_table_mode="both"), [_NO_POSITION, _NO_POSITION])
 
         assert [(lane.name, lane.billable) for lane in lanes] == [("users", True), ("users_cdc", False)]
 
-    async def test_only_the_append_lane_resumes_part_way_into_a_transaction(self):
-        lanes = await self._build(
+    async def test_only_the_append_lane_matches_rows_at_the_position(self):
+        lanes, _ = await self._build(
             _schema(cdc_table_mode="both"),
-            [LanePosition(position=20, rows_at_position=3), LanePosition(position=20, rows_at_position=3)],
+            [
+                LanePosition(position=20, applied={}),
+                LanePosition(
+                    position=20,
+                    applied={(1, "I"): 1, (2, "I"): 1, (3, "I"): 1},
+                    key_columns=("id", CDC_OP_COLUMN),
+                ),
+            ],
         )
 
-        merged, history = (lane.transform(_table([1, 2, 3, 4], [20, 20, 20, 30])) for lane in lanes)
+        batch = _ops([1, 2, 3, 4], [20, 20, 20, 30], ["I", "I", "I", "I"])
+        merged, history = (lane.transform(batch) for lane in lanes)
 
         assert merged.column("id").to_pylist() == [1, 2, 3, 4]
         assert history.column("id").to_pylist() == [4]
+
+    async def test_the_floor_is_the_lowest_position_any_table_holds(self):
+        _, floor = await self._build(
+            _schema(cdc_table_mode="both"),
+            [LanePosition(position=50, applied={}), LanePosition(position=20, applied={})],
+        )
+
+        assert floor == 20
+
+    async def test_a_lane_with_no_position_holds_the_floor_open(self):
+        _, floor = await self._build(
+            _schema(cdc_table_mode="both"), [LanePosition(position=50, applied={}), _NO_POSITION]
+        )
+
+        assert floor is None

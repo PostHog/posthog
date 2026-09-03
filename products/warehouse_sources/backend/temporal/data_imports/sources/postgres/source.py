@@ -1425,8 +1425,10 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import (
             CDCSourceManager,
             build_output_lanes,
+            completed_listing_proof,
             consumes_buffer,
             has_batches_in_flight,
+            served_lanes,
         )
         from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.config import (
             PostgresCDCConfig,
@@ -1461,17 +1463,18 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         if has_batches_in_flight(schema):
             # Reading now would stage rows alongside a delivery that is still landing: a legacy one
             # carries no position to order against, and a previous attempt of this job holds staged
-            # batches that are still claimable, which the append lane would write twice.
+            # batches that are still claimable, which the append lane would then write twice.
             #
-            # Failing beats returning nothing. An empty response COMPLETES the job, which releases
-            # the v3 pipeline lock while the previous attempt's batches are still claimable — the
-            # next run would then read the buffer against positions those batches are about to
-            # move. The activity's own retries double as the wait, and a plain error leaves the
-            # schedule alone, unlike CDCHandledExternally. The cost is that a backlog outliving
-            # the retries surfaces as a failed sync rather than a silent no-op tick.
-            raise ValueError(
-                f"Buffered CDC schema {schema.name} still has deliveries in flight. Consuming the "
-                "buffer now could write rows a landing batch is about to write. Retrying."
+            # An empty response no-ops this tick and keeps the schedule alive, unlike
+            # CDCHandledExternally, which would pause it for good. Nothing is listed, so nothing is
+            # deleted and no listing is stamped — this run can never serve as proof of consumption.
+            inputs.logger.info("cdc_buffered_waiting_for_in_flight_batches", schema_name=schema.name)
+            first_lane = served_lanes(schema)[0]
+            return SourceResponse(
+                name=first_lane.resource_name,
+                items=lambda: iter(()),
+                primary_keys=schema.primary_key_columns,
+                cdc_write_mode=first_lane.write_mode,
             )
 
         if job is None:
@@ -1479,18 +1482,19 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
 
         # Every table this schema's changes feed, written from one read of the buffer. Each lane
         # carries where its own table stops, because a failed run can leave one ahead of the other.
-        lanes = async_to_sync(build_output_lanes)(schema, job, inputs.logger)
-        manager = CDCSourceManager(inputs, inputs.logger)
+        lanes, deletion_floor = async_to_sync(build_output_lanes)(schema, job, inputs.logger)
+        manager = CDCSourceManager(
+            inputs,
+            inputs.logger,
+            deletion_floor=deletion_floor,
+            proof_time=async_to_sync(completed_listing_proof)(schema),
+        )
         return SourceResponse(
             name=lanes[0].name,
             items=manager.get_items,
             primary_keys=schema.primary_key_columns,
             cdc_write_mode=lanes[0].cdc_write_mode,
             lanes=lanes,
-            # Read after extraction: the loader deletes these once the job completes.
-            finalize_metadata=lambda: {"cdc_buffer_files": manager.drained_files},
-            # No batches means every lane already held this read, so nothing will carry the list.
-            on_nothing_staged=manager.discard_drained_files,
         )
 
     def source_for_pipeline(self, config: PostgresSourceConfig, inputs: SourceInputs) -> SourceResponse:

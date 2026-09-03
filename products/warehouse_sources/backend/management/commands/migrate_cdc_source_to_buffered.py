@@ -311,9 +311,11 @@ class Command(BaseCommand):
     def _wait_for_buffer_drain(self, team_id: int, schemas: list[ExternalDataSchema], timeout: int) -> None:
         """Block until no buffer file is left for any schema.
 
-        The consumer deletes a file once the job that read it completes, so an empty prefix is the
-        consumer's own proof that every change in it reached both of its tables. Extraction is
-        already paused by this point, so nothing refills the prefix while this waits.
+        The consumer deletes a file at the start of a run once every table this schema feeds is
+        past it, so an empty prefix is the consumer's own proof that every change in it landed
+        everywhere. Extraction is already paused by this point, so nothing refills the prefix while
+        this waits — but the last file needs one more completed run to clear, since a file at the
+        floor goes only once a completed listing predates it.
         """
         from products.data_warehouse.backend.facade.api import get_s3_client
 

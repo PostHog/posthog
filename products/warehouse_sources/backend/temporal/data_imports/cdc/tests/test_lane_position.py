@@ -3,7 +3,7 @@ import pytest
 import pyarrow as pa
 import deltalake
 
-from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import CDC_SEQ_COLUMN
+from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import CDC_OP_COLUMN, CDC_SEQ_COLUMN
 from products.warehouse_sources.backend.temporal.data_imports.cdc.lane_position import (
     STATS_COLUMNS_PROPERTY,
     ensure_position_stats,
@@ -14,26 +14,29 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.lane_position 
 _WIDE = 40
 
 
-def _rows(seqs: list[int], *, wide: bool = True) -> pa.Table:
-    columns: dict[str, pa.Array] = {"id": pa.array(list(range(len(seqs))), pa.int64())}
+def _rows(seqs: list[int], *, wide: bool = True, ids: list[int] | None = None) -> pa.Table:
+    columns: dict[str, pa.Array] = {"id": pa.array(ids or list(range(len(seqs))), pa.int64())}
     if wide:
         columns |= {f"c{i}": pa.array([0] * len(seqs), pa.int64()) for i in range(_WIDE)}
     columns[CDC_SEQ_COLUMN] = pa.array(seqs, pa.int64())
+    columns[CDC_OP_COLUMN] = pa.array(["I"] * len(seqs), pa.string())
     return pa.table(columns)
 
 
-def _write(path, seqs: list[int], *, stats: bool = True, wide: bool = True) -> deltalake.DeltaTable:
+def _write(
+    path, seqs: list[int], *, stats: bool = True, wide: bool = True, ids: list[int] | None = None
+) -> deltalake.DeltaTable:
     deltalake.write_deltalake(
         str(path),
-        _rows(seqs, wide=wide),
+        _rows(seqs, wide=wide, ids=ids),
         mode="overwrite",
         configuration={STATS_COLUMNS_PROPERTY: CDC_SEQ_COLUMN} if stats else None,
     )
     return deltalake.DeltaTable(str(path))
 
 
-def _append(path, seqs: list[int], *, wide: bool = True) -> deltalake.DeltaTable:
-    deltalake.write_deltalake(str(path), _rows(seqs, wide=wide), mode="append")
+def _append(path, seqs: list[int], *, wide: bool = True, ids: list[int] | None = None) -> deltalake.DeltaTable:
+    deltalake.write_deltalake(str(path), _rows(seqs, wide=wide, ids=ids), mode="append")
     return deltalake.DeltaTable(str(path))
 
 
@@ -54,52 +57,66 @@ class TestReadLanePosition:
 
         assert position.position == 30
 
-    async def test_the_count_is_how_many_rows_sit_at_that_position(self, tmp_path):
-        # One transaction stamps every row it carries with its commit position, so the count is
-        # what tells a resumed read how much of it already landed.
-        position = await read_lane_position(_write(tmp_path / "t", [10, 30, 30, 30]))
+    async def test_the_rows_at_the_position_come_back_keyed_by_identity(self, tmp_path):
+        # One transaction stamps every row it carries with its commit position. Which of those
+        # rows a table already holds is what tells a resumed read where the transaction got to.
+        table = _write(tmp_path / "t", [10, 30, 30], ids=[1, 2, 3])
 
-        assert (position.position, position.rows_at_position) == (30, 3)
+        position = await read_lane_position(table, key_columns=["id", CDC_OP_COLUMN])
 
-    async def test_rows_at_the_position_are_counted_across_the_files_holding_them(self, tmp_path):
+        assert position.position == 30
+        assert position.applied == {(2, "I"): 1, (3, "I"): 1}
+
+    async def test_the_same_row_written_twice_is_counted_twice(self, tmp_path):
+        # History keeps every version, so identity is a multiset: a key changed twice inside one
+        # transaction holds two rows, and a third change still has to be appended.
+        table = _write(tmp_path / "t", [30, 30], ids=[1, 1])
+
+        position = await read_lane_position(table, key_columns=["id", CDC_OP_COLUMN])
+
+        assert position.applied == {(1, "I"): 2}
+
+    async def test_rows_at_the_position_are_gathered_across_the_files_holding_them(self, tmp_path):
         path = tmp_path / "t"
-        _write(path, [10, 30, 30])
-        table = _append(path, [30, 30])
+        _write(path, [10, 30], ids=[1, 2])
+        table = _append(path, [30, 30], ids=[3, 4])
+
+        position = await read_lane_position(table, key_columns=["id", CDC_OP_COLUMN])
+
+        assert position.applied == {(2, "I"): 1, (3, "I"): 1, (4, "I"): 1}
+
+    async def test_a_lane_that_does_not_ask_for_them_reads_no_rows(self, tmp_path, mocker):
+        # The merge lane needs only the position: it rewrites rows at it as upserts.
+        table = _write(tmp_path / "t", [10, 30])
+        read = mocker.spy(table, "to_pyarrow_table")
 
         position = await read_lane_position(table)
 
-        assert (position.position, position.rows_at_position) == (30, 4)
+        assert position.position == 30
+        assert position.applied == {}
+        read.assert_not_called()
 
-    async def test_a_table_written_before_the_stats_property_still_reads_correctly(self, tmp_path):
-        # The fallback scan: files predating `ensure_position_stats` carry no stat for the column.
-        table = _write(tmp_path / "t", [10, 30, 30], stats=False)
+    async def test_a_table_whose_files_predate_the_property_reports_no_position(self, tmp_path, mocker):
+        # Without the statistic the position cannot be proven cheaply, and scanning a history
+        # table's whole column to find it would cost more than replaying rows both lanes absorb.
+        table = _write(tmp_path / "t", [10, 30], stats=False)
+        read = mocker.spy(table, "to_pyarrow_table")
 
-        position = await read_lane_position(table)
+        position = await read_lane_position(table, key_columns=["id", CDC_OP_COLUMN])
 
-        assert (position.position, position.rows_at_position) == (30, 2)
+        assert position.position is None
+        assert position.applied == {}
+        read.assert_not_called()
 
-    async def test_a_statless_file_alongside_a_stamped_one_does_not_hide_a_position(self, tmp_path):
-        path = tmp_path / "t"
-        _write(path, [40, 40], stats=False)
-        table = _append(path, [10])
-
-        position = await read_lane_position(table)
-
-        assert (position.position, position.rows_at_position) == (40, 2)
-
-    async def test_a_stat_bearing_file_decides_without_scanning_the_column(self, tmp_path, mocker):
-        # Files predating the property carry no stat. Positions only ever increase, so a file that
-        # has one holds a higher position than any that does not, and the column is never scanned.
+    async def test_a_stat_bearing_file_decides_without_reading_the_column(self, tmp_path):
+        # Positions only ever increase and the property follows the first write, so a file
+        # without the statistic cannot hold a higher position than one that has it.
         path = tmp_path / "t"
         _write(path, [10, 10], stats=False)
         deltalake.DeltaTable(str(path)).alter.set_table_properties({STATS_COLUMNS_PROPERTY: CDC_SEQ_COLUMN})
         table = _append(path, [30, 30])
-        scan = mocker.patch("products.warehouse_sources.backend.temporal.data_imports.cdc.lane_position._scan_position")
 
-        position = await read_lane_position(table)
-
-        assert (position.position, position.rows_at_position) == (30, 2)
-        scan.assert_not_called()
+        assert (await read_lane_position(table)).position == 30
 
 
 class TestEnsurePositionStats:

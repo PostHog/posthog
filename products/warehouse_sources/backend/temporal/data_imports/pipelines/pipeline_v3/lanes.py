@@ -4,9 +4,11 @@ Kept apart from `PipelineV3` on purpose: every other source runs the base class,
 the single-table path it has always been. Only a source that declares `SourceResponse.lanes`
 gets this subclass, so nothing in here can change what a single-table run does.
 
-Each lane is its own run in the load queue. The queue keys batch idempotency, staging paths and
-claim ordering on the run id, so two tables sharing one would collide on all three; the lane's
-suffix on the run id is what keeps them apart.
+Each table beyond the first gets its own `ExternalDataJob`, the way the legacy CDC extraction
+already writes a `both` schema (see `cdc/activities.py`). That is what keeps the queue out of it:
+a job is where batch idempotency, staging paths, claim ordering and completion all hang, so two
+tables under one job would collide on every one of them, while two jobs are two ordinary
+single-table runs the loader already knows how to finish.
 """
 
 from __future__ import annotations
@@ -17,8 +19,10 @@ from typing import TYPE_CHECKING
 import pyarrow as pa
 from structlog.types import FilteringBoundLogger
 
+from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.shutdown import ShutdownMonitor
 
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.typings import PipelineResult
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline import PipelineV3
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.producer import (
     PostgresProducer,
@@ -35,13 +39,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 )
 
 if TYPE_CHECKING:
+    from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
     from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.import_data_sync import (
         ImportJobModels,
     )
 
 
 class _LaneWriter:
-    """One table this run writes: its own run in the queue, its own staged files, its own count."""
+    """One table this run writes: its own job, its own staged files, its own count."""
 
     def __init__(
         self,
@@ -49,12 +54,15 @@ class _LaneWriter:
         s3_batch_writer: S3BatchWriter,
         pg_producer: PostgresProducer,
         batch_results: list[BatchWriteResult] | None = None,
+        job: ExternalDataJob | None = None,
     ) -> None:
         self.lane = lane
         self.s3_batch_writer = s3_batch_writer
         self.pg_producer = pg_producer
         self.batch_results: list[BatchWriteResult] = batch_results if batch_results is not None else []
         self.row_count = 0
+        # None for the first lane, which writes the job the workflow already created for this run.
+        self.job = job
 
     def prepare(self, pa_table: pa.Table) -> pa.Table:
         """This lane's share of a batch — the same rows unless it already holds some of them."""
@@ -80,12 +88,6 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
     ) -> None:
         if not source_response.lanes:
             raise ValueError(f"{source_response.name} declares no lanes; run it on PipelineV3")
-        if not models.job.workflow_run_id:
-            # Lanes are told apart by a suffix on the workflow run id. Without one every lane falls
-            # back to its writer's generated id, which no lane can name, so they would supersede
-            # each other's batches and complete the job early.
-            raise ValueError(f"Job {models.job.id} has no workflow_run_id; a laned run cannot name its lanes")
-        # Read by the seams the base constructor calls, so it has to exist before super().__init__.
         self._output_lanes = list(source_response.lanes)
 
         super().__init__(
@@ -95,30 +97,104 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
         # The base built the first lane; it shares the base's batch list so the two never disagree.
         primary = _LaneWriter(self._output_lanes[0], self._s3_batch_writer, self._pg_producer, self._batch_results)
         self._lane_writers = [primary]
-        for lane in self._output_lanes[1:]:
-            s3_batch_writer = self._build_s3_writer(lane.run_uuid_suffix)
-            producer = self._build_producer(
-                s3_batch_writer, resource_name=lane.name, cdc_write_mode=lane.cdc_write_mode
-            )
-            self._lane_writers.append(_LaneWriter(lane, s3_batch_writer, producer))
 
-    def _run_uuid_suffix(self) -> str:
-        return self._output_lanes[0].run_uuid_suffix
+    async def run(self) -> PipelineResult:
+        await self._open_companion_lanes()
+        completed = False
+        try:
+            result = await super().run()
+            completed = True
+            return result
+        finally:
+            if not completed:
+                # Extraction raised, so no companion will send a final batch and nothing downstream
+                # can finish its job. Shielded because the failure may be a cancellation.
+                await asyncio.shield(self._fail_companion_jobs())
 
-    def _sibling_run_uuids(self) -> list[str]:
-        """Every run id this attempt writes. Named on each producer so the first batch of one lane
-        does not supersede its siblings, and on the final batch so completion waits for them all.
+    async def _open_companion_lanes(self) -> None:
+        """Give every table after the first its own job, writer and producer.
 
-        Never partial: without a workflow run id each lane would still take a distinct generated id
-        from its writer while this list came back empty, which supersedes a sibling's staged batches
-        and completes the job on the first final batch. `__init__` refuses that job outright.
+        A job per table rather than a suffix per lane: the loader completes a job when that job's
+        final batch lands, so a table with its own job is finished, registered and post-loaded on
+        its own terms. The companion carries no `workflow_run_id` — the schema's own job owns the
+        pipeline lock, and a second holder releasing it would free it while this run still writes.
+        It is not billable either: one read of a change stream is one sync however many tables it
+        keeps.
         """
-        return [self._run_uuid_for(lane.run_uuid_suffix) or "" for lane in self._output_lanes]
+        for lane in self._output_lanes[1:]:
+            job = await self._create_companion_job(lane)
+            s3_batch_writer = self._build_s3_writer(f"{self._run_uuid}-cdc" if self._run_uuid else None)
+            producer = PostgresProducer(
+                **{
+                    **self._producer_args(s3_batch_writer, resource_name=lane.name, cdc_write_mode=lane.cdc_write_mode),
+                    "job_id": str(job.id),
+                    "workflow_run_id": None,
+                }
+            )
+            self._lane_writers.append(_LaneWriter(lane, s3_batch_writer, producer, job=job))
+
+    async def _create_companion_job(self, lane: OutputLane) -> ExternalDataJob:
+        from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+        from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.create_job_model import (
+            _build_schema_snapshot,
+        )
+
+        def _create() -> ExternalDataJob:
+            return ExternalDataJob.objects.create(
+                team_id=self._job.team_id,
+                pipeline_id=self._schema.source_id,
+                schema_id=self._schema.id,
+                status=ExternalDataJob.Status.RUNNING,
+                rows_synced=0,
+                workflow_id=self._job.workflow_id,
+                workflow_run_id=None,
+                pipeline_version=ExternalDataJob.PipelineVersion.V3,
+                billable=False,
+                schema_snapshot={
+                    **_build_schema_snapshot(self._schema),
+                    # Distinguishes the two rows a `both` run produces, and names the run they
+                    # belong to so a reader can tell whether the whole run finished.
+                    "cdc_write_mode": lane.cdc_write_mode,
+                    "companion_of": str(self._job.id),
+                },
+                destination_ids=list(self._job.destination_ids or []),
+            )
+
+        job = await database_sync_to_async_pool(_create)()
+        await self._logger.ainfo(
+            "companion_job_created", companion_job_id=str(job.id), resource_name=lane.name, job_id=str(self._job.id)
+        )
+        return job
+
+    async def _fail_companion_jobs(self) -> None:
+        """Take this run's companion jobs terminal when extraction failed.
+
+        Nothing else would: the stranded sweep finds runs by their queued batches, so a companion
+        that failed before staging anything has none to be found by, and its job would sit RUNNING
+        for good.
+        """
+        from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer import (
+            mark_job_failed_if_not_terminal,
+        )
+
+        for writer in self._lane_writers:
+            if writer.job is None:
+                continue
+            try:
+                await database_sync_to_async_pool(mark_job_failed_if_not_terminal)(
+                    job_id=str(writer.job.id),
+                    team_id=self._job.team_id,
+                    error="Extraction failed before this table's changes were written",
+                )
+            except Exception:
+                await self._logger.awarning(
+                    "companion_job_fail_write_failed", companion_job_id=str(writer.job.id), exc_info=True
+                )
 
     async def _stage_batch(self, pa_table: pa.Table, batch_index: int, row_count: int) -> int:
-        # Each lane writes the same batch under its own run id. A lane that already holds these
-        # rows contributes nothing for this index, which leaves a gap in its batch indexes — the
-        # claim gate orders on "no earlier index still running", so gaps are harmless.
+        # Each lane writes the same batch to its own job. A lane that already holds these rows
+        # contributes nothing for this index, which leaves a gap in its batch indexes — the claim
+        # gate orders on "no earlier index still running", so gaps are harmless.
         billable_rows = 0
         for writer in self._lane_writers:
             lane_table = writer.prepare(pa_table)
@@ -141,11 +217,6 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
         return sum(len(writer.batch_results) for writer in self._lane_writers)
 
     async def _send_final_batches(self, total_batches: int, row_count: int) -> str | None:
-        # Read after extraction, so it describes what this run actually consumed.
-        extra_metadata = self._resource.finalize_metadata() if self._resource.finalize_metadata else None
-
-        # Sent only now, with every lane's data batches already queued: the job completes on the
-        # last final batch to land, and it must not land while another lane still has rows to write.
         schema_path = None
         for writer in self._lane_writers:
             if not writer.batch_results:
@@ -160,13 +231,29 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
                 data_folder=writer.s3_batch_writer.get_data_folder(),
                 schema_path=lane_schema_path,
                 cumulative_row_count=writer.row_count,
-                extra_metadata=extra_metadata,
             )
+            if writer.job is not None:
+                await self._record_companion_rows(writer)
         return schema_path
 
+    async def _record_companion_rows(self, writer: _LaneWriter) -> None:
+        """Count what a companion wrote onto its own job, as the workflow does for the first."""
+        from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+
+        assert writer.job is not None
+        job_id, rows = writer.job.id, writer.row_count
+        try:
+            await database_sync_to_async_pool(
+                lambda: ExternalDataJob.objects.filter(id=job_id).update(rows_synced=rows)
+            )()
+        except Exception:
+            # Bookkeeping for rows already written; never worth failing the run over.
+            await self._logger.awarning("companion_job_rows_not_recorded", companion_job_id=str(job_id), exc_info=True)
+
     def _mark_first_ever_sync(self) -> None:
-        for writer in self._lane_writers:
-            writer.pg_producer.is_first_ever_sync = True
+        # The schema's own table only. A companion is append-only history the loader never
+        # overwrites, and its own first write creates it.
+        self._pg_producer.is_first_ever_sync = True
 
     def _close_producers(self) -> None:
         for writer in self._lane_writers:

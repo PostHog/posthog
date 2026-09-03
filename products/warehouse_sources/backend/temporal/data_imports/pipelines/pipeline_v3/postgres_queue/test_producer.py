@@ -173,9 +173,7 @@ class TestPostgresProducerSupersede:
         ) as mock_supersede:
             producer.send_batch_notification(batch_result)
 
-        mock_supersede.assert_called_once_with(
-            producer._conn, job_id="job-1", current_run_uuid="run-1", sibling_run_uuids=[]
-        )
+        mock_supersede.assert_called_once_with(producer._conn, job_id="job-1", current_run_uuid="run-1")
 
     def test_does_not_supersede_on_non_zero_batch(self) -> None:
         producer = _make_producer(is_resume=False)
@@ -213,36 +211,3 @@ class TestPostgresProducerProperties:
 
         producer.is_first_ever_sync = False
         assert producer.is_first_ever_sync is False
-
-
-_QUEUE = (
-    "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.producer.BatchQueue"
-)
-
-
-class TestSupersedeSpareSiblingLanes:
-    """A run feeding two tables enqueues two runs of the same job.
-
-    Superseding on the first batch is meant to clear a stalled EARLIER attempt. Without the
-    sibling list the second lane's first batch sweeps away the first lane's, which are still
-    'pending' because the loader has not reached them — one table's data, dropped silently.
-    """
-
-    def test_the_other_lanes_of_this_run_are_spared(self) -> None:
-        producer = _make_producer(run_uuid="wfrun-a1-cdc", sibling_run_uuids=["wfrun-a1-consolidated", "wfrun-a1-cdc"])
-
-        with patch(f"{_QUEUE}.supersede_other_runs", return_value=0) as mock_supersede:
-            producer.send_batch_notification(_make_batch_result(batch_index=0))
-
-        assert mock_supersede.call_args.kwargs["sibling_run_uuids"] == [
-            "wfrun-a1-consolidated",
-            "wfrun-a1-cdc",
-        ]
-
-    def test_a_single_lane_source_names_no_siblings(self) -> None:
-        producer = _make_producer(run_uuid="wfrun-a1")
-
-        with patch(f"{_QUEUE}.supersede_other_runs", return_value=0) as mock_supersede:
-            producer.send_batch_notification(_make_batch_result(batch_index=0))
-
-        assert mock_supersede.call_args.kwargs["sibling_run_uuids"] == []

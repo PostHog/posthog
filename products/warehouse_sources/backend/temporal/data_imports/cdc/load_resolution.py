@@ -69,6 +69,25 @@ def has_engine_seq(table: pa.Table) -> bool:
     return (field.metadata or {}).get(b"posthog_cdc") == CDC_SEQ_PROVENANCE[b"posthog_cdc"]
 
 
+def drop_superseded_rows(table: pa.Table, position: int | None) -> tuple[pa.Table, int]:
+    """Drop rows strictly below `position` — everything the lane's table already holds.
+
+    Rows exactly at it stay: one Postgres transaction shares a commit LSN across every event, and a
+    transaction bigger than the flush budget spans files, so dropping equality would truncate it.
+    What to do with those is the lane's own business — a merge re-applies them as upserts, while an
+    append has to tell the ones it wrote from the ones it did not.
+    """
+    if position is None or not has_engine_seq(table) or table.num_rows == 0:
+        return table, 0
+
+    seqs = table.column(CDC_SEQ_COLUMN).to_pylist()
+    # A null position can't be proven stale, so it survives.
+    keep = [i for i, seq in enumerate(seqs) if seq is None or seq >= position]
+    if len(keep) == table.num_rows:
+        return table, 0
+    return table.take(pa.array(keep, type=pa.int64())), table.num_rows - len(keep)
+
+
 def dedupe_keep_highest_seq(table: pa.Table, primary_keys: list[str]) -> tuple[pa.Table, int]:
     """Collapse each primary key to its highest-position row, preserving batch order otherwise.
 

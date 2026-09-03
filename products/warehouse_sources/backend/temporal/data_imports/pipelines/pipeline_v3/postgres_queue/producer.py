@@ -72,7 +72,6 @@ class PostgresProducer:
         cdc_table_mode: str | None = None,
         workflow_id: str | None = None,
         workflow_run_id: str | None = None,
-        sibling_run_uuids: list[str] | None = None,
         destination_ids: list[str] | None = None,
     ) -> None:
         self._team_id = team_id
@@ -95,8 +94,6 @@ class PostgresProducer:
         self._cdc_table_mode = cdc_table_mode
         self._workflow_id = workflow_id
         self._workflow_run_id = workflow_run_id
-        # The other tables this same run writes, so superseding older attempts spares them.
-        self._sibling_run_uuids = sibling_run_uuids or []
         self._destination_ids: list[str] = list(destination_ids or [])
 
         self._conn = _connect_with_retry(database_url)
@@ -123,10 +120,9 @@ class PostgresProducer:
         data_folder: Optional[str] = None,
         schema_path: Optional[str] = None,
         cumulative_row_count: int = 0,
-        extra_metadata: Optional[dict[str, Any]] = None,
     ) -> None:
         """Insert a batch row into the Postgres queue."""
-        metadata: dict[str, Any] = dict(extra_metadata or {})
+        metadata: dict[str, Any] = {}
         if data_folder is not None:
             metadata["data_folder"] = data_folder
         if schema_path is not None:
@@ -154,11 +150,6 @@ class PostgresProducer:
         if self._workflow_run_id is not None:
             metadata["workflow_run_id"] = self._workflow_run_id
         metadata["timestamp_ns"] = batch_result.timestamp_ns
-        # Only a run with more than one lane needs them: they scope the job-completion gate to this
-        # attempt, and a lone lane has nothing to wait for — naming itself would cost the loader a
-        # queue connection per final batch to ask a question whose answer is always "no".
-        if is_final_batch and len(self._sibling_run_uuids) > 1:
-            metadata["sibling_run_uuids"] = self._sibling_run_uuids
 
         # One-shot, at the start of a fresh (non-resume) run: stalled sibling runs of
         # this job go terminal so their batches can't double-load. Runs the loader is
@@ -166,10 +157,7 @@ class PostgresProducer:
         # stalls later is recovered by the reconcile sweep's stranded-run pass.
         if batch_result.batch_index == 0 and not self._is_resume:
             superseded = BatchQueue.supersede_other_runs(
-                self._conn,
-                job_id=self._job_id,
-                current_run_uuid=self._run_uuid,
-                sibling_run_uuids=self._sibling_run_uuids,
+                self._conn, job_id=self._job_id, current_run_uuid=self._run_uuid
             )
             if superseded > 0:
                 self._logger.info("superseded_old_run_batches", count=superseded)

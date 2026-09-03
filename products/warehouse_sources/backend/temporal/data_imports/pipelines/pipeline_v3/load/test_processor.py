@@ -29,7 +29,6 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     _trigger_post_import_workflow,
     process_message,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.messages import ExportSignalMessage
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.test_mocks import mock_delta_table
 
 
@@ -1000,70 +999,3 @@ class TestReadExistingRowsByFirstPk:
             result = _read_existing_rows_by_first_pk(delta_table, "id", components)
 
             assert set(result.column("id").to_pylist()) == set(expected_ids)
-
-
-class TestJobCompletionAcrossLanes:
-    """A job whose source feeds two tables has one queue run per table.
-
-    Completing on the first final batch to land would release the lock, start post-import and
-    delete the buffer while the other table still had rows to write.
-    """
-
-    @staticmethod
-    def _complete(signal: dict[str, Any], *, sibling_unfinished: bool, status: str = "Completed"):
-        with (
-            patch(f"{_PROCESSOR}.psycopg"),
-            patch(f"{_PROCESSOR}.BatchQueue.has_unfinished_sibling_run", return_value=sibling_unfinished),
-            patch(f"{_PROCESSOR}.close_old_connections"),
-            patch(f"{_PROCESSOR}.transaction.atomic"),
-            patch(f"{_PROCESSOR}.update_external_job_status", return_value=MagicMock(status=status)) as mock_status,
-            patch(f"{_PROCESSOR}._promote_staged_cursor"),
-            patch(f"{_PROCESSOR}.finish_row_tracking", AsyncMock()),
-            patch(f"{_PROCESSOR}._release_pipeline_lock_for_job") as mock_release,
-            patch(f"{_PROCESSOR}._delete_drained_buffer_files", AsyncMock()) as mock_delete,
-        ):
-            completed = _mark_job_completed(ExportSignalMessage.from_dict(signal))
-        return completed, mock_status, mock_release, mock_delete
-
-    def test_a_lane_finishing_first_leaves_the_job_running(self):
-        completed, mock_status, mock_release, _ = self._complete(
-            _message(is_final_batch=True, sibling_run_uuids=["run-1", "run-2"]), sibling_unfinished=True
-        )
-
-        assert completed is False
-        mock_status.assert_not_called()
-        mock_release.assert_not_called()
-
-    def test_the_last_lane_to_finish_completes_the_job(self):
-        completed, mock_status, mock_release, _ = self._complete(
-            _message(is_final_batch=True), sibling_unfinished=False
-        )
-
-        assert completed is True
-        mock_status.assert_called_once()
-        mock_release.assert_called_once()
-
-    def test_completing_deletes_the_buffer_files_the_run_drained(self):
-        _, _, _, mock_delete = self._complete(
-            _message(is_final_batch=True, cdc_buffer_files=["1-10-0.parquet"]), sibling_unfinished=False
-        )
-
-        mock_delete.assert_called_once()
-
-    def test_a_deferred_completion_deletes_nothing(self):
-        # The other lane has not written these changes yet; deleting now would lose them.
-        _, _, _, mock_delete = self._complete(
-            _message(is_final_batch=True, sibling_run_uuids=["run-1", "run-2"], cdc_buffer_files=["1-10-0.parquet"]),
-            sibling_unfinished=True,
-        )
-
-        mock_delete.assert_not_called()
-
-    def test_a_job_that_went_terminal_elsewhere_deletes_nothing(self):
-        _, _, _, mock_delete = self._complete(
-            _message(is_final_batch=True, cdc_buffer_files=["1-10-0.parquet"]),
-            sibling_unfinished=False,
-            status="Failed",
-        )
-
-        mock_delete.assert_not_called()

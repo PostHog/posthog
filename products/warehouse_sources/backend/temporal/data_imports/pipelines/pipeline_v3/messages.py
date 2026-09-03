@@ -48,11 +48,6 @@ class ExportSignalMessage:
     cumulative_row_count: int = 0
     cdc_write_mode: Optional[str] = None
     cdc_table_mode: Optional[str] = None
-    cdc_buffer_files: Optional[list[str]] = None
-    """Buffer files the run drained, on its final batches. Deleted once the job completes."""
-    sibling_run_uuids: Optional[list[str]] = None
-    """Every run id this attempt is writing, one per table. On the final batches, so completion
-    can tell a lane it is waiting on from a previous attempt of the same job."""
     # Snapshotted when the run started. Empty means the PostHog warehouse only, which is
     # also what an old message that predates destinations decodes to.
     destination_ids: list[str] = field(default_factory=list)
@@ -91,7 +86,5 @@ class ExportSignalMessage:
             cumulative_row_count=data.get("cumulative_row_count", 0),
             cdc_write_mode=data.get("cdc_write_mode"),
             cdc_table_mode=data.get("cdc_table_mode"),
-            cdc_buffer_files=data.get("cdc_buffer_files"),
-            sibling_run_uuids=data.get("sibling_run_uuids"),
             destination_ids=data.get("destination_ids") or [],
         )

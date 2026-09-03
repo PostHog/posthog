@@ -7,7 +7,6 @@ from django.conf import settings
 from django.db import close_old_connections, transaction
 
 import s3fs
-import psycopg
 import pyarrow as pa
 import deltalake as deltalake
 import structlog
@@ -20,10 +19,9 @@ from temporalio.service import RPCError, RPCStatusCode
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential_jitter
 
 from posthog.exceptions_capture import capture_exception
-from posthog.settings import WAREHOUSE_SOURCES_DATABASE_URL
 from posthog.utils import get_machine_id
 
-from products.data_warehouse.backend.facade.api import aget_s3_client, update_external_job_status
+from products.data_warehouse.backend.facade.api import update_external_job_status
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
@@ -36,8 +34,6 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
     enrich_delete_rows,
     enrich_toast_omitted_rows,
 )
-from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import get_buffer_prefix
-from products.warehouse_sources.backend.temporal.data_imports.cdc.lane_position import ensure_position_stats
 from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import (
     SCD2_APPEND_MODE,
     has_engine_seq,
@@ -86,9 +82,6 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.messages import (
     ExportSignalMessage,
     SyncTypeLiteral,
-)
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
-    BatchQueue,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3 import read_parquet
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
@@ -483,56 +476,7 @@ def _release_pipeline_lock_for_job(export_signal: ExportSignalMessage) -> None:
         capture_exception(e)
 
 
-async def _delete_drained_buffer_files(export_signal: ExportSignalMessage) -> None:
-    """Delete the buffer files this job's run drained, now that the job has completed.
-
-    Completion is what proves them consumed: every file the run read reached a batch, and every
-    batch committed. Deleting earlier would race a batch that has not landed, and a position-based
-    rule cannot stand in for the list — one transaction can span several files that all carry its
-    commit position, so "everything up to here" can name a file written after the run listed.
-    """
-    prefix = get_buffer_prefix(export_signal.team_id, export_signal.schema_id)
-    keys = [f"{prefix}/{name}" for name in export_signal.cdc_buffer_files or []]
-    if not keys:
-        return
-    async with aget_s3_client() as s3:
-        try:
-            await s3._rm(keys)
-        except FileNotFoundError:
-            # A retry of this final batch already deleted some of them.
-            pass
-
-
-def _sibling_lane_still_running(export_signal: ExportSignalMessage) -> bool:
-    with psycopg.Connection.connect(WAREHOUSE_SOURCES_DATABASE_URL, autocommit=True) as conn:
-        blocked = BatchQueue.has_unfinished_sibling_run(
-            conn,
-            job_id=export_signal.job_id,
-            run_uuid=export_signal.run_uuid,
-            sibling_run_uuids=export_signal.sibling_run_uuids,
-        )
-    if blocked:
-        logger.info(
-            "job_completion_deferred_to_sibling_run",
-            external_data_job_id=export_signal.job_id,
-            run_uuid=export_signal.run_uuid,
-            resource_name=export_signal.resource_name,
-        )
-    return blocked
-
-
-def _mark_job_completed(export_signal: ExportSignalMessage) -> bool:
-    """Complete the job if this was the last of its runs to finish. Returns whether it did.
-
-    A job whose source feeds several tables has one run per table, each ending in its own final
-    batch. Whichever lands last completes the job; the others return here having done nothing, so
-    the lock stays held and post-import waits for the whole run.
-    """
-    # Only a run that named siblings has anything to wait for. Every single-table run — and every
-    # message written before lanes existed — skips this entirely, connection included.
-    if export_signal.sibling_run_uuids and _sibling_lane_still_running(export_signal):
-        return False
-
+def _mark_job_completed(export_signal: ExportSignalMessage) -> None:
     # Reconnect stale connections before the transaction; close_old_connections must never
     # run inside an atomic block since it can drop the connection mid-transaction.
     close_old_connections()
@@ -575,30 +519,6 @@ def _mark_job_completed(export_signal: ExportSignalMessage) -> bool:
         )
 
     _release_pipeline_lock_for_job(export_signal)
-
-    # After the lock, and never fatal: the rows are committed, so a failed delete costs one
-    # re-read next run (which every lane's resume point absorbs) rather than a leaked lock.
-    if job_completed and export_signal.cdc_buffer_files:
-        try:
-            async_to_sync(_delete_drained_buffer_files)(export_signal)
-        except Exception:
-            logger.warning("cdc_buffer_delete_failed", external_data_job_id=export_signal.job_id, exc_info=True)
-
-    return True
-
-
-def _finish_completed_job(export_signal: ExportSignalMessage, prepared_queryable_folder: str | None) -> None:
-    """Complete the job if this run was its last, and start what follows only if it was.
-
-    A job whose source feeds several tables has one run per table, so a final batch that arrives
-    while another run still owes work completes nothing — and must not register the table or start
-    post-import either.
-    """
-    if not _mark_job_completed(export_signal):
-        return
-    if prepared_queryable_folder:
-        _trigger_ducklake_register_data_imports(export_signal, prepared_queryable_folder)
-    _trigger_post_import_workflow(export_signal)
 
 
 def _is_retryable_temporal_rpc_error(exc: BaseException) -> bool:
@@ -955,7 +875,12 @@ def _process_message_reported(
             # completion promotes the cursor and releases the lock under a new owner.
             if verify_ownership is not None:
                 verify_ownership()
-            _finish_completed_job(export_signal, prepared_queryable_folder)
+            _mark_job_completed(export_signal)
+
+            if prepared_queryable_folder:
+                _trigger_ducklake_register_data_imports(export_signal, prepared_queryable_folder)
+
+            _trigger_post_import_workflow(export_signal)
             return
 
         logger.debug(
@@ -1102,17 +1027,6 @@ def _process_message_reported(
 
         DELTA_ROWS_WRITTEN_TOTAL.labels(team_id=team_id_str, schema_id=schema_id_str).inc(pa_table.num_rows)
 
-        # Only where the position column is actually written. The legacy CDC path strips it to keep
-        # its writes byte-identical, and naming a column a table does not have would still replace
-        # Delta's default statistics columns with one that buys nothing.
-        if cdc_write_mode is not None and has_engine_seq(pa_table):
-            # Both lanes read their resume point back from their own table, so both need Delta to
-            # keep min/max for the position column. Without it the read is a full column scan on
-            # every sync. See `cdc.lane_position`.
-            async_to_sync(ensure_position_stats)(
-                delta_table, [*(primary_keys or []), *(export_signal.partition_keys or [])]
-            )
-
         internal_schema = HogQLSchema()
         # Build from the Delta table schema first to cover all columns from
         # all batches, then overlay the current batch for JSON detection.
@@ -1175,7 +1089,12 @@ def _process_message_reported(
             if verify_ownership is not None:
                 verify_ownership()
 
-            _finish_completed_job(export_signal, prepared_queryable_folder)
+            _mark_job_completed(export_signal)
+
+            if prepared_queryable_folder:
+                _trigger_ducklake_register_data_imports(export_signal, prepared_queryable_folder)
+
+            _trigger_post_import_workflow(export_signal)
 
             logger.debug("post_load_operations_complete")
 
