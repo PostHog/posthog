@@ -12,7 +12,6 @@ from botocore.config import Config
 from botocore.exceptions import ClientError
 
 from posthog.clickhouse.client import sync_execute
-from posthog.settings.data_stores import CLICKHOUSE_DATABASE
 
 MINIO_ENDPOINT = "http://localhost:19000"
 MINIO_CH_ENDPOINT = "http://objectstorage:19000"
@@ -134,7 +133,7 @@ class TestS3ParquetTimezoneConversion(ClickhouseTestMixin, BaseTest):
 
     def test_not_affected_on_mergetree(self):
         """The bug does not affect regular MergeTree tables."""
-        table_name = f"{CLICKHOUSE_DATABASE}.test_tz_bug_mergetree"
+        table_name = "test_tz_bug_mergetree"
         sync_execute(f"DROP TABLE IF EXISTS {table_name}")
         sync_execute(f"""
             CREATE TABLE {table_name} (
