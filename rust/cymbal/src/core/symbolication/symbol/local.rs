@@ -53,6 +53,7 @@ pub struct LocalSymbolResolver {
     release_id_cache: Cache<(TeamId, Vec<String>), Option<Uuid>>,
     pool: PgPool,
     ttl_policy: FrameResultTtlPolicy,
+    frame_change_only_persistence_enabled: bool,
     // Lines of pre/post source context to attach per resolved frame.
     context_lines: usize,
 }
@@ -120,6 +121,7 @@ impl LocalSymbolResolver {
             cache,
             release_id_cache,
             ttl_policy,
+            frame_change_only_persistence_enabled: config.frame_change_only_persistence_enabled,
             context_lines: config.context_line_count,
         }
     }
@@ -201,17 +203,40 @@ impl LocalSymbolResolver {
             records.push(record);
         }
 
-        let write_outcome = classify_frame_snapshot(&stored.records, &records);
-        for record in &records {
-            let rows_affected = match record.save(&self.pool).await {
-                Ok(rows_affected) => rows_affected,
+        if self.frame_change_only_persistence_enabled {
+            let persistence = match ErrorTrackingStackFrame::persist_snapshot(
+                &self.pool,
+                &stored.records,
+                &records,
+            )
+            .await
+            {
+                Ok(persistence) => persistence,
                 Err(error) => {
-                    record_frame_write(FrameWriteOutcome::Error, 0);
+                    record_frame_write(FrameWriteOutcome::Error, 0, 0);
                     return Err(error);
                 }
             };
-            record_frame_write(write_outcome, rows_affected);
+            record_frame_write(
+                persistence.outcome,
+                persistence.upserted_rows,
+                persistence.deleted_rows,
+            );
+        } else {
+            let write_outcome = classify_frame_snapshot(&stored.records, &records);
+            for record in &records {
+                let rows_affected = match record.save(&self.pool).await {
+                    Ok(rows_affected) => rows_affected,
+                    Err(error) => {
+                        record_frame_write(FrameWriteOutcome::Error, 0, 0);
+                        return Err(error);
+                    }
+                };
+                record_frame_write(write_outcome, rows_affected, 0);
+            }
+        }
 
+        for record in &records {
             let r_frame = &record.contents;
             if r_frame.suspicious {
                 metrics::counter!(SUSPICIOUS_FRAMES_DETECTED, "frame_type" => "resolved")

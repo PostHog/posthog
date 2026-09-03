@@ -81,7 +81,11 @@ impl PostgresMutation {
     }
 }
 
-pub(crate) fn record_frame_write(outcome: FrameWriteOutcome, rows_affected: u64) {
+pub(crate) fn record_frame_write(
+    outcome: FrameWriteOutcome,
+    upserted_rows: u64,
+    deleted_rows: u64,
+) {
     metrics::counter!(
         POSTGRES_WRITE_ATTEMPTS,
         "table" => "stack_frame",
@@ -94,7 +98,13 @@ pub(crate) fn record_frame_write(outcome: FrameWriteOutcome, rows_affected: u64)
         "stack_frame",
         "frame_snapshot",
         PostgresMutation::Upsert,
-        rows_affected,
+        upserted_rows,
+    );
+    record_rows_affected(
+        "stack_frame",
+        "frame_snapshot",
+        PostgresMutation::Delete,
+        deleted_rows,
     );
 }
 
@@ -157,7 +167,11 @@ mod tests {
                 FrameWriteOutcome::Unchanged,
                 FrameWriteOutcome::Error,
             ] {
-                record_frame_write(outcome, u64::from(outcome != FrameWriteOutcome::Error));
+                record_frame_write(
+                    outcome,
+                    u64::from(outcome != FrameWriteOutcome::Error),
+                    u64::from(outcome == FrameWriteOutcome::Changed),
+                );
             }
 
             for purpose in [
@@ -201,7 +215,7 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert_eq!(attempts.len(), 19);
-        assert_eq!(rows.len(), 6);
+        assert_eq!(rows.len(), 7);
 
         let allowed_label_keys = HashSet::from(["table", "purpose", "outcome"]);
         let allowed_tables = HashSet::from(["stack_frame", "symbol_set"]);
