@@ -9,14 +9,17 @@ class Migration(migrations.Migration):
         ("replay_vision", "0088_remap_scanner_models_gemini_3_8"),
     ]
 
-    # Runs first: the run table's foreign key references the action table.
+    # Both tables carry foreign keys to posthog_team and posthog_user, so dropping them takes a
+    # brief ACCESS EXCLUSIVE lock on those hot tables to remove the referential triggers. The local
+    # timeout keeps a lost lock race from queueing behind in-flight traffic; bin/migrate retries.
     operations = [
+        # The run table goes first: its foreign key references the action table.
         migrations.RunSQL(
-            sql="DROP TABLE IF EXISTS replay_vision_visionactionrun;",
+            sql="SET LOCAL lock_timeout = '2s'; DROP TABLE IF EXISTS replay_vision_visionactionrun;",
             reverse_sql="",  # No reverse - the rows are gone with the table.
         ),
         migrations.RunSQL(
-            sql="DROP TABLE IF EXISTS replay_vision_visionaction;",
+            sql="SET LOCAL lock_timeout = '2s'; DROP TABLE IF EXISTS replay_vision_visionaction;",
             reverse_sql="",
         ),
     ]
