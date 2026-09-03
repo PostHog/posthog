@@ -60,6 +60,7 @@ export function CapabilityBadges({
                     size="small"
                     type="secondary"
                     active={selectedKey === capability.key}
+                    aria-pressed={selectedKey === capability.key}
                     icon={badgeIcon(capability)}
                     onClick={() => onSelect(selectedKey === capability.key ? null : capability.key)}
                     data-attr={`capability-badge-${capability.key}`}

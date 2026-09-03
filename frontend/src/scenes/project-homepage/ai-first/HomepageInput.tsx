@@ -541,6 +541,15 @@ export function HomepageInput(): JSX.Element {
     const selectedCapabilityData =
         HOMEPAGE_CAPABILITIES.find((capability) => capability.key === selectedCapability) ?? null
 
+    const selectCapability = (key: string | null): void => {
+        setSelectedCapability(key)
+        // The badge swaps the cards in below itself, away from where the user looked. Focus the input
+        // so the click reads as a response, and the user can type or pick a card next.
+        if (key) {
+            document.querySelector<HTMLElement>('#homepage-input')?.focus()
+        }
+    }
+
     return (
         <div className="w-full max-w-180 mx-auto py-2 ">
             {mode === 'idle' && (
@@ -564,7 +573,7 @@ export function HomepageInput(): JSX.Element {
                                 className="shrink-0"
                                 capabilities={HOMEPAGE_CAPABILITIES}
                                 selectedKey={selectedCapability}
-                                onSelect={setSelectedCapability}
+                                onSelect={selectCapability}
                             />
                             {/* Capability suggestions need a fixed basis; the idle grid uses its intrinsic height. */}
                             <div
@@ -576,6 +585,8 @@ export function HomepageInput(): JSX.Element {
                             >
                                 {selectedCapabilityData ? (
                                     <CapabilitySuggestions
+                                        key={selectedCapabilityData.key}
+                                        className="animate-fade-in motion-reduce:animate-none"
                                         capability={selectedCapabilityData}
                                         onType={setQuery}
                                         onSubmit={() => submitQuery('ai')}
