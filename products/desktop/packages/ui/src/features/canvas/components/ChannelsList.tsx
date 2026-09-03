@@ -107,6 +107,7 @@ import { requestSidebarSearchFocus } from "@posthog/ui/features/canvas/stores/si
 import { useSpaceTreeStore } from "@posthog/ui/features/canvas/stores/spaceTreeStore";
 import { copyChannelLink } from "@posthog/ui/features/canvas/utils/copyChannelLink";
 import { formatHotkey } from "@posthog/ui/features/command/keyboard-shortcuts";
+import { useArchivingTasksStore } from "@posthog/ui/features/sidebar/archivingTasksStore";
 import {
   TaskBadgeStack,
   TaskStatusDot,
@@ -119,6 +120,7 @@ import {
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import { HandoffTaskDialog } from "@posthog/ui/features/task-detail/components/HandoffTaskDialog";
 import { useMountedOnceOpened } from "@posthog/ui/hooks/useMountedOnceOpened";
+import { DotsCircleSpinner } from "@posthog/ui/primitives/DotsCircleSpinner";
 import {
   OverflowTickerText,
   useOverflowTickerReveal,
@@ -452,6 +454,14 @@ const SpaceTaskRow = memo(function SpaceTaskRow({
   // a dozen spaces' worth of rows at once.
   const status = useChannelTaskStatus(item, { withPrStatus: false });
   const actions = useSpaceTaskActionsContext();
+  const archivePresentation = useArchivingTasksStore((state) =>
+    state.hiddenArchivingTaskIds.has(item.id)
+      ? "hidden"
+      : state.archivingTaskIds.has(item.id)
+        ? "progress"
+        : null,
+  );
+  const isArchiving = archivePresentation === "progress";
   // A boolean rather than the value itself, so a keypress re-renders only the
   // two rows whose answer changed.
   const isHighlighted = useSpaceTreeStore(
@@ -494,20 +504,31 @@ const SpaceTaskRow = memo(function SpaceTaskRow({
     [item, spaceId, actions, canHandoff],
   );
 
+  if (archivePresentation === "hidden") return null;
+
   const row = (
     <SpaceRowSurface
       asOption={asOption}
       optionValue={item.key}
       data-selected={isActive || undefined}
-      onClick={() => openTask(spaceId, item.id)}
+      aria-busy={isArchiving || undefined}
+      disabled={isArchiving}
+      onClick={isArchiving ? undefined : () => openTask(spaceId, item.id)}
       // A step in from its space's name, clear of the guide that runs between
       // the two columns.
-      className="pl-8"
+      className={cn("pl-8", isArchiving && "opacity-50")}
     >
       {/* The dot belongs to the title, not to the row: its own tighter gap
           keeps them one mark rather than two columns. */}
       <span className="flex min-w-0 items-center gap-1.5">
-        <TaskStatusDot dot={taskDot(status ?? {})} />
+        {isArchiving ? (
+          <>
+            <DotsCircleSpinner size={12} className="text-muted-foreground" />
+            <span className="sr-only">Archiving</span>
+          </>
+        ) : (
+          <TaskStatusDot dot={taskDot(status ?? {})} />
+        )}
         <span
           className={cn(
             "truncate text-[13px]",
@@ -524,6 +545,9 @@ const SpaceTaskRow = memo(function SpaceTaskRow({
       )}
     </SpaceRowSurface>
   );
+
+  const tipped = <TaskStatusTooltips>{row}</TaskStatusTooltips>;
+  if (isArchiving) return tipped;
 
   return (
     <TaskRowContextMenu menu={menu}>

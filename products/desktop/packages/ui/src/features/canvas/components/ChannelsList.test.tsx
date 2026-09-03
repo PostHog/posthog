@@ -170,6 +170,7 @@ import {
   useSidebarSearchStore,
 } from "@posthog/ui/features/canvas/stores/sidebarSearchStore";
 import { useSpaceTreeStore } from "@posthog/ui/features/canvas/stores/spaceTreeStore";
+import { useArchivingTasksStore } from "@posthog/ui/features/sidebar/archivingTasksStore";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import { ChannelsList } from "./ChannelsList";
 
@@ -222,6 +223,10 @@ describe("ChannelsList", () => {
     useSpaceTreeStore.setState({
       expandedSpaceIds: new Set(),
       highlightedValue: undefined,
+    });
+    useArchivingTasksStore.setState({
+      archivingTaskIds: new Set(),
+      hiddenArchivingTaskIds: new Set(),
     });
     useSidebarSearchStore.setState({
       focusRequest: 0,
@@ -552,6 +557,26 @@ describe("ChannelsList", () => {
       // Still scoped, so whatever asks for the channel pane next opens on the
       // space the session came from.
       expect(useCurrentChannelStore.getState().currentChannelId).toBe(ENG.id);
+    });
+
+    it("shows inert archive progress for a session in the expanded tree", async () => {
+      const user = userEvent.setup();
+      renderList();
+
+      await user.click(screen.getByLabelText("Expand engineering"));
+      act(() => useArchivingTasksStore.getState().startArchiving("task-new"));
+
+      const row = screen.getByText("Ship the tree").closest("button");
+      expect(row).toHaveAttribute("aria-busy", "true");
+      expect(row).toHaveAttribute("aria-disabled", "true");
+      expect(screen.getByText("Archiving")).toHaveClass("sr-only");
+
+      if (row) {
+        fireEvent.click(row);
+        fireEvent.contextMenu(row);
+      }
+      expect(mocks.navigate).not.toHaveBeenCalled();
+      expect(screen.queryByRole("menu")).toBeNull();
     });
 
     // The row after the last session: the keyboard has to know about it, or the
