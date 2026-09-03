@@ -29,7 +29,7 @@ export function getPropertySelectErrorMessages(
         hasError = true
         return (
             <div key={messageIndex} className="text-danger flex items-center gap-1 text-sm Field--error">
-                <IconErrorOutline className="text-xl" /> {message.value}
+                <IconErrorOutline className="text-xl shrink-0" /> {message.value}
             </div>
         )
     })
