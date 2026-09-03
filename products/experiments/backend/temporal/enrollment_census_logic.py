@@ -253,9 +253,19 @@ def enroll_candidates(report: EnrollmentCensusReport) -> list[int]:
                 team_id=candidate.stats.team_id,
             )
             continue
-        config.experiment_precomputation_enabled = True
-        config.precomputation_enabled_set_by = TeamExperimentsConfig.PrecomputationEnabledSetBy.AUTO
-        config.save(update_fields=["experiment_precomputation_enabled", "precomputation_enabled_set_by"])
+        # Conditional UPDATE, not a save of the read row: a human toggling the team between
+        # our read and this write must win, in either direction.
+        updated = (
+            TeamExperimentsConfig.objects.filter(team_id=candidate.stats.team_id)
+            .filter(experiment_precomputation_enabled=False)
+            .exclude(precomputation_enabled_set_by=TeamExperimentsConfig.PrecomputationEnabledSetBy.MANUAL)
+            .update(
+                experiment_precomputation_enabled=True,
+                precomputation_enabled_set_by=TeamExperimentsConfig.PrecomputationEnabledSetBy.AUTO,
+            )
+        )
+        if not updated:
+            continue
         enrolled.append(candidate.stats.team_id)
         logger.info(
             "experiment_precompute_enrollment_enrolled",
