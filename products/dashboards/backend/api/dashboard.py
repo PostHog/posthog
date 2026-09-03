@@ -1337,7 +1337,9 @@ def _check_dashboard_widget_count_limit(*, dashboard: Dashboard, user: User) -> 
 
 def _tile_type_and_widget_type(tile: DashboardTile) -> tuple[str, str | None]:
     if tile.text_id is not None:
-        return tile.text.tile_type, None
+        if tile.text is not None:
+            return tile.text.tile_type, None
+        raise ValueError("Dashboard tile text content is missing for analytics")
     if tile.button_tile_id is not None:
         return "button", None
     if tile.widget_id is not None:
