@@ -343,18 +343,25 @@ export function ReplayDataRetentionSettings(): JSX.Element {
 
     const renderOptions = (loading: boolean): LemonSegmentedButtonOption<SessionRecordingRetentionPeriod>[] => {
         const disabledReason = loading ? 'Loading...' : (restrictedReason ?? undefined)
+        // Loading or a permission limit disables every option, so that reason wins over the upsell
+        const blockedOutsideEntitlement = loading || !!restrictedReason
         // An option the organization cannot buy yet stays disabled, but sends the click to the plans that unlock it
         const upsell = (
             neededMonths: number,
             reason: string,
             products?: ProductKey[]
-        ): Pick<LemonSegmentedButtonOption<SessionRecordingRetentionPeriod>, 'disabledReason' | 'onDisabledClick'> =>
-            entitledMonths >= neededMonths
-                ? { disabledReason }
-                : {
-                      disabledReason: reason,
-                      onDisabledClick: () => router.actions.push(urls.organizationBilling(products)),
-                  }
+        ): Pick<LemonSegmentedButtonOption<SessionRecordingRetentionPeriod>, 'disabledReason' | 'onDisabledClick'> => {
+            if (blockedOutsideEntitlement) {
+                return { disabledReason }
+            }
+            if (entitledMonths >= neededMonths) {
+                return { disabledReason }
+            }
+            return {
+                disabledReason: reason,
+                onDisabledClick: () => router.actions.push(urls.organizationBilling(products)),
+            }
+        }
 
         return [
             {
@@ -369,7 +376,9 @@ export function ReplayDataRetentionSettings(): JSX.Element {
                 icon: <IconHourglass />,
                 label: '90 days',
                 'data-attr': 'session-recording-retention-button-90d',
-                ...upsell(3, 'Only available on the pay-as-you-go plan. Click to see your upgrade options.'),
+                ...upsell(3, 'Only available on the pay-as-you-go plan. Click to see your upgrade options.', [
+                    ProductKey.PLATFORM_AND_SUPPORT,
+                ]),
             },
             {
                 value: '1y' as SessionRecordingRetentionPeriod,
