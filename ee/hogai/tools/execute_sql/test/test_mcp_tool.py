@@ -212,7 +212,7 @@ class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
         )
 
         self.assertIn("performance_warnings", content)
-        self.assertIn("Filter by event name first", content)
+        self.assertIn("filtering by event name is the most effective", content)
 
     async def test_no_scan_warning_for_event_filtered_query(self):
         content = await self.tool.execute(

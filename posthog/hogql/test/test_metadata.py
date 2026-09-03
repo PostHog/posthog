@@ -1247,11 +1247,11 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(len(metadata.warnings), 2)
         property_warning, time_warning = metadata.warnings
-        self.assertIn("reads every event in its date range to check a property", property_warning.message)
+        self.assertIn("filtering by event name is the most effective", property_warning.message)
         self.assertIn("Events seen with plan: paid", property_warning.message)
         self.assertTrue(property_warning.fix and property_warning.fix.startswith("ai_prompt:"))
         self.assertEqual(query[property_warning.start : property_warning.end], "events")
-        self.assertIn("no timestamp bound", time_warning.message)
+        self.assertIn("no timestamp filter", time_warning.message)
 
         all_events = self._select(
             "SELECT event, count() FROM events WHERE timestamp >= now() - INTERVAL 7 DAY GROUP BY event"

@@ -62,8 +62,6 @@ _MONOTONIC_TIMESTAMP_FUNCTIONS = frozenset(
         "toUnixTimestamp",
     }
 )
-# Above this many event names the hint stops helping and the list stops fitting in a message.
-MAX_HINTED_EVENTS = 10
 
 
 class EventsScanReason(StrEnum):
@@ -108,21 +106,20 @@ def events_scan_warnings(query: ast.SelectQuery | ast.SelectSetQuery, database: 
     ]
 
 
+EVENT_FILTER_ADVICE = (
+    "This query reads every event in its date range. "
+    "Limit it to the events you need, with event = '...' or event IN (...). "
+    "In PostHog, filtering by event name is the most effective way to make a query fast."
+)
+
+
 def finding_message(finding: EventsScanFinding, events_by_property: dict[str, list[str]] | None = None) -> str:
     if finding.reason == EventsScanReason.NO_TIME_BOUND:
         return (
-            "This query has no timestamp bound on events, so it reads your whole event history. "
+            "This query has no timestamp filter on events, so it reads your whole event history. "
             "Add one, for example timestamp >= now() - INTERVAL 7 DAY."
         )
-    if finding.reason == EventsScanReason.NO_EVENT_FILTER:
-        return (
-            "This query reads every event in its date range. "
-            "If you only need some events, filter by event name so the database can skip the rest."
-        )
-    message = (
-        "This query reads every event in its date range to check a property. "
-        "Filter by event name first, with event = '...' or event IN (...), so the database can skip the rest."
-    )
+    message = EVENT_FILTER_ADVICE
     for property_name in finding.property_names:
         events = (events_by_property or {}).get(property_name)
         if events:
@@ -134,9 +131,11 @@ def finding_fix(finding: EventsScanFinding) -> str | None:
     """A `HogQLNotice.fix` in its `ai_prompt:` form: the editor offers it as a "Fix with AI" action."""
     if finding.reason == EventsScanReason.PROPERTY_FILTER_WITHOUT_EVENT:
         return (
-            "ai_prompt:Add an event name filter (event = '...' or event IN (...)) to every part of this query "
-            "that reads the events table with a property filter, listing only the events that carry that "
-            "property, so the results stay the same."
+            "ai_prompt:Limit every part of this query that reads the events table to the events it needs, "
+            "with event = '...' or event IN (...), without changing the results. If you do not know which "
+            "events carry a filtered property, find out first with "
+            "SELECT event, count() FROM events WHERE properties.<name> IS NOT NULL AND <the same date range> "
+            "GROUP BY event."
         )
     if finding.reason == EventsScanReason.NO_TIME_BOUND:
         return (
@@ -150,8 +149,7 @@ def events_seen_with_properties(team: "Team", property_names: Iterable[str]) -> 
     """Which event names have carried each property, from the ingestion-time associations.
 
     Those associations are incomplete (no backfill, capped per event), so the result is a hint for
-    the message, never something to rewrite a query with. Properties seen on more than
-    MAX_HINTED_EVENTS events are left out: the list would not help.
+    the message, never something to rewrite a query with.
     """
     from posthog.models import EventProperty  # noqa: PLC0415 - keeps the ORM off the pure AST path
 
@@ -164,9 +162,9 @@ def events_seen_with_properties(team: "Team", property_names: Iterable[str]) -> 
                 EventProperty.objects.alias(effective_project_id=effective_project_id_expr())
                 .filter(effective_project_id=team.project_id, property=property_name)
                 .order_by("event")
-                .values_list("event", flat=True)[: MAX_HINTED_EVENTS + 1]
+                .values_list("event", flat=True)
             )
-            if 0 < len(events) <= MAX_HINTED_EVENTS:
+            if events:
                 events_by_property[property_name] = events
     except DatabaseError:
         logger.warning("Events scan hint skipped due to a database error", exc_info=True)
