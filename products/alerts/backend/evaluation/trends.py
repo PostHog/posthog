@@ -15,7 +15,7 @@ from posthog.api.services.query import ExecutionMode
 from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.caching.insight_result import InsightResult
 from posthog.event_usage import EventSource
-from posthog.hogql_queries.insights.utils.breakdowns import humanize_breakdown_label
+from posthog.hogql_queries.utils.breakdowns import humanize_breakdown_label
 
 # These helpers also back the anomaly detector, so they remain in the tasks module for now.
 from posthog.tasks.alerts.trends import (

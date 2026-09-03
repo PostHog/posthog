@@ -202,6 +202,12 @@
             }
         },
         {
+            "files": ["services/mcp/src/generated/**/*.ts", "services/mcp/src/tools/generated/**/*.ts"],
+            "rules": {
+                "@typescript-eslint/explicit-function-return-type": "off"
+            }
+        },
+        {
             "files": ["services/mcp/src/ui-apps/**/*.{ts,tsx}"],
             "rules": {
                 "no-console": [

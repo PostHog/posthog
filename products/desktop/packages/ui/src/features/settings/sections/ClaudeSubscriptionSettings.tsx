@@ -14,6 +14,27 @@ import {
   ClaudeAuthTerminalDialog,
 } from "./ClaudeAuthTerminalDialog";
 
+interface ClaudeAccountStatus {
+  email?: string;
+  organization?: string;
+  subscriptionType?: string;
+}
+
+function connectedAccountLabel(
+  status: ClaudeAccountStatus | undefined,
+): string {
+  if (!status?.email) return "Claude Code logged in";
+  const details = [
+    status.organization,
+    status.subscriptionType && `${status.subscriptionType} plan`,
+  ]
+    .filter(Boolean)
+    .join(", ");
+  return details
+    ? `Logged in as ${status.email} (${details})`
+    : `Logged in as ${status.email}`;
+}
+
 export function ClaudeSubscriptionSettings(): ReactElement | null {
   const subscription = useAdapterSubscription("claude");
   const hostTRPC = useHostTRPC();
@@ -86,7 +107,7 @@ export function ClaudeSubscriptionSettings(): ReactElement | null {
       return { color: "bg-(--amber-9)", label: "Could not check the login" };
     }
     if (loggedIn) {
-      return { color: "bg-(--green-9)", label: "Claude Code logged in" };
+      return { color: "bg-(--green-9)", label: connectedAccountLabel(status) };
     }
     return { color: "bg-(--red-9)", label: "Not logged in" };
   })();

@@ -253,6 +253,8 @@ export type RtkStatus = z.infer<typeof rtkStatusOutput>;
 
 export const codexSubscriptionStatusOutput = z.object({
   loginState: z.enum(["logged-in", "logged-out", "unknown"]),
+  email: z.string().optional(),
+  subscriptionType: z.string().optional(),
 });
 
 export type CodexSubscriptionStatus = z.infer<
@@ -261,6 +263,9 @@ export type CodexSubscriptionStatus = z.infer<
 
 export const claudeSubscriptionStatusOutput = z.object({
   loginState: z.enum(["logged-in", "logged-out", "unknown"]),
+  email: z.string().optional(),
+  organization: z.string().optional(),
+  subscriptionType: z.string().optional(),
 });
 
 export type ClaudeSubscriptionStatus = z.infer<
@@ -393,6 +398,9 @@ export const getPiModelCatalogOutput = z.array(piModelCatalogEntrySchema);
 export const getPreviewConfigOptionsInput = z.object({
   apiHost: z.string(),
   adapter: z.enum(["claude", "codex"]),
+  // Opt-in: the model option also lists the other harness's models as a
+  // second group, so a picker can switch harness from a model pick.
+  allHarnessModels: z.boolean().optional(),
 });
 
 export const getPreviewConfigOptionsOutput = z.array(sessionConfigOptionSchema);

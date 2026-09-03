@@ -93,8 +93,9 @@ SELF_DRIVING_ORIGIN_PRODUCTS: frozenset[str] = frozenset(
     {
         # Signals report research + repo selection
         "signal_report",
-        # Headless Signals scouts
+        # Headless Signals scouts, and the headless scan that pre-computes scout suggestions
         "signals_scout",
+        "scout_suggestions",
         # ReviewHog's per-chunk review, blind-spot, and validation sandboxes
         "review_hog",
     }
@@ -640,7 +641,11 @@ class SandboxBase(ABC):
                 if isinstance(raw_phases, dict)
                 else {}
             )
-            for source, target in (("totalMs", "server_total"), ("httpReadyMs", "http_ready")):
+            for source, target in (
+                ("totalMs", "server_total"),
+                ("httpReadyMs", "http_ready"),
+                ("launcherToProcessMs", "launcher_to_process"),
+            ):
                 duration = boot.get(source) if isinstance(boot, dict) else None
                 if isinstance(duration, int | float) and not isinstance(duration, bool):
                     phases[target] = max(0, int(duration))

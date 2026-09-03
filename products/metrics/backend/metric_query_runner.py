@@ -173,6 +173,10 @@ def _aggregation_expr(name: str, value: ast.Expr) -> ast.Expr:
         return ast.Call(name="avg", args=[value])
     if name == "count":
         return ast.Call(name="count", args=[])
+    if name == "min":
+        return ast.Call(name="min", args=[value])
+    if name == "max":
+        return ast.Call(name="max", args=[value])
     if name == "p95":
         return ast.Call(name="quantile", params=[ast.Constant(value=0.95)], args=[value])
     raise ValueError(f"Unsupported aggregation: {name!r}")
@@ -189,7 +193,7 @@ def _finite_or_none(value: float | None) -> float | None:
 
 
 _ALLOWED_AGGREGATIONS: frozenset[str] = frozenset(
-    {"sum", "avg", "count", "p95", "rate", "increase", "histogram_quantile"}
+    {"sum", "avg", "count", "min", "max", "p95", "rate", "increase", "histogram_quantile"}
 )
 
 # Derived from the contract enum (whose values match what the ingest writes,

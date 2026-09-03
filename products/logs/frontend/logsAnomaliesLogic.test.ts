@@ -1,6 +1,8 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { ApiError } from 'lib/api-error'
+
 import { initKeaTests } from '~/test/init'
 
 import { logsAnomaliesSeriesBandsCreate } from 'products/logs/frontend/generated/api'
@@ -72,6 +74,40 @@ describe('logsAnomaliesLogic', () => {
         }).toFinishAllListeners()
         expect(logic.values.seriesBands).toBeNull()
         expect(logsAnomaliesSeriesBandsCreate).toHaveBeenCalledTimes(1)
+    })
+
+    it('recharts the picked week', async () => {
+        // The picker only moves this reducer, so a missing reload or a missing body field would
+        // leave the default week on screen under the new label.
+        await expectLogic(logic, () => {
+            logic.actions.setServiceName('checkout')
+        }).toFinishAllListeners()
+
+        await expectLogic(logic, () => {
+            logic.actions.setDateRange({ date_from: '-2wStart', date_to: '-2wEnd' })
+        }).toFinishAllListeners()
+
+        expect(logsAnomaliesSeriesBandsCreate).toHaveBeenCalledTimes(2)
+        const [, body] = (logsAnomaliesSeriesBandsCreate as jest.Mock).mock.calls[1]
+        expect(body).toMatchObject({
+            serviceName: 'checkout',
+            dateRange: { date_from: '-2wStart', date_to: '-2wEnd' },
+        })
+    })
+
+    it('shows the backend reason a window was rejected', async () => {
+        // Without this the banner reads "Non-OK response (status 400)", which leaves the user
+        // no way to know their range was too wide.
+        const rejection = new ApiError(undefined, 400, undefined, {
+            error: 'The window may span at most 7 days.',
+        })
+        ;(logsAnomaliesSeriesBandsCreate as jest.Mock).mockRejectedValue(rejection)
+
+        await expectLogic(logic, () => {
+            logic.actions.setServiceName('checkout')
+        }).toFinishAllListeners()
+
+        expect(logic.values.seriesBandsError).toBe('The window may span at most 7 days.')
     })
 
     it('drops a slow response for a service the user has already left', async () => {

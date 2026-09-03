@@ -1,4 +1,5 @@
 from collections.abc import Iterable
+from dataclasses import replace
 
 import pytest
 
@@ -59,7 +60,6 @@ def _stats(**overrides: int) -> ChecklistStats:
         "events_with_session": 0,
         "events_declining_session": 0,
         "generations_with_tool_calls": 0,
-        "generations_with_tools_declared": 0,
         "sdk_generations": 0,
         "sdk_generations_identified": 0,
         "spans": 0,
@@ -68,7 +68,7 @@ def _stats(**overrides: int) -> ChecklistStats:
     counts.update(overrides)
     if "total_events" not in overrides:
         counts["total_events"] = counts["generations"] + counts["spans"]
-    return ChecklistStats(**counts)
+    return ChecklistStats(**counts, tools_declared=None)
 
 
 def _graded(stats: ChecklistStats, key: CheckKey, dismissed_keys: Iterable[str] = ()) -> GradedCheck:
@@ -209,20 +209,6 @@ class TestGradeChecklist:
                 PENDING_GENERATIONS,
             ),
             (
-                "tool_calls_warning_with_tools_declared",
-                {"generations": 40, "generations_with_tools_declared": 12},
-                CheckKey.TOOL_CALLS,
-                CheckStatus.WARNING,
-                TOOL_CALLS_WARNING_DECLARED,
-            ),
-            (
-                "tool_calls_warning_without_tools_declared",
-                {"generations": 40, "generations_with_tools_declared": 0},
-                CheckKey.TOOL_CALLS,
-                CheckStatus.WARNING,
-                TOOL_CALLS_WARNING_NOT_DECLARED,
-            ),
-            (
                 "tool_calls_ok",
                 {"generations": 40, "generations_with_tool_calls": 1},
                 CheckKey.TOOL_CALLS,
@@ -283,6 +269,26 @@ class TestGradeChecklist:
 
     @parameterized.expand(
         [
+            ("definitions_are_declared", True, TOOL_CALLS_WARNING_DECLARED),
+            ("no_definitions_are_declared", False, TOOL_CALLS_WARNING_NOT_DECLARED),
+            # Nothing asks about definitions unless the check is about to warn, so a `None` that
+            # reaches this branch is a bug elsewhere. It must still read as "no definitions" rather
+            # than telling a project its SDK is dropping calls it never made.
+            ("the_question_was_never_asked", None, TOOL_CALLS_WARNING_NOT_DECLARED),
+        ]
+    )
+    def test_the_tool_calls_warning_asks_for_what_the_declared_definitions_imply(
+        self, _name: str, tools_declared: bool | None, expected_detail: str
+    ) -> None:
+        stats = replace(_stats(generations=40), tools_declared=tools_declared)
+
+        check = _graded(stats, CheckKey.TOOL_CALLS)
+
+        assert check.status == CheckStatus.WARNING
+        assert check.detail == expected_detail
+
+    @parameterized.expand(
+        [
             ("would_be_ok", {"generations": 40, "events_with_session": 40}, SESSIONS_OK),
             ("would_be_warning", {"generations": 40}, SESSIONS_WARNING),
             ("would_be_pending", {}, PENDING_GENERATIONS),
@@ -329,7 +335,7 @@ class TestGradeChecklist:
             (
                 CheckKey.TOOL_CALLS.value,
                 CheckKey.TOOL_CALLS,
-                {"generations": 40, "generations_with_tool_calls": 3, "generations_with_tools_declared": 11},
+                {"generations": 40, "generations_with_tool_calls": 3},
             ),
             (
                 CheckKey.USER_IDENTITY.value,
@@ -351,7 +357,6 @@ class TestGradeChecklist:
             events_with_session=7,
             events_declining_session=2,
             generations_with_tool_calls=3,
-            generations_with_tools_declared=11,
             sdk_generations=31,
             sdk_generations_identified=9,
             spans=12,
@@ -369,7 +374,6 @@ class TestChecklistStats:
                 events_with_session=0,
                 events_declining_session=0,
                 generations_with_tool_calls=0,
-                generations_with_tools_declared=0,
                 sdk_generations=100,
                 sdk_generations_identified=0,
                 spans=10,

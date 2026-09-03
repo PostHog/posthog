@@ -124,6 +124,22 @@ class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == 200, response.json()
         assert "results" in response.json()
 
+    def test_generic_query_endpoint_rejects_unknown_formula_alias_with_400(self) -> None:
+        # The facade reports a bad formula as ValueError; without the runner's
+        # translation to an exposed error, /query would surface it as a 500.
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/query/",
+            {
+                "query": {
+                    "kind": "MetricsQuery",
+                    "clauses": [{"name": "a", "metricName": "queue_depth", "aggregation": "sum"}],
+                    "formula": "a / b",
+                }
+            },
+        )
+
+        assert response.status_code == 400, response.json()
+
     def test_insight_saves_with_metrics_query(self) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.pk}/insights/",

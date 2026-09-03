@@ -101,6 +101,8 @@ class TestSignalsProductModuleIntegrity:
             "EmitEvalSignalWorkflow",
             "RunSignalsScoutWorkflow",
             "SignalsScoutCoordinatorWorkflow",
+            "RunScoutSuggestionsWorkflow",
+            "ScoutSuggestionsCoordinatorWorkflow",
             "CustomSignalAgentWorkflow",
             "SignalReportInboxNotificationWorkflow",
         ]
@@ -142,6 +144,9 @@ class TestSignalsProductModuleIntegrity:
             "mark_report_in_progress_activity",
             "mark_report_pending_input_activity",
             "mark_report_ready_activity",
+            "maybe_autostart_implementation_activity",
+            "implementation_buffer_seconds_activity",
+            "report_is_candidate_activity",
             "publish_report_completed_activity",
             "report_has_assigned_signals_activity",
             "revert_report_to_candidate_activity",
@@ -163,6 +168,9 @@ class TestSignalsProductModuleIntegrity:
             "fetch_enabled_signals_scout_runs_activity",
             "stamp_dispatched_signals_scout_runs_activity",
             "run_signals_scout_activity",
+            "plan_scout_suggestion_runs_activity",
+            "run_scout_suggestions_activity",
+            "stamp_requested_scout_suggestions_activity",
             "run_custom_signal_agent_activity",
         ]
         actual_activity_names = [a.__name__ for a in SIGNALS_PRODUCT_ACTIVITIES]

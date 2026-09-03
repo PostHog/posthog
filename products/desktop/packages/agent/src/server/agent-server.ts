@@ -79,6 +79,7 @@ import {
   SIGNED_MERGE_QUALIFIED_TOOL_NAME,
   SIGNED_REWRITE_QUALIFIED_TOOL_NAME,
 } from "../adapters/signed-commit-shared";
+import { appendSte100Guidance } from "../adapters/ste100-guidance";
 import type { PermissionMode } from "../execution-mode";
 import { DEFAULT_CODEX_MODEL, fetchGatewayModels } from "../gateway-models";
 import { OtelRunTelemetry } from "../otel-telemetry";
@@ -143,6 +144,7 @@ const agentErrorClassificationSchema = z.enum([
   "upstream_connection_error",
   "upstream_timeout",
   "upstream_provider_failure",
+  "content_block_rejection",
   "turn_ended_without_response",
   "agent_error",
 ]) satisfies z.ZodType<AgentErrorClassification>;
@@ -159,6 +161,12 @@ const upstreamProviderFailureClassifications =
     "upstream_timeout",
     "upstream_provider_failure",
   ]);
+
+type TurnFailureDisposition =
+  | "terminal"
+  | "recoverable"
+  | "retryable_delivery"
+  | "retryable_followup";
 
 const errorWithClassificationSchema = z.object({
   data: z.object({ classification: agentErrorClassificationSchema }),
@@ -647,7 +655,11 @@ export class AgentServer {
 
   constructor(config: AgentServerConfig) {
     this.config = config;
-    this.bootTracker = new AgentBootTracker(config.runId);
+    this.bootTracker = new AgentBootTracker(
+      config.runId,
+      undefined,
+      config.launcherToProcessMs,
+    );
     this.posthogExecPermissionRegexSource =
       config.posthogExecPermissionRegex ??
       DEFAULT_POSTHOG_EXEC_PERMISSION_REGEX_SOURCE;
@@ -1310,6 +1322,7 @@ export class AgentServer {
           ];
           const promptMeta: Record<string, unknown> = {
             ...(builtPrompt.meta ?? {}),
+            ...(messageId ? { messageId } : {}),
             ...(hostContext.length > 0
               ? { prContext: hostContext.join("\n\n") }
               : {}),
@@ -1445,12 +1458,12 @@ export class AgentServer {
             }
           } catch (error) {
             await commandSession.logWriter.flushAll();
-            const { recoverable } = await this.handleTurnFailure(
+            const failureDisposition = await this.handleTurnFailure(
               commandSession.payload,
               "followup",
               error,
             );
-            if (!recoverable) {
+            if (failureDisposition !== "recoverable") {
               throw error;
             }
             commitDelivery();
@@ -1715,6 +1728,7 @@ export class AgentServer {
     this.bootTracker = new AgentBootTracker(
       payload.run_id,
       this.httpReadyBootMs,
+      this.config.launcherToProcessMs,
     );
     this.initializationPromise = this._doInitializeSession(
       payload,
@@ -2382,37 +2396,52 @@ export class AgentServer {
     payload: JwtPayload,
     phase: "initial" | "resume" | "followup",
     error: unknown,
-  ): Promise<{ recoverable: boolean }> {
+  ): Promise<TurnFailureDisposition> {
     const { classification, message } = this.extractErrorClassification(error);
     const isUpstreamFailure =
       upstreamProviderFailureClassifications.has(classification);
+    const isTurnWithoutResponse =
+      classification === "turn_ended_without_response";
     const displayMessage = isUpstreamFailure
       ? UPSTREAM_PROVIDER_FAILURE_MESSAGE
       : message || "Agent error";
-    const recoverable =
-      isUpstreamFailure &&
-      phase === "followup" &&
-      this.getEffectiveMode(payload) === "interactive";
+    const isInteractiveFollowup =
+      phase === "followup" && this.getEffectiveMode(payload) === "interactive";
+    const retryableFollowup = isTurnWithoutResponse && isInteractiveFollowup;
+    const retryableDelivery =
+      classification === "content_block_rejection" && phase === "followup";
+    const recoverable = isUpstreamFailure && isInteractiveFollowup;
     const expectedIdleTransportClosure =
       recoverable && /^ACP connection closed$/i.test(message.trim());
+    const suppressClientError =
+      retryableFollowup || expectedIdleTransportClosure;
 
     this.logger.error(`send_${phase}_task_message_failed`, {
       classification,
       message,
       recoverable,
+      retryableDelivery,
     });
 
-    if (!expectedIdleTransportClosure) {
+    if (retryableDelivery) {
+      return "retryable_delivery";
+    }
+
+    if (!suppressClientError) {
       this.broadcastTurnFailure(classification, displayMessage);
     }
 
     if (recoverable) {
       this.broadcastTurnComplete("error_recoverable");
-      return { recoverable: true };
+      return "recoverable";
+    }
+
+    if (retryableFollowup) {
+      return "retryable_followup";
     }
 
     await this.signalTaskComplete(payload, "error", displayMessage);
-    return { recoverable: false };
+    return "terminal";
   }
 
   private broadcastTurnFailure(
@@ -3848,7 +3877,13 @@ export class AgentServer {
     );
     const userPrompt = this.config.claudeCode?.systemPrompt;
 
-    return buildCloudSessionSystemPrompt(cloudAppend, userPrompt);
+    const sessionPrompt = buildCloudSessionSystemPrompt(
+      cloudAppend,
+      userPrompt,
+    );
+    return this.getCloudInteractionOrigin() === "slack"
+      ? appendSte100Guidance(sessionPrompt)
+      : sessionPrompt;
   }
 
   private buildCodexInstructions(
@@ -4419,6 +4454,7 @@ When the user asks about analytics, data, metrics, events, funnels, dashboards, 
 - Use the canonical \`posthog:exec\` tool to query data, search insights, and provide real answers
 - Follow its built-in instructions to discover and invoke inner tools
 - Do NOT tell the user to check an external analytics platform — you ARE the analytics platform
+- For a named business or telemetry metric, inspect the complete governed catalog with \`posthog:metric-list\`, inspect a candidate with \`posthog:metric-describe\`, then run an approved match with \`posthog:data-catalog-metric-run\` before a typed domain tool or raw query
 - Inner tools include \`posthog:read-data-schema\`, \`posthog:execute-sql\`, \`posthog:insight-query\`, and the typed query tools
 
 When the user asks for code changes or software engineering tasks:

@@ -37,6 +37,19 @@ describe('formatErrorContext', () => {
         expect(out).not.toMatch(/^## (injected|New|bare)/m)
     })
 
+    // An absent $mcp_error_message has several causes (an SDK that doesn't emit it, a
+    // dispatcher that never passes the error, autocapture off, a blank message), and this
+    // text is prefilled into a coding agent's task description — so it names the missing
+    // property and stops there rather than asserting one of them.
+    it('names the missing property when the event carries no error message', () => {
+        const out = formatErrorContext({
+            toolName: 'query_run',
+            errorType: 'internal',
+        })
+        expect(out).toContain('Error message: not captured (no $mcp_error_message on this event).')
+        expect(out).not.toContain('predates')
+    })
+
     it('collapses newlines in inline telemetry fields so they stay on their list line', () => {
         const out = formatErrorContext({
             toolName: 'query_run',

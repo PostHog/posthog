@@ -245,6 +245,11 @@ export interface DiffViewModeChangedProperties {
   to_mode: "split" | "unified";
 }
 
+export interface ReviewFileBrowserToggledProperties {
+  task_id: string;
+  collapsed: boolean;
+}
+
 // Workspace events
 export interface WorkspaceCreatedProperties {
   task_id: string;
@@ -682,6 +687,8 @@ export type InboxReportCloseMethod =
 
 export type InboxReportActionType =
   | "dismiss"
+  | "resolve"
+  | "restore"
   | "snooze"
   | "delete"
   | "reingest"
@@ -708,11 +715,28 @@ export type InboxReportActionSurface =
   | "toolbar"
   | "keyboard"
   | "list_row"
+  | "context_menu"
   | "triage";
+
+export type InboxReportActionOutcome = "succeeded" | "failed";
+
+export type InboxReportActionFailureCode =
+  | "offline"
+  | "missing_repository"
+  | "missing_integration"
+  | "signed_out"
+  | "missing_model"
+  | "usage_limit"
+  | "existing_task"
+  | "request_failed"
+  | "task_creation_failed"
+  | "unexpected_error";
 
 export type InboxReviewerScope = "for-you" | "entire-project" | "teammate";
 
 export interface InboxTriageStartedProperties {
+  /** Correlates one Desktop triage run across its start, actions, and end. */
+  triage_id?: string;
   queue_size: number;
   scope: InboxReviewerScope;
   has_active_filters: boolean;
@@ -762,7 +786,6 @@ export interface InboxViewedProperties {
 
 export interface InboxReportOpenedProperties {
   report_id: string;
-  report_title: string | null;
   report_age_hours: number;
   status: string | null;
   priority: string | null;
@@ -776,7 +799,6 @@ export interface InboxReportOpenedProperties {
 
 export interface InboxReportClosedProperties {
   report_id: string;
-  report_title: string | null;
   report_age_hours: number;
   priority: string | null;
   actionability: string | null;
@@ -787,7 +809,6 @@ export interface InboxReportClosedProperties {
 
 export interface InboxReportScrolledProperties {
   report_id: string;
-  report_title: string | null;
   report_age_hours: number;
   priority: string | null;
   actionability: string | null;
@@ -821,7 +842,6 @@ export interface SpendAnalysisTaskOpenedProperties {
 
 export interface InboxReportActionProperties {
   report_id: string;
-  report_title: string | null;
   report_age_hours: number;
   priority: string | null;
   actionability: string | null;
@@ -831,8 +851,8 @@ export interface InboxReportActionProperties {
   bulk_size: number;
   rank: number;
   list_size: number;
+  triage_id?: string;
   dismissal_reason?: string;
-  dismissal_note?: string;
   signal_id?: string;
   signal_source_product?: string;
   signal_source_type?: string;
@@ -843,14 +863,20 @@ export interface InboxReportActionProperties {
   suggested_reviewer_uuid?: string;
   // True when the user submitted Discuss with a first question via the popover.
   has_question?: boolean;
-  // The first question text the user typed before hitting Discuss. Truncated to
-  // 500 chars to keep event payloads bounded.
-  question_text?: string;
   // True when the user submitted Create PR with extra feedback via the popover.
   has_feedback?: boolean;
-  // The feedback text the user typed before hitting Create PR. Truncated to
-  // 500 chars to keep event payloads bounded.
-  feedback_text?: string;
+}
+
+export interface InboxReportActionResultProperties {
+  report_id: string;
+  action_type: InboxReportActionType;
+  surface: InboxReportActionSurface;
+  outcome: InboxReportActionOutcome;
+  duration_ms: number;
+  is_bulk: boolean;
+  bulk_size: number;
+  triage_id?: string;
+  failure_code?: InboxReportActionFailureCode;
 }
 
 /**
@@ -860,8 +886,7 @@ export interface InboxReportActionProperties {
  * against, so it carries the same report classification as the impression and
  * open events. Mirrors cloud's `Inbox report feedback`
  * (`frontend/src/scenes/inbox/inboxAnalytics.ts`) so the clients are
- * comparable in one PostHog project. `note` is optional — the thumbs submit on
- * one click, with no note.
+ * comparable in one PostHog project.
  */
 export interface InboxReportFeedbackProperties {
   report_id: string;
@@ -872,13 +897,10 @@ export interface InboxReportFeedbackProperties {
   /** Whether the report already has an implementation PR. */
   has_pr: boolean;
   surface: InboxReportActionSurface;
-  // Optional free-text note, truncated to keep event payloads bounded. Present
-  // only on the rare path where the rating and note submit together.
-  note?: string;
 }
 
 /**
- * Optional free-text note, offered only once a rating is already recorded. It
+ * Optional note metadata, offered only once a rating is already recorded. It
  * rides on its own event rather than re-firing {@link InboxReportFeedbackProperties}
  * so sentiment stays exactly one event per rating; join back to the rating on
  * `report_id`. Carries `sentiment` too so a note can be read without that join.
@@ -891,8 +913,7 @@ export interface InboxReportFeedbackNoteProperties {
   sentiment: InboxReportFeedbackSentiment;
   has_pr: boolean;
   surface: InboxReportActionSurface;
-  /** Truncated to keep event payloads bounded. */
-  note: string;
+  note_length: number;
 }
 
 // Scout events
@@ -1070,6 +1091,7 @@ type ChannelActionType =
   | "view_more_tasks"
   | "create"
   | "rename"
+  | "auto_archive_update"
   | "delete"
   | "star"
   | "unstar"
@@ -1119,6 +1141,8 @@ export interface ChannelActionProperties {
   tab?: string;
   /** Whether the underlying mutation resolved successfully. */
   success?: boolean;
+  /** For auto_archive_update: the selected inactivity window. Null disables it. */
+  inactivity_days?: number | null;
 }
 
 type DashboardActionType =
@@ -1238,7 +1262,7 @@ export type UpgradePromptClickedSurface =
   | "billing_announcement"
   | "model_picker";
 
-type UpgradePromptCause = "model_gate" | "org_limit";
+type UpgradePromptCause = "model_gate" | "model_unavailable" | "org_limit";
 
 export interface UpgradePromptShownProperties {
   surface: UpgradePromptShownSurface;
@@ -1505,6 +1529,7 @@ export const ANALYTICS_EVENTS = {
   FILE_DIFF_VIEWED: "File diff viewed",
   REVIEW_PANEL_VIEWED: "Review panel viewed",
   DIFF_VIEW_MODE_CHANGED: "Diff view mode changed",
+  REVIEW_FILE_BROWSER_TOGGLED: "Review file browser toggled",
 
   // Workspace events
   WORKSPACE_CREATED: "Workspace created",
@@ -1604,6 +1629,7 @@ export const ANALYTICS_EVENTS = {
   INBOX_REPORT_OPENED: "Inbox report opened",
   INBOX_REPORT_CLOSED: "Inbox report closed",
   INBOX_REPORT_ACTION: "Inbox report action",
+  INBOX_REPORT_ACTION_RESULT: "Inbox report action result",
   INBOX_REPORT_SCROLLED: "Inbox report scrolled",
   INBOX_REPORT_FEEDBACK: "Inbox report feedback",
   INBOX_REPORT_FEEDBACK_NOTE: "Inbox report feedback note",
@@ -1711,6 +1737,7 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.FILE_DIFF_VIEWED]: FileDiffViewedProperties;
   [ANALYTICS_EVENTS.REVIEW_PANEL_VIEWED]: ReviewPanelViewedProperties;
   [ANALYTICS_EVENTS.DIFF_VIEW_MODE_CHANGED]: DiffViewModeChangedProperties;
+  [ANALYTICS_EVENTS.REVIEW_FILE_BROWSER_TOGGLED]: ReviewFileBrowserToggledProperties;
 
   // Workspace events
   [ANALYTICS_EVENTS.WORKSPACE_CREATED]: WorkspaceCreatedProperties;
@@ -1809,6 +1836,7 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.INBOX_REPORT_OPENED]: InboxReportOpenedProperties;
   [ANALYTICS_EVENTS.INBOX_REPORT_CLOSED]: InboxReportClosedProperties;
   [ANALYTICS_EVENTS.INBOX_REPORT_ACTION]: InboxReportActionProperties;
+  [ANALYTICS_EVENTS.INBOX_REPORT_ACTION_RESULT]: InboxReportActionResultProperties;
   [ANALYTICS_EVENTS.INBOX_REPORT_SCROLLED]: InboxReportScrolledProperties;
   [ANALYTICS_EVENTS.INBOX_REPORT_FEEDBACK]: InboxReportFeedbackProperties;
   [ANALYTICS_EVENTS.INBOX_REPORT_FEEDBACK_NOTE]: InboxReportFeedbackNoteProperties;
@@ -1897,9 +1925,12 @@ const INBOX_ANALYTICS_EVENT_NAMES: ReadonlySet<string> = new Set([
   ANALYTICS_EVENTS.INBOX_REPORT_OPENED,
   ANALYTICS_EVENTS.INBOX_REPORT_CLOSED,
   ANALYTICS_EVENTS.INBOX_REPORT_ACTION,
+  ANALYTICS_EVENTS.INBOX_REPORT_ACTION_RESULT,
   ANALYTICS_EVENTS.INBOX_REPORT_SCROLLED,
   ANALYTICS_EVENTS.INBOX_REPORT_FEEDBACK,
   ANALYTICS_EVENTS.INBOX_REPORT_FEEDBACK_NOTE,
+  ANALYTICS_EVENTS.INBOX_TRIAGE_STARTED,
+  ANALYTICS_EVENTS.INBOX_TRIAGE_ENDED,
   ANALYTICS_EVENTS.SIGNAL_SOURCE_CONNECTED,
 ]);
 

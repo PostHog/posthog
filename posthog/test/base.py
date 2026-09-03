@@ -84,7 +84,7 @@ from posthog.clickhouse.query_log_archive import (
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.helpers.two_factor_session import code_based_verification_token_generator
 from posthog.hogql_queries.ai.ai_table_resolver import AI_EVENT_NAMES as _AI_EVENT_TYPES
-from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 from posthog.models import Organization, Team, User
 from posthog.models.ai_events.sql import TRUNCATE_AI_EVENTS_TABLE_SQL
 from posthog.models.channel_type.sql import (
@@ -485,6 +485,14 @@ def clean_varying_query_parts(query, replace_all_numbers):
     query = re.sub(
         r"ee_license\"\.\"valid_until\" >= '\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d.\d{6}\+\d\d:\d\d'::timestamptz",
         '"ee_license"."valid_until">=\'LICENSE-TIMESTAMP\'::timestamptz"',
+        query,
+    )
+
+    # the sharing publish gate checks a share against now()
+    # e.g. AND "posthog_sharingconfiguration"."expires_at" > '2024-01-01 12:00:00+00:00'::timestamptz
+    query = re.sub(
+        r"\"posthog_sharingconfiguration\"\.\"expires_at\" > '[^']+'::timestamptz",
+        '"posthog_sharingconfiguration"."expires_at" > \'SHARING-EXPIRY-TIMESTAMP\'::timestamptz',
         query,
     )
 

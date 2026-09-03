@@ -1274,10 +1274,6 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
                   sessionUpdate: "usage_update",
                   used: lastAssistantTotalUsage,
                   size: windowSize(),
-                  cost: {
-                    amount: message.total_cost_usd,
-                    currency: "USD",
-                  },
                 },
               });
             }
@@ -1566,7 +1562,6 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
                     sessionUpdate: "usage_update",
                     used: nextTotal,
                     size: windowSize(),
-                    cost: null,
                   },
                 });
               }
