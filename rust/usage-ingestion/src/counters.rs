@@ -110,8 +110,6 @@ pub struct CounterAccumulator {
 
 impl CounterAccumulator {
     pub fn add_record(&self, record: &KafkaBillingUsageRecord) -> Result<(), CounterAddError> {
-        // TODO: Pass trusted capture time from event-derived producers into `usage_timestamp`.
-        // Batch-flush time rebuckets lagged records into wrong quota windows; customer event timestamps must not be used.
         self.add(
             record.team_id,
             record.organization_id,
