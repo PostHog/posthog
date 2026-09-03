@@ -170,8 +170,8 @@ tools:
             search across title and summary, source_product (e.g. error_tracking, session_replay), suggested_reviewers,
             `unclaimed`, and `assignee=me`. Claimed reports remain actionable and visible; use `unclaimed=true` to pick
             work that has no owner and no draft, open, or unknown PR. Some statuses are hidden by default (currently
-            suppressed, i.e. human-dismissed); pass `include_all_statuses=true` to list reports in every status. Do this when
-            deduplicating against the full inbox state, and read each row's `status` (plus `dismissal_reason` /
+            suppressed, i.e. human-dismissed); pass `include_all_statuses=true` to list reports in every status. Do this
+            when deduplicating against the full inbox state, and read each row's `status` (plus `dismissal_reason` /
             `dismissal_note` on dismissed rows) before acting. For picking up work, filter to `ready` — earlier statuses
             are still moving through the pipeline, and `pending_input` reports are waiting on a human. Each report's
             full work log, including signal findings, judgments, and log entries, is readable via
@@ -188,8 +188,8 @@ tools:
 
             If you create a pull request implementing the remediation, call inbox-reports-claim again with `pr_url` to
             attach it. Release the claim if you stop work without completing the report. If the report should be
-            considered resolved without a pull request, or PostHog cannot observe the pull request merge, resolve it with
-            inbox-reports-set-state.
+            considered resolved without a pull request, or PostHog cannot observe the pull request merge, resolve it
+            with inbox-reports-set-state.
         response:
             include:
                 - id
@@ -237,8 +237,8 @@ tools:
 
             If you create a pull request implementing the remediation, call inbox-reports-claim again with `pr_url` to
             attach it. Release the claim if you stop work without completing the report. If the report should be
-            considered resolved without a pull request, or PostHog cannot observe the pull request merge, resolve it with
-            inbox-reports-set-state.
+            considered resolved without a pull request, or PostHog cannot observe the pull request merge, resolve it
+            with inbox-reports-set-state.
         param_overrides:
             id:
                 aliases:
