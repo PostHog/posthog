@@ -28,6 +28,7 @@ from posthog.schema import RecordingsQuery
 
 from posthog.api.search import (
     ENTITY_MAP as _SEARCH_ENTITY_MAP,
+    EntityConfig,
     search_entities,
 )
 from posthog.llm.semantic_enrichment import get_team_business_context
@@ -118,6 +119,17 @@ _MAX_FILTER_COHORTS = 1
 # Property filters the model may attach to its chosen events. Two is enough to name a thing and
 # qualify it; more usually means the filter is describing several flows at once.
 _MAX_FILTER_EVENT_PROPERTIES = 2
+# The shared search does not exclude soft-deleted rows, and a deleted entity is worse than no
+# filter. A deleted cohort's filter is dropped when the recordings query resolves it
+# (`CohortPropertyGroupsSubQuery` skips a cohort it cannot load), so the scan silently widens to
+# every session while the rationale still describes an audience. Surveys are excluded from this on
+# purpose: an archived survey keeps its id and its past `survey sent` events, so scanning the people
+# who answered it is a real goal.
+_LIVE_SEARCH_ENTITY_MAP: dict[str, EntityConfig] = {
+    **_SEARCH_ENTITY_MAP,
+    "action": {**_SEARCH_ENTITY_MAP["action"], "filters": {"deleted": False}},
+    "cohort": {**_SEARCH_ENTITY_MAP["cohort"], "filters": {"deleted": False}},
+}
 # Words common to almost any goal. Matching them returns arbitrary events rather than the ones the
 # user means, and crowds out the terms that carry the intent.
 _GOAL_STOPWORDS = frozenset(
@@ -1066,6 +1078,11 @@ def _goal_entity_matches(
     # but a scoped token still must hold cohort:read to receive them.
     if _scopes_allow_read(allowed_scopes, "cohort"):
         kinds.add("cohort")
+    # `search_entities` builds its result by unioning one queryset per kind, then orders by the rank
+    # those querysets annotate. With no kind it orders an empty base queryset by a column that was
+    # never added, which raises.
+    if not kinds:
+        return _GoalEntityMatches(surveys=[], actions=[], cohorts=[])
 
     surveys: dict[str, _MatchedSurvey] = {}
     actions: dict[str, _MatchedAction] = {}
@@ -1078,7 +1095,7 @@ def _goal_entity_matches(
                 query=term,
                 project_id=team.project_id,
                 view=view,  # type: ignore[arg-type]
-                entity_map=_SEARCH_ENTITY_MAP,
+                entity_map=_LIVE_SEARCH_ENTITY_MAP,
                 include_counts=False,
             )
             for result in results:
@@ -1334,7 +1351,9 @@ def _finalize_v2(
     # A page can ground yet drop to None in `_page_filter_value` (a too-short prefix) with nothing
     # formally dropped, so the query still widens to everything. Fire the warning whenever the model
     # wanted a filter but none survived, not only when a value was dropped.
-    widened_unexpectedly = narrowing is None and bool(proposed_pages or parsed.filter_events or parsed.filter_actions)
+    widened_unexpectedly = narrowing is None and bool(
+        proposed_pages or parsed.filter_events or parsed.filter_actions or parsed.filter_cohorts
+    )
     if dropped_pages or dropped_events or widened_unexpectedly:
         # Every dropped value silently broadens the scan (worst case to every non-internal session,
         # the most expensive outcome) while the rationale may still describe a narrow one.

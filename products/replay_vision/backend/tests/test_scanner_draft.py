@@ -728,6 +728,35 @@ class TestGoalEntityMatches(_VisionAPITestCase):
         assert matches.actions == []
         assert matches.cohorts == []
 
+    def test_no_readable_kind_searches_nothing(self):
+        # `search_entities` orders by a rank its per-kind querysets annotate, so calling it with no
+        # kind raises on a column that was never added. The broad except would hide that as an empty
+        # result, with a traceback logged on every draft.
+        self._survey("Pricing feedback")
+
+        with patch(f"{_MODULE}.search_entities") as search:
+            matches = _goal_entity_matches(
+                self.team,
+                "the pricing feedback survey",
+                _access_control(allow=True),
+                allowed_scopes=["replay_scanner:write", "session_recording:read"],
+            )
+
+        assert not search.called
+        assert (matches.surveys, matches.actions, matches.cohorts) == ([], [], [])
+
+    def test_a_soft_deleted_entity_is_never_matched(self):
+        # The shared search does not exclude deleted rows. A deleted cohort is the expensive case:
+        # the recordings query drops a cohort filter it cannot resolve, so the scan widens to every
+        # session while the rationale still describes an audience.
+        Cohort.objects.create(team=self.team, name="Power users", deleted=True)
+        Action.objects.create(team=self.team, name="Power users click", deleted=True)
+
+        matches = _goal_entity_matches(self.team, "what do power users struggle with", _access_control(allow=True))
+
+        assert matches.cohorts == []
+        assert matches.actions == []
+
     def test_a_write_scope_implies_read_and_a_star_scope_grants_all(self):
         survey = self._survey("Pricing feedback")
 
