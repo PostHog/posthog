@@ -44,17 +44,32 @@ class TestRecoverLinksFromHtml:
 
     @parameterized.expand(
         [
-            ("trailing_tilde", "Open https://clicks.example/f/a/token~ please"),
-            ("trailing_tildes", "Open https://clicks.example/f/a/token~~/enc~ please"),
-            ("trailing_dot", "Open https://clicks.example/go. please"),
+            ("trailing_tilde", "https://clicks.example/f/a/token~"),
+            ("trailing_tildes", "https://clicks.example/f/a/token~~/enc~"),
+            ("trailing_underscore", "https://clicks.example/f/a/token_"),
+            ("trailing_hyphen", "https://clicks.example/f/a/token-"),
         ]
     )
-    def test_wraps_bare_url_so_trailing_punctuation_survives(self, _name: str, text: str) -> None:
-        # A bare tracking URL keeps its terminal punctuation only when wrapped; the
+    def test_wraps_bare_url_preserving_token_characters(self, _name: str, url: str) -> None:
+        # A tracking token keeps its terminal character only when wrapped; the
         # renderer's GFM autolink literal would otherwise trim it and break the link.
-        url = text.split("Open ", 1)[1].rsplit(" please", 1)[0]
+        result = recover_links_from_html(f"Open {url} please", "")
+        assert f"<{url}> please" in result
+
+    @parameterized.expand(
+        [
+            ("period", "See https://example.com/page. Thanks", "https://example.com/page", "."),
+            ("comma", "See https://example.com/page, then go", "https://example.com/page", ","),
+            ("question", "Seen https://example.com/page? Yes", "https://example.com/page", "?"),
+        ]
+    )
+    def test_excludes_trailing_sentence_punctuation_from_link(
+        self, _name: str, text: str, url: str, punctuation: str
+    ) -> None:
+        # Sentence punctuation trailing a prose URL must stay outside the link so a
+        # click does not navigate to an altered address.
         result = recover_links_from_html(text, "")
-        assert f"<{url}>" in result
+        assert f"<{url}>{punctuation}" in result
 
     def test_does_not_double_wrap_recovered_link(self) -> None:
         text = "Please confirm.\nAttiva l'inoltro"

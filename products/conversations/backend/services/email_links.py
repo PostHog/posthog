@@ -26,6 +26,10 @@ from bs4 import BeautifulSoup
 logger = structlog.get_logger(__name__)
 
 _HTTP_SCHEME_RE = re.compile(r"^https?://", re.IGNORECASE)
+# Sentence punctuation that trails a URL in prose but is never part of an opaque
+# tracking token (base64url uses `-`/`_`, SparkPost ends in `~`). Trimmed before
+# wrapping so a URL ending a sentence does not carry the punctuation into the link.
+_URL_TRAILING_PUNCTUATION = ".,;:!?"
 # Cap the anchors we scan so a large marketing email can't turn one message into
 # an expensive parse.
 _MAX_ANCHORS = 100
@@ -63,14 +67,24 @@ def _wrap_bare_urls(text: str) -> str:
     punctuation from a bare URL. An explicit `<url>` autolink is taken verbatim, so
     the full token survives. Existing Markdown links and autolinks are left as-is.
 
-    The whole matched URL is wrapped without trimming trailing characters: a
-    tracking token is opaque and can legitimately end in `~`, `-`, or `_`, so
-    dropping a trailing character would break the very links this protects.
+    Only sentence punctuation is peeled off the end and left outside the link, so a
+    URL ending a sentence stays clean. Token characters (`~`, `-`, `_`) are kept,
+    since dropping one would break the tracking links this protects.
     """
 
     def replace(match: re.Match[str]) -> str:
         bare = match.group("bare")
-        return f"<{bare}>" if bare else match.group(0)
+        if not bare:
+            return match.group(0)
+        trailing = ""
+        while bare and bare[-1] in _URL_TRAILING_PUNCTUATION:
+            trailing = bare[-1] + trailing
+            bare = bare[:-1]
+        scheme = _HTTP_SCHEME_RE.match(bare)
+        # Nothing left after the scheme (e.g. "https://.") — leave the text alone.
+        if not scheme or len(bare) == scheme.end():
+            return match.group(0)
+        return f"<{bare}>{trailing}"
 
     return _LINKIFY_RE.sub(replace, text)
 
