@@ -20,42 +20,43 @@ function HogFlowLinearDropzone({
     const { moveNodeToEdge, onDragOver, onDrop } = useActions(hogFlowEditorLogic)
     const [isHighlighted, setIsHighlighted] = useState(false)
 
-    if (!active || !edge) {
-        return (
-            <div className="relative my-2 flex h-7 justify-center" aria-hidden="true">
-                <div className="absolute inset-y-0 border-l-2 border-primary" />
-            </div>
-        )
-    }
+    // A step dropped next to where it already is does not move, so that gap is not a target.
+    const isNoOpTarget = !!draggedActionId && (edge?.from === draggedActionId || edge?.to === draggedActionId)
 
+    // The gap keeps the same height in both states. A drag that resizes the list under the
+    // pointer moves every step away from where the person aimed.
     return (
-        <div
-            className={`group relative my-2 flex h-16 w-full cursor-pointer items-center justify-center rounded border-2 border-dashed transition-colors ${
-                isHighlighted ? 'border-primary bg-surface-primary' : 'border-primary/50'
-            }`}
-            onDragOver={(event) => {
-                setIsHighlighted(true)
-                onDragOver(event)
-            }}
-            onDragLeave={() => setIsHighlighted(false)}
-            onDrop={(event) => {
-                setIsHighlighted(false)
-                if (draggedActionId) {
-                    if (edge.from !== draggedActionId && edge.to !== draggedActionId) {
-                        moveNodeToEdge(draggedActionId, edge, false)
-                    }
-                } else {
-                    onDrop(event, edge)
-                }
-            }}
-            data-attr="workflow-linear-dropzone"
-        >
-            <div className="pointer-events-none relative flex size-8 items-center justify-center rounded-full border-2 bg-surface-primary">
-                <IconPlus className="text-lg text-primary" />
-            </div>
-            <span className="pointer-events-none absolute left-[calc(50%+2rem)] whitespace-nowrap rounded border bg-surface-primary px-2 py-1 text-xs text-secondary opacity-0 transition-opacity group-hover:opacity-100 motion-reduce:transition-none">
-                Drop step here
-            </span>
+        <div className="relative my-2 flex h-7 justify-center">
+            {!active || !edge || isNoOpTarget ? (
+                <div className="absolute inset-y-0 border-l-2 border-primary" aria-hidden="true" />
+            ) : (
+                <div
+                    className={`group absolute inset-x-0 -inset-y-2 flex cursor-pointer items-center justify-center rounded border-2 border-dashed transition-colors ${
+                        isHighlighted ? 'border-primary bg-surface-primary' : 'border-primary/50'
+                    }`}
+                    onDragOver={(event) => {
+                        setIsHighlighted(true)
+                        onDragOver(event)
+                    }}
+                    onDragLeave={() => setIsHighlighted(false)}
+                    onDrop={(event) => {
+                        setIsHighlighted(false)
+                        if (draggedActionId) {
+                            moveNodeToEdge(draggedActionId, edge, false)
+                        } else {
+                            onDrop(event, edge)
+                        }
+                    }}
+                    data-attr="workflow-linear-dropzone"
+                >
+                    <div className="pointer-events-none relative flex size-8 items-center justify-center rounded-full border-2 bg-surface-primary">
+                        <IconPlus className="text-lg text-primary" />
+                    </div>
+                    <span className="pointer-events-none absolute left-[calc(50%+2rem)] whitespace-nowrap rounded border bg-surface-primary px-2 py-1 text-xs text-secondary opacity-0 transition-opacity group-hover:opacity-100 motion-reduce:transition-none">
+                        Drop step here
+                    </span>
+                </div>
+            )}
         </div>
     )
 }
