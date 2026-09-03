@@ -427,7 +427,12 @@ export const dataCatalogMetricSceneLogic = kea<dataCatalogMetricSceneLogicType>(
         dataCatalogAgentSyncLogic.actions.setOpenMetricName(props.name)
         actions.loadMetric()
     }),
-    beforeUnmount(() => {
-        dataCatalogAgentSyncLogic.actions.setOpenMetricName(null)
+    beforeUnmount(({ props }) => {
+        // Keyed by name, so a rename remounts a fresh instance before React releases this one.
+        // Clear the shared slot only when it still names this metric, so a late unmount does not
+        // blank the metric the new instance already registered.
+        if (dataCatalogAgentSyncLogic.values.openMetricName === props.name) {
+            dataCatalogAgentSyncLogic.actions.setOpenMetricName(null)
+        }
     }),
 ])

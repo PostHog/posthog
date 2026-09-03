@@ -7,6 +7,7 @@ import { urls } from 'scenes/urls'
 import { initKeaTests } from '~/test/init'
 import { expectLogic } from '~/test/keaTestUtils'
 
+import { dataCatalogAgentSyncLogic } from './dataCatalogAgentSyncLogic'
 import { dataCatalogMetricSceneLogic, MARKDOWN_DEFINITION_TEMPLATE } from './dataCatalogMetricSceneLogic'
 import {
     dataCatalogMetricsApproveCreate,
@@ -246,6 +247,19 @@ describe('dataCatalogMetricSceneLogic', () => {
         expect(stubLogic.values.draftMarkdown).toEqual(MARKDOWN_DEFINITION_TEMPLATE)
         expect(router.values.searchParams.edit).toBeUndefined()
         stubLogic.unmount()
+    })
+
+    it('keeps the shared open-metric slot when the previous instance unmounts after the rename target mounts', async () => {
+        // A rename mounts the new keyed instance before React releases the old one. The old
+        // instance's late unmount must not blank the metric the new instance registered.
+        const renamedLogic = dataCatalogMetricSceneLogic({ name: 'wau' })
+        renamedLogic.mount()
+        await expectLogic(renamedLogic).toDispatchActions(['loadMetricSuccess'])
+
+        logic.unmount()
+
+        expect(dataCatalogAgentSyncLogic.values.openMetricName).toEqual('wau')
+        renamedLogic.unmount()
     })
 
     it('issues no requests for a traversal-shaped metric name', async () => {
