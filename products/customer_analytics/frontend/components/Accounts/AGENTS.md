@@ -139,13 +139,50 @@ Sort safety: removing the sorted column drops the sort (`clearSortIfColumnRemove
 ## Account detail scene
 
 `CUSTOMER_ANALYTICS_ACCOUNT_SCENE` changes account links from inline row expansion to `CustomerAnalyticsAccountScene` at `/customer_analytics/accounts/:accountId`.
-The detail scene loads the account through `accountsRetrieve` and currently renders only its name and external ID.
+The scene lives in `products/customer_analytics/frontend/scenes/CustomerAnalyticsAccountScene/` and uses the `app-full-scene-height` layout: the page does not scroll, the rail and the canvas scroll on their own.
 
 When the flag is off, the detail scene renders `CustomerAnalyticsScene` and preserves the legacy filtered, expanded-row behavior.
-The optional `/:tab` route remains valid for existing links in both states. The detail scene ignores its tab value.
+The `/:tab` route segment is the selected view id (see Views below); legacy expansion-tab links still resolve, they fall back to the first pinned view.
 
 `AccountsTableNameCell` records `AccountOpened` when a person opens an account in either experience.
 `AccountsTable` disables row expansion while the flag is on.
+
+```text
+CustomerAnalyticsAccountScene        binds customerAnalyticsAccountSceneLogic({ accountId }): account load, tags, selected view (URL)
+├── rail/AccountIdentityRail         logo + name + external id, AccountRailActions, ObjectTags, AccountPinnedProperties
+│   ├── AccountRailActions           add note (accountNotebooksLogic.createNote), org page (accountLinksLogic `organization` link),
+│   │                                add feature request (featureRequestsLogic.openCreateRequest + setAccountId), overflow (copy link, other links)
+│   └── AccountPinnedProperties      accountDetailPropertiesLogic({ accountId }); AccountPropertyRow → AccountPropertyValue / AccountPropertyEditor
+└── canvas/AccountDetailCanvas       LemonTabs over pinned views + Configure tabs / Add view; context bar + Add widget; widget grid
+    ├── widgets/AccountSummaryWidget       accountSummariesLogic (latest summary only)
+    ├── widgets/AccountUsageWidget         dataNodeLogic(UsageMetricsQuery by group key) → UsageMetricCard row
+    ├── widgets/AccountSupportTicketsWidget accountSupportTicketsLogic
+    ├── widgets/AccountRelatedPeopleWidget accountRelatedUsersLogic (keyed by externalId)
+    ├── widgets/AccountTextWidget          per-view markdown text (`properties.text`)
+    └── dialogs/ConfigureTabsDialog, AddViewDialog, AddWidgetDialog   all driven by accountDetailViewsLogic
+```
+
+### Views (tabs)
+
+A **view** is a tab on the canvas with its own ordered widget list.
+Views are team-wide, not per account: `accountDetailViewsLogic` is a singleton that stores them as `ColumnConfiguration` rows under `context_key = 'customer_analytics_account_detail_views'` (`ACCOUNT_DETAIL_VIEWS_CONTEXT_KEY`).
+`accountDetailViews.ts` is the pure mapping: `columns` holds the ordered widget kinds (the API rejects an empty list, which is why a view always keeps at least one widget), `visibility` is the scope (`private` = personal, `shared` = team), and `properties.text` is the text widget's content.
+Only the creator can edit or delete a row; `canEditView` mirrors the backend check.
+
+Before anyone saves a view, the logic serves a built-in "Overview" view (`BUILT_IN_VIEW`, id `overview`) that is never persisted.
+The first edit to it (add or remove a widget, set text) creates a personal row with the result, the built-in view disappears, and the new row takes its tab slot and gets selected.
+
+**Pins** are per person and per browser: `pinnedViewIds` is a team-scoped localStorage reducer, capped at `MAX_PINNED_VIEWS` (5).
+A person with no stored pins sees the first five views the API returns.
+Unpinned views are only reachable from the Configure tabs dialog, which groups views into "Your views" and "Team views".
+The selected view id lives in the URL path segment (`urls.customerAnalyticsAccount(accountId, viewId)`); an unknown id falls back to the first pinned view.
+
+### Rail properties
+
+`accountDetailPropertiesLogic({ accountId })` loads custom property definitions, the account's custom values, relationship definitions, and active relationships, and builds `AccountPropertyDescriptor`s (`accountDetailProperties.ts`): custom properties, relationships, and a few native fields (website, created, churned).
+Provenance is derived, not stored: a warehouse `source` → data warehouse glyph, `references` → workflow glyph, `is_canonical` → PostHog glyph, otherwise manual.
+Custom properties are editable unless they are canonical or warehouse-backed. Workflow-backed properties stay editable. Single-holder relationships are also editable through `MemberSelect` and the relationship endpoints.
+Pinned property keys are a team-scoped localStorage reducer; with nothing stored the first four non-field descriptors are pinned. "Show all N properties" expands the rest.
 
 ## The expanded row
 

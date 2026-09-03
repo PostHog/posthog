@@ -81,6 +81,16 @@ describe('customerAnalyticsAccountSceneLogic', () => {
         })
     })
 
+    it('changes the feature request composer key each time it opens', () => {
+        logic.actions.openFeatureRequestComposer()
+        const firstKey = logic.values.featureRequestComposerKey
+
+        logic.actions.openFeatureRequestComposer()
+
+        expect(logic.values.featureRequestComposerOpen).toBe(true)
+        expect(logic.values.featureRequestComposerKey).toBe(firstKey + 1)
+    })
+
     it('clears a previous error when retrying', async () => {
         mockAccountsRetrieve.mockRejectedValueOnce(new ApiError('Server error', 500))
 

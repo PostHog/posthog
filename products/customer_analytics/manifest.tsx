@@ -25,6 +25,7 @@ export const manifest: ProductManifest = {
             projectBased: true,
             name: 'Account details',
             iconType: 'cohort',
+            layout: 'app-full-scene-height',
         },
         CustomerAnalyticsConfiguration: {
             import: () =>
