@@ -77,7 +77,6 @@ services/agent-*/.next
 !tools/openapi-codegen
 !tools/owners
 !tsconfig.json
-!unit.json.tpl
 common/*/*/node_modules
 common/*/node_modules
 common/*/*/dist

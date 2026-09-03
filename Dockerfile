@@ -301,6 +301,9 @@ RUN apt-get update && \
     # point releases out of the security archive, which breaks exact pins on uncached builds.
     "libssl3=3.0.*" \
     "libjemalloc2" \
+    # numba's omppool extension links libgomp.so.1 and has no vendored copy. The old
+    # base pulled it in through gcc; without it numba drops to the workqueue backend.
+    "libgomp1" \
     && \
     rm -rf /var/lib/apt/lists/*
 

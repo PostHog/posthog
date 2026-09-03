@@ -166,8 +166,8 @@ class PostHogPreviewStack:
         if self.reset_db:
             self.reset_database()
         # Prepare the database and service-backed templates BEFORE web serves:
-        # web can't be restarted to pick up a PR's delta migrations (the
-        # Unit-listener gotcha), so all setup must finish before it boots.
+        # web is not restarted to pick up a PR's delta migrations, so all setup
+        # must finish before it boots.
         self.up_deps()
         self.migrate()
         self.start_cdp_service()
@@ -280,8 +280,8 @@ class PostHogPreviewStack:
         #
         # A web recreate still happens in up_web — but only to bind-mount the PR's
         # backend source over the image's /code (you can't add a mount to a
-        # running container). On the warm golden that's a ~18s warm import (1 Unit
-        # worker + preloaded config), not the old ~120s cold rebuild; #315's win
+        # running container). On the warm golden that's a warm single-worker import,
+        # not the old cold rebuild; #315's win
         # is making that recreate warm and serving the frontend relative
         # (JS_URL=""), not removing it. Keeping the env constant means web only
         # ever recreates for the mount, never for config drift.
@@ -318,9 +318,8 @@ class PostHogPreviewStack:
             # (compose run --rm web) needs it too. Not shared across previews, so
             # a public preview URL can't be used to forge sessions on another.
             f"      - SECRET_KEY={self.secret_key}",
-            # A preview serves one user, so one worker is plenty, and each worker
-            # costs a full Django import at boot. Measured on a restored golden
-            # under the stock 4 workers: ~118s to first /_health.
+            # A preview serves one user, and each worker costs a full Django import
+            # at boot, so one worker reaches a serving /_health much sooner.
             "      - GRANIAN_WORKERS=1",
             # master's Django hard-requires the personhog service for group-type
             # lookups (require_personhog_client() raises "personhog client not
@@ -532,7 +531,7 @@ class PostHogPreviewStack:
         self.backend.run_long(script, name="up-deps", timeout=900)
 
     def up_web(self) -> None:
-        # Clean `up` (never `restart` — Unit-listener gotcha). --no-build reuses
+        # Clean `up` rather than `restart`. --no-build reuses
         # the pulled image; the override mounts PR source over its /code.
         #
         # The temporal worker comes up here, alongside web and for the same

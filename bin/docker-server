@@ -12,19 +12,23 @@ export PROMETHEUS_METRICS_EXPORT_PORT=8001
 export STATSD_PORT=${STATSD_PORT:-8125}
 
 # Granian config is env-only and uses granian's own documented GRANIAN_*
-# env vars (the CLI reads them natively) — no aliases, no flag plumbing.
-# The exports below only set PostHog defaults where they differ from
+# env vars, which the CLI reads natively, so there are no aliases and no flag
+# plumbing. The exports below only set PostHog defaults where they differ from
 # granian's own; any deployment-provided GRANIAN_* var applies directly.
 
 # asgi serves posthog.asgi:application, wsgi serves posthog.wsgi:application
-export GRANIAN_INTERFACE=${GRANIAN_INTERFACE:-asgi}
+export GRANIAN_INTERFACE=${GRANIAN_INTERFACE:-wsgi}
 export GRANIAN_HOST=${GRANIAN_HOST:-0.0.0.0}
-# ASGI + sync views (thread_sensitive=True): each worker handles one sync
-# request at a time — only workers give concurrency. WSGI: per-worker
-# concurrency comes from the blocking thread pool instead; steer it via
+# Under ASGI a sync view holds its worker for the whole request
+# (thread_sensitive=True), so concurrency comes only from adding workers. Under
+# WSGI it comes from the blocking thread pool instead, so steer that with
 # GRANIAN_BACKPRESSURE/GRANIAN_BLOCKING_THREADS rather than more workers.
 export GRANIAN_WORKERS=${GRANIAN_WORKERS:-4}
 export GRANIAN_LOG_LEVEL=${GRANIAN_LOG_LEVEL:-warning}
+# Granian does not drain kept-alive connections on shutdown (granian#568, closed
+# wontfix), so a rolling restart severs them. Upstream recommends turning
+# keep-alive off, which every deployment already does explicitly.
+export GRANIAN_HTTP1_KEEP_ALIVE=${GRANIAN_HTTP1_KEEP_ALIVE:-false}
 export GRANIAN_LOG_ACCESS_ENABLED=${GRANIAN_LOG_ACCESS_ENABLED:-true}
 export GRANIAN_RESPAWN_FAILED_WORKERS=${GRANIAN_RESPAWN_FAILED_WORKERS:-true}
 

@@ -49,8 +49,8 @@ def test_sampler_disabled_starts_no_thread(monkeypatch):
 
 
 def test_sampler_rearms_when_guard_inherited_from_another_process(monkeypatch):
-    # Unit forks workers from a prototype, so the once-flag is copy-on-write-inherited with
-    # the prototype's pid. A worker must re-arm on its own pid and start the thread, not see
+    # Workers are forked from a parent, so the once-flag is copy-on-write-inherited with
+    # the parent's pid. A worker must re-arm on its own pid and start the thread, not see
     # the inherited value and skip — a plain bool guard here would silently sample nothing.
     started_threads = []
 

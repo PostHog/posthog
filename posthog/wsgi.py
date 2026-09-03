@@ -30,7 +30,7 @@ initialize_otel()
 
 # Boot allocations are almost all permanent, so cyclic GC during django.setup() only adds
 # pauses (~300ms). Disable it for the boot, then freeze the survivors so later full
-# collections skip them — which also maximizes copy-on-write sharing when a prototype
+# collections skip them, which also maximizes copy-on-write sharing when a parent
 # process forks workers. See docs/internal/django-startup-time.md.
 gc.disable()
 try:
@@ -39,9 +39,9 @@ try:
     # Resolve the URLconf now, at module load. The lazy API router otherwise builds on
     # each worker's FIRST LIVE REQUEST — k8s probes (/_livez, /_readyz) short-circuit in
     # middleware and never warm it — costing seconds per worker after every deploy.
-    # Building it here keeps the cost to the prototype-process boot: Unit forks workers
-    # from that prototype after the module loads, so the built router lands in the frozen
-    # heap and is copy-on-write shared across all forked workers. Non-web processes
+    # Building it here keeps the cost to the parent-process boot. A server that forks
+    # workers after the module loads lands the built router in the frozen heap, which is
+    # then copy-on-write shared across the workers. Non-web processes
     # (celery, temporal, migrate, shell) never load this module and keep the lazy win.
     from django.urls import get_resolver
 
@@ -87,8 +87,8 @@ def _log_web_worker_started() -> None:
 
 _log_web_worker_started()
 
-# A server that forks workers from a parent process that imported this module means
-# the query_cache RedisCluster must be discovered post-fork: a client built here at
+# Workers are forked from a parent process that already imported this module, so the
+# query_cache RedisCluster must be discovered post-fork: a client built here at
 # import time would be inherited -- sockets and all -- by every worker. Defer the
 # prewarm to the first request so discovery runs in the worker; the factory also
 # pid-guards the cache as a backstop. (start_continuous_profiling/initialize_otel
@@ -106,14 +106,13 @@ def application(environ, start_response):
     if not _prewarmed:
         prewarm_query_cache_cluster_in_background()
         validate_configured_web_bot_auth_private_keys_in_background()
-        # Start the RSS sampler post-fork, here in the worker. Unit forks workers from a
-        # prototype that already imported this module, and a thread started pre-fork does
-        # not survive into the worker — starting it on the worker's first call samples the
-        # process that actually serves requests and grows toward the OOM limit.
+        # Start the RSS sampler post-fork, here in the worker. A thread started before a fork
+        # does not survive into the worker, so starting it on the worker's first call samples
+        # the process that actually serves requests and grows toward the OOM limit.
         start_web_memory_sampler()
-        # Register the SIGUSR2 memory probe on the same post-fork path (see asgi.py). On a
-        # single-threaded Unit worker this runs on the main thread; if Unit serves the app
-        # from a worker thread the install no-ops gracefully. Inert unless the env flag is set.
+        # Register the SIGUSR2 memory probe on the same post-fork path (see asgi.py). Signal
+        # handlers install only from the main thread, so this succeeds when the server calls
+        # the app there and logs a handled failure otherwise. Inert unless the env flag is set.
         install_memory_probe_handler()
         _prewarmed = True
     return _django_application(environ, start_response)
