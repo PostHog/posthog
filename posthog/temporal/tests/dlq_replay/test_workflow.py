@@ -27,15 +27,16 @@ def activity_call_tracker():
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "partition_count,expected_replay_calls",
+    "partition_count,expected_replay_calls,max_concurrent_partitions",
     [
-        pytest.param(1, 1, id="single_partition"),
-        pytest.param(3, 3, id="multiple_partitions"),
-        pytest.param(10, 10, id="many_partitions"),
+        pytest.param(1, 1, 8, id="single_partition"),
+        pytest.param(3, 3, 8, id="multiple_partitions"),
+        pytest.param(10, 10, 8, id="many_partitions"),
+        pytest.param(10, 10, 3, id="bounded_concurrency_multiple_chunks"),
     ],
 )
 async def test_dlq_replay_workflow_processes_all_partitions(
-    activity_call_tracker, partition_count, expected_replay_calls
+    activity_call_tracker, partition_count, expected_replay_calls, max_concurrent_partitions
 ):
     """Verify the workflow discovers partitions and replays each one."""
     get_partitions_calls = activity_call_tracker["get_partitions_calls"]
@@ -74,6 +75,7 @@ async def test_dlq_replay_workflow_processes_all_partitions(
                     start_timestamp=start_time.isoformat(),
                     end_timestamp=end_time.isoformat(),
                     batch_size=500,
+                    max_concurrent_partitions=max_concurrent_partitions,
                 ),
                 id=str(uuid.uuid4()),
                 task_queue=task_queue_name,

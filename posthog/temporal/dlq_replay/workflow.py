@@ -2,6 +2,7 @@ import json
 import asyncio
 import datetime as dt
 import dataclasses
+from collections.abc import Awaitable
 
 from temporalio import workflow
 from temporalio.common import RetryPolicy
@@ -29,6 +30,8 @@ class DLQReplayWorkflowInputs:
         end_timestamp: ISO format datetime string for the end of the replay window.
             If None, defaults to current UTC time when the workflow starts.
         batch_size: Number of messages to process in each batch.
+        max_concurrent_partitions: Maximum number of partition replays to run at once.
+            Bounds the fan-out so a wide DLQ does not overload the shared worker fleet.
     """
 
     source_topic: str
@@ -36,6 +39,7 @@ class DLQReplayWorkflowInputs:
     start_timestamp: str
     end_timestamp: str | None = None
     batch_size: int = 1000
+    max_concurrent_partitions: int = 8
 
 
 @dataclasses.dataclass
@@ -96,10 +100,10 @@ class DLQReplayWorkflow(PostHogWorkflow):
         if not partitions:
             return DLQReplayWorkflowResult(total_messages_replayed=0, partition_results={})
 
-        # Step 2: Replay each partition in parallel
-        partition_tasks = []
-        for partition in partitions:
-            task = workflow.execute_activity(
+        # Step 2: Replay partitions. Bound how many run at once so a wide DLQ does not
+        # burst the shared worker fleet and starve activity heartbeats.
+        def schedule_partition(partition: int) -> Awaitable[ReplayPartitionResult]:
+            return workflow.execute_activity(
                 replay_partition,
                 ReplayPartitionInputs(
                     source_topic=inputs.source_topic,
@@ -117,10 +121,15 @@ class DLQReplayWorkflow(PostHogWorkflow):
                     maximum_attempts=3,
                 ),
             )
-            partition_tasks.append(task)
 
-        # Wait for all partition replays to complete
-        results: list[ReplayPartitionResult] = await asyncio.gather(*partition_tasks)
+        results: list[ReplayPartitionResult] = []
+        if workflow.patched("dlq-replay-bounded-fanout"):
+            max_concurrent = max(1, inputs.max_concurrent_partitions)
+            for start in range(0, len(partitions), max_concurrent):
+                chunk = partitions[start : start + max_concurrent]
+                results.extend(await asyncio.gather(*[schedule_partition(partition) for partition in chunk]))
+        else:
+            results = await asyncio.gather(*[schedule_partition(partition) for partition in partitions])
 
         # Step 3: Aggregate results
         total_messages_replayed = 0
