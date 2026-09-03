@@ -45,6 +45,23 @@ export function sanitizeHTML(html: string): string {
     return DOMPurify.sanitize(html, sanitizeConfig)
 }
 
+/**
+ * Turns a CSS declaration pasted from devtools into a bare value. The property name, a
+ * trailing semicolon, and `!important` are all invalid in an inline style value.
+ * Call this on blur, not on each keystroke: it trims, so it eats the space just typed.
+ */
+export function normalizeCSSValue(value: string | undefined): string | undefined {
+    if (!value) {
+        return value
+    }
+    return value
+        .trim()
+        .replace(/^[a-zA-Z-]+\s*:\s*/, '')
+        .replace(/\s*;+\s*$/, '')
+        .replace(/\s*!\s*important$/i, '')
+        .trim()
+}
+
 export function sanitizeColor(color: string | undefined): string | undefined {
     if (!color) {
         return undefined
@@ -58,12 +75,38 @@ export function sanitizeColor(color: string | undefined): string | undefined {
     return color
 }
 
-export function validateCSSProperty(property: string, value: string | undefined): string | undefined {
-    if (!value) {
+export interface AppearanceCSSField {
+    property: string
+    /** The field label a person reads in the customization panel, in sentence case. */
+    label: string
+    example: string
+}
+
+export const APPEARANCE_CSS_FIELDS = {
+    backgroundColor: { property: 'background-color', label: 'survey background', example: '#ffffff' },
+    borderColor: { property: 'border-color', label: 'border color', example: '#c9c6c6' },
+    textColor: { property: 'color', label: 'question text color', example: '#020617' },
+    inputBackground: { property: 'background-color', label: 'input background', example: '#ffffff' },
+    inputTextColor: { property: 'color', label: 'input text color', example: '#020617' },
+    ratingButtonColor: { property: 'background-color', label: 'rating button color', example: '#ffffff' },
+    ratingButtonActiveColor: { property: 'background-color', label: 'selected rating color', example: '#000000' },
+    submitButtonColor: { property: 'background-color', label: 'button background', example: '#000000' },
+    submitButtonTextColor: { property: 'color', label: 'button text color', example: '#ffffff' },
+    maxWidth: { property: 'width', label: 'survey width', example: '300px' },
+    boxPadding: { property: 'padding', label: 'box padding', example: '20px 24px' },
+    boxShadow: { property: 'box-shadow', label: 'box shadow', example: '0 4px 12px rgba(0, 0, 0, 0.15)' },
+    borderRadius: { property: 'border-radius', label: 'border radius', example: '10px' },
+    zIndex: { property: 'z-index', label: 'z-index', example: '1000001' },
+} satisfies Record<string, AppearanceCSSField>
+
+export function validateCSSValue(field: AppearanceCSSField, value: string | undefined): string | undefined {
+    const normalizedValue = normalizeCSSValue(value)
+    if (!normalizedValue) {
         return undefined
     }
-    const isValidCSSProperty = CSS.supports(property, value)
-    return !isValidCSSProperty ? `${value} is not a valid property for ${property}.` : undefined
+    return CSS.supports(field.property, normalizedValue)
+        ? undefined
+        : `Enter a valid ${field.label}, like ${field.example}.`
 }
 
 export function validateSurveyAppearance(
@@ -78,24 +121,28 @@ export function validateSurveyAppearance(
     if (surveyType === SurveyType.API) {
         return {}
     }
+    const fields = APPEARANCE_CSS_FIELDS
     return {
-        backgroundColor: validateCSSProperty('background-color', appearance.backgroundColor),
-        borderColor: validateCSSProperty('border-color', appearance.borderColor),
-        textColor: validateCSSProperty('color', appearance.textColor),
-        inputBackground: validateCSSProperty('background-color', appearance.inputBackground),
-        inputTextColor: validateCSSProperty('color', appearance.inputTextColor),
+        backgroundColor: validateCSSValue(fields.backgroundColor, appearance.backgroundColor),
+        borderColor: validateCSSValue(fields.borderColor, appearance.borderColor),
+        textColor: validateCSSValue(fields.textColor, appearance.textColor),
+        inputBackground: validateCSSValue(fields.inputBackground, appearance.inputBackground),
+        inputTextColor: validateCSSValue(fields.inputTextColor, appearance.inputTextColor),
         // Only validate rating button colors if there's a rating question
         ...(hasRatingQuestions && {
-            ratingButtonActiveColor: validateCSSProperty('background-color', appearance.ratingButtonActiveColor),
-            ratingButtonColor: validateCSSProperty('background-color', appearance.ratingButtonColor),
+            ratingButtonActiveColor: validateCSSValue(
+                fields.ratingButtonActiveColor,
+                appearance.ratingButtonActiveColor
+            ),
+            ratingButtonColor: validateCSSValue(fields.ratingButtonColor, appearance.ratingButtonColor),
         }),
-        submitButtonColor: validateCSSProperty('background-color', appearance.submitButtonColor),
-        submitButtonTextColor: validateCSSProperty('color', appearance.submitButtonTextColor),
-        maxWidth: validateCSSProperty('width', appearance.maxWidth),
-        boxPadding: validateCSSProperty('padding', appearance.boxPadding),
-        boxShadow: validateCSSProperty('box-shadow', appearance.boxShadow),
-        borderRadius: validateCSSProperty('border-radius', appearance.borderRadius),
-        zIndex: validateCSSProperty('z-index', appearance.zIndex),
+        submitButtonColor: validateCSSValue(fields.submitButtonColor, appearance.submitButtonColor),
+        submitButtonTextColor: validateCSSValue(fields.submitButtonTextColor, appearance.submitButtonTextColor),
+        maxWidth: validateCSSValue(fields.maxWidth, appearance.maxWidth),
+        boxPadding: validateCSSValue(fields.boxPadding, appearance.boxPadding),
+        boxShadow: validateCSSValue(fields.boxShadow, appearance.boxShadow),
+        borderRadius: validateCSSValue(fields.borderRadius, appearance.borderRadius),
+        zIndex: validateCSSValue(fields.zIndex, appearance.zIndex),
         widgetSelector:
             surveyType === SurveyType.Widget && appearance?.widgetType === 'selector' && !appearance.widgetSelector
                 ? 'Please enter a CSS selector.'
