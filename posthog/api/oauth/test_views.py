@@ -3233,6 +3233,38 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
         self.assertFalse(OAuthGrant.objects.filter(application=app).exists())
 
+    @patch("posthog.api.oauth.views.wizard_identity_blocked", return_value=False)
+    def test_authorize_asks_about_every_organization_the_grant_reaches(self, mock_blocked):
+        # An unscoped first-party grant reaches every organization its user belongs
+        # to, so a ban naming one of them has to be asked about.
+        app = self._create_first_party_app_with_ceiling("llm_gateway:read")
+        url = self.replace_param_in_url(self.base_authorization_url, "client_id", app.client_id)
+
+        self.client.get(f"{url}&scope=llm_gateway:read")
+
+        kwargs = mock_blocked.call_args.kwargs
+        self.assertIn(str(self.organization.id), kwargs["organization_ids"])
+        self.assertEqual(kwargs["user_uuid"], str(self.user.uuid))
+
+    @patch("posthog.api.oauth.views.wizard_identity_blocked", return_value=False)
+    def test_authorize_post_carries_the_grants_own_organization_scoping(self, mock_blocked):
+        # Without this the grant's organizations never reach the flag, so a ban
+        # keyed on one silently matches nothing at issuance.
+        app = self._create_first_party_app_with_ceiling("llm_gateway:read")
+
+        self.client.post(
+            "/oauth/authorize/",
+            {
+                **self.base_authorization_post_body,
+                "client_id": app.client_id,
+                "scope": "llm_gateway:read",
+                "access_level": OAuthApplicationAccessLevel.ORGANIZATION.value,
+                "scoped_organizations": [str(self.organization.id)],
+            },
+        )
+
+        self.assertEqual(mock_blocked.call_args.kwargs["organization_ids"], [str(self.organization.id)])
+
     @patch("posthog.api.oauth.views.wizard_identity_blocked", return_value=True)
     def test_authorize_post_still_grants_scopes_without_a_gateway_scope(self, mock_blocked):
         app = self._create_first_party_app_with_ceiling("insight:read")

@@ -166,12 +166,32 @@ class TestSweepBlocklistedGatewayCredentials(APIBaseTest):
 
         with patch(
             "posthog.tasks.wizard_blocklist.wizard_identity_blocked",
-            side_effect=lambda **kwargs: kwargs["organization_id"] == "22222222-2222-4222-8222-222222222222",
+            side_effect=lambda **kwargs: "22222222-2222-4222-8222-222222222222" in kwargs["organization_ids"],
         ) as mock_blocked:
             result = sweep_blocklisted_gateway_credentials()
 
         assert mock_blocked.call_count == 2
         assert result.blocked_users == 1
+
+    def test_a_credential_spanning_several_organizations_is_reached_by_a_ban_on_one(self) -> None:
+        # A first-party wizard grant is scoped to every organization its user
+        # belongs to, so a sole-organization reading would answer "" and miss.
+        self._token(
+            token="multi_org",
+            scoped_organizations=[
+                "11111111-1111-4111-8111-111111111111",
+                "22222222-2222-4222-8222-222222222222",
+            ],
+        )
+
+        with patch(
+            "posthog.tasks.wizard_blocklist.wizard_identity_blocked",
+            side_effect=lambda **kwargs: "22222222-2222-4222-8222-222222222222" in kwargs["organization_ids"],
+        ):
+            result = sweep_blocklisted_gateway_credentials()
+
+        assert result.revoked_sessions == 1
+        assert not OAuthAccessToken.objects.filter(token="multi_org").exists()
 
     def test_only_the_blocked_user_loses_their_credentials(self) -> None:
         other = User.objects.create_and_join(self.organization, "other@example.com", None)

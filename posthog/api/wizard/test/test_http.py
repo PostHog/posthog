@@ -19,6 +19,7 @@ from rest_framework.test import APIRequestFactory
 
 from posthog.api.wizard.http import SETUP_WIZARD_CACHE_PREFIX, SETUP_WIZARD_CACHE_TIMEOUT
 from posthog.cloud_utils import get_api_host
+from posthog.llm.wizard_blocklist import WIZARD_BLOCKED_DETAIL
 from posthog.llm.wizard_gateway_token import WizardGatewayMintError
 from posthog.models import Organization, PersonalAPIKey, User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
@@ -58,7 +59,7 @@ class SetupWizardTests(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
-        assert "support@posthog.com" in response.json()["detail"]
+        assert response.json()["detail"] == WIZARD_BLOCKED_DETAIL
         # The proxy spends PostHog's own provider keys.
         mock_openai.return_value.chat.completions.create.assert_not_called()
 
@@ -92,8 +93,9 @@ class SetupWizardTests(APIBaseTest):
         assert self.mock_blocklist.call_args.kwargs == {
             "distinct_id": str(self.user.distinct_id),
             "email": self.user.email,
-            "organization_id": str(self.team.organization_id),
-            "team_id": self.team.id,
+            "user_uuid": str(self.user.uuid),
+            "organization_ids": [str(self.team.organization_id)],
+            "team_ids": [self.team.id],
             "surface": "query",
         }
 
@@ -575,7 +577,7 @@ class SetupWizardCloudRunTests(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
-        assert "support@posthog.com" in response.json()["detail"]
+        assert response.json()["detail"] == WIZARD_BLOCKED_DETAIL
         assert mock_blocked.call_args.kwargs["surface"] == "cloud_run"
 
     @override_settings(WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID="")
@@ -820,7 +822,7 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
-        assert "support@posthog.com" in response.json()["detail"]
+        assert response.json()["detail"] == WIZARD_BLOCKED_DETAIL
         mock_mint.assert_not_called()
 
     @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
@@ -855,8 +857,9 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
         assert self.mock_blocklist.call_args.kwargs == {
             "distinct_id": str(self.user.distinct_id),
             "email": self.user.email,
-            "organization_id": str(self.team.organization_id),
-            "team_id": self.team.id,
+            "user_uuid": str(self.user.uuid),
+            "organization_ids": [str(self.team.organization_id)],
+            "team_ids": [self.team.id],
             "surface": "gateway_token",
         }
 

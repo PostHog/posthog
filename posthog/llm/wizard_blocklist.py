@@ -10,6 +10,8 @@ what surfaces that rather than letting it read as "nobody is banned". A flag
 outage fails open, since losing the blocklist must not refuse every wizard run.
 """
 
+from collections.abc import Iterable
+
 import structlog
 import posthoganalytics
 from prometheus_client import Counter
@@ -18,9 +20,12 @@ from posthog.scopes import PRIVILEGED_SCOPES
 
 logger = structlog.get_logger(__name__)
 
-# Conditions read `email`, `email_root`, `email_domain`, `organization_id` and
-# `team_id`. Every release condition must carry one of them: a group with no
-# properties bans every wizard user rather than the ones named.
+# Conditions read `user_uuid`, `email`, `email_root`, `email_domain`,
+# `organization_id` and `team_id`. Every release condition must carry one of them:
+# a group with no properties bans every wizard user rather than the ones named.
+# `user_uuid` is the only key the banned account cannot change; an address can be
+# swapped through `PATCH /api/users/@me/`, so an email key bans a mailbox and
+# `user_uuid` bans the account.
 WIZARD_BLOCKLIST_FLAG = "wizard-gateway-blocklist"
 
 # Wider than the two privileged names: the legacy gateway authenticates a bare
@@ -47,7 +52,9 @@ WIZARD_BLOCKLIST_CHECKS = Counter(
 )
 
 
-def blocklist_properties(*, email: str | None, organization_id: str = "", team_id: int | None = None) -> dict[str, str]:
+def blocklist_properties(
+    *, email: str | None, user_uuid: str = "", organization_id: str = "", team_id: int | None = None
+) -> dict[str, str]:
     """The match keys the flag's conditions read.
 
     Every key is always present: a condition naming a key we omitted would
@@ -59,6 +66,7 @@ def blocklist_properties(*, email: str | None, organization_id: str = "", team_i
     if not at:
         # No domain to fold or ban: an address this shape only matches literally.
         return {
+            "user_uuid": user_uuid,
             "email": address,
             "email_root": address,
             "email_domain": "",
@@ -71,6 +79,7 @@ def blocklist_properties(*, email: str | None, organization_id: str = "", team_i
         root_local = root_local.replace(".", "")
         root_domain = "gmail.com"
     return {
+        "user_uuid": user_uuid,
         "email": address,
         "email_root": f"{root_local}@{root_domain}",
         "email_domain": domain,
@@ -95,46 +104,83 @@ def blocklist_flag_defined() -> bool:
     return any(isinstance(flag, dict) and flag.get("key") == WIZARD_BLOCKLIST_FLAG for flag in flags)
 
 
+def _match_contexts(organization_ids: Iterable[str], team_ids: Iterable[int]) -> list[tuple[str, int | None]]:
+    """The (organization, team) pairs a credential reaches, asked one at a time.
+
+    A credential scoped to several organizations grants all of them, so collapsing
+    it to a single value would let a ban naming one of them miss.
+    """
+    organizations = list(dict.fromkeys(str(org) for org in organization_ids if str(org)))
+    teams = list(dict.fromkeys(team_ids))
+    if len(organizations) <= 1:
+        organization_id = organizations[0] if organizations else ""
+        return [(organization_id, team_id) for team_id in teams] or [(organization_id, None)]
+    if not teams:
+        return [(organization_id, None) for organization_id in organizations]
+    # Which team sits in which organization is not on the credential, so ask about
+    # each alone rather than inventing a pair the credential never granted.
+    return [(organization_id, None) for organization_id in organizations] + [("", team_id) for team_id in teams]
+
+
 def wizard_identity_blocked(
-    *, distinct_id: str, email: str | None, surface: str, organization_id: str = "", team_id: int | None = None
+    *,
+    distinct_id: str,
+    email: str | None,
+    surface: str,
+    user_uuid: str = "",
+    organization_ids: Iterable[str] = (),
+    team_ids: Iterable[int] = (),
 ) -> bool:
-    """True when the blocklist names this identity; anything else answers False."""
-    properties = blocklist_properties(email=email, organization_id=organization_id, team_id=team_id)
-    try:
-        blocked = posthoganalytics.feature_enabled(
-            WIZARD_BLOCKLIST_FLAG,
-            distinct_id,
-            person_properties=properties,
-            only_evaluate_locally=True,
-            send_feature_flag_events=False,
+    """True when the blocklist names this identity in any context the credential
+    reaches; anything else answers False.
+
+    One outcome is recorded per call, not per context, so the counter stays a count
+    of identity checks.
+    """
+    unavailable = False
+    unevaluated = False
+    for organization_id, team_id in _match_contexts(organization_ids, team_ids):
+        properties = blocklist_properties(
+            email=email, user_uuid=user_uuid, organization_id=organization_id, team_id=team_id
         )
-    except Exception as e:
+        try:
+            blocked = posthoganalytics.feature_enabled(
+                WIZARD_BLOCKLIST_FLAG,
+                distinct_id,
+                person_properties=properties,
+                only_evaluate_locally=True,
+                send_feature_flag_events=False,
+            )
+        except Exception as e:
+            unavailable = True
+            logger.warning("wizard_blocklist: flag unavailable", error=str(e), surface=surface)
+            continue
+        if blocked:
+            record_blocklist_outcome(surface, "blocked")
+            # The domain rather than the address, to keep mailboxes out of the logs.
+            # Info rather than warn: refusals are the steady state once a ban is in place.
+            logger.info(
+                "wizard_blocklist: identity refused",
+                surface=surface,
+                email_domain=properties["email_domain"],
+                organization_id=organization_id,
+                team_id=team_id,
+            )
+            return True
+        if blocked is None:
+            # No verdict, which is not the same as "not banned": once the flag exists,
+            # this means its conditions cannot be evaluated in-process.
+            unevaluated = True
+    if unavailable or (unevaluated and blocklist_flag_defined()):
         record_blocklist_outcome(surface, "inconclusive")
-        logger.warning("wizard_blocklist: flag unavailable", error=str(e), surface=surface)
-        return False
-    if blocked is None:
-        # No verdict, which is not the same as "not banned": once the flag exists,
-        # this means its conditions cannot be evaluated in-process.
-        if blocklist_flag_defined():
-            record_blocklist_outcome(surface, "inconclusive")
+        if unevaluated and not unavailable:
             logger.warning("wizard_blocklist: flag could not be evaluated locally", surface=surface)
-        else:
-            record_blocklist_outcome(surface, "unconfigured")
         return False
-    if not blocked:
-        record_blocklist_outcome(surface, "allowed")
+    if unevaluated:
+        record_blocklist_outcome(surface, "unconfigured")
         return False
-    record_blocklist_outcome(surface, "blocked")
-    # The domain rather than the address, to keep mailboxes out of the logs. Info
-    # rather than warn: refusals are the steady state once a ban is in place.
-    logger.info(
-        "wizard_blocklist: identity refused",
-        surface=surface,
-        email_domain=properties["email_domain"],
-        organization_id=organization_id,
-        team_id=team_id,
-    )
-    return True
+    record_blocklist_outcome(surface, "allowed")
+    return False
 
 
 def record_blocklist_outcome(surface: str, outcome: str) -> None:

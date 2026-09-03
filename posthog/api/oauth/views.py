@@ -270,11 +270,21 @@ def _impersonation_ai_processing_block(
     )
 
 
-def _gateway_blocklist_block(request, scopes: str | Iterable[str]) -> Response | None:
+def _gateway_blocklist_block(
+    request,
+    scopes: str | Iterable[str],
+    *,
+    access_level: str | None = None,
+    scoped_organization_ids: list[str] | None = None,
+    scoped_team_ids: list[int] | None = None,
+) -> Response | None:
     """Refuse a blocklisted identity a grant carrying an LLM gateway scope.
 
     Keyed on the scope rather than the wizard's client id, so another first-party
     app whose ceiling includes it is not an evasion route.
+
+    Asked against every organization the grant would reach, so a ban naming one of
+    them refuses a credential that bundles it with others.
 
     Refuses the whole authorization rather than dropping the scope, so a ban costs
     a bundled client its sign-in too. Deliberate for an abuse ban, and the one
@@ -286,8 +296,14 @@ def _gateway_blocklist_block(request, scopes: str | Iterable[str]) -> Response |
     requested = set(scopes.split() if isinstance(scopes, str) else scopes)
     if not GATEWAY_BEARING_SCOPES & requested:
         return None
+    organization_ids = _scoped_organization_ids(request.user, access_level, scoped_organization_ids, scoped_team_ids)
     if not wizard_identity_blocked(
-        distinct_id=str(request.user.distinct_id), email=request.user.email, surface="oauth_authorize"
+        distinct_id=str(request.user.distinct_id),
+        email=request.user.email,
+        surface="oauth_authorize",
+        user_uuid=str(request.user.uuid),
+        organization_ids=[str(organization_id) for organization_id in organization_ids],
+        team_ids=scoped_team_ids or [],
     ):
         return None
     return Response(
@@ -1544,7 +1560,13 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             ):
                 return block
 
-            if block := _gateway_blocklist_block(request, scopes):
+            if block := _gateway_blocklist_block(
+                request,
+                scopes,
+                access_level=serializer.validated_data.get("access_level"),
+                scoped_organization_ids=serializer.validated_data.get("scoped_organizations"),
+                scoped_team_ids=serializer.validated_data.get("scoped_teams"),
+            ):
                 return block
 
         try:

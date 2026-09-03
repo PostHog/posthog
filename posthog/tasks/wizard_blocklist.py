@@ -50,7 +50,7 @@ class SweepResult:
 
 def sweep_blocklisted_gateway_credentials() -> SweepResult:
     """Revoke every gateway-bearing session held by a blocklisted user."""
-    verdicts: dict[tuple[int, str, int | None], bool] = {}
+    verdicts: dict[tuple[int, tuple[str, ...], tuple[int, ...]], bool] = {}
     revoked_pairs: set[tuple[int, uuid.UUID]] = set()
     blocked_user_ids: set[int] = set()
 
@@ -71,17 +71,18 @@ def sweep_blocklisted_gateway_credentials() -> SweepResult:
         if user is None or token.application_id is None:
             continue
         # Keyed on the whole question: the verdict depends on the token's own
-        # organization and team, so a user-keyed memo would answer for whichever
+        # organizations and teams, so a user-keyed memo would answer for whichever
         # row the unordered scan read first.
-        question = (user.pk, _organization_id(token), _team_id(token))
+        question = (user.pk, _organization_ids(token), _team_ids(token))
         blocked = verdicts.get(question)
         if blocked is None:
             blocked = wizard_identity_blocked(
                 distinct_id=str(user.distinct_id),
                 email=user.email,
                 surface="revoke_sweep",
-                organization_id=question[1],
-                team_id=question[2],
+                user_uuid=str(user.uuid),
+                organization_ids=question[1],
+                team_ids=question[2],
             )
             verdicts[question] = blocked
             if blocked:
@@ -107,17 +108,20 @@ def sweep_blocklisted_gateway_credentials() -> SweepResult:
     return SweepResult(blocked_users=len(blocked_user_ids), revoked_sessions=len(revoked_pairs))
 
 
-def _organization_id(token: OAuthAccessToken) -> str:
-    """The organization this credential is pinned to, or "". Not the user's current
+def _organization_ids(token: OAuthAccessToken) -> tuple[str, ...]:
+    """Every organization this credential is scoped to. Not the user's current
     organization, which is writable through `PATCH /api/users/@me/` and would let a
-    banned account switch itself out of the match."""
-    scoped = token.scoped_organizations or []
-    return str(scoped[0]) if len(scoped) == 1 else ""
+    banned account switch itself out of the match.
+
+    All of them rather than the sole one: a first-party wizard grant is scoped to
+    every organization its user belongs to, so a single-valued reading would leave
+    an organization ban unenforceable for anyone in more than one.
+    """
+    return tuple(str(organization_id) for organization_id in (token.scoped_organizations or []))
 
 
-def _team_id(token: OAuthAccessToken) -> int | None:
-    scoped = token.scoped_teams or []
-    return scoped[0] if len(scoped) == 1 else None
+def _team_ids(token: OAuthAccessToken) -> tuple[int, ...]:
+    return tuple(token.scoped_teams or [])
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)

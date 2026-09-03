@@ -445,8 +445,9 @@ def create_wizard_oauth_access_token_for_user(user, team_id: int) -> str:
         distinct_id=str(user.distinct_id),
         email=user.email,
         surface="wizard_mint",
-        organization_id=_organization_id_for_team(team_id),
-        team_id=team_id,
+        user_uuid=str(user.uuid),
+        organization_ids=[_organization_id_for_team(team_id)],
+        team_ids=[team_id],
     ):
         raise WizardIdentityBlockedError(WIZARD_BLOCKED_DETAIL)
 

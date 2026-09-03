@@ -31,7 +31,7 @@ class TestBlocklistProperties:
         properties = blocklist_properties(email=email, organization_id="org_1", team_id=7)
 
         # A missing key would make a condition on it silently never match.
-        assert set(properties) == {"email", "email_root", "email_domain", "organization_id", "team_id"}
+        assert set(properties) == {"user_uuid", "email", "email_root", "email_domain", "organization_id", "team_id"}
         assert properties["email_domain"] == ""
         assert properties["organization_id"] == "org_1"
         assert properties["team_id"] == "7"
@@ -45,8 +45,9 @@ class TestWizardIdentityBlocked:
             blocked = wizard_identity_blocked(
                 distinct_id="d1",
                 email="22@example.com",
-                organization_id="org_1",
-                team_id=7,
+                user_uuid="uuid-1",
+                organization_ids=["org_1"],
+                team_ids=[7],
                 surface="gateway_token",
             )
 
@@ -55,6 +56,7 @@ class TestWizardIdentityBlocked:
             "wizard-gateway-blocklist",
             "d1",
             person_properties={
+                "user_uuid": "uuid-1",
                 "email": "22@example.com",
                 "email_root": "22@example.com",
                 "email_domain": "example.com",
@@ -71,8 +73,8 @@ class TestWizardIdentityBlocked:
                 wizard_identity_blocked(
                     distinct_id="d1",
                     email="eng@posthog.com",
-                    organization_id="org_1",
-                    team_id=7,
+                    organization_ids=["org_1"],
+                    team_ids=[7],
                     surface="gateway_token",
                 )
                 is False
@@ -123,8 +125,8 @@ class TestWizardIdentityBlocked:
                 wizard_identity_blocked(
                     distinct_id="d1",
                     email="22@example.com",
-                    organization_id="org_1",
-                    team_id=7,
+                    organization_ids=["org_1"],
+                    team_ids=[7],
                     surface="gateway_token",
                 )
                 is False
@@ -154,3 +156,93 @@ class TestBlocklistFlagDefined:
             side_effect=RuntimeError("down"),
         ):
             assert blocklist_flag_defined() is False
+
+
+class TestMatchContexts:
+    """A credential grants every organization it is scoped to, so each is asked."""
+
+    def test_a_ban_naming_one_of_several_organizations_still_matches(self):
+        # Only the second organization is named, and the sole-organization reading
+        # of this credential would be "" and miss it.
+        def only_org_2(_flag, _distinct_id, *, person_properties, **_kwargs):
+            return person_properties["organization_id"] == "org_2"
+
+        with patch("posthog.llm.wizard_blocklist.posthoganalytics.feature_enabled", side_effect=only_org_2):
+            blocked = wizard_identity_blocked(
+                distinct_id="d1",
+                email="22@example.com",
+                organization_ids=["org_1", "org_2", "org_3"],
+                surface="revoke_sweep",
+            )
+
+        assert blocked is True
+
+    def test_an_unnamed_organization_set_is_allowed(self):
+        with patch("posthog.llm.wizard_blocklist.posthoganalytics.feature_enabled", return_value=False) as enabled:
+            blocked = wizard_identity_blocked(
+                distinct_id="d1",
+                email="22@example.com",
+                organization_ids=["org_1", "org_2"],
+                surface="revoke_sweep",
+            )
+
+        assert blocked is False
+        assert enabled.call_count == 2
+
+    def test_an_organization_and_team_pair_is_asked_together(self):
+        # A condition naming both only matches while they arrive in one question.
+        def org_1_and_team_7(_flag, _distinct_id, *, person_properties, **_kwargs):
+            return person_properties["organization_id"] == "org_1" and person_properties["team_id"] == "7"
+
+        with patch("posthog.llm.wizard_blocklist.posthoganalytics.feature_enabled", side_effect=org_1_and_team_7):
+            blocked = wizard_identity_blocked(
+                distinct_id="d1", email="22@example.com", organization_ids=["org_1"], team_ids=[7], surface="query"
+            )
+
+        assert blocked is True
+
+    def test_several_organizations_and_teams_ask_each_alone(self):
+        # Which team belongs to which organization is not on the credential, so no
+        # pair it never granted is invented.
+        seen = []
+
+        def record(_flag, _distinct_id, *, person_properties, **_kwargs):
+            seen.append((person_properties["organization_id"], person_properties["team_id"]))
+            return False
+
+        with patch("posthog.llm.wizard_blocklist.posthoganalytics.feature_enabled", side_effect=record):
+            wizard_identity_blocked(
+                distinct_id="d1",
+                email="22@example.com",
+                organization_ids=["org_1", "org_2"],
+                team_ids=[7, 8],
+                surface="revoke_sweep",
+            )
+
+        assert seen == [("org_1", ""), ("org_2", ""), ("", "7"), ("", "8")]
+
+    def test_one_outcome_is_recorded_per_check_not_per_context(self):
+        with patch("posthog.llm.wizard_blocklist.posthoganalytics.feature_enabled", return_value=False):
+            with patch("posthog.llm.wizard_blocklist.record_blocklist_outcome") as record:
+                wizard_identity_blocked(
+                    distinct_id="d1",
+                    email="22@example.com",
+                    organization_ids=["org_1", "org_2", "org_3"],
+                    surface="revoke_sweep",
+                )
+
+        record.assert_called_once_with("revoke_sweep", "allowed")
+
+
+class TestImmutableMatchKey:
+    def test_the_account_uuid_is_a_match_key_an_address_change_cannot_shed(self):
+        # An email-keyed ban follows the mailbox; this one follows the account.
+        def only_uuid(_flag, _distinct_id, *, person_properties, **_kwargs):
+            return person_properties["user_uuid"] == "uuid-1"
+
+        with patch("posthog.llm.wizard_blocklist.posthoganalytics.feature_enabled", side_effect=only_uuid):
+            blocked = wizard_identity_blocked(
+                distinct_id="d1", email="moved-on@example.net", user_uuid="uuid-1", surface="oauth_authorize"
+            )
+
+        assert blocked is True

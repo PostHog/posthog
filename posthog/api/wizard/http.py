@@ -102,17 +102,19 @@ ALL_SUPPORTED_MODELS = OPENAI_SUPPORTED_MODELS | GEMINI_SUPPORTED_MODELS
 MODEL_SEED = 7678464
 
 
-def _organization_id_for_query(team_id: int | None) -> str:
-    """The organization the request itself pins, or "".
+def _organization_ids_for_query(team_ids: list[int]) -> list[str]:
+    """The organizations the request itself pins.
 
     Deliberately not the user's current organization, which is writable through
     `PATCH /api/users/@me/`: a ban keyed on it would let the banned account switch
     itself out of the match.
     """
-    if not team_id:
-        return ""
-    organization_id = Team.objects.filter(id=team_id).values_list("organization_id", flat=True).first()
-    return str(organization_id) if organization_id else ""
+    if not team_ids:
+        return []
+    return [
+        str(organization_id)
+        for organization_id in Team.objects.filter(id__in=team_ids).values_list("organization_id", flat=True).distinct()
+    ]
 
 
 class SetupWizardSerializer(serializers.Serializer):
@@ -282,6 +284,7 @@ class SetupWizardViewSet(viewsets.ViewSet):
 
             distinct_id = wizard_data.get("user_distinct_id")
             team_id = wizard_data.get("team_id")
+            blocklist_team_ids = [team_id] if team_id else []
             blocklist_user = None
 
             trace_id = trace_id or hashlib.sha256(hash.encode()).hexdigest()
@@ -301,6 +304,9 @@ class SetupWizardViewSet(viewsets.ViewSet):
             distinct_id = user.distinct_id
             scoped_team_ids = authenticator.access_token.scoped_teams or []
             team_id = scoped_team_ids[0] if len(scoped_team_ids) == 1 else None
+            # Every scoped team, not the sole one `team_id` narrows to: a token
+            # spanning several still grants each, so a ban naming one must match.
+            blocklist_team_ids = list(scoped_team_ids)
 
             trace_id = request.headers.get("X-PostHog-Trace-Id") or hashlib.sha256(distinct_id.encode()).hexdigest()
             blocklist_user = user
@@ -312,8 +318,9 @@ class SetupWizardViewSet(viewsets.ViewSet):
         if wizard_identity_blocked(
             distinct_id=str(distinct_id),
             email=blocklist_user.email if blocklist_user else None,
-            organization_id=_organization_id_for_query(team_id),
-            team_id=team_id,
+            user_uuid=str(blocklist_user.uuid) if blocklist_user else "",
+            organization_ids=_organization_ids_for_query(blocklist_team_ids),
+            team_ids=blocklist_team_ids,
             surface="query",
         ):
             # No outcome label: query labels no other exit, and the blocklist
@@ -508,8 +515,9 @@ class SetupWizardViewSet(viewsets.ViewSet):
         if wizard_identity_blocked(
             distinct_id=distinct_id,
             email=user.email,
-            organization_id=str(team.organization_id),
-            team_id=team.id,
+            user_uuid=str(user.uuid),
+            organization_ids=[str(team.organization_id)],
+            team_ids=[team.id],
             surface="gateway_token",
         ):
             # 403 and not 404, ahead of the rollout gate: the CLI reads 404 as "stay
@@ -718,8 +726,9 @@ class SetupWizardViewSet(viewsets.ViewSet):
         if wizard_identity_blocked(
             distinct_id=str(user.distinct_id),
             email=user.email,
-            organization_id=str(project.organization_id),
-            team_id=project.id,
+            user_uuid=str(user.uuid),
+            organization_ids=[str(project.organization_id)],
+            team_ids=[project.id],
             surface="cloud_run",
         ):
             # No outcome label: `cloud_run` already counts every PermissionDenied as
