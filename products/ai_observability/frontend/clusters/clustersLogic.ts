@@ -10,23 +10,21 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { urls } from 'scenes/urls'
 
-import { EventsQuery, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
-import { AnyPropertyFilter, Breadcrumb, PropertyFilterType, PropertyOperator } from '~/types'
+import { AnyPropertyFilter, Breadcrumb } from '~/types'
 
 import { aiObservabilitySharedLogic } from '../aiObservabilitySharedLogic'
 import type { ApplyUrlStatePayload } from '../aiObservabilitySharedLogic'
 import { loadClusterMetrics } from './clusterMetricsLoader'
 import type { ClusterScatterSeries } from './clusterScatter'
 import {
-    FILTER_QUERY_MAX_ROWS,
     AI_OBSERVABILITY_CLUSTERS_SCENE_TAG,
     CLUSTERING_RUNS_LOOKBACK_DAYS,
     MAX_CLUSTERING_RUNS,
     NOISE_CLUSTER_ID,
     OUTLIER_COLOR,
-    SAFE_ID_RE,
 } from './constants'
+import { loadFilterMatchedItemIds } from './filteredItemIdsLoader'
 import {
     EvaluationItemAttributes,
     EvaluationVerdict,
@@ -409,88 +407,24 @@ export const clustersLogic = kea<clustersLogicType>([
             {
                 loadPropertyFilteredItemIds: async (_, breakpoint) => {
                     // Debounce overlapping filter changes (quick toggles or successive
-                    // cohort selections) into a single EventsQuery round-trip.
+                    // cohort selections) into a single round-trip.
                     await breakpoint(150)
 
-                    const propertyFilters: AnyPropertyFilter[] = values.propertyFilters || []
-                    const shouldFilterTestAccounts: boolean = values.shouldFilterTestAccounts
                     const run = values.currentRun
-
                     if (!run) {
                         return null
                     }
 
-                    if (propertyFilters.length === 0 && !shouldFilterTestAccounts) {
-                        return null
-                    }
-
-                    // Eval clusters key on $ai_evaluation event UUIDs which don't carry
-                    // the person/cohort fields these filters target. The eval-specific
-                    // filter bar handles those.
-                    const level = run.level || values.clusteringLevel
-                    if (level === 'evaluation') {
-                        return null
-                    }
-
-                    const allIds: string[] = []
-                    for (const cluster of run.clusters) {
-                        for (const id of Object.keys(cluster.traces)) {
-                            if (SAFE_ID_RE.test(id)) {
-                                allIds.push(id)
-                            }
-                        }
-                    }
-                    if (allIds.length === 0) {
-                        return new Set<string>()
-                    }
-
-                    if (allIds.length > FILTER_QUERY_MAX_ROWS) {
-                        console.warn(
-                            `Run has ${allIds.length} items, exceeding the ${FILTER_QUERY_MAX_ROWS}-row cap for filter queries. Filters not applied.`
-                        )
-                        return null
-                    }
-
-                    const idPropertyKey = level === 'generation' ? '$ai_generation_id' : '$ai_trace_id'
-                    const idSelectExpression = `properties['${idPropertyKey}']`
-
-                    // Restrict the events to the cluster's items via a typed event-property
-                    // filter rather than a raw HogQL `where` clause: `properties.$ai_generation_id`
-                    // doesn't parse cleanly as a column reference because of the leading `$`,
-                    // which would 500 the EventsQuery. The typed filter goes through
-                    // `property_to_expr` which knows how to escape it.
-                    const idsFilter: AnyPropertyFilter = {
-                        type: PropertyFilterType.Event,
-                        key: idPropertyKey,
-                        operator: PropertyOperator.Exact,
-                        value: allIds,
-                    }
-
-                    const eventsQuery: EventsQuery = {
-                        kind: NodeKind.EventsQuery,
-                        select: [idSelectExpression],
-                        event: '$ai_generation',
-                        properties: [idsFilter, ...propertyFilters],
-                        after: run.windowStart,
-                        before: run.windowEnd,
-                        filterTestAccounts: shouldFilterTestAccounts,
-                        limit: allIds.length + 1,
-                        // Required for the query runner to populate the `product` ClickHouse
-                        // tag — without it the dev-mode `UntaggedQueryError` enforcement 500s
-                        // every request.
-                        tags: { productKey: ProductKey.AI_OBSERVABILITY, scene: AI_OBSERVABILITY_CLUSTERS_SCENE_TAG },
-                    }
-
-                    const response = await api.query(eventsQuery)
+                    const matched = await loadFilterMatchedItemIds({
+                        itemIds: run.clusters.flatMap((cluster) => Object.keys(cluster.traces)),
+                        level: run.level || values.clusteringLevel,
+                        windowStart: run.windowStart,
+                        windowEnd: run.windowEnd,
+                        propertyFilters: values.propertyFilters || [],
+                        filterTestAccounts: values.shouldFilterTestAccounts,
+                        scene: AI_OBSERVABILITY_CLUSTERS_SCENE_TAG,
+                    })
                     breakpoint()
-
-                    const matched = new Set<string>()
-                    for (const row of response?.results || []) {
-                        const id = (row as unknown[])[0]
-                        if (typeof id === 'string' && id) {
-                            matched.add(id)
-                        }
-                    }
                     return matched
                 },
             },
@@ -1015,7 +949,7 @@ export const clustersLogic = kea<clustersLogicType>([
         },
 
         // Property filter state lives in the shared logic; mirror its updates into a
-        // fresh EventsQuery scoped to the current run's items. Both listener entries are
+        // fresh query scoped to the current run's items. Both listener entries are
         // needed because the dispatch path differs by trigger:
         //   - UI clicks dispatch `setPropertyFilters` / `setShouldFilterTestAccounts`
         //     directly. The shared logic's `actionToUrl` then echoes the new state into

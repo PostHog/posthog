@@ -37,3 +37,16 @@ export const SAFE_ID_RE = /^[a-f0-9-]+$/i
 // this are silently truncated server-side, so post-hoc property-filter queries against the
 // full set of cluster items must either fit under the cap or fall back to "no filtering".
 export const FILTER_QUERY_MAX_ROWS = 50000
+
+// Events that belong to a trace. Matches the set the traces list is built from
+// (`traces_query_runner.py`), so a filter keeps the same traces on both surfaces. A trace matches
+// a person or cohort filter when any of these events matches — restricting this to
+// `$ai_generation` dropped every trace whose window holds only spans or embeddings.
+export const TRACE_MEMBER_EVENTS = [
+    '$ai_span',
+    '$ai_generation',
+    '$ai_embedding',
+    '$ai_metric',
+    '$ai_feedback',
+    '$ai_trace',
+]
