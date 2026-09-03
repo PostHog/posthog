@@ -69,7 +69,7 @@ describe('user-agent.template', () => {
         expect(result.properties.$os).toBe('iOS')
     })
 
-    it('does not overwrite existing browser properties by default', async () => {
+    it('does not overwrite existing browser properties by default but still strips the raw user agent', async () => {
         const globals = tester.createGlobals({
             event: { properties: { $useragent: CHROME_UA, $browser: 'firefox' } },
         })
@@ -77,6 +77,7 @@ describe('user-agent.template', () => {
         const result = await invoke({}, globals)
 
         expect(result.properties.$browser).toBe('firefox')
+        expect(result.properties.$useragent).toBeNull()
     })
 
     it('overwrites existing properties when overrideExisting is set', async () => {
