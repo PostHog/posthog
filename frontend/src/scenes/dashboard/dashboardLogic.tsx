@@ -344,6 +344,7 @@ export interface dashboardLogicValues {
     nextAllowedDashboardRefresh: Dayjs | null
     oldestRefreshed: Dayjs | null
     pageVisibility: boolean
+    persistableDashboardFilters: DashboardFilter
     pendingInsertion: PendingInsertion | null
     placement: DashboardPlacement
     projectTreeRef: ProjectTreeRef
@@ -1033,13 +1034,18 @@ export interface dashboardLogicMeta {
             urlFilters: DashboardFilter,
             intermittentFilters: DashboardFilter
         ) => DashboardFilter
+        persistableDashboardFilters: (
+            dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null,
+            urlFilters: DashboardFilter,
+            intermittentFilters: DashboardFilter
+        ) => DashboardFilter
         filtersDirty: (
             dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null,
-            effectiveEditBarFilters: DashboardFilter
+            persistableDashboardFilters: DashboardFilter
         ) => boolean
         filterChanges: (
             dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null,
-            effectiveEditBarFilters: DashboardFilter
+            persistableDashboardFilters: DashboardFilter
         ) => DashboardFilterChange[]
         changedFilterCount: (filterChanges: DashboardFilterChange[]) => number
         anyInsightExceedsRetention: (
@@ -2591,17 +2597,26 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 return effectiveEditBarFilters
             },
         ],
-        filtersDirty: [
-            (s) => [s.dashboard, s.effectiveEditBarFilters],
-            (dashboard: DashboardType<QueryBasedInsightModel> | null, effectiveEditBarFilters: DashboardFilter) =>
-                !equal(dashboard?.persisted_filters || {}, effectiveEditBarFilters || {}),
-        ],
-        filterChanges: [
-            (s) => [s.dashboard, s.effectiveEditBarFilters],
+        persistableDashboardFilters: [
+            (s) => [s.dashboard, s.urlFilters, s.intermittentFilters],
             (
                 dashboard: DashboardType<QueryBasedInsightModel> | null,
-                filters: DashboardFilter
-            ): DashboardFilterChange[] => getDashboardFilterChanges(dashboard?.persisted_filters || {}, filters),
+                urlFilters: DashboardFilter,
+                intermittentFilters: DashboardFilter
+            ) => combineDashboardFilters(dashboard?.persisted_filters || {}, urlFilters, intermittentFilters),
+        ],
+        filtersDirty: [
+            (s) => [s.dashboard, s.persistableDashboardFilters],
+            (dashboard: DashboardType<QueryBasedInsightModel> | null, persistableDashboardFilters: DashboardFilter) =>
+                !equal(dashboard?.persisted_filters || {}, persistableDashboardFilters),
+        ],
+        filterChanges: [
+            (s) => [s.dashboard, s.persistableDashboardFilters],
+            (
+                dashboard: DashboardType<QueryBasedInsightModel> | null,
+                persistableDashboardFilters: DashboardFilter
+            ): DashboardFilterChange[] =>
+                getDashboardFilterChanges(dashboard?.persisted_filters || {}, persistableDashboardFilters),
         ],
         changedFilterCount: [
             (s) => [s.filterChanges],
@@ -4313,7 +4328,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
             try {
                 const previousFilters = values.dashboard.persisted_filters || {}
-                const filtersToSave = values.effectiveEditBarFilters
+                const filtersToSave = values.persistableDashboardFilters
                 const dashboard = await api.update(`api/environments/${values.currentTeamId}/dashboards/${props.id}`, {
                     filters: filtersToSave,
                 })
@@ -4331,7 +4346,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     eventUsageLogic.actions.reportDashboardPropertiesChanged(values.dashboard)
                 }
                 actions.saveDashboardFiltersSuccess(getQueryBasedDashboard(dashboard))
-                const filtersChangedWhileSaving = !equal(values.effectiveEditBarFilters, filtersToSave)
+                const filtersChangedWhileSaving = !equal(values.persistableDashboardFilters, filtersToSave)
                 if (!filtersChangedWhileSaving) {
                     actions.resetIntermittentFilters()
                     actions.resetUrlFilters()
@@ -4363,13 +4378,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     lemonToast.info('Filters changed after this save. Undo is unavailable.')
                     return
                 }
-                const filtersBeforeRestore = values.effectiveEditBarFilters
+                const filtersBeforeRestore = values.persistableDashboardFilters
                 const hadUnsavedFilterEdits = !equal(filtersBeforeRestore, values.dashboard?.persisted_filters || {})
                 const dashboard = await api.update(`api/environments/${values.currentTeamId}/dashboards/${props.id}`, {
                     filters,
                 })
                 actions.saveDashboardFiltersSuccess(getQueryBasedDashboard(dashboard))
-                const filtersChangedWhileRestoring = !equal(values.effectiveEditBarFilters, filtersBeforeRestore)
+                const filtersChangedWhileRestoring = !equal(values.persistableDashboardFilters, filtersBeforeRestore)
                 if (!hadUnsavedFilterEdits && !filtersChangedWhileRestoring) {
                     actions.resetIntermittentFilters()
                     actions.resetUrlFilters()

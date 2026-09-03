@@ -2,6 +2,7 @@ import '@testing-library/jest-dom'
 
 import { cleanup, render } from '@testing-library/react'
 import { BindLogic } from 'kea'
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
@@ -12,6 +13,7 @@ import { AccessControlLevel, DashboardMode, DashboardType, QueryBasedInsightMode
 
 import { DashboardFilterBar } from './DashboardFilters'
 import { dashboardLogic } from './dashboardLogic'
+import { SEARCH_PARAM_FILTERS_KEY } from './dashboardUtils'
 
 const MOCK_DASHBOARD: DashboardType<QueryBasedInsightModel> = {
     id: 5,
@@ -131,6 +133,26 @@ describe('DashboardFilterBar', () => {
 
         expect(document.querySelector('[data-attr="dashboard-filters-unsaved"]')).toBeInTheDocument()
         expect(document.querySelector('[data-attr="dashboard-save-filters"]')).toBeInTheDocument()
+
+        logic.unmount()
+    })
+
+    it('shows temporary URL filters to a viewer without save actions', () => {
+        router.actions.push('/', {
+            [SEARCH_PARAM_FILTERS_KEY]: JSON.stringify({ date_from: '-7d' }),
+        })
+        const viewerDashboard = { ...MOCK_DASHBOARD, user_access_level: AccessControlLevel.Viewer }
+        const logic = dashboardLogic({ id: viewerDashboard.id, dashboard: viewerDashboard })
+        logic.mount()
+
+        render(
+            <BindLogic logic={dashboardLogic} props={{ id: viewerDashboard.id, dashboard: viewerDashboard }}>
+                <DashboardFilterBar />
+            </BindLogic>
+        )
+
+        expect(document.querySelector('[data-attr="dashboard-temporary-filters"]')).toBeInTheDocument()
+        expect(document.querySelector('[data-attr="dashboard-save-filters"]')).not.toBeInTheDocument()
 
         logic.unmount()
     })

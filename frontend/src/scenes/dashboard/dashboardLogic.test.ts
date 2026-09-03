@@ -633,6 +633,36 @@ describe('dashboardLogic', () => {
             expect(logic.values.changedFilterCount).toBe(2)
         })
 
+        it('does not treat embedded context filters as unsaved dashboard filters', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+            ;(api.update as jest.Mock).mockClear()
+
+            await expectLogic(logic, () => {
+                logic.actions.setExternalFilters({
+                    properties: [
+                        {
+                            key: '$group_0',
+                            type: PropertyFilterType.EventMetadata,
+                            operator: PropertyOperator.Exact,
+                            value: 'group-1',
+                        },
+                    ],
+                })
+            }).toFinishAllListeners()
+
+            expect(logic.values.effectiveEditBarFilters.properties).toEqual([
+                expect.objectContaining({ key: '$group_0', value: 'group-1' }),
+            ])
+            expect(logic.values.filtersDirty).toBe(false)
+            expect(logic.values.filterChanges).toEqual([])
+
+            await expectLogic(logic, () => {
+                logic.actions.saveDashboardFilters()
+            }).toFinishAllListeners()
+
+            expect(api.update).not.toHaveBeenCalled()
+        })
+
         it('saving a layout change does not persist temporary filters', async () => {
             await expectLogic(logic).toFinishAllListeners()
 
@@ -2825,6 +2855,16 @@ describe('dashboardLogic', () => {
                 ])
             }
         )
+
+        it('does not treat a URL variable override as an unsaved dashboard filter', async () => {
+            await mountDashboardWithVariable({ urlValue: 'url-val' })
+
+            expect(logic.values.urlVariables).toEqual({
+                [variableId]: expect.objectContaining({ code_name: 'organization', value: 'url-val' }),
+            })
+            expect(logic.values.filtersDirty).toBe(false)
+            expect(logic.values.filterChanges).toEqual([])
+        })
 
         it('dashboard save after variable-only edits runs tile refresh to repopulate insight results missing from PATCH', async () => {
             await mountDashboardWithVariable({
