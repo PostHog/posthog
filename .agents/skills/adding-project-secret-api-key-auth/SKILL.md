@@ -29,6 +29,10 @@ Read the closest one before you wire a new action:
 
 The experiments viewset is the reference for a read-only export: it opts standard CRUD reads in, and keeps writes, lifecycle actions, and results on session, personal key, or OAuth auth.
 
+Two more consumers are live but sit outside this checklist, because neither is a DRF viewset.
+The Rust feature-flags service accepts `feature_flag:read` keys on the flag-definitions and remote-config paths, for SDK local evaluation.
+The Go AI gateway in `PostHog/ai-gateway` accepts `llm_gateway:read` keys, which it reads from a Redis credential projection (`posthog/storage/gateway_credential_cache.py`) instead of Django auth.
+
 ## Wiring a viewset action — the checklist
 
 Four things, all required:
@@ -48,6 +52,9 @@ PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIS
 ```
 
 If your product isn't listed, key creation rejects the scope before auth is ever attempted. Add your `(scope_object, action)` tuple here first, with a comment that says which surface needs it and why a service credential is the right fit. `llm_gateway:read` is deliberately absent: the serializer grants it behind a flag instead.
+
+`feature_flag:read` has a second validator outside Django: the Rust feature-flags service matches that scope string directly in SQL (`rust/feature-flags/src/api/auth.rs`).
+If you rename or remove that entry, the Rust query needs the same edit.
 
 ### 2. Add the authenticator and opt in actions
 
