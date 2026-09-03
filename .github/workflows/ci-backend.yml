@@ -815,9 +815,6 @@ jobs:
                     with:
                         token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
-                  - name: Install turbo
-                    uses: ./.github/actions/setup-turbo
-
                   - name: Set up Python
                     uses: ./.github/actions/setup-python-cached
                     with:
@@ -829,6 +826,10 @@ jobs:
                     with:
                         toolchain: 1.91.1
                         components: cargo
+
+            # Needs pnpm from the block above, so it cannot run inside it.
+            - name: Install turbo
+              uses: ./.github/actions/setup-turbo
 
             - name: Install uv
               id: setup-uv
