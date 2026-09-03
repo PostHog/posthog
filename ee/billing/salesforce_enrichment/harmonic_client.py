@@ -356,7 +356,7 @@ class AsyncHarmonicClient:
                     if isinstance(result, HarmonicEgressBudgetExhausted):
                         denied.append(index)
                     elif isinstance(result, BaseException):
-                        capture_exception(result)
+                        capture_exception(result, {"domain": domains[index]})
                     else:
                         results[index] = result
 

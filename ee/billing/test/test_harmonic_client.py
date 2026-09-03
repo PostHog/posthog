@@ -63,23 +63,17 @@ def _http_500():
     return _response(raise_status=error)
 
 
+# Shared by the patched pace and sleep, so a wave that waits sees the budget refill without the
+# test costing wall-clock time.
 class _FakeClock:
-    """A time source enrich_companies_batch's patched pace/sleep share, so a wave that waits sees
-    the budget it waited for actually refill, without any test costing real wall-clock time."""
-
     def __init__(self) -> None:
         self.now = 0.0
 
 
+# Stands in for the Harmonic egress limiter. always_deny and not_found are keyed by the bare
+# domain, so both HARMONIC_DOMAIN_VARIATIONS of one domain share a fate, as they do against the
+# account-wide budget.
 class _FakeGate:
-    """Stands in for the real Harmonic egress limiter: admits up to `budget` calls per rolling
-    `window` seconds against a shared _FakeClock, denying the rest with the same
-    HarmonicEgressBudgetExhausted the real transport raises. `always_deny` and `not_found` are
-    keyed by the bare domain (no scheme, no www) so both HARMONIC_DOMAIN_VARIATIONS variations of
-    a domain share one fate, matching how the real Harmonic account-wide budget can't tell them
-    apart either.
-    """
-
     def __init__(
         self,
         clock: _FakeClock,
@@ -127,11 +121,9 @@ class _FakeGate:
         return _found({"name": bare_domain})
 
 
+# Awaits the real asyncio.sleep(0) so the call stays an event-loop suspension point that a
+# pending cancellation can land on.
 def _clock_advancing_sleep(clock: _FakeClock):
-    """A drop-in for the patched asyncio.sleep that advances `clock` by the requested duration
-    instead of costing wall-clock time. Awaits the real asyncio.sleep(0) so the call is a genuine
-    event-loop suspension point a pending task cancellation can land on."""
-
     async def fake_sleep(seconds: float) -> None:
         clock.now += seconds
         await _REAL_SLEEP(0)
@@ -383,10 +375,8 @@ async def test_get_enrichment_status_reraises_on_http_error():
 @patch(PACE_SECONDS_HARMONIC)
 @patch(ASYNCIO_SLEEP, new_callable=AsyncMock)
 async def test_enrich_companies_batch_repaces_before_each_wave(mock_sleep, mock_pace):
-    # Pacing once for the whole batch (the old, defective assertion here was
-    # mock_pace.assert_called_once_with) lets a later wave burst past a budget an earlier wave
-    # already drew down. Repacing before every wave, against live limiter state, is what makes a
-    # drawn-down budget actually wait.
+    # A single pace for the whole batch lets a later wave burst past a budget an earlier wave
+    # already drew down, so this asserts a pace per wave against live limiter state.
     clock = _FakeClock()
     gate = _FakeGate(clock, budget=_ENRICH_WAVE_SIZE)  # exactly one wave's worth per window
     mock_pace.side_effect = gate.pace_seconds
@@ -485,6 +475,26 @@ async def test_enrich_companies_batch_skips_pacing_for_critical_priority(mock_sl
     assert results == [{"name": "A"}, {"name": "B"}]
     mock_pace.assert_not_called()
     mock_sleep.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@patch(PACE_SECONDS_HARMONIC, return_value=0.0)
+@patch(ASYNCIO_SLEEP, new_callable=AsyncMock)
+@patch("ee.billing.salesforce_enrichment.harmonic_client.capture_exception")
+async def test_enrich_companies_batch_names_the_domain_of_an_operational_failure(mock_capture, mock_sleep, mock_pace):
+    async def request(session, method, url, *, json, **kwargs):
+        website_url = json["variables"]["identifiers"]["websiteUrl"]
+        if "broken.com" in website_url:
+            return _graphql_errors()
+        return _found({"name": "ok"})
+
+    client = _client(priority=Priority.BATCH)
+    with patch(HARMONIC_REQUEST, new=AsyncMock(side_effect=request)):
+        results = await client.enrich_companies_batch(["ok.com", "broken.com"])
+
+    assert results == [{"name": "ok"}, None]
+    mock_capture.assert_called_once()
+    assert mock_capture.call_args.args[1:] == ({"domain": "broken.com"},)
 
 
 @pytest.mark.asyncio
