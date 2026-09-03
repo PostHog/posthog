@@ -1955,7 +1955,7 @@ export interface featureFlagLogicMeta {
         hasEarlyAccessFeatures: (featureFlag: FeatureFlagType) => boolean
         tagsRequired: (currentTeam: TeamPublicType | TeamType | null) => boolean
         advancedPanelOpen: (
-            advancedExpanded: any,
+            advancedExpanded: boolean | null,
             expandAdvancedOnEdit: boolean,
             tagsRequired: boolean,
             featureFlag: FeatureFlagType
