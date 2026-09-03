@@ -2054,7 +2054,7 @@ class SignalScoutNote(TeamScopedRootMixin, UUIDModel):
     channel, not new power. The run prompt additionally frames note content as advisory
     steering that never overrides the harness ground rules.
 
-    Two more writers derive rows from inbox activity, both re-checking the RBAC leg of this gate
+    Four more writers derive rows from inbox activity, each re-checking the RBAC leg of this gate
     themselves (the actions behind them need only `task:write`) against the canonical project whose
     scouts read the row. They differ on the key-scope leg, because they differ on whether this note is
     the only way the text reaches a scout:
@@ -2087,6 +2087,17 @@ class SignalScoutNote(TeamScopedRootMixin, UUIDModel):
         REPORT_DISCUSSION = "report_discussion", "Derived from inbox discussion feedback"
         REPORT_FEEDBACK = "report_feedback", "Derived from inbox report feedback"
         REPORT_REVIEWER_CORRECTION = "report_reviewer_correction", "Derived from an inbox reviewer correction"
+
+    @classmethod
+    def derived_origins(cls) -> tuple[str, ...]:
+        """Every origin but `HUMAN`: the rows derived from inbox activity, which quote report content.
+
+        Readers that withhold derived rows — the notes list gate, and the implementation-run steering
+        loader — read this rather than listing the kinds, so a new origin is withheld from the moment
+        it exists. Naming the kinds instead leaves a deploy window where a reader that predates the
+        newest one hands it to a caller who may not read reports.
+        """
+        return tuple(origin for origin in cls.Origin.values if origin != cls.Origin.HUMAN)
 
     # See SignalScoutConfig.all_teams for rationale.
     all_teams = models.Manager()  # noqa: DJ012

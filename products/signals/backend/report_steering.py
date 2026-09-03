@@ -43,12 +43,7 @@ logger = structlog.get_logger(__name__)
 _MAX_STEERING_NOTES = 10
 _MAX_STEERING_NOTE_CHARS = 1_000
 
-_DERIVED_ORIGINS = (
-    SignalScoutNote.Origin.REPORT_DISMISSAL,
-    SignalScoutNote.Origin.REPORT_DISCUSSION,
-    SignalScoutNote.Origin.REPORT_FEEDBACK,
-    SignalScoutNote.Origin.REPORT_REVIEWER_CORRECTION,
-)
+_DERIVED_ORIGINS = SignalScoutNote.derived_origins()
 
 
 @frozen

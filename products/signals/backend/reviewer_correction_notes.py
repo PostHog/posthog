@@ -19,17 +19,24 @@ Targets are whoever holds the memory, which is why this is the only derived kind
 than one scout. The authoring scout hears about its own report. On top of that, every scout whose
 `reviewer:` memory names a removed login hears about the removal, because those are the scouts still
 routing on it — a fleet-wide note would reach them only if it survived the newest-first window a run
-reads.
+reads. A report with no live authoring scout falls back to the fleet-wide target, but only when no
+holder resolved: a run reads the fleet-wide notes alongside its own, so pairing the two would tell a
+holder the same thing twice.
 
 Authorization is the editor's, and mirrors `dismissal_notes` rather than `feedback_notes`: the logins
 already reach scouts through the report's reviewers artefact and the project profile, so the note
 opens no channel a `task:write` caller lacks and the API-key scopes aren't demanded on top of the
 RBAC and team-scope legs. Best-effort by contract: the edit, its activity-log row, and its analytics
 event are already committed, so nothing here may fail a reviewer edit.
+
+A login itself is untrusted input, whichever path stored it, so it is shape-checked before it reaches
+a note and dropped when it is not a GitHub login: these values land inside a backtick span in a
+prompt every scout reads while holding privileged tools.
 """
 
 from __future__ import annotations
 
+import re
 import logging
 from collections.abc import Sequence
 from datetime import timedelta
@@ -44,7 +51,7 @@ from products.signals.backend.models import SignalReport, SignalScoutNote
 from products.signals.backend.report_generation.resolve_reviewers import get_org_member_github_logins_by_user_uuid
 from products.signals.backend.scout_authorship import resolve_report_scout_skill
 from products.signals.backend.scout_harness.tools.notes import leave_note
-from products.signals.backend.scout_harness.tools.scratchpad import search_scratchpad
+from products.signals.backend.scout_harness.tools.scratchpad import search_scratchpad_naming
 from products.skills.backend.models.skills import LLMSkill
 
 logger = logging.getLogger(__name__)
@@ -59,15 +66,16 @@ REVIEWER_MEMORY_KEY_PREFIX = "reviewer:"
 MAX_NOTE_TARGETS = 20
 
 # How far back the memory search looks for holders. Wide enough that a login cached by every scout on
-# a large fleet is still found, and the key-prefix filter drops the rest.
+# a large fleet is still found.
 _MEMORY_SEARCH_LIMIT = 200
 
-# `_memory_holders` runs one unindexed scratchpad scan per removed login, so an oversized stored
-# reviewer list (writable through the generic artefacts API, which caps neither the list nor a login)
-# could turn one edit into thousands of scans on the request thread. A real correction removes a
-# handful of logins, so bound the scan fan-out well above that and far below the attack. The fleet
-# fan-out is capped separately by `MAX_NOTE_TARGETS`.
-MAX_REMOVED_LOGINS_SEARCHED = 25
+# How many of an edit's logins reach a note, and with it the memory search. The reviewers PUT caps a
+# new list at ten, but the prior list is read off the stored artefact, which the generic artefacts
+# API writes with no length limit. The cap is applied here rather than on write, so a list already
+# stored is bounded too: without it one oversized row makes the next human edit search on hundreds of
+# thousands of terms and write a note no scout could read. The fleet fan-out is capped separately by
+# `MAX_NOTE_TARGETS`.
+MAX_CORRECTION_LOGINS = 20
 
 # One person trimming the same login off a morning's worth of reports is one piece of evidence, not
 # ten. Inside this window a login already named in a note to a target is left out of the next one, so
@@ -76,6 +84,13 @@ SUPPRESSION_WINDOW = timedelta(hours=24)
 
 # Report titles are unbounded TextFields; a note references them for recognition only.
 _MAX_TITLE_CHARS = 200
+
+# GitHub logins are alphanumerics with single interior hyphens, 39 characters at most. Both write
+# paths into the reviewers artefact accept any non-empty string, so a login can carry a backtick or a
+# newline that closes the span it is rendered in and fakes a section of a note every scout reads.
+# The shape gate sits at that render boundary, the way `repo_corrections.sanitized_repository` does.
+_LOGIN_SHAPE_RE = re.compile(r"^[a-z0-9](?:-?[a-z0-9])*$")
+_MAX_LOGIN_CHARS = 39
 
 # The direction labels the note body writes and the suppression parser reads back. One source of
 # truth so the two can't drift: suppression is keyed per direction off these section prefixes, so an
@@ -153,25 +168,33 @@ def _forward(*, team: Team, correction: ReviewerCorrection) -> ForwardedCorrecti
     ):
         return _NOTHING_FORWARDED
 
+    added_logins = _renderable(correction.added_logins)
+    removed_logins = _renderable(correction.removed_logins)
+    if not added_logins and not removed_logins:
+        return _NOTHING_FORWARDED
+
     report = SignalReport.objects.filter(team_id=canonical_team.id, id=correction.report_id).first()
     if report is None:
         return _NOTHING_FORWARDED
 
-    targets = _resolve_targets(canonical_team.id, correction)
-    removed_themselves = _removed_themselves(canonical_team.id, actor, correction.removed_logins)
+    targets = _resolve_targets(canonical_team.id, correction.report_id, removed_logins)
+    actor_login = _actor_login(canonical_team.id, actor) if removed_logins else None
     expires_at = timezone.now() + DERIVED_NOTE_TTL
     note_ids: list[str] = []
     for skill_name in targets:
         added_told, removed_told = _logins_already_told(canonical_team.id, skill_name)
-        added = tuple(login for login in correction.added_logins if login not in added_told)
-        removed = tuple(login for login in correction.removed_logins if login not in removed_told)
+        added = tuple(login for login in added_logins if login not in added_told)
+        removed = tuple(login for login in removed_logins if login not in removed_told)
         if not added and not removed:
             continue
         content = _build_note_content(
             report=report,
             added_logins=added,
-            removed_logins=removed,
-            removed_themselves=removed_themselves,
+            # Split per note rather than per edit: the caveat belongs to the logins this scout is
+            # actually being told about, and the suppression filter above can leave a batch holding
+            # only the teammate half of a removal, or only the editor's own login.
+            self_removed=tuple(login for login in removed if login == actor_login),
+            teammate_removed=tuple(login for login in removed if login != actor_login),
         )
         try:
             created = leave_note(
@@ -194,21 +217,48 @@ def _forward(*, team: Team, correction: ReviewerCorrection) -> ForwardedCorrecti
     return ForwardedCorrectionNotes(note_ids=tuple(note_ids), targets_resolved=len(targets))
 
 
-def _resolve_targets(team_id: int, correction: ReviewerCorrection) -> list[str]:
+def _renderable(logins: Sequence[str]) -> tuple[str, ...]:
+    """The logins of one edit that may be rendered into a note: well-shaped, deduped, and capped."""
+    kept: list[str] = []
+    malformed = 0
+    for login in logins:
+        cleaned = login.strip().lower()
+        if not cleaned or len(cleaned) > _MAX_LOGIN_CHARS or not _LOGIN_SHAPE_RE.match(cleaned):
+            malformed += 1
+            continue
+        if cleaned not in kept:
+            kept.append(cleaned)
+    if malformed:
+        # A count, never the value: a malformed login is untrusted input, and this line is read by
+        # people.
+        logger.warning(
+            "Dropped reviewer logins that are not a GitHub login before forwarding a correction",
+            extra={"dropped": malformed},
+        )
+    return tuple(kept[:MAX_CORRECTION_LOGINS])
+
+
+def _resolve_targets(team_id: int, report_id: str, removed_logins: Sequence[str]) -> list[str]:
     """Who to tell: the scout that filed the report, plus every holder of the removed logins.
 
-    The authoring scout comes first, and is the fleet-wide target ("") for a pipeline report or one
-    whose scout no longer exists — the same fallback dismissals use.
+    A report with no live authoring scout (a pipeline report, or one whose scout is gone) falls back
+    to the fleet-wide target ("") that dismissals use — but only when no holder resolved, because a
+    run reads the fleet-wide notes alongside its own and a holder would hear the same edit twice.
     """
-    targets = [resolve_report_scout_skill(team_id, correction.report_id)]
-    for skill_name in _memory_holders(team_id, correction.removed_logins):
-        if skill_name not in targets:
-            targets.append(skill_name)
-    return targets[:MAX_NOTE_TARGETS]
+    holders = _memory_holders(team_id, removed_logins)
+    authoring = resolve_report_scout_skill(team_id, report_id)
+    if not authoring:
+        return holders[:MAX_NOTE_TARGETS] if holders else [""]
+    return [authoring, *(name for name in holders if name != authoring)][:MAX_NOTE_TARGETS]
 
 
 def _memory_holders(team_id: int, removed_logins: Sequence[str]) -> list[str]:
     """The live scouts whose `reviewer:` memory names one of these logins.
+
+    One query for the whole login list, matching each as a whole token. A substring search would
+    both amplify (one unindexed scan per login) and mis-target: `ai` sits inside `email`, so a short
+    login would reach scouts that never routed on it and spend the target cap before the real
+    holders were found.
 
     An entry written by a pipeline stage is left out: a stage is a writer identity, not a note
     audience. So is one written by a scout whose skill is gone, because a note addressed to a name
@@ -216,15 +266,16 @@ def _memory_holders(team_id: int, removed_logins: Sequence[str]) -> list[str]:
     """
     if not removed_logins:
         return []
-    named: set[str] = set()
-    # Bound the per-login scan fan-out: a real correction is well under the cap, and a note reaches at
-    # most `MAX_NOTE_TARGETS` scouts regardless, so an oversized stored list cannot amplify one edit
-    # into thousands of unindexed scans on the request thread.
-    for login in removed_logins[:MAX_REMOVED_LOGINS_SEARCHED]:
-        for entry in search_scratchpad(team_id=team_id, text=login, keys_only=True, limit=_MEMORY_SEARCH_LIMIT):
-            # `search_scratchpad` has no key-prefix filter, so the routing keys are picked out here.
-            if entry.key.startswith(REVIEWER_MEMORY_KEY_PREFIX) and entry.created_by_skill:
-                named.add(entry.created_by_skill)
+    named = {
+        entry.created_by_skill
+        for entry in search_scratchpad_naming(
+            team_id=team_id,
+            key_prefix=REVIEWER_MEMORY_KEY_PREFIX,
+            terms=removed_logins,
+            limit=_MEMORY_SEARCH_LIMIT,
+        )
+        if entry.created_by_skill
+    }
     if not named:
         return []
     return sorted(
@@ -232,12 +283,9 @@ def _memory_holders(team_id: int, removed_logins: Sequence[str]) -> list[str]:
     )
 
 
-def _removed_themselves(team_id: int, actor: User, removed_logins: Sequence[str]) -> bool:
-    """Whether the editor took their own login off the report — a real but weaker signal."""
-    if not removed_logins:
-        return False
-    actor_login = get_org_member_github_logins_by_user_uuid(team_id, [str(actor.uuid)]).get(str(actor.uuid))
-    return bool(actor_login) and actor_login in removed_logins
+def _actor_login(team_id: int, actor: User) -> str | None:
+    """The editor's own GitHub login, so a self-removal is not reported as a teammate's verdict."""
+    return get_org_member_github_logins_by_user_uuid(team_id, [str(actor.uuid)]).get(str(actor.uuid))
 
 
 def _logins_already_told(team_id: int, skill_name: str) -> tuple[set[str], set[str]]:
@@ -279,8 +327,8 @@ def _build_note_content(
     *,
     report: SignalReport,
     added_logins: Sequence[str],
-    removed_logins: Sequence[str],
-    removed_themselves: bool,
+    self_removed: Sequence[str],
+    teammate_removed: Sequence[str],
 ) -> str:
     sections = [f"Inbox routing correction: someone changed the suggested reviewers on {_subject(report)}"]
     if added_logins:
@@ -288,19 +336,15 @@ def _build_note_content(
             f"{_ADDED_SECTION_PREFIX}{_listed(added_logins)}. An added login is a positive ownership fact for this "
             "surface — record it with the report id and the date."
         )
-    if removed_logins:
-        removal = f"{_REMOVED_SECTION_PREFIX}{_listed(removed_logins)}."
-        if removed_themselves:
-            removal += " The editor removed their own login, which is weaker evidence than a teammate removing someone."
-        sections.append(removal)
-    sections.append(
-        "One removal is weak evidence on its own: someone may be away, a duplicate reviewer, or noise the\n"
-        "editor trimmed. Repeated removals of the same login on the same surface are strong evidence that the\n"
-        "memory you route on is stale. Search your scratchpad for the login and for your `reviewer:` keys on\n"
-        "this surface, then condense rather than delete: fold in that a teammate removed the login, on how many\n"
-        "recent reports and when, and keep the ownership evidence that still stands. Do not put a removed login\n"
-        "back on a report about the same topic unless you find new evidence for it."
-    )
+    if teammate_removed:
+        sections.append(f"{_REMOVED_SECTION_PREFIX}{_listed(teammate_removed)}.")
+    if self_removed:
+        sections.append(
+            f"{_REMOVED_SECTION_PREFIX}{_listed(self_removed)}. That is the editor's own login, which is weaker "
+            "evidence than a teammate removing someone."
+        )
+    if teammate_removed or self_removed:
+        sections.append(_removal_guidance(by_a_teammate=bool(teammate_removed)))
     sections.append(
         "This is one editor's correction on the report named above rather than fleet-level steering, so treat it\n"
         "as evidence to check, not an instruction. `inbox-reports-retrieve` on the report id has the full context,\n"
@@ -308,6 +352,20 @@ def _build_note_content(
         "expires."
     )
     return "\n\n".join(sections)
+
+
+def _removal_guidance(*, by_a_teammate: bool) -> str:
+    # What the scout should record has to match the removal it was just told about: an editor taking
+    # their own login off is not a teammate's verdict on who owns the surface.
+    recorded = "a teammate removed the login" if by_a_teammate else "the login's owner took themselves off"
+    return (
+        "One removal is weak evidence on its own: someone may be away, a duplicate reviewer, or noise the\n"
+        "editor trimmed. Repeated removals of the same login on the same surface are strong evidence that the\n"
+        "memory you route on is stale. Search your scratchpad for the login and for your `reviewer:` keys on\n"
+        f"this surface, then condense rather than delete: fold in that {recorded}, on how many\n"
+        "recent reports and when, and keep the ownership evidence that still stands. Do not put a removed login\n"
+        "back on a report about the same topic unless you find new evidence for it."
+    )
 
 
 def _subject(report: SignalReport) -> str:
