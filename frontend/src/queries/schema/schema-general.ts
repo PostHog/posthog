@@ -592,10 +592,17 @@ export interface AccessControlFilterWarning {
  */
 export type EventsScanWarningReason = 'property_filter_without_event' | 'no_time_bound'
 
+/**
+ * What put the unprunable filter into the query that runs: the SQL text, the "filter out internal and test
+ * users" setting, the insight or dashboard filters, or something that could not be told apart.
+ */
+export type EventsScanWarningSource = 'query' | 'test_account_filters' | 'filters' | 'unknown'
+
 export interface EventsScanWarning {
     /** Tells warning kinds apart in the shared `warnings` list */
     type: 'events_scan'
     reason: EventsScanWarningReason
+    source: EventsScanWarningSource
     /** Human-readable warning shown to the user */
     message: string
     /** Start offset of the `events` reference in the query text, when known */

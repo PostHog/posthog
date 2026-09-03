@@ -1241,6 +1241,13 @@ class EventsScanWarningReason(StrEnum):
     NO_TIME_BOUND = "no_time_bound"
 
 
+class EventsScanWarningSource(StrEnum):
+    QUERY = "query"
+    TEST_ACCOUNT_FILTERS = "test_account_filters"
+    FILTERS = "filters"
+    UNKNOWN = "unknown"
+
+
 class MultipleVariantHandling(StrEnum):
     EXCLUDE = "exclude"
     FIRST_SEEN = "first_seen"

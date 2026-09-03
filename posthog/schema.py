@@ -109,6 +109,7 @@ from posthog.schema_enums import (
     ErrorTrackingReleasesOrderBy as ErrorTrackingReleasesOrderBy,
     EvaluationRuntime as EvaluationRuntime,
     EventsScanWarningReason as EventsScanWarningReason,
+    EventsScanWarningSource as EventsScanWarningSource,
     ExperimentMetricGoal as ExperimentMetricGoal,
     ExperimentMetricMathType as ExperimentMetricMathType,
     ExperimentMetricType as ExperimentMetricType,
@@ -5111,6 +5112,7 @@ class EventsScanWarning(BaseModel):
     )
     message: str = Field(..., description="Human-readable warning shown to the user")
     reason: EventsScanWarningReason
+    source: EventsScanWarningSource
     start: int | None = Field(
         default=None,
         description=("Start offset of the `events` reference in the query text, when known"),

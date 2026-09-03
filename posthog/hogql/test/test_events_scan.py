@@ -3,7 +3,14 @@ from unittest import TestCase
 from parameterized import parameterized
 
 from posthog.hogql.database.database import Database
-from posthog.hogql.events_scan import EventsScanReason, find_events_scans
+from posthog.hogql.events_scan import (
+    EventsScanReason,
+    EventsScanSource,
+    attribute_findings,
+    find_events_scans,
+    finding_fix,
+    finding_message,
+)
 from posthog.hogql.parser import parse_select
 
 # The default schema resolves `events` without a team or a database connection
@@ -174,3 +181,32 @@ class TestFindEventsScans(TestCase):
         (finding,) = find_events_scans(parse_select(query), DATABASE)
         self.assertEqual(finding.reason, EventsScanReason.PROPERTY_FILTER_WITHOUT_EVENT)
         self.assertEqual(finding.property_names, ())
+
+    def test_findings_only_in_the_expanded_query_are_attributed_to_the_filters_that_added_them(self) -> None:
+        as_written = find_events_scans(parse_select("SELECT count() FROM events WHERE {filters}"), DATABASE)
+        with_test_accounts = find_events_scans(
+            parse_select("SELECT count() FROM events WHERE properties.$host NOT IN ('x') AND timestamp >= today()"),
+            DATABASE,
+        )
+        without_test_accounts = find_events_scans(
+            parse_select("SELECT count() FROM events WHERE timestamp >= today()"), DATABASE
+        )
+
+        (from_setting,) = attribute_findings(with_test_accounts, as_written, without_test_accounts)
+        self.assertEqual(from_setting.source, EventsScanSource.TEST_ACCOUNT_FILTERS)
+        self.assertIn("Filter out internal and test users", finding_message(from_setting))
+        self.assertIsNone(finding_fix(from_setting))
+
+        (from_ui,) = attribute_findings(with_test_accounts, as_written, with_test_accounts)
+        self.assertEqual(from_ui.source, EventsScanSource.UI_FILTERS)
+
+        (unknown,) = attribute_findings(with_test_accounts, as_written, None)
+        self.assertEqual(unknown.source, EventsScanSource.UNKNOWN)
+        self.assertIn("contact PostHog support", finding_message(unknown))
+
+        # The user's own finding keeps its hint properties and the plain advice
+        own = find_events_scans(
+            parse_select("SELECT count() FROM events WHERE properties.plan = 'a' AND {filters}"), DATABASE
+        )
+        (kept,) = attribute_findings(own, own, own)
+        self.assertEqual((kept.source, kept.property_names), (EventsScanSource.QUERY, ("plan",)))

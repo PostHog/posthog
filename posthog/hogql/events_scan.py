@@ -6,6 +6,7 @@ range is read to check it. So a SELECT that reads `events` with a property filte
 name filter scans its whole date range, and one with no timestamp bound scans the whole history.
 """
 
+import dataclasses
 from collections.abc import Iterable
 from enum import StrEnum
 from logging import getLogger
@@ -75,6 +76,15 @@ _POSITIVE_COMPARE_OPS = frozenset(
 _POSITIVE_COMPARE_FUNCTIONS = frozenset({"equals", "in", "globalIn", "like", "ilike"})
 
 
+class EventsScanSource(StrEnum):
+    """What put the unprunable filter into the query that runs."""
+
+    QUERY = "query"
+    TEST_ACCOUNT_FILTERS = "test_account_filters"
+    UI_FILTERS = "filters"
+    UNKNOWN = "unknown"
+
+
 class EventsScanReason(StrEnum):
     PROPERTY_FILTER_WITHOUT_EVENT = "property_filter_without_event"
     NO_TIME_BOUND = "no_time_bound"
@@ -89,6 +99,7 @@ class EventsScanFinding:
     end: int | None
     # Event property names the SELECT filters on, for the "events seen with" hint
     property_names: tuple[str, ...] = ()
+    source: EventsScanSource = EventsScanSource.QUERY
 
 
 def find_events_scans(query: ast.SelectQuery | ast.SelectSetQuery, database: "Database") -> list[EventsScanFinding]:
@@ -98,23 +109,76 @@ def find_events_scans(query: ast.SelectQuery | ast.SelectSetQuery, database: "Da
     return visitor.findings
 
 
-def events_scan_warnings(query: ast.SelectQuery | ast.SelectSetQuery, database: "Database") -> list[EventsScanWarning]:
+def events_scan_warnings(
+    query: ast.SelectQuery | ast.SelectSetQuery,
+    database: "Database",
+    as_written: ast.SelectQuery | ast.SelectSetQuery | None = None,
+    without_test_accounts: ast.SelectQuery | ast.SelectSetQuery | None = None,
+) -> list[EventsScanWarning]:
     """The findings that mean real work is being wasted, shaped for a query response's `warnings`.
 
-    Reading every event with no filter at all is often the question being asked, so that finding
-    only surfaces as an editor notice, not as a response warning.
+    `query` is what runs. When `as_written` is given, findings it does not share are attributed to the
+    filters the UI expanded into the query; `without_test_accounts` is the same expansion with the
+    test-account filters off, which tells that source apart from the insight or dashboard filters.
+    Reading every event with no filter at all is often the point of the query, so that finding only
+    surfaces as an editor notice, not as a response warning.
     """
+    findings = find_events_scans(query, database)
+    if as_written is not None:
+        findings = attribute_findings(
+            findings,
+            find_events_scans(as_written, database),
+            find_events_scans(without_test_accounts, database) if without_test_accounts is not None else None,
+        )
     return [
         EventsScanWarning(
             type="events_scan",
             reason=finding.reason.value,
+            source=finding.source.value,
             message=finding_message(finding),
             start=finding.start,
             end=finding.end,
         )
-        for finding in find_events_scans(query, database)
+        for finding in findings
         if finding.reason != EventsScanReason.NO_EVENT_FILTER
     ]
+
+
+def attribute_findings(
+    expanded: list[EventsScanFinding],
+    as_written: list[EventsScanFinding],
+    without_test_accounts: list[EventsScanFinding] | None,
+) -> list[EventsScanFinding]:
+    """Tag each finding on the expanded query with what put it there.
+
+    A finding the query text already has is the user's own. One that only the expanded query has came
+    from a filter the UI added; when it disappears with the test-account filters off, that setting is
+    the source, otherwise the insight or dashboard filters are. With no way to re-expand, the source
+    stays unknown.
+    """
+    written = {_finding_key(finding): finding for finding in as_written}
+    without = (
+        {_finding_key(finding) for finding in without_test_accounts} if without_test_accounts is not None else None
+    )
+    attributed: list[EventsScanFinding] = []
+    for finding in expanded:
+        key = _finding_key(finding)
+        if key in written:
+            attributed.append(written[key])
+            continue
+        if without is None:
+            source = EventsScanSource.UNKNOWN
+        elif key not in without:
+            source = EventsScanSource.TEST_ACCOUNT_FILTERS
+        else:
+            source = EventsScanSource.UI_FILTERS
+        # The hint lists the properties the user wrote; an injected filter is not theirs to replace
+        attributed.append(dataclasses.replace(finding, source=source, property_names=()))
+    return attributed
+
+
+def _finding_key(finding: EventsScanFinding) -> tuple[EventsScanReason, int | None, int | None]:
+    return (finding.reason, finding.start, finding.end)
 
 
 EVENT_FILTER_ADVICE = (
@@ -125,6 +189,26 @@ EVENT_FILTER_ADVICE = (
 
 
 def finding_message(finding: EventsScanFinding, events_by_property: dict[str, list[str]] | None = None) -> str:
+    if finding.source == EventsScanSource.TEST_ACCOUNT_FILTERS:
+        return (
+            'The "Filter out internal and test users" setting adds a property filter to this query, so it reads '
+            "every event in its date range. Limit the query to the events you need, or turn that setting off here."
+        )
+    if finding.source == EventsScanSource.UI_FILTERS:
+        if finding.reason == EventsScanReason.NO_TIME_BOUND:
+            return (
+                "No date range is applied to this query, so it reads your whole event history. "
+                "Set a date range, or add a timestamp filter to the query."
+            )
+        return (
+            "A filter applied to this insight or dashboard adds a property filter, so this query reads every "
+            "event in its date range. Limit the query to the events you need, or remove that filter."
+        )
+    if finding.source == EventsScanSource.UNKNOWN:
+        return (
+            "Filters applied outside the query text make it read every event in its date range. "
+            "Limit the query to the events you need. If you cannot find those filters, contact PostHog support."
+        )
     if finding.reason == EventsScanReason.NO_TIME_BOUND:
         return (
             "This query has no timestamp filter on events, so it reads your whole event history. "
@@ -140,6 +224,9 @@ def finding_message(finding: EventsScanFinding, events_by_property: dict[str, li
 
 def finding_fix(finding: EventsScanFinding) -> str | None:
     """A `HogQLNotice.fix` in its `ai_prompt:` form: the editor offers it as a "Fix with AI" action."""
+    if finding.source != EventsScanSource.QUERY:
+        # Nothing in the SQL text to change
+        return None
     if finding.reason == EventsScanReason.PROPERTY_FILTER_WITHOUT_EVENT:
         return (
             "ai_prompt:Limit every part of this query that reads the events table to the events it needs, "

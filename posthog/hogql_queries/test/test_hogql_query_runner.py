@@ -540,3 +540,20 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
             [warning.reason for warning in scan_warnings], [EventsScanWarningReason.PROPERTY_FILTER_WITHOUT_EVENT]
         )
         self.assertEqual(query[scan_warnings[0].start : scan_warnings[0].end], "events")
+
+    def test_response_blames_the_test_account_setting_for_a_filter_it_added(self):
+        self.team.test_account_filters = [
+            {"key": "$host", "type": "event", "value": ["localhost"], "operator": "is_not"}
+        ]
+        self.team.save()
+        query = "SELECT count() FROM events WHERE {filters}"
+        response = HogQLQueryRunner(
+            query=HogQLQuery(
+                query=query, filters=HogQLFilters(dateRange=DateRange(date_from="-7d"), filterTestAccounts=True)
+            ),
+            team=self.team,
+        ).calculate()
+
+        scan_warnings = [warning for warning in response.warnings or [] if isinstance(warning, EventsScanWarning)]
+        self.assertEqual([warning.source for warning in scan_warnings], ["test_account_filters"])
+        self.assertIn("Filter out internal and test users", scan_warnings[0].message)

@@ -202,16 +202,20 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         return parsed_select, values
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
+        return self._expand_query(self.query.filters)
+
+    def _expand_query(self, filters: HogQLFilters | None) -> ast.SelectQuery | ast.SelectSetQuery:
+        """The query as it runs, with `filters`, variables and placeholders applied."""
         parsed_select, values = self._parse_query()
 
         finder = find_placeholders(parsed_select)
         with self.timings.measure("filters"):
-            if self.query.filters and finder.has_filters:
+            if filters and finder.has_filters:
                 # Resolve {filters} against the shared database so a filtered query builds the schema
                 # once, instead of replace_filters building a throwaway one. With a connection id the
                 # schema is the external connection's, so keep the per-call build there.
                 database = self.shared_database if self.query.connectionId is None else None
-                parsed_select = replace_filters(parsed_select, self.query.filters, self.team, database)
+                parsed_select = replace_filters(parsed_select, filters, self.team, database)
         if self.query.variables:
             with self.timings.measure("replace_variables"):
                 parsed_select = replace_variables(parsed_select, list(self.query.variables.values()), self.team)
@@ -318,7 +322,15 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         if self.query.connectionId is not None:
             return []
         try:
-            return events_scan_warnings(query, self.shared_database)
+            as_written, _ = self._parse_query()
+            without_test_accounts = None
+            if self.query.filters and find_placeholders(as_written).has_filters:
+                without_test_accounts = (
+                    self._expand_query(self.query.filters.model_copy(update={"filterTestAccounts": False}))
+                    if self.query.filters.filterTestAccounts
+                    else query
+                )
+            return events_scan_warnings(query, self.shared_database, as_written, without_test_accounts)
         except Exception:
             logger.exception("hogql_events_scan_check_failed", team_id=self.team.pk)
             return []

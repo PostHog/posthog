@@ -7,6 +7,7 @@ from posthog.schema import HogQLNotice
 from posthog.hogql import ast
 from posthog.hogql.events_scan import (
     EventsScanReason,
+    attribute_findings,
     events_seen_with_properties,
     find_events_scans,
     finding_fix,
@@ -82,12 +83,29 @@ class EventsScanHeuristic(MetadataHeuristic):
     filter at all is often the point of the query, so that is only a notice.
     """
 
-    def __init__(self, team: "Team | None", database: "Database") -> None:
+    def __init__(
+        self,
+        team: "Team | None",
+        database: "Database",
+        as_written: ast.SelectQuery | ast.SelectSetQuery | None = None,
+        without_test_accounts: ast.SelectQuery | ast.SelectSetQuery | None = None,
+    ) -> None:
         self.team = team
         self.database = database
+        # The query text and its expansion with the test-account filters off, to say where an injected filter came from
+        self.as_written = as_written
+        self.without_test_accounts = without_test_accounts
 
     def run(self, query: ast.SelectQuery | ast.SelectSetQuery) -> MetadataHeuristicNotices:
         findings = find_events_scans(query, self.database)
+        if self.as_written is not None:
+            findings = attribute_findings(
+                findings,
+                find_events_scans(self.as_written, self.database),
+                find_events_scans(self.without_test_accounts, self.database)
+                if self.without_test_accounts is not None
+                else None,
+            )
         property_names = [name for finding in findings for name in finding.property_names]
         events_by_property = (
             events_seen_with_properties(self.team, property_names) if self.team and property_names else {}
@@ -109,12 +127,16 @@ class EventsScanHeuristic(MetadataHeuristic):
 
 
 def run_metadata_heuristics(
-    query: ast.SelectQuery | ast.SelectSetQuery, team: "Team | None" = None, database: "Database | None" = None
+    query: ast.SelectQuery | ast.SelectSetQuery,
+    team: "Team | None" = None,
+    database: "Database | None" = None,
+    as_written: ast.SelectQuery | ast.SelectSetQuery | None = None,
+    without_test_accounts: ast.SelectQuery | ast.SelectSetQuery | None = None,
 ) -> MetadataHeuristicNotices:
     heuristics: list[MetadataHeuristic] = [SimilarSubqueryHeuristic()]
     # The events scan check resolves table names, which needs a database not every caller has
     if database is not None:
-        heuristics.append(EventsScanHeuristic(team, database))
+        heuristics.append(EventsScanHeuristic(team, database, as_written, without_test_accounts))
     result = MetadataHeuristicNotices(warnings=[], notices=[])
 
     for heuristic in heuristics:

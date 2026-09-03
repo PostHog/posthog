@@ -7,6 +7,7 @@ from pydantic import BaseModel
 
 from posthog.schema import (
     HogLanguage,
+    HogQLFilters,
     HogQLMetadata,
     HogQLMetadataResponse,
     HogQLNotice,
@@ -116,16 +117,24 @@ def get_hogql_metadata(
             else:
                 process_expr_on_table(node, context=context)
         elif query.language == HogLanguage.HOG_QL:
+            # The heuristics compare the expanded query with the text, so an injected filter is reported as such
+            as_written_ast: ast.SelectQuery | ast.SelectSetQuery | None = None
+            without_test_accounts_ast: ast.SelectQuery | ast.SelectSetQuery | None = None
             if not hogql_ast:
-                hogql_ast = parse_select(query.query)
-                finder = find_placeholders(hogql_ast)
-                if finder.has_filters:
-                    hogql_ast = replace_filters(hogql_ast, query.filters, team, database=database)
-                if query.variables or finder.placeholder_fields or finder.placeholder_expressions:
-                    hogql_ast = replace_variables(
-                        hogql_ast, list(query.variables.values()) if query.variables else [], team
+                as_written_ast = parse_select(query.query)
+                hogql_ast = _expand_query(as_written_ast, query, query.filters, team, database)
+                if query.filters and find_placeholders(as_written_ast).has_filters:
+                    without_test_accounts_ast = (
+                        _expand_query(
+                            as_written_ast,
+                            query,
+                            query.filters.model_copy(update={"filterTestAccounts": False}),
+                            team,
+                            database,
+                        )
+                        if query.filters.filterTestAccounts
+                        else hogql_ast
                     )
-                    hogql_ast = cast(ast.SelectQuery, replace_placeholders(hogql_ast, query.globals))
 
             hogql_table_names = get_table_names(hogql_ast)
             heuristic_warnings.extend(validate_taxonomy_references(hogql_ast, team, hogql_table_names))
@@ -165,7 +174,9 @@ def get_hogql_metadata(
             # the expanded query: what ClickHouse reads is what counts, whichever filter put it there.
             # Advisory: a failure here must not mark a valid query invalid.
             try:
-                heuristic_result = run_metadata_heuristics(hogql_ast, team, context.database)
+                heuristic_result = run_metadata_heuristics(
+                    hogql_ast, team, context.database, as_written_ast, without_test_accounts_ast
+                )
             except Exception:
                 logger.exception("hogql_metadata_heuristics_failed", team_id=team.pk)
             else:
@@ -214,6 +225,25 @@ def get_hogql_metadata(
                 err.end -= 2
 
     return response
+
+
+def _expand_query(
+    as_written: ast.SelectQuery | ast.SelectSetQuery,
+    query: HogQLMetadata,
+    filters: HogQLFilters | None,
+    team: Team,
+    database: Optional[Database],
+) -> ast.SelectQuery | ast.SelectSetQuery:
+    """The query as it runs: `{filters}`, variables and placeholders applied. The replacements clone, so
+    `as_written` is left as parsed."""
+    expanded: ast.SelectQuery | ast.SelectSetQuery = as_written
+    finder = find_placeholders(as_written)
+    if finder.has_filters:
+        expanded = replace_filters(expanded, filters, team, database=database)
+    if query.variables or finder.placeholder_fields or finder.placeholder_expressions:
+        expanded = replace_variables(expanded, list(query.variables.values()) if query.variables else [], team)
+        expanded = cast(ast.SelectQuery, replace_placeholders(expanded, query.globals))
+    return expanded
 
 
 def _index_usage_enabled(team: Team) -> bool:
