@@ -139,9 +139,11 @@ Sort safety: removing the sorted column drops the sort (`clearSortIfColumnRemove
 ## Account detail scene
 
 `CUSTOMER_ANALYTICS_ACCOUNT_SCENE` changes account links from inline row expansion to `CustomerAnalyticsAccountScene` at `/customer_analytics/accounts/:accountId`.
-The detail scene loads the account through `accountsRetrieve` and renders a read-only identity rail with its logo, name, external ID, and tags.
+The detail scene loads the account through `accountsRetrieve` and renders an identity rail with its logo, name, external ID, editable tags, and a Properties section.
+Tag edits save through `accountsPartialUpdate`, update optimistically, and restore the account after a failed write.
 It reuses `AccountDetailTabs` and `AccountNotesExpansion` with the expanded row, but mounts only the active tab so inactive detail tabs do not load data.
-The tab bar's Configure tabs and Add view actions open work-in-progress dialogs.
+Configure tabs and Add view sit in the scene header. They open work-in-progress dialogs.
+The Properties section stays visible when empty, and its gear opens the same work-in-progress dialog.
 
 The active tab is path-backed at `/customer_analytics/accounts/:accountId/:tab`.
 The bare path, unknown tabs, and tabs hidden by feature flags render Notes.

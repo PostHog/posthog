@@ -10,16 +10,18 @@ import { urls } from 'scenes/urls'
 import { initKeaTests } from '~/test/init'
 
 import { AccountsEvents } from 'products/customer_analytics/frontend/components/Accounts/constants'
-import { accountsRetrieve } from 'products/customer_analytics/frontend/generated/api'
+import { accountsPartialUpdate, accountsRetrieve } from 'products/customer_analytics/frontend/generated/api'
 import type { AccountApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import { customerAnalyticsAccountSceneLogic } from './customerAnalyticsAccountSceneLogic'
 
 jest.mock('products/customer_analytics/frontend/generated/api', () => ({
     ...jest.requireActual('products/customer_analytics/frontend/generated/api'),
+    accountsPartialUpdate: jest.fn(),
     accountsRetrieve: jest.fn(),
 }))
 
+const mockAccountsPartialUpdate = accountsPartialUpdate as jest.MockedFunction<typeof accountsPartialUpdate>
 const mockAccountsRetrieve = accountsRetrieve as jest.MockedFunction<typeof accountsRetrieve>
 
 const ACCOUNT_ID = '0190da51-0b0e-7000-8000-000000000001'
@@ -113,6 +115,41 @@ describe('customerAnalyticsAccountSceneLogic', () => {
         resolveAccount!(account)
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.account).toEqual(account)
+    })
+
+    describe('tag updates', () => {
+        it('saves tags and keeps the optimistic value', async () => {
+            const updatedAccount = { ...account, tags: ['priority'] }
+            const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+            mockAccountsPartialUpdate.mockResolvedValue(updatedAccount)
+            logic.actions.loadAccountSuccess(account)
+
+            logic.actions.updateTags(['priority'])
+
+            expect(logic.values.account?.tags).toEqual(['priority'])
+            expect(logic.values.tagsSaving).toBe(true)
+            await expectLogic(logic).toFinishAllListeners()
+            expect(mockAccountsPartialUpdate).toHaveBeenCalledWith(String(logic.values.currentTeamId), ACCOUNT_ID, {
+                tags: ['priority'],
+            })
+            expect(logic.values.account).toEqual(updatedAccount)
+            expect(logic.values.tagsSaving).toBe(false)
+            expect(capture).toHaveBeenCalledWith(AccountsEvents.TagsUpdated, { tag_count: 1 })
+        })
+
+        it('restores the account when saving tags fails', async () => {
+            const failure = new ApiError('Server error', 500)
+            mockAccountsPartialUpdate.mockRejectedValue(failure)
+            mockAccountsRetrieve.mockResolvedValue(account)
+            logic.actions.loadAccountSuccess(account)
+
+            logic.actions.updateTags(['priority'])
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.account).toEqual(account)
+            expect(logic.values.tagsSaving).toBe(false)
+            expect(mockAccountsRetrieve).toHaveBeenCalled()
+        })
     })
 
     describe('tab routing', () => {
