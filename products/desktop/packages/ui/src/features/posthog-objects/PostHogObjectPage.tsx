@@ -238,7 +238,11 @@ export function PostHogObjectPageView({
   const object = getObjectKind(objectKind);
   const ObjectIcon = object.icon;
   const usesChartRenderer = objectKind === "insight" || objectKind === "hogql";
-  const title = preview?.title ?? fallbackName;
+  // A hogql preview's title is the first result column (raw SQL), a row
+  // count, or a formatted number, never the chip label, so the page shows the
+  // chip label instead. An insight's title is its live name and stays.
+  const title =
+    objectKind === "hogql" ? fallbackName : (preview?.title ?? fallbackName);
   const status = preview?.status;
   // The product name earns its place only when it adds context ("Insight ·
   // Product analytics"); drop it when it restates the kind ("Feature flag ·

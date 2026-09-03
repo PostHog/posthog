@@ -196,7 +196,8 @@ describe("PostHogObjectPage", () => {
   it("never titles a hogql chart card with raw SQL", () => {
     setQueryState({
       data: {
-        title: "Events by day",
+        // hogqlPreview puts the first result column in the hover title.
+        title: "arrayJoin(events.event)",
         chartData: {
           type: "series",
           labels: ["2026-08-13", "2026-08-14"],
@@ -229,6 +230,8 @@ describe("PostHogObjectPage", () => {
     );
 
     expect(screen.getByTestId("report-chart")).toBeInTheDocument();
+    // The page header and chart card use the chip label, never the raw SQL
+    // the hover reduction stored in the preview title or series label.
     expect(screen.getAllByText("Events by day").length).toBeGreaterThan(0);
     expect(screen.queryByText("arrayJoin(events.event)")).toBeNull();
   });
