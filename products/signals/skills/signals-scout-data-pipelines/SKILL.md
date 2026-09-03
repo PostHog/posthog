@@ -7,7 +7,8 @@ description: >
 compatibility: >
   PostHog Signals agent (Claude sandbox). Read-only analytics + signal_scout_internal:write
   (scratchpad) + signal_scout_report:write (report channel), plus the CDP function, batch
-  export, workflow, and analytics tools in the MCP tools section.
+  export, workflow, and analytics tools in the MCP tools section. The internal-destination
+  procedure lives in references/internal-destinations.md (read it on demand).
 allowed_tools:
   - emit_report
   - edit_report
@@ -82,7 +83,8 @@ Before any per-pipeline deep dive, normalize against the whole fleet: if every d
 | Enabled function at state 2, tokens draining                       | Degraded — failing or slow right now; investigate, date the onset          |
 | State 11/12 (forced)                                               | Admin intervention — deliberate; note it, hygiene at most                  |
 | Healthy state, failure share stepped above own baseline            | Delivery breaking but executing fast — the watcher won't catch this; yours |
-| `triggered` collapsed while `filtered` keeps flowing               | Filter starvation — upstream event renamed/stopped; destination starves    |
+| `triggered` collapsed while `filtered` flows (captured events)     | Filter starvation — upstream event renamed/stopped; destination starves    |
+| Internal destination quiet, `filtered` at zero too                 | Unprovable from event taxonomy — needs lifecycle evidence, not a count     |
 | Batch export run `Failed`, or newest interval lagging > 2× cadence | Permanent data gap growing until backfilled — report                       |
 | Active flow with failures concentrated in one `error_kind`         | One broken step (dead webhook, bad template) — report with the error class |
 | Draft/archived flow failing, paused export idle                    | Not armed — baseline, skip                                                 |
@@ -108,7 +110,9 @@ The watcher tracks execution health, not delivery semantics — a destination er
 Failure share = `failed / triggered` within the same window — never compare either against `filtered`, which is usually orders of magnitude larger and healthy by construction (the filter doing its job). A candidate needs sustained contradiction: share ≥ ~10% over 24h with ≥ ~50 triggered, against a flat-or-quiet history. Two special shapes worth catching:
 
 - **Born broken** — a destination created in the last days failing ~100% since creation (≥ ~20 attempts): a botched setup the team believes is working. `created_at` is in the list response; the activity log (`scopes: ["HogFunction"]`) dates config edits.
-- **Filter starvation** — `triggered` collapsing to ~zero while `filtered` keeps flowing: the filter stopped matching, usually because an upstream event was renamed or stopped firing. The destination isn't failing — it's starving. Confirm the filtered events still exist before calling it (one `execute-sql` count on the filter's event).
+- **Filter starvation** — `triggered` collapsing to ~zero while `filtered` keeps flowing: the filter stopped matching, usually because an upstream event was renamed or stopped firing. The destination isn't failing — it's starving. Branch the confirmation on `filters.source`, because only one branch has a captured-event stream to count:
+  - Absent or `events` (the captured stream) — one `execute-sql` count on the filter's event confirms those events still exist.
+  - `internal-events` (every `internal_destination`) — the filter matches product lifecycle actions that are never ingested into ClickHouse, so an `events` count reads zero for a healthy destination and proves nothing either way. Confirm the lifecycle action itself happened and compare its time against `triggered` / `succeeded`: [`references/internal-destinations.md`](references/internal-destinations.md) carries the procedure and the evidence per event.
 
 #### Batch export failures and stalls
 
@@ -175,7 +179,7 @@ Pipeline diagnostics are full of third-party and event-derived text: function lo
 
 - **Anything not armed** — draft and archived flows, paused or deleted exports, functions with `enabled: false`. Disabling is an operator choice; the exception is watcher state 3, where the platform stopped an _enabled_ function.
 - **Forced states (11/12)** as anomalies — admin actions are deliberate. A forcefully-degraded function left for weeks is at most a hygiene note.
-- **Platform machinery types** — `internal_destination` (backs alert/notification routing), `site_app` / `site_destination` (client-side, no server metrics), `broadcast` / `email` internals. Include `internal_destination` in the state scan (a state-3 one means alerts silently not delivering — that's real); skip the rest.
+- **Platform machinery types** — `internal_destination` (backs alert/notification routing), `site_app` / `site_destination` (client-side, no server metrics), `broadcast` / `email` internals. Include `internal_destination` in the state scan (a state-3 one means alerts silently not delivering — that's real); skip the rest. Judge a quiet internal destination only on lifecycle evidence ([`references/internal-destinations.md`](references/internal-destinations.md)), never on an events count.
 - **Large `filtered` counts** — that's the filter working as designed, not loss.
 - **Self-recovered blips** — a `FailedRetryable` run that completed on retry, one bad hour in an otherwise clean week, a degraded function back at state 1 with tokens refilled. Note the wobble in memory if it repeats.
 - **Test fixtures** — pipelines whose names mark them as deliberate failure tests or sandbox experiments. Identify once, write a `noise:` entry, skip thereafter.
