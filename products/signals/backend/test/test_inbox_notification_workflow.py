@@ -220,13 +220,22 @@ def test_send_stamps_the_report_and_refuses_a_second_send(team):
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("outcome", ["sent_nothing", "raised"])
+@pytest.mark.parametrize("outcome", ["sent_nothing", "raised", "raised_before_dispatch"])
 def test_send_releases_the_claim_when_no_card_went_out(team, outcome):
     """A report whose team has no Slack channel yet must stay eligible. Without the release it would
-    burn its one notification on a dispatch that sent nothing, and never get a card."""
+    burn its one notification on a dispatch that sent nothing, and never get a card. A raise before the
+    dispatch — re-deriving the signals is an unretried ClickHouse read — must release the claim too."""
     report = _make_report(team)
     with patch("products.signals.backend.slack_inbox_notifications.dispatch_inbox_item_notifications") as dispatch:
-        if outcome == "raised":
+        if outcome == "raised_before_dispatch":
+            with patch(
+                "products.signals.backend.temporal.inbox_notification.fetch_signals_for_report_sync",
+                side_effect=RuntimeError("clickhouse timed out"),
+            ):
+                with pytest.raises(RuntimeError):
+                    _send_report_inbox_notifications(team.id, str(report.id))
+            dispatch.assert_not_called()
+        elif outcome == "raised":
             dispatch.side_effect = RuntimeError("slack is down")
             with pytest.raises(RuntimeError):
                 _send_report_inbox_notifications(team.id, str(report.id))

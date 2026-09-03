@@ -131,18 +131,18 @@ def _send_report_inbox_notifications(team_id: int, report_id: str) -> int:
         logger.info("inbox notification skipped: already notified", report_id=report_id, team_id=team_id)
         return 0
 
-    # Re-derive source products at send time so a deferred notification reflects the current signals.
-    signals = fetch_signals_for_report_sync(team, report_id)
-    source_products = sorted({s["source_product"] for s in signals if s.get("source_product")})
-    # Point any support ticket that raised this report at it. Shares this function's READY guard.
-    # Guarded here as well as inside: the write-back is supplementary, and letting it raise would fail
-    # the activity before the Slack notification below, so a retry loop would drop the notification
-    # entirely over a side errand.
     try:
-        post_report_findings_to_tickets(team, report_id, signals)
-    except Exception:
-        logger.exception("inbox notification: support write-back failed", report_id=report_id, team_id=team_id)
-    try:
+        # Re-derive source products at send time so a deferred notification reflects the current signals.
+        signals = fetch_signals_for_report_sync(team, report_id)
+        source_products = sorted({s["source_product"] for s in signals if s.get("source_product")})
+        # Point any support ticket that raised this report at it. Shares this function's READY guard.
+        # Guarded here as well as inside: the write-back is supplementary, and letting it raise would fail
+        # the activity before the Slack notification below, so a retry loop would drop the notification
+        # entirely over a side errand.
+        try:
+            post_report_findings_to_tickets(team, report_id, signals)
+        except Exception:
+            logger.exception("inbox notification: support write-back failed", report_id=report_id, team_id=team_id)
         sent = dispatch_inbox_item_notifications(
             report_id=report_id,
             team_id=team_id,
@@ -150,6 +150,8 @@ def _send_report_inbox_notifications(team_id: int, report_id: str) -> int:
             signals=signals,
         )
     except Exception:
+        # Any failure after the claim — re-deriving the signals is an unretried ClickHouse read that can
+        # raise, as can the dispatch — must release so a retry or a later settle can still send the card.
         _release_inbox_notification_claim(team_id, report_id)
         raise
     if not sent:
