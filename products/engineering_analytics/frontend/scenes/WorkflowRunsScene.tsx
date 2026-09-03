@@ -97,6 +97,7 @@ export function WorkflowRunsScene(): JSX.Element {
         repoName,
         workflowName,
         healthSummary,
+        workflowHealthLoading,
         costSummary,
         runsTruncated,
         activityRuns,
@@ -318,7 +319,7 @@ export function WorkflowRunsScene(): JSX.Element {
                         healthSummary.conclusiveRuns
                     )} runs with a pass-or-fail result passed.`}
                     value={percent(healthSummary.passRate)}
-                    loading={runsLoading}
+                    loading={workflowHealthLoading}
                 />
                 <MetricTile
                     label="Runs"
@@ -328,12 +329,12 @@ export function WorkflowRunsScene(): JSX.Element {
                             : undefined
                     }
                     value={compactCount(healthSummary.totalRuns)}
-                    sub={runsTruncated ? `stats cover the most recent ${runRows.length}` : undefined}
-                    loading={runsLoading}
+                    sub={runsTruncated ? `table shows the most recent ${runRows.length}` : undefined}
+                    loading={workflowHealthLoading}
                 />
                 <MetricTile
                     label="Duration p50"
-                    tooltip="Wall-clock, over successful runs."
+                    tooltip="Median wall-clock duration over successful runs, excluding runs that settled in under 10 seconds without doing work."
                     value={
                         healthSummary.medianSeconds != null ? humanFriendlyDuration(healthSummary.medianSeconds) : '—'
                     }
@@ -342,7 +343,7 @@ export function WorkflowRunsScene(): JSX.Element {
                             ? `→ ${humanFriendlyDuration(healthSummary.p95Seconds)} p95`
                             : undefined
                     }
-                    loading={runsLoading}
+                    loading={workflowHealthLoading}
                 />
                 <MetricTile
                     label="Queue time p50"

@@ -11,11 +11,13 @@ import { runPrNumber } from '../components/runTables'
 import {
     engineeringAnalyticsJobAggregates,
     engineeringAnalyticsWorkflowJobs,
+    engineeringAnalyticsWorkflowHealth,
     engineeringAnalyticsWorkflowRunActivity,
     engineeringAnalyticsWorkflowRunnerCosts,
     engineeringAnalyticsWorkflowRuns,
 } from '../generated/api'
 import type {
+    WorkflowHealthItemApi,
     WorkflowJobAggregateApi,
     WorkflowJobApi,
     WorkflowRunActivityApi,
@@ -23,7 +25,7 @@ import type {
     WorkflowRunnerCostApi,
 } from '../generated/api.schemas'
 import { jobCacheKey } from '../lib/jobs'
-import { type CostSummary, type HealthSummary, computeHealthSummary } from '../lib/runHealth'
+import { type CostSummary, type HealthSummary, computeHealthSummary, workflowHealthSummary } from '../lib/runHealth'
 import { engineeringAnalyticsFiltersLogic } from './engineeringAnalyticsFiltersLogic'
 
 const projectId = (): string => String(ApiConfig.getCurrentProjectId())
@@ -84,6 +86,8 @@ export interface workflowRunsLogicValues {
     runsLoading: boolean
     runsTruncated: boolean
     sourceId: string | null
+    workflowHealth: WorkflowHealthItemApi | null
+    workflowHealthLoading: boolean
     workflowName: string
 }
 
@@ -173,6 +177,21 @@ export interface workflowRunsLogicActions {
         runs: WorkflowRunDetailApi[]
         payload?: any
     }
+    loadWorkflowHealth: () => any
+    loadWorkflowHealthFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadWorkflowHealthSuccess: (
+        workflowHealth: WorkflowHealthItemApi | null,
+        payload?: any
+    ) => {
+        workflowHealth: WorkflowHealthItemApi | null
+        payload?: any
+    }
     setRunExpanded: (
         rowKey: string,
         expanded: boolean,
@@ -197,7 +216,7 @@ export interface workflowRunsLogicMeta {
         runRows: (runs: WorkflowRunDetailApi[]) => WorkflowRunRow[]
         activityRuns: (runActivity: WorkflowRunActivityApi) => ActivityRun[]
         activityTruncated: (runActivity: WorkflowRunActivityApi) => boolean
-        healthSummary: (runRows: WorkflowRunRow[]) => HealthSummary
+        healthSummary: (workflowHealth: WorkflowHealthItemApi | null, runRows: WorkflowRunRow[]) => HealthSummary
         masterConclusion: (runRows: WorkflowRunRow[]) => string | null
         queueP50Seconds: (jobAggregates: WorkflowJobAggregateApi[]) => number | null
         runsTruncated: (runRows: WorkflowRunRow[]) => boolean
@@ -263,6 +282,25 @@ export const workflowRunsLogic = kea<workflowRunsLogicType>([
                         branch: values.appliedBranch || undefined,
                         source_id: props.sourceId ?? undefined,
                     }),
+            },
+        ],
+        // This workflow's window-wide figures, computed server-side. The run table below is capped at
+        // RUN_LIST_LIMIT, so the tiles cannot be folded from it without answering a narrower question
+        // than the Workflows table does for the same workflow and window.
+        workflowHealth: [
+            null as WorkflowHealthItemApi | null,
+            {
+                loadWorkflowHealth: async (): Promise<WorkflowHealthItemApi | null> => {
+                    const items = await engineeringAnalyticsWorkflowHealth(projectId(), {
+                        workflow_name: props.workflowName,
+                        repo: `${props.repoOwner}/${props.repoName}`,
+                        date_from: values.dateFrom ?? undefined,
+                        date_to: values.dateTo ?? undefined,
+                        branch: values.appliedBranch || undefined,
+                        source_id: props.sourceId ?? undefined,
+                    })
+                    return items[0] ?? null
+                },
             },
         ],
         // Cost split by runner tier; [] when the job-level source isn't synced.
@@ -382,9 +420,12 @@ export const workflowRunsLogic = kea<workflowRunsLogicType>([
             (s) => [s.runActivity],
             (runActivity: WorkflowRunActivityApi): boolean => runActivity.truncated,
         ],
+        // Server figures when they have arrived; the capped run table only stands in while they load
+        // or when the workflow has no rows in the window.
         healthSummary: [
-            (s) => [s.runRows],
-            (runRows: WorkflowRunRow[]): HealthSummary => computeHealthSummary(runRows),
+            (s) => [s.workflowHealth, s.runRows],
+            (workflowHealth: WorkflowHealthItemApi | null, runRows: WorkflowRunRow[]): HealthSummary =>
+                workflowHealth ? workflowHealthSummary(workflowHealth) : computeHealthSummary(runRows),
         ],
         // Latest completed master/main run's conclusion; null when the window has none (PR-only workflow).
         masterConclusion: [
@@ -475,12 +516,14 @@ export const workflowRunsLogic = kea<workflowRunsLogicType>([
         },
         [engineeringAnalyticsFiltersLogic.actionTypes.setDateRange]: () => {
             actions.loadRuns()
+            actions.loadWorkflowHealth()
             actions.loadRunActivity()
             actions.loadRunnerCosts()
             actions.loadJobAggregates()
         },
         [engineeringAnalyticsFiltersLogic.actionTypes.setAppliedBranch]: () => {
             actions.loadRuns()
+            actions.loadWorkflowHealth()
             actions.loadRunActivity()
             actions.loadRunnerCosts()
             actions.loadJobAggregates()
@@ -489,6 +532,7 @@ export const workflowRunsLogic = kea<workflowRunsLogicType>([
 
     afterMount(({ actions }) => {
         actions.loadRuns()
+        actions.loadWorkflowHealth()
         actions.loadRunActivity()
         actions.loadRunnerCosts()
         actions.loadJobAggregates()

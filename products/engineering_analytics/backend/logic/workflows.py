@@ -121,6 +121,7 @@ def build_workflow_health(
     date_to: str | None = None,
     branch: str | None = None,
     run_scope: str | None = None,
+    workflow_name: str | None = None,
 ) -> list[WorkflowHealthItem]:
     parsed_from, parsed_to = _parse_window(curated.team, date_from, date_to, default=_DEFAULT_WORKFLOW_WINDOW)
     return query_workflow_health(
@@ -129,6 +130,7 @@ def build_workflow_health(
         date_to=parsed_to,
         branch=branch,
         run_scope=_parse_run_scope(run_scope),
+        workflow_name=workflow_name,
     )
 
 

@@ -121,6 +121,67 @@ export function percentileSorted(sortedAsc: number[], q: number): number | null 
  * Verdict + headline stats for one workflow's runs. Durations use successful runs. Rates use
  * conclusive runs, so an unsettled or non-verdict run is never counted as a failure.
  */
+/** The workflow verdict, from counts either side can supply, so the client-side summary over a page
+ *  of runs and the server's window-wide figures can never disagree on the badge. */
+function workflowState(counts: {
+    hasCompleted: boolean
+    latestConclusion: string | null
+    conclusiveRuns: number
+    failures: number
+}): WorkflowState {
+    if (!counts.hasCompleted) {
+        return 'unknown'
+    }
+    if (isDecisiveFailure(counts.latestConclusion)) {
+        return 'failing'
+    }
+    if (counts.conclusiveRuns > 0 && counts.failures / counts.conclusiveRuns >= DEGRADED_FAILURE_RATE) {
+        return 'degraded'
+    }
+    return 'healthy'
+}
+
+/** The window-wide figures for one workflow, as the server computed them.
+ *
+ * The tiles read this rather than folding the run table, which only holds the newest page: on a busy
+ * workflow that page is a few hours of a 30-day window, so a client-side pass rate answered a
+ * different question than the Workflows table's, and cost-per-run divided a window-wide total by the
+ * page size. `running` and `completedRuns` are not in the contract and are not on any tile.
+ */
+export function workflowHealthSummary(item: {
+    run_count: number
+    successful_run_count: number
+    conclusive_run_count: number
+    success_rate: number | null
+    p50_seconds: number | null
+    p95_seconds: number | null
+    last_failure_at: string | null
+    latest_run_conclusion?: string | null
+    rerun_cycles?: number
+}): HealthSummary {
+    const failures = item.conclusive_run_count - item.successful_run_count
+    return {
+        state: workflowState({
+            hasCompleted: item.latest_run_conclusion != null,
+            latestConclusion: item.latest_run_conclusion ?? null,
+            conclusiveRuns: item.conclusive_run_count,
+            failures,
+        }),
+        totalRuns: item.run_count,
+        completedRuns: item.conclusive_run_count,
+        conclusiveRuns: item.conclusive_run_count,
+        passedRuns: item.successful_run_count,
+        failures,
+        running: 0,
+        reruns: item.rerun_cycles ?? 0,
+        passRate: item.success_rate,
+        medianSeconds: item.p50_seconds,
+        p95Seconds: item.p95_seconds,
+        lastFailureAt: item.last_failure_at,
+        latestConclusion: item.latest_run_conclusion ?? null,
+    }
+}
+
 export function computeHealthSummary(runs: HealthRun[]): HealthSummary {
     const completed = runs.filter((run) => run.conclusion !== null)
     const successful = completed.filter((run) => run.conclusion === 'success')
@@ -151,16 +212,12 @@ export function computeHealthSummary(runs: HealthRun[]): HealthSummary {
             .sort()
             .at(-1) ?? null
 
-    let state: WorkflowState
-    if (completed.length === 0) {
-        state = 'unknown'
-    } else if (isDecisiveFailure(latestConclusion)) {
-        state = 'failing'
-    } else if (conclusiveRuns > 0 && failures / conclusiveRuns >= DEGRADED_FAILURE_RATE) {
-        state = 'degraded'
-    } else {
-        state = 'healthy'
-    }
+    const state = workflowState({
+        hasCompleted: completed.length > 0,
+        latestConclusion,
+        conclusiveRuns,
+        failures,
+    })
 
     return {
         state,
