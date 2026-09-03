@@ -136,21 +136,21 @@ Teams are discovered dynamically via `team_discovery.py`. Guaranteed teams (in `
 
 Key constants in `constants.py`:
 
-| Constant                                    | Default        | Description                                     |
-| ------------------------------------------- | -------------- | ----------------------------------------------- |
-| `DEFAULT_MAX_ITEMS_PER_WINDOW`              | 15             | Max items per window                            |
-| `DEFAULT_BATCH_SIZE`                        | 5              | Concurrent item processing                      |
-| `DEFAULT_MAX_CONCURRENT_TEAMS`              | 20             | Max teams to process in parallel                |
-| `DEFAULT_MODE`                              | "detailed"     | Summary detail level                            |
-| `DEFAULT_MODEL`                             | "gpt-4.1-nano" | LLM model for summarization                     |
-| `DEFAULT_WINDOW_MINUTES`                    | 60             | Time window to query                            |
-| `WORKFLOW_EXECUTION_TIMEOUT_MINUTES`        | 30             | Max per-team workflow duration                  |
-| `COORDINATOR_EXECUTION_TIMEOUT_MINUTES`     | 55             | Max coordinator workflow duration               |
-| `SAMPLE_TIMEOUT_SECONDS`                    | 900            | Sampling activity timeout (per attempt)         |
-| `FETCH_AND_FORMAT_START_TO_CLOSE_TIMEOUT`   | 120s           | Fetch + format activity timeout (per attempt)   |
-| `FETCH_AND_FORMAT_HEARTBEAT_TIMEOUT`        | 60s            | Heartbeat window for fetch activity             |
-| `SUMMARIZE_AND_SAVE_START_TO_CLOSE_TIMEOUT` | 900s           | Summarize + save activity timeout (per attempt) |
-| `SUMMARIZE_AND_SAVE_HEARTBEAT_TIMEOUT`      | 60s            | Heartbeat window for summarize activity         |
+| Constant                                    | Default      | Description                                     |
+| ------------------------------------------- | ------------ | ----------------------------------------------- |
+| `DEFAULT_MAX_ITEMS_PER_WINDOW`              | 15           | Max items per window                            |
+| `DEFAULT_BATCH_SIZE`                        | 5            | Concurrent item processing                      |
+| `DEFAULT_MAX_CONCURRENT_TEAMS`              | 20           | Max teams to process in parallel                |
+| `DEFAULT_MODE`                              | "detailed"   | Summary detail level                            |
+| `DEFAULT_MODEL`                             | "gpt-5-nano" | LLM model for summarization                     |
+| `DEFAULT_WINDOW_MINUTES`                    | 60           | Time window to query                            |
+| `WORKFLOW_EXECUTION_TIMEOUT_MINUTES`        | 30           | Max per-team workflow duration                  |
+| `COORDINATOR_EXECUTION_TIMEOUT_MINUTES`     | 55           | Max coordinator workflow duration               |
+| `SAMPLE_TIMEOUT_SECONDS`                    | 900          | Sampling activity timeout (per attempt)         |
+| `FETCH_AND_FORMAT_START_TO_CLOSE_TIMEOUT`   | 120s         | Fetch + format activity timeout (per attempt)   |
+| `FETCH_AND_FORMAT_HEARTBEAT_TIMEOUT`        | 60s          | Heartbeat window for fetch activity             |
+| `SUMMARIZE_AND_SAVE_START_TO_CLOSE_TIMEOUT` | 900s         | Summarize + save activity timeout (per attempt) |
+| `SUMMARIZE_AND_SAVE_HEARTBEAT_TIMEOUT`      | 60s          | Heartbeat window for summarize activity         |
 
 Retry policies: `SAMPLE_RETRY_POLICY` (5 attempts with backoff), `FETCH_AND_FORMAT_RETRY_POLICY` (2 attempts), `SUMMARIZE_AND_SAVE_RETRY_POLICY` (2 attempts with backoff, `TextReprExpiredError` non-retryable), `COORDINATOR_CHILD_WORKFLOW_RETRY_POLICY` (1 attempt). All retry policies exclude `ValueError` and `TypeError` from retries.
 

@@ -8,3 +8,5 @@ DEFAULT_MODE = SummarizationMode.MINIMAL
 
 # Timeout configuration (seconds)
 SUMMARIZATION_TIMEOUT = 120
+# Flex requests queue for spare provider capacity, so they need a longer deadline than standard calls.
+SUMMARIZATION_FLEX_TIMEOUT = 600
