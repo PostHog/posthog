@@ -13,18 +13,9 @@ import { Box, Flex, Text } from "@radix-ui/themes";
 interface PendingChatViewProps {
   promptText: string;
   attachments?: UserMessageAttachment[];
-  /**
-   * Replaces the default "Starting task…" status line with the live run
-   * state, so a cloud task reads "Starting the sandbox…" while it boots.
-   */
   statusText?: string;
 }
 
-/**
- * The prompt shown inside the chat while its task is being created or is
- * booting. The message renders in the same bubble and column geometry as the
- * live thread, so the transcript replacing it changes nothing the user sees.
- */
 export function PendingChatView({
   promptText,
   attachments,

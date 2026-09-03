@@ -745,9 +745,6 @@ export function SessionView({
                 </Box>
               </>
             ) : isInitializing ? (
-              // The moved prompt record renders first so the submitted message
-              // is on screen before the transcript arrives, for cloud runs as
-              // well; the transcript then replaces it without a visual change.
               pendingTaskPrompt?.promptText ? (
                 <PendingChatView
                   promptText={pendingTaskPrompt.promptText}

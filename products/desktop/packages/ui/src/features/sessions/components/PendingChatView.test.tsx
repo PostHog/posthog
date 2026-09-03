@@ -16,8 +16,6 @@ function renderPending(props: { statusText?: string } = {}) {
 }
 
 describe("PendingChatView", () => {
-  // Mounts the thread's chat primitives outside ChatThread, so a provider
-  // requirement or broken import must fail here, not on a new task's screen.
   it("renders the prompt as a chat message with the default status", () => {
     renderPending();
     expect(screen.getByText("Ship the login fix")).toBeInTheDocument();

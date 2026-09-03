@@ -120,7 +120,7 @@ interface UseTaskCreationOptions {
   /**
    * Side effect run with the created task in addition to (not instead of)
    * the default open/navigation behavior — unlike onTaskCreated, providing
-   * this does not suppress the prompt record the chat renders from.
+   * this does not suppress the pending-task view.
    */
   onTaskCreatedEffect?: (task: Task) => void;
 }
@@ -293,8 +293,6 @@ export function useTaskCreation({
       setIsCreatingTask(true);
 
       try {
-        // Block over-limit cloud creation before the composer locks, so the
-        // user keeps the prompt in hand instead of a dead submit.
         if (workspaceMode === "cloud" && !(await assertCloudUsageAvailable())) {
           return false;
         }
@@ -310,9 +308,8 @@ export function useTaskCreation({
         }
 
         // Confirm a couple of worktree branch situations before starting the
-        // task. Done before the composer locks, so a dialog (and a cancel) don't
-        // leave a half-started task on screen. Reusing an existing worktree takes
-        // priority over checking out a remote branch.
+        // task. Reusing an existing worktree takes priority over checking out a
+        // remote branch.
         let allowRemoteBranchCheckout = false;
         let reuseExistingWorktree = false;
         if (workspaceMode === "worktree" && branch && selectedDirectory) {
@@ -357,10 +354,6 @@ export function useTaskCreation({
           }
         }
 
-        // The prompt record is the chat's optimistic message, not a screen of
-        // its own: when the task is created it moves under the task id, and the
-        // task chat renders it until the live transcript replaces it. It also
-        // keeps the prompt recoverable if creation fails after the chat opens.
         const shouldPersistPromptRecord = !onTaskCreated && !!plainPromptText;
         const pendingTaskKey = shouldPersistPromptRecord
           ? generatePendingTaskKey()
@@ -383,6 +376,27 @@ export function useTaskCreation({
         }
 
         let createdTaskId: string | undefined;
+
+        const settlePromptRecord = () => {
+          if (!pendingTaskKey) return;
+          if (createdTaskId) {
+            const interruptedTaskId = createdTaskId;
+            pendingTaskPromptStoreApi.markInterrupted(
+              interruptedTaskId,
+              getIsOnline() ? "failed" : "offline",
+            );
+            navigateBrowserTab(
+              originTabId,
+              {
+                href: `/tasks/pending/${interruptedTaskId}`,
+                title: "New task",
+              },
+              () => navigateToTaskPending(interruptedTaskId),
+            );
+          } else {
+            pendingTaskPromptStoreApi.clear(pendingTaskKey);
+          }
+        };
 
         try {
           if (!contentOverride) {
@@ -592,36 +606,7 @@ export function useTaskCreation({
                 error: result.error,
               });
             }
-            if (pendingTaskKey) {
-              if (createdTaskId) {
-                const interruptedTaskId = createdTaskId;
-                // onTaskReady already navigated the origin tab to the task's
-                // chat (the worktree path notifies ready before later steps),
-                // and a rolled-back task leaves that chat dead. Keep the
-                // record, flag it interrupted, and return the tab to the
-                // pending route so Recover/Discard actually show.
-                // Read connectivity live, not the value captured at submit:
-                // the submit guard forced isOnline true then, so a connection
-                // dropped during setup only shows in the store now.
-                pendingTaskPromptStoreApi.markInterrupted(
-                  interruptedTaskId,
-                  getIsOnline() ? "failed" : "offline",
-                );
-                navigateBrowserTab(
-                  originTabId,
-                  {
-                    href: `/tasks/pending/${interruptedTaskId}`,
-                    title: "New task",
-                  },
-                  () => navigateToTaskPending(interruptedTaskId),
-                );
-              } else {
-                // The composer still holds the prompt, so there is nothing to
-                // recover. Drop the record or a later launch would resurrect
-                // this prompt into the composer next to the one still there.
-                pendingTaskPromptStoreApi.clear(pendingTaskKey);
-              }
-            }
+            settlePromptRecord();
           }
           return result.success;
         } catch (error) {
@@ -630,30 +615,7 @@ export function useTaskCreation({
           });
           toastError("Failed to create task", error);
           log.error("Unexpected error during task creation", { error });
-          if (pendingTaskKey) {
-            if (createdTaskId) {
-              const interruptedTaskId = createdTaskId;
-              // Live connectivity, not the submit-time value, so a drop during
-              // setup is classified as offline (see the failed-result branch).
-              pendingTaskPromptStoreApi.markInterrupted(
-                interruptedTaskId,
-                getIsOnline() ? "failed" : "offline",
-              );
-              // A throw after onTaskReady leaves the origin tab on the
-              // rolled-back task's dead chat; return it to the pending route so
-              // recovery stays reachable.
-              navigateBrowserTab(
-                originTabId,
-                {
-                  href: `/tasks/pending/${interruptedTaskId}`,
-                  title: "New task",
-                },
-                () => navigateToTaskPending(interruptedTaskId),
-              );
-            } else {
-              pendingTaskPromptStoreApi.clear(pendingTaskKey);
-            }
-          }
+          settlePromptRecord();
           return false;
         }
       } finally {

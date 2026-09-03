@@ -13,10 +13,6 @@ interface SessionInitializingViewProps {
 
 const REVEAL_DELAY_MS = 2000;
 
-/**
- * Status copy shared by every initializing surface, so a prompt rendered
- * optimistically beside the same heading reads as one state.
- */
 export function sessionInitializingCopy(
   executionTarget: "cloud" | "local",
   cloudStatus: TaskRunStatus | null | undefined,
