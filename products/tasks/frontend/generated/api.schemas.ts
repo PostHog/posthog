@@ -1121,6 +1121,8 @@ export interface ChannelDTOApi {
     created_at: string
     created_by?: TaskUserBasicInfoApi | null
     starred?: boolean
+    /** Whether the requester can change Slack task routing for this channel. */
+    readonly can_manage_slack_task_routing: boolean
     /** Identifies this channel as one of the two system-provisioned spaces ('personal' for the user's own #me space, 'general' for the team's shared #general space). Null for an ordinary channel.
      *
      * * `personal` - Personal

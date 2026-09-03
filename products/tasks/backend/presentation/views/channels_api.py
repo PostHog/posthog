@@ -1,3 +1,4 @@
+from functools import cached_property
 from typing import Any, cast
 from uuid import UUID
 
@@ -122,6 +123,17 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def _user_id(self) -> int | None:
         return getattr(self.request.user, "id", None)
 
+    @cached_property
+    def _effective_membership_level(self) -> OrganizationMembership.Level | None:
+        return self.user_permissions.current_team.effective_membership_level
+
+    @cached_property
+    def _can_manage_slack_task_routing(self) -> bool:
+        effective_membership_level = self._effective_membership_level
+        return (
+            effective_membership_level is not None and effective_membership_level >= OrganizationMembership.Level.ADMIN
+        )
+
     @staticmethod
     def _sandbox_task_id(request: Request) -> UUID | None:
         authenticator = request.successful_authenticator
@@ -140,7 +152,11 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         ),
     )
     def list(self, request, *args, **kwargs):
-        channels = tasks_facade.list_channels(self.team_id, self._user_id())
+        channels = tasks_facade.list_channels(
+            self.team_id,
+            self._user_id(),
+            can_manage_slack_task_routing=self._can_manage_slack_task_routing,
+        )
         paginator = ChannelListPagination()
         page = paginator.paginate_queryset(cast(Any, channels), request, view=self)
         if page is None:
@@ -166,7 +182,11 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         user_id = self._user_id()
         if user_id is None:
             raise PermissionDenied("Provisioning default channels requires a user.")
-        provisioned = tasks_facade.provision_default_channels(self.team_id, user_id)
+        provisioned = tasks_facade.provision_default_channels(
+            self.team_id,
+            user_id,
+            can_manage_slack_task_routing=self._can_manage_slack_task_routing,
+        )
         return Response(ProvisionedChannelsSerializer(provisioned).data)
 
     @extend_schema(
@@ -253,6 +273,7 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             self._user_id(),
             name=serializer.validated_data["name"],
             star=serializer.validated_data["star"],
+            can_manage_slack_task_routing=self._can_manage_slack_task_routing,
         )
         if channel is None:
             return Response({"detail": "Invalid channel name"}, status=status.HTTP_400_BAD_REQUEST)
@@ -266,10 +287,7 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def partial_update(self, request, pk=None, **kwargs):
         serializer = ChannelUpdateSerializer(data=request.data, context={"team_id": self.team_id}, partial=True)
         serializer.is_valid(raise_exception=True)
-        membership_level = self.user_permissions.current_team.effective_membership_level
-        can_manage_shared_settings = (
-            membership_level is not None and membership_level >= OrganizationMembership.Level.ADMIN
-        )
+        can_manage_shared_settings = self._can_manage_slack_task_routing
         slack_task_routing = serializer.validated_data.pop("slack_task_routing", _SLACK_TASK_ROUTING_UNCHANGED)
         if slack_task_routing is not _SLACK_TASK_ROUTING_UNCHANGED and not can_manage_shared_settings:
             raise PermissionDenied("Only project admins can change Slack task routing")
@@ -331,7 +349,12 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return Response({"detail": "Invalid channel name"}, status=status.HTTP_400_BAD_REQUEST)
         if result == "name_taken":
             return Response({"detail": "A channel with this name already exists"}, status=status.HTTP_400_BAD_REQUEST)
-        channel = tasks_facade.get_channel(pk, self.team_id, self._user_id())
+        channel = tasks_facade.get_channel(
+            pk,
+            self.team_id,
+            self._user_id(),
+            can_manage_slack_task_routing=self._can_manage_slack_task_routing,
+        )
         if channel is None:
             raise NotFound()
         return Response(ChannelSerializer(channel).data)
@@ -363,7 +386,12 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     @extend_schema(responses={200: ChannelSerializer}, summary="Get a channel")
     def retrieve(self, request, pk=None, **kwargs):
-        channel = tasks_facade.get_channel(pk, self.team_id, self._user_id())
+        channel = tasks_facade.get_channel(
+            pk,
+            self.team_id,
+            self._user_id(),
+            can_manage_slack_task_routing=self._can_manage_slack_task_routing,
+        )
         if channel is None:
             raise NotFound()
         return Response(ChannelSerializer(channel).data)

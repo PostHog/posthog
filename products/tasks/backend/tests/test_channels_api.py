@@ -10,10 +10,12 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
+from posthog.constants import AvailableFeature
 from posthog.models import Integration, Organization, OrganizationMembership, PersonalAPIKey, Team, User
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_personal
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.tasks.backend.exceptions import ComputeBillingLimitError
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.onboarding_canvas import TeachingCanvas
@@ -468,6 +470,10 @@ class ChannelsAPITestCase(TestCase):
         other_client = APIClient()
         other_client.force_authenticate(self.other_user)
 
+        self.assertFalse(other_client.get(self._channels_url()).json()[0]["can_manage_slack_task_routing"])
+        self.assertFalse(
+            other_client.get(f"{self._channels_url()}{channel_id}/").json()["can_manage_slack_task_routing"]
+        )
         forbidden = other_client.patch(f"{self._channels_url()}{channel_id}/", payload, format="json")
         self.assertEqual(forbidden.status_code, status.HTTP_403_FORBIDDEN, forbidden.content)
         self.assertEqual(
@@ -480,6 +486,47 @@ class ChannelsAPITestCase(TestCase):
         )
         personal = self.client.patch(f"{self._channels_url()}{personal_id}/", payload, format="json")
         self.assertEqual(personal.status_code, status.HTTP_400_BAD_REQUEST, personal.content)
+
+    def test_project_admin_grant_can_manage_slack_task_routing(self):
+        integration = Integration.objects.create(team=self.team, kind="slack", integration_id="T123", config={})
+        membership = OrganizationMembership.objects.get(user=self.other_user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.MEMBER
+        membership.save(update_fields=["level"])
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            access_level="admin",
+            organization_member=membership,
+        )
+        other_client = APIClient()
+        other_client.force_authenticate(self.other_user)
+        created = other_client.post(self._channels_url(), {"name": "growth"})
+        self.assertEqual(created.status_code, status.HTTP_200_OK, created.content)
+        self.assertTrue(created.json()["can_manage_slack_task_routing"])
+        channel_id = created.json()["id"]
+
+        provisioned = self._provision(other_client)
+        self.assertTrue(all(channel["can_manage_slack_task_routing"] for channel in provisioned["channels"]))
+        listed = other_client.get(self._channels_url())
+        self.assertEqual(listed.status_code, status.HTTP_200_OK, listed.content)
+        self.assertTrue(all(channel["can_manage_slack_task_routing"] for channel in listed.json()))
+        retrieved = other_client.get(f"{self._channels_url()}{channel_id}/")
+        self.assertEqual(retrieved.status_code, status.HTTP_200_OK, retrieved.content)
+        self.assertTrue(retrieved.json()["can_manage_slack_task_routing"])
+
+        configured = other_client.patch(
+            f"{self._channels_url()}{channel_id}/",
+            {"slack_task_routing": {"integration": integration.id, "slack_channel_id": "C123"}},
+            format="json",
+        )
+
+        self.assertEqual(configured.status_code, status.HTTP_200_OK, configured.content)
+        self.assertTrue(configured.json()["can_manage_slack_task_routing"])
 
     def test_slack_task_routing_returns_a_stable_conflict(self):
         integration = Integration.objects.create(team=self.team, kind="slack", integration_id="T123", config={})

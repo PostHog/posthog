@@ -224,6 +224,7 @@ class ChannelDTO:
     starred: bool = False
     system_role: str | None = None
     slack_task_routing: SlackTaskRoutingDTO | None = None
+    can_manage_slack_task_routing: bool = False
 
 
 @dataclass(frozen=True)
