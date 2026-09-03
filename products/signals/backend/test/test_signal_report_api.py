@@ -57,7 +57,7 @@ from products.tasks.backend.facade.api import Channel
 from products.tasks.backend.facade.repo_selection_types import RepoSelectionResult
 
 if TYPE_CHECKING:
-    from products.tasks.backend.models import Task
+    from products.tasks.backend.models import Task, TaskRun
 
 
 def authenticate_as_sandbox_token(test: APIBaseTest) -> None:
@@ -670,6 +670,39 @@ class TestSignalReportListAPI(APIBaseTest):
 
     # --- implementation_pr_url ---
 
+    def _create_implementation_task_with_run(
+        self,
+        report: SignalReport,
+        *,
+        pr_url: str | None = None,
+        output: dict | None = None,
+        relationship: str = TASK_RUN_TYPE_IMPLEMENTATION,
+        state: dict | None = None,
+    ) -> "tuple[Task, TaskRun]":
+        Task = apps.get_model("tasks", "Task")
+        TaskRun = apps.get_model("tasks", "TaskRun")
+        task = Task.objects.create(
+            team=self.team,
+            title="Implementation task",
+            description="Fix the bug",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+        )
+        record_report_task(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            task_id=str(task.id),
+            relationship=relationship,
+        )
+        run_output = output if output is not None else ({"pr_url": pr_url} if pr_url else None)
+        run = TaskRun.objects.create(
+            team=self.team,
+            task=task,
+            status=TaskRun.Status.COMPLETED,
+            output=run_output,
+            state=state or {},
+        )
+        return task, run
+
     def _create_assignment(
         self,
         report: SignalReport,
@@ -891,7 +924,7 @@ class TestSignalReportListAPI(APIBaseTest):
             response = self.client.get(self._list_url(has_implementation_pr="true"))
 
         assert response.status_code == status.HTTP_200_OK
-        # Both association subqueries must stay team-scoped. Without the scope the planner can
+        # All association subqueries must stay team-scoped. Without the scope the planner can
         # invert the join and scan every team's task_run artefacts per request.
         filter_sql = [
             query["sql"]
@@ -900,9 +933,8 @@ class TestSignalReportListAPI(APIBaseTest):
         ]
         assert filter_sql
         for sql in filter_sql:
-            # Django aliases both association tables as V0; two scoped subqueries means two
-            # V0-qualified team filters.
-            assert sql.count(f'V0."team_id" = {self.team.id}') == 2
+            # Django aliases the task, legacy artefact, and assignment association tables as V0.
+            assert sql.count(f'V0."team_id" = {self.team.id}') == 3
 
     def test_filter_has_implementation_pr_absent_returns_all(self):
         report_with_pr = self._create_report(title="Report with PR")
@@ -2716,9 +2748,7 @@ class TestSignalReportContentUpdateAPI(APIBaseTest):
 
 
 class TestSignalReportPrEndpoints(APIBaseTest):
-    def _create_report(
-        self, report_status: str = SignalReport.Status.READY, *, with_pr: bool = True
-    ) -> SignalReport:
+    def _create_report(self, report_status: str = SignalReport.Status.READY, *, with_pr: bool = True) -> SignalReport:
         report = SignalReport.objects.create(
             team=self.team,
             status=report_status,
@@ -2888,11 +2918,7 @@ class TestSignalReportPrEndpoints(APIBaseTest):
         github = patch("products.signals.backend.views.GitHubIntegration.first_for_team_repository").start()
         self.addCleanup(patch.stopall)
         getattr(github.return_value, fetch_name).return_value = {"success": True, key: []}
-        with patch(
-            "products.signals.backend.views.fetch_implementation_pr_urls_for_reports",
-            return_value={str(report.id): "https://github.com/PostHog/posthog/pull/7"},
-        ):
-            response = self.client.get(getattr(self, url_attr)(str(report.id)))
+        response = self.client.get(getattr(self, url_attr)(str(report.id)))
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {key: []}
 
