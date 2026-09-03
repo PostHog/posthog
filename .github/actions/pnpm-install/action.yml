@@ -35,6 +35,13 @@ inputs:
             the shared per-repo GITHUB_TOKEN core bucket.
         required: false
         default: ${{ github.token }}
+    install:
+        description: |
+            Set to 'false' to put pnpm and Node on PATH without installing anything.
+            The store cache is skipped too, so the job avoids a ~1.2 GB restore it
+            would never read. For a job that only needs pnpm to launch a binary.
+        required: false
+        default: 'true'
 
 runs:
     using: composite
@@ -89,11 +96,13 @@ runs:
 
         - name: Get pnpm store path
           id: pnpm-store
+          if: inputs.install != 'false'
           shell: bash
           run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
 
         - name: Restore pnpm store
           id: restore
+          if: inputs.install != 'false'
           uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
           with:
               path: ${{ steps.pnpm-store.outputs.path }}
@@ -101,6 +110,7 @@ runs:
               restore-keys: pnpm-${{ runner.os }}-
 
         - name: Install dependencies
+          if: inputs.install != 'false'
           shell: bash
           working-directory: ${{ inputs.working-directory }}
           # Pass the command through env and eval it rather than interpolating
@@ -118,7 +128,7 @@ runs:
         # scoped to that ref alone — no other branch can read them, they evict
         # the shared master cache, and they only ever help that one PR's re-runs.
         - name: Save pnpm store
-          if: github.ref == 'refs/heads/master' && steps.restore.outputs.cache-hit != 'true'
+          if: inputs.install != 'false' && github.ref == 'refs/heads/master' && steps.restore.outputs.cache-hit != 'true'
           uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
           with:
               path: ${{ steps.pnpm-store.outputs.path }}

@@ -808,8 +808,16 @@ jobs:
                   skip-token-revoke: true
 
             - parallel:
-                  # Every product's backend:test is a plain pytest invocation, so this
-                  # job needs the turbo binary and nothing else from the workspace.
+                  # Every product's backend:test is a plain pytest invocation, so no
+                  # test here reads the workspace. turbo still shells out through
+                  # pnpm to launch each script, so pnpm and Node stay; only the
+                  # store restore and the install go.
+                  - name: Set up pnpm and Node
+                    uses: ./.github/actions/pnpm-install
+                    with:
+                        install: 'false'
+                        token: ${{ steps.setup-gh-token.outputs.token || github.token }}
+
                   - name: Install turbo
                     uses: ./.github/actions/setup-turbo
 

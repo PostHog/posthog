@@ -837,12 +837,16 @@ jobs:
                   bin/ci-wait-for-docker launch --background --down \
                     db redis7 clickhouse zookeeper kafka objectstorage \
                     temporal elasticsearch objectstorage-azure
-            # Depot shadow: canonical threads a setup-action app token into
-            # setup-python; mint stripped here (secret not available on Depot),
-            # so setup-python keeps the bot PAT. setup-turbo takes no token and
-            # has nothing to strip, so this reads the canonical composite
-            # directly rather than carrying an identical mirror.
+            # Depot shadow: canonical threads a setup-action app token into both
+            # pnpm-install and setup-python; mint stripped here (secret not
+            # available on Depot), so both keep the bot PAT. setup-turbo takes no
+            # token and has nothing to strip, so this reads the canonical
+            # composite directly rather than carrying an identical mirror.
             - parallel:
+                  - name: Set up pnpm and Node
+                    uses: ./.depot/actions/pnpm-install
+                    with:
+                        install: 'false'
                   - name: Install turbo
                     uses: ./.github/actions/setup-turbo
                   - name: Set up Python
