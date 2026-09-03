@@ -325,6 +325,7 @@ const taskRunStateFields = {
   pending_user_message: optionalField(z.string()),
   pending_user_message_id: optionalField(z.string()),
   prewarmed: optionalField(z.boolean()),
+  prior_run_summary: optionalField(z.string()),
   reasoning_effort: optionalField(
     z.union([effortLevelSchema, z.enum(["off", "minimal"])]),
   ),

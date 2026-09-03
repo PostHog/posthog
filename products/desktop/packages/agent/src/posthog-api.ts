@@ -387,12 +387,14 @@ export class PostHogAPIClient {
     taskId: string,
     runId: string,
     output: Record<string, unknown>,
+    signal?: AbortSignal,
   ): Promise<TaskRun> {
     return this.apiRequest(
       `/api/projects/${this.getTeamId()}/tasks/${taskId}/runs/${runId}/set_output/`,
       {
         method: "PATCH",
         body: JSON.stringify(output),
+        signal,
       },
     );
   }
