@@ -6,7 +6,7 @@ import { setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
 
 import { ExportType } from '~/exporter/types'
 import { NodeKind } from '~/queries/schema/schema-general'
-import { buildStickinessQuery, chart, personsModal, renderInsight } from '~/test/insight-testing'
+import { buildStickinessQuery, chart, getHogChart, personsModal, renderInsight } from '~/test/insight-testing'
 
 configure({ asyncUtilTimeout: 5000 })
 // With asyncUtilTimeout at 5s, a single legitimate waitFor can exhaust Jest's default
@@ -37,13 +37,26 @@ describe('StickinessLineChart', () => {
         })
     })
 
+    describe('axes', () => {
+        it('renders the y-axis as counts rather than percentages', async () => {
+            renderInsight({ query: buildStickinessQuery() })
+            await screen.findByLabelText(/chart with 1 data series/i)
+
+            await waitFor(() => {
+                const ticks = getHogChart().yTicks()
+                expect(ticks.length).toBeGreaterThan(0)
+                expect(ticks.some((t) => t.includes('%'))).toBe(false)
+            })
+        })
+    })
+
     describe('tooltips', () => {
-        it('formats series values as percentages of the series total', async () => {
+        it('shows the raw actor count for the bucket, not its share of the series total', async () => {
             renderInsight({ query: buildStickinessQuery() })
 
             const tooltip = await chart.hoverTooltip(2)
-            // Pageview canned series is [45, 82, 134, 210, 95], total 566, so bucket 2 == 134/566 ≈ 23.7%.
-            expect(tooltip.row('Pageview')).toMatch(/%/)
+            // Pageview canned series is [45, 82, 134, 210, 95], so bucket 2 is 134 actors.
+            expect(tooltip.row('Pageview')).toBe('134')
         })
     })
 

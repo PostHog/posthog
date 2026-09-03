@@ -5,6 +5,7 @@ import { TimeSeriesBarChart } from '@posthog/quill-charts'
 import type { PointClickData, Series, TimeSeriesBarChartConfig, TooltipContext } from '@posthog/quill-charts'
 
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
+import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
@@ -34,7 +35,6 @@ import { handleStickinessChartClick } from '../StickinessLineChart/handleStickin
 import {
     buildStickinessLabels,
     buildStickinessTooltipTitle,
-    stickinessPercentFormatter,
     STICKINESS_TOOLTIP_CONFIG,
 } from '../StickinessLineChart/stickinessChartTransforms'
 import { buildStickinessBarSeries, buildStickinessBarTimeSeriesConfig } from './stickinessBarChartTransforms'
@@ -105,18 +105,34 @@ export function StickinessBarChart({ context }: StickinessBarChartProps): JSX.El
         [indexedResults, getTrendsColor, getLabel]
     )
 
+    const valueLabelFormatter = useCallback(
+        (value: number) => formatAggregationAxisValue(trendsFilter, value, baseCurrency),
+        [trendsFilter, baseCurrency]
+    )
+
     const chartConfig: TimeSeriesBarChartConfig = useChartConfig(
         () => ({
             ...buildStickinessBarTimeSeriesConfig({
+                trendsFilter,
+                baseCurrency,
                 yAxisScaleType,
                 isGrouped,
-                valueLabels: showValuesOnSeries ? { formatter: stickinessPercentFormatter } : false,
+                valueLabels: showValuesOnSeries ? { formatter: valueLabelFormatter } : false,
                 tooltip: tooltipConfig,
             }),
             // Interactive legend is a component concern, kept out of the pure transform.
             legend: legendConfig,
         }),
-        [yAxisScaleType, isGrouped, showValuesOnSeries, legendConfig, tooltipConfig]
+        [
+            trendsFilter,
+            baseCurrency,
+            yAxisScaleType,
+            isGrouped,
+            showValuesOnSeries,
+            valueLabelFormatter,
+            legendConfig,
+            tooltipConfig,
+        ]
     )
 
     // Close over the primitives so the click memos don't invalidate when unrelated
@@ -160,7 +176,7 @@ export function StickinessBarChart({ context }: StickinessBarChartProps): JSX.El
                 interval: interval ?? undefined,
                 breakdownFilter: breakdownFilter ?? undefined,
                 trendsFilter,
-                showPercentView: true as const,
+                showPercentView: false as const,
                 isPercentStackView: false as const,
                 baseCurrency,
                 groupTypeLabel: resolvedGroupTypeLabel,

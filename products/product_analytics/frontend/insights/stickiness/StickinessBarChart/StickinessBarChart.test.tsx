@@ -52,11 +52,12 @@ describe('StickinessBarChart', () => {
         )
     })
 
-    it('tooltip: formats series values as percentages of the series total', async () => {
+    it('tooltip: shows the raw actor count for the bucket, not its share of the series total', async () => {
         renderInsight({ query: stickinessBar() })
 
         const tooltip = await chart.hoverTooltip(2)
-        expect(tooltip.row('Pageview')).toMatch(/%/)
+        // Pageview canned series is [45, 82, 134, 210, 95], so bucket 2 is 134 actors.
+        expect(tooltip.row('Pageview')).toBe('134')
     })
 
     it('renders InsightEmptyState when all series are zero', async () => {
