@@ -2,7 +2,8 @@
 
 The skill bundle is one zip of the skills a user created or owns in the team skills store.
 A consumer unpacks it into a skills directory (`~/.claude/skills`, `~/.agents/skills`) so a harness discovers the skills natively.
-The first consumer is the agent server in a task sandbox, which fetches the bundle at session start.
+It is for consumers outside a task sandbox, such as a local install into a developer's own skills directory.
+A task sandbox does not download it: the task worker runs the same stub selection (`select_skill_stubs`) when it builds the run's processing context and writes the result into `TaskRun.state["store_skills"]`, and the sandbox agent renders one pointer `SKILL.md` per entry from that state, so session start makes no extra request.
 
 Viewset: `products/skills/backend/api/skills.py` (`LLMSkillViewSet.bundle`).
 Walk and caps: `products/skills/backend/marketplace/adapters.py` (`build_skill_bundle`).
