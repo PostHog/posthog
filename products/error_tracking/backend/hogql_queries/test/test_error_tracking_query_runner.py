@@ -353,10 +353,15 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
 
     @freeze_time("2022-01-10T12:11:00")
     def test_date_range_resolution(self):
-        date_from = ErrorTrackingQueryRunner.parse_relative_date_from("-1d")
+        date_from = ErrorTrackingQueryRunner.parse_relative_date_from("-1d", self.team.timezone_info)
         date_to = ErrorTrackingQueryRunner.parse_relative_date_to("+1d")
         self.assertEqual(date_from, datetime(2022, 1, 9, 0, 0, 0, tzinfo=ZoneInfo(key="UTC")))
         self.assertEqual(date_to, datetime(2022, 1, 11, 12, 11, 0, tzinfo=ZoneInfo(key="UTC")))
+        # Day ranges snap to midnight in the project timezone, not UTC.
+        self.assertEqual(
+            ErrorTrackingQueryRunner.parse_relative_date_from("-1d", ZoneInfo("America/Los_Angeles")),
+            datetime(2022, 1, 9, 0, 0, 0, tzinfo=ZoneInfo("America/Los_Angeles")),
+        )
 
     def test_event_fetching_defaults_off(self):
         runner = ErrorTrackingQueryRunner(
@@ -421,7 +426,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
     @freeze_time("2022-01-10T12:11:00")
     def test_missing_date_from_defaults_to_seven_days(self):
         # A missing date_from must default to a bounded 7-day window, not all-time.
-        date_from = ErrorTrackingQueryRunner.parse_relative_date_from(None)
+        date_from = ErrorTrackingQueryRunner.parse_relative_date_from(None, self.team.timezone_info)
         self.assertEqual(date_from, datetime(2022, 1, 3, 12, 11, 0, tzinfo=ZoneInfo(key="UTC")))
 
     @freeze_time("2022-01-10T12:11:00")
