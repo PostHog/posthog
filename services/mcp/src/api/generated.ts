@@ -17123,6 +17123,15 @@ export namespace Schemas {
       base_version?: number | null;
     }
 
+    export interface ChannelRecentTaskAuthorDTO {
+      /** Channel that contains the recently active task. */
+      channel_id: string;
+      /** User who created a task with recent activity in this channel. */
+      user: TaskUserBasicInfo;
+      /** Most recent activity on a task created by this user. */
+      last_activity_at: string;
+    }
+
     /**
      * Request body for starring/unstarring a channel for the requesting user.
      */
