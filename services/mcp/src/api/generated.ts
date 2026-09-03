@@ -39032,6 +39032,22 @@ export namespace Schemas {
       ServiceName: 'service_name',
     } as const;
 
+    /**
+     * * `generating_source` - generating_source
+     * * `reviewing_source` - reviewing_source
+     * * `publishing_source` - publishing_source
+     * * `unknown` - unknown
+     */
+    export type FailurePhaseEnum = typeof FailurePhaseEnum[keyof typeof FailurePhaseEnum];
+
+
+    export const FailurePhaseEnum = {
+      GeneratingSource: 'generating_source',
+      ReviewingSource: 'reviewing_source',
+      PublishingSource: 'publishing_source',
+      Unknown: 'unknown',
+    } as const;
+
     export type FeatureFlagFilters = { [key: string]: unknown };
 
     export type FeatureFlagSurveys = { [key: string]: unknown };
@@ -87430,6 +87446,18 @@ export namespace Schemas {
          * @nullable
          */
       error_detail?: string | null;
+      /**
+         * Stable failure code for support and diagnostics.
+         * @nullable
+         */
+      error_code?: string | null;
+      /** Generation step that failed, if a generation job failed.
+       *
+       * * `generating_source` - generating_source
+       * * `reviewing_source` - reviewing_source
+       * * `publishing_source` - publishing_source
+       * * `unknown` - unknown */
+      failure_phase?: FailurePhaseEnum | null;
       /**
          * Short-lived URL for the selected widget version's preview.
          * @nullable
