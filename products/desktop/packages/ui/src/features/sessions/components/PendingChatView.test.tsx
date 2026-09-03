@@ -1,8 +1,34 @@
 import { Theme } from "@radix-ui/themes";
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { PendingChatView } from "./PendingChatView";
+
+class ResizeObserverCapture {
+  static instances: ResizeObserverCallback[] = [];
+
+  constructor(callback: ResizeObserverCallback) {
+    ResizeObserverCapture.instances.push(callback);
+  }
+
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+
+function measure(element: HTMLElement, overflow: boolean): void {
+  Object.defineProperty(element, "scrollHeight", {
+    configurable: true,
+    value: overflow ? 500 : 100,
+  });
+  Object.defineProperty(element, "clientHeight", {
+    configurable: true,
+    value: 100,
+  });
+  for (const callback of ResizeObserverCapture.instances) {
+    callback([], {} as ResizeObserver);
+  }
+}
 
 function renderPending(
   props: {
@@ -23,6 +49,15 @@ function renderPending(
 }
 
 describe("PendingChatView", () => {
+  beforeEach(() => {
+    ResizeObserverCapture.instances = [];
+    vi.stubGlobal("ResizeObserver", ResizeObserverCapture);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it("renders the prompt as a chat message with the default status", () => {
     renderPending();
     expect(screen.getByText("Ship the login fix")).toBeInTheDocument();
@@ -59,5 +94,33 @@ describe("PendingChatView", () => {
       attachments: [{ id: "notes.txt", label: "notes.txt" }],
     });
     expect(screen.getByText("notes.txt")).toBeInTheDocument();
+  });
+
+  it("clamps a long prompt to five lines and expands on Show more", async () => {
+    renderPending({
+      content: Array.from({ length: 20 }, (_, i) => `line ${i}`).join("\n\n"),
+    });
+
+    const clamped = document.querySelector(".max-h-\\[5lh\\]");
+    expect(clamped).not.toBeNull();
+    expect(screen.queryByText("Show more")).not.toBeInTheDocument();
+
+    measure(clamped as HTMLElement, true);
+    await waitFor(() =>
+      expect(screen.getByText("Show more")).toBeInTheDocument(),
+    );
+
+    fireEvent.click(screen.getByText("Show more"));
+    expect(screen.getByText("Show less")).toBeInTheDocument();
+    expect(document.querySelector(".max-h-\\[5lh\\]")).toBeNull();
+  });
+
+  it("keeps a short prompt unclamped with no toggle", () => {
+    renderPending({ content: "Ship the login fix" });
+
+    const clamped = document.querySelector(".max-h-\\[5lh\\]");
+    expect(clamped).not.toBeNull();
+    measure(clamped as HTMLElement, false);
+    expect(screen.queryByText("Show more")).not.toBeInTheDocument();
   });
 });
