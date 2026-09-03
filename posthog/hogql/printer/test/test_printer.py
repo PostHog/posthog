@@ -4020,9 +4020,9 @@ class TestPrinter(BaseTest):
         )
         assert (
             self._with_active_events_table(
-                "SELECT coalesce(dictGetOrNull('posthog_test.channel_definition_dict', 'domain_type', "
+                f"SELECT coalesce(dictGetOrNull('{CLICKHOUSE_DATABASE}.channel_definition_dict', 'domain_type', "
                 "(coalesce(%(hogql_val_0)s, ''), 'source')), "
-                "dictGetOrNull('posthog_test.channel_definition_dict', 'domain_type', "
+                f"dictGetOrNull('{CLICKHOUSE_DATABASE}.channel_definition_dict', 'domain_type', "
                 "(cutToFirstSignificantSubdomain(coalesce(%(hogql_val_0)s, '')), 'source'))) AS domain "
                 f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000 SETTINGS "
                 "readonly=2, max_execution_time=10, allow_experimental_object_type=1, "
@@ -4039,9 +4039,9 @@ class TestPrinter(BaseTest):
         )
         assert (
             self._with_active_events_table(
-                "SELECT coalesce(dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', "
+                f"SELECT coalesce(dictGetOrNull('{CLICKHOUSE_DATABASE}.channel_definition_dict', 'type_if_paid', "
                 "(coalesce(%(hogql_val_0)s, ''), 'source')) , "
-                "dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', "
+                f"dictGetOrNull('{CLICKHOUSE_DATABASE}.channel_definition_dict', 'type_if_paid', "
                 "(cutToFirstSignificantSubdomain(coalesce(%(hogql_val_0)s, '')), 'source'))) AS source "
                 f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000 SETTINGS "
                 "readonly=2, max_execution_time=10, allow_experimental_object_type=1, "
@@ -4058,7 +4058,7 @@ class TestPrinter(BaseTest):
         )
         assert (
             self._with_active_events_table(
-                "SELECT dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', "
+                f"SELECT dictGetOrNull('{CLICKHOUSE_DATABASE}.channel_definition_dict', 'type_if_paid', "
                 "(coalesce(%(hogql_val_0)s, ''), 'medium')) AS medium "
                 f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS "
                 "readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
@@ -4073,9 +4073,9 @@ class TestPrinter(BaseTest):
         )
         assert (
             self._with_active_events_table(
-                "SELECT coalesce(dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', "
+                f"SELECT coalesce(dictGetOrNull('{CLICKHOUSE_DATABASE}.channel_definition_dict', 'type_if_organic', "
                 "(coalesce(%(hogql_val_0)s, ''), 'source')), "
-                "dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', "
+                f"dictGetOrNull('{CLICKHOUSE_DATABASE}.channel_definition_dict', 'type_if_organic', "
                 "(cutToFirstSignificantSubdomain(coalesce(%(hogql_val_0)s, '')), 'source'))) AS source "
                 f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000 SETTINGS "
                 "readonly=2, max_execution_time=10, allow_experimental_object_type=1, "
@@ -4092,7 +4092,7 @@ class TestPrinter(BaseTest):
         )
         assert (
             self._with_active_events_table(
-                "SELECT dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', "
+                f"SELECT dictGetOrNull('{CLICKHOUSE_DATABASE}.channel_definition_dict', 'type_if_organic', "
                 "(coalesce(%(hogql_val_0)s, ''), 'medium')) AS medium "
                 f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS "
                 "readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
