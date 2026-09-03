@@ -53,6 +53,11 @@ from posthog.hogql.resolver_utils import (
     suggest_field_names,
     suggested_field_fix,
 )
+from posthog.hogql.transforms.trino.persons import (
+    lower_trino_table,
+    resolve_internal_trino_logical_table,
+    resolve_trino_table_reference,
+)
 from posthog.hogql.type_system import (
     infer_array_access_constant_type,
     infer_array_constant_type,
@@ -1348,17 +1353,28 @@ class Resolver(CloningVisitor):
 
                 return node
 
-            try:
-                database_table = cast(Database, self.database).get_table(table_name_chain)
-            except QueryError:
-                # Direct Postgres/DuckDB sources expose introspected table-valued functions
-                # (range, generate_series, unnest, …) via connection metadata. If the lookup
-                # failed but the name matches one of those, synthesize an opaque single-column
-                # table so the call resolves and the printer emits it as a passthrough.
-                opaque_table = self._build_opaque_table_function(table_name_chain, node)
-                if opaque_table is None:
-                    raise
-                database_table = opaque_table
+            if self.dialect == "trino":
+                database_table = resolve_trino_table_reference(
+                    cast(ast.Field, node.table), self.context
+                ) or resolve_internal_trino_logical_table(table_name_chain, self.context)
+            else:
+                database_table = None
+
+            if database_table is None:
+                try:
+                    database_table = cast(Database, self.database).get_table(table_name_chain)
+                except QueryError:
+                    # Direct Postgres/DuckDB sources expose introspected table-valued functions
+                    # (range, generate_series, unnest, …) via connection metadata. If the lookup
+                    # failed but the name matches one of those, synthesize an opaque single-column
+                    # table so the call resolves and the printer emits it as a passthrough.
+                    opaque_table = self._build_opaque_table_function(table_name_chain, node)
+                    if opaque_table is None:
+                        raise
+                    database_table = opaque_table
+
+            if self.dialect == "trino":
+                database_table = lower_trino_table(database_table, self.context)
 
             if isinstance(database_table, SavedQuery):
                 self.current_view_depth += 1

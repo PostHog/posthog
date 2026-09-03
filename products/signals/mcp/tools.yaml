@@ -121,11 +121,12 @@ tools:
             for clearing, snoozing, or resolving a batch of inbox reports without one request per report. Pass `ids`
             (1–100 report ids) and a `state` ('resolved' when the requested work is done, 'suppressed' to dismiss,
             'potential' to snooze/restore); the optional `dismissal_reason` (same canonical codes as the single-report
-            tool), `dismissal_note`, and `snooze_for` apply to every id. Dismissing or resolving closes each report's
-            open implementation PR, if it has one. Each id is processed independently, so the whole call returns 200
-            even on partial failure: inspect `results` (one entry per id, in request order) and the `transitioned_count`
-            / `skipped_count` / `failed_count` / `not_found_count` summary. An id whose transition isn't allowed from
-            its current status comes back as `skipped` (the single-report 409) while the rest still go through.
+            tool, including `wrong_repo`), `dismissal_note`, `corrected_repository` (only with `wrong_repo`), and
+            `snooze_for` apply to every id. Dismissing or resolving closes each report's open implementation PR, if it
+            has one. Each id is processed independently, so the whole call returns 200 even on partial failure: inspect
+            `results` (one entry per id, in request order) and the `transitioned_count` / `skipped_count` /
+            `failed_count` / `not_found_count` summary. An id whose transition isn't allowed from its current status
+            comes back as `skipped` (the single-report 409) while the rest still go through.
     inbox-reports-list:
         operation: signals_reports_list
         enabled: true
@@ -238,15 +239,18 @@ tools:
             suppressed report — other statuses return 409. Dismissing or resolving closes the report's open
             implementation PR, if it has one; a resolved report never reopens, and a recurrence starts a fresh report
             linked to it. Optionally include a `dismissal_reason` — a canonical code from the inbox UI
-            (`fixed_outside_posthog`, `pr_merged`, `already_fixed`, `report_unclear`, `analysis_wrong`,
+            (`fixed_outside_posthog`, `pr_merged`, `already_fixed`, `report_unclear`, `analysis_wrong`, `wrong_repo`,
             `wontfix_intentional`, `wontfix_irrelevant`, `other`), so it renders as a labelled chip rather than a raw
             string. With state='resolved' use `fixed_outside_posthog` when the fix landed without a pull request,
             `pr_merged` when a pull request with the fix was merged but did not resolve the report on its own, or
             `already_fixed` when it was fixed before the report was filed; the other codes describe a dismissal. Use
-            `other` plus a `dismissal_note` (free-form text, up to 4000 chars) for anything that doesn't fit a code.
-            Both are persisted as a DISMISSAL artefact on the report so the rationale survives later transitions.
-            Returns 409 if the transition is not allowed from the report's current status. To transition several reports
-            at once, use `inbox-reports-bulk-set-state` instead of calling this per report.
+            `wrong_repo` when the agent picked the wrong repository for this report, and pass `corrected_repository` (an
+            'owner/repo' string, only allowed with `wrong_repo`) to name the one it should have used — the correction is
+            recorded and fed into future repository selection for this project. Use `other` plus a `dismissal_note`
+            (free-form text, up to 4000 chars) for anything that doesn't fit a code. Both are persisted as a DISMISSAL
+            artefact on the report so the rationale survives later transitions. Returns 409 if the transition is not
+            allowed from the report's current status. To transition several reports at once, use
+            `inbox-reports-bulk-set-state` instead of calling this per report.
     inbox-reports-update:
         operation: signals_reports_partial_update
         enabled: true
@@ -859,6 +863,46 @@ tools:
             Pass `keys_only=true` to scan which memories exist without pulling their (potentially large) bodies, or
             `content_max_chars` to cap each `content` to a preview — both keep a wide orientation/dedupe scan from
             returning every entry's full prose. Results capped at 1000.
+    self-driving-inbox-get:
+        operation: signals_reports_list
+        enabled: true
+        scopes:
+            - task:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        input_schema: ReportInboxInputSchema
+        enrich_url: '{id}'
+        list: true
+        title: Get self-driving inbox
+        description: >
+            Get the top 10 prioritized, actionable self-driving reports for the current project, including their
+            summaries. By default this uses the requesting user's personal PR-generation threshold, falling back to the
+            project threshold. Choose another view for reports needing human input, implementation PRs being monitored,
+            resolved or dismissed reports, or reports judged not actionable. Filter by reviewer scope, priority, source
+            product, scout, or text search, and use offset to page through further results. Use
+            inbox-report-artefacts-list to read a report's evidence and work log before acting on it.
+        response:
+            include:
+                - id
+                - title
+                - summary
+                - status
+                - priority
+                - actionability
+                - already_addressed
+                - dismissal_reason
+                - dismissal_note
+                - signal_count
+                - total_weight
+                - source_products
+                - scout_name
+                - is_suggested_reviewer
+                - implementation_pr_url
+                - implementation_pr_merged
+                - created_at
+                - updated_at
     signals-report-artefacts-diff:
         operation: signals_report_artefacts_diff
         enabled: false

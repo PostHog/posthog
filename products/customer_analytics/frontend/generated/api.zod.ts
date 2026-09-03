@@ -409,6 +409,13 @@ export const AccountsPartialUpdateBody = /* @__PURE__ */ zod
     })
     .describe('A Customer Analytics account — a logical grouping used to assign customer-success ownership.')
 
+/**
+ * Run a Customer Analytics accounts table query.
+ */
+export const CustomerAnalyticsAccountsTableQueryCreateBody = /* @__PURE__ */ zod
+    .record(zod.string(), zod.unknown())
+    .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+
 export const AnnouncementsCreateBody = /* @__PURE__ */ zod.object({
     message: zod.string().describe('Message body to send, rendered as Slack mrkdwn.'),
     channels: zod

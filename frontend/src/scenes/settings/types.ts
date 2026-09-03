@@ -45,6 +45,7 @@ export type SettingSectionId =
     | 'environment-revenue-analytics'
     | 'environment-secret-api-keys'
     | 'environment-surveys'
+    | 'environment-task-agents'
     | 'environment-web-analytics'
     | 'environment-workflows'
     | 'environment-danger-zone'
@@ -237,6 +238,7 @@ export type SettingId =
     | 'reminders'
     | 'persons-on-events'
     | 'posthog-mcp-configure'
+    | 'profile-picture'
     | 'project-delete'
     | 'project-move'
     | 'realtime-notifications'
@@ -256,6 +258,8 @@ export type SettingId =
     | 'revenue-analytics-external-data-sources'
     | 'revenue-analytics-filter-test-accounts'
     | 'revenue-base-currency'
+    | 'saml-configuration'
+    | 'scim-configuration'
     | 'session-join-mode'
     | 'session-table-version'
     | 'sidebar-auto-suggest'
@@ -266,6 +270,8 @@ export type SettingId =
     | 'snippet-v2'
     | 'surveys-default-appearance'
     | 'surveys-interface'
+    | 'task-agent-my-preference'
+    | 'task-agent-project-default'
     | 'theme'
     | 'user-delete'
     | 'user-groups'
@@ -278,6 +284,7 @@ export type SettingId =
     | 'web-vitals-autocapture'
     | 'workflows-email-tracking-consent'
     | 'workflows-engagement-events'
+    | 'xaa-configuration'
 
 type FeatureFlagKey = keyof typeof FEATURE_FLAGS
 

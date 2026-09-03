@@ -1,6 +1,6 @@
 import asyncio
 from dataclasses import asdict
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from uuid import UUID
 
 from django.conf import settings
@@ -9,10 +9,10 @@ import structlog
 from temporalio.common import RetryPolicy, WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 
 from posthog.temporal.common.client import sync_connect
-from posthog.temporal.data_modeling.run_workflow import RunWorkflowInputs, Selector
 from posthog.temporal.data_modeling.workflows.materialize_view import MaterializeViewWorkflowInputs
 
 from products.data_modeling.backend.logic.node_suspension import resume_nodes
+from products.data_modeling.backend.logic.saved_query_dag_sync import MissingDagNodeError
 from products.data_modeling.backend.models import Node
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.schedule import get_v2_saved_query_ids
@@ -20,38 +20,25 @@ from products.data_modeling.backend.schedule import get_v2_saved_query_ids
 logger = structlog.get_logger(__name__)
 
 
-def start_node_materialization(node: Node, *, is_v2: bool) -> None:
+def start_node_materialization(node: Node) -> None:
     """Start a one-off materialization workflow for a single node.
 
-    Shared by node `materialize` and saved-query `run` so the v1/v2 dispatch lives in one place.
+    Shared by node `materialize` and saved-query `run`.
     """
     # An explicit run is a request to try again, so it gets a fresh failure window.
     resume_nodes([node], by="manual_run")
-    if is_v2:
-        inputs: MaterializeViewWorkflowInputs | RunWorkflowInputs = MaterializeViewWorkflowInputs(
-            team_id=node.team_id,
-            dag_id=str(node.dag_id),
-            node_id=str(node.id),
-        )
-        workflow_name = "data-modeling-materialize-view"
-        workflow_id = f"materialize-view-{node.id}"
-    else:
-        inputs = RunWorkflowInputs(
-            team_id=node.team_id,
-            select=[Selector(label=str(node.saved_query_id), ancestors=0, descendants=0)],
-        )
-        workflow_name = "data-modeling-run"
-        # Mirror the scheduled-run id shape ({saved_query_id}-{iso timestamp}) so
-        # resolve_log_source can recover the saved query id and the run's logs show up
-        # in the materialization history UI.
-        workflow_id = f"{node.saved_query_id}-{datetime.now(UTC).isoformat()}"
+    inputs = MaterializeViewWorkflowInputs(
+        team_id=node.team_id,
+        dag_id=str(node.dag_id),
+        node_id=str(node.id),
+    )
 
     temporal = sync_connect()
     asyncio.run(
         temporal.start_workflow(
-            workflow_name,
+            "data-modeling-materialize-view",
             asdict(inputs),
-            id=workflow_id,
+            id=f"materialize-view-{node.id}",
             task_queue=str(settings.DATA_MODELING_TASK_QUEUE),
             id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
             id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
@@ -109,7 +96,7 @@ def materialize_saved_query(saved_query: DataWarehouseSavedQuery) -> None:
     node = Node.objects.filter(saved_query_id=saved_query.id).first()
     if node is None:
         # v2 was already confirmed, so a node should exist; a missing one is a data inconsistency.
-        # Skip rather than fall back to the v1 schedule, which no longer exists on a v2 team.
-        logger.warning("materialize_saved_query_missing_node", saved_query_id=str(saved_query.id))
-        return
-    start_node_materialization(node, is_v2=True)
+        # Raise rather than return: returning reports a materialization the caller can then find no
+        # trace of, and there is no v1 schedule left to fall back to.
+        raise MissingDagNodeError(f"Saved query {saved_query.id} has no DAG node to materialize")
+    start_node_materialization(node)

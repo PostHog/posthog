@@ -5,7 +5,7 @@ import { IconChevronRight } from '@posthog/icons'
 
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
-import { MessageTemplate } from 'products/posthog_ai/frontend/api/primitives'
+import { MessageTemplate, parseSandboxQuestions } from 'products/posthog_ai/frontend/api/primitives'
 
 import { CompatMessage } from '../types'
 import {
@@ -18,6 +18,7 @@ import {
     getInternalTagName,
     isInternalToolResultUserMessage,
     isToolStepItem,
+    parseToolArgumentsForDisplay,
 } from '../utils'
 
 // Roles that carry no user-visible content in a chat-app view. System prompts
@@ -154,7 +155,85 @@ function pillSideFor(labels: string[]): 'left' | 'right' {
     return labels.length > 0 && AGENT_SIDE_LABELS.has(labels[0]) ? 'left' : 'right'
 }
 
+// Only a tool we know asks the user may render its payload as speech, because routine trailing
+// calls like git_commit(message=…) can carry text-like arguments too. Exact names, so nothing
+// over-fires; an unknown ask tool keeps the hidden pill until its name is added here. The
+// normalization makes one entry cover the camelCase, snake_case, and kebab-case spellings.
+const ASK_TOOL_NAMES = new Set(['askuserquestion', 'askfollowupquestion', 'askhuman', 'askuser', 'requestuserinput'])
+
+function isAskLikeToolName(name: unknown): boolean {
+    return typeof name === 'string' && ASK_TOOL_NAMES.has(name.toLowerCase().replace(/[^a-z0-9]/g, ''))
+}
+
+function hasAskLikeCall(message: CompatMessage): boolean {
+    return (message.tool_calls ?? []).some((call) => isAskLikeToolName(call.function?.name))
+}
+
+function askQuestionText(message: CompatMessage): string {
+    return (message.tool_calls ?? [])
+        .filter((call) => isAskLikeToolName(call.function?.name))
+        .map((call) => parseToolArgumentsForDisplay(call.function?.arguments))
+        .flatMap((parsed) => (parsed.kind === 'parsed' ? parseSandboxQuestions(parsed.value) : []))
+        .map((question) => question.question.trim())
+        .filter((text) => text.length > 0)
+        .join('\n\n')
+}
+
+function isPlainAssistant(message: CompatMessage): boolean {
+    return message.role === 'assistant' && getInternalLabel(message) === undefined
+}
+
+// Trailing messages that do not end the turn. A tool result does end it, because it means the
+// call was answered and the turn moved on.
+function isTailSkippable(message: CompatMessage): boolean {
+    if (isToolResultEntry(message)) {
+        return false
+    }
+    if (HIDDEN_ROLES.has(message.role) || getInternalLabel(message) !== undefined) {
+        return true
+    }
+    return extractText(message).trim().length === 0 && !hasNonTextContent(message) && !isToolCallMessage(message)
+}
+
+interface TrailingAsk {
+    anchorIndex: number
+    text: string
+    consumedIndices: Set<number>
+}
+
+// A turn that ends on an ask-like call is the assistant handing the turn to the user, which
+// makes it the turn's content. Providers split one turn into different message shapes, so the
+// unit is the whole trailing run: spoken words win, the ask call's arguments are the fallback.
+function findTrailingAsk(messages: CompatMessage[]): TrailingAsk | null {
+    const tailStart = messages.findLastIndex((message) => !isPlainAssistant(message) && !isTailSkippable(message)) + 1
+    const assistantEntries = messages
+        .slice(tailStart)
+        .map((message, offset) => ({ message, index: tailStart + offset }))
+        .filter(({ message }) => isPlainAssistant(message))
+    if (!assistantEntries.some(({ message }) => hasAskLikeCall(message))) {
+        return null
+    }
+    const spoken = assistantEntries
+        .map(({ message }) => extractText(message).trim())
+        .filter((text) => text.length > 0)
+        .join('\n\n')
+    const text =
+        spoken || assistantEntries.map(({ message }) => askQuestionText(message)).find((t) => t.length > 0) || ''
+    if (!text) {
+        return null
+    }
+    const consumed = assistantEntries.filter(
+        ({ message }) => hasAskLikeCall(message) || extractText(message).trim().length > 0
+    )
+    return {
+        anchorIndex: consumed[consumed.length - 1].index,
+        text,
+        consumedIndices: new Set(consumed.map(({ index }) => index)),
+    }
+}
+
 function classifyMessages(messages: CompatMessage[]): SessionEntry[] {
+    const trailingAsk = findTrailingAsk(messages)
     const result: SessionEntry[] = []
     for (let i = 0; i < messages.length; i++) {
         const message = messages[i]
@@ -164,6 +243,14 @@ function classifyMessages(messages: CompatMessage[]): SessionEntry[] {
         const internalLabel = getInternalLabel(message)
         if (internalLabel !== undefined) {
             result.push({ kind: 'internal', message, label: internalLabel })
+            continue
+        }
+        if (trailingAsk !== null && i === trailingAsk.anchorIndex) {
+            // nonText stays false: the ask is rendered, so the unrenderable capture would misfire.
+            result.push({ kind: 'bubble', message, text: trailingAsk.text, nonText: false })
+            continue
+        }
+        if (trailingAsk?.consumedIndices.has(i)) {
             continue
         }
         const text = extractText(message)
@@ -259,7 +346,10 @@ export function TranscriptBubbleStream({
                         boxClassName={item.message.role === 'user' ? 'bg-fill-tertiary' : undefined}
                     >
                         {item.text && (
-                            <LemonMarkdown className="whitespace-pre-wrap break-words">{item.text}</LemonMarkdown>
+                            // Trace content is untrusted, so external images must not auto-load.
+                            <LemonMarkdown className="whitespace-pre-wrap break-words" disableImages>
+                                {item.text}
+                            </LemonMarkdown>
                         )}
                         {item.nonText && <div className="italic text-muted text-xs mt-1">(has attachments)</div>}
                     </MessageTemplate>

@@ -1401,6 +1401,8 @@ export interface ChartSettings {
     showYAxisBorder?: boolean
     showLegend?: boolean
     showAnnotations?: boolean
+    /** Where the legend sits relative to the chart. Unset falls back per chart type: right for pie, top for the rest. */
+    legendPosition?: 'top' | 'bottom' | 'left' | 'right'
     showValuesOnSeries?: boolean
     // Deprecated: superseded by `pie.showTotal`. Retained so pre-existing pie-chart insights still
     // validate (ChartSettings is `extra="forbid"`). Read as a fallback in the pie chart components.
@@ -9543,6 +9545,10 @@ export const externalDataSources = [
     'Coolify',
     'SocialPilot',
     'RoktAds',
+    'Strato',
+    'Medusa',
+    'Membrain',
+    'RecallAI',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]

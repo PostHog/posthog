@@ -36,7 +36,14 @@ from products.signals.backend.implementation_pr import (
     fetch_implementation_pr_state_for_reports,
     fetch_implementation_pr_urls_for_reports,
 )
-from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalReportTask
+from products.signals.backend.models import (
+    ArtefactAttribution,
+    SignalReport,
+    SignalReportArtefact,
+    SignalReportTask,
+    SignalTeamConfig,
+    SignalUserAutonomyConfig,
+)
 from products.signals.backend.signal_metadata import ReportSignalMeta
 from products.signals.backend.task_run_artefacts import (
     TASK_RUN_TYPE_DISCUSSION,
@@ -50,6 +57,7 @@ from products.signals.backend.task_run_artefacts import (
 )
 from products.signals.backend.views import classify_report_list_client
 from products.tasks.backend.facade.api import Channel
+from products.tasks.backend.facade.repo_selection_types import RepoSelectionResult
 
 if TYPE_CHECKING:
     from products.tasks.backend.models import Task, TaskRun
@@ -200,8 +208,14 @@ class TestSignalReportListAPI(APIBaseTest):
             attribution=ArtefactAttribution.system(),
         )
 
-    def _actionability_artefact(self, report: SignalReport, *, actionability: str) -> SignalReportArtefact:
-        payload = {"explanation": "x", "actionability": actionability, "already_addressed": False}
+    def _actionability_artefact(
+        self, report: SignalReport, *, actionability: str, already_addressed: bool = False
+    ) -> SignalReportArtefact:
+        payload = {
+            "explanation": "x",
+            "actionability": actionability,
+            "already_addressed": already_addressed,
+        }
         art = SignalReportArtefact(
             team=self.team,
             report=report,
@@ -1099,6 +1113,55 @@ class TestSignalReportListAPI(APIBaseTest):
         assert body["attr"] == "actionability"
         assert body["code"] == "invalid_input"
 
+    def test_inbox_view_returns_prioritized_actionable_reports_and_can_show_dismissed(self):
+        p1 = self._create_report(title="P1 actionable")
+        self._actionability_artefact(p1, actionability="immediately_actionable")
+        self._priority_artefact(p1, priority="P1")
+        p0 = self._create_report(title="P0 actionable")
+        self._actionability_artefact(p0, actionability="immediately_actionable")
+        self._priority_artefact(p0, priority="P0")
+        addressed = self._create_report(title="Already addressed")
+        self._actionability_artefact(addressed, actionability="immediately_actionable", already_addressed=True)
+        dismissed = self._create_report(title="Dismissed", status=SignalReport.Status.SUPPRESSED)
+
+        response = self.client.get(self._list_url(view="actionable", scope="entire_project", sort="priority"))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [row["id"] for row in response.json()["results"]] == [str(p0.id), str(p1.id)]
+
+        response = self.client.get(self._list_url(view="dismissed", scope="entire_project", sort="priority"))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [row["id"] for row in response.json()["results"]] == [str(dismissed.id)]
+
+    def test_priority_preference_uses_personal_threshold_then_project_threshold(self):
+        reports_by_priority: dict[str, SignalReport] = {}
+        for priority in ("P0", "P1", "P2"):
+            report = self._create_report(title=f"{priority} report")
+            self._priority_artefact(report, priority=priority)
+            reports_by_priority[priority] = report
+
+        team_config, _ = SignalTeamConfig.objects.get_or_create(team=self.team)
+        team_config.default_autostart_priority = "P2"
+        team_config.save(update_fields=["default_autostart_priority"])
+
+        response = self.client.get(self._list_url(use_priority_preference="true", sort="priority"))
+        assert response.status_code == status.HTTP_200_OK
+        assert [row["id"] for row in response.json()["results"]] == [
+            str(reports_by_priority["P0"].id),
+            str(reports_by_priority["P1"].id),
+            str(reports_by_priority["P2"].id),
+        ]
+
+        SignalUserAutonomyConfig.objects.create(user=self.user, autostart_priority="P1")
+
+        response = self.client.get(self._list_url(use_priority_preference="true", sort="priority"))
+        assert response.status_code == status.HTTP_200_OK
+        assert [row["id"] for row in response.json()["results"]] == [
+            str(reports_by_priority["P0"].id),
+            str(reports_by_priority["P1"].id),
+        ]
+
     # --- source_products ---
 
     def test_source_products_defaults_to_empty_list(self):
@@ -1539,6 +1602,15 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
                 "wontfix_irrelevant",
                 "snoozing for now",
             ),
+            # wrong_repo without a correction, on a report with no repo_selection artefact:
+            # the selected-repository denormalization degrades to null instead of failing.
+            (
+                "suppress_with_wrong_repo_no_correction",
+                {"state": "suppressed", "dismissal_reason": "wrong_repo", "dismissal_note": "not this codebase"},
+                SignalReport.Status.SUPPRESSED,
+                "wrong_repo",
+                "not this codebase",
+            ),
             (
                 "resolve_with_reason_and_note",
                 {
@@ -1673,6 +1745,14 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
                 "non_canonical_dismissal_reason",
                 {"state": "suppressed", "dismissal_reason": "some_brand_new_code"},
             ),
+            (
+                "corrected_repository_without_wrong_repo_reason",
+                {"state": "suppressed", "dismissal_reason": "other", "corrected_repository": "acme/checkout"},
+            ),
+            (
+                "malformed_corrected_repository",
+                {"state": "suppressed", "dismissal_reason": "wrong_repo", "corrected_repository": "not-a-repo"},
+            ),
         ]
     )
     def test_state_transition_rejects_invalid_dismissal(self, _name, body):
@@ -1684,6 +1764,99 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
         assert not SignalReportArtefact.objects.filter(
             report=report, type=SignalReportArtefact.ArtefactType.DISMISSAL
         ).exists()
+
+    @parameterized.expand(
+        [
+            # A connected correction becomes the report's newest repo_selection artefact, so the
+            # next research run targets it. Without a usable correction (unconnected, or none
+            # named) the selection is cleared instead: research reuses the newest selection
+            # whenever it names a repository, so leaving the rejected pick in place would send a
+            # restored report straight back to the repository the reviewer just rejected.
+            ("connected_repo_appends_corrected_selection", "Acme/Checkout", True, "acme/checkout"),
+            ("unconnected_repo_clears_selection", "Acme/Checkout", False, None),
+            ("no_correction_clears_selection", None, False, None),
+        ]
+    )
+    def test_wrong_repo_dismissal_rewrites_selection(self, _name, corrected, corrected_connected, expected_repository):
+        report = self._create_report()
+        SignalReportArtefact.append_status(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            content=RepoSelectionResult(repository="acme/website", reason="initial pick"),
+            attribution=ArtefactAttribution.system(),
+        )
+        connected = ["acme/website", "acme/checkout"] if corrected_connected else ["acme/website"]
+        payload = {
+            "state": "suppressed",
+            "dismissal_reason": "wrong_repo",
+            "dismissal_note": "belongs in checkout",
+        }
+        if corrected is not None:
+            # Mixed case on purpose: the API normalizes to the lowercase form used
+            # by candidate lists and the connected-repos check.
+            payload["corrected_repository"] = corrected
+        with patch(
+            "products.tasks.backend.facade.repo_selection.list_team_connected_repositories",
+            return_value=connected,
+        ):
+            response = self.client.post(
+                self._state_url(str(report.id)),
+                data=json.dumps(payload),
+                content_type="application/json",
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        dismissal = SignalReportArtefact.objects.get(report=report, type=SignalReportArtefact.ArtefactType.DISMISSAL)
+        content = json.loads(dismissal.content)
+        assert content["reason"] == "wrong_repo"
+        assert content["selected_repository"] == "acme/website"
+        assert content["corrected_repository"] == ("acme/checkout" if corrected else None)
+
+        selections = list(
+            SignalReportArtefact.objects.filter(
+                report=report, type=SignalReportArtefact.ArtefactType.REPO_SELECTION
+            ).order_by("created_at")
+        )
+        assert len(selections) == 2
+        latest = json.loads(selections[-1].content)
+        assert latest["repository"] == expected_repository
+        assert selections[-1].created_by_id == self.user.id
+        # Neither a correction nor a clear signals PR intent, so autostart must stay off.
+        assert latest["autostart_eligible"] is False
+
+    def test_wrong_repo_dismissal_survives_an_oversized_persisted_selection(self):
+        # A repo_selection artefact is writable through the generic artefacts API, whose only check
+        # is the (length-unconstrained) RepoSelectionResult schema, while Dismissal caps this field.
+        # An over-long persisted repository must degrade to unknown, not fail the whole dismissal —
+        # a 500 here rolls the transition back, so every retry would fail and block the dismissal.
+        report = self._create_report()
+        oversized = "acme/" + "z" * 600
+        SignalReportArtefact.append_status(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            content=RepoSelectionResult(repository=oversized, reason="oversized junk"),
+            attribution=ArtefactAttribution.system(),
+        )
+
+        response = self.client.post(
+            self._state_url(str(report.id)),
+            data=json.dumps({"state": "suppressed", "dismissal_reason": "wrong_repo"}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.SUPPRESSED
+
+        dismissal = SignalReportArtefact.objects.get(report=report, type=SignalReportArtefact.ArtefactType.DISMISSAL)
+        assert json.loads(dismissal.content)["selected_repository"] is None
+
+        # The rejected pick is still cleared, so a restore re-selects instead of reusing the junk.
+        selections = list(
+            SignalReportArtefact.objects.filter(
+                report=report, type=SignalReportArtefact.ArtefactType.REPO_SELECTION
+            ).order_by("created_at")
+        )
+        assert json.loads(selections[-1].content)["repository"] is None
 
     def test_rejects_unknown_state(self):
         report = self._create_report()

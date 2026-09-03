@@ -600,7 +600,7 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
             }
             const enabled = !scanner.enabled
             actions.toggleScannerEnabledStarted(id)
-            // The stored estimate is kept ≤24h fresh even while disabled, so the projection shift is known up front.
+            // The refresher keeps the stored estimate fresh even while disabled, so the projection shift is known up front.
             const estimate = scanner.estimated_monthly_credits ?? 0
             const delta = enabled ? estimate : -estimate
             visionQuotaLogic.findMounted()?.actions.adjustProjectedMonthly(delta)

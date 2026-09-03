@@ -39,12 +39,13 @@ import { FreeHistoricalSyncsBanner } from '../../shared/components/FreeHistorica
 import { SourceIcon } from '../../shared/components/SourceIcon'
 import { availableSourcesLogic } from './availableSourcesLogic'
 import { BillingLimitNotice } from './components/BillingLimitNotice'
+import { DestinationStep } from './components/DestinationStep'
 import { FileUploadSourceForm } from './components/FileUploadSourceForm'
 import { SelfManagedSourceForm } from './components/SelfManagedSourceForm'
 import { FILE_UPLOAD_SOURCE_NAME } from './fileUploadSource'
 import { selfManagedSourceLogic } from './selfManagedSourceLogic'
 import { SourceCatalog } from './SourceCatalog'
-import { type SourceWizardLogicProps, sourceWizardLogic } from './sourceWizardLogic'
+import { WIZARD_DESTINATION_STEP, type SourceWizardLogicProps, sourceWizardLogic } from './sourceWizardLogic'
 
 export const getEffectiveAccessMethod = (
     currentStep: number,
@@ -377,6 +378,8 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
                     <WebhookSetupStep sourceWizardLogicProps={props.sourceWizardLogicProps} />
                 ) : currentStep === 5 ? (
                     <ProgressStep />
+                ) : currentStep === WIZARD_DESTINATION_STEP ? (
+                    <DestinationStep />
                 ) : (
                     <UnknownWizardStepFallback currentStep={currentStep} onRestart={onClear} />
                 )}

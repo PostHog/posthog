@@ -1,10 +1,11 @@
-import { IconExternal } from '@posthog/icons'
-import { LemonTable, LemonTableColumns, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonTable, LemonTableColumns, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { pluralize } from 'lib/utils/strings'
 
+import { githubFileUrl } from '../lib/github'
 import { TrunkQuarantinedTestRow } from '../scenes/engineeringAnalyticsLogic'
+import { TestIdCell } from './TestIdCell'
 
 /** One team's quarantined tests, rendered inside the debt table's expanded row. */
 export function TeamQuarantinedTestsTable({
@@ -21,33 +22,16 @@ export function TeamQuarantinedTestsTable({
         {
             title: 'Test',
             key: 'nodeid',
-            // max-w-0 lets the auto-layout cell shrink to the distributed width, so a long
-            // nodeid truncates instead of pushing the table wider than the scene.
             className: 'w-full max-w-0',
             render: (_, row) => {
-                // Rust and Storybook rows carry no file path in Trunk's data.
-                const url =
-                    row.trunkUrl ?? (row.file ? `https://github.com/${repository}/blob/master/${row.file}` : null)
-                if (!url) {
-                    return (
-                        <Tooltip title={row.nodeid}>
-                            <span className="block max-w-full truncate font-mono text-xs">{row.nodeid}</span>
-                        </Tooltip>
-                    )
-                }
+                // A test the repository could not place carries no file path to link to.
+                const url = row.trunkUrl ?? (row.file ? githubFileUrl(repository, row.file) : null)
                 return (
-                    <Tooltip title={row.trunkUrl ? `${row.nodeid} - open in Trunk` : row.nodeid}>
-                        <Link
-                            to={url}
-                            target="_blank"
-                            targetBlankIcon={false}
-                            className="flex max-w-full items-center gap-1 font-mono text-xs"
-                        >
-                            {/* Icon leads so truncating a long nodeid never clips it away. */}
-                            <IconExternal className="shrink-0" />
-                            <span className="truncate">{row.nodeid}</span>
-                        </Link>
-                    </Tooltip>
+                    <TestIdCell
+                        nodeid={row.nodeid}
+                        url={url}
+                        tooltip={row.trunkUrl ? `${row.nodeid} - open in Trunk` : row.nodeid}
+                    />
                 )
             },
         },

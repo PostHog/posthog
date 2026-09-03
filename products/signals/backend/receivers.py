@@ -249,6 +249,14 @@ def emit_report_embedding_on_document_change(
         _schedule_tombstone(team_id=team_id, report_id=report_id, created_at=created_at, reason="unreviewed edit")
         return
 
+    # The inverse marker: a judged rewrite that re-sent the exact stored document. The text is
+    # unchanged, but the current embedding row may be a tombstone from an earlier unreviewed edit, so
+    # the no-op shortcut below must not skip this save. Consumed like `_unreviewed_edit`: it
+    # describes the one save it was set for.
+    reviewed_reindex = getattr(instance, "_reviewed_reindex", False)
+    if reviewed_reindex:
+        instance._reviewed_reindex = False  # type: ignore[attr-defined]
+
     # An edit can still land on a deleted report: `update_scout_report` gates on team ownership, not
     # status. Emitting a live row for one would supersede the deletion tombstone and make the report
     # visible to embedding queries again.
@@ -273,7 +281,7 @@ def emit_report_embedding_on_document_change(
     # bare `save()` is what Django admin does, so treating it as judged would let re-saving a report in
     # admin republish text an edit had retracted, under a verdict that predates it.
     carries_status_transition = update_fields is not None and "status" in update_fields
-    if not carries_status_transition and getattr(instance, "_prior_document", None) == content:
+    if not carries_status_transition and not reviewed_reindex and getattr(instance, "_prior_document", None) == content:
         return
 
     def _emit() -> None:
@@ -555,6 +563,7 @@ _SNAPSHOT_ARTEFACT_FIELDS = [
     (SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT, "priority", "priority"),
     (SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT, "actionability", "actionability"),
     (SignalReportArtefact.ArtefactType.DISMISSAL, "reason", "dismissal_reason"),
+    (SignalReportArtefact.ArtefactType.DISMISSAL, "corrected_repository", "dismissal_corrected_repository"),
 ]
 
 
