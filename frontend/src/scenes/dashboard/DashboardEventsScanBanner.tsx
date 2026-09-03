@@ -19,8 +19,9 @@ export const DashboardEventsScanBanner = (): JSX.Element | null => {
 
     return (
         <LemonBanner type="warning" className="mt-4 mb-2" onClose={snoozeEventsScanBanner}>
-            {subject} every event in its date range on each refresh, which is slow. Each one is marked with a warning
-            icon next to its name. Filtering by event name, or adding a timestamp bound, makes them much faster.
+            {subject} more events than needed on each refresh, which is slow. Each one is marked with a warning icon
+            next to its name. Limiting the query to the events it needs, or adding a timestamp filter, makes it much
+            faster.
         </LemonBanner>
     )
 }

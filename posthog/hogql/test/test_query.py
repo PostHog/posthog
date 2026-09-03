@@ -25,8 +25,6 @@ from parameterized import parameterized
 from posthog.schema import (
     DateRange,
     EventPropertyFilter,
-    EventsScanWarning,
-    EventsScanWarningReason,
     HogQLFilters,
     HogQLQueryModifiers,
     HogQLVariable,
@@ -2270,18 +2268,3 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(mock_sync_execute.call_count, 1)
         mock_sleep.assert_not_called()
-
-    def test_user_sql_response_warns_about_events_scans(self):
-        query = "SELECT count() FROM events WHERE properties.plan = 'pro'"
-
-        response = execute_hogql_query(query, team=self.team, query_type="HogQLQuery")
-        scan_warnings = [warning for warning in response.warnings or [] if isinstance(warning, EventsScanWarning)]
-        self.assertEqual(len(scan_warnings), len(response.warnings or []))
-        self.assertEqual(
-            [warning.reason for warning in scan_warnings],
-            [EventsScanWarningReason.PROPERTY_FILTER_WITHOUT_EVENT, EventsScanWarningReason.NO_TIME_BOUND],
-        )
-        self.assertEqual(query[scan_warnings[0].start : scan_warnings[0].end], "events")
-
-        # Insight runners build their own event filters, so only user-written SQL is checked
-        self.assertIsNone(execute_hogql_query(query, team=self.team).warnings)

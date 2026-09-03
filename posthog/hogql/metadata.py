@@ -116,8 +116,10 @@ def get_hogql_metadata(
             else:
                 process_expr_on_table(node, context=context)
         elif query.language == HogLanguage.HOG_QL:
+            # Heuristics look at the query as written: `{filters}` and variables are the UI's, not the user's
             if not hogql_ast:
                 hogql_ast = parse_select(query.query)
+                as_written_ast = hogql_ast
                 finder = find_placeholders(hogql_ast)
                 if finder.has_filters:
                     hogql_ast = replace_filters(hogql_ast, query.filters, team, database=database)
@@ -126,6 +128,8 @@ def get_hogql_metadata(
                         hogql_ast, list(query.variables.values()) if query.variables else [], team
                     )
                     hogql_ast = cast(ast.SelectQuery, replace_placeholders(hogql_ast, query.globals))
+            else:
+                as_written_ast = hogql_ast
 
             hogql_table_names = get_table_names(hogql_ast)
             heuristic_warnings.extend(validate_taxonomy_references(hogql_ast, team, hogql_table_names))
@@ -161,10 +165,15 @@ def get_hogql_metadata(
             if prepared_ast:
                 response.ch_table_names = get_table_names(prepared_ast)
 
-            # After printing, so the heuristics can resolve table names through the database it built
-            heuristic_result = run_metadata_heuristics(hogql_ast, team, context.database)
-            heuristic_warnings.extend(heuristic_result.warnings)
-            heuristic_notices.extend(heuristic_result.notices)
+            # After printing, so the heuristics can resolve table names through the database it built.
+            # Advisory: a failure here must not mark a valid query invalid.
+            try:
+                heuristic_result = run_metadata_heuristics(as_written_ast, team, context.database)
+            except Exception:
+                logger.exception("hogql_metadata_heuristics_failed", team_id=team.pk)
+            else:
+                heuristic_warnings.extend(heuristic_result.warnings)
+                heuristic_notices.extend(heuristic_result.notices)
 
             if source is None and query.indexUsage and _index_usage_enabled(team):
                 _attach_index_usage(response, hogql_ast, context)
@@ -324,7 +333,8 @@ def enrich_hogql_validation_error(
     lines: list[str] = [original_detail]
 
     for notice in [*metadata.errors, *metadata.warnings, *metadata.notices]:
-        if notice.fix and notice.fix not in lines:
+        # `ai_prompt:` fixes are instructions for the assistant, not text for an error detail
+        if notice.fix and not notice.fix.startswith("ai_prompt:") and notice.fix not in lines:
             lines.append(f"Hint: {notice.fix}")
 
     if metadata.table_names:

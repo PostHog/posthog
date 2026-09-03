@@ -3,11 +3,14 @@ from datetime import datetime
 from functools import cached_property
 from typing import Any, Optional, cast
 
+import structlog
+
 from posthog.schema import (
     CachedHogQLQueryResponse,
     CacheMissResponse,
     DashboardFilter,
     DateRange,
+    EventsScanWarning,
     HogQLFilters,
     HogQLQuery,
     HogQLQueryModifiers,
@@ -20,6 +23,7 @@ from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.database.schema.activity_log_visibility import activity_log_visibility_policy_version
 from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR, get_direct_connection_source
 from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.events_scan import events_scan_warnings
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.metadata import get_table_names
 from posthog.hogql.parser import CacheOrigin, parse_select
@@ -42,6 +46,9 @@ from products.warehouse_sources.backend.facade.types import ManagedWarehouseSQLM
 
 _INFORMATION_SCHEMA_PREFIX = "system.information_schema."
 _ACTIVITY_LOGS_TABLE = "system.activity_logs"
+
+
+logger = structlog.get_logger(__name__)
 
 
 class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
@@ -299,7 +306,21 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         )
         if paginator:
             response = response.model_copy(update={**paginator.response_params(), "results": paginator.results})
+        scan_warnings = self._events_scan_warnings()
+        if scan_warnings:
+            response.warnings = [*(response.warnings or []), *scan_warnings]
         return response
+
+    def _events_scan_warnings(self) -> list[EventsScanWarning]:
+        """Advisory warnings from the SQL as written: `{filters}` and variables are applied in
+        `to_query` and must not count as the user's own filters. An external connection has no events table."""
+        if self.query.connectionId is not None:
+            return []
+        try:
+            return events_scan_warnings(parse_select(self.query.query), self.shared_database)
+        except Exception:
+            logger.exception("hogql_events_scan_check_failed", team_id=self.team.pk)
+            return []
 
     def apply_dashboard_filters(self, dashboard_filter: DashboardFilter):
         self.query.filters = self.query.filters or HogQLFilters()

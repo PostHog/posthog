@@ -2,12 +2,10 @@ import dataclasses
 from time import sleep
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, Optional, Union, cast
 
-import structlog
 from opentelemetry import trace
 
 from posthog.schema import (
     DataWarehouseSourceUsage,
-    EventsScanWarning,
     HogLanguage,
     HogQLFilters,
     HogQLMetadata,
@@ -51,7 +49,6 @@ from posthog.hogql.direct_sql import (
     get_raw_adapter_for_source,
 )
 from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError, QueryError, ResolutionError
-from posthog.hogql.events_scan import events_scan_warnings
 from posthog.hogql.feature_extractor import extract_hogql_features
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.hogql import HogQLContext
@@ -84,7 +81,6 @@ if TYPE_CHECKING:
     from products.warehouse_sources.backend.facade.models import ExternalDataSource
 
 tracer = trace.get_tracer(__name__)
-logger = structlog.get_logger(__name__)
 
 TRANSIENT_S3_ERROR_RETRY_DELAY_SECONDS = 1.0
 
@@ -154,7 +150,6 @@ class HogQLQueryExecutor:
         self.limit: Optional[int] = None
         self.offset: Optional[int] = None
         self.used_data_warehouse_sources: list[WarehouseSourceUsage] = []
-        self.events_scan_warnings: list[EventsScanWarning] = []
         self._direct_source: Optional[ExternalDataSource] = None
         self._direct_source_resolved = False
 
@@ -298,7 +293,6 @@ class HogQLQueryExecutor:
             database=database,
         )
 
-        self._collect_events_scan_warnings()
         self._apply_optimizers()
 
         with self.timings.measure("clone"):
@@ -711,20 +705,6 @@ class HogQLQueryExecutor:
             engine="clickhouse",
         )
 
-    def _collect_events_scan_warnings(self) -> None:
-        # Only user-written SQL: insight runners build their own event filters, and an external
-        # connection has no events table to scan.
-        if self.query_type != "HogQLQuery" or self.connection_id is not None or self.hogql_context is None:
-            return
-        database = self.hogql_context.database
-        if database is None:
-            return
-        try:
-            self.events_scan_warnings = events_scan_warnings(self.select_query, database)
-        except Exception:
-            # Advisory: a failure in the scan check must not fail the query.
-            logger.exception("hogql_events_scan_check_failed", team_id=self.team.pk)
-
     def _execute_raw_direct_query(self) -> None:
         if not isinstance(self.query, str):
             raise ExposedHogQLError("Sending a raw query requires a raw query string.")
@@ -885,7 +865,6 @@ class HogQLQueryExecutor:
             access_control_warning = build_access_control_warning(self.context.access_control_restricted_resources)
             if access_control_warning:
                 warnings.append(access_control_warning)
-        warnings.extend(self.events_scan_warnings)
         return HogQLQueryResponse(
             query=self.query,
             hogql=self.hogql,

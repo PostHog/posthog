@@ -1147,6 +1147,9 @@ class InsightSerializer(InsightBasicSerializer):
 
     @extend_schema_field(serializers.ListField(child=serializers.DictField(), allow_null=True))
     def get_warnings(self, insight: Insight):
+        # Warehouse warnings name sources and schemas, which the query API withholds from anonymous viewers
+        if self.context.get("is_shared"):
+            return None
         return self.insight_result(insight).warnings
 
     @extend_schema_field(serializers.ListField())

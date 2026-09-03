@@ -104,6 +104,46 @@ class TestFindEventsScans(TestCase):
                 [],
             ),
             (
+                "BETWEEN bounds the timestamp",
+                "SELECT count() FROM events WHERE event = 'a' AND timestamp BETWEEN '2025-01-01' AND '2025-02-01'",
+                [],
+            ),
+            (
+                "function-call and() form",
+                "SELECT count() FROM events WHERE and(equals(event, 'a'), greaterOrEquals(timestamp, today()))",
+                [],
+            ),
+            (
+                "filters in the JOIN ON clause",
+                "SELECT count() FROM persons p JOIN events e ON e.person_id = p.id AND e.event = 'a' AND e.timestamp >= today()",
+                [],
+            ),
+            (
+                "{filters} supplies the date range",
+                "SELECT count() FROM events WHERE event = 'a' AND {filters}",
+                [],
+            ),
+            (
+                "{filters} does not stand in for an event name",
+                "SELECT count() FROM events WHERE properties.plan = 'pro' AND {filters}",
+                [EventsScanReason.PROPERTY_FILTER_WITHOUT_EVENT],
+            ),
+            (
+                "dateTrunc and toStartOf wrappers still count as bounds",
+                "SELECT count() FROM events WHERE event = 'a' AND dateTrunc('day', timestamp) >= '2025-01-01' AND toStartOfFifteenMinutes(timestamp) >= '2025-01-01'",
+                [],
+            ),
+            (
+                "a CTE named events still checks its own body",
+                "WITH events AS (SELECT count() AS c FROM events WHERE properties.plan = 'pro' AND timestamp >= today()) SELECT c FROM events",
+                [EventsScanReason.PROPERTY_FILTER_WITHOUT_EVENT],
+            ),
+            (
+                "a root WITH shadows events in every UNION branch",
+                "WITH events AS (SELECT 1 AS x) SELECT x FROM events UNION ALL SELECT x FROM events",
+                [],
+            ),
+            (
                 "other tables are not checked",
                 "SELECT count() FROM persons WHERE properties.email = 'x'",
                 [],

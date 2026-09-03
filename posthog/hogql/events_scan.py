@@ -11,6 +11,7 @@ from enum import StrEnum
 from logging import getLogger
 from typing import TYPE_CHECKING
 
+from django.core.cache import cache
 from django.db import DatabaseError
 
 from posthog.schema import EventsScanWarning
@@ -51,17 +52,16 @@ _MONOTONIC_TIMESTAMP_FUNCTIONS = frozenset(
         "toDate",
         "toDateTime",
         "toDateTime64",
-        "toStartOfDay",
-        "toStartOfHour",
-        "toStartOfMinute",
-        "toStartOfWeek",
-        "toStartOfMonth",
-        "toStartOfQuarter",
-        "toStartOfYear",
+        "toMonday",
         "toTimeZone",
         "toUnixTimestamp",
+        "toYear",
+        "toYYYYMM",
+        "toYYYYMMDD",
     }
 )
+_MONOTONIC_TIMESTAMP_PREFIX = "toStartOf"
+_FILTERS_PLACEHOLDER = "filters"
 
 
 class EventsScanReason(StrEnum):
@@ -117,7 +117,7 @@ def finding_message(finding: EventsScanFinding, events_by_property: dict[str, li
     if finding.reason == EventsScanReason.NO_TIME_BOUND:
         return (
             "This query has no timestamp filter on events, so it reads your whole event history. "
-            "Add one, for example timestamp >= now() - INTERVAL 7 DAY."
+            "Add one, such as a filter for the last 7 days."
         )
     message = EVENT_FILTER_ADVICE
     for property_name in finding.property_names:
@@ -158,12 +158,19 @@ def events_seen_with_properties(team: "Team", property_names: Iterable[str]) -> 
     events_by_property: dict[str, list[str]] = {}
     try:
         for property_name in dict.fromkeys(property_names):
+            cache_key = f"events_scan:events_with_property:{team.project_id}:{property_name}"
+            cached = cache.get(cache_key)
+            if cached is not None:
+                if cached:
+                    events_by_property[property_name] = cached
+                continue
             events = list(
                 EventProperty.objects.alias(effective_project_id=effective_project_id_expr())
                 .filter(effective_project_id=team.project_id, property=property_name)
                 .order_by("event")
                 .values_list("event", flat=True)
             )
+            cache.set(cache_key, events, timeout=300)
             if events:
                 events_by_property[property_name] = events
     except DatabaseError:
@@ -185,6 +192,28 @@ class _EventsScanVisitor(TraversingVisitor):
             super().visit_select_query(node)
         finally:
             self._cte_scopes.pop()
+
+    def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
+        # The parser hangs a root WITH on the first branch; the other branches see those names too
+        initial = node.initial_select_query
+        names = set(initial.ctes.keys()) if isinstance(initial, ast.SelectQuery) and initial.ctes else set()
+        self._cte_scopes.append(names)
+        try:
+            super().visit_select_set_query(node)
+        finally:
+            self._cte_scopes.pop()
+
+    def visit_cte(self, node: ast.CTE) -> None:
+        # Inside its own body a CTE name still means the table
+        scope = next((scope for scope in reversed(self._cte_scopes) if node.name in scope), None)
+        if scope is None:
+            super().visit_cte(node)
+            return
+        scope.discard(node.name)
+        try:
+            super().visit_cte(node)
+        finally:
+            scope.add(node.name)
 
     def _check(self, node: ast.SelectQuery) -> None:
         references = _events_references(node.select_from, self.database, self._cte_scopes)
@@ -245,6 +274,11 @@ def _is_events_table(chain: list[str | int], database: "Database", cte_scopes: l
 
 def _row_predicate(node: ast.SelectQuery) -> ast.Expr | None:
     parts = [part for part in (node.where, node.prewhere) if part is not None]
+    join = node.select_from
+    while join is not None:
+        if join.constraint is not None and join.constraint.constraint_type == "ON":
+            parts.append(join.constraint.expr)
+        join = join.next_join
     if not parts:
         return None
     return parts[0] if len(parts) == 1 else ast.And(exprs=parts)
@@ -261,9 +295,19 @@ def _is_timestamp_expr(node: ast.Expr, aliases: set[str]) -> bool:
     if isinstance(node, ast.Field):
         chain = node.chain
         return chain == [_TIMESTAMP] or (len(chain) == 2 and chain[0] in aliases and chain[1] == _TIMESTAMP)
-    if isinstance(node, ast.Call) and node.name in _MONOTONIC_TIMESTAMP_FUNCTIONS and node.args:
-        return _is_timestamp_expr(node.args[0], aliases)
+    if isinstance(node, ast.Call) and node.args:
+        if node.name == "dateTrunc" and len(node.args) >= 2:
+            return _is_timestamp_expr(node.args[1], aliases)
+        if node.name in _MONOTONIC_TIMESTAMP_FUNCTIONS or node.name.startswith(_MONOTONIC_TIMESTAMP_PREFIX):
+            return _is_timestamp_expr(node.args[0], aliases)
     return False
+
+
+def _is_filters_placeholder(node: ast.Expr) -> bool:
+    """`{filters}` becomes the UI's date range and property filters, so it bounds the read without being the user's own filter."""
+    if not isinstance(node, ast.Placeholder) or not node.chain:
+        return False
+    return str(node.chain[0]) == _FILTERS_PLACEHOLDER
 
 
 def _constrains_event(expr: ast.Expr, aliases: set[str]) -> bool:
@@ -277,6 +321,10 @@ def _constrains_event(expr: ast.Expr, aliases: set[str]) -> bool:
             return len(exprs) > 0 and all(_constrains_event(part, aliases) for part in exprs)
         case ast.CompareOperation(op=op, left=left, right=right):
             return op in _EVENT_NAME_OPS and (_is_event_field(left, aliases) or _is_event_field(right, aliases))
+        case ast.Call(name="and", args=args):
+            return any(_constrains_event(part, aliases) for part in args)
+        case ast.Call(name="or", args=args):
+            return len(args) > 0 and all(_constrains_event(part, aliases) for part in args)
         case ast.Call(name=name, args=args):
             if name in _EVENT_NAME_FUNCTIONS and len(args) == 2:
                 return any(_is_event_field(arg, aliases) for arg in args)
@@ -300,6 +348,14 @@ def _bounds_timestamp(expr: ast.Expr, aliases: set[str]) -> bool:
             if _is_timestamp_expr(left, aliases) and op in _LOWER_BOUND_OPS_TIMESTAMP_LEFT:
                 return True
             return _is_timestamp_expr(right, aliases) and op in _LOWER_BOUND_OPS_TIMESTAMP_RIGHT
+        case ast.BetweenExpr(expr=inner, negated=negated):
+            return not negated and _is_timestamp_expr(inner, aliases)
+        case ast.Placeholder():
+            return _is_filters_placeholder(expr)
+        case ast.Call(name="and", args=args):
+            return any(_bounds_timestamp(part, aliases) for part in args)
+        case ast.Call(name="or", args=args):
+            return len(args) > 0 and all(_bounds_timestamp(part, aliases) for part in args)
         case ast.Call(name=name, args=args):
             if len(args) != 2:
                 return False

@@ -1060,8 +1060,8 @@ export interface dashboardLogicMeta {
             insightTiles: DashboardTile<QueryBasedInsightModel<Node<Record<string, any>>>>[]
         ) => number
         showEventsScanBanner: (
-            eventsScanWarningTileCount: any,
-            eventsScanBannerSnoozedUntil: any,
+            eventsScanWarningTileCount: number,
+            eventsScanBannerSnoozedUntil: string | null,
             placement: DashboardPlacement
         ) => boolean
         showRetentionBanner: (
@@ -2117,6 +2117,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             last_refresh: item.last_refresh ?? existing.last_refresh,
                             columns: item.columns ?? existing.columns,
                             types: item.types ?? existing.types,
+                            warnings: item.warnings ?? existing.warnings,
                         },
                     }
 

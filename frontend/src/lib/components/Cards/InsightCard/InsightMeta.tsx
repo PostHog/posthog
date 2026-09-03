@@ -220,8 +220,12 @@ export function InsightMeta({
         showsDataRetentionWarning && retentionPeriodLabel
             ? `This insight's date range goes beyond your ${retentionPeriodLabel} data retention, so events older than that aren't included.`
             : null
-    // A fresh response wins over the model the tile was loaded with, so the icon follows the latest run
-    const eventsScanWarning = eventsScanWarningMessage(insightData?.warnings ?? insight.warnings)
+    // A fresh response wins over the model the tile was loaded with, even when it carries no warnings,
+    // so the icon clears once the query is fixed. Shared and exported views get no icon, like the retention one.
+    const eventsScanWarning =
+        placement !== DashboardPlacement.Public && placement !== DashboardPlacement.Export
+            ? eventsScanWarningMessage(insightData ? insightData.warnings : insight.warnings)
+            : null
     const topHeadingProps = {
         query: insight.query,
         lastRefresh: insight.last_refresh,
