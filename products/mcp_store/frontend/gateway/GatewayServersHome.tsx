@@ -153,6 +153,7 @@ export function GatewayServerCard({
     const connection = server.your_connection
     const connected = Boolean(connection?.is_enabled && !connection.pending_oauth && !connection.needs_reauth)
     const needsReconnect = Boolean(connection?.pending_oauth || connection?.needs_reauth)
+    const canReconnect = Boolean(connection && (server.auth_type === 'oauth' || needsReconnect))
     const connecting = connectingServerId === server.id
     const disabled = !server.is_team_enabled
     const canConnectIndividual = !connection
@@ -217,13 +218,14 @@ export function GatewayServerCard({
                 {isAdmin && !recommended && <PeopleRow server={server} />}
             </div>
             <div className="shrink-0">
-                {needsReconnect && connection ? (
+                {canReconnect && connection ? (
                     <LemonButton
                         size="small"
                         type="primary"
                         disabledReason={connectionDisabledReason}
                         onClick={() => reconnectServer(connection.installation_id)}
                         stopPropagation
+                        data-attr="mcp-server-reconnect"
                     >
                         Reconnect
                     </LemonButton>
