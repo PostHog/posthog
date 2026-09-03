@@ -1,7 +1,9 @@
-/** Status words for a running turn. All hedgehog, on purpose: a wait is one of
- *  the few moments a customer reads our copy word by word, so it may as well
- *  sound like us. Keep them literal about the animal — a word that needs the
- *  joke explained is not a joke.
+/** Status words for a running turn. A wait is one of the few moments a customer
+ *  reads our copy word by word, so most of these are about the hedgehog: what it
+ *  eats, where it lives, how it moves, and the spines. The whimsical words that
+ *  came before are kept below them.
+ *  A new word earns its place by being funny on sight. If the joke needs trivia
+ *  or a PostHog product noun to land, it is not a joke.
  *  `products/posthog_ai/frontend/utils/thinkingMessages.ts` keeps the same list
  *  for Max in the web app, annotated — keep the two together. */
 export const THINKING_ACTIVITIES = [
@@ -81,7 +83,7 @@ export const THINKING_ACTIVITIES = [
   "Posthogging",
   "Hedging",
   "Hoggifying",
-  "Hog-easing",
+  "Hogteasing",
   "Hogitating",
   "Hogothesizing",
   "Hogtimizing",
@@ -104,6 +106,52 @@ export const THINKING_ACTIVITIES = [
   "Hogletherding",
   "Wormcharming",
   "Cricketchasing",
+
+  // Kept from the list these replaced.
+  "Digging",
+  "Peeking",
+  "Poking",
+  "Snooping",
+  "Noodling",
+  "Percolating",
+  "Pondering",
+  "Mulling",
+  "Puzzling",
+  "Grokking",
+  "Scheming",
+  "Swizzling",
+  "Tinkering",
+  "Unraveling",
+  "Dissecting",
+  "Sifting",
+  "Scrambling",
+  "Cranking",
+  "Trekking",
+  "Hunting",
+  "Scouting",
+  "Scouring",
+  "Surfacing",
+  "Snagging",
+  "Teasing",
+  "Tickling",
+  "Twinkling",
+  "Blooming",
+  "Sparking",
+  "Self-driving",
+  "Signaling",
+  "Flibbertigibbeting",
+  "Kerfuffling",
+  "Dithering",
+  "Discombobulating",
+  "Rambling",
+  "Befuddling",
+  "Waffling",
+  "Muckling",
+  "Hobnobbing",
+  "Galumphing",
+  "Puttering",
+  "Whiffling",
+
   "Thinking",
 ] as const;
 

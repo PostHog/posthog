@@ -2,10 +2,12 @@ import { inStorybookTestRunner } from 'lib/utils/dom'
 
 import { AssistantMessage } from '~/queries/schema/schema-assistant-messages'
 
-// Status words for a running turn. All hedgehog, on purpose: a wait is one of the
-// few moments a customer reads our copy word by word, so it may as well sound like
-// us. Keep them literal about the animal — a word that needs the joke explained is
-// not a joke.
+// Status words for a running turn. A wait is one of the few moments a customer reads
+// our copy word by word, so most of these are about the hedgehog: what it eats, where
+// it lives, how it moves, and the spines. The whimsical words that came before are
+// kept below them.
+// A new word earns its place by being funny on sight. If the joke needs trivia or a
+// PostHog product noun to land, it is not a joke.
 // `products/desktop/packages/core/src/sessions/thinkingActivities.ts` keeps the same
 // list for PostHog Desktop — keep the two together.
 export const THINKING_MESSAGES = [
@@ -85,7 +87,7 @@ export const THINKING_MESSAGES = [
     'Posthogging', // brand pun, no apologies
     'Hedging', // hedgehog pun, kept from the old list
     'Hoggifying', // to make a thing more hog
-    'Hog-easing', // smooth, like a good animation curve
+    'Hogteasing', // a hog take on teasing
     'Hogitating', // cogitating, with more snout
     'Hogothesizing', // forming a hypothesis
     'Hogtimizing', // making it faster
@@ -108,6 +110,52 @@ export const THINKING_MESSAGES = [
     'Hogletherding', // many small ideas, one direction
     'Wormcharming', // a real sport, and a real skill
     'Cricketchasing', // it went that way
+
+    // Kept from the list these replaced.
+    'Digging', // going deep
+    'Peeking', // quick look
+    'Poking', // testing ideas
+    'Snooping', // poking around data
+    'Noodling', // casual problem-solving
+    'Percolating', // slow thinking
+    'Pondering', // thoughtful pause
+    'Mulling', // slow consideration
+    'Puzzling', // solving something tricky
+    'Grokking', // deep understanding
+    'Scheming', // clever planning
+    'Swizzling', // techy weirdness
+    'Tinkering', // tweaking stuff
+    'Unraveling', // breaking things down
+    'Dissecting', // breaking it apart
+    'Sifting', // sorting signal from noise
+    'Scrambling', // chaotic progress
+    'Cranking', // pushing through work
+    'Trekking', // on a journey
+    'Hunting', // focused seeking
+    'Scouting', // looking ahead
+    'Scouring', // intense searching
+    'Surfacing', // bringing something up
+    'Snagging', // quick retrieval
+    'Teasing', // nudging out meaning
+    'Tickling', // triggering results lightly
+    'Twinkling', // flicker of insight
+    'Blooming', // ideas forming
+    'Sparking', // fresh thought forming
+    'Self-driving', // autonomy pun
+    'Signaling', // signals pun
+    'Flibbertigibbeting', // flustered but active chaos
+    'Kerfuffling', // low-stakes commotion
+    'Dithering', // indecisive processing
+    'Discombobulating', // intentionally confused
+    'Rambling', // aimless but possibly insightful
+    'Befuddling', // trying to untangle confusion
+    'Waffling', // bouncing between options
+    'Muckling', // clinging onto something
+    'Hobnobbing', // talking to the data gods
+    'Galumphing', // awkward progress
+    'Puttering', // low-energy thinking
+    'Whiffling', // light, directionless searching
+
     'Thinking', // just thinking, like in the old days
 ]
 
