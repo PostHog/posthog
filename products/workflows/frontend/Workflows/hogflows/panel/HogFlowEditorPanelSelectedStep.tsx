@@ -23,9 +23,9 @@ export function HogFlowEditorPanelSelectedStep(): JSX.Element | null {
     const action = selectedNode.data
 
     return (
-        <div className="flex shrink-0 items-start gap-3 border-b p-3">
+        <div className="flex shrink-0 items-start gap-2 border-b p-2">
             <span
-                className="flex size-12 shrink-0 items-center justify-center rounded text-2xl"
+                className="flex size-10 shrink-0 items-center justify-center rounded text-xl"
                 style={{
                     backgroundColor: Step?.color ? `${Step.color}20` : 'var(--border)',
                     color: Step?.color || 'var(--text-secondary)',
@@ -33,7 +33,7 @@ export function HogFlowEditorPanelSelectedStep(): JSX.Element | null {
             >
                 {Step?.icon}
             </span>
-            <div className="flex min-w-0 flex-1 flex-col gap-1">
+            <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                 <EditableField
                     name="step-name"
                     value={action.name}
@@ -49,7 +49,7 @@ export function HogFlowEditorPanelSelectedStep(): JSX.Element | null {
                     clickToEdit
                     compactButtons
                     compactIcon
-                    className="font-semibold text-base"
+                    className="text-sm font-semibold"
                     data-attr="workflow-step-name"
                 />
                 {!isScheduleTrigger(action) && (
@@ -63,7 +63,7 @@ export function HogFlowEditorPanelSelectedStep(): JSX.Element | null {
                         clickToEdit
                         compactButtons
                         compactIcon
-                        className="text-sm text-secondary"
+                        className="text-xs text-secondary"
                         data-attr="workflow-step-description"
                     />
                 )}
