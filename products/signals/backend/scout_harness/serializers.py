@@ -873,7 +873,10 @@ class ScoutNoteSerializer(serializers.Serializer):
             "fleet-level steering. `report_discussion` for the question someone asked when they "
             "opened a discussion on a report: context to weigh, neither a verdict on the report nor "
             "a directive. `report_feedback` for the note someone left when rating a report useful or "
-            "not: one reader's rating of the named report, context to weigh rather than a directive."
+            "not: one reader's rating of the named report, context to weigh rather than a directive. "
+            "`report_reviewer_correction` for a suggested reviewer someone added or removed on a "
+            "report: evidence about who owns that surface, and a prompt to revisit the routing "
+            "memory it corrects, rather than a directive."
         ),
     )
 
