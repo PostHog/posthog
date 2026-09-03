@@ -300,16 +300,8 @@ def checks_for_subject(
     return queryset if include_deleted else queryset.filter(deleted=False)
 
 
-@frozen
-class RunRecording:
-    """What a run recorded about the subjects it read, for judging the row it is denormalized onto."""
-
-    check_type: str
-    referenced_subjects: list | None
-
-
-def latest_run_recordings(team_id: int, check_ids: Iterable[UUID]) -> dict[UUID, RunRecording]:
-    """What each of these checks last read, keyed by check. One query; a check never run is absent.
+def latest_run_ids(team_id: int, check_ids: Iterable[UUID]) -> list[UUID]:
+    """The id of each of these checks' most recent run. One query; a check never run contributes none.
 
     A check row is not purely a definition: its ``last_status`` and ``last_run_at`` come from this
     run, so they report on whatever it read. Authorizing the row on the definition alone would serve
@@ -317,18 +309,14 @@ def latest_run_recordings(team_id: int, check_ids: Iterable[UUID]) -> dict[UUID,
     """
     ids = list(check_ids)
     if not ids:
-        return {}
-    latest = (
+        return []
+    return list(
         DataQualityCheckRun.objects.for_team(team_id)
         .filter(quality_check_id__in=ids)
         .order_by("quality_check_id", "-created_at")
         .distinct("quality_check_id")
-        .values_list("quality_check_id", "check_type", "referenced_subjects")
+        .values_list("id", flat=True)
     )
-    return {
-        check_id: RunRecording(check_type=check_type, referenced_subjects=referenced)
-        for check_id, check_type, referenced in latest
-    }
 
 
 def subject_health(team_id: int, subject_type: str, subject_uuid: str | UUID) -> SubjectHealth:

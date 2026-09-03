@@ -151,6 +151,34 @@ class TestReviewHogUiTriggerApi(APIBaseTest):
         mock_start.assert_not_called()
         mock_start_resolution.assert_not_called()
 
+    @patch(_META, return_value=_pr_meta())
+    @patch(_ACCESS, return_value=object())
+    @patch(_START, return_value="wf-ui-1")
+    def test_trigger_during_a_running_cheaper_review_lifts_the_tier_and_says_so(
+        self, mock_start, _mock_access, _mock_meta
+    ):
+        # Same join as the label path: the requester's source never reaches the fetch upsert, so the
+        # lift is written here and the UI is told no new run started.
+        report = ReviewReport.objects.for_team(self.team.id).create(
+            team=self.team,
+            repository="posthog/posthog.com",
+            pr_number=123,
+            pr_url="https://github.com/PostHog/posthog.com/pull/123",
+            head_branch="fix",
+            base_branch="master",
+            review_tier="agent_p2",
+            review_reasoning_effort="medium",
+        )
+        self.mock_busy.side_effect = lambda workflow_id: workflow_id.startswith("review-pr:")
+        with override_settings(REVIEWHOG_TEAM_IDS=[self.team.id]):
+            resp = self._trigger("https://github.com/PostHog/posthog.com/pull/123")
+
+        self.assertEqual(resp.status_code, status.HTTP_202_ACCEPTED, resp.content)
+        self.assertEqual(resp.json(), {"workflow_id": "wf-ui-1", "status": "joined_running_review"})
+        mock_start.assert_called_once()
+        report.refresh_from_db()
+        self.assertEqual((report.review_tier, report.review_reasoning_effort), ("human", "xhigh"))
+
     @patch(_ACCESS, return_value=object())
     @patch(_START_RESOLUTION)
     @patch(_START)

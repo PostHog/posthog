@@ -151,27 +151,43 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
                              )
                     END, 2
                 ) AS total_latency,
-                nullIf(sumIf(deduped.input_tokens,
-                      deduped.event IN ('$ai_generation', '$ai_embedding')
-                ), 0) AS input_tokens,
-                nullIf(sumIf(deduped.output_tokens,
-                      deduped.event IN ('$ai_generation', '$ai_embedding')
-                ), 0) AS output_tokens,
-                nullIf(round(
-                    sumIf(deduped.input_cost_usd,
-                          deduped.event IN ('$ai_generation', '$ai_embedding')
-                    ), 10
-                ), 0) AS input_cost,
-                nullIf(round(
-                    sumIf(deduped.output_cost_usd,
-                          deduped.event IN ('$ai_generation', '$ai_embedding')
-                    ), 10
-                ), 0) AS output_cost,
-                nullIf(round(
-                    sumIf(deduped.total_cost_usd,
-                          deduped.event IN ('$ai_generation', '$ai_embedding')
-                    ), 10
-                ), 0) AS total_cost,
+                -- NULL means no event carried the field, 0 is a reported zero.
+                -- nullIf(sum, 0) would collapse a real zero into NULL.
+                if(countIf(isNotNull(deduped.input_tokens)
+                           AND deduped.event IN ('$ai_generation', '$ai_embedding')) > 0,
+                   sumIf(deduped.input_tokens,
+                         deduped.event IN ('$ai_generation', '$ai_embedding')
+                   ),
+                   NULL
+                ) AS input_tokens,
+                if(countIf(isNotNull(deduped.output_tokens)
+                           AND deduped.event IN ('$ai_generation', '$ai_embedding')) > 0,
+                   sumIf(deduped.output_tokens,
+                         deduped.event IN ('$ai_generation', '$ai_embedding')
+                   ),
+                   NULL
+                ) AS output_tokens,
+                if(countIf(isNotNull(deduped.input_cost_usd)
+                           AND deduped.event IN ('$ai_generation', '$ai_embedding')) > 0,
+                   round(sumIf(deduped.input_cost_usd,
+                               deduped.event IN ('$ai_generation', '$ai_embedding')
+                   ), 10),
+                   NULL
+                ) AS input_cost,
+                if(countIf(isNotNull(deduped.output_cost_usd)
+                           AND deduped.event IN ('$ai_generation', '$ai_embedding')) > 0,
+                   round(sumIf(deduped.output_cost_usd,
+                               deduped.event IN ('$ai_generation', '$ai_embedding')
+                   ), 10),
+                   NULL
+                ) AS output_cost,
+                if(countIf(isNotNull(deduped.total_cost_usd)
+                           AND deduped.event IN ('$ai_generation', '$ai_embedding')) > 0,
+                   round(sumIf(deduped.total_cost_usd,
+                               deduped.event IN ('$ai_generation', '$ai_embedding')
+                   ), 10),
+                   NULL
+                ) AS total_cost,
                 arrayDistinct(
                     arraySort(
                         x -> x.3,

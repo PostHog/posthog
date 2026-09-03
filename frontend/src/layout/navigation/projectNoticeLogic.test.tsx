@@ -287,8 +287,8 @@ describe('projectNoticeLogic', () => {
             expect(verifyEmailLogic.isMounted()).toBe(true)
 
             await expectLogic(verifyEmailLogic, () => {
-                verifyEmailLogic.actions.requestVerificationLink('test-uuid')
-            }).toDispatchActions(['requestVerificationLink', 'requestVerificationLinkSuccess'])
+                verifyEmailLogic.actions.requestVerificationCode('test-uuid')
+            }).toDispatchActions(['requestVerificationCode', 'requestVerificationCodeSuccess'])
 
             logic.unmount()
         })

@@ -1,17 +1,33 @@
 """Team-level orchestration: CI health rollups, per-team activity, and merge trend."""
 
-from products.engineering_analytics.backend.facade.contracts import TeamCIActivity, TeamCIHealthList, TeamMergeTrend
-from products.engineering_analytics.backend.logic._shared import _parse_window
+from dataclasses import replace
+from datetime import datetime, timedelta
+
+from products.engineering_analytics.backend.facade.contracts import (
+    TeamCIActivity,
+    TeamCIHealthItem,
+    TeamCIHealthList,
+    TeamMergeTrend,
+)
+from products.engineering_analytics.backend.logic._shared import WindowedCount, _parse_window, _prior_window
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
+from products.engineering_analytics.backend.logic.queries._test_spans import UNOWNED_TEAM
+from products.engineering_analytics.backend.logic.queries.census_counts import query_census_counts
 from products.engineering_analytics.backend.logic.queries.team_ci_health import (
     query_team_ci_activity,
     query_team_ci_health,
 )
 from products.engineering_analytics.backend.logic.queries.team_merge_trend import query_team_merge_trend
+from products.engineering_analytics.backend.logic.queries.team_merged_prs import query_team_merged_pr_counts
 from products.engineering_analytics.backend.logic.suite_health import (
     DEFAULT_FLAKY_MIN_FAILED_PRS,
     MAX_FLAKY_WINDOW_DAYS,
 )
+
+# The census emits one value per team per day, so a few days of lookback always finds the
+# value standing at the window start; scanning the full prior twin would read days of
+# events only to discard them.
+_CENSUS_LOOKBACK = timedelta(days=3)
 
 # Team CI health rollups scan the current window plus an equal-length prior twin, so the
 # default sits below the flaky ceiling to keep both windows inside Traces retention. At the
@@ -30,6 +46,7 @@ def build_team_ci_health(
     date_to: str | None = None,
     min_failed_prs: int | None = None,
     limit: int | None = None,
+    owner_team: str | None = None,
 ) -> TeamCIHealthList:
     parsed_from, parsed_to = _parse_window(
         curated.team, date_from, date_to, default=_DEFAULT_TEAM_WINDOW, max_days=MAX_FLAKY_WINDOW_DAYS
@@ -42,12 +59,84 @@ def build_team_ci_health(
     limit = limit if limit is not None else _DEFAULT_TEAM_LIMIT
     if not 1 <= limit <= _MAX_TEAM_LIMIT:
         raise ValueError(f"limit must be between 1 and {_MAX_TEAM_LIMIT}")
-    return query_team_ci_health(
+    roster = query_team_ci_health(
         curated=curated,
         date_from=parsed_from,
         date_to=parsed_to,
         min_failed_prs=min_failed_prs,
         limit=limit,
+        owner_team=owner_team,
+    )
+    return _enrich_roster(
+        roster, curated=curated, date_from=parsed_from, date_to=parsed_to, limit=limit, owner_team=owner_team
+    )
+
+
+def _enrich_roster(
+    roster: TeamCIHealthList,
+    *,
+    curated: CuratedGitHubSource,
+    date_from: datetime,
+    date_to: datetime | None,
+    limit: int,
+    owner_team: str | None,
+) -> TeamCIHealthList:
+    """Attach census and merged-PR context, and add census-only rows so a team whose tests
+    all pass still appears in the roster instead of vanishing with the signal."""
+    window = _prior_window(date_from, date_to)
+    census = query_census_counts(
+        curated=curated, date_from=date_from, scan_from=date_from - _CENSUS_LOOKBACK, date_to=window.resolved_to
+    )
+    merged = query_team_merged_pr_counts(
+        curated=curated, date_from=date_from, scan_from=window.scan_from, date_to=window.resolved_to
+    )
+    _NO_COUNTS = WindowedCount(current=None, prior=None)
+    _ZERO_COUNTS = WindowedCount(current=0, prior=0)
+
+    def enrich(item: TeamCIHealthItem) -> TeamCIHealthItem:
+        # 'unowned' is not a GitHub team, so a zero merged-PR count would be a made-up number.
+        merged_counts = (
+            merged.get(item.owner_team, _ZERO_COUNTS)
+            if merged is not None and item.owner_team != UNOWNED_TEAM
+            else _NO_COUNTS
+        )
+        census_counts = census.get(item.owner_team, _NO_COUNTS)
+        return replace(
+            item,
+            test_file_count=census_counts.current,
+            test_file_count_prior=census_counts.prior,
+            merged_pr_count=merged_counts.current,
+            merged_pr_count_prior=merged_counts.prior,
+        )
+
+    signal_slugs = {item.owner_team for item in roster.items}
+    quiet_slugs = [
+        slug
+        for slug, _counts in sorted(census.items(), key=lambda kv: (-(kv[1].current or 0), kv[0]))
+        if slug not in signal_slugs and (owner_team is None or slug == owner_team)
+    ]
+    items = [enrich(item) for item in roster.items] + [enrich(_zero_row(slug)) for slug in quiet_slugs]
+    return TeamCIHealthList(
+        items=items[:limit],
+        truncated=roster.truncated or len(items) > limit,
+        limit=limit,
+    )
+
+
+def _zero_row(owner_team: str) -> TeamCIHealthItem:
+    return TeamCIHealthItem(
+        owner_team=owner_team,
+        flaky_test_count=0,
+        flaky_test_count_prior=0,
+        regression_test_count=0,
+        regression_test_count_prior=0,
+        failed_run_count=0,
+        failed_run_count_prior=0,
+        same_commit_recovery_run_count=0,
+        same_commit_recovery_run_count_prior=0,
+        quarantined_failed_run_count=0,
+        quarantined_failed_run_count_prior=0,
+        last_seen_at=None,
     )
 
 

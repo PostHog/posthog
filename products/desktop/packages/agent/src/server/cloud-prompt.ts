@@ -1,7 +1,7 @@
 import type { ContentBlock } from "@agentclientprotocol/sdk";
 import { deserializeCloudPrompt, promptBlocksToText } from "@posthog/shared";
 
-export { deserializeCloudPrompt, promptBlocksToText };
+export { promptBlocksToText };
 
 export function normalizeCloudPromptContent(
   content: string | ContentBlock[],

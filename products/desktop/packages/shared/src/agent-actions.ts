@@ -59,7 +59,7 @@ export const agentActionSchema = z.discriminatedUnion("kind", [
 
 export type AgentAction = z.infer<typeof agentActionSchema>;
 
-export const labelSchema = z
+const labelSchema = z
   .string()
   .trim()
   .min(1)
@@ -68,12 +68,27 @@ export const labelSchema = z
     "Button text. Short and in sentence case, naming what the button does.",
   );
 
+const descriptionSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(140)
+  .describe(
+    "Optional. One short sentence saying what the prefilled task will do. " +
+      "Never a restatement of the label.",
+  );
+
 /**
- * One button as the agent offers it: an action plus the text on it. `label`
- * never reaches a link, which is why {@link agentActionSchema} leaves it out.
+ * One button as the agent offers it: an action plus the text on it. `label` and
+ * `description` never reach a link, which is why {@link agentActionSchema}
+ * leaves them out.
  */
 export const showActionSchema = z.discriminatedUnion("kind", [
-  z.object({ ...composeFields, label: labelSchema }),
+  z.object({
+    ...composeFields,
+    label: labelSchema,
+    description: descriptionSchema.optional(),
+  }),
   z.object({ ...openSpaceFields, label: labelSchema }),
   z.object({ ...openCanvasFields, label: labelSchema }),
   z.object({ ...openInboxFields, label: labelSchema }),
@@ -86,11 +101,18 @@ export const openAgentActionInput = z.object({ action: agentActionSchema });
 /** One button as the renderer draws it: its text, and the verb behind it. */
 export interface ShowActionButton {
   label: string;
+  description?: string;
   action: AgentAction;
 }
 
 /** Split a button back into the text on it and the verb behind it. */
 export function splitShowAction(button: ShowAction): ShowActionButton {
+  // Only compose carries a description, so the two branches keep the rest of
+  // the object typed as an action the host will accept.
+  if (button.kind === "compose") {
+    const { label, description, ...action } = button;
+    return { label, description, action };
+  }
   const { label, ...action } = button;
   return { label, action };
 }

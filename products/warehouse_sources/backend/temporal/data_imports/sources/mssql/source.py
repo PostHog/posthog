@@ -61,6 +61,15 @@ class MSSQLSource(SQLSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabase
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.MSSQL
 
+    def get_retryable_errors(self) -> set[str]:
+        return {
+            # DB-Lib error 20017 — the SQL Server closed the TCP connection during query
+            # execution (server restart, query timeout, or a brief network interruption).
+            # A fresh connection from the next Temporal retry resolves it; keep it out of
+            # error tracking so it doesn't surface as noise.
+            "Unexpected EOF from the server",
+        }
+
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             # Azure SQL error 40615 — the server-level firewall rejected PostHog's client IP. This

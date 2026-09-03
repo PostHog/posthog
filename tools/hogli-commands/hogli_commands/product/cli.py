@@ -196,9 +196,9 @@ def cmd_crossings(name: str | None, scan_all: bool, as_json: bool, write_baselin
 
     from .crossings import (
         BASELINE_PATH,
+        all_crossing_uses,
         crossing_classes,
         render_report,
-        scan_crossing_uses,
         write_baseline as write_baseline_file,
     )
 
@@ -208,7 +208,7 @@ def cmd_crossings(name: str | None, scan_all: bool, as_json: bool, write_baselin
         raise click.UsageError("--write-baseline regenerates the whole file, so it needs --all")
 
     products = None if scan_all else [name] if name else None
-    uses = scan_crossing_uses(products)
+    uses = all_crossing_uses(products)
     if write_baseline:
         write_baseline_file(uses)
         click.echo(f"Baseline written: {BASELINE_PATH}")

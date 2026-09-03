@@ -38,6 +38,7 @@ const mocks = vi.hoisted(() => ({
     isPending: false,
     run: vi.fn(),
   },
+  openBrowserTab: vi.fn(),
 }));
 vi.mock("@posthog/ui/features/auth/useCurrentUser", () => ({
   useCurrentUser: () => ({
@@ -54,6 +55,9 @@ vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useFileTaskToChannel", () => ({
   useFileTaskToChannel: () => vi.fn(),
+}));
+vi.mock("@posthog/ui/features/browser-tabs/useOpenBrowserTab", () => ({
+  useOpenBrowserTab: () => mocks.openBrowserTab,
 }));
 vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
   useFeatureFlag: () => true,
@@ -132,6 +136,7 @@ function renderRow(model: ChannelItemModel) {
 beforeEach(() => {
   mocks.status = null;
   mocks.analysis = { canAnalyze: false, isPending: false, run: vi.fn() };
+  mocks.openBrowserTab.mockClear();
   useSidebarStore.setState({ listItemMetadataFields: [] });
   usePendingCanvasDeleteStore.setState({ pending: {} });
   useTaskSelectionStore.setState({
@@ -154,12 +159,11 @@ describe("ChannelItemRow", () => {
     ],
     ["a streaming agent", { isGenerating: true }, "Working"],
     [
-      // A background run is one-shot and unattended, so its in_progress really
-      // is a claim that the agent is still on it. Live, but nothing streaming —
-      // the still dot, not the spinner.
-      "a background run claiming progress with nothing in flight",
+      // Persisted run status can outlive the work. Without a live stream it
+      // must not look like unread attention that opening the session can clear.
+      "a background run left in progress with nothing in flight",
       { taskRunStatus: "in_progress" as const, runMode: "background" as const },
-      "Pending — no work in flight",
+      "All caught up",
     ],
     [
       // The backend leaves an interactive run in_progress after it succeeds, so
@@ -185,7 +189,16 @@ describe("ChannelItemRow", () => {
       // here means "was launched at some point", not "is starting".
       "a local background run parked at queued",
       { taskRunStatus: "queued" as const, runMode: "background" as const },
-      "Pending — no work in flight",
+      "All caught up",
+    ],
+    [
+      "unread output on a background run with stale status",
+      {
+        taskRunStatus: "in_progress" as const,
+        runMode: "background" as const,
+        isUnread: true,
+      },
+      "Unread — something to read",
     ],
     [
       // A PR outranks a run that only claims to be working, but not one that is
@@ -421,6 +434,41 @@ describe("ChannelItemRow", () => {
     for (const label of MENU_ITEMS) {
       expect(screen.getByRole("menuitem", { name: label })).not.toBeNull();
     }
+  });
+
+  it("opens a task in a new tab from the context menu", () => {
+    renderWithMenu({});
+
+    fireEvent.contextMenu(screen.getByText("Investigate signup drop-off"));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Open in new tab" }));
+
+    expect(mocks.openBrowserTab).toHaveBeenCalledWith("/tasks/task-1");
+  });
+
+  it("opens a canvas in a new tab at its space's URL", () => {
+    const canvas = item({
+      key: "canvas:c1",
+      kind: "canvas",
+      id: "c1",
+      title: "Web analytics overview",
+      authorUuid: "u-1",
+    });
+    renderInList(
+      <ChannelItemRow
+        actions={actions}
+        isActive={false}
+        item={canvas}
+        channelId="channel-1"
+        onAddToCommandCenter={() => {}}
+      />,
+    );
+
+    fireEvent.contextMenu(screen.getByText("Web analytics overview"));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Open in new tab" }));
+
+    expect(mocks.openBrowserTab).toHaveBeenCalledWith(
+      "/spaces/channel-1/dashboards/c1",
+    );
   });
 
   it("keeps the hover sidebar open while the context menu is open", () => {

@@ -26,6 +26,8 @@ import {
   looksLikeBareFilename,
 } from "@posthog/ui/features/sessions/components/session-update/fileLinkChips";
 import { HighlightedCode } from "@posthog/ui/primitives/HighlightedCode";
+import { MermaidDiagram } from "@posthog/ui/primitives/MermaidDiagram";
+import { Spin } from "@posthog/ui/primitives/Spinner";
 import { useCopy } from "@posthog/ui/primitives/useCopy";
 import { parseArtifactLink } from "@posthog/ui/utils/artifactLinks";
 import {
@@ -35,6 +37,7 @@ import {
   parseChartBlock,
 } from "@posthog/ui/utils/chartBlocks";
 import { parseEvidenceLink } from "@posthog/ui/utils/evidenceLinks";
+import { MERMAID_LANGUAGE } from "@posthog/ui/utils/mermaidBlocks";
 import { remarkObjectTags } from "@posthog/ui/utils/remarkObjectTags";
 import { IconButton } from "@radix-ui/themes";
 import { memo, type ReactNode, useMemo } from "react";
@@ -91,7 +94,9 @@ const components: Components = {
           aria-label="Link loading"
         >
           {children}
-          <CircleNotch className="size-3 animate-spin" aria-hidden="true" />
+          <Spin>
+            <CircleNotch size={12} aria-hidden="true" />
+          </Spin>
         </output>
       );
     }
@@ -147,6 +152,9 @@ const components: Components = {
       const spec = parseChartBlock(text);
       if (!spec) return null;
       return <MessageChartCard spec={spec} blockKey={chartBlockKey(text)} />;
+    }
+    if (match?.[1].toLowerCase() === MERMAID_LANGUAGE) {
+      return <MermaidDiagram code={text} />;
     }
     // Fenced blocks (carry a language, or span multiple lines) render as a boxed, copyable
     // block; short inline spans stay inline. `pre` below is a passthrough so the box lives here,

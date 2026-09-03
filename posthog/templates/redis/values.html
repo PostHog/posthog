@@ -1,95 +1,99 @@
 {% extends "admin/base_site.html" %}
 {% load i18n admin_urls static admin_list %}
-
 {% block extrastyle %}
-{{ block.super }}
-<link rel="stylesheet" href="{% static 'admin/css/changelists.css' %}" />
-<link rel="stylesheet" href="{% static 'admin/css/forms.css' %}" />
-{{ media.css }}
+    {{ block.super }}
+    <link rel="stylesheet" href="{% static 'admin/css/changelists.css' %}" />
+    <link rel="stylesheet" href="{% static 'admin/css/forms.css' %}" />
+    {{ media.css }}
 {% endblock %}
-
 {% if not is_popup %}
-{% block breadcrumbs %}
-<div class="breadcrumbs">
-    <a href="{% url 'admin:index' %}">{% translate 'Home' %}</a>
-    &rsaquo; Redis values
-</div>
-{% endblock %}
+    {% block breadcrumbs %}
+        <div class="breadcrumbs">
+            <a href="{% url 'admin:index' %}">{% translate 'Home' %}</a>
+            &rsaquo; Redis values
+        </div>
+    {% endblock %}
 {% endif %}
-
 {% block content %}
-<div id="content-main">
-    <div id="changelist" class="module filtered">
-        <div class="changelist-form-container">
-            {% block search %} {% load i18n static %}
-            <div id="toolbar">
-                <form id="changelist-search" method="get" role="search">
-                    <div>
-                        <!-- DIV needed for valid HTML -->
-                        <label for="searchbar"><img src="{% static 'admin/img/search.svg' %}" alt="Search" /></label>
-                        <input type="text" size="40" name="q" value="{{ query }}" id="searchbar" />
-                        <input type="submit" value="{% translate 'Search' %}" />
+    <div id="content-main">
+        <div id="changelist" class="module filtered">
+            <div class="changelist-form-container">
+                {% block search %}
+                    {% load i18n static %}
+                    <div id="toolbar">
+                        <form id="changelist-search" method="get" role="search">
+                            <div>
+                                <!-- DIV needed for valid HTML -->
+                                <label for="searchbar">
+                                    <img src="{% static 'admin/img/search.svg' %}" alt="Search" />
+                                </label>
+                                <input type="text" size="40" name="q" value="{{ query }}" id="searchbar" />
+                                <input type="submit" value="{% translate 'Search' %}" />
+                            </div>
+                        </form>
                     </div>
-                </form>
-            </div>
-            {% endblock %}
-            <div class="results">
-                {% if redis_keys %}
-
-                <table id="results_list">
-                    <thead>
-                        <tr>
-                            <th scope="col">
-                                <div class="text"><span>{% trans "Key" %}</span></div>
-                            </th>
-                            <th scope="col">
-                                <div class="text"><span>{% trans "Type" %}</span></div>
-                            </th>
-                            <th scope="col">
-                                <div class="text"><span>{% trans "TTL" %}</span></div>
-                            </th>
-                            <th scope="col">
-                                <div class="text"><span>{% trans "Size" %}</span></div>
-                            </th>
-                            <th scope="col">
-                                <div class="text"><span>{% trans "Value" %}</span></div>
-                            </th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for key_info in redis_keys %}
-                        <tr>
-                            <td class="field-key">{{ key_info.key }}</td>
-                            <td>{{ key_info.type }}</td>
-                            <td><a href="/admin/redis/edit-ttl?key={{ key_info.key|urlencode }}&c={{ cursor }}&q={{ query|urlencode }}">{{ key_info.ttl }}</a></td>
-                            <td>{{ key_info.size }}</td>
-                            <td>
-                                {% if key_info.is_truncated %}
-                                <details>
-                                    <summary>{{ key_info.value }}</summary>
-                                    <pre style="white-space: pre-wrap; word-break: break-all; margin-top: 8px; padding: 8px; background: var(--darkened-bg, #f5f5f5); border-radius: 4px; max-height: 400px; overflow: auto;">{{ key_info.full_value }}</pre>
-                                </details>
-                                {% else %}
-                                {{ key_info.value }}
-                                {% endif %}
-                            </td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-                {% endif %}
-                <p class="paginator">
-                    <a href="?c=0">Start</a>
-
-                    <span class="this-page">{{ cursor }}</span>
-
-                    {% if next_cursor != 0 %}
-                    <a href="?c={{ next_cursor }}">Next</a>
+                {% endblock %}
+                <div class="results">
+                    {% if redis_keys %}
+                        <table id="results_list">
+                            <thead>
+                                <tr>
+                                    <th scope="col">
+                                        <div class="text"><span>{% trans "Key" %}</span></div>
+                                    </th>
+                                    <th scope="col">
+                                        <div class="text"><span>{% trans "Type" %}</span></div>
+                                    </th>
+                                    <th scope="col">
+                                        <div class="text"><span>{% trans "TTL" %}</span></div>
+                                    </th>
+                                    <th scope="col">
+                                        <div class="text"><span>{% trans "Size" %}</span></div>
+                                    </th>
+                                    <th scope="col">
+                                        <div class="text"><span>{% trans "Value" %}</span></div>
+                                    </th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for key_info in redis_keys %}
+                                    <tr>
+                                        <td class="field-key">{{ key_info.key }}</td>
+                                        <td>{{ key_info.type }}</td>
+                                        <td><a href="/admin/redis/edit-ttl?key={{ key_info.key|urlencode }}&c={{ cursor }}&q={{ query|urlencode }}">{{ key_info.ttl }}</a></td>
+                                        <td>{{ key_info.size }}</td>
+                                        <td>
+                                            {% if key_info.is_truncated %}
+                                                <details>
+                                                    <summary>{{ key_info.value }}</summary>
+                                                    <pre style="white-space: pre-wrap;
+                                                                word-break: break-all;
+                                                                margin-top: 8px;
+                                                                padding: 8px;
+                                                                background: var(--darkened-bg, #f5f5f5);
+                                                                border-radius: 4px;
+                                                                max-height: 400px;
+                                                                overflow: auto">{{ key_info.full_value }}</pre>
+                                                </details>
+                                            {% else %}
+                                                {{ key_info.value }}
+                                            {% endif %}
+                                        </td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
                     {% endif %}
-                    {{ redis_keys|length }} {% if redis_keys|length == 1 %}Redis key{% else %}Redis keys{%endif %}
-                </p>
+                    <p class="paginator">
+                        <a href="?c=0">Start</a>
+                        <span class="this-page">{{ cursor }}</span>
+                        {% if next_cursor != 0 %}
+                            <a href="?c={{ next_cursor }}">Next</a>
+                        {% endif %}
+                        {{ redis_keys|length }} {% if redis_keys|length == 1 %}Redis key{% else %}Redis keys{% endif %}
+                    </p>
+                </div>
             </div>
         </div>
     </div>
-</div>
 {% endblock %}

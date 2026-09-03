@@ -23,7 +23,10 @@ from posthog.exceptions_capture import capture_exception
 
 from products.data_warehouse.backend.facade.api import reconcile_postgres_schemas
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    FAST_RETURN_PROBE_TIMEOUT,
+    FieldType,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
     SSHTunnelMixin,
     ValidateDatabaseHostMixin,
@@ -32,6 +35,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.reg
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import resolve_detected_primary_keys
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.location import resolve_source_location
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.postgres import (
     PostgresSourceConfig,
@@ -52,6 +56,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     SSLRequiredError,
     _rls_active_from_conn,
     _xmin_capable_tables_from_conn,
+    build_has_new_rows_query,
     filter_postgres_incremental_fields,
     get_connection_metadata as get_postgres_connection_metadata,
     get_foreign_keys as get_postgres_foreign_keys,
@@ -71,6 +76,11 @@ _HOST_IS_URL_ERROR = (
     "Enter just the hostname in the host field (for example, db.example.com), not a full URL or "
     "connection string. Remove any scheme (like http:// or postgres://) and any username, "
     "password, port, or path."
+)
+
+_HOST_HAS_PORT_ERROR = (
+    "Enter just the hostname in the host field (for example, db.example.com). Put the port number "
+    "in the port field instead."
 )
 
 # ENETUNREACH / EHOSTUNREACH at connect time: the host resolved to a public address PostHog can't
@@ -210,6 +220,9 @@ PostgresErrors = {
 
 
 _POSTGRES_IMPLEMENTATION = PostgresImplementation()
+
+# Just under the caller's wall-clock bound so the probe query dies server-side first.
+_PROBE_STATEMENT_TIMEOUT_MS = int((FAST_RETURN_PROBE_TIMEOUT.total_seconds() - 10) * 1000)
 
 RLS_WARNING_MESSAGE = (
     "Row-level security is active on this table for the sync role, so PostHog can only read "
@@ -514,7 +527,20 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "dashboard for this branch's connection settings, then re-enable the sync."
             ),
             "FATAL: no such database": None,
-            "does not exist": None,
+            # A relation or column the sync reads was dropped or renamed on the source, so the
+            # streaming query fails with SQLSTATE 42P01 ("relation ... does not exist") or 42703
+            # ("column ... does not exist"). The stored schema/query is fixed until the customer
+            # changes it, so every retry replays the same statement. Already non-retryable through
+            # this bucket; the actionable message replaces the raw psycopg text, which echoes the
+            # relation name and a SQL fragment back into `latest_error`. This key is a broad
+            # substring match (case-insensitive `does not exist` anywhere in the driver text), so it
+            # can also catch other dropped Postgres objects (e.g. a type or role); the message is
+            # worded to not overclaim it's always a table or column.
+            "does not exist": (
+                "Something this sync depends on (a table, column, or other object) no longer exists in "
+                "your source database. Remove it from the source's selected tables, or reset and re-sync "
+                "this table, then re-enable the sync."
+            ),
             "timestamp too small": None,
             "QueryTimeoutException": None,
             # Activity-layer twin of the `QueryTimeoutException` key above. That key only matches once
@@ -748,6 +774,19 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "apply changes from the primary that remove rows the sync is still reading. Increase "
                 "max_standby_streaming_delay on the replica, enable hot_standby_feedback, or point the "
                 "connection at the primary database, then re-enable the sync."
+            ),
+            # A recovery conflict on a full-table read of a table with no unique, non-NULL key. The
+            # re-read can only be paged by seeking on such a key, so there is no safe page order and
+            # a whole-activity retry re-reads into the same wall. Non-retryable for that reason,
+            # unlike the same conflict on a table that has a key, which stays retryable.
+            "no key that can resume a canceled read": (
+                "Your read replica canceled the sync's read of this table "
+                '("canceling statement due to conflict with recovery"). To resume the read, PostHog '
+                "needs a column that is unique and never null, and this table doesn't have one. "
+                "Without it, reading the table again would duplicate or miss rows. Add a primary key "
+                "to the table, increase max_standby_streaming_delay on the replica, enable "
+                "hot_standby_feedback, or point the connection at the primary database, then "
+                "re-enable the sync."
             ),
             # Activity-layer twin of the `QueryTimeoutException` key above, for the read-replica path:
             # when a recovery conflict forces the offset-chunking fallback and a chunk then hits the
@@ -1211,6 +1250,13 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         if "://" in config.host:
             return False, _HOST_IS_URL_ERROR
 
+        # A bare "host:port" pasted into the host field (no scheme, so the URL guard above misses it)
+        # otherwise fails DNS with a confusing "check the spelling" message that echoes the value
+        # back. A bare IPv6 literal has several colons, so guard only the single-colon host:port shape.
+        host_value = config.host.strip()
+        if host_value.count(":") == 1 and not host_value.startswith("["):
+            return False, _HOST_HAS_PORT_ERROR
+
         valid_host, host_errors = self.is_database_host_valid(
             config.host, team_id, using_ssh_tunnel=self.ssh_tunnel_enabled(config)
         )
@@ -1309,6 +1355,63 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 )
             finally:
                 conn.close()
+
+    def probe_new_data(self, config: PostgresSourceConfig, inputs: SourceInputs) -> bool | None:
+        """One indexed existence check against the same predicate the sync would run.
+
+        Returns None for anything this cannot answer with certainty — a non-incremental schema, a
+        cursor Postgres tracks itself (xmin, CDC), or any error reaching the source — so the
+        caller runs the full sync.
+        """
+        # Deferred like the sibling read path below: the source registry imports this module at
+        # startup, before the Django app registry is ready to hand out models.
+        from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema  # noqa: PLC0415
+
+        if (
+            not inputs.should_use_incremental_field
+            or inputs.incremental_field is None
+            or inputs.incremental_field_type is None
+            or inputs.incremental_field_type == IncrementalFieldType.XID
+            or inputs.db_incremental_field_last_value is None
+        ):
+            return None
+
+        try:
+            schema = ExternalDataSchema.objects.select_related("source").get(id=inputs.schema_id)
+            if schema.is_cdc or schema.is_xmin:
+                return None
+
+            location = resolve_source_location(inputs, config_namespace=config.schema, default="public")
+            if location.schema is None:
+                return None
+
+            query = build_has_new_rows_query(
+                schema=location.schema,
+                table_name=location.table_name,
+                incremental_field=inputs.incremental_field,
+                incremental_field_type=inputs.incremental_field_type,
+                db_incremental_field_last_value=inputs.db_incremental_field_last_value,
+                row_filters=inputs.row_filters,
+            )
+            require_ssl = source_requires_ssl(schema.source, config)
+            with self.get_implementation.connect(config, require_ssl=require_ssl) as conn:
+                # Autocommit so a rejected SET (engines without statement_timeout support) is its
+                # own statement and cannot poison the probe query's transaction.
+                conn.autocommit = True
+                with conn.cursor() as cursor:
+                    # The caller stops waiting after FAST_RETURN_PROBE_TIMEOUT but cannot
+                    # interrupt this thread, so cap the query server-side just under that: on an
+                    # unindexed watermark column, proving "no new rows" is a full scan, and the
+                    # cap turns it into a clean fallback instead of an orphaned query.
+                    try:
+                        cursor.execute(f"SET statement_timeout = {_PROBE_STATEMENT_TIMEOUT_MS}")
+                    except Exception:
+                        pass
+                    cursor.execute(query)
+                    return cursor.fetchone() is not None
+        except Exception as e:
+            inputs.logger.debug(f"probe_new_data: falling back to a full sync: {e}", exc_info=e)
+            return None
 
     def _buffered_cdc_source(self, schema: "ExternalDataSchema", inputs: SourceInputs) -> SourceResponse | None:
         """A `SourceResponse` reading this schema's S3 change buffer, or None if it isn't flipped.
@@ -1449,6 +1552,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 is_xmin=schema.is_xmin,
                 xmin_last_value=schema.xmin_last_value,
                 xmin_num_wraparound=schema.xmin_num_wraparound,
+                byte_bounded_extraction=inputs.byte_bounded_extraction,
             )
         except SqlclientUnableToEstablishSqlconnection as e:
             # A setup query (e.g. the duplicate-PK probe) touched a postgres_fdw foreign table and the

@@ -449,8 +449,7 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
     )
 
     handler = SlackThreadHandler(context, actor_slack_user_id=target)
-    if handler.footer_enabled():
-        handler.run_footer = load_run_footer(task_run.id)
+    handler.run_footer = load_run_footer(task_run.id)
     mention_prefix = f"<@{target}> " if target else ""
 
     def _record_sent_relay(state: dict[str, Any]) -> None:

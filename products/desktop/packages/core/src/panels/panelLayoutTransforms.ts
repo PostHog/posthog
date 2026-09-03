@@ -24,9 +24,9 @@ import type {
   TaskLayout,
 } from "./panelTypes";
 
-export const MAX_RECENT_FILES = 10;
+const MAX_RECENT_FILES = 10;
 
-export function createDefaultPanelTree(): PanelNode {
+function createDefaultPanelTree(): PanelNode {
   return {
     type: "leaf",
     id: DEFAULT_PANEL_IDS.MAIN_PANEL,
@@ -126,7 +126,7 @@ export function openTab(
   };
 }
 
-export function findNonMainLeafPanel(node: PanelNode): PanelNode | null {
+function findNonMainLeafPanel(node: PanelNode): PanelNode | null {
   if (node.type === "leaf") {
     return node.id !== DEFAULT_PANEL_IDS.MAIN_PANEL ? node : null;
   }

@@ -27,7 +27,7 @@ concurrency:
 
 jobs:
     update-e2e-macos:
-        runs-on: macos-15
+        runs-on: depot-macos-26
         timeout-minutes: 90
         defaults:
             run:

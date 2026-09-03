@@ -210,6 +210,12 @@ export type IngestionConsumerConfig = {
     GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: number
     GROUPS_PREFETCH_ENABLED: boolean
 
+    // Team-keyed cache prefetch config: one batched warm-up per chunk for each cache,
+    // instead of a per-event lookup in the sequential steps that read it.
+    TEAMS_PREFETCH_ENABLED: boolean
+    EVENT_SCHEMAS_PREFETCH_ENABLED: boolean
+    HOG_FUNCTIONS_PREFETCH_ENABLED: boolean
+
     // Event overflow config
     EVENT_OVERFLOW_BUCKET_CAPACITY: number
     EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: number
@@ -368,6 +374,10 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: 5,
         GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: 50,
         GROUPS_PREFETCH_ENABLED: false,
+
+        TEAMS_PREFETCH_ENABLED: false,
+        EVENT_SCHEMAS_PREFETCH_ENABLED: false,
+        HOG_FUNCTIONS_PREFETCH_ENABLED: false,
 
         // Event overflow config
         EVENT_OVERFLOW_BUCKET_CAPACITY: 1000,

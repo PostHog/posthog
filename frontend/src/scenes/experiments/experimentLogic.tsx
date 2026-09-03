@@ -187,7 +187,7 @@ export type ExperimentTriggeredBy =
     | 'experiment_config_change'
     | 'metric_config_change'
 
-// Triggers that kick off a metrics recalculation. Each is also a valid API TriggerEnumApi value, so a
+// Triggers that kick off a metrics recalculation. Each is also a valid API ExperimentMetricsRecalculationTriggerEnumApi value, so a
 // narrowed triggeredBy passes straight to triggerRecalculation. page_load and manual are handled elsewhere.
 const RECALCULATION_TRIGGERS = ['experiment_config_change', 'metric_config_change', 'auto_refresh'] as const
 
@@ -2973,6 +2973,10 @@ export const experimentLogic = kea<experimentLogicType>([
             // Settings like stats config, CUPED, and conversion-window handling change
             // how metrics and exposures are computed, so persist then re-query.
             await asyncActions.updateExperiment({ ...update, update_feature_flag_params: false })
+            // Unlaunched experiments have no results to recalculate, so don't promise a recalculation.
+            lemonToast.success(
+                values.isExperimentLaunched ? 'Settings saved. Recalculating results…' : 'Settings saved'
+            )
             actions.refreshExperimentResults(true, 'experiment_config_change')
         },
         resetRunningExperiment: async () => {

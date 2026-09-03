@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isInteractiveTarget } from "./ReportTriageFocus";
+import { isInteractiveTarget, triageEnterAction } from "./ReportTriageFocus";
 
 describe("isInteractiveTarget", () => {
   function firstEl(html: string): HTMLElement {
@@ -29,5 +29,27 @@ describe("isInteractiveTarget", () => {
   it("returns false for null or a non-element target", () => {
     expect(isInteractiveTarget(null)).toBe(false);
     expect(isInteractiveTarget(document)).toBe(false);
+  });
+});
+
+describe("triageEnterAction", () => {
+  const plainTarget = document.createElement("div");
+  const buttonTarget = document.createElement("button");
+
+  it.each([
+    ["plain Enter expands in place", false, false, plainTarget, "toggle"],
+    ["Command+Enter opens the full report", true, false, plainTarget, "open"],
+    ["Control+Enter opens the full report", false, true, plainTarget, "open"],
+    ["a focused control owns Enter", false, false, buttonTarget, null],
+  ] as const)("%s", (_label, metaKey, ctrlKey, target, expected) => {
+    expect(
+      triageEnterAction({
+        key: "Enter",
+        metaKey,
+        ctrlKey,
+        altKey: false,
+        target,
+      }),
+    ).toBe(expected);
   });
 });

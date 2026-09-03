@@ -16,9 +16,7 @@ import {
   StageModelSelect,
 } from "./stageModels";
 
-export type { AutoresearchModelOption };
-
-export interface AutoresearchConfigValues {
+interface AutoresearchConfigValues {
   direction: AutoresearchDirection;
   targetValue: number | null;
   maxIterations: number;

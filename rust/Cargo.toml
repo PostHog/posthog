@@ -19,8 +19,10 @@ members = [
   "common/cookieless",
   "common/database",
   "common/dns",
+  "common/grpc",
   "common/health",
   "common/kafka",
+  "common/kafka-consumer",
   "common/liveness",
   "common/lifecycle",
   "common/limiters",
@@ -72,6 +74,7 @@ members = [
   "affected-services",
   "property-vals-rs",
   "pgcollector",
+  "pgapi",
 ]
 
 # NOTE: cargo allows only one crate with `links = "python"` (i.e. one pyo3 version) per
@@ -237,7 +240,7 @@ aws-smithy-runtime-api = { version = "1.11.5", features = ["client"] }
 aws-smithy-http-client = { version = "1.1.11", features = ["rustls-aws-lc"] }
 mockall = "0.13.0"
 moka = { version = "0.12.15", features = ["sync", "future"] }
-posthog-rs = { version = "0.25.3", features = ["async-client", "capture-v1"] }
+posthog-rs = { version = "0.25.4", features = ["async-client", "capture-v1"] }
 redis = { version = "0.32.7", features = [
   "tokio-comp",
   "cluster",

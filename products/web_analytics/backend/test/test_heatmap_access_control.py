@@ -391,13 +391,15 @@ class TestHeatmapAggregateQueryAccessControl(ClickhouseTestMixin, APIBaseTest):
             },
         )
 
-    def _query_aggregate(self, url_exact: str | None = None, url_pattern: str | None = None):
+    def _query_aggregate(self, url_exact: str | None = None, url_pattern: str | None = None, events: str | None = None):
         self.client.force_login(self.viewer_user)
         params: dict[str, str] = {"type": "click", "date_from": "2023-03-01"}
         if url_exact is not None:
             params["url_exact"] = url_exact
         if url_pattern is not None:
             params["url_pattern"] = url_pattern
+        if events is not None:
+            params["events"] = events
         return self.client.get(f"/api/environments/{self.team.pk}/heatmaps/", params)
 
     def test_object_grant_does_not_expose_aggregate_data_for_other_urls(self):
@@ -448,6 +450,29 @@ class TestHeatmapAggregateQueryAccessControl(ClickhouseTestMixin, APIBaseTest):
         # match the URL the object grant authorizes.
         response = self._query_aggregate(url_pattern=url_pattern)
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.json())
+
+    @parameterized.expand(
+        [
+            ("bare_event", '[{"id": "purchase"}]'),
+            (
+                "event_with_properties",
+                '[{"id": "purchase", "properties": [{"type": "event", "key": "plan", "value": "pro"}]}]',
+            ),
+            # A malformed value counts as asking, or the check could be sidestepped by sending nonsense.
+            ("malformed_events", "not-json"),
+        ]
+    )
+    def test_object_grant_never_authorizes_an_event_filter(self, _name, events):
+        # An event filter selects sessions out of the project's whole events table, so the counts it
+        # returns describe what the granted URL's visitors did away from it. An object grant on one
+        # SavedHeatmap can't bound that, so an event filter needs resource-level access, as url_pattern does.
+        response = self._query_aggregate(url_exact="https://example.com/authorized", events=events)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.json())
+
+    def test_object_grant_still_allows_a_query_carrying_an_empty_event_filter(self):
+        # An empty list reads no events at all, so it must not cost the user the URL they were granted.
+        response = self._query_aggregate(url_exact="https://example.com/authorized", events="[]")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
 
     def test_object_grant_cannot_smuggle_unauthorized_url_via_conflicting_pattern(self):
         # Regression: when url_exact and url_pattern differ, HeatmapsRequestSerializer.validate()

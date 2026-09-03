@@ -24,9 +24,9 @@ from posthog.schema import (
     StepOrderValue,
 )
 
-from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.test.test_journeys import journeys_for
 
+from products.product_analytics.backend.hogql_queries.funnels.funnels_query_runner import FunnelsQueryRunner
 from products.product_analytics.backend.hogql_queries.paths_v2.funnel_converter import (
     anchored_segment_to_funnels_query,
     edge_to_funnels_query,

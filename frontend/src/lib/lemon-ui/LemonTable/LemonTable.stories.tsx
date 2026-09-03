@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react'
+import { useState } from 'react'
 
 import { IconTrash } from '@posthog/icons'
 
@@ -10,7 +11,7 @@ import { More } from '../LemonButton/More'
 import { LemonDivider } from '../LemonDivider'
 import { LemonTable, LemonTableProps } from './LemonTable'
 import { LemonTableLink } from './LemonTableLink'
-import { LemonTableColumns } from './types'
+import type { LemonTableColumn, LemonTableColumns } from './types'
 
 type Story = StoryObj<LemonTableProps<any>>
 const meta: Meta<LemonTableProps<any>> = {
@@ -45,7 +46,7 @@ const MANY_PEOPLE: MockPerson[] = [
     { name: 'Ingrid S.', occupation: 'Writer' },
 ]
 
-const WIDE_COLUMNS: LemonTableColumns<MockPerson> = [
+const WIDE_COLUMNS: LemonTableColumn<MockPerson, keyof MockPerson | undefined>[] = [
     {
         title: 'Name',
         dataIndex: 'name',
@@ -483,6 +484,26 @@ export const WithRowActions: Story = {
             />
         )
     },
+}
+
+function ResizableColumnsTable(): JSX.Element {
+    const [widths, setWidths] = useState<Record<number, number>>({})
+
+    return (
+        <LemonTable
+            columns={WIDE_COLUMNS.slice(0, 3).map((column, index) => ({
+                ...column,
+                width: widths[index] ?? column.width,
+                resizable: true,
+                onResize: (width: number) => setWidths((currentWidths) => ({ ...currentWidths, [index]: width })),
+            }))}
+            dataSource={MANY_PEOPLE.slice(0, 5)}
+        />
+    )
+}
+
+export const WithResizableColumns: Story = {
+    render: () => <ResizableColumnsTable />,
 }
 
 export const WithHorizontalOverflow: Story = {

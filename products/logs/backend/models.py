@@ -66,6 +66,17 @@ def default_logs_session_id_attribute_keys() -> list[str]:
     return list(DEFAULT_LOGS_SESSION_ID_ATTRIBUTE_KEYS)
 
 
+# Default top-level JSON keys that hold the message text a log pattern is derived from.
+# Keys match literally, so a dot is part of the name and never a path. Ordered: selection
+# checks keys in list order and the first key whose value is a non-empty string wins. An
+# empty list turns extraction off, so JSON bodies group by their key set instead.
+DEFAULT_LOGS_PATTERN_MESSAGE_KEYS = ["message", "msg", "event"]
+
+
+def default_logs_pattern_message_keys() -> list[str]:
+    return list(DEFAULT_LOGS_PATTERN_MESSAGE_KEYS)
+
+
 class TeamLogsConfig(models.Model):
     # Plain `models.Model` (not `TeamScopedRootMixin`) — log emission and ingestion
     # are per-environment, and so is this config. Inheriting the root-mixin would
@@ -101,6 +112,17 @@ class TeamLogsConfig(models.Model):
         # Stale relative to the default above; aligning it needs a migration and Django
         # applies `default` first, so this is never observed.
         db_default=Value("{posthogSessionId}"),
+    )
+
+    # Ordered list of top-level JSON keys whose value is the message text that log patterns are
+    # derived from. Matched literally, so `log.message` names one key and never descends. The
+    # first key in order whose value is a non-empty string wins. An empty list
+    # turns extraction off. Read by the logs ingestion consumer, so this only shapes the
+    # stored `pattern` column and never rewrites the log body.
+    logs_pattern_message_keys = ArrayField(
+        models.CharField(max_length=200),
+        default=default_logs_pattern_message_keys,
+        db_default=Value("{message,msg,event}"),
     )
 
 

@@ -1,4 +1,5 @@
 import { cn } from "@posthog/quill";
+import { cachedImageUrl } from "@posthog/ui/shell/cachedImageUrl";
 import posthogIcon from "../../assets/posthog-icon.svg";
 
 const SIZE = {
@@ -50,7 +51,9 @@ export function SuggestedReviewerAvatar({
 
   return (
     <img
-      src={`https://github.com/${githubLogin}.png?size=${config.pixels}`}
+      src={cachedImageUrl(
+        `https://github.com/${githubLogin}.png?size=${config.pixels}`,
+      )}
       alt=""
       className={cn(
         "github-avatar shrink-0 rounded-full",

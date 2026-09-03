@@ -13,6 +13,7 @@ import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { quotaUx } from '../utils/quotaProjection'
 import { visionSurfaceShown } from '../utils/visionSurface'
 import { ObservationDockCard } from './ObservationCard'
+import { ScannerTypeBadge } from './ScannerTypeBadge'
 
 export function PlayerSidebarObservationsTab(): JSX.Element | null {
     const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
@@ -82,7 +83,9 @@ function ScannerPicker({
                                 >
                                     <span className="flex items-center justify-between gap-2 w-full">
                                         <span className="truncate">{scanner.name}</span>
-                                        <span className="text-muted text-xs shrink-0">{scanner.scanner_type}</span>
+                                        <span className="shrink-0">
+                                            <ScannerTypeBadge scannerType={scanner.scanner_type} size="small" />
+                                        </span>
                                     </span>
                                 </LemonButton>
                             ))

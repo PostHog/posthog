@@ -440,7 +440,7 @@ async function streamAnswer(
   }
 }
 
-export function toggleQuickAsk(): void {
+function toggleQuickAsk(): void {
   if (
     quickAskWindow &&
     !quickAskWindow.isDestroyed() &&

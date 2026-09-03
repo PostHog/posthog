@@ -27,7 +27,7 @@ export interface PendingTaskPrompt {
   createdAt: number;
 }
 
-export type PendingTaskPromptInput = Omit<
+type PendingTaskPromptInput = Omit<
   PendingTaskPrompt,
   "createdAt" | "interruptReason"
 >;
@@ -121,7 +121,7 @@ export const usePendingTaskPromptStore = create<PendingTaskPromptStore>()(
   ),
 );
 
-export interface RecoverablePendingPrompt {
+interface RecoverablePendingPrompt {
   key: string;
   prompt: PendingTaskPrompt;
 }

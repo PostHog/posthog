@@ -2,7 +2,7 @@ import { combineUrl } from 'kea-router'
 import { useState } from 'react'
 
 import { IconExternal, IconList } from '@posthog/icons'
-import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonButton, Link } from '@posthog/lemon-ui'
 
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress/LemonProgress'
@@ -16,7 +16,6 @@ import type {
 } from 'products/signals/frontend/generated/api.schemas'
 
 import { signalEntityUrl } from '../../utils/signalLinks'
-import { SignalReportPriorityBadge } from '../badges/SignalReportPriorityBadge'
 import { getSourceProductMeta } from '../badges/sourceProductIcons'
 import { SignalCardShell } from './SignalCardShell'
 import type { SignalCardEntry, SignalCardProps } from './types'
@@ -89,7 +88,6 @@ export function SignalsScoutSignalCard({ signal }: SignalCardProps): JSX.Element
     const evidence = extra.evidence ?? []
     const visibleEvidence = showAllEvidence ? evidence : evidence.slice(0, EVIDENCE_PREVIEW_COUNT)
 
-    const tags = extra.tags ?? []
     const timeRange = extra.time_range
 
     // Deep link the run id straight to its Tasks run tab — only resolvable when the task id was
@@ -108,7 +106,6 @@ export function SignalsScoutSignalCard({ signal }: SignalCardProps): JSX.Element
                     v{extra.skill_version}
                 </Link>
             }
-            rightSlot={<SignalReportPriorityBadge priority={extra.severity} />}
         >
             {/* Confidence meter. */}
             <div className="mb-2">
@@ -124,17 +121,6 @@ export function SignalsScoutSignalCard({ signal }: SignalCardProps): JSX.Element
                 <LemonMarkdown className="text-sm text-primary mb-2" disableImages>
                     {hypothesis}
                 </LemonMarkdown>
-            )}
-
-            {/* Tags as raw kebab slugs. */}
-            {tags.length > 0 && (
-                <div className="flex flex-wrap gap-1 mb-2">
-                    {tags.map((tag) => (
-                        <LemonTag key={tag} size="small" type="muted">
-                            {tag}
-                        </LemonTag>
-                    ))}
-                </div>
             )}
 
             {/* Time window the finding refers to. */}
