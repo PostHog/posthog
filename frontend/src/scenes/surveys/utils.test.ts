@@ -44,8 +44,10 @@ import {
     sanitizeSurveyDisplayConditions,
     splitChoicesOnPaste,
     surveyEmitsPartialSentEvents,
-    validateCSSProperty,
+    normalizeCSSValue,
+    validateCSSValue,
     validateSurveyAppearance,
+    APPEARANCE_CSS_FIELDS,
 } from './utils'
 import type { SurveyQueryFilters } from './utils'
 
@@ -121,32 +123,60 @@ describe('survey utils', () => {
         } as unknown as typeof CSS
     })
 
-    describe('validateColor', () => {
-        it('returns undefined for valid colors in different formats', () => {
-            // Hex colors
-            expect(validateCSSProperty('color', '#ff0000')).toBeUndefined()
-            expect(validateCSSProperty('color', '#f00')).toBeUndefined()
-            expect(validateCSSProperty('color', '#ff000080')).toBeUndefined() // With alpha
-
-            // RGB/RGBA colors
-            expect(validateCSSProperty('color', 'rgb(255, 0, 0)')).toBeUndefined()
-            expect(validateCSSProperty('color', 'rgba(255, 0, 0, 0.5)')).toBeUndefined()
-
-            // HSL/HSLA colors
-            expect(validateCSSProperty('color', 'hsl(0, 100%, 50%)')).toBeUndefined()
-            expect(validateCSSProperty('color', 'hsla(0, 100%, 50%, 0.5)')).toBeUndefined()
-
-            // Named colors
-            expect(validateCSSProperty('color', 'red')).toBeUndefined()
-            expect(validateCSSProperty('color', 'transparent')).toBeUndefined()
+    describe('normalizeCSSValue', () => {
+        it.each([
+            ['  #ff0000  ', '#ff0000'],
+            ['box-shadow: 0 4px 12px rgba(0,0,0,.15)', '0 4px 12px rgba(0,0,0,.15)'],
+            ['0 4px 12px rgba(0,0,0,.15);', '0 4px 12px rgba(0,0,0,.15)'],
+            ['box-shadow: 0 4px 12px rgba(0,0,0,.15);', '0 4px 12px rgba(0,0,0,.15)'],
+            ['10px !important', '10px'],
+            ['padding: 10px !important;', '10px'],
+            ['var(--brand-color)', 'var(--brand-color)'],
+        ])('normalizes %s', (value, expected) => {
+            expect(normalizeCSSValue(value)).toBe(expected)
         })
 
-        it('returns error message for invalid colors', () => {
-            expect(validateCSSProperty('color', 'not-a-color')).toBe('not-a-color is not a valid property for color.')
+        it('passes empty values through', () => {
+            expect(normalizeCSSValue(undefined)).toBeUndefined()
+            expect(normalizeCSSValue('')).toBe('')
+        })
+    })
+
+    describe('validateCSSValue', () => {
+        it('returns undefined for valid colors in different formats', () => {
+            // Hex colors
+            expect(validateCSSValue(APPEARANCE_CSS_FIELDS.textColor, '#ff0000')).toBeUndefined()
+            expect(validateCSSValue(APPEARANCE_CSS_FIELDS.textColor, '#f00')).toBeUndefined()
+            expect(validateCSSValue(APPEARANCE_CSS_FIELDS.textColor, '#ff000080')).toBeUndefined() // With alpha
+
+            // RGB/RGBA colors
+            expect(validateCSSValue(APPEARANCE_CSS_FIELDS.textColor, 'rgb(255, 0, 0)')).toBeUndefined()
+            expect(validateCSSValue(APPEARANCE_CSS_FIELDS.textColor, 'rgba(255, 0, 0, 0.5)')).toBeUndefined()
+
+            // HSL/HSLA colors
+            expect(validateCSSValue(APPEARANCE_CSS_FIELDS.textColor, 'hsl(0, 100%, 50%)')).toBeUndefined()
+            expect(validateCSSValue(APPEARANCE_CSS_FIELDS.textColor, 'hsla(0, 100%, 50%, 0.5)')).toBeUndefined()
+
+            // Named colors
+            expect(validateCSSValue(APPEARANCE_CSS_FIELDS.textColor, 'red')).toBeUndefined()
+            expect(validateCSSValue(APPEARANCE_CSS_FIELDS.textColor, 'transparent')).toBeUndefined()
+        })
+
+        it.each(['color: red', 'color: red;', 'red;', '  red  ', 'red !important'])(
+            'accepts %s, which people paste from devtools',
+            (value) => {
+                expect(validateCSSValue(APPEARANCE_CSS_FIELDS.textColor, value)).toBeUndefined()
+            }
+        )
+
+        it('names the field and shows an example when the value is invalid', () => {
+            expect(validateCSSValue(APPEARANCE_CSS_FIELDS.textColor, 'not-a-color')).toBe(
+                'Enter a valid question text color, like #020617.'
+            )
         })
 
         it('returns undefined for undefined input', () => {
-            expect(validateCSSProperty('color', undefined)).toBeUndefined()
+            expect(validateCSSValue(APPEARANCE_CSS_FIELDS.textColor, undefined)).toBeUndefined()
         })
     })
 
@@ -184,9 +214,9 @@ describe('survey utils', () => {
 
         it('validates appearance CSS for Popover surveys', () => {
             const result = validateSurveyAppearance(invalidAppearance, false, SurveyType.Popover)
-            expect(result.backgroundColor).toBe('not-a-color is not a valid property for background-color.')
-            expect(result.borderColor).toBe('also-not-a-color is not a valid property for border-color.')
-            expect(result.maxWidth).toBe('definitely-not-a-width is not a valid property for width.')
+            expect(result.backgroundColor).toBe('Enter a valid survey background, like #ffffff.')
+            expect(result.borderColor).toBe('Enter a valid border color, like #c9c6c6.')
+            expect(result.maxWidth).toBe('Enter a valid survey width, like 300px.')
         })
     })
 

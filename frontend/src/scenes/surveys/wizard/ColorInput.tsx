@@ -8,6 +8,8 @@ import { cn } from 'lib/utils/css-classes'
 interface ColorInputProps {
     value?: string
     onChange: (value: string) => void
+    onFocus?: () => void
+    onBlur?: () => void
     disabled?: boolean
     disabledReason?: string
     colorList?: string[]
@@ -66,6 +68,8 @@ function ColorGlyph({ color }: { color: string }): JSX.Element {
 export function ColorInput({
     value = '',
     onChange,
+    onFocus,
+    onBlur,
     disabled,
     disabledReason,
     colorList,
@@ -106,6 +110,8 @@ export function ColorInput({
                 <LemonInput
                     value={value}
                     onChange={onChange}
+                    onFocus={onFocus}
+                    onBlur={onBlur}
                     placeholder="#000000 or var(--color)"
                     className="flex-1 font-mono text-xs ignore-error-border"
                     size="small"

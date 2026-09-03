@@ -1,5 +1,6 @@
 import { useValues } from 'kea'
 import { DeepPartialMap, ValidationErrorType } from 'kea-forms'
+import { useState } from 'react'
 
 import { IconCheck } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSelect } from '@posthog/lemon-ui'
@@ -7,6 +8,7 @@ import { LemonButton, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { WEB_SAFE_FONTS } from 'scenes/surveys/constants'
 import { surveysLogic } from 'scenes/surveys/surveysLogic'
+import { normalizeCSSValue } from 'scenes/surveys/utils'
 import { ColorInput } from 'scenes/surveys/wizard/ColorInput'
 
 import { SurveyAppearance, SurveyPosition, SurveyType, SurveyWidgetType } from '~/types'
@@ -73,6 +75,16 @@ function SurveyAppearanceInput({
 }: SurveyAppearanceInputProps): JSX.Element {
     const { surveysStylingAvailable } = useValues(surveysLogic)
     const disabled = !surveysStylingAvailable || !!disabledReason
+    // A half-typed CSS value is invalid on almost every keystroke, so wait for blur to report it.
+    const [isEditing, setIsEditing] = useState(false)
+
+    function onEditingDone(): void {
+        setIsEditing(false)
+        const normalizedValue = normalizeCSSValue(value)
+        if (normalizedValue !== undefined && normalizedValue !== value) {
+            onChange(normalizedValue)
+        }
+    }
 
     return (
         <LemonField.Pure label={label} className="flex-1 gap-1" info={info}>
@@ -80,6 +92,8 @@ function SurveyAppearanceInput({
                 <ColorInput
                     value={value}
                     onChange={onChange}
+                    onFocus={() => setIsEditing(true)}
+                    onBlur={onEditingDone}
                     disabled={disabled}
                     disabledReason={disabledReason || undefined}
                 />
@@ -87,13 +101,15 @@ function SurveyAppearanceInput({
                 <LemonInput
                     value={value}
                     onChange={onChange}
+                    onFocus={() => setIsEditing(true)}
+                    onBlur={onEditingDone}
                     disabled={disabled}
                     className={IGNORE_ERROR_BORDER_CLASS}
                     placeholder={placeholder}
                     disabledReason={disabledReason || undefined}
                 />
             )}
-            {error && <LemonField.Error error={error} />}
+            {error && !isEditing && <LemonField.Error error={error} />}
         </LemonField.Pure>
     )
 }
