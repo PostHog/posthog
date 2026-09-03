@@ -761,7 +761,10 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                         // Cost is a staff-only annotation on a tooltip, so a blip degrades to no
                         // number rather than reporting a failure the reader can do nothing about.
                         if (error instanceof ApiError) {
-                            return values.scoutRunCosts
+                            // A full fleet spans several batches, so keep the ones that answered and
+                            // leave the rest on their last known number. Dropping the whole load
+                            // would blank every tooltip over one failed batch.
+                            return new Map([...values.scoutRunCosts, ...costs])
                         }
                         throw error
                     }

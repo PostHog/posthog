@@ -867,6 +867,26 @@ describe('scoutFleetLogic', () => {
             expect(logic.values.scoutRunCosts.has('run-unpriced')).toBe(false)
         })
 
+        it('keeps the batches that answered when a later batch fails', async () => {
+            // A materialized fleet is more run ids than one request carries, so the loader sends
+            // several. Discarding the whole load over one failed batch blanks every tooltip in the
+            // roster instead of only the runs that batch was pricing.
+            const runIds = Array.from({ length: 201 }, (_, index) => `run-${index}`)
+            mockSignalsScoutRunsRecentPerScout.mockResolvedValue(runIds.map((run_id) => makeRun({ run_id })))
+            mockSignalsScoutRunsTokenCosts.mockImplementation(async (_projectId, body) => {
+                if (!body.run_ids.includes('run-0')) {
+                    throw new ApiError('nope', 500)
+                }
+                return { costs: [{ run_id: 'run-0', token_cost_usd: 4.03 }], available: true }
+            })
+            await mountAsStaff(true)
+
+            logic.actions.loadScoutRuns()
+            await expectLogic(logic).toDispatchActions(['loadScoutRunsSuccess', 'loadScoutRunCostsSuccess'])
+
+            expect(logic.values.scoutRunCosts.get('run-0')).toBe(4.03)
+        })
+
         it('never asks for costs on behalf of a non-staff user', async () => {
             mockSignalsScoutRunsRecentPerScout.mockResolvedValue([makeRun({ run_id: 'run-priced' })])
             await mountAsStaff(false)
