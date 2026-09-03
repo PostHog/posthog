@@ -52,7 +52,8 @@ IP_FIELD = "$ip"
 
 # Event properties a rule can match on, labelled the way the taxonomy already labels them.
 # Deliberately short: each property used adds a read to every query that selects a classification
-# field, so the list stays to properties that say who is calling rather than what they found.
+# field, so the list stays to properties that say who is calling rather than what they found. A
+# property is read only when a project has a rule on it, so a project with no such rule pays nothing.
 CUSTOM_BOT_FIELDS: dict[str, str] = {
     USER_AGENT_FIELD: "Raw user agent",
     IP_FIELD: "IP address",
@@ -60,7 +61,20 @@ CUSTOM_BOT_FIELDS: dict[str, str] = {
     "$host": "Host",
     "$pathname": "Path name",
     "$current_url": "Current URL",
+    "$browser": "Browser",
+    "$os": "OS",
+    "$browser_language": "Browser language",
+    "$screen_width": "Screen width",
+    "$screen_height": "Screen height",
+    "$geoip_country_code": "Country code",
+    "$referrer": "Referrer",
+    "$referring_domain": "Referring domain",
 }
+
+# Fields stored as numbers. multiMatchAllIndices needs a String, so a rule on one of these matches
+# against toString(value): a screen width of 800 matches the pattern "800". The other fields are
+# already strings, so they skip the cast and their query expressions stay byte-identical.
+NUMERIC_FIELDS: frozenset[str] = frozenset({"$screen_width", "$screen_height"})
 
 CIDR_MATCHER = "cidr"
 PATTERN_MATCHERS = ("contains", "regex")
