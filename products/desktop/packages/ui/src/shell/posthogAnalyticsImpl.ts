@@ -1,4 +1,6 @@
-import posthog from "posthog-js/dist/module.full.no-external";
+import posthog, {
+  type CaptureResult,
+} from "posthog-js/dist/module.full.no-external";
 // Import the recorder to set up __PosthogExtensions__.initSessionRecording
 // The module.full.no-external bundle includes rrweb but not the initSessionRecording function
 // posthog-recorder (vs lazy-recorder) ensures recording is ready immediately
@@ -110,6 +112,30 @@ let flagsUnavailable = false;
 
 const SESSION_IDLE_TIMEOUT_SECONDS = 36_000;
 
+// react-scan (a dev-only render profiler) reports "must import before React"
+// through console.error, not by throwing. With capture_console_errors on, that
+// line would become a high-severity $exception. It is a developer diagnostic,
+// never a real fault, so drop it before it reaches error tracking. The toggle
+// that loads react-scan is dev-only now, so this is a backstop for any such
+// console error that could still slip through.
+function dropReactScanExceptions(
+  event: CaptureResult | null,
+): CaptureResult | null {
+  if (!event || event.event !== "$exception") {
+    return event;
+  }
+  const exceptions = event.properties?.$exception_list as
+    | Array<{ value?: unknown }>
+    | undefined;
+  const isReactScan =
+    Array.isArray(exceptions) &&
+    exceptions.some(
+      (item) =>
+        typeof item.value === "string" && item.value.includes("[React Scan]"),
+    );
+  return isReactScan ? null : event;
+}
+
 export function initializePostHog(sessionId?: string) {
   const apiKey = import.meta.env.VITE_POSTHOG_API_KEY;
   const apiHost =
@@ -155,6 +181,7 @@ export function initializePostHog(sessionId?: string) {
     // does not affect.
     disable_surveys: true,
     session_idle_timeout_seconds: SESSION_IDLE_TIMEOUT_SECONDS,
+    before_send: dropReactScanExceptions,
     ...(sessionId ? { bootstrap: { sessionID: sessionId } } : {}),
     capture_exceptions: import.meta.env.DEV
       ? false

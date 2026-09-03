@@ -281,3 +281,53 @@ describe("initializePostHog", () => {
     );
   });
 });
+
+describe("before_send", () => {
+  type CaptureResult = { event: string; properties: Record<string, unknown> };
+  type BeforeSend = (event: CaptureResult | null) => CaptureResult | null;
+
+  async function getBeforeSend(): Promise<BeforeSend> {
+    const { initializePostHog } = await loadAnalytics();
+    initializePostHog();
+    return mockPosthog.init.mock.calls[0][1].before_send as BeforeSend;
+  }
+
+  it("drops the react-scan console error so it never reaches error tracking", async () => {
+    const beforeSend = await getBeforeSend();
+
+    const reactScanException = {
+      event: "$exception",
+      properties: {
+        $exception_list: [
+          {
+            value:
+              "[React Scan] Failed to load. Must import React Scan before React runs.",
+          },
+        ],
+      },
+    };
+
+    expect(beforeSend(reactScanException)).toBeNull();
+  });
+
+  it("passes through a real exception", async () => {
+    const beforeSend = await getBeforeSend();
+
+    const realException = {
+      event: "$exception",
+      properties: {
+        $exception_list: [{ value: "TypeError: cannot read property x" }],
+      },
+    };
+
+    expect(beforeSend(realException)).toBe(realException);
+  });
+
+  it("passes through non-exception events untouched", async () => {
+    const beforeSend = await getBeforeSend();
+
+    const pageview = { event: "$pageview", properties: {} };
+
+    expect(beforeSend(pageview)).toBe(pageview);
+  });
+});
