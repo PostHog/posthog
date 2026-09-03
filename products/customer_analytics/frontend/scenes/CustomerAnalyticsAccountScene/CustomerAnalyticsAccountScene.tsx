@@ -10,14 +10,18 @@ import { SceneExport } from 'scenes/sceneTypes'
 
 import { FeaturePreviewSceneGate } from '~/layout/scenes/components/FeaturePreviewSceneGate'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { AccountDetailTabs } from '../../components/Accounts/AccountDetailTabs'
+import { AccountLogo } from '../../components/Accounts/AccountLogo'
 import { CustomerAnalyticsScene } from '../../CustomerAnalyticsScene'
 import { customerAnalyticsFeaturePreviewGate } from '../../featurePreviewGate'
+import type { AccountApi } from '../../generated/api.schemas'
+import { AccountCaption } from './AccountCaption'
 import { AccountDetailActions } from './AccountDetailActions'
-import { AccountIdentityRail } from './AccountIdentityRail'
+import { AccountSidebar } from './AccountSidebar'
 import {
     CustomerAnalyticsAccountSceneLogicProps,
     customerAnalyticsAccountSceneLogic,
@@ -28,6 +32,10 @@ export const scene: SceneExport<CustomerAnalyticsAccountSceneLogicProps> = {
     logic: customerAnalyticsAccountSceneLogic,
     productKey: ProductKey.CUSTOMER_ANALYTICS,
     paramsToProps: ({ params: { accountId } }) => ({ accountId: accountId ?? '' }),
+}
+
+function getAccountLogoDomain(account: AccountApi): string | null {
+    return account.properties?.website_domain ?? account.properties?.email_domains?.[0] ?? null
 }
 
 export function CustomerAnalyticsAccountScene(): JSX.Element {
@@ -88,12 +96,17 @@ function CustomerAnalyticsAccountSceneContent(): JSX.Element {
         <SceneContent className="h-full min-h-0" data-attr="customer-analytics-account-scene">
             <SceneTitleSection
                 name={account.name}
-                resourceType={{ type: 'cohort' }}
+                resourceType={{
+                    type: 'cohort',
+                    forceIcon: <AccountLogo domain={getAccountLogoDomain(account)} name={account.name} />,
+                }}
                 actions={<AccountDetailActions />}
             />
+            <AccountCaption externalId={account.external_id ?? null} />
+            <SceneDivider />
             <div className="@container/account-detail flex flex-1 min-h-0 overflow-y-auto">
                 <div className="flex min-h-full w-full flex-col gap-4 @min-[56rem]/account-detail:flex-row">
-                    <AccountIdentityRail account={account} />
+                    <AccountSidebar account={account} />
                     <main className="flex-1 min-w-0" data-attr="account-detail-tabs">
                         <AccountDetailTabs
                             accountId={account.id}
