@@ -175,10 +175,13 @@ impl TopicOffsetLedger {
     /// committed offset, which a kept ledger would reject as duplicate
     /// delivery, and work still in flight from the old assignment must not
     /// land on the new one.
-    pub fn forget_partitions<'a>(&self, revoked: impl IntoIterator<Item = (&'a str, i32)>) {
+    pub fn forget_partitions<'a>(
+        &self,
+        topic_partitions: impl IntoIterator<Item = (&'a str, i32)>,
+    ) {
         let mut partitions = self.partitions.lock().unwrap();
         let mut forgotten = 0;
-        for (topic, partition) in revoked {
+        for (topic, partition) in topic_partitions {
             let key = TopicPartition::new(topic, partition);
             let generation = partitions
                 .get(&key)

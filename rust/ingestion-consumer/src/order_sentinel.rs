@@ -573,9 +573,10 @@ pub struct SentinelContext {
     /// The offset ledger the commit path settles against. Owned here so the
     /// rebalance callbacks forget partitions on the same ledger.
     topic_offset_ledger: Arc<TopicOffsetLedger>,
-    /// Bumped on every partition assignment; the gRPC transport stamps it on
-    /// sub-batches so the worker's feed-order sentinel rebaselines across
-    /// rebalances.
+    /// Advanced once per assignment callback; the gRPC transport stamps it
+    /// on sub-batches so the worker's feed-order sentinel rebaselines across
+    /// rebalances. Distinct from the offset ledger's generations, which move
+    /// per partition and stamp offset accounting rather than stream order.
     assignment_epoch: Option<Arc<AtomicU64>>,
 }
 

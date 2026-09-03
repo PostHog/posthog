@@ -10,10 +10,10 @@ struct Slot {
     charge: Charge,
 }
 
-/// Work that does not belong to the ledger's window. The ledger checks each
-/// offset as it applies it, so on an error the window holds the offsets
-/// applied before the offending one; the owner discards the ledger rather
-/// than reasoning about that state.
+/// A charge or completion the ledger's window cannot account for. The ledger
+/// checks each offset as it applies it, so on an error the window holds the
+/// offsets applied before the offending one; the owner discards the ledger
+/// rather than reasoning about that state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LedgerError {
     /// A charge delivered an offset that is not above every offset already
@@ -90,9 +90,9 @@ pub struct TakenFrontier {
 /// rebalance, so a ledger kept across assignments sees the redelivery as
 /// duplicate delivery and rejects it. Completions from a previous
 /// assignment's in-flight work must be discarded before they reach the new
-/// ledger; it never charged those offsets and rejects them too. A rejection
-/// is a [`LedgerError`]: the ledger never panics, so an owner holding it
-/// under a lock stays usable.
+/// ledger; it never charged those offsets and rejects them too. Both come
+/// back as a [`LedgerError`]: the ledger never panics, so an owner holding
+/// it under a lock stays usable.
 #[derive(Debug)]
 pub struct PartitionOffsetLedger {
     /// The partition generation this ledger was founded under. The owner
