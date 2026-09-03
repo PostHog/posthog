@@ -1866,9 +1866,8 @@ jobs:
               run: echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal" | sudo tee -a /etc/hosts
             # Tool cache steps inlined rather than the setup-python-cached composite:
             # this job checks out the PR head ref, which cannot resolve a local
-            # action that only exists on master until the branch rebases. The
-            # restore sits before setup-python so the tool cache is warm when it
-            # runs.
+            # action that only exists on master until the branch rebases. Restore
+            # before setup-python so it finds a warm tool cache.
             - name: Restore Python tool cache
               id: python-toolcache
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
@@ -1898,9 +1897,8 @@ jobs:
               shell: bash
               run: |
                   sudo rm -f /etc/apt/sources.list.d/*twingate* && sudo apt-get update && sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
-            # Local actions resolve from the PR head ref here, and an unrebased
-            # branch carries a setup-sqlx-cli that installs no Rust. Delete once
-            # open branches have rebased.
+            # setup-sqlx-cli resolves from the PR head ref here, so an unrebased branch
+            # gets a version that installs no Rust. Delete once open branches rebase.
             - name: Install Rust
               if: needs.changes.outputs.backend == 'true'
               uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9

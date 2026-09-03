@@ -162,9 +162,8 @@ jobs:
 
         name: Python code quality (depot-ubuntu-24.04)
         runs-on: depot-ubuntu-24.04
-        # Read by the per-tool guards on the pytest steps below. Those steps sit in a
-        # `parallel:` block, and no step in any such block in this repo carries a
-        # step-level `if:`, so the guard is a shell test on a job-level env var.
+        # Read by shell guards on the pytest steps below. Those steps sit in a
+        # `parallel:` block, where step-level `if:` is untested in this repo.
         env:
             RUN_HOGLI: ${{ needs.changes.outputs.hogli }}
             RUN_OWNERS: ${{ needs.changes.outputs.owners }}
