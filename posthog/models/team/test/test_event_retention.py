@@ -1,6 +1,9 @@
+from datetime import timedelta
 from typing import cast
 
 from posthog.test.base import BaseTest
+
+from django.utils import timezone
 
 from parameterized import parameterized
 
@@ -42,7 +45,10 @@ class TestReconcileOrganizationEventsRetention(BaseTest):
 
     def test_updates_all_mismatched_teams(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="other")
-        Team.objects.filter(pk__in=[self.team.pk, other_team.pk]).update(event_retention_months=84)
+        previous_updated_at = timezone.now() - timedelta(days=1)
+        Team.objects.filter(pk__in=[self.team.pk, other_team.pk]).update(
+            event_retention_months=84, updated_at=previous_updated_at
+        )
         self._set_retention_feature(1, "year")
 
         assert reconcile_organization_events_retention(self.organization) == 2
@@ -51,6 +57,8 @@ class TestReconcileOrganizationEventsRetention(BaseTest):
         other_team.refresh_from_db()
         assert self.team.event_retention_months == 12
         assert other_team.event_retention_months == 12
+        assert self.team.updated_at > previous_updated_at
+        assert other_team.updated_at > previous_updated_at
 
     def test_no_write_when_already_aligned(self) -> None:
         self._set_retention_feature(7, "years")

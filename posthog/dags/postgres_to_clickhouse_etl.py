@@ -316,6 +316,7 @@ _TEAM_COLS = [
     "modifiers",
     "correlation_config",
     "session_recording_retention_period_days",
+    "event_retention_months",
     "plugins_opt_in",
     "opt_out_capture",
     "event_names",
@@ -462,6 +463,7 @@ def _team_ddl() -> str:
             modifiers Nullable(String),  -- JSON stored as String
             correlation_config Nullable(String),  -- JSON stored as String
             session_recording_retention_period_days Nullable(Int32),
+            event_retention_months UInt16 DEFAULT 84,
             plugins_opt_in UInt8,
             opt_out_capture UInt8,
             event_names String,  -- JSON stored as String

@@ -1,6 +1,7 @@
 from typing import TYPE_CHECKING, Optional
 
 from django.conf import settings
+from django.utils import timezone
 
 import posthoganalytics
 
@@ -108,5 +109,5 @@ def reconcile_organization_events_retention(organization: "Organization") -> int
     return (
         Team.objects.filter(organization=organization)
         .exclude(event_retention_months=target_months)
-        .update(event_retention_months=target_months)
+        .update(event_retention_months=target_months, updated_at=timezone.now())
     )
