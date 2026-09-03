@@ -272,7 +272,7 @@ def process_supporthog_interactivity(payload: dict[str, Any], slack_team_id: str
         # the nudged author — buttons are clickable by anyone in the channel.
         raw_verdict = value.get("classifier")
         classifier_verdict: NudgeFunnelVerdict = (
-            raw_verdict if raw_verdict in get_args(NudgeClassifierVerdict) else "unknown"
+            cast(NudgeFunnelVerdict, raw_verdict) if raw_verdict in get_args(NudgeClassifierVerdict) else "unknown"
         )
         click_properties = nudge_event_properties(source_channel, source_message_ts, clicker, classifier_verdict)
 
@@ -757,7 +757,10 @@ def _process_outbox_row(outbox: EmailOutboxMessage) -> None:
 
     # Build threading headers from the latest inbound message on this ticket
     latest_mapping = (
-        EmailMessageMapping.objects.filter(ticket_id=ticket.id, team_id=outbox.team_id).order_by("-created_at").first()
+        EmailMessageMapping.objects.filter(ticket_id=ticket.id, team_id=outbox.team_id)
+        .only("message_id")
+        .order_by("-created_at")
+        .first()
     )
     headers: dict[str, str] = {"Message-ID": outbox.message_id}
     if latest_mapping:

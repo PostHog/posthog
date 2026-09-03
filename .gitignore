@@ -106,9 +106,6 @@ gen/
 .typegen
 frontend/src/assets
 
-# Flox.dev lockfile (will differ slightly per local dev env, even with consistent pinning in TOML file)
-.flox/env/manifest.lock
-
 # Playwright cache + reports
 playwright-report/
 playwright/.auth/

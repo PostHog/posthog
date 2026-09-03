@@ -22,6 +22,7 @@ interface EnvironmentSetupFlowProps {
   /** "image" creates only an image; "environment" creates or updates one. */
   scope: SetupScope;
   defaultRepository: string | null;
+  defaultImageId?: string | null;
   /** Called with the image whose build just started, so a caller can follow it. */
   onDone: (building: SandboxCustomImage | null) => void;
   /** True when a surrounding dialog already supplies the title and the way back. */
@@ -40,6 +41,7 @@ interface EnvironmentSetupFlowProps {
 export function EnvironmentSetupFlow({
   scope,
   defaultRepository,
+  defaultImageId = null,
   onDone,
   embedded = false,
 }: EnvironmentSetupFlowProps) {
@@ -64,6 +66,7 @@ export function EnvironmentSetupFlow({
     <LoadedSetupFlow
       scope={scope}
       defaultRepository={defaultRepository}
+      defaultImageId={defaultImageId}
       customImages={customImagesEnabled && !customImagesDisabled}
       images={images}
       environments={environments}
@@ -76,6 +79,7 @@ export function EnvironmentSetupFlow({
 interface LoadedSetupFlowProps {
   scope: SetupScope;
   defaultRepository: string | null;
+  defaultImageId: string | null;
   customImages: boolean;
   images: readonly SandboxCustomImage[];
   environments: readonly { id: string; name: string }[];
@@ -86,6 +90,7 @@ interface LoadedSetupFlowProps {
 function LoadedSetupFlow({
   scope,
   defaultRepository,
+  defaultImageId,
   customImages,
   images,
   environments,
@@ -103,6 +108,7 @@ function LoadedSetupFlow({
       repository: defaultRepository,
       scope,
       customImages,
+      existingImageId: defaultImageId,
     }),
   );
   // Survives a failed submit: if the image was created but a later step

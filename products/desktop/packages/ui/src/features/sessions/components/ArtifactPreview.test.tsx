@@ -211,6 +211,8 @@ function textComment(): ResourceComment {
     scope: "task_artifact",
     source_comment: null,
     completed_at: null,
+    completed_by: null,
+    slack_thread: null,
   };
 }
 
@@ -783,6 +785,8 @@ describe("ArtifactPreview", () => {
       scope: "task_artifact",
       source_comment: null,
       completed_at: null,
+      completed_by: null,
+      slack_thread: null,
     };
     artifactComments.data = [
       root,

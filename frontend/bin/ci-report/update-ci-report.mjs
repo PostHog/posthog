@@ -15,6 +15,8 @@ export const MARKER = '<!-- posthog-ci-report -->'
 // reviewed decision rather than an accident of which job happened to write first.
 export const SECTIONS = [
     { id: 'trunk-lane', title: 'Trunk lane' },
+    { id: 'complexity-python', title: 'Complexity (Python)' },
+    { id: 'complexity-ts', title: 'Complexity (TypeScript)' },
     { id: 'bundle-size', title: 'Bundle size' },
     { id: 'eager-graph', title: 'Eager graph' },
     { id: 'toolbar-size', title: 'Toolbar bundle' },

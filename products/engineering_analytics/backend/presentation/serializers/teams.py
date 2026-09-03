@@ -17,7 +17,7 @@ class TeamCIHealthItemSerializer(DataclassSerializer):
         dataclass = TeamCIHealthItem
         extra_kwargs = {
             "owner_team": {
-                "help_text": "Owning team slug (the CODEOWNERS handle minus '@PostHog/', e.g. 'team-replay'), "
+                "help_text": "Owning team slug from the repo's owners.yaml map (e.g. 'team-replay'), "
                 "or the literal 'unowned' for tests whose spans carry no ownership stamp.",
             },
             "flaky_test_count": {
@@ -51,8 +51,20 @@ class TeamCIHealthItemSerializer(DataclassSerializer):
             "quarantined_failed_run_count_prior": {"help_text": "Same count over the prior window."},
             "last_seen_at": {
                 "help_text": "Most recent failure, recovery, or quarantined-failure run across the team's owned "
-                "tests, either window."
+                "tests, either window. Null for a team present only through the census (no CI signal recorded)."
             },
+            "test_file_count": {
+                "help_text": "Test files the team owns per the daily owners.yaml census. Null until a census "
+                "event exists for the repository.",
+            },
+            "test_file_count_prior": {
+                "help_text": "The latest census value at or before the window start, for the trend.",
+            },
+            "merged_pr_count": {
+                "help_text": "Merged PRs authored by the team's members in the window, bots excluded. Null when "
+                "the team_members snapshot isn't synced, or for 'unowned'.",
+            },
+            "merged_pr_count_prior": {"help_text": "Same count over the prior window."},
         }
 
 

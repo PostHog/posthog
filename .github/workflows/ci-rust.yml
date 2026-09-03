@@ -345,6 +345,7 @@ jobs:
               continue-on-error: true
 
             - name: Log in to Docker Hub
+              continue-on-error: true
               if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
@@ -496,7 +497,14 @@ jobs:
                           extra_args="--test-threads=4"
                       fi
                       if [ "$pkg" = "cohort-seeder" ] && [ -f cohort-seeder/Cargo.toml ] && grep -q '^pg-test-support[[:space:]]*=' cohort-seeder/Cargo.toml; then
-                          DATABASE_URL='postgres://posthog:posthog@localhost:5432/test_posthog' run_nextest "$pkg" -p "$pkg" --features pg-test-support $extra_args || overall_rc=1
+                          features="pg-test-support"
+                          # ch-test-support arms the live-ClickHouse rebuild corpus against the
+                          # compose stack's clickhouse; the grep keeps branches that predate the
+                          # feature building.
+                          if grep -q '^ch-test-support[[:space:]]*=' cohort-seeder/Cargo.toml; then
+                              features="pg-test-support,ch-test-support"
+                          fi
+                          DATABASE_URL='postgres://posthog:posthog@localhost:5432/test_posthog' run_nextest "$pkg" -p "$pkg" --features "$features" $extra_args || overall_rc=1
                       else
                           run_nextest "$pkg" -p "$pkg" $extra_args || overall_rc=1
                       fi
@@ -595,6 +603,7 @@ jobs:
                   clean: false
 
             - name: Log in to Docker Hub
+              continue-on-error: true
               if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
@@ -671,6 +680,26 @@ jobs:
                     --create-via-identity --pg-target-table posthog_person \
                     --leaders 3 --partitions 8 --persons 100 \
                     --concurrency 10 --duration 15s --kill-after 5s --scale-up-after 8s
+
+            # The merge saga under load and chaos: MergePersons calls against
+            # live persons while blast writes race each source's fence and
+            # each target's fold, through a leader kill and a scale-up. Two
+            # sources per call exercise the fold's request order. The wide
+            # persons make the flip repoint a thousand mappings per source.
+            # The gate asserts the folded survivor document, the merge
+            # event's $set and $set_once, that each source is gone (not-found
+            # reads, a tombstone above every acked version, no mapping left
+            # behind), and that the delete leg answers not_found for merged
+            # sources.
+            - name: Run the e2e gate merging persons under chaos (kill + scale-up)
+              run: |
+                  ./target/debug/personhog-test-harness gate \
+                    --pg-target-table posthog_person \
+                    --leaders 3 --partitions 8 --persons 200 \
+                    --concurrency 10 --duration 15s --merge-concurrency 4 --merge-rate 5 \
+                    --merge-sources 2 \
+                    --merge-wide-persons 3 --merge-wide-distinct-ids 1000 --merge-wide-role source \
+                    --kill-after 5s --scale-up-after 8s
 
             # Regression gate for eviction under writer lag: the cache is
             # sized far below the person count so dirty entries evict while

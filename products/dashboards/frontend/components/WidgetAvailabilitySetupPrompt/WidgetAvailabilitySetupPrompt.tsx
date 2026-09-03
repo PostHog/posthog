@@ -4,7 +4,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
 
-import { SupportActivationButton } from 'products/conversations/frontend/components/ConversationsDisabledBanner'
+import { SupportActivationButton } from 'products/conversations/frontend/components/ConversationsDisabledBanner/ConversationsDisabledBanner'
 
 import type { WidgetAvailabilityConfig } from '../../widget_types/widgetAvailability'
 import { WIDGET_AVAILABILITY_PRESENTATION } from '../../widget_types/widgetAvailability'

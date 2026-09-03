@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { Adapter } from "./adapter";
 import type { AgentRuntime } from "./agent-runtime";
-import type { DismissalReasonOptionValue } from "./dismissal-reasons";
+import type { ReportStateReason } from "./dismissal-reasons";
 import type { StoredLogEntry } from "./session-events";
 import type { UploadableSkillSource } from "./skills";
 
@@ -129,6 +129,7 @@ export interface TaskChannel {
   starred: boolean;
   github_integration?: number | null;
   repositories?: string[];
+  auto_archive_after_days?: number | null;
   created_at: string;
   created_by?: UserBasic | null;
   system_role?: "personal" | "general" | null;
@@ -314,6 +315,7 @@ export function readPendingFollowupMessages(
 const taskRunStateFields = {
   ai_stage: optionalField(z.string()),
   auto_publish: optionalField(z.boolean()),
+  benjamin_version: optionalField(z.string()),
   initial_permission_mode: optionalField(executionModeSchema),
   initial_prompt_override: optionalField(z.string()),
   pending_followup_messages: optionalField(
@@ -710,8 +712,8 @@ export interface SignalReport {
   actionability?: SignalReportActionability | null;
   /** Whether the issue appears already fixed, from the actionability judgment artefact. */
   already_addressed?: boolean | null;
-  /** Reason code from the latest dismissal artefact, set when the report was suppressed. */
-  dismissal_reason?: DismissalReasonOptionValue | null;
+  /** Reason code from the latest dismiss or resolve artefact. */
+  dismissal_reason?: ReportStateReason | null;
   /** Free-form note captured alongside the dismissal reason. */
   dismissal_note?: string | null;
   /** Whether the current user is a suggested reviewer for this report (server-annotated). */
@@ -854,14 +856,14 @@ export interface SuggestedReviewersArtefact extends SignalReportArtefactBase {
   content: SuggestedReviewer[];
 }
 
-/** Artefact with `type: "dismissal"` — captures the user's rationale when suppressing a report. */
+/** Artefact with `type: "dismissal"` — captures the user's rationale when suppressing or resolving a report. */
 export interface DismissalArtefact extends SignalReportArtefactBase {
   type: "dismissal";
   content: DismissalContent;
 }
 
 export interface DismissalContent {
-  reason: DismissalReasonOptionValue;
+  reason: ReportStateReason;
   /** Optional free-form detail provided alongside the reason. */
   note: string;
   /** PostHog numeric user id of the dismisser, when available. */
@@ -1076,6 +1078,8 @@ export interface SignalReportsQueryParams {
   suggested_reviewers?: string;
   /** Comma-separated `P0`–`P4` priorities — only returns reports with one of these priorities. */
   priority?: string;
+  /** Comma-separated actionability choices. Only returns reports with one of these latest judgments. */
+  actionability?: string;
   /** Return the filtered total without fetching or enriching report rows. */
   count_only?: boolean;
   /**

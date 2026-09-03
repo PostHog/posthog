@@ -10,34 +10,27 @@ import { userLogic } from 'scenes/userLogic'
 
 import type { UserType } from '~/types'
 
-import { captureInboxReportAction } from '../inboxAnalytics'
+import { captureInboxReportAction, type InboxReportActionSurface } from '../inboxAnalytics'
 import {
     ACTIONABLE_ACTIONABILITY_VALUES,
     INBOX_LEGACY_PRIMARY_REPORT_SECTION_KEY,
     INBOX_PRIMARY_REPORT_SECTION_KEY,
     INBOX_SCOPE_ENTIRE_PROJECT,
     INBOX_SCOPE_FOR_YOU,
+    INBOX_LEGACY_TAB_SECTION,
+    InboxFlatListTabKey,
     InboxReportSectionKey,
     InboxScope,
     SignalReport,
 } from '../types'
 import type { SignalReportPriority } from '../types'
-import { DismissalReasonValue } from '../utils/dismissalReasons'
+import { DismissalFeedback, ResolveReasonValue, suppressDismissalPayload } from '../utils/dismissalReasons'
 import { isInboxRedesignEnabled } from '../utils/inboxRedesign'
 import { inboxBulkActionsLogic } from './inboxBulkActionsLogic'
 import { buildSignalReportListOrdering, inboxFiltersLogic } from './inboxFiltersLogic'
 import type { InboxFilterState, InboxSortDirection, InboxSortField } from './inboxFiltersLogic'
 
 const PAGE_SIZE = 50
-
-/**
- * How many rows a section shows before "Show more". Sections stack in one column, so each one has
- * to stay short enough that the sections below it are still reachable without scrolling past a
- * whole list. Well under the server `PAGE_SIZE`, so the first few "Show more" presses are free.
- */
-// Annotated rather than inferred: kea-typegen reads a bare `= 5` as the literal type `5` and
-// types the reducer it defaults as `5`, which then rejects the widened value.
-export const SECTION_PAGE_SIZE: number = 5
 
 /** Fixed, section-defining server filter (e.g. `{ has_implementation_pr: 'true' }`). */
 export type ReportListParams = Record<string, string>
@@ -67,10 +60,31 @@ export const INBOX_REPORT_SECTION_LIST_PARAMS: Record<InboxReportSectionKey, Rep
         status: 'ready,pending_input',
         actionability: ACTIONABLE_ACTIONABILITY_VALUES.join(','),
     },
-    // Terminal reports: ones resolved by a merged implementation PR (not restorable) and ones
-    // the user archived (suppressed, restorable).
-    resolved: { status: 'suppressed,resolved' },
+    // Fixed by a merged implementation PR, or resolved by a person. Terminal, not restorable.
+    resolved: { status: 'resolved' },
+    // Dismissed by a person, or suppressed because its PR closed without merging. Restorable.
+    dismissed: { status: 'suppressed' },
     'not-actionable': { actionability: 'not_actionable' },
+}
+
+/** Logic props for one report state's keyed instance, shared by the flat Reports list consumers. */
+export function sectionListLogicProps(sectionKey: InboxReportSectionKey): ReportListLogicProps {
+    return { sectionKey, listParams: INBOX_REPORT_SECTION_LIST_PARAMS[sectionKey] }
+}
+
+/**
+ * The keyed list instance behind a legacy tab (redesign flag off). Every tab shows one section with
+ * that section's filter, except Archive, which lists resolved and dismissed reports together. It
+ * reuses the `resolved` instance with a wider filter instead of adding a section key, because the
+ * section keys drive analytics, `data-attr` values, and persisted collapsed state that the legacy
+ * tab must not extend, and the two layouts are never mounted together.
+ */
+export function legacyTabListLogicProps(tabKey: InboxFlatListTabKey): ReportListLogicProps {
+    const sectionKey = INBOX_LEGACY_TAB_SECTION[tabKey]
+    if (tabKey === 'archived') {
+        return { sectionKey, listParams: { status: 'suppressed,resolved' } }
+    }
+    return { sectionKey, listParams: INBOX_REPORT_SECTION_LIST_PARAMS[sectionKey] }
 }
 
 function teammateUuidFromScope(scope: string): string | undefined {
@@ -97,7 +111,7 @@ function requestContextFromValues(values: {
 
 /**
  * Whether to auto-switch the reviewer scope to Entire project on first load. True only for the
- * primary section (Needs a PR under the redesign, the Pull requests list with the flag off) when
+ * primary section (Needs decision under the redesign, the Pull requests list with the flag off) when
  * the user is still on the (default) For-you scope, hasn't chosen a scope themselves, has resolved
  * to a real user, and has zero reports suggested to them — so a user with nothing assigned doesn't
  * land on an empty inbox. Pure so the branching is unit-testable without mounting the logic.
@@ -134,7 +148,6 @@ export interface reportListLogicValues {
     count: number | null
     countLoading: boolean
     hasMore: boolean
-    hiddenReportCount: number
     isLoaded: boolean
     listApiParams: any
     loadedContext: {
@@ -142,14 +155,13 @@ export interface reportListLogicValues {
         scope: InboxScope
     } | null
     loadedQueryKey: string | null
+    pageLoadFailed: boolean
     primarySectionKey: InboxReportSectionKey
     reports: SignalReport[]
     reportsLoadFailed: boolean
     reportsResponse: ReportListResponse | null
     reportsResponseLoading: boolean
     totalCount: number | null
-    visibleCount: number
-    visibleReports: SignalReport[]
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
@@ -188,19 +200,11 @@ export interface reportListLogicActions {
     toggleSourceProduct: (source: string) => {
         source: string
     } // inboxFiltersLogic
-    archiveReport: (
+    dismissReport: (
         reportId: string,
-        reason: DismissalReasonValue,
-        note: string
+        dismissal: DismissalFeedback
     ) => {
-        note: string
-        reason:
-            | 'already_fixed'
-            | 'analysis_wrong'
-            | 'other'
-            | 'report_unclear'
-            | 'wontfix_intentional'
-            | 'wontfix_irrelevant'
+        dismissal: DismissalFeedback
         reportId: string
     }
     ensureLoaded: () => {
@@ -260,17 +264,27 @@ export interface reportListLogicActions {
     removeReport: (reportId: string) => {
         reportId: string
     }
-    restoreReport: (reportId: string) => {
+    resolveReport: (
+        reportId: string,
+        reason: ResolveReasonValue,
+        note: string
+    ) => {
+        note: string
+        reason: 'already_fixed' | 'fixed_outside_posthog' | 'other' | 'pr_merged'
         reportId: string
     }
-    showMore: () => {
-        value: true
+    restoreReport: (
+        reportId: string,
+        surface: InboxReportActionSurface
+    ) => {
+        reportId: string
+        surface: InboxReportActionSurface
     }
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface reportListLogicMeta {
-    key: 'monitoring' | 'needs-decision' | 'not-actionable' | 'resolved'
+    key: 'dismissed' | 'monitoring' | 'needs-decision' | 'not-actionable' | 'resolved'
     __keaTypeGenInternalSelectorTypes: {
         primarySectionKey: (featureFlags: FeatureFlagsSet) => InboxReportSectionKey
         listApiParams: (
@@ -285,8 +299,6 @@ export interface reportListLogicMeta {
             arg: any
         ) => any
         reports: (reportsResponse: ReportListResponse | null) => SignalReport[]
-        visibleReports: (reports: SignalReport[], visibleCount: number) => SignalReport[]
-        hiddenReportCount: (totalCount: number | null, count: number | null, visibleReports: SignalReport[]) => number
         hasMore: (reportsResponse: ReportListResponse | null) => boolean
         isLoaded: (reportsResponse: ReportListResponse | null) => boolean
         totalCount: (reportsResponse: ReportListResponse | null) => number | null
@@ -306,14 +318,15 @@ export type reportListLogicType = MakeLogicType<
 >
 
 /**
- * Keyed per-section report list. Mounted once per Reports section (Review and merge / Needs a PR /
- * Resolved / Not actionable), each with its own fixed `listParams`, so every section is its own
- * filtered request with its own accurate `count` and its own pagination. The shared user chrome
- * (search, sort, source, priority, reviewer scope) is connected from `inboxFiltersLogic` and applied
- * on top, so one filter row drives all four.
+ * Keyed per-state report list. Mounted once per report state (Review and merge / Needs decision /
+ * Resolved / Dismissed / Not actionable), each with its own fixed `listParams`, so every state is
+ * its own filtered request with its own accurate `count` and its own pagination. The shared user
+ * chrome (search, sort, source, priority, reviewer scope) is connected from `inboxFiltersLogic` and
+ * applied on top, so one filter row drives all of them. The flat Reports list merges the loaded
+ * rows of the states the user selected; the legacy tabs render one instance each.
  *
- * `count` loads on mount (cheap `limit=1`) so a section header is correct even while collapsed. The
- * rows load lazily (`ensureLoaded`) only once the section is expanded.
+ * `count` loads on mount (cheap `limit=1`) so state counts are available before any rows are. The
+ * rows load lazily (`ensureLoaded`) only once a surface actually renders the state.
  */
 export const reportListLogic = kea<reportListLogicType>([
     path((sectionKey) => ['scenes', 'inbox', 'logics', 'reportListLogic', sectionKey]),
@@ -358,20 +371,26 @@ export const reportListLogic = kea<reportListLogicType>([
     actions({
         ensureLoaded: true,
         loadMore: true,
-        archiveReport: (reportId: string, reason: DismissalReasonValue, note: string) => ({ reportId, reason, note }),
-        restoreReport: (reportId: string) => ({ reportId }),
+        dismissReport: (reportId: string, dismissal: DismissalFeedback) => ({ reportId, dismissal }),
+        resolveReport: (reportId: string, reason: ResolveReasonValue, note: string) => ({ reportId, reason, note }),
+        restoreReport: (reportId: string, surface: InboxReportActionSurface) => ({ reportId, surface }),
         removeReport: (reportId: string) => ({ reportId }),
         refresh: true,
-        showMore: true,
     }),
 
     loaders(({ values }) => ({
-        // Cheap count-only request (limit=1) – populates the section header before its rows load.
+        // Cheap count-only request – populates the state's count before its rows load. `count_only`
+        // lets the backend answer with one `COUNT(*)`, skipping ordering, row serialization, and
+        // the per-row metadata lookups.
         count: [
             null as number | null,
             {
                 loadCount: async () => {
-                    const response = await api.signalReports.list({ ...values.listApiParams, limit: 1 })
+                    const response = await api.signalReports.list({
+                        ...values.listApiParams,
+                        limit: 1,
+                        count_only: 'true',
+                    })
                     return response.count
                 },
             },
@@ -422,6 +441,10 @@ export const reportListLogic = kea<reportListLogicType>([
         },
         count: {
             removeReport: (state) => (state != null ? Math.max(0, state - 1) : state),
+            // A page response carries the same query's total, so reuse it instead of letting the
+            // separately-loaded count disagree with the rows on screen.
+            loadReportsSuccess: (_, { reportsResponse }) => reportsResponse.count,
+            loadMoreReportsSuccess: (_, { reportsResponse }) => reportsResponse.count,
         },
         // The first-page load failed. Kea loaders keep `reportsResponse` null on failure, so
         // `isLoaded` stays false and the section would otherwise show a skeleton forever. Reset when a
@@ -435,19 +458,22 @@ export const reportListLogic = kea<reportListLogicType>([
                 loadReportsFailure: () => true,
             },
         ],
-        // How many of the loaded rows this section renders. Reset whenever the list is re-fetched
-        // from the top (first load, refresh, any filter change), so a new query starts short again.
-        visibleCount: [
-            SECTION_PAGE_SIZE,
+        // A next-page fetch failed. The loaded rows and `hasMore` are unchanged, and the scroll
+        // sentinel may sit inside the viewport without re-firing, so the list must offer an explicit
+        // retry. Cleared when a page request starts or lands.
+        pageLoadFailed: [
+            false,
             {
-                showMore: (state) => state + SECTION_PAGE_SIZE,
-                loadReports: () => SECTION_PAGE_SIZE,
+                loadReports: () => false,
+                loadMoreReports: () => false,
+                loadMoreReportsSuccess: () => false,
+                loadMoreReportsFailure: () => true,
             },
         ],
     }),
 
     selectors({
-        // The section whose For-you count decides the default scope: Needs a PR under the redesign,
+        // The section whose For-you count decides the default scope: Needs decision under the redesign,
         // the Pull requests list with the flag off (see `shouldDefaultToEntireProject`).
         primarySectionKey: [
             (s) => [s.featureFlags],
@@ -496,26 +522,6 @@ export const reportListLogic = kea<reportListLogicType>([
         reports: [
             (s) => [s.reportsResponse],
             (reportsResponse: ReportListResponse | null): SignalReport[] => reportsResponse?.results ?? [],
-        ],
-        // The rows the section actually renders.
-        visibleReports: [
-            (s) => [s.reports, s.visibleCount],
-            (reports: SignalReport[], visibleCount: number): SignalReport[] => reports.slice(0, visibleCount),
-        ],
-        /**
-         * How many matching reports this section is holding back — what "Show more" promises. Reads
-         * the loaded response's own total first so it can't disagree with the rows on screen; the
-         * separately-loaded header count is the fallback while the first page is still in flight.
-         * Subtract the rows actually on screen (`visibleReports.length`), not the window size
-         * (`visibleCount`): "Show more" widens the window past the loaded rows before the next page
-         * lands, so a page still in flight or one that failed to load leaves `visibleCount` ahead of
-         * `reports.length`. Using the window size there would drive this to 0 and unmount the button,
-         * stranding the unloaded rows with no way to retry.
-         */
-        hiddenReportCount: [
-            (s) => [s.totalCount, s.count, s.visibleReports],
-            (totalCount: number | null, count: number | null, visibleReports: SignalReport[]): number =>
-                Math.max(0, (totalCount ?? count ?? 0) - visibleReports.length),
         ],
         hasMore: [
             (s) => [s.reportsResponse],
@@ -579,19 +585,6 @@ export const reportListLogic = kea<reportListLogicType>([
                 actions.loadMoreReports()
             }
         },
-        // The reducer has already widened the window. Only reach for another server page when the
-        // window now extends past the rows in hand.
-        showMore: () => {
-            // The reducer already widened the window, so `hidden_count` is what is still held back.
-            captureInboxReportAction({
-                actionType: 'show_more',
-                surface: 'list_row',
-                extra: { section: props.sectionKey, hidden_count: values.hiddenReportCount },
-            })
-            if (values.visibleCount > values.reports.length) {
-                actions.loadMore()
-            }
-        },
         refresh: () => {
             actions.loadCount()
             if (values.isLoaded) {
@@ -618,43 +611,68 @@ export const reportListLogic = kea<reportListLogicType>([
                 actions.refresh()
             }
         },
-        archiveReport: async ({ reportId, reason, note }) => {
+        dismissReport: async ({ reportId, dismissal }) => {
             actions.removeReport(reportId)
             try {
                 await api.signalReports.setState(reportId, {
                     state: 'suppressed',
+                    ...suppressDismissalPayload(dismissal),
+                })
+                // Reconcile every mounted section against the server so the Dismissed target gains the
+                // row and count, not just this source section (which already dropped it optimistically).
+                inboxBulkActionsLogic.actions.reportStateChanged()
+            } catch (error: any) {
+                lemonToast.error(error?.detail || error?.message || 'Failed to dismiss report')
+                actions.refresh()
+            }
+        },
+        // Mark a report done without an inbox PR (transition to `resolved`). Optimistically drops it
+        // from this section; the broadcast below reconciles every section, so it joins Resolved now.
+        resolveReport: async ({ reportId, reason, note }) => {
+            actions.removeReport(reportId)
+            try {
+                await api.signalReports.setState(reportId, {
+                    state: 'resolved',
                     dismissal_reason: reason,
                     ...(note ? { dismissal_note: note } : {}),
                 })
+                lemonToast.success('Report resolved')
+                // Reconcile every mounted section so the Resolved target gains the row and count.
+                inboxBulkActionsLogic.actions.reportStateChanged()
             } catch (error: any) {
-                lemonToast.error(error?.detail || error?.message || 'Failed to archive report')
+                lemonToast.error(error?.detail || error?.message || 'Failed to resolve report')
                 actions.refresh()
             }
         },
         // Restore a suppressed report back to the inbox (transition to `potential`). Optimistically
-        // drops it from Resolved; the report re-enters the pipeline and resurfaces elsewhere.
-        restoreReport: async ({ reportId }) => {
+        // drops it from Dismissed; the report re-enters the pipeline and resurfaces elsewhere.
+        restoreReport: async ({ reportId, surface }) => {
             const report = values.reports.find((r) => r.id === reportId)
             actions.removeReport(reportId)
             try {
                 await api.signalReports.setState(reportId, { state: 'potential' })
                 // Fire only after the restore persists, matching ReportDetailActions' fallback path.
-                captureInboxReportAction({ report, actionType: 'restore', surface: 'list_row' })
+                captureInboxReportAction({ report, actionType: 'restore', surface })
                 lemonToast.success('Report restored to inbox')
-                // Restore maps through restore_target_status server-side, so a report suppressed while
-                // resolved returns to `resolved` and still belongs in this section. Reconcile against
-                // the server rather than trusting the optimistic removal, which over-drops those rows.
-                actions.refresh()
+                // Restore maps through restore_target_status server-side, so the report lands back in
+                // whichever section its pre-suppression status names (a report suppressed while ready
+                // returns to Needs decision / Review and merge). Broadcast so every mounted section
+                // reconciles — this one loses the row, the destination gains it and its count — not
+                // just the section that owns the action.
+                inboxBulkActionsLogic.actions.reportStateChanged()
             } catch (error: any) {
                 lemonToast.error(error?.detail || error?.message || 'Failed to restore report')
                 actions.refresh()
             }
         },
-        // Bulk archive happens in the singleton; refresh this section once it lands.
+        // A bulk dismiss or resolve happens in the singleton; refresh this section once it lands so
+        // the affected reports leave it and the counts settle.
         [inboxBulkActionsLogic.actionTypes.bulkDismissSuccess]: () => actions.refresh(),
-        // A single report archived elsewhere (e.g. the detail pane) – reconcile this section against
-        // the server so the report leaves its section and joins Resolved, counts included.
-        [inboxBulkActionsLogic.actionTypes.reportArchived]: () => actions.refresh(),
+        [inboxBulkActionsLogic.actionTypes.bulkResolveSuccess]: () => actions.refresh(),
+        // A single report dismissed, resolved, or refunded elsewhere (e.g. the detail pane) – reconcile
+        // this section against the server so the report leaves its section and joins Resolved or
+        // Dismissed, counts included.
+        [inboxBulkActionsLogic.actionTypes.reportStateChanged]: () => actions.refresh(),
     })),
 
     events(({ actions }) => ({

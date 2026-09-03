@@ -219,6 +219,11 @@ export interface LeadTimeBucketApi {
      */
     min_seconds: number | null
     /**
+     * 5th percentile of the stage's duration, in seconds — the lower whisker when outliers are excluded. Null when nothing deployed.
+     * @nullable
+     */
+    p05_seconds: number | null
+    /**
      * 25th percentile of the stage's duration, in seconds. Null when nothing deployed.
      * @nullable
      */
@@ -239,6 +244,11 @@ export interface LeadTimeBucketApi {
      */
     p75_seconds: number | null
     /**
+     * 95th percentile of the stage's duration, in seconds — the upper whisker when outliers are excluded. Null when nothing deployed.
+     * @nullable
+     */
+    p95_seconds: number | null
+    /**
      * Slowest duration for this stage in this bucket, in seconds. Null when nothing deployed.
      * @nullable
      */
@@ -248,7 +258,7 @@ export interface LeadTimeBucketApi {
 export interface DoraOverviewApi {
     /** Successful deployments per bucket across the window, oldest first, zero-filled, bucketed by series_granularity. Empty when the deploy tables aren't synced. */
     deployment_frequency_series: DeploymentFrequencyBucketApi[]
-    /** Merge-to-deploy distribution per bucket across the window, oldest first — the box-plot series (min/p25/p50/mean/p75/max seconds per bucket). Empty when the deploy tables aren't synced, or when github_team was passed without membership data synced. */
+    /** Merge-to-deploy distribution per bucket across the window, oldest first — the box-plot series (min/p5/p25/p50/mean/p75/p95/max seconds per bucket). Empty when the deploy tables aren't synced, or when github_team was passed without membership data synced. */
     merge_to_deploy_series: LeadTimeBucketApi[]
     /** Open-to-merge distribution over the SAME deployed PRs and buckets as merge_to_deploy_series, so the two stages compare bucket by bucket. Not the all-merged-PRs cycle time. Empty in the same cases as merge_to_deploy_series. */
     open_to_merge_series: LeadTimeBucketApi[]
@@ -256,7 +266,7 @@ export interface DoraOverviewApi {
     open_to_deploy_series: LeadTimeBucketApi[]
     /** False when the deployments/deployment_statuses tables aren't synced for the selected repo; every other field is then empty or null, never a fake zero. */
     deploy_data_available: boolean
-    /** What the environment filter resolved to: 'production' (deployments GitHub marks production_environment), an exact environment name (the one passed, or the busiest persistent environment when nothing is marked production), or 'persistent' (no persistent environment deployed in the window, so every non-transient one counts). Transient environments (ephemeral per-PR previews) never join a default scope. The scope resolves from deployments in the scan window, so two different windows can resolve different scopes and are not always comparable. */
+    /** What the environment filter resolved to: the exact environment name(s) it matches (the caller's picks, comma-joined when several; by default the busiest production-marked environment, falling back to the busiest persistent one), or 'persistent' (no persistent environment deployed in the window, so every non-transient one counts). Transient environments (ephemeral per-PR previews) never join a default scope. The scope resolves from deployments in the scan window, so two different windows can resolve different scopes and are not always comparable. */
     environment_scope: string
     /** Distinct persistent environments deployed to in the scan window, most-deployed first — the environment picker's options. Transient environments are omitted but stay reachable by exact name. */
     environments: string[]
@@ -288,6 +298,16 @@ export interface DoraOverviewApi {
      * @nullable
      */
     median_merge_to_deploy_seconds_prev: number | null
+    /**
+     * Median seconds from a PR's open to the first successful deployment containing it — the full open-to-deploy lead time over the same deployed-PR population as median_merge_to_deploy_seconds. Null when nothing deployed in the window.
+     * @nullable
+     */
+    median_open_to_deploy_seconds: number | null
+    /**
+     * Previous-window twin of median_open_to_deploy_seconds.
+     * @nullable
+     */
+    median_open_to_deploy_seconds_prev: number | null
     /** PRs first deployed in the window — the population behind the merge-to-deploy median and box plot. */
     deployed_pr_count: number
     /** Previous-window twin of deployed_pr_count. */
@@ -328,7 +348,7 @@ export interface DoraOverviewApi {
      * @nullable
      */
     latest_deploy_status_at: string | null
-    /** Bucket width of every series, chosen to fit the window: 'hour', 'day', or 'week'. */
+    /** Bucket width of every series: the granularity param when given, else chosen to fit the window: 'hour', 'day', or 'week'. */
     series_granularity: string
 }
 
@@ -995,6 +1015,45 @@ export interface OpenToMergeBucketApi {
     p50_seconds: number | null
 }
 
+/**
+ * * `open_to_gate` - OPEN_TO_GATE
+ * * `gate_to_merge` - GATE_TO_MERGE
+ */
+export type DeliveryStageTimingStageEnumApi =
+    (typeof DeliveryStageTimingStageEnumApi)[keyof typeof DeliveryStageTimingStageEnumApi]
+
+export const DeliveryStageTimingStageEnumApi = {
+    OpenToGate: 'open_to_gate',
+    GateToMerge: 'gate_to_merge',
+} as const
+
+export interface DeliveryStageTimingApi {
+    /** Which leg this is: 'open_to_gate' (created_at to the PR's first merge-queue gate run starting) or 'gate_to_merge' (that gate run to merged_at). The post-merge leg is the DORA endpoint's median_merge_to_deploy_seconds.
+     *
+     * * `open_to_gate` - OPEN_TO_GATE
+     * * `gate_to_merge` - GATE_TO_MERGE */
+    stage: DeliveryStageTimingStageEnumApi
+    /**
+     * Median seconds for this leg. Null when no PR in the window has both of its bounds observed.
+     * @nullable
+     */
+    median_seconds: number | null
+    /**
+     * 90th-percentile seconds for this leg. Null when not observed.
+     * @nullable
+     */
+    p90_seconds: number | null
+    /** PRs behind this leg's figures: those with an observed gate run. A PR that skipped the merge queue has no gate legs, so read a median against this count, not merged_pr_count. */
+    pr_count: number
+}
+
+export interface DeliveryPipelineApi {
+    /** The legs, ordered open to merge. A leg with nothing observed still appears, with a zero pr_count and null timings. The leg medians do not sum to a cycle-time median: a median of sums is not a sum of medians. */
+    stages: DeliveryStageTimingApi[]
+    /** PRs merged in the window with bots and drafts excluded. A narrower population than RepoOverview.merged_pr_count, which counts all authors. */
+    merged_pr_count: number
+}
+
 export interface ReadyToMergeBucketApi {
     /** Bucket start, aligned to ready_to_merge_series_granularity (top of hour, midnight, or Monday). */
     bucket_start: string
@@ -1014,6 +1073,8 @@ export interface RepoOverviewApi {
     success_rate_series: PassRateBucketApi[]
     /** Median time-to-merge (p50 open_to_merge_seconds, bots/drafts excluded) per bucket across the window, oldest first, bucketed by open_to_merge_series_granularity. Empty buckets carry null; the whole series is empty when include_series=false. */
     open_to_merge_series: OpenToMergeBucketApi[]
+    /** Where a change's wall-clock time goes on the way to production, over PRs merged in the window with bots and drafts excluded. */
+    delivery_pipeline: DeliveryPipelineApi
     /** Median cycle time (p50 per-PR ready_to_merge_seconds, bots/drafts excluded) per bucket across the window, oldest first, bucketed by ready_to_merge_series_granularity. Empty buckets carry null; the whole series is empty when the issue-events table isn't synced or include_series=false, so fall back to open_to_merge_series. */
     ready_to_merge_series: ReadyToMergeBucketApi[]
     /** Workflow runs started in the window, all branches and workflows. */
@@ -1319,7 +1380,7 @@ export interface TeamCIActivityApi {
 }
 
 export interface TeamCIHealthItemApi {
-    /** Owning team slug (the CODEOWNERS handle minus '@PostHog/', e.g. 'team-replay'), or the literal 'unowned' for tests whose spans carry no ownership stamp. */
+    /** Owning team slug from the repo's owners.yaml map (e.g. 'team-replay'), or the literal 'unowned' for tests whose spans carry no ownership stamp. */
     owner_team: string
     /** Owned tests one commit was seen both failing and passing in the window: the same proof, and the same word, that flaky_tests calls a confirmed_flake. Compare with flaky_test_count_prior for the delta. */
     flaky_test_count: number
@@ -1341,8 +1402,31 @@ export interface TeamCIHealthItemApi {
     quarantined_failed_run_count: number
     /** Same count over the prior window. */
     quarantined_failed_run_count_prior: number
-    /** Most recent failure, recovery, or quarantined-failure run across the team's owned tests, either window. */
-    last_seen_at: string
+    /**
+     * Most recent failure, recovery, or quarantined-failure run across the team's owned tests, either window. Null for a team present only through the census (no CI signal recorded).
+     * @nullable
+     */
+    last_seen_at: string | null
+    /**
+     * Test files the team owns per the daily owners.yaml census. Null until a census event exists for the repository.
+     * @nullable
+     */
+    test_file_count?: number | null
+    /**
+     * The latest census value at or before the window start, for the trend.
+     * @nullable
+     */
+    test_file_count_prior?: number | null
+    /**
+     * Merged PRs authored by the team's members in the window, bots excluded. Null when the team_members snapshot isn't synced, or for 'unowned'.
+     * @nullable
+     */
+    merged_pr_count?: number | null
+    /**
+     * Same count over the prior window.
+     * @nullable
+     */
+    merged_pr_count_prior?: number | null
 }
 
 export interface TeamCIHealthListApi {
@@ -1396,9 +1480,9 @@ export interface TrunkQuarantinedTestApi {
     runner: string
     /** Runner-native test id reconstructed from Trunk's (file, classname, name) key. */
     nodeid: string
-    /** Repo-relative path of the test file, as Trunk reports it. */
+    /** Repo-relative path of the test file, empty when neither the repository nor Trunk places it. */
     file: string
-    /** Owning team slug from the per-test CI spans' emission-time stamp, or 'unowned' when no in-retention span carries one. */
+    /** Owning team slug from the repository's ownership files, or 'unowned' when the test's file cannot be placed or no team claims its path. */
     owner_team: string
     /** Trunk's current health verdict on the test, e.g. 'FLAKY' or 'BROKEN'. */
     status: string
@@ -1424,6 +1508,8 @@ export interface TrunkQuarantineDebtApi {
     tests: TrunkQuarantinedTestApi[]
     /** False when no TrunkIo source has the QuarantinedTests endpoint synced; not an error. */
     available: boolean
+    /** False when the repository's ownership files could not be read, so every test reads as 'unowned' for that reason rather than because no team claims it. */
+    owners_resolved: boolean
     /** Days a quarantine may stand before it counts as overdue. */
     ttl_days: number
     /** The 'owner/name' repository the debt was read for; test file paths are relative to it. */
@@ -1655,13 +1741,17 @@ export type EngineeringAnalyticsDoraParams = {
      */
     date_to?: string
     /**
-     * Exact deploy environment to scope to (from the response's `environments` list). Omit to scope to production-marked deployments, falling back to every persistent (non-transient) environment when none are marked production.
+     * Deploy environment(s) to scope to, repeatable (from the response's `environments` list). Omit to scope to the busiest environment GitHub marks production, falling back to the busiest persistent (non-transient) environment when none are marked production.
      */
-    environment?: string
+    environment?: string[]
     /**
      * GitHub team slug (from the response's `github_teams` list) to narrow the PR-scoped merge-to-deploy figures to that team's authors. Deploy counts stay repo-wide. Needs the team-membership snapshot synced; without it the merge-to-deploy figures return empty rather than silently unfiltered.
      */
     github_team?: string
+    /**
+     * Bucket width for every series. Omit to pick one that fits the window: hour up to 48h, day up to 90 days, week beyond.
+     */
+    granularity?: EngineeringAnalyticsDoraGranularity
     /**
      * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
      */
@@ -1671,6 +1761,15 @@ export type EngineeringAnalyticsDoraParams = {
      */
     source_id?: string
 }
+
+export type EngineeringAnalyticsDoraGranularity =
+    (typeof EngineeringAnalyticsDoraGranularity)[keyof typeof EngineeringAnalyticsDoraGranularity]
+
+export const EngineeringAnalyticsDoraGranularity = {
+    Day: 'day',
+    Hour: 'hour',
+    Week: 'week',
+} as const
 
 export type EngineeringAnalyticsFlakyTestsParams = {
     /**
@@ -1956,6 +2055,10 @@ export type EngineeringAnalyticsTeamCiHealthParams = {
      * An unrecovered test counts toward regression_test_count once it failed on at least this many distinct pull requests in the window. Minimum 1. Defaults to 3. Does not affect flaky_test_count, which needs proof, not a threshold.
      */
     min_failed_prs?: number
+    /**
+     * Restrict the roster to one owning team slug (or 'unowned'). The cheap way to read a single team's rollup.
+     */
+    owner_team?: string
     /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */

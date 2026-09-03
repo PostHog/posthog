@@ -3,7 +3,8 @@ from uuid import UUID
 
 from django.conf import settings
 from django.db import models
-from django.db.models import OuterRef, Prefetch, Subquery
+from django.db.models import F, Func, IntegerField, OuterRef, Prefetch, Subquery, Value
+from django.db.models.functions import Greatest
 
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
 from posthog.sync import database_sync_to_async
@@ -29,6 +30,10 @@ class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
 
     pipeline_version = models.CharField(max_length=400, choices=PipelineVersion, null=True, blank=True)
     billable = models.BooleanField(default=True, null=True, blank=True)
+    # The destinations this run delivers to, snapshotted when the run started so a config
+    # change mid-run cannot alter where an in-flight run lands or what it bills. Empty means
+    # the PostHog warehouse alone, which is every run that predates destinations.
+    destination_ids = models.JSONField(default=list, blank=True, db_default=[])
     finished_at = models.DateTimeField(null=True, blank=True)
     storage_delta_mib = models.FloatField(null=True, blank=True, default=0)
     # Also stores `cdc_write_mode` (`incremental_merge` | `scd2_append`) so the Syncs UI can
@@ -128,3 +133,16 @@ def get_latest_run_if_exists(team_id: int, pipeline_id: UUID) -> ExternalDataJob
     )
 
     return job
+
+
+def billable_destination_multiplier() -> Greatest:
+    """How many destinations a run billed for, derived from the ids it snapshotted.
+
+    An empty list means the PostHog warehouse alone, so the floor is one. Derived rather than
+    stored beside the ids: the count is exactly `len(destination_ids)`, and a second column
+    holding the same fact can drift from it without anything noticing.
+    """
+    return Greatest(
+        Func(F("destination_ids"), function="jsonb_array_length", output_field=IntegerField()),
+        Value(1),
+    )

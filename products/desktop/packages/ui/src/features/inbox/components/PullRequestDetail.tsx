@@ -7,6 +7,7 @@ import { InboxMetaSeparator } from "@posthog/ui/features/inbox/components/InboxM
 import { InboxReportDetailGate } from "@posthog/ui/features/inbox/components/InboxReportDetailGate";
 import { PrDiffStats } from "@posthog/ui/features/inbox/components/PrDiffStats";
 import { ReportDetailActions } from "@posthog/ui/features/inbox/components/ReportDetailActions";
+import { ReportReviewersSection } from "@posthog/ui/features/inbox/components/ReportReviewersSection";
 import { ReportImplementationPrLink } from "@posthog/ui/features/inbox/components/utils/ReportImplementationPrLink";
 import { PrCommentsSection } from "@posthog/ui/features/pr-review/PrCommentsSection";
 import { PrDecisionBlock } from "@posthog/ui/features/pr-review/PrDecisionBlock";
@@ -96,6 +97,8 @@ function PullRequestDetailContent({ report }: { report: SignalReport }) {
       }
       footer={<ReportFeedbackFooter report={report} />}
       evidenceSection={{ Icon: MagnifyingGlassIcon, title: "Evidence" }}
-    />
+    >
+      <ReportReviewersSection report={report} />
+    </InboxDetailFrame>
   );
 }

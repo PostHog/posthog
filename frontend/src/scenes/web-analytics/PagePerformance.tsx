@@ -2,8 +2,8 @@ import clsx from 'clsx'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { forwardRef, useMemo } from 'react'
 
-import { IconTrending } from '@posthog/icons'
-import { LemonBanner, LemonButton, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { IconInfo, IconTrending } from '@posthog/icons'
+import { LemonBanner, LemonButton, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { useChartTheme } from 'lib/charts/hooks'
 import { seriesColor } from 'lib/charts/utils/theme'
@@ -12,17 +12,22 @@ import { humanFriendlyDuration } from 'lib/utils/durations'
 import { percentage } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
 import { tryDecodeURIComponent } from 'lib/utils/url'
+import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
-import { DataTableNode } from '~/queries/schema/schema-general'
+import { DataTableNode, ProductKey } from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleComponent } from '~/queries/types'
+import { OnboardingStepKey } from '~/types'
 
 import { TileId } from './common'
 import { PagePerformanceBreakdownModal } from './PagePerformanceBreakdownModal'
 import { PagePerformanceCard } from './PagePerformanceCard'
 import { PagePerformanceCardHeader } from './PagePerformanceCardHeader'
+import { PagePerformanceEmptyState } from './PagePerformanceEmptyState'
 import {
+    PagePerformanceCrawlerState,
     PagePerformanceMetric,
+    PagePerformanceTabState,
     changeVsPrevious,
     createPagePerformanceInsightProps,
     formatShare,
@@ -277,9 +282,115 @@ const sortableTitle = (label: string, column: string): QueryContextColumnTitleCo
         )
     }
 
-const SectionHeading = ({ children }: { children: React.ReactNode }): JSX.Element => (
-    <h2 className="mb-4 text-xl font-semibold text-primary">{children}</h2>
+const CRAWLER_CAVEAT =
+    "AI crawlers don't run JavaScript, so the browser SDK never sees them. Forward your server access logs to count them."
+
+const AgentCrawlsSortableTitle = sortableTitle('Agent crawls', 'agent_crawls')
+
+/** An empty crawler feed still renders as a hard zero, so the header says when that zero means "not measured". */
+const AgentCrawlsTitle: QueryContextColumnTitleComponent = (props) => {
+    const { dataState } = useValues(pagePerformanceLogic)
+    if (dataState.crawlers !== 'needs-server-logs') {
+        return <AgentCrawlsSortableTitle {...props} />
+    }
+    return (
+        <span className="inline-flex items-center gap-1">
+            <AgentCrawlsSortableTitle {...props} />
+            <Tooltip title={CRAWLER_CAVEAT}>
+                <IconInfo className="shrink-0" />
+            </Tooltip>
+        </span>
+    )
+}
+
+const SectionHeading = ({
+    children,
+    description,
+}: {
+    children: React.ReactNode
+    description?: string
+}): JSX.Element => (
+    <div className="mb-4">
+        <h2 className="mb-0 text-xl font-semibold text-primary">{children}</h2>
+        {description ? <p className="m-0 text-sm text-secondary">{description}</p> : null}
+    </div>
 )
+
+const SERVER_LOGS_DOCS = 'https://posthog.com/docs/web-analytics/sending-http-logs'
+
+const CHANNEL_TYPE_DOCS = 'https://posthog.com/docs/data/channel-type'
+
+const TabEmptyState = ({ state }: { state: PagePerformanceTabState }): JSX.Element =>
+    state === 'no-events' ? (
+        <PagePerformanceEmptyState
+            title="Nothing to measure yet"
+            action={
+                <LemonButton
+                    type="primary"
+                    to={urls.onboarding({
+                        productKey: ProductKey.WEB_ANALYTICS,
+                        stepKey: OnboardingStepKey.INSTALL,
+                    })}
+                    data-attr="page-performance-onboarding"
+                >
+                    Open installation guide
+                </LemonButton>
+            }
+        >
+            <p className="m-0">
+                Install PostHog on your site to see how search engines, AI assistants, and AI crawlers reach your pages.
+            </p>
+        </PagePerformanceEmptyState>
+    ) : (
+        <PagePerformanceEmptyState title="No pageviews in this date range">
+            <p className="m-0">Pick a wider range to see how search and AI bring people to your pages.</p>
+        </PagePerformanceEmptyState>
+    )
+
+const AiTrafficEmptyState = (): JSX.Element => (
+    <PagePerformanceEmptyState
+        title="No AI referrals in this range"
+        action={
+            <Link to={CHANNEL_TYPE_DOCS} target="_blank">
+                How PostHog works out where a visit came from
+            </Link>
+        }
+    >
+        <p className="m-0">Nobody arrived from an AI assistant that PostHog could attribute.</p>
+        <p className="m-0">
+            This is a lower bound. Some assistants strip the referrer, and those visits land in Direct instead.
+        </p>
+    </PagePerformanceEmptyState>
+)
+
+const CrawlersEmptyState = ({ state }: { state: PagePerformanceCrawlerState }): JSX.Element =>
+    state === 'needs-server-logs' ? (
+        <PagePerformanceEmptyState
+            title="PostHog can't see your AI crawlers yet"
+            action={
+                <LemonButton
+                    type="primary"
+                    to={SERVER_LOGS_DOCS}
+                    targetBlank
+                    data-attr="page-performance-server-logs-docs"
+                >
+                    Read the setup guide
+                </LemonButton>
+            }
+        >
+            <p className="m-0">
+                Crawlers like GPTBot and ClaudeBot never run JavaScript, so the browser SDK never sees them. Forward
+                your server or CDN access logs as <code>$http_log</code> events to count them here.
+            </p>
+            <p className="m-0">Already sending them? Try a wider date range.</p>
+        </PagePerformanceEmptyState>
+    ) : (
+        <PagePerformanceEmptyState title="No AI crawlers in this range">
+            <p className="m-0">
+                Your server logs are reaching PostHog, but no AI crawler read these pages. Try a wider date range.
+            </p>
+        </PagePerformanceEmptyState>
+    )
 
 const AiTableCard = ({
     title,
@@ -317,6 +428,7 @@ export const PagePerformance = (): JSX.Element => {
         overviewLoading,
         footerText,
         aiSectionQueries,
+        dataState,
     } = useValues(pagePerformanceLogic)
     const { loadOverview, loadCandidates } = useActions(pagePerformanceLogic)
     const theme = useChartTheme()
@@ -338,7 +450,7 @@ export const PagePerformance = (): JSX.Element => {
                     align: 'center',
                 },
                 agent_crawls: {
-                    renderTitle: sortableTitle('Agent crawls', 'agent_crawls'),
+                    renderTitle: AgentCrawlsTitle,
                     render: AgentCrawlsCell,
                     align: 'center',
                 },
@@ -357,15 +469,28 @@ export const PagePerformance = (): JSX.Element => {
         []
     )
 
+    const feedbackBanner = (
+        <LemonBanner
+            type="info"
+            dismissKey="web-analytics-search-and-ai-feedback-banner"
+            action={{ children: 'Send feedback', id: 'web-analytics-search-and-ai-feedback-button' }}
+        >
+            We'd love to hear what you think about search and AI.
+        </LemonBanner>
+    )
+
+    if (dataState.tab === 'no-events' || dataState.tab === 'no-traffic-in-range') {
+        return (
+            <div className="flex flex-col gap-4">
+                {feedbackBanner}
+                <TabEmptyState state={dataState.tab} />
+            </div>
+        )
+    }
+
     return (
         <div className="flex flex-col gap-4">
-            <LemonBanner
-                type="info"
-                dismissKey="web-analytics-search-and-ai-feedback-banner"
-                action={{ children: 'Send feedback', id: 'web-analytics-search-and-ai-feedback-button' }}
-            >
-                We'd love to hear what you think about search and AI.
-            </LemonBanner>
+            {feedbackBanner}
             <section>
                 <SectionHeading>Key metrics</SectionHeading>
                 {overviewError ? (
@@ -386,6 +511,11 @@ export const PagePerformance = (): JSX.Element => {
                                     color={seriesColor(theme, index)}
                                     theme={theme}
                                     loading={overviewLoading}
+                                    caveat={
+                                        key === 'agent_crawls' && dataState.crawlers === 'needs-server-logs'
+                                            ? CRAWLER_CAVEAT
+                                            : undefined
+                                    }
                                 />
                             ))}
                         </div>
@@ -393,7 +523,9 @@ export const PagePerformance = (): JSX.Element => {
                 )}
             </section>
             <section>
-                <SectionHeading>Pages</SectionHeading>
+                <SectionHeading description="How each page earns its traffic, from search engines through to AI crawlers.">
+                    Pages
+                </SectionHeading>
                 <PagePerformanceCard footer={footerText}>
                     {candidatesError ? (
                         <LemonBanner
@@ -419,52 +551,68 @@ export const PagePerformance = (): JSX.Element => {
                 </PagePerformanceCard>
             </section>
             <section>
-                <SectionHeading>Traffic from AI</SectionHeading>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="md:col-span-2 min-h-[350px] flex flex-col">
-                        <WebQuery
-                            attachTo={webAnalyticsLogic}
-                            uniqueKey="page-performance-ai-referrals-trend"
-                            query={aiSectionQueries.referralTrend}
-                            insightProps={createPagePerformanceInsightProps(TileId.AI_REFERRALS_TREND)}
-                            showIntervalSelect
-                            tileId={TileId.AI_REFERRALS_TREND}
-                            headerSlot={<PagePerformanceCardHeader title="Referrals over time" />}
+                <SectionHeading description="People who landed on your site from an AI assistant such as ChatGPT, Claude, or Perplexity.">
+                    Traffic from AI
+                </SectionHeading>
+                {dataState.aiTraffic === 'empty' ? (
+                    <AiTrafficEmptyState />
+                ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="md:col-span-2 min-h-[350px] flex flex-col">
+                            <WebQuery
+                                attachTo={webAnalyticsLogic}
+                                uniqueKey="page-performance-ai-referrals-trend"
+                                query={aiSectionQueries.referralTrend}
+                                insightProps={createPagePerformanceInsightProps(TileId.AI_REFERRALS_TREND)}
+                                showIntervalSelect
+                                tileId={TileId.AI_REFERRALS_TREND}
+                                headerSlot={<PagePerformanceCardHeader title="Referrals over time" />}
+                            />
+                        </div>
+                        <AiTableCard
+                            title="By engine"
+                            query={aiSectionQueries.byEngine}
+                            tileId={TileId.AI_REFERRALS_BY_ENGINE}
+                        />
+                        <AiTableCard
+                            title="Landing pages from AI"
+                            query={aiSectionQueries.landingPages}
+                            tileId={TileId.AI_LANDING_PAGES}
                         />
                     </div>
-                    <AiTableCard
-                        title="By engine"
-                        query={aiSectionQueries.byEngine}
-                        tileId={TileId.AI_REFERRALS_BY_ENGINE}
-                    />
-                    <AiTableCard
-                        title="Landing pages from AI"
-                        query={aiSectionQueries.landingPages}
-                        tileId={TileId.AI_LANDING_PAGES}
-                    />
-                </div>
+                )}
             </section>
             <section>
-                <SectionHeading>AI crawlers</SectionHeading>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="md:col-span-2 min-h-[350px] flex flex-col">
-                        <WebQuery
-                            attachTo={webAnalyticsLogic}
-                            uniqueKey="page-performance-ai-crawler-trend"
-                            query={aiSectionQueries.crawlerTrend}
-                            insightProps={createPagePerformanceInsightProps(TileId.AI_CRAWLERS_TREND)}
-                            showIntervalSelect
-                            tileId={TileId.AI_CRAWLERS_TREND}
-                            headerSlot={<PagePerformanceCardHeader title="Crawler activity over time" />}
+                <SectionHeading description="Bots that read your pages to train a model or to answer someone's question about you.">
+                    AI crawlers
+                </SectionHeading>
+                {dataState.crawlers === 'empty' || dataState.crawlers === 'needs-server-logs' ? (
+                    <CrawlersEmptyState state={dataState.crawlers} />
+                ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="md:col-span-2 min-h-[350px] flex flex-col">
+                            <WebQuery
+                                attachTo={webAnalyticsLogic}
+                                uniqueKey="page-performance-ai-crawler-trend"
+                                query={aiSectionQueries.crawlerTrend}
+                                insightProps={createPagePerformanceInsightProps(TileId.AI_CRAWLERS_TREND)}
+                                showIntervalSelect
+                                tileId={TileId.AI_CRAWLERS_TREND}
+                                headerSlot={<PagePerformanceCardHeader title="Crawler activity over time" />}
+                            />
+                        </div>
+                        <AiTableCard
+                            title="By crawler"
+                            query={aiSectionQueries.byCrawler}
+                            tileId={TileId.AI_CRAWLERS}
+                        />
+                        <AiTableCard
+                            title="Pages they read"
+                            query={aiSectionQueries.crawledPages}
+                            tileId={TileId.AI_CRAWLED_PAGES}
                         />
                     </div>
-                    <AiTableCard title="By crawler" query={aiSectionQueries.byCrawler} tileId={TileId.AI_CRAWLERS} />
-                    <AiTableCard
-                        title="Pages they read"
-                        query={aiSectionQueries.crawledPages}
-                        tileId={TileId.AI_CRAWLED_PAGES}
-                    />
-                </div>
+                )}
             </section>
             <PagePerformanceBreakdownModal />
         </div>

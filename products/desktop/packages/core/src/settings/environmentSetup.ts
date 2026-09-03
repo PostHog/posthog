@@ -105,6 +105,7 @@ export interface EmptyPlanOptions {
   scope?: SetupScope;
   /** False when custom images are unavailable to this account. */
   customImages?: boolean;
+  existingImageId?: string | null;
 }
 
 /**
@@ -116,7 +117,16 @@ export function emptyEnvironmentSetupPlan({
   repository = null,
   scope = "environment",
   customImages = true,
+  existingImageId = null,
 }: EmptyPlanOptions = {}): EnvironmentSetupPlan {
+  const seededImageId =
+    customImages && scope === "environment" ? existingImageId : null;
+  const baseImage: BaseImageChoice =
+    customImages && scope === "image"
+      ? "new"
+      : seededImageId !== null
+        ? "existing"
+        : "default";
   return {
     scope,
     target: "new",
@@ -130,8 +140,8 @@ export function emptyEnvironmentSetupPlan({
     includeDefaultDomains: true,
     envVars: [],
     customImages,
-    baseImage: customImages && scope === "image" ? "new" : "default",
-    existingImageId: null,
+    baseImage,
+    existingImageId: seededImageId,
     imageName: repository === null ? "" : imagePresetName(repository),
     imageNameEdited: false,
     excludedToolIds: IMAGE_PRESET_TOOLS.filter(

@@ -8,13 +8,13 @@ import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 
-import type { PropertyDefinitionTypeEnumApi } from '~/generated/core/api.schemas'
+import type { PropertyTypeEnumApi } from '~/generated/core/api.schemas'
 import { tagsModel } from '~/models/tagsModel'
 import { isCoreFilter } from '~/taxonomy/helpers'
 
 import { PropertyDefinitionEditModalProps, propertyDefinitionEditModalLogic } from './propertyDefinitionEditModalLogic'
 
-const PROPERTY_TYPE_OPTIONS: { label: string; value: PropertyDefinitionTypeEnumApi }[] = [
+const PROPERTY_TYPE_OPTIONS: { label: string; value: PropertyTypeEnumApi }[] = [
     { value: 'DateTime', label: 'DateTime' },
     { value: 'String', label: 'String' },
     { value: 'Numeric', label: 'Numeric' },
@@ -115,7 +115,7 @@ export function PropertyDefinitionEditModal(props: PropertyDefinitionEditModalPr
                 <div className="ph-ignore-input">
                     <LemonField name="property_type" label="Property type" data-attr="property-type">
                         {({ value, onChange }) => (
-                            <LemonSelect<PropertyDefinitionTypeEnumApi>
+                            <LemonSelect<PropertyTypeEnumApi>
                                 value={value ?? undefined}
                                 onChange={onChange}
                                 options={PROPERTY_TYPE_OPTIONS}

@@ -6,6 +6,7 @@ import pytest
 from unittest.mock import MagicMock
 
 from parameterized import parameterized
+from requests.exceptions import HTTPError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.rokt_ads.rokt_ads import (
     DateWindow,
@@ -90,9 +91,12 @@ class TestBuildReportBody:
         assert body["startDate"] == "2026-03-01"
         assert body["endDate"] == "2026-04-01"
 
-    def test_orders_ascending_so_the_declared_sort_mode_holds(self):
+    def test_does_not_order_by_the_response_only_datetime_field(self):
+        # `datetime` is a response-only interval marker, not a queryable slug, so ordering by it
+        # makes the Query API reject the whole report with a 400.
         body = build_report_body("CampaignPerformance", MARCH_WINDOW, ALL_CAPABILITIES, None, None)
-        assert body["orderBys"] == [{"column": "datetime", "direction": "asc"}]
+        order_columns = {order["column"] for order in body.get("orderBys", [])}
+        assert "datetime" not in order_columns
 
     def test_drops_metrics_the_account_cannot_report_on(self):
         body = build_report_body(
@@ -312,3 +316,37 @@ class TestRoktAdsClient:
         session.post.return_value = response
 
         assert self._client(token_session, session).run_report("acc_1", "campaigns", {}) == []
+
+    def _error_response(self, body: Any = None, text: str = "") -> MagicMock:
+        response = MagicMock()
+        url = "https://api.rokt.com/v1/query/accounts/acc_1/campaigns/"
+        response.raise_for_status.side_effect = HTTPError(
+            f"400 Client Error: Bad Request for url: {url}", response=response
+        )
+        if body is None:
+            response.json.side_effect = ValueError
+            response.text = text
+        else:
+            response.json.return_value = body
+        return response
+
+    @parameterized.expand(
+        [
+            ({"message": "endDate cannot be in the future"}, "endDate cannot be in the future"),
+            ({"error": "unknown column datetime"}, "unknown column datetime"),
+            (None, "plain text failure"),
+        ]
+    )
+    def test_post_error_keeps_the_status_line_and_adds_rokts_explanation(self, body, expected_detail):
+        token_session = MagicMock()
+        token_session.post.return_value = self._token_response()
+        session = MagicMock()
+        session.post.return_value = self._error_response(body=body, text=expected_detail)
+
+        with pytest.raises(RoktAdsError) as exc:
+            self._client(token_session, session).post("/v1/query/accounts/acc_1/campaigns/", {})
+
+        message = str(exc.value)
+        # The status line lets get_non_retryable_errors classify this as permanent.
+        assert "400 Client Error" in message
+        assert expected_detail in message

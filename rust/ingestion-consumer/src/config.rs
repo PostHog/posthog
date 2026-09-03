@@ -4,8 +4,8 @@ use rdkafka::ClientConfig;
 use tracing::info;
 
 use crate::discovery::DiscoveryMode;
-use crate::kafka_config::ConsumerConfigBuilder;
 use crate::routing::RoutingStrategy;
+use common_kafka_consumer::config::ConsumerConfigBuilder;
 
 /// Configuration for the ingestion consumer.
 ///
@@ -168,14 +168,6 @@ pub struct Config {
     #[envconfig(from = "CONSUMER_MAX_BACKGROUND_TASKS", default = "1")]
     pub consumer_max_background_tasks: usize,
 
-    /// Release a deferring key's next stashed group as soon as the send
-    /// blocking it resolves, instead of waiting for the owning batch to become
-    /// the oldest completed one. Breaks the deferral cascade where a hot key
-    /// re-stashes on every arriving batch faster than completion-paced flushes
-    /// drain it. The completion-time flush remains as backstop either way.
-    #[envconfig(from = "DISPATCHER_EAGER_DEFERRED_FLUSH", default = "false")]
-    pub dispatcher_eager_deferred_flush: bool,
-
     // ---- Debug API ----
     /// Serve the real-time debug API (`/debug/load`, `/debug/state`,
     /// `/debug/events` SSE) on the health server, recording structured events
@@ -203,6 +195,16 @@ pub struct Config {
     /// (INGESTION_API_FEED_ORDER_SENTINEL_ENABLED on the Node.js side).
     #[envconfig(from = "CONSUMER_ORDER_SENTINEL_ENABLED", default = "true")]
     pub consumer_order_sentinel_enabled: bool,
+
+    // ---- Offset ledger ----
+    /// Kill switch for the shadow offset ledger. The ledger accounts every
+    /// delivered offset and reports where its frontier disagrees with the
+    /// offset the consumer commits; it never changes what is committed.
+    /// Off, the consumer builds no ledger: nothing is charged, settled,
+    /// forgotten on rebalance, or reported. Disable it only if its
+    /// accounting or metrics are implicated in a problem.
+    #[envconfig(from = "CONSUMER_OFFSET_LEDGER_SHADOW_ENABLED", default = "true")]
+    pub consumer_offset_ledger_shadow_enabled: bool,
 
     // ---- Worker transport ----
     /// Comma-separated list of worker HTTP URLs. Readiness probes hit these

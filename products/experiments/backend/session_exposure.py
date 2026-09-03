@@ -83,7 +83,7 @@ class SessionExposure:
         return ast.Call(name="toString", args=[ast.Field(chain=["properties", self.variant_property])])
 
     def condition(self, variant_keys: list[str]) -> ast.Expr:
-        """Match expression for "this session exposed someone in one of these arms".
+        """Match expression for "this session exposed someone in one of these variants".
 
         The exposure criteria resolved through the shared helpers — the single seam that keeps these
         surfaces in sync with the analysis and with the player's session context. Rebuilt per use
@@ -101,7 +101,7 @@ class SessionExposure:
             # after flags load, so the stamped property stands in — the same fallback the tab's list
             # uses. It means "the flag was active in this session", not "this is where they were
             # enrolled", and the variant is the flag's value per event rather than the exposure
-            # response, so a re-bucketed returning person can land in either arm.
+            # response, so a re-bucketed returning person can land in either variant.
             return variant_condition
         conditions = [
             *build_exposure_event_conditions(

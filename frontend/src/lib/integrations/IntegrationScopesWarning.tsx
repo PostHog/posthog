@@ -2,13 +2,13 @@ import { useActions } from 'kea'
 import { useMemo } from 'react'
 
 import api from 'lib/api'
-import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
-import { TeamMembershipLevel } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Link } from 'lib/lemon-ui/Link'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { IntegrationType } from '~/types'
+
+import { useIntegrationManagementRestriction } from './integrationPermissions'
 
 /**
  * Extract the granted OAuth scopes from an integration's stored config. Tolerates the
@@ -54,10 +54,7 @@ export function IntegrationScopesWarning({
     schema?: { requiredScopes?: string }
 }): JSX.Element {
     const { reportIntegrationConnectClicked } = useActions(eventUsageLogic)
-    const restrictedReason = useRestrictedArea({
-        scope: RestrictionScope.Project,
-        minimumAccessLevel: TeamMembershipLevel.Admin,
-    })
+    const restrictedReason = useIntegrationManagementRestriction()
     const grantedScopes = useMemo(() => getGrantedScopes(integration), [integration.config, integration])
     const requiredScopes = schema?.requiredScopes?.split(' ') || []
     const missingScopes = requiredScopes.filter((scope) => !grantedScopes.includes(scope))

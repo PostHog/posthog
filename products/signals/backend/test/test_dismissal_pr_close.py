@@ -91,6 +91,14 @@ class TestClosePrWhenReportDismissed(BaseTest):
             self._save_transition(report, SignalReport.Status.POTENTIAL, error="not actionable")
         mock_task.delay.assert_not_called()
 
+    def test_resolve_outside_the_state_api_does_not_enqueue(self):
+        # The PR-merge webhook resolves through transition_to directly. Its PR is merged, so the
+        # receiver must not try to close it.
+        report = self._create_report()
+        with patch("products.signals.backend.receivers.close_dismissed_report_pr") as mock_task:
+            self._save_transition(report, SignalReport.Status.RESOLVED)
+        mock_task.delay.assert_not_called()
+
     def test_unrelated_save_of_suppressed_report_does_not_enqueue(self):
         report = self._create_report(report_status=SignalReport.Status.SUPPRESSED)
         with patch("products.signals.backend.receivers.close_dismissed_report_pr") as mock_task:
@@ -112,6 +120,7 @@ class TestCloseImplementationPrForReport(BaseTest):
         [
             ("suppressed", "suppressed"),
             ("snoozed", "snoozed"),
+            ("resolved", "resolved"),
         ]
     )
     def test_comments_on_and_closes_linked_pr(self, _name: str, reason: PrCloseReason):
