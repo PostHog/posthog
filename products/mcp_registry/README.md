@@ -56,6 +56,13 @@ agent runs `agent` steps itself and narrates `human` steps ("Create an API key h
 it") to the user. Per-server knowledge probing can't discover lives in `connect_overrides` on the
 row, seeded by `KNOWN_CONNECT_OVERRIDES`.
 
+For [Stripe Projects](https://docs.stripe.com/stripe-projects) partner providers (Vercel,
+Supabase, Neon, Clerk, PostHog, and others), `agent_provisioning` is concrete today: the agent
+runs `stripe projects service add <provider>`, the service is provisioned into the user's own
+provider account, and agent-readable credentials land in the project's secret store. The human's
+only step is the one-time Stripe prompt. `STRIPE_PROJECTS_PROVIDERS` holds the curated partner
+map.
+
 ## Data boundaries
 
 - Registry rows and tools are instance-global (public data plus our probes); there is no team FK.

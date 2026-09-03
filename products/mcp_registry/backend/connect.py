@@ -9,9 +9,12 @@ to drive.
 
 Method taxonomy, most to least automated:
 
-- ``agent_provisioning``: the vendor exposes an API through which an agent can
-  provision an account/credential itself. Zero human steps; always preferred when a
-  server declares support.
+- ``agent_provisioning``: an agent can provision an account/credential itself,
+  either through a vendor-specific API the server declares support for, or through
+  Stripe Projects (https://docs.stripe.com/stripe-projects) for its partner
+  providers: the Stripe CLI provisions the service in the user's own provider
+  account and delivers agent-readable credentials to a secret store. Always
+  preferred when available.
 - ``remote_open``: hosted server, no auth. Agent connects instantly.
 - ``cli_auth``: the vendor's own CLI can mint local credentials (``<vendor> login``)
   that the MCP server or agent then reuses; often one browser tap, sometimes zero if
@@ -32,7 +35,38 @@ small curated seed in KNOWN_CONNECT_OVERRIDES.
 import re
 from typing import Any
 
+from products.mcp_registry.backend.linking import normalize_name
 from products.mcp_registry.backend.models import MCPRegistryServer
+
+# Stripe Projects partner providers (developer preview), keyed by normalized server
+# name and valued with the provider slug `stripe projects service add` expects. The
+# CLI provisions from Stripe's own curated provider list, so a mis-attached entry can
+# at worst show these steps on the wrong server row, never provision the wrong vendor.
+# Partner list: https://docs.stripe.com/stripe-projects
+STRIPE_PROJECTS_PROVIDERS: dict[str, str] = {
+    "chroma": "chroma",
+    "clerk": "clerk",
+    "kernel": "kernel",
+    "klaviyo": "klaviyo",
+    "neon": "neon",
+    "planetscale": "planetscale",
+    "posthog": "posthog",
+    "railway": "railway",
+    "runloop": "runloop",
+    "supabase": "supabase",
+    "turso": "turso",
+    "vercel": "vercel",
+}
+
+
+def _stripe_projects_provider(server: MCPRegistryServer) -> str | None:
+    segment = server.registry_name.rsplit("/", 1)[-1] if server.registry_name else ""
+    for candidate in (server.display_name, segment):
+        provider = STRIPE_PROJECTS_PROVIDERS.get(normalize_name(candidate))
+        if provider:
+            return provider
+    return None
+
 
 # Curated per-server overrides, keyed by registry name. Same shape as the
 # connect_overrides JSON field: {"methods": [...]} replaces the derived methods,
@@ -78,6 +112,37 @@ def _derived_methods(server: MCPRegistryServer) -> list[dict[str, Any]]:
     methods: list[dict[str, Any]] = []
     slug = _slug(server)
     url = _remote_url(server)
+
+    stripe_provider = _stripe_projects_provider(server)
+    if stripe_provider:
+        methods.append(
+            {
+                "method": "agent_provisioning",
+                "automation": "one_click",
+                "summary": "Stripe Projects partner: the agent provisions the account and credentials via the "
+                "Stripe CLI; the human only approves the one-time Stripe prompt (and any paid plan).",
+                "steps": [
+                    {
+                        "actor": "agent",
+                        "description": "Provision the service into the user's own provider account; credentials "
+                        "land in the project's secret store, agent-readable.",
+                        "command": f"stripe projects service add {stripe_provider}",
+                    },
+                    {
+                        "actor": "human",
+                        "description": "Approve the Stripe prompt if this is the first provisioned service or a "
+                        "paid plan is selected.",
+                        "command": None,
+                    },
+                    {
+                        "actor": "agent",
+                        "description": "Connect the MCP server using the provisioned credential from the secret "
+                        "store, then verify with a test call.",
+                        "command": None,
+                    },
+                ],
+            }
+        )
 
     if server.supports_agent_provisioning and url:
         methods.append(

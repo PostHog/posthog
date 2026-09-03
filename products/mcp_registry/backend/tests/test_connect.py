@@ -48,6 +48,35 @@ class TestConnectInstructions(SimpleTestCase):
         actors = [step["actor"] for step in instructions["methods"][0]["steps"]]
         assert actors == ["agent", "human"]
 
+    def test_stripe_projects_partner_gets_agent_provisioning_first(self) -> None:
+        server = _server(
+            registry_name="com.vercel/mcp",
+            display_name="Vercel",
+            liveness="alive_auth",
+            auth_method="oauth",
+        )
+
+        instructions = build_connect_instructions(server)
+
+        assert instructions["recommended"] == "agent_provisioning"
+        first_step = instructions["methods"][0]["steps"][0]
+        assert first_step["actor"] == "agent"
+        assert first_step["command"] == "stripe projects service add vercel"
+        # The standard OAuth path stays available as the fallback method.
+        assert instructions["methods"][1]["method"] == "remote_oauth"
+
+    def test_similar_names_do_not_match_stripe_projects_partners(self) -> None:
+        server = _server(
+            registry_name="io.example/vercel-deploy-helper",
+            display_name="Vercel Deploy Helper",
+            liveness="alive_auth",
+            auth_method="oauth",
+        )
+
+        instructions = build_connect_instructions(server)
+
+        assert instructions["recommended"] == "remote_oauth"
+
     def test_agent_provisioning_is_always_preferred(self) -> None:
         server = _server(liveness="alive_auth", auth_method="api_key", supports_agent_provisioning=True)
 
