@@ -27,7 +27,9 @@ const YOU: UserBasicApi = {
 const TEAMMATE: UserBasicApi = {
     id: MOCK_DEFAULT_USER.id + 1,
     uuid: 'teammate-uuid',
-    email: 'teammate@posthog.com',
+    first_name: 'Ada',
+    last_name: 'Lovelace',
+    email: 'ada@posthog.com',
     hedgehog_config: null,
 }
 
@@ -105,6 +107,7 @@ describe('taskConnectorsPickerLogic', () => {
     it('offers the team shares of the workflow agent, not another agent, a personal share, or an unreachable grant', async () => {
         const personalIncident = server('incident-id', 'Incident.io', 'ready', YOU, 'personal')
         const teamIncident = server('incident-id', 'Incident.io', 'ready', TEAMMATE)
+        const yourTeamIncident = server('incident-id', 'Incident.io', 'ready')
         const datadog = server('datadog-id', 'Datadog', 'needs_reauth', TEAMMATE)
         const disabledLinear = server('linear-id', 'Linear', 'ready', TEAMMATE, 'team', false)
         const scoutOnlyNotion = server('notion-id', 'Notion', 'ready')
@@ -113,7 +116,13 @@ describe('taskConnectorsPickerLogic', () => {
                 '/api/projects/:team_id/mcp_gateway/service_accounts/': () =>
                     listResponse([
                         account('scout', [scoutOnlyNotion]),
-                        account('workflow', [personalIncident, teamIncident, datadog, disabledLinear]),
+                        account('workflow', [
+                            personalIncident,
+                            teamIncident,
+                            yourTeamIncident,
+                            datadog,
+                            disabledLinear,
+                        ]),
                     ]),
                 '/api/projects/:team_id/mcp_gateway/servers/:server_id/tools/': (req) =>
                     req.params.server_id === 'incident-id'
@@ -135,6 +144,11 @@ describe('taskConnectorsPickerLogic', () => {
         // grant the gateway refuses (server disabled for the project, or the sharing member revoked).
         expect(logic.values.teamWorkflowServers).toEqual([datadog, teamIncident])
         expect(logic.values.serviceAccountsFailed).toBe(false)
+        // Every reachable team share behind a server is credited, the viewer's own share as "you".
+        expect(logic.values.sharedByLabelByServer).toEqual({
+            'incident-id': 'Shared by you and 1 other',
+            'datadog-id': 'Shared by Ada Lovelace',
+        })
         // Agent-scope tool approvals load for exactly the offered servers; a failed load is marked
         // rather than mistaken for a server with no tools.
         expect(logic.values.toolPolicyCountsByServer).toEqual({

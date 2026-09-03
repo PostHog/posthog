@@ -6,21 +6,13 @@ import { LemonBadge, LemonButton, LemonDialog, LemonSegmentedButton, LemonTag } 
 import { fullName } from 'lib/utils/strings'
 
 import { MCPAgentGrantScopeEnumApi, MCPToolApprovalStateEnumApi, UserBasicApi } from '../generated/api.schemas'
+import { memberNames } from './agentServerUtils'
 import { AgentServerShare, agentServerAccessKey, mcpGatewayLogic } from './mcpGatewayLogic'
 
 /** ProfilePicture wants a UserBasicType-ish shape; the generated UserBasicApi's
  * `hedgehog_config` type isn't assignable, so pass the fields it actually reads. */
 export function toProfileUser(user: UserBasicApi): { first_name?: string; last_name?: string; email: string } {
     return { first_name: user.first_name, last_name: user.last_name, email: user.email }
-}
-
-function memberNames(users: UserBasicApi[]): string {
-    const [first, ...rest] = users
-    const name = fullName(first) || first.email
-    if (rest.length === 0) {
-        return name
-    }
-    return `${name} and ${rest.length} other${rest.length === 1 ? '' : 's'}`
 }
 
 /** Attributes grants backed by other members' connections, so a member never reads

@@ -42,6 +42,7 @@ function TaskConnectorsPicker({ value, onChange }: CustomInputRendererProps): JS
         serviceAccountsLoading,
         serviceAccountsFailed,
         toolPolicyCountsByServer,
+        sharedByLabelByServer,
     } = useValues(taskConnectorsPickerLogic)
 
     const selectedIds: string[] = Array.isArray(value) ? value : []
@@ -98,6 +99,7 @@ function TaskConnectorsPicker({ value, onChange }: CustomInputRendererProps): JS
                                     {selected && workflowAccount && (
                                         <ServerToolPolicyNote
                                             counts={toolPolicyCountsByServer[server.id]}
+                                            sharedBy={sharedByLabelByServer[server.id]}
                                             serverId={server.id}
                                             accountId={workflowAccount.id}
                                         />
@@ -156,13 +158,18 @@ function TaskConnectorsPicker({ value, onChange }: CustomInputRendererProps): JS
     return <div data-attr="task-connectors-picker">{body}</div>
 }
 
-/** Per-state tool counts under an enabled server, so a selection with no approved tools is visible here. */
+/**
+ * Per-state tool counts and the sharing members under an enabled server, so a selection with no
+ * approved tools, and whose connection a run rides, are both visible here.
+ */
 function ServerToolPolicyNote({
     counts,
+    sharedBy,
     serverId,
     accountId,
 }: {
     counts: ServerToolPolicyCounts | 'error' | undefined
+    sharedBy: string | undefined
     serverId: string
     accountId: string
 }): JSX.Element | null {
@@ -183,6 +190,11 @@ function ServerToolPolicyNote({
                         {counts.do_not_use > 0 && (
                             <PolicyDot color="bg-danger" label={`${counts.do_not_use} blocked`} />
                         )}
+                    </span>
+                )}
+                {sharedBy && (
+                    <span className="whitespace-nowrap" data-attr="task-connectors-picker-shared-by">
+                        {sharedBy}
                     </span>
                 )}
                 <Link
