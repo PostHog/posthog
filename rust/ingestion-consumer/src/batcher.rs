@@ -15,11 +15,10 @@
 //! the failure decision stays in the consumer loop.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use common_kafka_consumer::{GroupCompletion, Offset, Partition};
+use common_kafka_consumer::{AssignmentEpoch, GroupCompletion, Offset, Partition};
 use lifecycle::Handle;
 use metrics::{counter, histogram};
 use tokio::sync::mpsc;
@@ -77,7 +76,7 @@ struct BatcherInner {
     transport: Arc<GrpcTransport>,
     /// Stamped on each submitted batch's completions; bumped on partition
     /// assignment by the consumer's rebalance context.
-    assignment_epoch: Arc<AtomicU64>,
+    assignment_epoch: AssignmentEpoch,
     completions: mpsc::UnboundedSender<GroupCompletion>,
     errors: mpsc::UnboundedSender<String>,
 }
@@ -180,7 +179,7 @@ impl Batcher {
     /// dispatcher's lock: `begin_send` is synchronous, so a key's sub-batches
     /// enter its worker's stream in assignment order.
     pub fn submit(&self, accumulator: Accumulator) -> u64 {
-        let assignment_epoch = self.inner.assignment_epoch.load(Ordering::Relaxed);
+        let assignment_epoch = self.inner.assignment_epoch.current();
         let batch_id = make_batch_id();
         self.inner.dispatcher.register_batch(&batch_id);
         let assign_start = Instant::now();

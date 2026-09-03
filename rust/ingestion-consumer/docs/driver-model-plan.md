@@ -272,6 +272,7 @@ Exit criterion: zero key-order sentinel violations, `ingestion_consumer_transpor
 - Submit the `Accumulator` from change 6 as one poll's groups, in poll order.
 - Add `Batcher` in `batcher.rs`: `submit(Accumulator)` in (returning the stamped assignment epoch), a channel of `GroupCompletion` plus an error channel out. It owns `Dispatcher` and the send tasks, and holds shared handles to `GrpcTransport`, `Router`, and `WorkerRegistry`, plus a lifecycle handle and the deferred-flush timeout for its flush driver. It creates batch ids internally.
 - Add `GroupCompletion` in the crate's `types.rs`: partition, assignment epoch, offsets, accepted count. No batch id and no messages: the batcher keeps the bodies for retry, and the ledger needs only the offsets.
+- Add `AssignmentEpoch` to the crate: the named home of the assignment generation. `main.rs` creates it, the rebalance context bumps it, and the transport and the batcher read it — one counter, one bump site, two readers.
 - Modify `IngestionConsumer`: drop `scatter` and `flush_deferred` — they move into the batcher. Keep collect, commit, and the admission cap. Correlate completions to polls by epoch, partition, and offset.
 - Modify `main.rs`: construct one `Batcher` from the existing transport, registry, and router. The consumer no longer sees the dispatcher.
 - Internalize `Dispatcher`'s resolve methods (`on_sub_batch_*`, `defer_failed`): only the batcher calls them in production code. The methods stay public because the e2e suite drives them directly, and that suite must pass unedited.
