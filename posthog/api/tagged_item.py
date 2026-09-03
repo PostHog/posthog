@@ -1,5 +1,5 @@
 import dataclasses
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from typing import TYPE_CHECKING, Any, Optional, cast
 
 from django.db import models
@@ -49,7 +49,7 @@ def cleanup_orphan_tags(team_id: int) -> None:
     Tag.objects.filter(Q(team_id=team_id) & Q(tagged_items__isnull=True)).delete()
 
 
-def normalize_tag_names(tags: Sequence[str]) -> set[str]:
+def normalize_tag_names(tags: Iterable[str]) -> set[str]:
     """The tag names a request's raw strings resolve to, minus the blanks.
 
     ``tagify`` strips whitespace, so a payload of ``[""]`` or ``["  "]`` would otherwise reach

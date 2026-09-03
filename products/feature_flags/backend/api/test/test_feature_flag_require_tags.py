@@ -117,6 +117,18 @@ class TestFeatureFlagRequireTags(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
+    def test_update_can_clear_tags_on_a_flag_whose_only_tag_is_blank(self) -> None:
+        # A flag reaches this state through a create that carried a blank tag while the setting was
+        # off. The person editing it sees no tag, so "keep at least one tag" would be a refusal they
+        # cannot act on. The guard has to read what the flag holds the same way it reads the payload.
+        flag = FeatureFlag.objects.create(key="blank-tag-only-flag", team=self.team, created_by=self.user)
+        self._tag_flag(flag, "")
+        self._require_tags(True)
+
+        response = self.client.patch(f"{self.url}{flag.id}/", {"tags": []}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK
+
     @parameterized.expand([("set", []), ("set", ["   "]), ("remove", ["billing"])])
     def test_bulk_update_cannot_strip_the_last_tag_when_required(self, tag_action: str, tags: list[str]) -> None:
         flag = FeatureFlag.objects.create(key="tagged-flag", team=self.team, created_by=self.user)
@@ -131,6 +143,24 @@ class TestFeatureFlagRequireTags(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert flag.tagged_items.count() == 1
+
+    def test_bulk_update_reads_a_blank_existing_tag_as_no_tag(self) -> None:
+        # A create that mixes a blank tag in with a real one writes both rows, so a flag can hold a
+        # blank tag today. Removing the real tag leaves nothing a person can see, which is the state
+        # the setting exists to prevent, so counting the blank row would let the edit through.
+        flag = FeatureFlag.objects.create(key="blank-and-real-flag", team=self.team, created_by=self.user)
+        self._tag_flag(flag, "billing")
+        self._tag_flag(flag, "")
+        self._require_tags(True)
+
+        response = self.client.post(
+            f"{self.url}bulk_update_tags/",
+            {"ids": [flag.id], "action": "remove", "tags": ["billing"]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "billing" in flag.tagged_items.values_list("tag__name", flat=True)
 
     def test_bulk_update_rejects_the_request_when_only_one_selected_flag_would_be_stripped(self) -> None:
         # A mixed selection is what exercises the any() in validate_bulk_tag_changes: with one flag

@@ -1422,8 +1422,10 @@ class FeatureFlagSerializer(
             return
 
         # Only block emptying a flag that already has tags. Flags that predate the setting stay
-        # editable, so turning it on doesn't freeze the existing untagged ones.
-        if tags is not None and not named_tags and current_tag_names(self.instance):
+        # editable, so turning it on doesn't freeze the existing untagged ones. Normalize what the
+        # flag already carries too: a blank tag row is not a tag on the way in, so it must not read
+        # as one on the way out.
+        if tags is not None and not named_tags and normalize_tag_names(current_tag_names(self.instance)):
             raise serializers.ValidationError({"tags": REQUIRE_TAGS_ON_UPDATE_ERROR})
 
     def _validate_device_bucketing_with_persist_auth(self, attrs):
@@ -3244,7 +3246,12 @@ class FeatureFlagViewSet(
             return
 
         normalized_tags = normalize_tag_names(tags)
-        if any(not resolve_bulk_tags(current_tag_names(flag), tag_action, normalized_tags) for flag in objects):
+        # Normalize the resolved set: a flag left holding only a blank tag row keeps no real tag,
+        # so the edit has to be rejected the same way an empty result is.
+        if any(
+            not normalize_tag_names(resolve_bulk_tags(current_tag_names(flag), tag_action, normalized_tags))
+            for flag in objects
+        ):
             raise serializers.ValidationError({"tags": REQUIRE_TAGS_ON_UPDATE_ERROR})
 
     @extend_schema(request=FeatureFlagCreateRequestSchemaSerializer)
