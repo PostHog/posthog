@@ -189,6 +189,15 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         credit_bucket=CreditBucket.AI_CREDITS,
         requires_server_credential=True,
     ),
+    # Workflow task runs authenticate with a server-minted credential, share the Slack app's
+    # model policy, and bill into PostHog AI credits rather than PostHog Code credits.
+    "workflows": ProductConfig(
+        allowed_application_ids=frozenset({POSTHOG_CODE_US_APP_ID, POSTHOG_CODE_EU_APP_ID, POSTHOG_CODE_DEV_APP_ID}),
+        allowed_models=_POSTHOG_CODE_AGENT_MODELS | BEDROCK_MODELS,
+        allow_api_keys=False,
+        credit_bucket=CreditBucket.AI_CREDITS,
+        requires_server_credential=True,
+    ),
     # SherlockHog (https://github.com/PostHog/SherlockHog) — the internal SRE
     # bot. Authenticates with a personal API key (not OAuth), so no application
     # IDs are needed. It pins claude-opus-4-8 but can be repointed via

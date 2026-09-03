@@ -31,6 +31,7 @@ class TestResolveSandboxAiProduct:
             ("signal_report", "match", "signals"),
             ("loop", None, "posthog_code"),
             ("slack", None, "slack_app"),
+            ("workflow", None, "workflows"),
             ("support_reply", None, "conversations"),
             ("onboarding", None, "onboarding"),
             ("posthog_ai", None, "posthog_ai"),
@@ -218,6 +219,16 @@ class TestAiGatewayEnvVars:
             env = ai_gateway_env_vars(team_id=123, origin_product="loop")
         assert "AI_GATEWAY_TOKEN" not in env
         mint.assert_not_called()
+
+    def test_workflow_run_gets_a_pinned_token_when_routed(self, mint_settings):
+        mint_settings.SANDBOX_AI_GATEWAY_PRODUCTS = "workflows"
+        with patch(
+            "products.tasks.backend.temporal.process_task.utils.mint_scoped_token",
+            return_value="phe_abc",
+        ) as mint:
+            env = ai_gateway_env_vars(team_id=123, origin_product="workflow")
+        assert env["AI_GATEWAY_TOKEN"] == "phe_abc"
+        mint.assert_called_once_with(ai_product="workflows", team_id=123, user=None)
 
     def test_skill_qualified_allowlist_still_mints(self, mint_settings):
         """The D4-D6 batched scout flips route by skill-qualified entries alone; a mint

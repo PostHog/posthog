@@ -99,8 +99,8 @@ Run `/auditing-llm-gateway-parity` after either gateway changes auth, attributio
 
 Last verified on 2026-09-03 against:
 
-- `PostHog/posthog` working tree compared with master at `17484bc3a0b01d930fbcf512ca9f1f2489d7aa84`
-- `PostHog/ai-gateway` main at `fb1afc8bebb40ffb43dbd42f2b5a9531cf8f2cb8`
+- `PostHog/posthog` working tree compared with master at `5c70b9ce8f179ecff7286769416649562b9e8dc9`
+- `PostHog/ai-gateway` main at `58b5b5c3fe64c051bd3e3d538fb84245323a0783`
 
 ## References
 

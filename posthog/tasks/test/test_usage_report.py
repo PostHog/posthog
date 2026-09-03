@@ -3761,8 +3761,9 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         assert org_1_report["ai_event_count_in_period"] == 7
         assert org_1_report["teams"]["3"]["ai_event_count_in_period"] == 7
 
+    @parameterized.expand([("posthog_ai",), ("workflows",)])
     @patch("posthog.tasks.usage_report.get_instance_region")
-    def test_ai_credits_with_billable_tools(self, mock_region: MagicMock) -> None:
+    def test_ai_credits_with_billable_tools(self, ai_product: str, mock_region: MagicMock) -> None:
         """Test that generations with non-search tools are billed correctly."""
         from posthog.tasks.usage_report import get_teams_with_ai_credits_used_in_period
 
@@ -3808,7 +3809,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
                 "$ai_trace_id": "trace_billable",
                 "$ai_total_cost_usd": 1.0,
                 "$ai_billable": True,
-                "ai_product": "posthog_ai",
+                "ai_product": ai_product,
                 "$group_1": "https://us.posthog.com",
             },
         )

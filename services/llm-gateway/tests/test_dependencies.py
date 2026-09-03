@@ -305,7 +305,7 @@ class TestResolvePlanAndQuota:
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
         ("product", "expected_resource"),
-        [("slack_app", "ai_credits"), ("posthog_code", "posthog_code_credits")],
+        [("slack_app", "ai_credits"), ("workflows", "ai_credits"), ("posthog_code", "posthog_code_credits")],
     )
     async def test_bucket_billed_product_resolves_its_own_bucket(self, product: str, expected_resource: str) -> None:
         (_, quota_status), quota_mock = await self._run(product)

@@ -74,6 +74,12 @@
       "expected": "slack_app"
     },
     {
+      "origin_product": "workflow",
+      "ai_stage": null,
+      "internal": false,
+      "expected": "workflows"
+    },
+    {
       "origin_product": "support_reply",
       "ai_stage": null,
       "internal": true,
@@ -153,6 +159,13 @@
       "internal": false,
       "allowlist": "signals_scout",
       "expected": false
+    },
+    {
+      "origin_product": "workflow",
+      "ai_stage": null,
+      "internal": false,
+      "allowlist": "workflows",
+      "expected": true
     },
     {
       "origin_product": "signal_report",
