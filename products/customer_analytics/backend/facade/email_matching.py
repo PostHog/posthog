@@ -17,7 +17,7 @@ from products.customer_analytics.backend.logic.email_account_matching import (
 
 logger = structlog.get_logger(__name__)
 
-_MATCH_SOURCE_PRIORITY = {"known_email": 0, "person_group": 1, "email_domain": 2}
+_MATCH_SOURCE_PRIORITY = {"known_email": 0, "person_group": 1, "organization_member": 2, "email_domain": 3}
 _RECALCULATION_TASK = "customer_analytics.recalculate_email_thread_account_links"
 _RECALCULATION_THREADS_TASK = "customer_analytics.recalculate_email_thread_account_links_for_threads"
 _RECALCULATION_LOCK_SECONDS = 15 * 60

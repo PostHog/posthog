@@ -3,6 +3,9 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
+from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.user import User
+
 from products.conversations.backend.facade.types import EmailThreadForAccountMatching
 from products.customer_analytics.backend.facade import api
 from products.customer_analytics.backend.facade.email_matching import (
@@ -65,6 +68,42 @@ class TestEmailAccountMatching(BaseTest):
             (str(grouped.id), "person_group"),
             (str(domain.id), "email_domain"),
         }
+
+    def test_matches_organization_member_without_a_domain_or_group_event(self) -> None:
+        self.user.email = "member@gmail.com"
+        self.user.save(update_fields=["email"])
+        account = self._create_account(
+            name="Customer",
+            external_id=str(self.organization.id),
+        )
+
+        matches = match_email_accounts(self.team.id, [self.user.email])
+
+        assert [(match.account_id, match.match_source) for match in matches] == [
+            (str(account.id), "organization_member")
+        ]
+
+    def test_matches_a_mixed_case_organization_member_email(self) -> None:
+        User.objects.filter(id=self.user.id).update(email="Member@Gmail.com")
+        account = self._create_account(name="Customer", external_id=str(self.organization.id))
+
+        matches = match_email_accounts(self.team.id, ["member@gmail.com"])
+
+        assert [(match.account_id, match.match_source) for match in matches] == [
+            (str(account.id), "organization_member")
+        ]
+
+    def test_does_not_match_an_organization_member_of_multiple_accounts(self) -> None:
+        self.user.email = "member@gmail.com"
+        self.user.save(update_fields=["email"])
+        other_organization = Organization.objects.create(name="Other customer")
+        OrganizationMembership.objects.create(user=self.user, organization=other_organization)
+        self._create_account(name="First customer", external_id=str(self.organization.id))
+        self._create_account(name="Second customer", external_id=str(other_organization.id))
+
+        matches = match_email_accounts(self.team.id, [self.user.email])
+
+        assert matches == []
 
     @patch(
         "products.customer_analytics.backend.logic.email_account_matching.resolve_group_keys_by_email",

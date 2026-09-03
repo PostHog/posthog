@@ -148,7 +148,7 @@ class TestEmailThreadAccountLinks(BaseTest):
                 EmailThreadAccountLinkInput(
                     account_id="account-2",
                     account_external_id="renamed-group-2",
-                    match_source="person_group",
+                    match_source="organization_member",
                 )
             ],
         )
@@ -156,5 +156,5 @@ class TestEmailThreadAccountLinks(BaseTest):
         assert not EmailThreadAccountLink.objects.for_team(self.team.id).filter(account_id="account-1").exists()
         remaining = EmailThreadAccountLink.objects.for_team(self.team.id).get()
         assert remaining.account_external_id == "renamed-group-2"
-        assert remaining.match_source == "person_group"
+        assert remaining.match_source == "organization_member"
         assert list_account_email_thread_messages(self.team.id, "account-1", str(self.thread.id)) is None
