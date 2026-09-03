@@ -1,6 +1,7 @@
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from django.db.models import QuerySet
 from django.db.models.functions import Lower
 
 import structlog
@@ -39,11 +40,19 @@ def normalize_emails(emails: list[str]) -> set[str]:
     return {email.strip().lower() for email in emails if "@" in email}
 
 
+def _find_accounts_by_known_email(team: Team, email: str) -> QuerySet[Account]:
+    return Account.objects.for_team(team.id).filter(_properties__known_emails__contains=[email])
+
+
+def _find_accounts_by_email_domain(team: Team, domain: str) -> QuerySet[Account]:
+    return Account.objects.for_team(team.id).filter(_properties__email_domains__contains=[domain])
+
+
 def _match_accounts_by_account_property(
     team: Team,
     emails: list[str],
     *,
-    property_name: str,
+    find_accounts: Callable[[Team, str], QuerySet[Account]],
     source: str,
     value_for_email: Callable[[str], str],
 ) -> tuple[dict[str, MatchedAccount], set[str]]:
@@ -51,9 +60,7 @@ def _match_accounts_by_account_property(
     ambiguous: set[str] = set()
     for email in emails:
         value = value_for_email(email)
-        candidates = list(
-            Account.objects.for_team(team.id).filter(**{f"_properties__{property_name}__contains": [value]})[:2]
-        )
+        candidates = list(find_accounts(team, value)[:2])
         if len(candidates) == 1:
             matches[email] = MatchedAccount(account=candidates[0], source=source)
         elif len(candidates) > 1:
@@ -137,7 +144,7 @@ def match_accounts_for_emails(team: Team, emails: list[str]) -> dict[str, Matche
     matched, ambiguous = _match_accounts_by_account_property(
         team,
         normalized_emails,
-        property_name="known_emails",
+        find_accounts=_find_accounts_by_known_email,
         source=KNOWN_EMAIL_MATCH,
         value_for_email=lambda email: email,
     )
@@ -158,7 +165,7 @@ def match_accounts_for_emails(team: Team, emails: list[str]) -> dict[str, Matche
     domain_matches, _ = _match_accounts_by_account_property(
         team,
         _unresolved_emails(normalized_emails, matched, ambiguous),
-        property_name="email_domains",
+        find_accounts=_find_accounts_by_email_domain,
         source=EMAIL_DOMAIN_MATCH,
         value_for_email=lambda email: email.rsplit("@", 1)[-1],
     )
