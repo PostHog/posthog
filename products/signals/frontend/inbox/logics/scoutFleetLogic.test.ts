@@ -1,4 +1,4 @@
-import { MOCK_DEFAULT_ORGANIZATION, MOCK_TEAM_ID } from 'lib/api.mock'
+import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_USER, MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
@@ -8,6 +8,7 @@ import { ApiError } from 'lib/api-error'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { initKeaTests } from '~/test/init'
 
@@ -17,6 +18,7 @@ import {
     signalsScoutConfigSync,
     signalsScoutConfigUpdate,
     signalsScoutRunsRecentPerScout,
+    signalsScoutRunsTokenCosts,
 } from 'products/signals/frontend/generated/api'
 import type { SignalScoutConfigApi, UserBasicApi } from 'products/signals/frontend/generated/api.schemas'
 
@@ -33,6 +35,7 @@ jest.mock('products/signals/frontend/generated/api', () => ({
     signalsScoutRunsFindingsSummary: jest.fn(),
     signalsScoutRunsList: jest.fn(),
     signalsScoutRunsRecentPerScout: jest.fn(),
+    signalsScoutRunsTokenCosts: jest.fn(),
 }))
 
 const mockSignalsScoutChatTasksCreate = signalsScoutChatTasksCreate as jest.MockedFunction<
@@ -43,6 +46,9 @@ const mockSignalsScoutConfigSync = signalsScoutConfigSync as jest.MockedFunction
 const mockSignalsScoutConfigUpdate = signalsScoutConfigUpdate as jest.MockedFunction<typeof signalsScoutConfigUpdate>
 const mockSignalsScoutRunsRecentPerScout = signalsScoutRunsRecentPerScout as jest.MockedFunction<
     typeof signalsScoutRunsRecentPerScout
+>
+const mockSignalsScoutRunsTokenCosts = signalsScoutRunsTokenCosts as jest.MockedFunction<
+    typeof signalsScoutRunsTokenCosts
 >
 
 const BASE_CONFIG: SignalScoutConfigApi = {
@@ -124,6 +130,7 @@ describe('scoutFleetLogic', () => {
         mockSignalsScoutConfigSync.mockReset().mockResolvedValue([])
         mockSignalsScoutConfigUpdate.mockReset()
         mockSignalsScoutRunsRecentPerScout.mockReset().mockResolvedValue([])
+        mockSignalsScoutRunsTokenCosts.mockReset().mockResolvedValue({ costs: [], available: true })
         logic = scoutFleetLogic()
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
@@ -822,6 +829,52 @@ describe('scoutFleetLogic', () => {
             expect(second.find((run) => run.run_id === 'run-live')).not.toBe(
                 first.find((run) => run.run_id === 'run-live')
             )
+        })
+    })
+    describe('staff-only run costs', () => {
+        const mountAsStaff = async (isStaff: boolean): Promise<void> => {
+            logic.unmount()
+            userLogic.mount()
+            userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, is_staff: isStaff })
+            logic = scoutFleetLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+        }
+
+        it('annotates staff runs with the cost of the runs that have spend attributed', async () => {
+            mockSignalsScoutRunsRecentPerScout.mockResolvedValue([
+                makeRun({ run_id: 'run-priced' }),
+                makeRun({ run_id: 'run-unpriced' }),
+            ])
+            mockSignalsScoutRunsTokenCosts.mockResolvedValue({
+                costs: [
+                    { run_id: 'run-priced', token_cost_usd: 4.03 },
+                    // A run with nothing attributed is dropped, so its tooltip says nothing about
+                    // cost rather than claiming the run was free.
+                    { run_id: 'run-unpriced', token_cost_usd: null },
+                ],
+                available: true,
+            })
+            await mountAsStaff(true)
+
+            logic.actions.loadScoutRuns()
+            await expectLogic(logic).toDispatchActions(['loadScoutRunsSuccess', 'loadScoutRunCostsSuccess'])
+
+            expect(mockSignalsScoutRunsTokenCosts).toHaveBeenCalledWith(String(MOCK_TEAM_ID), {
+                run_ids: ['run-priced', 'run-unpriced'],
+            })
+            expect(logic.values.scoutRunCosts.get('run-priced')).toBe(4.03)
+            expect(logic.values.scoutRunCosts.has('run-unpriced')).toBe(false)
+        })
+
+        it('never asks for costs on behalf of a non-staff user', async () => {
+            mockSignalsScoutRunsRecentPerScout.mockResolvedValue([makeRun({ run_id: 'run-priced' })])
+            await mountAsStaff(false)
+
+            logic.actions.loadScoutRuns()
+            await expectLogic(logic).toDispatchActions(['loadScoutRunsSuccess']).toFinishAllListeners()
+
+            expect(mockSignalsScoutRunsTokenCosts).not.toHaveBeenCalled()
         })
     })
 })

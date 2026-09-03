@@ -1428,6 +1428,25 @@ export const SignalsScoutRunsEmissionReportsBatchBody = /* @__PURE__ */ zod
     )
 
 /**
+ * Return what each requested `SignalScoutRun` spent on model calls, summed from the `$ai_generation` events its sandbox produced. One query for the whole batch, cached per run: a settled run's total is final, a run still in progress reports what it has spent so far. `available` is false where the internal AI observability project holding those events can't be read, so an unknown cost never reads as zero. Staff-only — fleet spend is an internal operating number, and the events sit outside the project in the path. Strictly team-scoped — run ids belonging to another project contribute no rows.
+ * @summary Get the model spend of many runs at once
+ */
+export const signalsScoutRunsTokenCostsBodyRunIdsMax = 200
+
+export const SignalsScoutRunsTokenCostsBody = /* @__PURE__ */ zod
+    .object({
+        run_ids: zod
+            .array(zod.uuid())
+            .max(signalsScoutRunsTokenCostsBodyRunIdsMax)
+            .describe(
+                'UUIDs of the `SignalScoutRun` rows to resolve in one batch. Run ids belonging to another team are silently ignored (they contribute no rows) rather than failing the whole request. Capped at 200 ids per call.'
+            ),
+    })
+    .describe(
+        "Request body for the batched emissions \/ emission-reports lookups: the set of run UUIDs to\nresolve in one call. Collapses the findings UI's old per-run fan-out (one request — and for the\nreports lookup, one ClickHouse round-trip — per emitted run) into a single request."
+    )
+
+/**
  * Upsert a memory keyed on `(team, key)`. Re-using a key updates the existing entry in place. A write carries the entry's whole state, so `expires_at` is set when passed and cleared when omitted.
  * @summary Remember a scratchpad entry
  */

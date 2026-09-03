@@ -21,6 +21,7 @@ import { reconcileById } from 'lib/utils/objects'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import {
     signalsScoutChatTasksCreate,
@@ -33,6 +34,7 @@ import {
     signalsScoutRunsFindingsSummary,
     signalsScoutRunsList,
     signalsScoutRunsRecentPerScout,
+    signalsScoutRunsTokenCosts,
 } from 'products/signals/frontend/generated/api'
 import type {
     FleetFindingsSummaryApi,
@@ -120,6 +122,9 @@ const RUNS_REFETCH_INTERVAL_MS = 60_000
 // `loadScoutRuns` gets each scout's last N runs from one ranked query.
 const RUNS_PAGE_LIMIT = 100
 const MAX_RUNS_PAGES = 15
+// The cost endpoint takes run ids in batches (`SCOUT_RUNS_BATCH_LIMIT` server-side), and a fleet
+// holds more runs than one batch, so the roster's runs are sent a batch at a time.
+const RUN_COST_BATCH_LIMIT = 200
 
 // Roster filter state also lives in the URL so a filtered view survives a refresh and is shareable.
 // The search param is written on this debounce, so typing does not rewrite the URL per keystroke.
@@ -225,6 +230,7 @@ export interface scoutFleetLogicValues {
     fleetFindingsSummaryLoadedOnce: boolean
     fleetFindingsSummaryLoading: boolean
     fleetSummary: FleetSummary | null
+    isStaff: boolean
     lastRunAt: string | null
     manualRunScoutIds: string[]
     pauseAttentionCounts: {
@@ -253,6 +259,8 @@ export interface scoutFleetLogicValues {
     scoutMetadataLoading: boolean
     scoutOwnerOptions: ScoutOwnerOption[]
     scoutRosterSort: ScoutRosterSort
+    scoutRunCosts: Map<string, number>
+    scoutRunCostsLoading: boolean
     scoutRuns: SignalScoutRunSummary[]
     scoutRunsLoadedOnce: boolean
     scoutRunsLoading: boolean
@@ -351,6 +359,21 @@ export interface scoutFleetLogicActions {
     ) => {
         scoutMetadata: ScoutMetadataApi | null
         payload?: any
+    }
+    loadScoutRunCosts: (_: void) => void
+    loadScoutRunCostsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadScoutRunCostsSuccess: (
+        scoutRunCosts: Map<string, number>,
+        payload?: void
+    ) => {
+        scoutRunCosts: Map<string, number>
+        payload?: void
     }
     loadScoutRuns: (_: void) => void
     loadScoutRunsFailure: (
@@ -706,6 +729,45 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 },
             },
         ],
+        // Per-run model spend, staff only. The roster's own runs are the batch: one request per
+        // `RUN_COST_BATCH_LIMIT` ids, and the endpoint caches a settled run's total, so a poll over
+        // an unchanged fleet costs cache reads rather than a query per run. Runs with nothing
+        // attributed are dropped rather than stored as 0 — the tooltip then says nothing about
+        // cost, instead of claiming the run was free.
+        scoutRunCosts: [
+            new Map<string, number>(),
+            {
+                loadScoutRunCosts: async (_: void, breakpoint) => {
+                    const teamId = teamLogic.values.currentTeamId
+                    if (!teamId || !values.isStaff || values.scoutRuns.length === 0) {
+                        return values.scoutRunCosts
+                    }
+                    const runIds = values.scoutRuns.map((run) => run.run_id)
+                    const costs = new Map<string, number>()
+                    try {
+                        for (let start = 0; start < runIds.length; start += RUN_COST_BATCH_LIMIT) {
+                            const response = await signalsScoutRunsTokenCosts(String(teamId), {
+                                run_ids: runIds.slice(start, start + RUN_COST_BATCH_LIMIT),
+                            })
+                            breakpoint()
+                            for (const cost of response.costs) {
+                                if (cost.token_cost_usd !== null) {
+                                    costs.set(cost.run_id, cost.token_cost_usd)
+                                }
+                            }
+                        }
+                    } catch (error) {
+                        // Cost is a staff-only annotation on a tooltip, so a blip degrades to no
+                        // number rather than reporting a failure the reader can do nothing about.
+                        if (error instanceof ApiError) {
+                            return values.scoutRunCosts
+                        }
+                        throw error
+                    }
+                    return costs
+                },
+            },
+        ],
         runsWindow: [
             { runs: [] as SignalScoutRunSummary[], complete: true } as {
                 runs: SignalScoutRunSummary[]
@@ -928,6 +990,10 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             (s) => [s.scoutRuns],
             (scoutRuns: SignalScoutRunSummary[]): Map<string, ScoutRollup> => computeScoutRollups(scoutRuns),
         ],
+        isStaff: [
+            () => [userLogic.selectors.user],
+            (user: null | import('~/types').UserType): boolean => user?.is_staff ?? false,
+        ],
         fleetSummary: [
             (s) => [s.scoutConfigs, s.rollups],
             (scoutConfigs: SignalScoutConfig[] | null, rollups: Map<string, ScoutRollup>): FleetSummary | null =>
@@ -1123,6 +1189,11 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
 
     listeners(({ actions, values, cache, sharedListeners }) => ({
         loadScoutRunsSuccess: () => {
+            // Costs follow the runs rather than a poll of their own, so a run and its cost are
+            // never a cycle apart.
+            if (values.isStaff) {
+                actions.loadScoutRunCosts()
+            }
             const evaluatedAt = new Date(values.rosterEvaluatedAt)
             const now = new Date()
             const groupChanged = (values.scoutConfigs ?? []).some((config) => {
