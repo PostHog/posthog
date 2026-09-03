@@ -785,6 +785,40 @@ export namespace Schemas {
       UniqPageScreenAutocaptures: 'uniq_page_screen_autocaptures',
     } as const;
 
+    export type CustomBotField = typeof CustomBotField[keyof typeof CustomBotField];
+
+
+    export const CustomBotField = {
+      RawUserAgent: '$raw_user_agent',
+      Ip: '$ip',
+      Lib: '$lib',
+      Host: '$host',
+      Pathname: '$pathname',
+      CurrentUrl: '$current_url',
+    } as const;
+
+    export type CustomBotMatcher = typeof CustomBotMatcher[keyof typeof CustomBotMatcher];
+
+
+    export const CustomBotMatcher = {
+      Contains: 'contains',
+      Regex: 'regex',
+      Cidr: 'cidr',
+    } as const;
+
+    export interface CustomBotDefinition {
+      /** Reported by `$virt_traffic_category`. Defaults to `custom`. */
+      category?: string | null;
+      id: string;
+      /** The event property this rule reads. */
+      key: CustomBotField;
+      matcher: CustomBotMatcher;
+      /** Reported by `$virt_bot_name` and `$virt_bot_operator` when the rule matches. */
+      name: string;
+      /** Matched against the property named by `key`. */
+      pattern: string;
+    }
+
     export type FilterLogicalOperator = typeof FilterLogicalOperator[keyof typeof FilterLogicalOperator];
 
 
@@ -949,6 +983,7 @@ export namespace Schemas {
       bounceRateDurationSeconds?: number | null;
       bounceRatePageViewMode?: BounceRatePageViewMode | null;
       convertToProjectTimezone?: boolean | null;
+      customBotDefinitions?: CustomBotDefinition[] | null;
       customChannelTypeRules?: CustomChannelRule[] | null;
       dataWarehouseEventsModifiers?: DataWarehouseEventsModifier[] | null;
       debug?: boolean | null;
