@@ -1097,8 +1097,14 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     def to_representation(self, instance):
         with tracer.start_as_current_span("team_serializer.default_fields"):
             representation = super().to_representation(instance)
-        # fallback to the default posthog data theme id, if the color feature isn't available e.g. after a downgrade
-        if not instance.organization.is_feature_available(AvailableFeature.DATA_COLOR_THEMES):
+        # The organization row can vanish mid-request: org deletion is async, so a request can read the
+        # team and then hit a gone org row. Treat a missing org as no color feature and fall back to the
+        # default theme, the same as a downgrade, instead of raising a 500.
+        try:
+            has_data_color_themes = instance.organization.is_feature_available(AvailableFeature.DATA_COLOR_THEMES)
+        except Organization.DoesNotExist:
+            has_data_color_themes = False
+        if not has_data_color_themes:
             with tracer.start_as_current_span("team_serializer.default_data_theme_fallback"):
                 representation["default_data_theme"] = _default_data_color_theme_id()
 

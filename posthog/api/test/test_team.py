@@ -13,7 +13,7 @@ from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
-from rest_framework import status, test
+from rest_framework import serializers, status, test
 
 from posthog.api.project import ProjectBackwardCompatSerializer
 from posthog.api.team import (
@@ -3057,6 +3057,18 @@ class TestTeamSerializerHomeViewWins(APIBaseTest):
             cached_group_types_for_team(fresh_team)  # uncached on fresh
         assert mock_fetch.call_count == 1
         assert mock_fetch.call_args.args == (fresh_team.project_id,)
+
+    def test_to_representation_survives_deleted_organization(self):
+        # Org deletion is async, so a request can hold a team whose org row is already gone.
+        # The serializer must fall back to the default theme instead of raising a 500.
+        team = Team.objects.get(pk=self.team.pk)  # fresh instance, so the org FK is not cached
+        Organization.objects.filter(pk=team.organization_id).delete()  # cascades the team row, keeps our object
+
+        serializer = TeamSerializer()
+        with patch.object(serializers.ModelSerializer, "to_representation", return_value={"default_data_theme": 999}):
+            representation = serializer.to_representation(team)
+
+        assert representation["default_data_theme"] == _default_data_color_theme_id()
 
     def test_default_data_color_theme_id_is_cached_for_process_lifetime(self):
         # System-wide default DataColorTheme is a deploy-time fixture; cache for
