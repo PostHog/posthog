@@ -130,7 +130,7 @@ function claudeModelOption(
     options: [
       { name: "Claude Sonnet 5", value: "claude-sonnet-5" },
       { name: "Claude Opus 5", value: "claude-opus-5" },
-      { name: "Claude Fable 5", value: "claude-fable-5" },
+      { name: "Claude Fable 5.1", value: "claude-fable-5-1" },
     ],
   } as unknown as SessionConfigOption;
 }
@@ -663,7 +663,7 @@ describe("ReasoningLevelSelector", () => {
       () =>
         onChange.mock.calls.length > 0 && onModelChange.mock.calls.length > 0,
     );
-    expect(onModelChange).toHaveBeenCalledWith("claude-fable-5");
+    expect(onModelChange).toHaveBeenCalledWith("claude-fable-5-1");
     expect(onChange).toHaveBeenCalledWith("max");
   });
 
@@ -675,7 +675,7 @@ describe("ReasoningLevelSelector", () => {
       <Theme>
         <ReasoningLevelSelector
           thoughtOption={thoughtOption({ currentValue: "max" })}
-          modelOption={claudeModelOption("claude-fable-5")}
+          modelOption={claudeModelOption("claude-fable-5-1")}
           adapter="claude"
           onChange={onChange}
           onModelChange={onModelChange}
