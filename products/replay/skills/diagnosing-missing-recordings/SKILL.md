@@ -94,13 +94,14 @@ The verdicts in priority order:
 3. **Recorder error** (`rrweb_error` in the statuses, or `$sdk_debug_replay_rrweb_error` set) — the recorder started and threw
 4. **Config pending** (`awaiting_config` / `pending_config` / `missing_config`) — the SDK is waiting for, or failed to load, replay config
 5. **Disabled** (`$session_recording_remote_config.enabled = false`) — replay turned off for the project. This, not the status string, is the proof
-6. **Trigger pending** (trigger statuses are `trigger_pending`, none matched) — recording gated on trigger that never fired
-7. **Sampled out** (`$session_recording_start_reason = 'sampled_out'`) — excluded by sample rate
-8. **Recorder loading** (`lazy_loading` is the furthest status the session reached) — the session ended before the recorder file took over
-9. **Buffering empty** (`buffering`, buffer length = 0, nothing flushed) — initialized but no snapshots produced
-10. **Recorder not started** (`disabled` is the only status the session reported, and remote config does not say replay is off) — cause is on the page: `disable_session_recording`, an opt-out, or a blocked recorder file
-11. **Flush blocked** (buffer length climbs across events while `flushed_size` stays at 0) — snapshots are produced but the `/s/` ingestion endpoint is blocked by an ad blocker or misconfigured reverse proxy. Detecting this requires querying the trend across the session's events — see [example 4 in examples.md](./references/examples.md)
-12. **Unknown** — signals don't match a known pattern
+6. **URL blocked** (`paused` in the statuses) — the page URL is on the project's blocked URLs list, so recording is suppressed there
+7. **Trigger pending** (trigger statuses are `trigger_pending`, none matched) — recording gated on trigger that never fired
+8. **Sampled out** (`$session_recording_start_reason = 'sampled_out'`) — excluded by sample rate
+9. **Recorder loading** (`lazy_loading` is the furthest status the session reached) — the session ended before the recorder file took over
+10. **Buffering empty** (`buffering`, buffer length = 0, nothing flushed) — initialized but no snapshots produced
+11. **Recorder not started** (`disabled` is the only status the session reported, and remote config does not say replay is off) — cause is on the page: `disable_session_recording`, an opt-out, or a blocked recorder file
+12. **Flush blocked** (buffer length climbs across events while `flushed_size` stays at 0) — snapshots are produced but the `/s/` ingestion endpoint is blocked by an ad blocker or misconfigured reverse proxy. Detecting this requires querying the trend across the session's events — see [example 4 in examples.md](./references/examples.md)
+13. **Unknown** — signals don't match a known pattern
 
 ### Step 4 — Check project-level settings (if no session ID)
 
@@ -146,6 +147,7 @@ Based on the verdict, recommend specific actions:
 | Recorder error       | Report the rrweb error. Ask for the SDK version and the page it happened on                                                           |
 | Config pending       | The SDK could not get replay config in time. Check for anything blocking the PostHog config request, including a reverse proxy        |
 | Disabled             | Replay is off for the project. Link to Settings > Session replay                                                                      |
+| URL blocked          | The page URL is on the blocked URLs list. Review the blocked URLs in Settings > Session replay                                        |
 | Trigger pending      | The configured trigger (URL pattern, event, or feature flag) never matched. Review trigger configuration                              |
 | Sampled out          | Increase the sample rate in project settings, or use a trigger to guarantee capture for important sessions                            |
 | Recorder loading     | The session ended before the recorder file took over. Expected on very short visits. Nothing to change unless it is the common case   |

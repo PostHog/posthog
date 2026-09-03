@@ -100,9 +100,33 @@ describe('diagnoseReplayCapture', () => {
             expected: 'captured',
         },
         {
-            name: 'a status posthog-js never emits → unknown',
-            properties: { $recording_status: 'sampled' },
-            expected: 'unknown',
+            name: 'sampled means sampled in, so flushed data reads as captured',
+            properties: {
+                $recording_status: 'sampled',
+                $sdk_debug_replay_flushed_size: 2048,
+            },
+            expected: 'captured',
+        },
+        {
+            name: 'paused is the URL blocklist state',
+            properties: { $recording_status: 'paused' },
+            expected: 'url_blocked',
+        },
+        {
+            name: 'a blocked URL outranks a pending trigger',
+            properties: {
+                $recording_status: 'paused',
+                $sdk_debug_replay_url_trigger_status: 'trigger_pending',
+            },
+            expected: 'url_blocked',
+        },
+        {
+            name: 'replay being off for the project outranks a blocked URL',
+            properties: {
+                $recording_status: 'paused',
+                $session_recording_remote_config: { enabled: false },
+            },
+            expected: 'disabled',
         },
         {
             name: 'sampled out via start reason',
@@ -282,6 +306,8 @@ describe('diagnoseReplayCapture', () => {
     it.each([
         ['lazy_loading', 'recorder_loading'],
         ['buffering', 'unknown'],
+        ['paused', 'url_blocked'],
+        ['sampled', 'unknown'],
     ])('a disabled event is re-read against the %s the session reached', (sessionStatus, expected) => {
         const properties = { $recording_status: 'disabled' }
 

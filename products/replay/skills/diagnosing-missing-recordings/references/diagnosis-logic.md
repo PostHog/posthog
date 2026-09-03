@@ -31,6 +31,9 @@ $sdk_debug_recording_script_not_loaded == true?
 $session_recording_remote_config.enabled == false?
   → DISABLED: replay turned off for the project
 
+'paused' in statuses?
+  → URL_BLOCKED: the page URL is on the project's blocked URLs list
+
 Any trigger status is 'trigger_pending' AND none is 'trigger_matched'?
   → TRIGGER_PENDING: recording gated on trigger that never fired
 
@@ -82,6 +85,13 @@ Typical causes:
 
 Replay is turned off for the project. `$session_recording_remote_config.enabled` is `false`,
 which is the only proof of this. Fix it in Settings > Session replay.
+
+### URL_BLOCKED
+
+The SDK reported `paused`, which it returns from one condition only: the page URL matches the
+project's blocked URLs list, so recording is suppressed while the visitor is on that page.
+Check the blocked URLs list in Settings > Session replay. Sessions that leave the blocked page
+record normally from that point on.
 
 ### RECORDER_NOT_STARTED
 

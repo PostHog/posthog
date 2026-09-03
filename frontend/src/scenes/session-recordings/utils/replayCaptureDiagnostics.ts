@@ -4,6 +4,7 @@ export type DiagnosisVerdict =
     | 'captured'
     | 'ad_blocked'
     | 'disabled'
+    | 'url_blocked'
     | 'recorder_not_started'
     | 'recorder_loading'
     | 'config_pending'
@@ -83,10 +84,13 @@ const pickSignals = (properties: Record<string, any>): Record<string, unknown> =
 // posthog-js loads the recorder as a separate chunk. Until that chunk takes over, the SDK
 // reports `disabled`, so the first events of a page load say `disabled` on a session that
 // records fine. Only a session that reported nothing else can be read as replay being off.
+// Ordered most to least informative: the first status the session reached wins.
 const STATUSES_BEYOND_DISABLED = [
     'active',
+    'sampled',
     'buffering',
     'rrweb_error',
+    'paused',
     'missing_config',
     'awaiting_config',
     'pending_config',
@@ -249,6 +253,21 @@ function diagnoseSignals(properties: Record<string, any>, recordingStatus: unkno
         }
     }
 
+    // The SDK returns `paused` from one condition in every status path: the current URL matches
+    // the project's blocked list. It is checked before triggers there, so it is checked first here.
+    if (recordingStatus === 'paused') {
+        return {
+            verdict: 'url_blocked',
+            headline: 'Recording is turned off for this page',
+            reasons: [
+                'The page URL matches the blocked URLs list for this project, so the SDK stopped recording while the visitor was on it.',
+                'Check the blocked URLs list in replay settings if this page should be recorded.',
+            ],
+            rawSignals,
+            suggestedActions: [settingsAction, troubleshootingAction],
+        }
+    }
+
     const triggers = [
         { key: 'URL trigger', status: urlTrigger },
         { key: 'event trigger', status: eventTrigger },
@@ -324,12 +343,12 @@ function diagnoseSignals(properties: Record<string, any>, recordingStatus: unkno
         }
     }
 
-    if (recordingStatus === 'active' && flushedSize !== null && flushedSize > 0) {
+    if ((recordingStatus === 'active' || recordingStatus === 'sampled') && flushedSize !== null && flushedSize > 0) {
         return {
             verdict: 'captured',
             headline: 'A recording should exist for this session',
             reasons: [
-                'The SDK reported `$recording_status = active` and flushed recording data to PostHog.',
+                `The SDK reported \`$recording_status = ${recordingStatus}\` and flushed recording data to PostHog.`,
                 'If the replay still appears missing, it may still be processing, or it may have been deleted due to retention.',
             ],
             rawSignals,

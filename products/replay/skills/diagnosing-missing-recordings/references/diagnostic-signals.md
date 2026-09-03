@@ -26,6 +26,8 @@ This is the SDK state at the moment one event was captured, not a verdict on the
 | Value             | Meaning                                                                                                    |
 | ----------------- | ---------------------------------------------------------------------------------------------------------- |
 | `active`          | SDK is recording and producing snapshots                                                                   |
+| `sampled`         | The session was sampled in for recording                                                                   |
+| `paused`          | Recording is suppressed because the page URL is on the project's blocked list                              |
 | `buffering`       | SDK initialized but waiting for a trigger, duration threshold, or remote config before producing snapshots |
 | `lazy_loading`    | SDK is loading the recorder file. Recording starts once that file takes over                               |
 | `awaiting_config` | SDK asked PostHog for fresh replay config and is waiting for it                                            |
@@ -39,8 +41,9 @@ loaded recorder takes over, so the first events of every page load carry it, and
 project emits it in volume. Read it as "replay is off" only when the session reported
 nothing else and `$session_recording_remote_config.enabled` is `false`.
 
-The SDK does not emit `sampled` or `paused`. Sampling shows up in
-`$session_recording_start_reason`, not in the status.
+`sampled` and `paused` are not the same signal as `$session_recording_start_reason`. A session
+excluded by sampling reports `disabled` as its status and `sampled_out` as the start reason, so
+read sampling from the start reason. `sampled` means the opposite: the session was sampled in.
 
 ### `$session_recording_start_reason` values
 

@@ -21,6 +21,8 @@ const TRIGGER_STATUS_EXPLANATIONS: Record<string, string> = {
 
 const RECORDING_STATUS_EXPLANATIONS: Record<string, string> = {
     active: 'The SDK is recording and producing snapshots.',
+    sampled: 'The session was sampled in for recording, so the SDK is capturing it.',
+    paused: 'Recording is paused because the page URL is on the blocked URLs list for this project.',
     buffering:
         'The SDK initialized but is waiting (for a trigger, duration, or remote config) before producing snapshots.',
     lazy_loading: 'The SDK is loading the recorder file. Recording starts once that file takes over.',
@@ -103,6 +105,7 @@ const BANNER_TYPE_BY_VERDICT: Record<DiagnosisVerdict, LemonBannerProps['type']>
     captured: 'success',
     ad_blocked: 'warning',
     disabled: 'warning',
+    url_blocked: 'info',
     recorder_not_started: 'warning',
     recorder_loading: 'info',
     config_pending: 'info',
