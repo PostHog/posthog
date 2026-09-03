@@ -1582,6 +1582,25 @@ describe("PiSessionController", () => {
     ]);
   });
 
+  it("falls back to stored turn usage when the live stats RPC is unavailable", async () => {
+    const session = createSession();
+    vi.mocked(session.client.getSessionStats).mockRejectedValue(
+      new Error("Cloud task run run-1 is completed"),
+    );
+    session.usageStats = vi.fn(() => ({
+      contextUsage: { tokens: 50_000, contextWindow: 200_000, percent: 25 },
+    }));
+    const controller = createController(session);
+
+    await controller.connect("task-1");
+
+    await vi.waitFor(() => {
+      expect(controller.store.getState().sessions["task-1"].stats).toEqual({
+        contextUsage: { tokens: 50_000, contextWindow: 200_000, percent: 25 },
+      });
+    });
+  });
+
   it("loads session state and appends normalized runtime events", async () => {
     const initialEvent: AgentConversationEvent = {
       type: "assistant_message_chunk",
