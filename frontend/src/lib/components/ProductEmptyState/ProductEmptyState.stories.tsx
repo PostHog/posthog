@@ -9,7 +9,9 @@ import { annotationsEmptyState } from 'products/annotations/frontend/emptyState/
 import { webScriptsEmptyState } from 'products/cdp/frontend/emptyState/webScriptsEmptyState'
 import { cohortsEmptyState } from 'products/cohorts/frontend/emptyState/cohortsEmptyState'
 import { supportEmptyState } from 'products/conversations/frontend/emptyState/supportEmptyState'
+import { customerAnalyticsEmptyState } from 'products/customer_analytics/frontend/emptyState/customerAnalyticsEmptyState'
 import { dashboardsEmptyState } from 'products/dashboards/frontend/emptyState/dashboardsEmptyState'
+import { dataWarehouseEmptyState } from 'products/data_warehouse/frontend/emptyState/dataWarehouseEmptyState'
 import { earlyAccessFeaturesEmptyState } from 'products/early_access_features/frontend/emptyState/earlyAccessFeaturesEmptyState'
 import { endpointsEmptyState } from 'products/endpoints/frontend/emptyState/endpointsEmptyState'
 import { errorTrackingEmptyState } from 'products/error_tracking/frontend/emptyState/errorTrackingEmptyState'
@@ -17,8 +19,10 @@ import { experimentsEmptyState } from 'products/experiments/frontend/emptyState/
 import { featureFlagsEmptyState } from 'products/feature_flags/frontend/emptyState/featureFlagsEmptyState'
 import { linksEmptyState } from 'products/links/frontend/emptyState/linksEmptyState'
 import { logsEmptyState } from 'products/logs/frontend/emptyState/logsEmptyState'
+import { marketingAnalyticsEmptyState } from 'products/marketing_analytics/frontend/emptyState/marketingAnalyticsEmptyState'
 import { mcpAnalyticsEmptyState } from 'products/mcp_analytics/frontend/emptyState/mcpAnalyticsEmptyState'
 import { metricsEmptyState } from 'products/metrics/frontend/emptyState/metricsEmptyState'
+import { productAnalyticsEmptyState } from 'products/product_analytics/frontend/emptyState/productAnalyticsEmptyState'
 import { productToursEmptyState } from 'products/product_tours/frontend/emptyState/productToursEmptyState'
 import { sessionReplayEmptyState } from 'products/replay/frontend/emptyState/sessionReplayEmptyState'
 import { replayVisionEmptyState } from 'products/replay_vision/frontend/emptyState/replayVisionEmptyState'
@@ -26,6 +30,8 @@ import { llmSkillsEmptyState } from 'products/skills/frontend/emptyState/llmSkil
 import { surveysEmptyState } from 'products/surveys/frontend/emptyState/surveysEmptyState'
 import { tracingEmptyState } from 'products/tracing/frontend/emptyState/tracingEmptyState'
 import { userInterviewsEmptyState } from 'products/user_interviews/frontend/emptyState/userInterviewsEmptyState'
+import { webVitalsEmptyState } from 'products/web_analytics/frontend/emptyState/webVitalsEmptyState'
+import { workflowsEmptyState } from 'products/workflows/frontend/emptyState/workflowsEmptyState'
 
 import { ProductEmptyState } from './ProductEmptyState'
 import { ProductEmptyStateStory, productEmptyStateStory } from './storybookHelpers'
@@ -217,6 +223,17 @@ export const DashboardsNeedsSetup: ProductEmptyStateStory = productEmptyStateSto
     { mocks: dashboardsMocks }
 )
 
+// Product analytics detection lists insights on mount - answer "none yet".
+const productAnalyticsMocks = {
+    get: { '/api/projects/:team_id/insights/': [200, { count: 0, results: [] }] },
+} as const
+
+export const ProductAnalyticsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
+    productAnalyticsEmptyState,
+    'needs-setup',
+    { mocks: productAnalyticsMocks }
+)
+
 // Error tracking detection asks the issues-exists API on mount - answer "none yet".
 const errorTrackingMocks = {
     get: { '/api/projects/:team_id/error_tracking/issues/exists/': [200, { exists: false }] },
@@ -272,4 +289,60 @@ export const SessionReplayWaitingForData: ProductEmptyStateStory = productEmptyS
     sessionReplayEmptyState,
     'waiting-for-data',
     { mocks: sessionReplayMocks }
+)
+
+// Web vitals detection asks event definitions on mount - answer "none yet".
+const webVitalsMocks = {
+    get: { '/api/projects/:team_id/event_definitions/': [200, { results: [] }] },
+} as const
+
+export const WebVitalsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(webVitalsEmptyState, 'needs-setup', {
+    mocks: webVitalsMocks,
+})
+
+export const WebVitalsWaitingForData: ProductEmptyStateStory = productEmptyStateStory(
+    webVitalsEmptyState,
+    'waiting-for-data',
+    { mocks: webVitalsMocks }
+)
+
+// Data warehouse detection lists sources and tables on mount - answer "none yet".
+export const DataWarehouseNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
+    dataWarehouseEmptyState,
+    'needs-setup',
+    {
+        mocks: {
+            get: {
+                // nosemgrep: no-environments-api-urls-frontend -- both APIs are env-scoped, so the msw mocks must match /api/environments to intercept them
+                '/api/environments/:team_id/external_data_sources/': [200, { results: [] }],
+                '/api/environments/:team_id/warehouse_tables/': [200, { results: [] }],
+            },
+        },
+    }
+)
+
+// Workflows detection counts workflows on mount - answer "none yet".
+export const WorkflowsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(workflowsEmptyState, 'needs-setup', {
+    mocks: { get: { '/api/projects/:team_id/hog_flows/': [200, { count: 0, results: [] }] } },
+})
+
+// Marketing analytics detection mirrors the scene logic's sources check; the
+// default query mocks answer its source queries with empty results.
+export const MarketingAnalyticsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
+    marketingAnalyticsEmptyState,
+    'needs-setup',
+    {
+        mocks: {
+            get: {
+                // nosemgrep: no-environments-api-urls-frontend -- the sources API is env-scoped, so the msw mock must match /api/environments to intercept it
+                '/api/environments/:team_id/external_data_sources/': [200, { results: [] }],
+            },
+        },
+    }
+)
+
+// Customer analytics detection is synchronous (groups access from the team), so no mocks needed.
+export const CustomerAnalyticsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
+    customerAnalyticsEmptyState,
+    'needs-setup'
 )

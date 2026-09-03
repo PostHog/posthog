@@ -12,6 +12,7 @@ from __future__ import annotations
 from django.db import models
 from django.db.models import Q
 
+from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.scoping.product_mixin import ProductTeamModel
 from posthog.models.utils import uuid7
 
@@ -28,7 +29,7 @@ from .facade.enums import (
 # Lives on a separate product database (see products/db_routing.yaml), so it
 # inherits ProductTeamModel: team_id is a plain BigIntegerField (no cross-DB FK
 # to Team) and the manager is fail-closed. See posthog/models/scoping/README.md.
-class StamphogRepoConfig(ProductTeamModel):
+class StamphogRepoConfig(ModelActivityMixin, ProductTeamModel):
     id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
     # SCM provider this config talks to. GitHub is the only implemented provider
     # today, but the installation/repository identity is provider-scoped so the

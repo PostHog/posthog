@@ -16,11 +16,6 @@ const counterConversionWatchersFailed = new Counter({
     help: 'Watcher rows dropped because the insert failed. Each one is a run whose conversion can never be counted, so the conversion rate under-reports by exactly this much.',
 })
 
-const counterConversionWatchersSwept = new Counter({
-    name: 'cdp_conversion_watchers_swept',
-    help: 'Expired watcher rows deleted. These are runs that reached the end of their attribution window without converting.',
-})
-
 const gaugeConversionWatchersPending = new Gauge({
     name: 'cdp_conversion_watchers_pending_rows',
     help: 'Watcher rows queued in memory waiting for the next flush. Resets to 0 after each flush.',
@@ -30,15 +25,12 @@ const gaugeConversionWatchersPending = new Gauge({
 // binds 10.
 const INSERT_CHUNK_SIZE = 1000
 
-// Bounds one sweep so a long-neglected table can't lock a huge delete; the interval simply runs again.
-const SWEEP_LIMIT = 10000
-
 /**
- * Owns the `conversion_watchers` table: writes a watcher when a run enrolls, and deletes expired ones.
+ * Writes a watcher row when a run enrolls.
  *
  * Reading and claiming watchers belongs to the subscription matcher, which is where the event stream
- * is. This service is the write side, wired into `InvocationResultsService` alongside the other
- * result-borne row sinks.
+ * is, and deleting expired ones belongs to the cyclotron janitor. This service is the write side,
+ * wired into `InvocationResultsService` alongside the other result-borne row sinks.
  */
 export class ConversionWatchersService {
     private queuedRows: ConversionWatcherRow[] = []
@@ -78,9 +70,9 @@ export class ConversionWatchersService {
         // Set first so a flush that has not started yet gets no pool and drops its rows through the
         // failure counter, rather than opening a connection this method is about to close.
         this.stopped = true
-        // A flush or a sweep that is already running holds a pool reference and awaits a query. Ending
-        // the pool under it would fail the work it has not finished, so wait for every one of them.
-        // Each operation reports its own failure, and shutdown must not re-raise that.
+        // A flush that is already running holds a pool reference and awaits a query. Ending the pool
+        // under it would fail the work it has not finished, so wait for every one of them. Each
+        // operation reports its own failure, and shutdown must not re-raise that.
         await Promise.all([...this.inFlight].map((operation) => operation.catch(() => {})))
         const pool = this.pool
         this.pool = null
@@ -169,30 +161,5 @@ export class ConversionWatchersService {
              ON CONFLICT (id) DO NOTHING`,
             values
         )
-    }
-
-    /**
-     * Deletes watchers whose attribution window has closed. Nothing else removes them: a watcher that
-     * converts is deleted by the claim, and one that never converts would otherwise live forever.
-     */
-    public async sweepExpired(): Promise<number> {
-        return this.track(this.deleteExpiredRows())
-    }
-
-    private async deleteExpiredRows(): Promise<number> {
-        const pool = this.getPool()
-        if (!pool) {
-            return 0
-        }
-        const result = await pool.query(
-            `DELETE FROM conversion_watchers
-             WHERE id IN (
-                 SELECT id FROM conversion_watchers WHERE expires_at <= NOW() LIMIT $1
-             )`,
-            [SWEEP_LIMIT]
-        )
-        const deleted = result.rowCount ?? 0
-        counterConversionWatchersSwept.inc(deleted)
-        return deleted
     }
 }

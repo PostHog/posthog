@@ -72,10 +72,10 @@ mod tests {
     }
 
     #[test]
-    fn every_hermes_command_defaults_to_binding_the_release() {
-        // Every existing React Native build omits the flag. Those builds must keep uploading
-        // maps bound to their release. A different default here unbinds all of them, and
-        // nothing in the build output says so.
+    fn every_hermes_command_defaults_to_event_release_mode() {
+        // A build that omits the flag must leave its maps release-independent, so two releases
+        // shipping the same JavaScript keep one symbol set instead of colliding on whichever
+        // release uploaded it first.
         let HermesSubcommand::Clone(clone) = parse(&[
             "hermes",
             "clone",
@@ -86,17 +86,24 @@ mod tests {
         ]) else {
             panic!("expected the clone subcommand");
         };
-        assert_eq!(clone.release_mode, ReleaseMode::SymbolSet);
+        assert_eq!(clone.release_mode, ReleaseMode::Event);
 
         let HermesSubcommand::Upload(upload) = parse(&["hermes", "upload", "--directory", "dist"])
         else {
             panic!("expected the upload subcommand");
         };
-        assert_eq!(upload.release_mode, ReleaseMode::SymbolSet);
+        assert_eq!(upload.release_mode, ReleaseMode::Event);
+
+        // `hermes inject` shares InjectArgs with `sourcemap inject`, so it takes the same default.
+        let HermesSubcommand::Inject(inject) = parse(&["hermes", "inject", "--directory", "dist"])
+        else {
+            panic!("expected the inject subcommand");
+        };
+        assert_eq!(inject.release_mode, ReleaseMode::Event);
     }
 
     #[test]
-    fn every_hermes_command_accepts_event_release_mode() {
+    fn every_hermes_command_accepts_symbol_set_release_mode() {
         let HermesSubcommand::Clone(clone) = parse(&[
             "hermes",
             "clone",
@@ -105,11 +112,11 @@ mod tests {
             "--composed-map-path",
             "main.jsbundle.hbc.composed.map",
             "--release-mode",
-            "event",
+            "symbol-set",
         ]) else {
             panic!("expected the clone subcommand");
         };
-        assert_eq!(clone.release_mode, ReleaseMode::Event);
+        assert_eq!(clone.release_mode, ReleaseMode::SymbolSet);
 
         let HermesSubcommand::Upload(upload) = parse(&[
             "hermes",
@@ -117,10 +124,22 @@ mod tests {
             "--directory",
             "dist",
             "--release-mode",
-            "event",
+            "symbol-set",
         ]) else {
             panic!("expected the upload subcommand");
         };
-        assert_eq!(upload.release_mode, ReleaseMode::Event);
+        assert_eq!(upload.release_mode, ReleaseMode::SymbolSet);
+
+        let HermesSubcommand::Inject(inject) = parse(&[
+            "hermes",
+            "inject",
+            "--directory",
+            "dist",
+            "--release-mode",
+            "symbol-set",
+        ]) else {
+            panic!("expected the inject subcommand");
+        };
+        assert_eq!(inject.release_mode, ReleaseMode::SymbolSet);
     }
 }

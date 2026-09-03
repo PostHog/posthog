@@ -179,6 +179,23 @@ describe("track", () => {
     );
   });
 
+  it("stamps inbox_client on triage events", async () => {
+    const { initializePostHog, track } = await loadAnalytics();
+    initializePostHog();
+
+    track(ANALYTICS_EVENTS.INBOX_TRIAGE_STARTED, {
+      triage_id: "triage-1",
+      queue_size: 3,
+      scope: "for-you",
+      has_active_filters: false,
+    });
+
+    expect(mockPosthog.capture).toHaveBeenCalledWith(
+      ANALYTICS_EVENTS.INBOX_TRIAGE_STARTED,
+      expect.objectContaining({ inbox_client: "code" }),
+    );
+  });
+
   it("does not stamp inbox_client on non-inbox events", async () => {
     const { initializePostHog, track } = await loadAnalytics();
     initializePostHog();

@@ -762,6 +762,7 @@ ignore_imports = [
     "products.signals.backend.routes -> products.signals.backend.views",
     "products.signals.backend.routes -> products.signals.backend.scout_chat",
     "products.signals.backend.routes -> products.signals.backend.scout_harness.views",
+    "products.signals.backend.routes -> products.signals.backend.scout_suggestions_api",
     "products.skills.backend.routes -> products.skills.backend.api.community_skills",
     "products.skills.backend.routes -> products.skills.backend.api.marketplace_views",
     "products.skills.backend.routes -> products.skills.backend.api.skills",

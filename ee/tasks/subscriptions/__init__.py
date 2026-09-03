@@ -80,7 +80,7 @@ def get_subscription_failure_metric(
     )
 
 
-SUPPORTED_TARGET_TYPES = frozenset(["email", "slack"])
+SUPPORTED_TARGET_TYPES = frozenset(Subscription.SubscriptionTarget.values)
 
 
 def _capture_delivery_failed_event(
