@@ -237,7 +237,10 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
         data = request.data if request_data is None and isinstance(request, Request) else request_data
 
         if data and "personal_api_key" in data:
-            return data["personal_api_key"], cls.SOURCE_BODY
+            body_key = data["personal_api_key"]
+            if not isinstance(body_key, str):
+                raise AuthenticationFailed(detail="Personal API key found in request body is invalid.")
+            return body_key, cls.SOURCE_BODY
         if "personal_api_key" in request.GET:
             return request.GET["personal_api_key"], cls.SOURCE_QUERY_STRING
         return None

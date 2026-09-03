@@ -2011,6 +2011,18 @@ class TestPasswordResetAPI(APIBaseTest):
 
 
 class TestPersonalAPIKeyAuthentication(APIBaseTest):
+    def test_non_string_personal_api_key_in_body_returns_401_not_500(self):
+        self.client.logout()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/feature_flags/",
+            data={"personal_api_key": ["anything"], "name": "x", "key": "x"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(response.json()["detail"], "Personal API key found in request body is invalid.")
+
     def test_personal_api_key_updates_last_used_at_hourly(self):
         self.client.logout()
 
