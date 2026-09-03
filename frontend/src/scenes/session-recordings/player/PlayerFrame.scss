@@ -10,7 +10,6 @@
     overflow: hidden;
     background-color: var(--color-bg-3000-dark);
 
-    // iOS WebKit pinch-zoom crash (FB13816677).
     &--ios {
         touch-action: pan-x pan-y;
     }
