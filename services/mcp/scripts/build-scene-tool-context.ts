@@ -57,6 +57,20 @@ interface SceneContextConfig {
 
 const CONFIGS: SceneContextConfig[] = [
     {
+        output: 'products/dashboards/frontend/generated/agentContext.ts',
+        tools: [
+            { constName: 'DASHBOARD_MCP_TOOLS', yamlPath: 'products/dashboards/mcp/tools.yaml' },
+            { constName: 'INSIGHT_MCP_TOOLS', yamlPath: 'products/product_analytics/mcp/tools.yaml' },
+        ],
+        skills: [
+            {
+                constName: 'BUILDING_A_DASHBOARD_SKILL',
+                skillDir: 'products/dashboards/skills/building-a-dashboard',
+                files: ['SKILL.md'],
+            },
+        ],
+    },
+    {
         output: 'products/workflows/frontend/generated/agentContext.ts',
         tools: [
             {
