@@ -14,7 +14,7 @@ from posthog.models.user import User
 from posthog.storage import object_storage
 
 from . import loop_service
-from .logic.services.ai_run_defaults import validate_ai_run_preferences
+from .logic.services.ai_run_defaults import validate_ai_run_preferences_payload
 from .loop_lifecycle import DISABLED_REASON_ADMIN_PAUSED, pause_loop
 from .models import Loop, LoopTrigger, SandboxSnapshot, Task, TaskRun, TeamTasksConfig, UserTasksConfig
 from .visibility import task_run_visibility_q, task_visibility_q
@@ -235,9 +235,6 @@ class LoopTriggerAdmin(admin.ModelAdmin):
         super().delete_queryset(request, queryset)
 
 
-_AI_RUN_PREFERENCE_KEYS = ("runtime_adapter", "model", "reasoning_effort")
-
-
 class _TasksConfigAdminForm(forms.ModelForm):
     """Shared form for the two tasks-config admins. Runs the same checks as the API
     write path (`update_team_ai_run_preferences` / `update_user_ai_run_preferences`),
@@ -247,7 +244,7 @@ class _TasksConfigAdminForm(forms.ModelForm):
         team = self.cleaned_data["team"]
         # Preference rows are keyed on the canonical (project root) team; a row keyed on an
         # environment team is never read by the resolver.
-        if team is not None and team.parent_team_id is not None:
+        if team.parent_team_id is not None:
             raise forms.ValidationError(
                 "Preferences are keyed on the project root team. "
                 f"Pick the parent team (id {team.parent_team_id}) instead of this environment team."
@@ -260,15 +257,7 @@ class _TasksConfigAdminForm(forms.ModelForm):
             return prefs
         if not isinstance(prefs, dict):
             raise forms.ValidationError("Must be a JSON object.")
-        unknown = sorted(set(prefs) - set(_AI_RUN_PREFERENCE_KEYS))
-        if unknown:
-            raise forms.ValidationError(
-                f"Unknown keys: {', '.join(unknown)}. Allowed: {', '.join(_AI_RUN_PREFERENCE_KEYS)}."
-            )
-        non_strings = sorted(key for key, value in prefs.items() if not isinstance(value, str))
-        if non_strings:
-            raise forms.ValidationError(f"Values must be strings: {', '.join(non_strings)}.")
-        validate_ai_run_preferences(prefs.get("runtime_adapter"), prefs.get("model"), prefs.get("reasoning_effort"))
+        validate_ai_run_preferences_payload(prefs)
         return prefs
 
     def _post_clean(self) -> None:
