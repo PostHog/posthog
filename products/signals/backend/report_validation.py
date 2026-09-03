@@ -16,8 +16,9 @@ The prompt stays on the report and never reaches the pull request. A reviewer wh
 self-driving PR has to be able to reproduce the finding first, and the steps that make that
 possible often name a replica, an internal dashboard, or a staff-only tool. The report sits behind
 PostHog auth; the target repository is frequently public, so the same text there would publish
-them. `auto_start._build_autostart_task_description` takes the summary and not this field, which is
-what keeps the two apart.
+them. `auto_start._build_autostart_task_description` takes the summary and not this field, and the
+MCP `inbox-reports-retrieve` tool omits it (see `products/signals/mcp/tools.yaml`), so an agent that
+reads the report while writing that pull request never sees it either.
 """
 
 from __future__ import annotations
