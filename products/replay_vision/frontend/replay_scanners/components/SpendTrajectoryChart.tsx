@@ -14,6 +14,8 @@ const PAD_X = 8
 const TOP = 34
 const BASE = HEIGHT - 20
 const LABEL_CLEARANCE = 12
+// A reference line closer than this to the baseline reads as the axis, and its label hits the date row.
+const AXIS_CLEARANCE = 24
 const ABOVE = -6
 const BELOW = 11
 
@@ -97,10 +99,14 @@ function SpendTrajectoryChartInner({
         const dayEnd = dayjs.utc(entry.date).diff(periodStart, 'day', true) + 1
         cumulative.push({ day: clamp(dayEnd, 0, todayDay), value: runningTotal })
     }
-    // The ledger only holds settled spend, so reserved in-flight credits sit on top of today's point; the
-    // quota total still wins when the series was fetched before the last receipts landed.
-    const spentTotal = Math.max(runningTotal + quota.credits_reserved, quota.credits_used)
-    if (cumulative.length > 0 && spentTotal > runningTotal) {
+    // The card header reads `credits_used`, so today's point is that number and the ledger only gives the
+    // curve its shape. The series is fetched alongside the quota and can be a moment newer, so clamping
+    // every point keeps the line from ending below itself.
+    const spentTotal = quota.credits_used
+    for (const [i, point] of cumulative.entries()) {
+        cumulative[i] = { ...point, value: Math.min(point.value, spentTotal) }
+    }
+    if (cumulative.length > 0) {
         cumulative[cumulative.length - 1] = { ...cumulative[cumulative.length - 1], value: spentTotal }
     }
 
@@ -154,8 +160,12 @@ function SpendTrajectoryChartInner({
     const projectionLabel = `${periodEnd.format('MMM D')} · ~${formatCreditNumber(endValue)}`
     const limitY = cap !== null ? yForCredits(cap) : null
     const freeY = drawFreeLine ? yForCredits(freeCredits) : null
-    // Two dotted reference lines an em apart read as one; drop the free one when they nearly touch.
-    const showFreeLine = freeY !== null && (limitY === null || Math.abs(freeY - limitY) >= LABEL_CLEARANCE)
+    // Two dotted reference lines an em apart read as one; drop the free one when it nearly touches the
+    // limit line, or when it sits so low against the limit that it merges with the axis and its date labels.
+    const showFreeLine =
+        freeY !== null &&
+        (limitY === null || Math.abs(freeY - limitY) >= LABEL_CLEARANCE) &&
+        BASE - freeY >= AXIS_CLEARANCE
 
     // Labels prefer sitting above their anchor; flip below when a reference line runs through that spot.
     const referenceYs = [limitY, freeY].filter((y): y is number => y !== null)
@@ -185,7 +195,7 @@ function SpendTrajectoryChartInner({
 
     return (
         <div className="flex flex-col gap-1">
-            <div className="relative">
+            <div className="relative w-full max-w-[760px]">
                 <svg
                     viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
                     className="block h-auto w-full"
@@ -266,15 +276,6 @@ function SpendTrajectoryChartInner({
                                 strokeDasharray="4 4"
                                 strokeLinecap="round"
                             />
-                            <polyline
-                                points={pointsAttr([crossing, { x: end.x, y: crossing.y }])}
-                                fill="none"
-                                stroke={dangerVar}
-                                strokeWidth={1.5}
-                                strokeDasharray="2 5"
-                                strokeLinecap="round"
-                                opacity={0.7}
-                            />
                             <circle cx={crossing.x} cy={crossing.y} r={3} fill={dangerVar} />
                         </>
                     ) : (
@@ -318,7 +319,7 @@ function SpendTrajectoryChartInner({
                         </Label>
                     )}
                     {showFreeLine && freeY !== null && (
-                        <Label x={WIDTH - PAD_X} y={freeY + BELOW} anchor="end" className="font-semibold text-muted">
+                        <Label x={WIDTH - PAD_X} y={freeY - 8} anchor="end" className="font-semibold text-muted">
                             Free credits · {formatCreditNumber(freeCredits)}
                         </Label>
                     )}
