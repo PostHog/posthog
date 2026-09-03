@@ -59,8 +59,7 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_CYCLOTRON_COMPRESS_VM_STATE: boolean
     CDP_CYCLOTRON_USE_BULK_COPY_JOB: boolean
     CDP_CYCLOTRON_COMPRESS_KAFKA_DATA: boolean
-    // Off until Django emits `$workflow_step_resume` on task and scout completion. Parking before
-    // that leaves every task step waiting out its full deadline with nothing to wake it.
+    // Off until Django emits `$workflow_step_resume`, or parked steps never wake.
     CDP_HOGFLOW_AWAITED_STEPS_ENABLED: boolean
     CDP_REDIS_HOST: string
     CDP_REDIS_PORT: number

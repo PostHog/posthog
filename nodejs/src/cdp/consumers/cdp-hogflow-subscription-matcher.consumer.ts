@@ -16,7 +16,7 @@ import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
-import { UUIDT, sleep } from '~/common/utils/utils'
+import { UUIDT } from '~/common/utils/utils'
 
 import {
     ClickHousePerson,
@@ -181,9 +181,7 @@ type MatchedJob = {
 
 type FilterGlobals = ReturnType<typeof convertToHogFunctionFilterGlobal>
 
-// Emitted by Django when an external run a workflow step dispatched (an AI task, a scout run) reaches
-// a terminal status. `origin_key` is the dispatch key the step sent, so the wake targets one job by
-// primary key and never scans by person.
+// Emitted by Django when a run a workflow step dispatched ends; `origin_key` names the parked job.
 export const WORKFLOW_STEP_RESUME_EVENT = '$workflow_step_resume'
 
 const WorkflowStepResumeSchema = z.object({
@@ -194,26 +192,10 @@ const WorkflowStepResumeSchema = z.object({
 
 type StepResume = z.infer<typeof WorkflowStepResumeSchema> & { jobId: string; actionId: string }
 
-// Covers a job still mid-dequeue when its wake lands: Django's response to the dispatch and the
-// worker's park write are the same dequeue, so a run that finishes inside that window finds the
-// row `running`. Three rounds is well past a slow batch; anything longer is a real stall and the
-// deadline handles it.
-const STEP_RESUME_MAX_ATTEMPTS = 3
-
-const counterStepResumeDelivered = new Counter({
-    name: 'cdp_hogflow_step_resume_delivered',
-    help: 'Parked steps woken by a $workflow_step_resume event.',
-})
-
-const counterStepResumeDropped = new Counter({
-    name: 'cdp_hogflow_step_resume_dropped',
-    help: 'Step resumes that woke nothing, by reason.',
-    labelNames: ['reason'],
-})
-
-const counterStepResumeRetries = new Counter({
-    name: 'cdp_hogflow_step_resume_retries',
-    help: 'Step resumes re-checked because the job was still running when the wake arrived.',
+const counterStepResume = new Counter({
+    name: 'cdp_hogflow_step_resume',
+    help: 'Workflow step resumes by outcome.',
+    labelNames: ['outcome'],
 })
 
 // Wakes parked hogflow jobs when an event matches a `wait_until_condition` step
@@ -853,9 +835,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         return events
     }
 
-    // Step resumes ride the internal events topic but are not events to match: they name the job
-    // they wake, so they bypass the person and team gates the event parser applies. Split them
-    // out before parsing the rest as events.
+    // Step resumes name their job, so they skip the person and team gates the event parser applies.
     public _splitStepResumes(messages: Message[]): { resumes: StepResume[]; rest: Message[] } {
         const resumes: StepResume[] = []
         const rest: Message[] = []
@@ -864,7 +844,6 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             try {
                 parsed = CdpInternalEventSchema.parse(parseJSON(message.value!.toString()))
             } catch {
-                // Let the event parser report the parse failure once, with its own metric.
                 rest.push(message)
                 continue
             }
@@ -875,8 +854,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             const props = WorkflowStepResumeSchema.safeParse(parsed.event.properties)
             const key = props.success ? parseWorkflowStepDispatchKey(props.data.origin_key) : null
             if (!props.success || !key) {
-                logger.warn('Dropping malformed workflow step resume', { teamId: parsed.team_id })
-                counterStepResumeDropped.labels({ reason: 'parse_error' }).inc()
+                counterStepResume.labels({ outcome: 'parse_error' }).inc()
                 continue
             }
             resumes.push({ ...props.data, ...key })
@@ -884,74 +862,42 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         return { resumes, rest }
     }
 
-    // Exposed so tests can drop the wait between retry rounds.
-    public stepResumeRetryDelayMs = 2000
-
     @instrumented('cdpHogflowSubscriptionMatcher.processStepResumes')
     public async processStepResumes(resumes: StepResume[]): Promise<void> {
-        let pending = new Map(resumes.map((resume) => [resume.jobId, resume]))
-        for (let attempt = 0; pending.size > 0 && attempt < STEP_RESUME_MAX_ATTEMPTS; attempt++) {
-            if (attempt > 0) {
-                counterStepResumeRetries.inc(pending.size)
-                await sleep(this.stepResumeRetryDelayMs)
-            }
-            pending = await this.deliverStepResumes(pending)
+        if (resumes.length === 0) {
+            return
         }
-        counterStepResumeDropped.labels({ reason: 'job_running' }).inc(pending.size)
-    }
-
-    // Writes each resume into its job's state and pulls the job forward. Returns the resumes whose
-    // job was still `running`, for the caller to retry.
-    private async deliverStepResumes(pending: Map<string, StepResume>): Promise<Map<string, StepResume>> {
-        const stillRunning = new Map<string, StepResume>()
+        const byJob = new Map(resumes.map((resume) => [resume.jobId, resume]))
         const client = await this.cyclotronPool.connect()
         try {
             await client.query('BEGIN')
-            // No status filter: a `running` row must be told apart from a finished or missing one,
-            // because only the former is worth a retry.
             const rows = await client.query(
-                `SELECT id, status, state FROM cyclotron_jobs
-                 WHERE id = ANY($1::uuid[])
-                 ORDER BY id
-                 FOR UPDATE`,
-                [[...pending.keys()]]
+                `SELECT id, status, state FROM cyclotron_jobs WHERE id = ANY($1::uuid[]) ORDER BY id FOR UPDATE`,
+                [[...byJob.keys()]]
             )
-            const seen = new Set<string>()
             const updates: { id: string; state: Buffer }[] = []
             for (const row of rows.rows) {
-                seen.add(row.id)
-                const resume = pending.get(row.id)!
-                if (row.status === 'running') {
-                    stillRunning.set(row.id, resume)
-                    continue
-                }
-                if (row.status !== 'available' || !row.state) {
-                    counterStepResumeDropped.labels({ reason: 'job_finished' }).inc()
-                    continue
-                }
-                const state = applyStepResumeToState(row.state, resume)
+                const resume = byJob.get(row.id)!
+                byJob.delete(row.id)
+                const state = row.status === 'available' && row.state ? applyStepResumeToState(row.state, resume) : null
                 if (!state) {
-                    counterStepResumeDropped.labels({ reason: 'stale_key' }).inc()
+                    counterStepResume
+                        .labels({ outcome: row.status === 'available' ? 'stale_key' : `job_${row.status}` })
+                        .inc()
                     continue
                 }
                 updates.push({ id: row.id, state })
             }
-            for (const id of pending.keys()) {
-                if (!seen.has(id)) {
-                    counterStepResumeDropped.labels({ reason: 'job_missing' }).inc()
-                }
-            }
+            counterStepResume.labels({ outcome: 'job_missing' }).inc(byJob.size)
             if (updates.length > 0) {
                 const updated = await client.query(
                     `UPDATE cyclotron_jobs cj
                      SET scheduled = NOW(), state = u.state
-                     FROM (
-                         SELECT unnest($1::uuid[]) AS id, unnest($2::bytea[]) AS state
-                     ) u
+                     FROM (SELECT unnest($1::uuid[]) AS id, unnest($2::bytea[]) AS state) u
                      WHERE cj.id = u.id AND cj.status = 'available'`,
                     [updates.map((u) => u.id), updates.map((u) => u.state)]
                 )
-                counterStepResumeDelivered.inc(updated.rowCount ?? 0)
+                counterStepResume.labels({ outcome: 'delivered' }).inc(updated.rowCount ?? 0)
             }
             await client.query('COMMIT')
         } catch (err) {
@@ -960,7 +906,6 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         } finally {
             client.release()
         }
-        return stillRunning
     }
 
     @instrumented('cdpHogflowSubscriptionMatcher.parseInternalEventMessages')

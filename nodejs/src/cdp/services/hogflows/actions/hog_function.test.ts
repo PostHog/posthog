@@ -683,7 +683,6 @@ describe('HogFunctionHandler', () => {
         }
 
         beforeEach(async () => {
-            // Unique per team: the fixture upserts by id and keeps the first code it saw.
             TASK_TEMPLATE_ID = `template-awaited-step-${team.id}`
             await insertHogFunctionTemplate(hub.postgres, {
                 id: TASK_TEMPLATE_ID,
@@ -708,7 +707,6 @@ describe('HogFunctionHandler', () => {
 
             expect(handlerResult.nextAction).toBeUndefined()
             expect(handlerResult.scheduledAt!.diff(before).as('minutes')).toBeGreaterThanOrEqual(190)
-            // Stored at park time so a later failure still leaves the ids for the next steps.
             expect(handlerResult.result).toEqual({ id: 't1', run_id: 'r1' })
             expect(invocationResult.invocation.state.currentAction?.awaitingResume).toEqual({
                 key: dispatchKey,

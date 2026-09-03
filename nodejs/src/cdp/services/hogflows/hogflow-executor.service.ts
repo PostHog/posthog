@@ -124,7 +124,6 @@ export class HogFlowExecutorService {
     ) {
         this.hogFlowFunctionsService = hogFlowFunctionsService
         this.duplicateObserver = duplicateObserver ?? null
-        // Only the plain function handler runs the task and scout templates.
         const hogFunctionHandler = new HogFunctionHandler(
             hogFlowFunctionsService,
             recipientPreferencesService,

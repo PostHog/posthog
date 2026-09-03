@@ -2470,7 +2470,7 @@ describe('Workflows E2E (postgres-v2)', () => {
                     event: '$pageview',
                     uuid: 'b3a1fe86-b10c-43cc-acaf-d208977608d0',
                 }),
-                idempotency_key: expect.stringMatching(/^[0-9a-f-]{36}:function_1$/),
+                idempotency_key: expect.stringMatching(/^[0-9a-f-]{36}:function_1:0$/),
             })
 
             // The endpoint trusts these claims to resolve the workflow owner, so the token has to
@@ -2486,8 +2486,13 @@ describe('Workflows E2E (postgres-v2)', () => {
             expect(claims.team_id).toEqual(team.id)
             expect(claims.hog_flow_id).toEqual(flowId)
 
-            await waitForExpect(() => {
-                expect(runMetricNames()).toContain('succeeded')
+            // The step parks until Django wakes it with the task's outcome.
+            await waitForExpect(async () => {
+                const { rows } = await cyclotronPool.query(`SELECT id, status, state FROM cyclotron_jobs`)
+                expect(rows).toHaveLength(1)
+                expect(rows[0].status).toEqual('available')
+                const state = parseJSON(rows[0].state.toString('utf-8')).state
+                expect(state.currentAction.awaitingResume.key).toEqual(`${rows[0].id}:function_1:0`)
             }, 10000)
             expect(runMetricNames()).not.toContain('failed')
         })

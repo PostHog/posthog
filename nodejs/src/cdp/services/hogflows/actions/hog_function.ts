@@ -28,16 +28,11 @@ type Action = Extract<HogFlowAction, { type: FunctionActionType }>
 
 type AwaitingResume = NonNullable<NonNullable<HogFlowInvocationContext['currentAction']>['awaitingResume']>
 
-// A template that starts an external run and wants the step to wait for it returns an `await` object
-// next to its result: `{ ..., 'await': { 'max_wait': '190m', 'label': 'task' } }`. The step parks
-// until Django wakes it by the step's dispatch key, with `max_wait` as the backstop. The template
-// author sets `max_wait` to the run's own hard cap plus slack: Django fails a run at that cap and
-// wakes the step, which reads as "the task failed", so the deadline only fires for a lost wake.
+// A template parks the step by returning `{ ..., 'await': { 'max_wait': '190m', 'label': 'task' } }`.
 type AwaitRequest = { maxWait: Duration; label: string }
 
 const AWAIT_DURATION_REGEX = /^(\d*\.?\d+)([dhms])$/
 const SECONDS_PER_UNIT: Record<string, number> = { d: 86400, h: 3600, m: 60, s: 1 }
-// Bounds a parked job whatever a template asks for.
 const AWAIT_MAX_WAIT_CEILING = Duration.fromObject({ hours: 24 })
 
 const parseAwaitRequest = (execResult: unknown): AwaitRequest | null => {
@@ -59,9 +54,7 @@ const parseAwaitRequest = (execResult: unknown): AwaitRequest | null => {
 
 const humanDuration = (duration: Duration): string => duration.rescale().toHuman()
 
-// The step result is what `output_variable` stores, and the executor fails the step when total
-// workflow variables pass its 5KB cap. Strings in the result are cut to what still fits, with room
-// left for the ids, the status, and the keys themselves.
+// Result strings are cut to fit under the executor's 5KB variables cap, which fails the step.
 const RESUME_RESULT_STRING_CAP = 1500
 const VARIABLES_BYTE_CAP = 5120
 const VARIABLES_HEADROOM_BYTES = 512
@@ -76,7 +69,6 @@ const resumeStringCap = (variables: Record<string, unknown>): number => {
     return Math.max(0, Math.min(RESUME_RESULT_STRING_CAP, VARIABLES_BYTE_CAP - VARIABLES_HEADROOM_BYTES - used))
 }
 
-// A string cut to zero is dropped rather than stored empty, so a template reading it sees "unset".
 const truncateStringValues = (obj: Record<string, unknown>, cap: number): Record<string, unknown> =>
     Object.fromEntries(
         Object.entries(obj)
@@ -102,9 +94,7 @@ export class HogFunctionHandler implements ActionHandler {
     }: ActionHandlerOptions<Action>): Promise<ActionHandlerResult> {
         const awaitedStepsEnabled = this.options.awaitedStepsEnabled ?? false
         const awaiting = invocation.state.currentAction?.awaitingResume
-        // A parked step re-enters here on wake or deadline. Nothing below must run again: the
-        // dispatch already happened and was billed, and the variable-usage guard below keys on
-        // hogFunctionState, which a finished function never sets.
+        // Resume before anything else: the dispatch already ran and was billed.
         if (awaitedStepsEnabled && awaiting) {
             return this.resumeAwaitedStep(invocation, action, result, awaiting)
         }
@@ -220,8 +210,7 @@ export class HogFunctionHandler implements ActionHandler {
             timestamp: DateTime.now(),
             message: `${actionIdForLogging(action)} Waiting for the ${awaitRequest.label} to finish (up to ${humanDuration(awaitRequest.maxWait)})`,
         })
-        // The dispatch ids are stored now, not only on resume, so a step that later fails still
-        // leaves them in variables for the steps `on_error: continue` carries on to.
+        // Stored now so a step that later fails still leaves the ids for `on_error: continue`.
         return { scheduledAt: deadline, result: dispatch }
     }
 
@@ -264,8 +253,7 @@ export class HogFunctionHandler implements ActionHandler {
         if (DateTime.now() >= deadline) {
             throw new Error(`Timed out waiting for the ${label} to finish`)
         }
-        // Woken before the deadline with nothing to consume (clock skew between Postgres and this
-        // worker is the known cause): park again until the deadline.
+        // Woken early with nothing (clock skew): park again.
         return { scheduledAt: deadline }
     }
 

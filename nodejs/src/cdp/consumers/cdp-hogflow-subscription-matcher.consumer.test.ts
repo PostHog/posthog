@@ -123,9 +123,7 @@ class MatcherUnderTest extends CdpHogflowSubscriptionMatcherConsumer {
     public claimedWatcherIds: string[] | null = null
     public wakeRows: MockRow[] = []
     public moveRows: MockRow[] = []
-    // Served in order to successive step-resume lookups, the last entry repeating, so a test can
-    // model a job that is still running on the first check and parked on the next.
-    public resumeRowsSequence: { id: string; status: string; state?: Buffer | null }[][] = []
+    public resumeRows: { id: string; status: string; state?: Buffer | null }[] = []
     public updateRowCount = 0
 
     constructor() {
@@ -157,11 +155,7 @@ class MatcherUnderTest extends CdpHogflowSubscriptionMatcherConsumer {
                 return Promise.resolve({ rows: this.wakeRows, rowCount: this.wakeRows.length })
             }
             if (sql.includes('SELECT id, status, state FROM cyclotron_jobs')) {
-                const rows =
-                    this.resumeRowsSequence.length > 1
-                        ? this.resumeRowsSequence.shift()!
-                        : (this.resumeRowsSequence[0] ?? [])
-                return Promise.resolve({ rows, rowCount: rows.length })
+                return Promise.resolve({ rows: this.resumeRows, rowCount: this.resumeRows.length })
             }
             if (sql.includes('SELECT id, team_id, distinct_id, function_id, action_id, state')) {
                 return Promise.resolve({ rows: this.moveRows, rowCount: this.moveRows.length })
@@ -1890,11 +1884,6 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             matcher.calls.find(
                 (c) => c.sql.startsWith('UPDATE cyclotron_jobs') && c.sql.includes('SET scheduled = NOW()')
             )
-        const resumeLookups = () => matcher.calls.filter((c) => c.sql.includes('SELECT id, status, state'))
-
-        beforeEach(() => {
-            matcher.stepResumeRetryDelayMs = 0
-        })
 
         it('routes a resume out of the events stream even for a team with no wait steps', () => {
             const other = { value: Buffer.from(JSON.stringify({ team_id: 2, event: { event: 'other' } })) }
@@ -1913,7 +1902,7 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
         })
 
         it('stamps the result on the parked step and pulls the job forward', async () => {
-            matcher.resumeRowsSequence = [[{ id: jobId, status: 'available', state: parkedState() }]]
+            matcher.resumeRows = [{ id: jobId, status: 'available', state: parkedState() }]
 
             await matcher.processStepResumes([{ ...resume, status: 'completed', jobId, actionId: 'task_node' }])
 
@@ -1931,33 +1920,12 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
         it.each([
             ['the job waits on a different visit', 'available', parkedState(`${jobId}:task_node:1`)],
             ['the job already finished', 'completed', parkedState()],
+            ['the job is still mid-dequeue', 'running', null],
         ])('wakes nothing when %s', async (_, status, state) => {
-            matcher.resumeRowsSequence = [[{ id: jobId, status, state }]]
+            matcher.resumeRows = [{ id: jobId, status, state }]
 
             await matcher.processStepResumes([{ ...resume, status: 'completed', jobId, actionId: 'task_node' }])
 
-            expect(resumeUpdate()).toBeUndefined()
-            expect(resumeLookups()).toHaveLength(1)
-        })
-
-        it('re-checks a job that was still mid-dequeue and wakes it once it parks', async () => {
-            matcher.resumeRowsSequence = [
-                [{ id: jobId, status: 'running', state: null }],
-                [{ id: jobId, status: 'available', state: parkedState() }],
-            ]
-
-            await matcher.processStepResumes([{ ...resume, status: 'completed', jobId, actionId: 'task_node' }])
-
-            expect(resumeLookups()).toHaveLength(2)
-            expect(resumeUpdate()).toBeDefined()
-        })
-
-        it('gives up on a job that never parks', async () => {
-            matcher.resumeRowsSequence = [[{ id: jobId, status: 'running', state: null }]]
-
-            await matcher.processStepResumes([{ ...resume, status: 'completed', jobId, actionId: 'task_node' }])
-
-            expect(resumeLookups()).toHaveLength(3)
             expect(resumeUpdate()).toBeUndefined()
         })
     })
