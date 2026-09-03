@@ -151,13 +151,13 @@ export function DashboardEditSaveCancelButtons({
     applyFiltersButton?: JSX.Element | null
 }): JSX.Element {
     const { dashboardLoading, canEditDashboard } = useValues(dashboardLogic)
-    const { cancelEditMode, saveLayout } = useActions(dashboardLogic)
+    const { cancelLayoutEdit, saveLayout } = useActions(dashboardLogic)
 
     const cancelButton = (
         <LemonButton
             data-attr="dashboard-edit-mode-discard"
             type="secondary"
-            onClick={() => cancelEditMode()}
+            onClick={cancelLayoutEdit}
             size="small"
             tooltip="Discard layout changes and exit layout editing"
         >

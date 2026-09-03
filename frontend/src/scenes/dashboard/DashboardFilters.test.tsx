@@ -123,7 +123,7 @@ describe('DashboardFilterBar', () => {
 
         await expectLogic(logic, () => {
             logic.actions.setDates('-7d', null)
-            logic.actions.cancelEditMode()
+            logic.actions.cancelLayoutEdit()
         }).toFinishAllListeners()
 
         expect(document.querySelector('[data-attr="dashboard-filters-unsaved"]')).toBeInTheDocument()

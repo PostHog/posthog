@@ -682,9 +682,9 @@ describe('dashboardLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             await expectLogic(logic, () => {
-                logic.actions.setDates('-7d', null)
                 logic.actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.SceneCommonButtons)
-                logic.actions.cancelEditMode()
+                logic.actions.setDates('-7d', null)
+                logic.actions.cancelLayoutEdit()
             }).toFinishAllListeners()
 
             expect(logic.values.dashboardMode).toBeNull()
@@ -1190,139 +1190,6 @@ describe('dashboardLogic', () => {
                 reportModeToggled.mockRestore()
             })
 
-            it('restoreUrlStateAtEditModeEntry applies snapshot payload to url', async () => {
-                const editedFilters = JSON.stringify({ date_from: '-14d', date_to: null })
-                const originalFilters = JSON.stringify({ date_from: '-7d', date_to: null })
-
-                logic.unmount()
-                router.actions.push('/dashboard/5', {
-                    [dashboardUtils.SEARCH_PARAM_FILTERS_KEY]: editedFilters,
-                })
-                logic = dashboardLogic({ id: 5 })
-                logic.mount()
-                await expectLogic(logic).toFinishAllListeners()
-
-                await expectLogic(logic, () => {
-                    logic.actions.restoreUrlStateAtEditModeEntry({
-                        filters: originalFilters,
-                        variables: undefined,
-                    })
-                }).toFinishAllListeners()
-
-                expect(router.values.searchParams[dashboardUtils.SEARCH_PARAM_FILTERS_KEY]).toBe(originalFilters)
-            })
-
-            it('discarding filter edit passes url snapshot into restore action', async () => {
-                const originalFilters = JSON.stringify({ date_from: '-7d', date_to: null })
-
-                logic.unmount()
-                router.actions.push('/dashboard/5', {
-                    [dashboardUtils.SEARCH_PARAM_FILTERS_KEY]: originalFilters,
-                })
-                logic = dashboardLogic({ id: 5 })
-                logic.mount()
-                await expectLogic(logic).toFinishAllListeners()
-
-                expect(logic.values.urlFilters).toEqual(expect.objectContaining({ date_from: '-7d' }))
-                expect(logic.values.urlSearchParamsAtEditModeEntry).toBeNull()
-
-                const restoreSpy = jest.spyOn(logic.actions, 'restoreUrlStateAtEditModeEntry')
-
-                await expectLogic(logic, () => {
-                    logic.actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.DashboardFilters)
-                })
-                    .toFinishAllListeners()
-                    .toMatchValues({
-                        urlSearchParamsAtEditModeEntry: {
-                            filters: originalFilters,
-                            variables: undefined,
-                        },
-                    })
-
-                await expectLogic(logic, () => {
-                    logic.actions.setDates('-14d', null)
-                }).toFinishAllListeners()
-
-                restoreSpy.mockClear()
-
-                await expectLogic(logic, () => {
-                    logic.actions.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)
-                }).toFinishAllListeners()
-
-                expect(restoreSpy).toHaveBeenCalledWith({
-                    filters: originalFilters,
-                    variables: undefined,
-                })
-
-                restoreSpy.mockRestore()
-            })
-
-            it('discarding after a previewed filter change reloads tiles', async () => {
-                await expectLogic(logic).toFinishAllListeners()
-
-                await expectLogic(logic, () => {
-                    logic.actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.DashboardFilters)
-                    logic.actions.setDates('-14d', null)
-                }).toFinishAllListeners()
-
-                await expectLogic(logic, () => {
-                    logic.actions.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)
-                })
-                    .toDispatchActions([
-                        // anchor at the discard dispatch, so the refresh matched below is the
-                        // discard-triggered one and not an earlier (initial load / preview) one
-                        logic.actionCreators.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges),
-                        'refreshDashboardItems',
-                    ])
-                    .toFinishAllListeners()
-            })
-
-            it('discarding without a previewed filter change does not reload tiles', async () => {
-                await expectLogic(logic).toFinishAllListeners()
-
-                await expectLogic(logic, () => {
-                    logic.actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.SceneCommonButtons)
-                }).toFinishAllListeners()
-
-                await expectLogic(logic, () => {
-                    logic.actions.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)
-                })
-                    .toDispatchActions([
-                        // anchor at the discard dispatch, so only actions after it are considered
-                        logic.actionCreators.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges),
-                    ])
-                    .toFinishAllListeners()
-                    .toNotHaveDispatchedActions(['refreshDashboardItems'])
-            })
-
-            it('discarding an unapplied filter edit above the auto-preview limit does not reload tiles', async () => {
-                // The skip-reload check relies on unpreviewed edits never reaching the URL:
-                // when the dashboard is over the auto-preview limit, filter edits stay
-                // intermittent (no URL write, no refresh) until "Preview" is clicked.
-                const payloadSpy = jest.spyOn(featureFlagLib, 'getFeatureFlagPayload').mockReturnValue(1)
-
-                await expectLogic(logic).toFinishAllListeners()
-                expect(logic.values.canAutoPreview).toBe(false)
-
-                await expectLogic(logic, () => {
-                    logic.actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.DashboardFilters)
-                    logic.actions.setDates('-14d', null)
-                }).toFinishAllListeners()
-
-                expect(router.values.searchParams[dashboardUtils.SEARCH_PARAM_FILTERS_KEY]).toBeUndefined()
-
-                await expectLogic(logic, () => {
-                    logic.actions.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)
-                })
-                    .toDispatchActions([
-                        logic.actionCreators.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges),
-                    ])
-                    .toFinishAllListeners()
-                    .toNotHaveDispatchedActions(['refreshDashboardItems'])
-
-                payloadSpy.mockRestore()
-            })
-
             it('filter edit source clears layout edit mode', async () => {
                 await expectLogic(logic).toFinishAllListeners()
 
@@ -1493,7 +1360,7 @@ describe('dashboardLogic', () => {
             })
         })
 
-        describe('cancelEditMode action', () => {
+        describe('cancelLayoutEdit action', () => {
             // The discard prompt renders a real dialog into its own React root, whose async
             // updates land outside act(); these tests only assert dispatched actions
             let dialogOpenSpy: jest.SpyInstance
@@ -1528,7 +1395,7 @@ describe('dashboardLogic', () => {
                 await expectLogic(logic).toFinishAllListeners()
 
                 await expectLogic(logic, () => {
-                    logic.actions.cancelEditMode()
+                    logic.actions.cancelLayoutEdit()
                 }).toDispatchActions([
                     logic.actionCreators.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges),
                 ])
@@ -1541,7 +1408,7 @@ describe('dashboardLogic', () => {
                 await expectLogic(logic, moveFirstTile).toFinishAllListeners()
 
                 await expectLogic(logic, () => {
-                    logic.actions.cancelEditMode()
+                    logic.actions.cancelLayoutEdit()
                 }).toNotHaveDispatchedActions([
                     logic.actionCreators.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges),
                 ])
@@ -1554,7 +1421,7 @@ describe('dashboardLogic', () => {
                 await expectLogic(logic, moveFirstTile).toFinishAllListeners()
 
                 await expectLogic(logic, () => {
-                    logic.actions.cancelEditMode()
+                    logic.actions.cancelLayoutEdit()
                 }).toDispatchActions([
                     logic.actionCreators.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges),
                 ])

@@ -513,14 +513,3 @@ const LAYOUT_EDIT_EVENT_SOURCES = new Set<DashboardEventSource>([
 export function isLayoutEditEventSource(source: DashboardEventSource | null): boolean {
     return source !== null && LAYOUT_EDIT_EVENT_SOURCES.has(source)
 }
-
-export function shouldSnapshotUrlAtEditModeEntry(source: DashboardEventSource | null): boolean {
-    return (
-        source !== null &&
-        (isLayoutEditEventSource(source) ||
-            source === DashboardEventSource.DashboardFilters ||
-            source === DashboardEventSource.DashboardVariableOverride ||
-            source === DashboardEventSource.DashboardInsightColorsModal ||
-            source === DashboardEventSource.DashboardHeaderOverridesBanner)
-    )
-}
