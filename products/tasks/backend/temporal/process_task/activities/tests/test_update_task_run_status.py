@@ -623,6 +623,8 @@ def test_terminal_transition_wakes_the_workflow_step_that_started_the_run(
     task.origin_product = origin_product
     task.origin_key = origin_key
     task.save(update_fields=["origin_product", "origin_key"])
+    test_task_run.output = {"final_message": "done"}
+    test_task_run.save(update_fields=["output"])
     input_data = UpdateTaskRunStatusInput(run_id=str(test_task_run.id), status=TaskRun.Status.COMPLETED)
 
     with patch("products.tasks.backend.logic.services.workflow_step_resume.resume_workflow_step") as resume:

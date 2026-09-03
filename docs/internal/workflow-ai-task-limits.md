@@ -21,3 +21,5 @@ The wait is bounded by the product's own runtime cap: 3 hours 10 minutes for tas
 A step that reaches the cap without a result fails with a timeout.
 The wake arrives through the `$workflow_step_resume` internal event, keyed on the step's idempotency key.
 `CDP_HOGFLOW_AWAIT_TASK_COMPLETION` on the plugin server turns the wait on; leave it off until the API that emits the wake is deployed.
+A task that ends through the agent's `finish` tool completes a few seconds before its final message is saved.
+The step waits for that message (up to 30 seconds) rather than continuing with an empty one.

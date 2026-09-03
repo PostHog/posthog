@@ -26,6 +26,7 @@ from products.tasks.backend.logic.services.permission_broker import (
     parse_permission_request,
     try_auto_respond_permission_request,
 )
+from products.tasks.backend.logic.services.workflow_step_resume import resume_workflow_step_after_final_message
 from products.tasks.backend.logic.stream.agent_events import is_agent_command_dispatched, is_agent_generation_event
 from products.tasks.backend.logic.stream.redis_stream import TaskRunRedisStream, get_task_run_stream_key
 from products.tasks.backend.models import (
@@ -926,6 +927,9 @@ def _persist_final_message(run_id: str, text: str) -> None:
             output = run.output if isinstance(run.output, dict) else {}
             run.output = {**output, "final_message": text}
             run.save(update_fields=["output", "updated_at"])
+        # The `finish` tool can complete the run before this message lands; the row lock above
+        # orders the two, so a run seen as terminal here was not woken with the message yet.
+        resume_workflow_step_after_final_message(run)
     except Exception:
         logger.warning("relay_final_message_persist_failed", run_id=run_id, exc_info=True)
 
