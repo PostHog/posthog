@@ -18,6 +18,7 @@ from clickhouse_pool import ChPool
 
 from posthog import settings
 from posthog.clickhouse.client.connection import NodeRole, Workload, _make_ch_pool, default_client
+from posthog.dataclasses import frozen
 from posthog.settings import CLICKHOUSE_PER_TEAM_SETTINGS
 from posthog.settings.data_stores import CLICKHOUSE_CLUSTER, TEST
 
@@ -678,7 +679,7 @@ class Query:
         return f"Query(query={query!r}, parameters={params_repr}, settings={self.settings!r})"
 
 
-@dataclass
+@frozen
 class SkipIfTableMissing(Generic[T]):
     """Runs the wrapped callable only on the hosts that have the table.
 

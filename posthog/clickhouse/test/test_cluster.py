@@ -897,7 +897,7 @@ def test_skip_if_table_missing(row_count: int, expect_run: bool) -> None:
     client.execute.return_value = [[row_count]]
     wrapped = Mock(return_value=sentinel.RESULT)
 
-    result = SkipIfTableMissing("sharded_thing", wrapped)(client)
+    result = SkipIfTableMissing(table="sharded_thing", fn=wrapped)(client)
 
     assert result is (sentinel.RESULT if expect_run else None)
     assert wrapped.call_count == (1 if expect_run else 0)

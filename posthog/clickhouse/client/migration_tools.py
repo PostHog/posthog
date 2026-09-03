@@ -94,7 +94,11 @@ def run_sql_with_exceptions(
     def run_migration():
         cluster = get_migrations_cluster()
 
-        query = Query(sql) if skip_if_table_missing is None else SkipIfTableMissing(skip_if_table_missing, Query(sql))
+        query = (
+            Query(sql)
+            if skip_if_table_missing is None
+            else SkipIfTableMissing(table=skip_if_table_missing, fn=Query(sql))
+        )
 
         if sharded and is_alter_on_replicated_table:
             is_local_or_test = _collapses_to_all_nodes()
