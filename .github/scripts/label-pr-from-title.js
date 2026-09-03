@@ -96,7 +96,7 @@ async function addLabels(labels) {
         const response = await fetch(`https://api.github.com/repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/labels`, {
             method: 'POST',
             headers: {
-                Authorization: `token ${GITHUB_TOKEN}`,
+                Authorization: `Bearer ${GITHUB_TOKEN}`,
                 Accept: 'application/vnd.github.v3+json',
                 'Content-Type': 'application/json',
             },

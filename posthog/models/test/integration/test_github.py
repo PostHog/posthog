@@ -37,6 +37,8 @@ from posthog.models.integration import (
 )
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 
+STATELESS_INSTALLATION_TOKEN = "ghs_123456_" + ".".join(("a" * 169, "b" * 169, "c" * 169))
+
 
 class TestExtractFailingChecks(SimpleTestCase):
     @parameterized.expand(
@@ -1948,8 +1950,14 @@ class TestGitHubIntegrationGhApiGet(BaseTest):
         mock_get.return_value = ok
 
         integration = self._create_integration()
+        integration.sensitive_config = {"access_token": STATELESS_INSTALLATION_TOKEN}
+        integration.save(update_fields=["sensitive_config"])
+        integration.refresh_from_db()
+
         body = GitHubIntegration(integration)._gh_api_get("/repos/PostHog/posthog", endpoint="/repos/{owner}/{repo}")
+
         assert body == {"default_branch": "main"}
+        assert mock_get.call_args.kwargs["headers"]["Authorization"] == f"Bearer {STATELESS_INSTALLATION_TOKEN}"
 
     @patch("posthog.egress.transport.transport.requests.request")
     @patch("posthog.egress.github.transport.consume_github_installation_sync", return_value=False)

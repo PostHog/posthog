@@ -13,6 +13,8 @@ from products.tasks.backend.temporal.process_task.sandbox_credentials import (
     set_git_remote_token,
 )
 
+STATELESS_INSTALLATION_TOKEN = "ghs_123456_" + ".".join(("a" * 169, "b" * 169, "c" * 169))
+
 
 def _ok(stdout: str = "") -> ExecutionResult:
     return ExecutionResult(stdout=stdout, stderr="", exit_code=0)
@@ -52,11 +54,13 @@ class TestSetGitRemoteToken:
         sandbox = MagicMock()
         sandbox.execute.return_value = _ok()
 
-        assert set_git_remote_token(sandbox, "explore-science/paper-wizard-frontend", "ghs_new") is True
+        assert (
+            set_git_remote_token(sandbox, "explore-science/paper-wizard-frontend", STATELESS_INSTALLATION_TOKEN) is True
+        )
 
         command = sandbox.execute.call_args[0][0]
         assert "git remote set-url origin" in command
-        assert "x-access-token:ghs_new" in command
+        assert f"x-access-token:{STATELESS_INSTALLATION_TOKEN}" in command
         assert "explore-science/paper-wizard-frontend" in command
 
     def test_removes_stale_token_when_current_credential_is_missing(self):
@@ -82,11 +86,11 @@ class TestReplaceSandboxCredentials:
         sandbox.execute.return_value = _ok()
         sandbox.write_file.return_value = _ok()
 
-        assert replace_sandbox_credentials(sandbox, "ghs_new", "oauth_new") is True
+        assert replace_sandbox_credentials(sandbox, STATELESS_INSTALLATION_TOKEN, "oauth_new") is True
 
         assert sandbox.write_file.call_args_list[0].args == (
             GITHUB_ENV_FILE,
-            b"GITHUB_TOKEN=ghs_new\x00GH_TOKEN=ghs_new\x00",
+            f"GITHUB_TOKEN={STATELESS_INSTALLATION_TOKEN}\x00GH_TOKEN={STATELESS_INSTALLATION_TOKEN}\x00".encode(),
         )
         assert sandbox.write_file.call_args_list[1].args == (
             OAUTH_ENV_FILE,
