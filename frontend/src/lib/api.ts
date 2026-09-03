@@ -7,7 +7,7 @@ import { encodeParams } from 'kea-router'
 export type { EventSourceMessage } from '@microsoft/fetch-event-source'
 import posthog from 'posthog-js'
 
-import { ApiError, NetworkError, type NetworkFailureReason } from 'lib/api-error'
+import { ApiError, isInfrastructureResponse, NetworkError, type NetworkFailureReason } from 'lib/api-error'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
@@ -7604,6 +7604,13 @@ async function handleFetch(
                 warnedSharedViewLeaks.add(leakKey)
                 console.warn(`[shared-view] unexpected ${response.status} on ${leakKey}`)
             }
+        }
+
+        if (isInfrastructureResponse(response.status, response.headers.get('content-type'))) {
+            // A proxy, CDN, or WAF blocked or failed the request before it reached the app. Classify
+            // it as a network failure so it groups as infrastructure instead of surfacing as a bare,
+            // untriageable application exception. The cause keeps the method, path, and status.
+            throw new NetworkError('network', new Error(apiErrorFallback(response, method, url)))
         }
 
         throw await ApiError.fromResponse(response, apiErrorFallback(response, method, url))

@@ -486,6 +486,43 @@ describe('API helper', () => {
         })
     })
 
+    describe('non-OK responses served by infrastructure', () => {
+        it('classifies a proxy block page as a NetworkError instead of a bare ApiError', async () => {
+            // A Cloudflare 403 arrives as HTML, so the app never produced it. Left as an ApiError it
+            // files an untriageable "Non-OK response" with no detail; a NetworkError groups it as
+            // infrastructure and carries no HTTP status for recovery paths to treat as a client error.
+            fakeFetch.mockResolvedValue(
+                new Response('<html><body>Access denied</body></html>', {
+                    status: 403,
+                    headers: { 'Content-Type': 'text/html' },
+                })
+            )
+
+            const error = await api.create('api/environments/2/insights', {}).catch((e) => e)
+
+            expect(error).toBeInstanceOf(NetworkError)
+            expect(error.reason).toBe('network')
+            expect(error.status).toBeUndefined()
+        })
+
+        it.each([
+            // A real DRF error is JSON, so it keeps its status and detail for the app to react to.
+            ['a JSON permission_denied 403', 403, { detail: 'No access', code: 'permission_denied' }],
+            // Our edge emits gateway errors that insight and query flows still branch on by status.
+            ['a gateway 503', 503, { detail: 'Service unavailable' }],
+        ])('keeps %s as a status-bearing ApiError', async (_desc, status, body) => {
+            fakeFetch.mockResolvedValue(
+                new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
+            )
+
+            const error = await api.get('api/environments/2/insights').catch((e) => e)
+
+            expect(error).toBeInstanceOf(ApiError)
+            expect(error).not.toBeInstanceOf(NetworkError)
+            expect(error.status).toBe(status)
+        })
+    })
+
     describe('organizationFeatureFlags', () => {
         it('builds correct URL for organization feature flags', () => {
             const apiRequest = new ApiRequest()

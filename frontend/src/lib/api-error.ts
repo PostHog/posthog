@@ -33,6 +33,26 @@ export function isTransientServerError(error: unknown): boolean {
     return error instanceof ApiError && isTransientGatewayStatus(error.status)
 }
 
+/**
+ * A non-OK response our application did not produce. The API answers every request with JSON, even
+ * for an error, so an explicit non-JSON content type on a non-OK response marks it as served by the
+ * infrastructure in front of the app: a CDN, a WAF, or a reverse proxy that blocked or failed the
+ * request. Such a response carries no DRF `detail` or `code`, so filing it as an `ApiError` records
+ * a bare "Non-OK response" with nothing to triage. Classifying it as a `NetworkError` instead keeps
+ * a proxy block out of the application-exception stream and groups it with the other connectivity
+ * failures.
+ *
+ * A missing content type is ambiguous, so it stays an `ApiError`. The transient gateway statuses
+ * (502/503/504) are excluded on purpose: our own edge emits those, and query and insight flows
+ * react to them by status, so they must stay a classified `ApiError` too.
+ */
+export function isInfrastructureResponse(status: number, contentType: string | null): boolean {
+    if (status < 400 || isTransientGatewayStatus(status)) {
+        return false
+    }
+    return contentType != null && !contentType.includes('application/json')
+}
+
 /** The 403 gates `apiStatusLogic` recovers from, keyed by the DRF `code` the backend sends. */
 const HANDLED_AUTH_GATE_CODES: ReadonlySet<string> = new Set([
     'two_factor_setup_required',
