@@ -49,7 +49,10 @@ describe("useArchiveTask", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     queryClient = new QueryClient();
-    useArchivingTasksStore.setState({ archivingTaskIds: new Set() });
+    useArchivingTasksStore.setState({
+      archivingTaskIds: new Set(),
+      hiddenArchivingTaskIds: new Set(),
+    });
   });
 
   it("reads metadata from a task summary when no full list is cached", () => {

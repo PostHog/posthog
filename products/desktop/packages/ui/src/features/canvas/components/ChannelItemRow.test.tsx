@@ -140,7 +140,10 @@ beforeEach(() => {
   mocks.openBrowserTab.mockClear();
   useSidebarStore.setState({ listItemMetadataFields: [] });
   usePendingCanvasDeleteStore.setState({ pending: {} });
-  useArchivingTasksStore.setState({ archivingTaskIds: new Set() });
+  useArchivingTasksStore.setState({
+    archivingTaskIds: new Set(),
+    hiddenArchivingTaskIds: new Set(),
+  });
   useTaskSelectionStore.setState({
     selectedTaskIds: [],
     lastClickedId: null,
@@ -160,6 +163,7 @@ describe("ChannelItemRow", () => {
       <ChannelItemRow
         actions={pendingActions}
         isActive={false}
+        isEditing
         item={item()}
       />,
     );
@@ -167,6 +171,9 @@ describe("ChannelItemRow", () => {
     const row = screen.getByRole("button");
     expect(row.className).toContain("opacity-50");
     expect(row.draggable).toBe(false);
+    expect(row).toHaveAttribute("aria-busy", "true");
+    expect(screen.getByText("Archiving")).toHaveClass("sr-only");
+    expect(screen.queryByRole("textbox")).toBeNull();
 
     fireEvent.click(row);
     fireEvent.contextMenu(row);

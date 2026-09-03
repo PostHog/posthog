@@ -277,11 +277,14 @@ export function ChannelItemRowView({
       // The space's lists follow web conventions — every clickable row shows a
       // pointer, like the feed and activity rows — unlike the Code sidebar,
       // which keeps SidebarItem's native cursor-default.
-      className="cursor-pointer"
+      className={isArchiving ? "cursor-default" : "cursor-pointer"}
       depth={0}
       icon={
         isArchiving ? (
-          <DotsCircleSpinner size={12} className="text-muted-foreground" />
+          <>
+            <DotsCircleSpinner size={12} className="text-muted-foreground" />
+            <span className="sr-only">Archiving</span>
+          </>
         ) : (
           <ChannelItemDot item={item} status={status} />
         )
@@ -291,7 +294,9 @@ export function ChannelItemRowView({
       subtitle={subtitle}
       isActive={isActive}
       isSelected={isSelected}
+      aria-busy={isArchiving || undefined}
       isDimmed={isArchiving}
+      disabled={isArchiving}
       // Lets a drag-selection find the row and its session; canvases are not
       // selectable, so they stay unmarked and the marquee passes over them.
       {...(item.kind === "task" ? { [SESSION_ROW_ATTRIBUTE]: item.id } : {})}
@@ -378,9 +383,16 @@ export function ChannelItemRow({
 }) {
   const status = useChannelTaskStatus(item);
   const subtitle = useChannelItemMetadata(item);
-  const isArchiving = useArchivingTasksStore(
-    (state) => item.kind === "task" && state.archivingTaskIds.has(item.id),
+  const archivePresentation = useArchivingTasksStore((state) =>
+    item.kind !== "task"
+      ? null
+      : state.hiddenArchivingTaskIds.has(item.id)
+        ? "hidden"
+        : state.archivingTaskIds.has(item.id)
+          ? "progress"
+          : null,
   );
+  const isArchiving = archivePresentation === "progress";
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [handoffOpen, setHandoffOpen] = useState(false);
   const handoffMounted = useMountedOnceOpened(handoffOpen);
@@ -465,7 +477,9 @@ export function ChannelItemRow({
     ],
   );
 
-  if (isEditing) {
+  if (archivePresentation === "hidden") return null;
+
+  if (isEditing && !isArchiving) {
     return (
       <InlineEditInput
         depth={0}
