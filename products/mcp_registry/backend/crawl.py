@@ -13,6 +13,8 @@ from django.utils import timezone
 import requests
 import structlog
 
+from posthog.dataclasses import frozen
+
 from products.mcp_registry.backend.constants import OFFICIAL_REGISTRY_BASE_URL, OFFICIAL_REGISTRY_MAX_PAGES
 from products.mcp_registry.backend.models import MCPRegistryServer
 
@@ -20,6 +22,12 @@ logger = structlog.get_logger(__name__)
 
 REQUEST_TIMEOUT_SECONDS = 30
 PAGE_LIMIT = 100
+
+
+@frozen
+class CrawlOutcome:
+    created: int
+    updated: int
 
 
 def fetch_registry_entries() -> list[dict[str, Any]]:
@@ -85,8 +93,8 @@ def normalize_entry(server: dict[str, Any]) -> dict[str, Any] | None:
     }
 
 
-def upsert_registry_entries(entries: list[dict[str, Any]]) -> tuple[int, int]:
-    """Create/update server rows from raw registry payloads. Returns (created, updated).
+def upsert_registry_entries(entries: list[dict[str, Any]]) -> CrawlOutcome:
+    """Create/update server rows from raw registry payloads.
 
     Rows keep the newest payload per registry name. Servers that disappear from the
     registry are kept (their liveness signal degrades on its own via the probe).
@@ -130,8 +138,8 @@ def upsert_registry_entries(entries: list[dict[str, Any]]) -> tuple[int, int]:
         fetched=len(entries),
         at=timezone.now().isoformat(),
     )
-    return created, updated
+    return CrawlOutcome(created=created, updated=updated)
 
 
-def crawl_official_registry() -> tuple[int, int]:
+def crawl_official_registry() -> CrawlOutcome:
     return upsert_registry_entries(fetch_registry_entries())

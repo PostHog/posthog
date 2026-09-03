@@ -563,6 +563,8 @@ ignore_imports = [
     "products.mcp_analytics.backend.presentation.views -> products.mcp_analytics.backend.logic",
     "products.mcp_analytics.backend.presentation.views -> products.mcp_analytics.backend.models",
     "products.mcp_analytics.backend.presentation.serializers -> products.mcp_analytics.backend.models",
+    "products.mcp_registry.backend.presentation.views -> products.mcp_registry.backend.models",
+    "products.mcp_registry.backend.presentation.serializers -> products.mcp_registry.backend.models",
     "products.mcp_store.backend.presentation.agent_views -> products.mcp_store.backend.agents",
     "products.mcp_store.backend.presentation.agent_views -> products.mcp_store.backend.gateway",
     "products.mcp_store.backend.presentation.agent_views -> products.mcp_store.backend.models",

@@ -44,9 +44,9 @@ class TestCrawl(BaseTest):
             ),
         ]
 
-        created, updated = crawl_official_registry()
+        outcome = crawl_official_registry()
 
-        assert (created, updated) == (2, 0)
+        assert (outcome.created, outcome.updated) == (2, 0)
         assert set(MCPRegistryServer.objects.values_list("registry_name", flat=True)) == {
             "io.example/one",
             "io.example/two",
@@ -76,10 +76,10 @@ class TestCrawl(BaseTest):
             is_measured=True,
         )
 
-        created, updated = upsert_registry_entries([_raw_entry("io.example/kept", description="fresh description")])
+        outcome = upsert_registry_entries([_raw_entry("io.example/kept", description="fresh description")])
 
         server.refresh_from_db()
-        assert (created, updated) == (0, 1)
+        assert (outcome.created, outcome.updated) == (0, 1)
         assert server.description == "fresh description"
         assert server.liveness == "alive_open"
         assert server.is_measured is True

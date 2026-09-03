@@ -65,8 +65,15 @@ def find_registry_match(server_name: str) -> LinkResult:
     return LinkResult(server=None, method="")
 
 
-def resolve_measured_server(server_name: str) -> tuple[MCPRegistryServer, str, list[str]]:
-    """Return (server row, link_method, link_candidates) for a measured server name.
+@frozen
+class MeasuredServerResolution:
+    server: MCPRegistryServer
+    link_method: str
+    link_candidates: list[str] = field(default_factory=list)
+
+
+def resolve_measured_server(server_name: str) -> MeasuredServerResolution:
+    """Resolve a measured server name to its registry server row.
 
     Falls back to a standalone (non-registry) row when no unambiguous match exists,
     reusing a previous standalone row for the same name if one was already created.
@@ -76,7 +83,7 @@ def resolve_measured_server(server_name: str) -> tuple[MCPRegistryServer, str, l
         if not result.server.is_measured:
             result.server.is_measured = True
             result.server.save(update_fields=["is_measured", "updated_at"])
-        return result.server, result.method, []
+        return MeasuredServerResolution(server=result.server, link_method=result.method)
 
     standalone = MCPRegistryServer.objects.filter(
         listed_in_registry=False, is_measured=True, display_name=server_name
@@ -87,4 +94,4 @@ def resolve_measured_server(server_name: str) -> tuple[MCPRegistryServer, str, l
             description="Measured via MCP Analytics; not listed in the official registry.",
             is_measured=True,
         )
-    return standalone, "standalone", result.candidates
+    return MeasuredServerResolution(server=standalone, link_method="standalone", link_candidates=result.candidates)

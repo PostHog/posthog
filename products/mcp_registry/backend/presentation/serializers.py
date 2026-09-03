@@ -3,7 +3,6 @@ from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from products.mcp_registry.backend.models import MCPMeasuredStats, MCPRegistryServer, MCPRegistryTool
-from products.mcp_registry.backend.ranking import RANKING_VERSIONS
 
 
 @extend_schema_field(OpenApiTypes.OBJECT)
@@ -185,7 +184,3 @@ class MCPRegistryCompareRowSerializer(serializers.Serializer):
     display_name = serializers.CharField(help_text="Human-readable server name.")
     score = serializers.FloatField(help_text="Static score under this version.")
     is_measured = serializers.BooleanField(help_text="Whether the server carries MCP Analytics signal.")
-
-
-def known_version_choices() -> list[str]:
-    return sorted(RANKING_VERSIONS.keys())

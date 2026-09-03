@@ -1,3 +1,5 @@
+from typing import Any
+
 from django.db.models import F, OuterRef, Q, QuerySet, Subquery
 
 from drf_spectacular.types import OpenApiTypes
@@ -12,8 +14,13 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.permissions import PostHogFeatureFlagPermission
 
-from products.mcp_registry.backend.connect import build_connect_instructions
-from products.mcp_registry.backend.constants import MCP_REGISTRY_FEATURE_FLAG
+from products.mcp_registry.backend.facade.api import (
+    DEFAULT_RANKING_VERSION,
+    MCP_REGISTRY_FEATURE_FLAG,
+    RANKING_VERSIONS,
+    build_connect_instructions,
+    latest_completed_run,
+)
 from products.mcp_registry.backend.models import MCPRankingScore, MCPRegistryServer
 from products.mcp_registry.backend.presentation.serializers import (
     MCPRankingVersionSerializer,
@@ -21,7 +28,6 @@ from products.mcp_registry.backend.presentation.serializers import (
     MCPRegistryServerDetailSerializer,
     MCPRegistryServerListSerializer,
 )
-from products.mcp_registry.backend.ranking import DEFAULT_RANKING_VERSION, RANKING_VERSIONS, latest_completed_run
 
 _MAX_SEARCH_TOKENS = 5
 _COMPARE_DEFAULT_LIMIT = 20
@@ -210,7 +216,8 @@ class MCPRegistryServerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise ValidationError({"limit": "must be an integer"})
         search = (request.query_params.get("search") or "").strip()
 
-        arms: dict[str, list[dict]] = {}
+        # ReturnList from serializer .data, so typed loosely on purpose.
+        arms: dict[str, Any] = {}
         for version in raw_versions:
             rows = self._ranked_queryset(version=version, search=search, measured_only=False)[:limit]
             arms[version] = MCPRegistryCompareRowSerializer(

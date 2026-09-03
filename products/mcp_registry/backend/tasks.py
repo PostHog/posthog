@@ -42,8 +42,8 @@ def run_sync_pipeline(skip_crawl: bool = False, skip_probe: bool = False) -> dic
     outcome: dict[str, Any] = {}
     if not skip_crawl:
         try:
-            created, updated = crawl_official_registry()
-            outcome["crawl"] = {"created": created, "updated": updated}
+            crawl_outcome = crawl_official_registry()
+            outcome["crawl"] = {"created": crawl_outcome.created, "updated": crawl_outcome.updated}
         except Exception:
             logger.exception("mcp_registry.sync.crawl_failed")
             outcome["crawl"] = "failed"

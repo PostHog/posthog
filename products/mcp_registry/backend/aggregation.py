@@ -30,6 +30,17 @@ from products.mcp_registry.backend.models import MCPMeasuredStats, MCPRegistrySe
 
 logger = structlog.get_logger(__name__)
 
+# Only the deploy-configured database name is interpolated, never caller input.
+_DISCOVERY_SQL = """
+    SELECT DISTINCT team_id
+    FROM {database}.events
+    WHERE event = '$mcp_tool_call'
+        AND timestamp >= now() - INTERVAL %(window_days)s DAY
+        AND JSONExtractString(properties, '$mcp_source') = %(source)s
+    ORDER BY team_id
+    LIMIT %(limit)s
+"""
+
 _SERVER_STATS_SELECT = """
     SELECT
         toString(properties.$mcp_server_name) AS server_name,
@@ -74,16 +85,9 @@ def discover_measured_teams(window_days: int = MEASURED_WINDOW_DAYS, limit: int 
     because the connection's default database is not the posthog database in every
     environment.
     """
+    sql = _DISCOVERY_SQL.format(database=settings.CLICKHOUSE_DATABASE)
     rows = sync_execute(
-        f"""
-        SELECT DISTINCT team_id
-        FROM {settings.CLICKHOUSE_DATABASE}.events
-        WHERE event = '$mcp_tool_call'
-            AND timestamp >= now() - INTERVAL %(window_days)s DAY
-            AND JSONExtractString(properties, '$mcp_source') = %(source)s
-        ORDER BY team_id
-        LIMIT %(limit)s
-        """,
+        sql,
         {"window_days": window_days, "source": NEW_SDK_SOURCE, "limit": limit},
     )
     return [row[0] for row in rows or []]
@@ -125,12 +129,12 @@ def aggregate_team(team: Team, window_days: int = MEASURED_WINDOW_DAYS) -> int:
             )
         tool_rows = tools_response.results or []
 
-        server, link_method, link_candidates = resolve_measured_server(server_name)
+        resolution = resolve_measured_server(server_name)
         MCPMeasuredStats.objects.update_or_create(
             team_id=team.id,
             server_name=server_name,
             defaults={
-                "server": server,
+                "server": resolution.server,
                 "window_days": window_days,
                 "calls": calls,
                 "sessions": sessions,
@@ -148,12 +152,12 @@ def aggregate_team(team: Team, window_days: int = MEASURED_WINDOW_DAYS) -> int:
                     }
                     for tool_name, _description, tool_calls, tool_errors in tool_rows
                 ],
-                "link_method": link_method,
-                "link_candidates": link_candidates,
+                "link_method": resolution.link_method,
+                "link_candidates": resolution.link_candidates,
                 "computed_at": computed_at,
             },
         )
-        _upsert_analytics_tools(server, tool_rows, computed_at)
+        _upsert_analytics_tools(resolution.server, tool_rows, computed_at)
         processed += 1
 
     logger.info("mcp_registry.aggregate.team_done", team_id=team.id, servers=processed)

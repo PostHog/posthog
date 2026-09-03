@@ -1,3 +1,4 @@
+from freezegun import freeze_time
 from posthog.test.base import BaseTest
 
 from django.utils import timezone
@@ -23,6 +24,7 @@ def _measured_server(error_rate_pct: float = 5.0, calls: int = 50_000) -> MCPReg
     return server
 
 
+@freeze_time("2026-08-19")
 class TestRanking(BaseTest):
     def test_measured_signal_flips_ordering_only_in_the_measured_arm(self) -> None:
         measured = _measured_server()
