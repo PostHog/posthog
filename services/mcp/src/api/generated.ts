@@ -46887,6 +46887,49 @@ export namespace Schemas {
       identifier: string;
     }
 
+    /**
+     * One bucket of a provider's sending history.
+     */
+    export interface IspDailyPoint {
+      /** Bucket date, as an ISO 8601 calendar date. */
+      readonly date: string;
+      /** Emails sent to this provider on this date. */
+      readonly emails_sent: number;
+      /** Emails this provider accepted on this date, divided by emails sent to it (0-1). */
+      readonly delivery_rate: number;
+      /** Hard bounces at this provider on this date, divided by emails sent to it (0-1). */
+      readonly bounce_rate: number;
+    }
+
+    /**
+     * How one mailbox provider treated this project's email, from AWS SES's own delivery data.
+     */
+    export interface IspSendingHealth {
+      /** The recipient mailbox provider, as AWS names it — for example Gmail or Yahoo. */
+      readonly isp: string;
+      /** Emails sent to this provider during the window. */
+      readonly emails_sent: number;
+      /**
+         * Emails this provider accepted, divided by emails sent to it (0-1). Acceptance is not inbox placement: a provider can accept a message and still file it as spam. Null when the underlying metric could not be loaded from AWS, which is not the same as zero.
+         * @nullable
+         */
+      readonly delivery_rate: number | null;
+      /**
+         * Hard (permanent) bounces at this provider, divided by emails sent to it (0-1). Null when the underlying metric could not be loaded from AWS.
+         * @nullable
+         */
+      readonly bounce_rate: number | null;
+      /**
+         * Spam complaints from this provider, divided by the deliveries it reports complaints for (0-1). Null when there is no rate to state — the provider runs no feedback loop, or nothing was delivered — and also when the metric could not be loaded from AWS.
+         * @nullable
+         */
+      readonly complaint_rate: number | null;
+      /** Rates AWS did not return for this provider, from `delivery`, `bounce` and `complaint`. A rate named here is missing, not zero, and the UI says so rather than showing a number. */
+      readonly unavailable: readonly string[];
+      /** Sending history for this provider, oldest first, so a drop can be dated rather than averaged into the window. Dates this provider received nothing are omitted. */
+      readonly daily: readonly IspDailyPoint[];
+    }
+
     export interface JiraIssueSignalExtra {
       key: string;
       url: string | null;
@@ -64534,6 +64577,19 @@ export namespace Schemas {
       tabs?: PinnedSceneTab[];
       /** Tab descriptor for the user's chosen home page — the destination opened when they click the PostHog logo or hit `/`. Set to a tab descriptor to pick a homepage, send `null` or `{}` to clear it and fall back to the project default. */
       homepage?: PinnedSceneTab | null;
+    }
+
+    /**
+     * Request body for PATCH /api/users/@me/product_intro_seen.
+     */
+    export interface PatchedProductIntroSeen {
+      /**
+         * Which key in `has_seen_product_intro_for` to set. Any string is accepted: besides the product keys, the map holds keys composed per team and keys for surfaces that are not products.
+         * @maxLength 128
+         */
+      product_key?: string;
+      /** Whether the intro counts as seen. Send false to show it again. */
+      seen?: boolean;
     }
 
     /**
@@ -85804,6 +85860,12 @@ export namespace Schemas {
       readonly reputation: EmailSendingRates | null;
       /** Rates per workflow, worst first (complaint rate, then bounce rate), capped at the worst 50. */
       readonly workflows: readonly WorkflowEmailSendingRates[];
+      /** Sending health per mailbox provider, busiest first. Empty when the caller lacks project-wide workflow access, no sending domain is verified, or AWS has no data yet. */
+      readonly isps: readonly IspSendingHealth[];
+      /** Sending domains behind the breakdown that another project also sends from, so its counts include that project's email. Empty when every domain is this project's alone. */
+      readonly isp_shared_domains: readonly string[];
+      /** Sending domains left out of the breakdown because another project sends from them and the caller cannot access that project. Empty when nothing is withheld. */
+      readonly isp_withheld_domains: readonly string[];
       /** True while workflow email sending is suspended for this project to protect deliverability. */
       readonly email_sending_suspended: boolean;
       /**
@@ -101113,6 +101175,8 @@ export namespace Schemas {
     email?: string;
     is_staff?: boolean;
     };
+
+    export type UsersProductIntroSeenPartialUpdate200 = {[key: string]: boolean};
 
 
 }
