@@ -4,9 +4,9 @@ The data plane dispatches this for `delivery: "object"` requests (whole-frame py
 inputs): the activity prints the HogQL through the guarded executor (team database +
 access controls), executes it over the ClickHouse HTTP interface with `FORMAT ArrowStream`,
 and relays the raw response bytes into one object-store multipart upload — no pyarrow
-decode in the worker, memory bounded by the part buffer. The existing async-query status
-machinery carries a pointer (`{"object_key": ...}`) instead of rows; the status endpoint
-turns it into a 302 to a presigned GET.
+decode in the worker, memory bounded by the part buffer. The job's status record
+(`frame_status`) carries the object key instead of rows; the status endpoint turns it into
+a 302 to a presigned GET.
 
 Load protection mirrors the Celery async path (`process_query_task`): a Redis Lua
 concurrency limiter gates activity starts (global + per-team), slot exhaustion and
@@ -48,8 +48,6 @@ import structlog
 from prometheus_client import Counter, Histogram
 from temporalio import activity, common, exceptions, workflow
 
-from posthog.schema import QueryStatus
-
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.context import HogQLContext
@@ -67,7 +65,6 @@ from posthog.clickhouse.client.connection import (
     make_ch_pool,
 )
 from posthog.clickhouse.client.execute import kill_switch_overrides
-from posthog.clickhouse.client.execute_async import QueryNotFoundError, QueryStatusManager, get_query_status
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, ConcurrencySlot, RateLimit
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.clickhouse.workload import Workload
@@ -91,7 +88,7 @@ from posthog.temporal.common.clickhouse import (
 )
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.notebooks.backend import frame_store
+from products.notebooks.backend import frame_status, frame_store
 
 logger = structlog.get_logger(__name__)
 
@@ -251,7 +248,6 @@ class FrameMaterializeInputs:
     # after printing through the guarded HogQL executor — never handed to ClickHouse raw.
     query: str
     query_hash: str
-    cache_key: str
     # Resolved from the per-user flag in the web process, because the worker has no request
     # user to evaluate it against. Defaulted so a history recorded before this field existed
     # decodes to the streaming path on the interactive pool, which keeps in-flight runs
@@ -721,30 +717,31 @@ def _execute_insert_to_s3(team: Team, user: User | None, query: str, key: str) -
 
 
 def _finalize_status(
-    manager: QueryStatusManager,
     inputs: FrameMaterializeInputs,
     *,
-    results: dict[str, object] | None = None,
+    object_key: str | None = None,
     error_message: str | None = None,
 ) -> None:
-    """Write the terminal query status and release the dedup mapping."""
-    try:
-        status = manager.get_query_status()
-        if status.complete:
-            # First terminal write wins. A slow zombie attempt (one that outlived its Temporal
-            # deadline while a retry — or mark-failed — already finalized) must not overwrite
-            # what the user has seen: not a success flipping a recorded failure, and not a late
-            # error clobbering a genuinely-materialized frame that still exists at the key.
-            return
-    except QueryNotFoundError:
-        status = QueryStatus(id=inputs.query_id, team_id=inputs.team_id)
-    status.complete = True
-    status.error = error_message is not None
-    status.error_message = error_message
-    status.results = results
-    status.end_time = dt.datetime.now(dt.UTC)
-    manager.store_query_status(status)
-    manager.unregister_cache_key_mapping(inputs.cache_key)
+    """Write the terminal frame status and release the dedup mapping."""
+    existing = frame_status.get_frame_status(inputs.team_id, inputs.query_id)
+    if existing is not None and existing.complete:
+        # First terminal write wins. A slow zombie attempt (one that outlived its Temporal
+        # deadline while a retry — or mark-failed — already finalized) must not overwrite
+        # what the user has seen: not a success flipping a recorded failure, and not a late
+        # error clobbering a genuinely-materialized frame that still exists at the key.
+        return
+    frame_status.store_frame_status(
+        frame_status.FrameStatus(
+            query_id=inputs.query_id,
+            team_id=inputs.team_id,
+            complete=True,
+            error=error_message is not None,
+            error_message=error_message,
+            object_key=object_key,
+            bucket=settings.NOTEBOOKS_FRAME_STORE_S3_BUCKET if object_key else None,
+        )
+    )
+    frame_status.unregister_running_frame(inputs.team_id, inputs.query_hash)
 
 
 class MidStreamQueryError(Exception):
@@ -851,7 +848,6 @@ def materialize_frame(inputs: FrameMaterializeInputs) -> str:
         pool="offline" if pool_offline else "online",
         mode=mode,
     ).inc()
-    manager = QueryStatusManager(inputs.query_id, inputs.team_id)
     team = Team.objects.get(id=inputs.team_id)
     user = User.objects.filter(id=inputs.user_id).first() if inputs.user_id else None
     key = frame_store.build_frame_key(inputs.team_id, inputs.notebook_short_id, inputs.query_hash)
@@ -860,16 +856,12 @@ def materialize_frame(inputs: FrameMaterializeInputs) -> str:
     started_at = dt.datetime.now(dt.UTC)
     activity_started = time.perf_counter()
 
-    try:
-        status = manager.get_query_status()
-        if status.complete:
-            if status.error:
-                raise exceptions.ApplicationError("Materialization already failed", non_retryable=True)
-            return key  # a previous attempt already finished (e.g. retry after a lost ack)
-        status.pickup_time = started_at
-        manager.store_query_status(status)
-    except QueryNotFoundError:
-        pass  # status expired mid-flight; still produce the object so the run can be retried
+    # A missing status expired mid-flight; still produce the object so the run can be retried.
+    existing = frame_status.get_frame_status(inputs.team_id, inputs.query_id)
+    if existing is not None and existing.complete:
+        if existing.error:
+            raise exceptions.ApplicationError("Materialization already failed", non_retryable=True)
+        return key  # a previous attempt already finished (e.g. retry after a lost ack)
 
     with tags_context(
         product=Product.NOTEBOOKS,
@@ -967,7 +959,7 @@ def materialize_frame(inputs: FrameMaterializeInputs) -> str:
         except ExposedHogQLError as exc:
             # User-safe and terminal: surface the message through the poll, don't retry —
             # a bad query cannot succeed on a second attempt.
-            _finalize_status(manager, inputs, error_message=str(exc))
+            _finalize_status(inputs, error_message=str(exc))
             FRAME_MATERIALIZATIONS_FINISHED_COUNTER.labels(outcome="failed", mode=mode).inc()
             raise exceptions.ApplicationError(str(exc), non_retryable=True) from exc
         except FrameTooLargeError as exc:
@@ -981,7 +973,7 @@ def materialize_frame(inputs: FrameMaterializeInputs) -> str:
                 query_id=inputs.query_id,
                 error=str(exc),
             )
-            _finalize_status(manager, inputs, error_message=_RESULT_SIZE_MESSAGE)
+            _finalize_status(inputs, error_message=_RESULT_SIZE_MESSAGE)
             FRAME_MATERIALIZATIONS_FINISHED_COUNTER.labels(outcome="failed", mode=mode).inc()
             raise exceptions.ApplicationError(_RESULT_SIZE_MESSAGE, non_retryable=True) from exc
         except (
@@ -995,7 +987,7 @@ def materialize_frame(inputs: FrameMaterializeInputs) -> str:
             message = (
                 _RESULT_SIZE_MESSAGE if isinstance(exc, ClickHouseTooManyRowsOrBytesError) else _RESOURCE_BUDGET_MESSAGE
             )
-            _finalize_status(manager, inputs, error_message=message)
+            _finalize_status(inputs, error_message=message)
             FRAME_MATERIALIZATIONS_FINISHED_COUNTER.labels(outcome="failed", mode=mode).inc()
             raise exceptions.ApplicationError(message, non_retryable=True) from exc
         except (
@@ -1030,7 +1022,7 @@ def materialize_frame(inputs: FrameMaterializeInputs) -> str:
                 query_id=inputs.query_id,
                 error_type=type(exc).__name__,
             )
-            _finalize_status(manager, inputs, error_message=message)
+            _finalize_status(inputs, error_message=message)
             FRAME_MATERIALIZATIONS_FINISHED_COUNTER.labels(outcome="failed", mode=mode).inc()
             raise exceptions.ApplicationError(message, non_retryable=True) from exc
         except ExposedCHQueryError as exc:
@@ -1042,7 +1034,7 @@ def materialize_frame(inputs: FrameMaterializeInputs) -> str:
             # ExposedCHQueryError), so consult the shared code table first: the same failure
             # must read the same way whichever transport produced it.
             message = _MID_STREAM_MESSAGES_BY_CODE.get(exc.code, "") or str(exc)
-            _finalize_status(manager, inputs, error_message=message)
+            _finalize_status(inputs, error_message=message)
             FRAME_MATERIALIZATIONS_FINISHED_COUNTER.labels(outcome="failed", mode=mode).inc()
             raise exceptions.ApplicationError(message, non_retryable=True) from exc
         except InternalCHQueryError as exc:
@@ -1071,7 +1063,7 @@ def materialize_frame(inputs: FrameMaterializeInputs) -> str:
                 query_id=inputs.query_id,
                 exception_code=exc.code,
             )
-            _finalize_status(manager, inputs, error_message=message)
+            _finalize_status(inputs, error_message=message)
             FRAME_MATERIALIZATIONS_FINISHED_COUNTER.labels(outcome="failed", mode=mode).inc()
             raise exceptions.ApplicationError(message, non_retryable=True) from exc
         except frame_store.FrameStoreError as exc:
@@ -1113,13 +1105,11 @@ def materialize_frame(inputs: FrameMaterializeInputs) -> str:
                 error=exception_message,
             )
             message = _MID_STREAM_MESSAGES_BY_CODE.get(exception_code, _MID_STREAM_ERROR_MESSAGE)
-            _finalize_status(manager, inputs, error_message=message)
+            _finalize_status(inputs, error_message=message)
             FRAME_MATERIALIZATIONS_FINISHED_COUNTER.labels(outcome="failed", mode=mode).inc()
             raise exceptions.ApplicationError(message, non_retryable=True) from exc
 
-    # The bucket travels with the key: a status outlives the deploy that changes
-    # NOTEBOOKS_FRAME_STORE_S3_BUCKET, and the key alone does not say where the object went.
-    _finalize_status(manager, inputs, results={"object_key": key, "bucket": settings.NOTEBOOKS_FRAME_STORE_S3_BUCKET})
+    _finalize_status(inputs, object_key=key)
     FRAME_MATERIALIZATIONS_FINISHED_COUNTER.labels(outcome="succeeded", mode=mode).inc()
     FRAME_OBJECT_BYTES_HISTOGRAM.observe(object_bytes)
     FRAME_MATERIALIZE_SECONDS_HISTOGRAM.observe((dt.datetime.now(dt.UTC) - started_at).total_seconds())
@@ -1154,14 +1144,11 @@ def materialize_frame(inputs: FrameMaterializeInputs) -> str:
 
 def mark_frame_materialize_failed(inputs: FrameMaterializeInputs) -> None:
     """Terminal-state safety net once the materialize activity exhausts its retries."""
-    manager = QueryStatusManager(inputs.query_id, inputs.team_id)
-    try:
-        if manager.get_query_status().complete:
-            manager.unregister_cache_key_mapping(inputs.cache_key)
-            return  # the activity already wrote a terminal state (e.g. a user-safe error)
-    except QueryNotFoundError:
-        pass
-    _finalize_status(manager, inputs, error_message="The frame could not be materialized. Try re-running the cell.")
+    existing = frame_status.get_frame_status(inputs.team_id, inputs.query_id)
+    if existing is not None and existing.complete:
+        frame_status.unregister_running_frame(inputs.team_id, inputs.query_hash)
+        return  # the activity already wrote a terminal state (e.g. a user-safe error)
+    _finalize_status(inputs, error_message="The frame could not be materialized. Try re-running the cell.")
     # The effective transport, not the requested one: a run that fell back to streaming must
     # not land in the ch_writes bucket, or the rollout comparison counts its failures twice over.
     mode = "ch_writes" if _resolve_writer(inputs).ch_writes else "streaming"
@@ -1225,12 +1212,12 @@ def enqueue_frame_materialization(
     query: str,
     ch_writes: bool = False,
     _test_only_inline: bool = False,
-) -> QueryStatus:
+) -> frame_status.FrameStatus:
     """Register a materialize job for `query` and dispatch the workflow; returns its status.
 
     Dedup happens here: identical concurrent materializations (same team + user + query)
-    join the in-flight job through the async manager's running-query mapping instead of
-    stacking ClickHouse load.
+    join the in-flight job through the running-frame mapping instead of stacking
+    ClickHouse load.
 
     The hash folds in `user_id`: the printed SQL applies the enqueuing user's access
     controls, so two differently-permissioned users in one team must NOT share a job or an
@@ -1240,27 +1227,23 @@ def enqueue_frame_materialization(
     per-user within the team.
     """
     query_hash = hashlib.sha256(f"{user_id}:{query}".encode()).hexdigest()
-    cache_key = f"notebook-frame:{team.id}:{query_hash}"
     query_id = uuid.uuid4().hex
-    manager = QueryStatusManager(query_id, team.id)
 
     try:
-        existing_query_id = manager.get_running_query_by_cache_key(cache_key)
+        existing_query_id = frame_status.get_running_frame(team.id, query_hash)
         if existing_query_id:
-            existing_status = get_query_status(team.id, existing_query_id)
-            if not existing_status.complete:
+            existing = frame_status.get_frame_status(team.id, existing_query_id)
+            if existing is not None and not existing.complete:
                 FRAME_MATERIALIZATION_DEDUP_COUNTER.inc()
-                return existing_status
-            # The mapped job finished — clean up the stale mapping and enqueue a new one.
-            manager.unregister_cache_key_mapping(cache_key)
-    except QueryNotFoundError:
-        manager.unregister_cache_key_mapping(cache_key)
+                return existing
+            # The mapped job finished or expired — clean up the stale mapping and enqueue a new one.
+            frame_status.unregister_running_frame(team.id, query_hash)
     except Exception as exc:
-        capture_exception(exc, {"cache_key": cache_key})
+        capture_exception(exc, {"team_id": team.id, "query_hash": query_hash})
 
-    query_status = QueryStatus(id=query_id, team_id=team.id, start_time=dt.datetime.now(dt.UTC))
-    manager.store_query_status(query_status)
-    manager.register_cache_key_mapping(cache_key)
+    status = frame_status.FrameStatus(query_id=query_id, team_id=team.id)
+    frame_status.store_frame_status(status)
+    frame_status.register_running_frame(team.id, query_hash, query_id)
 
     inputs = FrameMaterializeInputs(
         query_id=query_id,
@@ -1269,7 +1252,6 @@ def enqueue_frame_materialization(
         user_id=user_id,
         query=query,
         query_hash=query_hash,
-        cache_key=cache_key,
         ch_writes=ch_writes,
     )
     if _test_only_inline:
@@ -1288,9 +1270,9 @@ def enqueue_frame_materialization(
         except Exception:
             # Dispatch failed (e.g. Temporal briefly unreachable). Roll back the status and
             # dedup mapping so identical re-runs don't dedup onto a job that will never run
-            # — otherwise every retry polls a dead query_id until the 20-minute TTL.
-            manager.delete_query_status()
-            manager.unregister_cache_key_mapping(cache_key)
+            # — otherwise every retry polls a dead query_id until the record's TTL.
+            frame_status.delete_frame_status(team.id, query_id)
+            frame_status.unregister_running_frame(team.id, query_hash)
             raise
 
-    return manager.get_query_status()
+    return status
