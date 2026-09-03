@@ -754,6 +754,24 @@ class _BestEffortDateTimeField(serializers.DateTimeField):
             return None
 
 
+class _BestEffortUUIDField(serializers.UUIDField):
+    """A `UUIDField` that never fails the request on an unparseable value.
+
+    The scout reads its `run_id` out of the run prompt and retypes it into the write, so a share of
+    writes carry a truncated or mistyped identifier. Lineage is optional metadata; the content is
+    the memory worth keeping. Coerce an unparseable value to `None` (lineage left unstamped)
+    instead of rejecting the whole write — the same best-effort stance `expires_at` takes on this
+    serializer, and the stance the view already takes on a `run_id` that names no run on this
+    project.
+    """
+
+    def run_validation(self, data: Any = empty) -> UUID | None:
+        try:
+            return super().run_validation(data)
+        except serializers.ValidationError:
+            return None
+
+
 class RememberRequestSerializer(serializers.Serializer):
     """Request body for `remember`."""
 
@@ -770,13 +788,15 @@ class RememberRequestSerializer(serializers.Serializer):
         max_length=MAX_SCRATCHPAD_CONTENT_LENGTH,
         help_text="Prose to write. Read verbatim into future prompts.",
     )
-    run_id = serializers.UUIDField(
+    run_id = _BestEffortUUIDField(
         required=False,
         allow_null=True,
         help_text=(
             "Run that authored this memory; persisted as `created_by_run_id` for lineage. "
-            "Best-effort — a `run_id` that isn't a run on this project is dropped (lineage left "
-            "null), not rejected, so the memory write is never lost."
+            "Best-effort — a `run_id` that is unparseable, or that isn't a run on this project, is "
+            "dropped rather than rejected, so the memory write is never lost. Omit it and the "
+            "lineage still lands: a write from a scout sandbox is attributed to that sandbox's own "
+            "run."
         ),
     )
     expires_at = _BestEffortDateTimeField(
