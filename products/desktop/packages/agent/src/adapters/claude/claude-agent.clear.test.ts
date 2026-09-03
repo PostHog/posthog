@@ -153,6 +153,7 @@ function installFakeSession(
     notificationHistory: [] as unknown[],
     taskRunId: "run-1",
     lastContextWindowSize: 200_000,
+    contextUsed: undefined as number | undefined,
     modelId: overrides.modelId ?? "claude-sonnet-4-6",
     taskState: new Map(),
   };
@@ -211,6 +212,7 @@ describe("ClaudeAcpAgent /clear", () => {
     const { agent, client } = makeAgent();
     const { session, oldQuery, endSpy } = installFakeSession(agent, "s-1");
     session.taskState.set("task-1", { title: "old task" });
+    session.contextUsed = 150_000;
 
     const result = await agent.prompt({
       sessionId: "s-1",
@@ -276,6 +278,7 @@ describe("ClaudeAcpAgent /clear", () => {
       used: 0,
       size: 200_000,
     });
+    expect(session.contextUsed).toBeUndefined();
   });
 
   it("re-roots /clear on a pinned live model without colliding with its own fallback model", async () => {
