@@ -22,7 +22,7 @@ from posthog.hogql.query import execute_hogql_query, tracer
 
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_DATA_WAREHOUSE, TREND_FILTER_TYPE_EVENTS
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import MathAvailability, legacy_entity_to_node
 from posthog.models import Entity, EventProperty, Team
 from posthog.ph_client import feature_enabled_or_false
@@ -40,6 +40,10 @@ from posthog.session_recordings.queries.utils import (
     is_person_property,
 )
 from posthog.types import AnyPropertyFilter
+
+ENTITY_TYPES_ACCEPTED_BY_LEGACY_ENTITY = frozenset(
+    {TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_DATA_WAREHOUSE, TREND_FILTER_TYPE_EVENTS}
+)
 
 # Cap on the negative blocklist subquery, kept for memory safety. Sessions past the cap
 # are silently not excluded, so hitting it is observed by check_negative_blocklist_truncation.
@@ -794,10 +798,16 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         return bool(raw_entity.get("negation"))
 
     @staticmethod
-    def _entity_node(raw_entity: dict[str, Any], default_type: str):
-        # RecordingsQuery accepts untyped entity dicts, so default the type the source list implies.
-        # Without this a missing type makes Entity raise a bare ValueError that escapes as a 500.
-        entity = raw_entity if raw_entity.get("type") else {**raw_entity, "type": default_type}
+    def _entity_node(
+        raw_entity: dict[str, Any], default_type: str
+    ) -> EventsNode | ActionsNode | DataWarehouseNode | str:
+        # RecordingsQuery accepts untyped entity dicts, and Entity raises a bare ValueError that
+        # escapes as a 500 for any type it does not accept, so fall back to the source list's type.
+        entity = (
+            raw_entity
+            if raw_entity.get("type") in ENTITY_TYPES_ACCEPTED_BY_LEGACY_ENTITY
+            else {**raw_entity, "type": default_type}
+        )
         return legacy_entity_to_node(Entity(entity), True, MathAvailability.Unavailable)
 
     @property

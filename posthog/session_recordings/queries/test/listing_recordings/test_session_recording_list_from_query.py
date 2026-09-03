@@ -2,7 +2,7 @@ import re
 from contextlib import nullcontext
 from datetime import UTC, datetime
 from itertools import product
-from typing import Literal
+from typing import Any, Literal
 from uuid import uuid4
 
 from freezegun import freeze_time
@@ -835,20 +835,37 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             [],
         )
 
-    def test_untyped_entity_dicts_default_their_type(self) -> None:
-        # API callers can send entity dicts without "type"; a missing type used to escape as a 500.
-        action = Action.objects.create(team=self.team, name="untyped action")
-        query = RecordingsQuery(
-            events=[{"id": "$pageview"}],
-            actions=[{"id": action.id}],
+    @parameterized.expand(
+        [
+            ("events without a type", "events", None, EventsNode, "event_entities"),
+            ("actions without a type", "actions", None, ActionsNode, "action_entities"),
+            ("events with an unaccepted type", "events", "event", EventsNode, "event_entities"),
+            ("actions with an unaccepted type", "actions", "action", ActionsNode, "action_entities"),
+        ]
+    )
+    def test_entity_dicts_fall_back_to_their_source_list_type(
+        self,
+        _name: str,
+        source_list: str,
+        raw_type: str | None,
+        expected_node: type,
+        entities_property: str,
+    ) -> None:
+        # API callers can omit the entity type or send one Entity rejects; both used to 500.
+        entity_id = (
+            Action.objects.create(team=self.team, name="untyped action").id if source_list == "actions" else "$pageview"
         )
-        sub_query = ReplayFiltersEventsSubQuery(team=self.team, query=query)
-        assert isinstance(sub_query.event_entities[0], EventsNode)
-        assert isinstance(sub_query.action_entities[0], ActionsNode)
+        raw_entity: dict[str, Any] = {"id": entity_id}
+        if raw_type is not None:
+            raw_entity["type"] = raw_type
 
-        negated = RecordingsQuery(events=[{"id": "$pageview", "negation": True}])
-        negated_node = ReplayFiltersEventsSubQuery(team=self.team, query=negated).negated_entities[0]
-        assert isinstance(negated_node, EventsNode)
+        positive = ReplayFiltersEventsSubQuery(team=self.team, query=RecordingsQuery(**{source_list: [raw_entity]}))
+        assert isinstance(getattr(positive, entities_property)[0], expected_node)
+
+        negated = ReplayFiltersEventsSubQuery(
+            team=self.team, query=RecordingsQuery(**{source_list: [{**raw_entity, "negation": True}]})
+        )
+        assert isinstance(negated.negated_entities[0], expected_node)
 
     @parameterized.expand([("AND",), ("OR",)])
     def test_negated_event_filter_excludes_sessions_containing_event(self, operand: str) -> None:
